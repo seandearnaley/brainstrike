@@ -78,8 +78,8 @@ describe('createAssistantSkillTools', () => {
 
     expect(output).toContain('brainstrike_runSkillScript');
     expect(output).toContain('brainstrike_writeWorkspaceFile');
-    expect(output).toMatch(/declined.*continue.*native workspace tools/is);
-    expect(output).not.toMatch(/absolute skill path/i);
+    expect(output).toMatch(/declined.*continue.*native workspace tools/isu);
+    expect(output).not.toMatch(/absolute skill path/iu);
   });
 
   it('self-bounds an oversized activation with an honest truncation note (never an error)', async () => {
@@ -92,7 +92,7 @@ describe('createAssistantSkillTools', () => {
     expect(JSON.stringify(output).length).toBeLessThanOrEqual(
       SKILL_ACTIVATION_RESULT_TOKEN_BUDGET * 4
     );
-    expect(output).toMatch(/truncated/i);
+    expect(output).toMatch(/truncated/iu);
     // The backstop must accept the self-bounded result verbatim.
     expect(boundToolOutputForModel('skill', output).errorText).toBeUndefined();
   });
@@ -100,7 +100,7 @@ describe('createAssistantSkillTools', () => {
   it('reports an unknown skill with the available list (Mastra message, passed through)', async () => {
     const tools = createAssistantSkillTools(inlineEngine('Short.'));
     const output = String(await executeTool(tools.skill, { name: 'missing' }));
-    expect(output).toMatch(/not found/i);
+    expect(output).toMatch(/not found/iu);
     expect(output).toContain('test-skill');
   });
 
@@ -120,8 +120,8 @@ describe('createAssistantSkillTools', () => {
       await executeTool(tools.skill_read, { path: 'references/big.md', skillName: 'big-ref' })
     );
     expect(output.length).toBeLessThanOrEqual(MAX_TOOL_RESULT_TOKENS * 4);
-    expect(output).toMatch(/truncated/i);
-    expect(output).toMatch(/startLine|endLine/);
+    expect(output).toMatch(/truncated/iu);
+    expect(output).toMatch(/startLine|endLine/u);
   });
 });
 
@@ -186,7 +186,7 @@ describe('activation execution guidance', () => {
   it('asks for a skill script only when the skill’s instructions call for it in the task', async () => {
     const { BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE } = await import('../skills/skill-tools');
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toMatch(
-      /only when these instructions call for (?:it|one) in the user's task/
+      /only when these instructions call for (?:it|one) in the user's task/u
     );
   });
 });

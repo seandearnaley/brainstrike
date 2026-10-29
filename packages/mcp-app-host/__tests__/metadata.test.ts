@@ -16,17 +16,17 @@ describe('stable MCP Apps resource identity', () => {
   it.each(['https://example.com/app', 'ui:weather', 'ui://', '', 42])(
     'rejects a non-App resource URI: %j',
     (input) => {
-      expect(() => parseMcpAppResourceUri(input)).toThrow(/MCP Apps resource URI/);
+      expect(() => parseMcpAppResourceUri(input)).toThrow(/MCP Apps resource URI/u);
     }
   );
 
   it('rejects oversized resource identifiers and metadata collections', () => {
-    expect(() => parseMcpAppResourceUri(`ui://app/${'x'.repeat(2049)}`)).toThrow(/length/);
+    expect(() => parseMcpAppResourceUri(`ui://app/${'x'.repeat(2049)}`)).toThrow(/length/u);
     expect(() =>
       parseMcpAppResourceMeta({ csp: { connectDomains: new Array(33).fill('https://a.test') } })
-    ).toThrow(/at most 32/);
+    ).toThrow(/at most 32/u);
     expect(() => parseMcpAppToolMeta({ visibility: new Array(33).fill('app') })).toThrow(
-      /at most 32/
+      /at most 32/u
     );
   });
 
@@ -38,14 +38,14 @@ describe('stable MCP Apps resource identity', () => {
     'https://cdn.example.com\t',
   ])('rejects a CSP source that could split or extend a directive: %j', (domain) => {
     expect(() => parseMcpAppResourceMeta({ csp: { resourceDomains: [domain] } })).toThrow(
-      /CSP (delimiters|origin)/
+      /CSP (delimiters|origin)/u
     );
   });
 
   it.each(['text/html', 'text/html; profile=mcp-app', 'text/html;profile=MCP-app', '', null])(
     'rejects a noncanonical App MIME type: %j',
     (input) => {
-      expect(() => parseMcpAppMimeType(input)).toThrow(/MCP Apps resource MIME type/);
+      expect(() => parseMcpAppMimeType(input)).toThrow(/MCP Apps resource MIME type/u);
     }
   );
 });
@@ -104,7 +104,7 @@ describe('stable MCP Apps resource metadata', () => {
     { domain: 'https://apps.example.com:8080/path' },
     { prefersBorder: 'yes' },
   ])('rejects malformed or extra resource metadata: %j', (input) => {
-    expect(() => parseMcpAppResourceMeta(input)).toThrow(/MCP Apps resource metadata/);
+    expect(() => parseMcpAppResourceMeta(input)).toThrow(/MCP Apps resource metadata/u);
   });
 });
 
@@ -136,6 +136,6 @@ describe('stable MCP Apps tool metadata', () => {
     { permissions: {}, resourceUri: 'ui://weather/dashboard' },
     { resourceUri: 'ui://weather/dashboard', widgetAccessible: true },
   ])('rejects malformed or extra tool metadata: %j', (input) => {
-    expect(() => parseMcpAppToolMeta(input)).toThrow(/MCP Apps tool metadata/);
+    expect(() => parseMcpAppToolMeta(input)).toThrow(/MCP Apps tool metadata/u);
   });
 });

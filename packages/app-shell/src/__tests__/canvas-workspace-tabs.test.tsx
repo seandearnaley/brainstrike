@@ -203,7 +203,7 @@ describe('canvas workspace tabs', () => {
     openCanvas('thread-1', 'gone');
     renderTabs(createHost({ readCanvases: async () => new Map() }));
 
-    expect(await screen.findByText(/no longer in its thread/)).toBeVisible();
+    expect(await screen.findByText(/no longer in its thread/u)).toBeVisible();
     expect(screen.getByRole('region', { name: 'Canvas' })).toBeVisible();
   });
 

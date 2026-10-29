@@ -51,7 +51,7 @@ test('the client distinguishes owned parser failures from ordinary invalid wire 
     await expect(invalid).rejects.toBeInstanceOf(BoundaryFailureError);
     await expect(invalid).rejects.toMatchObject({
       cause: expect.any(Schema.SchemaError),
-      failure: { ...INTERNAL_FAULT, correlationId: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+      failure: { ...INTERNAL_FAULT, correlationId: expect.stringMatching(/^[0-9a-f-]{36}$/u) },
     });
   } finally {
     await client.close();

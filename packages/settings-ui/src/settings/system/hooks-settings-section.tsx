@@ -250,8 +250,8 @@ export function HooksSettingsSection({
                   key={root.rootId}
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-sm">{root.displayName}</p>
-                    <p className="truncate text-muted-foreground text-xs">
+                    <p className="truncate text-sm font-medium">{root.displayName}</p>
+                    <p className="text-muted-foreground truncate text-xs">
                       {review?.path ?? `${root.absPath}/.brainstrike/hooks.json`}
                     </p>
                     {review?.parseError ? (

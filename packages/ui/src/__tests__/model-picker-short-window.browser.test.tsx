@@ -46,7 +46,7 @@ test('the last model stays inside a short window and can be picked', async () =>
     </ThemeProvider>
   );
   await userEvent.click(await screen.findByRole('combobox'));
-  const last = await screen.findByRole('option', { name: /Model 11/ });
+  const last = await screen.findByRole('option', { name: /Model 11/u });
   const list = last.closest<HTMLElement>('[cmdk-list]');
   if (!list) {
     throw new Error('The model option is not inside the model list');

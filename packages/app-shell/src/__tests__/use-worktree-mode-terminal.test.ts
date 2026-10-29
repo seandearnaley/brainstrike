@@ -11,6 +11,7 @@ import type { WorktreeListEntry } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useWorktreeMode } from '../hooks/use-worktree-mode';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 import { TerminalHost } from './helpers/workspace-terminal-services-wrapper';
 
@@ -60,8 +61,6 @@ vi.mock('../stores/terminal-target-store', () => ({
     getState: () => ({ openTerminalAt: openTerminalAtMock }),
   },
 }));
-
-import { useWorktreeMode } from '../hooks/use-worktree-mode';
 
 const onHandOffToLocal = vi.fn(() => Promise.resolve());
 const onSelectWorktree = vi.fn(() => Promise.resolve());

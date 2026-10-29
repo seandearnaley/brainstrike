@@ -4,9 +4,6 @@
  * Creates a SettingsCategory for managing agent tools (native and MCP).
  */
 
-export type { CreateToolsSettingsCategoryOptions } from './tools-settings-category';
-export { createToolsSettingsCategory } from './tools-settings-category';
-
 import type { ToolDisplayMetadata, ToolStats, ToolsSettingsOperations } from './types';
 
 export type { McpConfigAlertProps } from './mcp-config-alert';
@@ -27,6 +24,8 @@ export { ToolRow } from './tool-row';
 export type { ToolRowExpandedProps } from './tool-row-expanded';
 export { ToolRowExpanded } from './tool-row-expanded';
 export { ToolsFilterBar } from './tools-filter-bar';
+export type { CreateToolsSettingsCategoryOptions } from './tools-settings-category';
+export { createToolsSettingsCategory } from './tools-settings-category';
 export type {
   McpCompleteRequest,
   McpConfigInfo,

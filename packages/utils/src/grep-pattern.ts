@@ -14,7 +14,7 @@
 export const MIN_TRIGRAM_LITERAL_LENGTH = 3;
 
 export function escapeLikeLiteral(literal: string): string {
-  return literal.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+  return literal.replace(/[\\%_]/gu, (ch) => `\\${ch}`);
 }
 
 /**
@@ -94,8 +94,8 @@ function dropLastAndEndRun(state: ScanState): void {
  * Class escapes (`\d \w \s \b …`) and single-digit backrefs encode no trailing
  * literal text, so they consume just the one char (the existing behaviour).
  */
-const HEX_DIGIT = /[0-9a-fA-F]/;
-const OCTAL_DIGIT = /[0-7]/;
+const HEX_DIGIT = /[0-9a-fA-F]/u;
+const OCTAL_DIGIT = /[0-7]/u;
 
 /** Advance past up to `max` chars from `start` that match `pattern`; return the new index. */
 function consumeWhile(source: string, start: number, max: number, pattern: RegExp): number {
@@ -143,7 +143,7 @@ function processToken(source: string, i: number, state: ScanState): number {
   const ch = source[i] ?? '';
   if (ch === '\\') {
     const next = source[i + 1] ?? '';
-    if (/[a-zA-Z0-9]/.test(next)) {
+    if (/[a-zA-Z0-9]/u.test(next)) {
       // An encoded/class escape — NOT a guaranteed literal. End the run, then skip
       // the ENTIRE escape token so its encoding chars (e.g. the `66` of `\x66`)
       // never leak into a literal and mislead the fixed-string prefilter.
@@ -185,7 +185,7 @@ export function extractTrigramLiteral(source: string): string | null {
   }
   // A `)` followed by an optionalizing quantifier makes every run inside that
   // group optional; attributing runs to groups needs a real parser. Bail.
-  if (/\)[?*]|\)\{/.test(source)) {
+  if (/\)[?*]|\)\{/u.test(source)) {
     return null;
   }
 

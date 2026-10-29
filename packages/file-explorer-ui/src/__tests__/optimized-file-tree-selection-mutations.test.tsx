@@ -6,6 +6,12 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OptimizedFileTree from '../tree/optimized-file-tree';
+import {
+  type FileExplorerStore,
+  mockFileTree,
+  StoreHandleBridge,
+} from './optimized-file-tree-test-support';
+import { FileExplorerTestWrapper } from './test-helpers';
 
 const showToastMock = vi.fn();
 
@@ -23,13 +29,6 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     }),
   };
 });
-
-import {
-  type FileExplorerStore,
-  mockFileTree,
-  StoreHandleBridge,
-} from './optimized-file-tree-test-support';
-import { FileExplorerTestWrapper } from './test-helpers';
 
 describe('OptimizedFileTree selection mutations and telemetry', () => {
   beforeEach(() => {

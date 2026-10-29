@@ -138,7 +138,7 @@ describe('item 3 · S integrity', () => {
     expect(integrity).not.toEqual(['ok']);
     const store = await StateStore.open(root);
     try {
-      expect(store.health().stateDamage).toMatch(/.+/);
+      expect(store.health().stateDamage).toMatch(/.+/u);
       expect((await store.status('t1')).kind).toBe('damaged');
       await expect(appendInputs(store, 't1', [{ content: 'x', type: 'text' }])).rejects.toThrow(
         ThreadReadOnlyError
@@ -173,17 +173,17 @@ describe('item 3 · S integrity', () => {
     );
     chk.close();
     expect(quick).toEqual(['ok']);
-    expect(integrity.join(' ')).toMatch(/missing from index sqlite_autoindex_run_events_1/);
+    expect(integrity.join(' ')).toMatch(/missing from index sqlite_autoindex_run_events_1/u);
     const store = await StateStore.open(root);
     try {
-      expect(store.health().stateDamage).toMatch(/missing from index/);
+      expect(store.health().stateDamage).toMatch(/missing from index/u);
       expect((await store.status('t1')).kind).toBe('damaged');
       const append = await appendInputs(store, 't1', [{ content: 'x', type: 'text' }]).catch(
         (cause: unknown) => cause
       );
       expect(append).toBeInstanceOf(ThreadReadOnlyError);
       // BST-2144: the whole store refused, so the refusal carries its finding.
-      expect(append).toMatchObject({ storeDamage: expect.stringMatching(/missing from index/) });
+      expect(append).toMatchObject({ storeDamage: expect.stringMatching(/missing from index/u) });
       // BST-2144: catalog reads go on; a catalog write is the store's typed
       // read-only refusal with its own finding, never a raw SqliteError.
       await expect(store.modelChoices({ operation: 'snapshot' })).resolves.toMatchObject({
@@ -193,7 +193,7 @@ describe('item 3 · S integrity', () => {
         .modelChoices({ enabled: true, operation: 'provider', providerId: 'openai' })
         .catch((cause: unknown) => cause);
       expect(refused).toBeInstanceOf(StateStoreReadOnlyError);
-      expect(refused).toMatchObject({ damage: expect.stringMatching(/missing from index/) });
+      expect(refused).toMatchObject({ damage: expect.stringMatching(/missing from index/u) });
     } finally {
       await store.close();
     }

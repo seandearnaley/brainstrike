@@ -9,6 +9,11 @@ import {
   workspaceGitWrapper,
 } from '../../__tests__/helpers/workspace-git-services-wrapper';
 import { TerminalHost } from '../../__tests__/helpers/workspace-terminal-services-wrapper';
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../../assistant-thread-host-context';
+import { WorktreeMapSurface } from '../worktree-map-surface';
 
 const useWorktreeMapMock = vi.fn();
 vi.mock('../use-worktree-map', () => ({ useWorktreeMap: () => useWorktreeMapMock() }));
@@ -82,12 +87,6 @@ const addRootDirectoryByPathMock = vi.fn();
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({ addRootDirectoryByPath: addRootDirectoryByPathMock }),
 }));
-
-import {
-  type AssistantThreadHostCapability,
-  AssistantThreadHostContext,
-} from '../../assistant-thread-host-context';
-import { WorktreeMapSurface } from '../worktree-map-surface';
 
 /** The surface as the desktop shell mounts it: an agent host owns the threads. */
 function Surface() {

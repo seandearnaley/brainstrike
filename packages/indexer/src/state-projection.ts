@@ -25,7 +25,7 @@ export function validateStateModule(module: string): string {
 
 /** Relative module specifiers a source file imports or re-exports statically. */
 const RELATIVE_IMPORT =
-  /\b(?:import|export)\s[^'"`;]*?\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*['"](\.{1,2}\/[^'"]+)['"]/g;
+  /\b(?:import|export)\s[^'"`;]*?\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*['"](\.{1,2}\/[^'"]+)['"]/gu;
 
 /**
  * The producer's implementation: its module and every module it reaches by

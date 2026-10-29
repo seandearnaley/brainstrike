@@ -77,10 +77,10 @@ describe('CostOverviewPanelView', () => {
 
   it('says why there is nothing to show instead of drawing zeros', () => {
     render(<CostOverviewPanelView available totals={NO_LEDGER_USAGE} trend={[]} />);
-    expect(screen.getByTestId('cost-overview-empty')).toHaveTextContent(/no assistant runs/i);
+    expect(screen.getByTestId('cost-overview-empty')).toHaveTextContent(/no assistant runs/iu);
 
     render(<CostOverviewPanelView available={false} totals={totals} trend={[]} />);
-    expect(screen.getAllByTestId('cost-overview-empty')[1]).toHaveTextContent(/desktop/i);
+    expect(screen.getAllByTestId('cost-overview-empty')[1]).toHaveTextContent(/desktop/iu);
     expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
   });
 });

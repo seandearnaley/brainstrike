@@ -454,7 +454,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
     expect(
       within(group).getByText('Delegated to Explorer', { selector: '.bs-activity-summary-label' })
     ).toBeInTheDocument();
-    expect(within(group).getByText(/1 step\b/)).toBeInTheDocument();
+    expect(within(group).getByText(/1 step\b/u)).toBeInTheDocument();
     expect(live(container)).toHaveLength(0);
   });
 });

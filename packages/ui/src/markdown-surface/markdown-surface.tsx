@@ -67,11 +67,11 @@ function extractFencedCode(children: ReactNode): FencedCode | null {
     return null;
   }
   const props = children.props as { children?: ReactNode; className?: string };
-  const match = /language-([\w-]+)/.exec(props.className ?? '');
+  const match = /language-([\w-]+)/u.exec(props.className ?? '');
   if (!(match?.[1] && typeof props.children === 'string')) {
     return null;
   }
-  return { code: props.children.replace(/\n$/, ''), language: match[1] };
+  return { code: props.children.replace(/\n$/u, ''), language: match[1] };
 }
 
 export function MarkdownSurface({
@@ -201,7 +201,7 @@ export function MarkdownSurface({
     >
       <div className={cn('prose prose-sm dark:prose-invert mx-auto max-w-3xl px-6 py-4')}>
         {truncated ? (
-          <p className="rounded-md border border-amber-500/40 bg-muted/50 p-2 text-warning text-xs">
+          <p className="bg-muted/50 text-warning rounded-md border border-amber-500/40 p-2 text-xs">
             Document truncated for display. Switch to Source to confirm the cutoff.
           </p>
         ) : null}

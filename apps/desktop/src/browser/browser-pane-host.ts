@@ -136,7 +136,7 @@ export function disposeActiveBrowserPaneViews(): void {
 const ERR_TUNNEL_CONNECTION_FAILED = -111;
 
 function hostOf(url: string): string | null {
-  return URL.canParse(url) ? new URL(url).hostname.replace(/^\[(.*)\]$/, '$1') : null;
+  return URL.canParse(url) ? new URL(url).hostname.replace(/^\[(.*)\]$/u, '$1') : null;
 }
 
 /**

@@ -5,8 +5,8 @@ import { agentColorStyle } from '../agent-color-style';
 describe('agentColorStyle', () => {
   it('derives two scheme accents for a validated family color', () => {
     const style = agentColorStyle('family:1375:540');
-    expect(style?.['--agent-accent-light' as keyof typeof style]).toMatch(/^oklch\(/);
-    expect(style?.['--agent-accent-dark' as keyof typeof style]).toMatch(/^oklch\(/);
+    expect(style?.['--agent-accent-light' as keyof typeof style]).toMatch(/^oklch\(/u);
+    expect(style?.['--agent-accent-dark' as keyof typeof style]).toMatch(/^oklch\(/u);
   });
 
   it('keeps named semantic colors valid', () => {

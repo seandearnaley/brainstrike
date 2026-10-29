@@ -12,6 +12,8 @@ import path from 'node:path';
 import { StateStore } from '@brainstrike/state-store';
 import type { GitInventory } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { createWorktreeService } from '../../assistant-server/worktree-service';
+import { buildTestService, createTestWorkspace, git } from './worktree-service.shared';
 
 const loggerWarnSpy = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -24,9 +26,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     },
   };
 });
-
-import type { createWorktreeService } from '../../assistant-server/worktree-service';
-import { buildTestService, createTestWorkspace, git } from './worktree-service.shared';
 
 describe('WorktreeService mount authorization (real git + real SQLite)', () => {
   let db: StateStore;

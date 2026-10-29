@@ -75,7 +75,7 @@ function ObservationalMemoryModelField({
       <Label htmlFor="assistant-memory-observation-model">Observational memory model</Label>
       <select
         aria-label="Observational memory model"
-        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
         id="assistant-memory-observation-model"
         onChange={(event) => onModelTargetChange(event.target.value)}
         value={hasObservationModel ? modelTarget : ''}
@@ -215,8 +215,8 @@ export function AssistantMemorySettingsSection({
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <BrainCircuit className="h-4 w-4 text-muted-foreground" />
-            <h3 className="font-medium text-sm">Assistant Memory</h3>
+            <BrainCircuit className="text-muted-foreground h-4 w-4" />
+            <h3 className="text-sm font-medium">Assistant Memory</h3>
             <Badge variant="outline">Mastra</Badge>
           </div>
           <p className="text-muted-foreground text-sm">
@@ -250,7 +250,7 @@ export function AssistantMemorySettingsSection({
           <Label htmlFor="assistant-memory-observation-scope">Observation scope</Label>
           <select
             aria-label="Observation scope"
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
             id="assistant-memory-observation-scope"
             onChange={(event) =>
               setObservationalMemoryScope(event.target.value as RuntimeAssistantMemoryScope)
@@ -290,7 +290,7 @@ export function AssistantMemorySettingsSection({
           <Label htmlFor="assistant-memory-retrieval-mode">Observation retrieval mode</Label>
           <select
             aria-label="Observation retrieval mode"
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
             id="assistant-memory-retrieval-mode"
             onChange={(event) =>
               setObservationalRetrievalMode(
@@ -319,7 +319,7 @@ export function AssistantMemorySettingsSection({
       <div className="border-border border-t pt-4">
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <h4 className="font-medium text-sm">Semantic Recall</h4>
+            <h4 className="text-sm font-medium">Semantic Recall</h4>
             <p className="text-muted-foreground text-sm">
               {semanticRecall.enabled
                 ? 'Semantic recall is on and requires the configured embedder at runtime.'
@@ -341,7 +341,7 @@ export function AssistantMemorySettingsSection({
             </Label>
             <select
               aria-label="Semantic recall embedding model"
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
               disabled={embeddingOptions.length === 0}
               id="assistant-memory-embedding-model"
               onChange={(event) => setSemanticRecallEmbeddingModelTarget(event.target.value)}
@@ -370,7 +370,7 @@ export function AssistantMemorySettingsSection({
             <Label htmlFor="assistant-memory-semantic-scope">Semantic recall scope</Label>
             <select
               aria-label="Semantic recall scope"
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
               id="assistant-memory-semantic-scope"
               onChange={(event) =>
                 setSemanticRecallScope(event.target.value as RuntimeAssistantMemoryScope)

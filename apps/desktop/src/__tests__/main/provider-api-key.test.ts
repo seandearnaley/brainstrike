@@ -1,5 +1,14 @@
 import { matchSecretReadError } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  inspectProviderKeys,
+  listConfiguredProviders,
+  readProviderApiKey,
+  readProviderCredential,
+  readProviderSecretKey,
+  resolveProviderEnvCredential,
+  resolveProviderEnvKey,
+} from '../../provider-api-key';
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -41,16 +50,6 @@ vi.mock('../../secrets', async (importOriginal) => {
     getSecretsService: () => mockGetSecretsService(),
   };
 });
-
-import {
-  inspectProviderKeys,
-  listConfiguredProviders,
-  readProviderApiKey,
-  readProviderCredential,
-  readProviderSecretKey,
-  resolveProviderEnvCredential,
-  resolveProviderEnvKey,
-} from '../../provider-api-key';
 
 describe('provider-api-key', () => {
   const originalEnv = { ...process.env };

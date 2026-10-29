@@ -62,7 +62,7 @@ describe('resolveOpenRouterCodingMaxOutputTokens', () => {
     'rejects malformed model completion limit %s',
     (limit) => {
       expect(() => resolveOpenRouterCodingMaxOutputTokens(limit)).toThrow(
-        /modelMaxOutputTokens must be a positive integer/
+        /modelMaxOutputTokens must be a positive integer/u
       );
     }
   );
@@ -316,7 +316,7 @@ describe('a malformed Auto override fails at its source, not on the wire', () =>
           supportedEfforts: ['xhigh', 'high'],
         },
       })
-    ).toThrow(/autoEffort 'low' is not in supportedEfforts \[xhigh, high\]/);
+    ).toThrow(/autoEffort 'low' is not in supportedEfforts \[xhigh, high\]/u);
   });
 
   it("rejects autoEffort 'none' on a model whose reasoning is mandatory", () => {
@@ -330,7 +330,7 @@ describe('a malformed Auto override fails at its source, not on the wire', () =>
           supportedEfforts: ['high'],
         },
       })
-    ).toThrow(/autoEffort 'none' is invalid for a model whose reasoning is mandatory/);
+    ).toThrow(/autoEffort 'none' is invalid for a model whose reasoning is mandatory/u);
   });
 
   it("allows autoEffort 'none' when reasoning is optional", () => {
@@ -424,7 +424,7 @@ describe('reasoning-aware OpenRouter output window (BST-1170)', () => {
           },
           true
         )
-      ).toThrow(/vendorDefaultOutputTokens must be a positive integer/);
+      ).toThrow(/vendorDefaultOutputTokens must be a positive integer/u);
     }
   );
 });

@@ -19,7 +19,7 @@ function collectSourceFiles(directory: string): string[] {
       continue;
     }
 
-    if (stats.isFile() && /\.(?:ts|tsx)$/.test(entry)) {
+    if (stats.isFile() && /\.(?:ts|tsx)$/u.test(entry)) {
       files.push(absolutePath);
     }
   }
@@ -44,7 +44,7 @@ describe('file-explorer-ui domain imports', () => {
     const offenders = collectSourceFiles(contextActionsRoot)
       .filter((filePath) => {
         const source = readFileSync(filePath, 'utf8');
-        return source.includes("from '@brainstrike/ui") || /from ['"]react['"]/.test(source);
+        return source.includes("from '@brainstrike/ui") || /from ['"]react['"]/u.test(source);
       })
       .map((filePath) => path.relative(contextActionsRoot, filePath));
 

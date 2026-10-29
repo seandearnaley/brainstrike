@@ -21,7 +21,7 @@ function listFiles(root: string): string[] {
       files.push(...listFiles(fullPath));
       continue;
     }
-    if (/\.(?:ts|tsx|mts)$/.test(entry)) {
+    if (/\.(?:ts|tsx|mts)$/u.test(entry)) {
       files.push(fullPath);
     }
   }

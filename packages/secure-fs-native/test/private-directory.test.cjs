@@ -101,8 +101,8 @@ function enabledPrivileges() {
     windowsHide: true,
   });
   const enabled = new Set();
-  for (const row of output.split(/\r?\n/).filter(Boolean)) {
-    const match = /^"([^"]+)","[^"]*","([^"]+)"$/.exec(row);
+  for (const row of output.split(/\r?\n/u).filter(Boolean)) {
+    const match = /^"([^"]+)","[^"]*","([^"]+)"$/u.exec(row);
     if (!(match && ['Enabled', 'Disabled'].includes(match[2]))) {
       throw new Error(`Unrecognized whoami /priv row: ${row}`);
     }
@@ -145,7 +145,7 @@ function assertPrivate(path) {
 }
 
 const usage = {
-  message: /PrivateDirectorySync expects one absolute directory path$/,
+  message: /PrivateDirectorySync expects one absolute directory path$/u,
   name: 'TypeError',
 };
 

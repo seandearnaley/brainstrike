@@ -115,7 +115,7 @@ describe('McpTaskStatusCard', () => {
     });
 
     expect(await screen.findByText('Cancelled')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel/iu })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('mcp-task-status-summary')).toHaveFocus());
   });
 

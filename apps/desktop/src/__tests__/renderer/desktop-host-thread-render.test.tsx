@@ -15,11 +15,10 @@ import { render, screen } from '@testing-library/react';
 import { Schema } from 'effect';
 import type { ReactElement } from 'react';
 import { expect, test, vi } from 'vitest';
+import { DesktopHostThreadProvider } from '../../renderer/desktop-host-thread-provider';
 
 const connect = vi.hoisted(() => vi.fn<() => Promise<HostClient>>());
 vi.mock('../../renderer/agent-host-client', () => ({ connectDesktopAgentHost: connect }));
-
-import { DesktopHostThreadProvider } from '../../renderer/desktop-host-thread-provider';
 
 /** A connected host whose catalog lists no thread. */
 function emptyCatalogHost(): HostClient {

@@ -736,7 +736,7 @@ function ToolsPanelContent({
       )}
       {preferencesError && (
         <div
-          className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm"
+          className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
           role="alert"
         >
           {preferencesError}
@@ -744,14 +744,14 @@ function ToolsPanelContent({
       )}
       {reloadError && (
         <div
-          className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm"
+          className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
           role="alert"
         >
           {reloadError}
         </div>
       )}
       {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
+        <div className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
           {error}
         </div>
       )}
@@ -796,12 +796,12 @@ function ToolsPanelContent({
       )}
 
       {loading && (
-        <div className="py-8 text-center text-muted-foreground text-sm">Loading tools...</div>
+        <div className="text-muted-foreground py-8 text-center text-sm">Loading tools...</div>
       )}
 
       {!(loading || hasTools) && (
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
+          <CardContent className="text-muted-foreground py-8 text-center">
             No tools registered. Tools will appear here when the agent runtime initializes.
           </CardContent>
         </Card>

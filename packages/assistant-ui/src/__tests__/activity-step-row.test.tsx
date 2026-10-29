@@ -162,7 +162,7 @@ describe('StepRowHeader', () => {
     // Named from its own visible content (verb + target), not from `label` —
     // `label` is always "Expand details"/"Collapse details" from ToolFallback,
     // which would misname a row that cannot expand.
-    expect(screen.getByRole('group', { name: /Reading.*src\/app\.ts/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /Reading.*src\/app\.ts/u })).toBeInTheDocument();
   });
 
   it('keeps the raw tool id out of the non-interactive row name while keeping it as text', () => {
@@ -183,7 +183,7 @@ describe('StepRowHeader', () => {
     // Anchored: the name is the verb and the target and NOTHING else. (The
     // seam between the two spans yields no whitespace in the computed name,
     // hence `\s*` rather than a literal space.)
-    expect(screen.getByRole('group', { name: /^Reading\s*src\/app\.ts$/ })).toBe(row);
+    expect(screen.getByRole('group', { name: /^Reading\s*src\/app\.ts$/u })).toBe(row);
     expect(row).toHaveTextContent('brainstrike.readWorkspaceFile');
     expect(row).toHaveAttribute('title', 'brainstrike.readWorkspaceFile');
   });
@@ -314,7 +314,7 @@ describe('StepRowHeader', () => {
       />
     );
     const row = screen.getByTestId('activity-step-row');
-    expect(screen.getByRole('group', { name: /^Read\s*src\/app\.ts$/ })).toBe(row);
+    expect(screen.getByRole('group', { name: /^Read\s*src\/app\.ts$/u })).toBe(row);
     expect(row).toHaveTextContent('3 results');
   });
 

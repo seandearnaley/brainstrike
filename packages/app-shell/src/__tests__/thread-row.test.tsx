@@ -239,7 +239,7 @@ describe('ThreadRow', () => {
     await waitFor(() => {
       expect(onUpdateThreadAppearance).toHaveBeenCalledTimes(2);
     });
-    expect(screen.queryByText(/was not saved/)).toBeNull();
+    expect(screen.queryByText(/was not saved/u)).toBeNull();
     expect(toast).not.toHaveBeenCalled();
   });
 
@@ -304,6 +304,6 @@ describe('ThreadRow', () => {
     );
 
     expect(screen.getByText('Replacement thread')).toBeVisible();
-    expect(screen.queryByRole('button', { name: /Confirm delete thread/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Confirm delete thread/u })).toBeNull();
   });
 });

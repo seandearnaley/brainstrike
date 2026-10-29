@@ -176,7 +176,7 @@ export async function purgeWhileStreaming(mb: number): Promise<Record<string, un
 
     // ---- no handle keeps pre-purge bytes alive (this process holds the writer and the indexer's reader) --------------
     if (HAS_LSOF) {
-      const open = lsofUnder([process.pid], root).filter((f) => /^\d+$/.test(f.fd));
+      const open = lsofUnder([process.pid], root).filter((f) => /^\d+$/u.test(f.fd));
       for (const f of open) {
         expect(existsSync(f.name), `${f.name} held open but no longer in the tree`).toBe(true);
         expect(f.inode, `${f.name} held open is an old inode`).toBe(inodeOf(f.name));

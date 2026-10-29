@@ -172,7 +172,7 @@ function McpCatalogCard({ blocked, entry, installed, onInstall }: McpCatalogCard
   return (
     <div className="space-y-2 rounded-md border p-3" data-testid={`mcp-catalog-card-${entry.id}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="font-medium text-sm">{entry.name}</span>
+        <span className="text-sm font-medium">{entry.name}</span>
         <Badge variant="outline">{entry.auth === 'oauth' ? 'OAuth' : 'Token'}</Badge>
       </div>
       <p className="text-muted-foreground text-xs">{entry.description}</p>

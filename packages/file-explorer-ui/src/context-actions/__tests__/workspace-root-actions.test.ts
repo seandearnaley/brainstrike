@@ -97,6 +97,6 @@ describe('workspaceRootActions', () => {
     if (typeof label !== 'function') {
       throw new Error('Reveal must derive its label from the platform');
     }
-    expect(label(desktopRoot)).toMatch(/^Reveal in (Finder|File Explorer)$/);
+    expect(label(desktopRoot)).toMatch(/^Reveal in (Finder|File Explorer)$/u);
   });
 });

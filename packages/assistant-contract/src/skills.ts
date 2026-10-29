@@ -99,7 +99,7 @@ export function deriveSkillPreferenceKey(input: {
 export const MAX_ACTIVATED_SKILLS_PER_MESSAGE = 8;
 
 /** Spec name charset: 1–64 chars of lowercase letters, digits, and hyphens. */
-const SKILL_DIRECTIVE_PATTERN = /:skill\[([a-z0-9-]{1,64})\]/g;
+const SKILL_DIRECTIVE_PATTERN = /:skill\[([a-z0-9-]{1,64})\]/gu;
 
 /**
  * Serialize a skill name into the composer activation directive. The composer

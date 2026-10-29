@@ -576,7 +576,7 @@ describe('workspace search model projections', () => {
     );
     expect(serializedChars(projected)).toBeLessThan(serializedChars(raw) * 0.7);
     expect(projected.value).toMatch(
-      /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/
+      /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/u
     );
   });
 
@@ -652,7 +652,7 @@ describe('workspace search model projections', () => {
     );
     expect(serializedChars(projected)).toBeLessThan(serializedChars(raw) * 0.7);
     expect(projected.value).toMatch(
-      /continue: reuse the prior brainstrike\.globWorkspace input with offset=\d+$/
+      /continue: reuse the prior brainstrike\.globWorkspace input with offset=\d+$/u
     );
   });
 
@@ -694,13 +694,13 @@ describe('workspace search model projections', () => {
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(grepProjected.value).toMatch(
-      /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/
+      /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/u
     );
     expect(decodedChars([globProjected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(globProjected.value).toMatch(
-      /continue: reuse the prior brainstrike\.globWorkspace input with offset=\d+$/
+      /continue: reuse the prior brainstrike\.globWorkspace input with offset=\d+$/u
     );
   });
 
@@ -762,7 +762,7 @@ describe('workspace search model projections', () => {
     );
     expect(projected.value).toContain('repeating this offset cannot make progress');
     expect(projected.value.split('\n').at(-1)).not.toMatch(
-      /(?:Continue with offset:|with offset=)\d+/
+      /(?:Continue with offset:|with offset=)\d+/u
     );
   });
 

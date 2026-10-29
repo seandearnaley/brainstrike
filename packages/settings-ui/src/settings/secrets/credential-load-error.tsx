@@ -13,7 +13,7 @@ export function CredentialLoadError({ message }: CredentialLoadErrorProps) {
   }
   return (
     <div
-      className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-destructive text-sm"
+      className="border-destructive/50 bg-destructive/5 text-destructive rounded-md border p-3 text-sm"
       data-testid="provider-key-load-error"
       role="alert"
     >

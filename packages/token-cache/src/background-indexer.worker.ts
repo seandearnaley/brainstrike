@@ -305,12 +305,12 @@ async function processFile(
 }
 
 const TERMINAL_TOKENIZATION_ERROR_PATTERNS: RegExp[] = [
-  /^accurate token counting unavailable:/i,
-  /tiktoken encoder failed to initialize/i,
+  /^accurate token counting unavailable:/iu,
+  /tiktoken encoder failed to initialize/iu,
 ];
 
 function normalizeTerminalErrorMessage(errorMessage: string): string {
-  return errorMessage.trim().replace(/^error:\s*/i, '');
+  return errorMessage.trim().replace(/^error:\s*/iu, '');
 }
 
 function isTerminalTokenizationError(errorMessage: string): boolean {

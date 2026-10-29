@@ -104,7 +104,7 @@ describe('ToolFallback streamed-input progress (BST-849)', () => {
   it('shows no timer when the runtime recorded no timing', () => {
     renderTool({ argsText: 'x'.repeat(40), state: 'call' });
     expect(indicator()).toHaveTextContent('Running');
-    expect(indicator().textContent).not.toMatch(/\d+\.\ds/);
+    expect(indicator().textContent).not.toMatch(/\d+\.\ds/u);
   });
 
   it('renders no progress indicator once the call has completed', () => {

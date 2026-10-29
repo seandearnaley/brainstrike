@@ -14,7 +14,7 @@ export interface UnsupportedFeatureProps {
 export function UnsupportedFeature({ title, description }: UnsupportedFeatureProps) {
   return (
     <div className={cn('mx-auto max-w-2xl p-8')}>
-      <h2 className="mb-4 font-bold text-2xl">{title}</h2>
+      <h2 className="mb-4 text-2xl font-bold">{title}</h2>
       <p className="mb-4">{description}</p>
     </div>
   );

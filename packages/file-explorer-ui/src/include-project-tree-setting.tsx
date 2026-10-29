@@ -14,8 +14,8 @@ const IncludeProjectTreeSetting = ({ checked, onChange }: IncludeProjectTreeSett
       onCheckedChange={onChange}
     />
     <Label className="cursor-pointer select-none" htmlFor="include-project-tree">
-      <span className="@[600px]:inline hidden">Include Project Tree</span>
-      <span className="@[450px]:inline @[600px]:hidden hidden">Project Tree</span>
+      <span className="hidden @[600px]:inline">Include Project Tree</span>
+      <span className="hidden @[450px]:inline @[600px]:hidden">Project Tree</span>
       <span className="inline @[450px]:hidden">Tree</span>
     </Label>
   </div>

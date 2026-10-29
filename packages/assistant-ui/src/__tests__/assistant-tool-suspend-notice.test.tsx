@@ -105,7 +105,7 @@ describe('AssistantToolSuspendNotice', () => {
       expect(screen.getByText('Refactor the parser.')).toBeInTheDocument();
       const approve = screen.getByRole('button', { name: 'Approve' });
       expect(approve).toBeDisabled();
-      expect(screen.getByRole('button', { name: /reject/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /reject/iu })).toBeDisabled();
       expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
       await user.click(approve);
       expect(appendMessageMock).not.toHaveBeenCalled();
@@ -127,7 +127,7 @@ describe('AssistantToolSuspendNotice', () => {
       />
     );
     await user.type(screen.getByRole('textbox'), 'Vancouver');
-    await user.click(screen.getByRole('button', { name: /send|answer|submit/i }));
+    await user.click(screen.getByRole('button', { name: /send|answer|submit/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalled());
     expect(lastResumeAction()).toMatchObject({
       hostRunId: 'run-host-leg-1',
@@ -138,11 +138,11 @@ describe('AssistantToolSuspendNotice', () => {
   it('renders the plan overview, steps, risks, and verification', () => {
     render(<AssistantToolSuspendNotice data={planRequest} />);
     expect(screen.getByTestId('assistant-submit-plan-notice')).toBeInTheDocument();
-    expect(screen.getByText(/Parser refactor/)).toBeInTheDocument();
+    expect(screen.getByText(/Parser refactor/u)).toBeInTheDocument();
     expect(screen.getByText('Refactor the parser.')).toBeInTheDocument();
     expect(screen.getByText('Read the code')).toBeInTheDocument();
-    expect(screen.getByText(/May touch many files/)).toBeInTheDocument();
-    expect(screen.getByText(/Run the tests/)).toBeInTheDocument();
+    expect(screen.getByText(/May touch many files/u)).toBeInTheDocument();
+    expect(screen.getByText(/Run the tests/u)).toBeInTheDocument();
   });
 
   it('surfaces a malformed plan payload and allows safe rejection only', async () => {
@@ -160,11 +160,11 @@ describe('AssistantToolSuspendNotice', () => {
       'role',
       'alert'
     );
-    expect(screen.getByText(/plan details could not be read/i)).toBeInTheDocument();
-    expect(screen.getByText(/"overview": 42/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/plan details could not be read/iu)).toBeInTheDocument();
+    expect(screen.getByText(/"overview": 42/u)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve/iu })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /reject/i }));
+    await user.click(screen.getByRole('button', { name: /reject/iu }));
 
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()?.['resumeData']).toEqual({ action: 'rejected' });
@@ -189,13 +189,13 @@ describe('AssistantToolSuspendNotice', () => {
       />
     );
 
-    expect(screen.getByText(/Compatible plan/)).toBeInTheDocument();
+    expect(screen.getByText(/Compatible plan/u)).toBeInTheDocument();
     expect(screen.getByText('Refactor safely.')).toBeInTheDocument();
     expect(screen.getByText('Keep this step')).toBeInTheDocument();
     expect(screen.getByText('Keep this title')).toBeInTheDocument();
-    expect(screen.queryByText(/Risks:/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Verification:/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
+    expect(screen.queryByText(/Risks:/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verification:/u)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/iu })).toBeEnabled();
   });
 
   it('refuses approval when any plan step terms are unreadable', () => {
@@ -213,8 +213,8 @@ describe('AssistantToolSuspendNotice', () => {
     );
 
     expect(screen.getByTestId('assistant-submit-plan-payload-unreadable')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /approve/iu })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /reject/iu })).toBeEnabled();
   });
 
   it.each([undefined, null])(
@@ -224,15 +224,15 @@ describe('AssistantToolSuspendNotice', () => {
 
       expect(screen.getByText('Plan for your approval')).toBeInTheDocument();
       expect(screen.getByText('A plan was submitted for your review.')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
-      expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /approve/iu })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /reject/iu })).toBeEnabled();
     }
   );
 
   it('Approve appends a resume action { action: "approved" }', async () => {
     const user = userEvent.setup();
     render(<AssistantToolSuspendNotice data={planRequest} />);
-    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await user.click(screen.getByRole('button', { name: /approve/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()).toMatchObject({
       resumeData: { action: 'approved' },
@@ -250,7 +250,7 @@ describe('AssistantToolSuspendNotice', () => {
         <AssistantToolSuspendNotice data={planRequest} />
       </PlanModeExitProvider>
     );
-    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await user.click(screen.getByRole('button', { name: /approve/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(onExit).toHaveBeenCalledTimes(1);
   });
@@ -274,7 +274,7 @@ describe('AssistantToolSuspendNotice', () => {
         <AssistantToolSuspendNotice data={{ ...planRequest, delegation }} />
       </PlanModeExitProvider>
     );
-    await user.click(screen.getByRole('button', { name: /^approve$/i }));
+    await user.click(screen.getByRole('button', { name: /^approve$/iu }));
     expect(onExit).not.toHaveBeenCalled();
     expect(lastResumeAction()).toMatchObject({
       delegation,
@@ -292,7 +292,7 @@ describe('AssistantToolSuspendNotice', () => {
         <AssistantToolSuspendNotice data={planRequest} />
       </PlanModeExitProvider>
     );
-    await user.click(screen.getByRole('button', { name: /reject/i }));
+    await user.click(screen.getByRole('button', { name: /reject/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(onExit).not.toHaveBeenCalled();
   });
@@ -300,8 +300,8 @@ describe('AssistantToolSuspendNotice', () => {
   it('Reject with feedback appends { action: "rejected", feedback }', async () => {
     const user = userEvent.setup();
     render(<AssistantToolSuspendNotice data={planRequest} />);
-    await user.type(screen.getByLabelText(/feedback/i), 'tighten step 2');
-    await user.click(screen.getByRole('button', { name: /reject/i }));
+    await user.type(screen.getByLabelText(/feedback/iu), 'tighten step 2');
+    await user.click(screen.getByRole('button', { name: /reject/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()?.['resumeData']).toEqual({
       action: 'rejected',
@@ -324,7 +324,7 @@ describe('AssistantToolSuspendNotice', () => {
     };
     render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, delegation }} />);
     await user.type(screen.getByRole('textbox'), 'Paris');
-    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    await user.click(screen.getByRole('button', { name: /^send$/iu }));
     expect(lastResumeAction()).toMatchObject({
       delegation,
       resumeData: { answer: 'Paris' },
@@ -337,8 +337,8 @@ describe('AssistantToolSuspendNotice', () => {
     const user = userEvent.setup();
     render(<AssistantToolSuspendNotice data={askFreeTextRequest} />);
     expect(screen.getByTestId('assistant-ask-user-notice')).toBeInTheDocument();
-    await user.type(screen.getByLabelText(/your answer/i), 'San Francisco');
-    await user.click(screen.getByRole('button', { name: /send/i }));
+    await user.type(screen.getByLabelText(/your answer/iu), 'San Francisco');
+    await user.click(screen.getByRole('button', { name: /send/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'San Francisco' });
   });
@@ -357,11 +357,11 @@ describe('AssistantToolSuspendNotice', () => {
       'role',
       'alert'
     );
-    expect(screen.getByText(/question details could not be read/i)).toBeInTheDocument();
-    expect(screen.getByText(/"options": "not-an-array"/)).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: /your answer/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /dismiss/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/question details could not be read/iu)).toBeInTheDocument();
+    expect(screen.getByText(/"options": "not-an-array"/u)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /your answer/iu })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send/iu })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /dismiss/iu })).not.toBeInTheDocument();
     expect(appendMessageMock).not.toHaveBeenCalled();
   });
 
@@ -383,8 +383,8 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Keep me' })).not.toBeInTheDocument();
     expect(screen.getByText('Still readable?')).toBeInTheDocument();
-    await user.type(screen.getByRole('textbox', { name: /answer in your own words/i }), 'No');
-    await user.click(screen.getByRole('button', { name: /send answer/i }));
+    await user.type(screen.getByRole('textbox', { name: /answer in your own words/iu }), 'No');
+    await user.click(screen.getByRole('button', { name: /send answer/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'No' });
   });
@@ -399,7 +399,7 @@ describe('AssistantToolSuspendNotice', () => {
       />
     );
 
-    expect(screen.getByText(/"options": "not-an-array"/)).toHaveClass('max-h-48', 'overflow-auto');
+    expect(screen.getByText(/"options": "not-an-array"/u)).toHaveClass('max-h-48', 'overflow-auto');
   });
 
   it('caps serialized unreadable payload diagnostics before rendering or logging them', async () => {
@@ -464,7 +464,7 @@ describe('AssistantToolSuspendNotice', () => {
     render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, suspendPayload }} />);
 
     expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: /answer in your own words/i })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: /answer in your own words/iu })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Keep me' })).not.toBeInTheDocument();
   });
 
@@ -550,7 +550,7 @@ describe('AssistantToolSuspendNotice', () => {
       render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, suspendPayload }} />);
 
       expect(screen.getByText('The assistant has a question')).toBeInTheDocument();
-      expect(screen.getByRole('textbox', { name: /your answer/i })).toBeEnabled();
+      expect(screen.getByRole('textbox', { name: /your answer/iu })).toBeEnabled();
     }
   );
 
@@ -587,9 +587,9 @@ describe('AssistantToolSuspendNotice', () => {
         }}
       />
     );
-    await user.click(screen.getByRole('checkbox', { name: /a/i }));
-    await user.click(screen.getByRole('checkbox', { name: /b/i }));
-    await user.click(screen.getByRole('button', { name: /submit/i }));
+    await user.click(screen.getByRole('checkbox', { name: /a/iu }));
+    await user.click(screen.getByRole('checkbox', { name: /b/iu }));
+    await user.click(screen.getByRole('button', { name: /submit/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()?.['resumeData']).toEqual({ answer: ['a', 'b'] });
   });
@@ -602,8 +602,8 @@ describe('AssistantToolSuspendNotice', () => {
     // A following assistant message still streaming (no terminal status) → pending.
     threadMessagesMock.push({ role: 'assistant', status: { type: 'running' } });
     render(<AssistantToolSuspendNotice data={planRequest} />);
-    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /reject/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve/iu })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /reject/iu })).toBeDisabled();
   });
 
   it('re-enables the controls when the resumed run FAILED (retryable), not permanently locking', () => {
@@ -615,8 +615,8 @@ describe('AssistantToolSuspendNotice', () => {
     // The assistant run that followed the resume finished as `incomplete` (failed).
     threadMessagesMock.push({ role: 'assistant', status: { type: 'incomplete' } });
     render(<AssistantToolSuspendNotice data={planRequest} />);
-    expect(screen.getByRole('button', { name: /approve/i })).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: /reject/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve/iu })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /reject/iu })).not.toBeDisabled();
   });
 
   it('keeps the controls locked when the resumed run COMPLETED', () => {
@@ -626,7 +626,7 @@ describe('AssistantToolSuspendNotice', () => {
     });
     threadMessagesMock.push({ role: 'assistant', status: { type: 'complete' } });
     render(<AssistantToolSuspendNotice data={planRequest} />);
-    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve/iu })).toBeDisabled();
   });
 
   it('renders a VISIBLE rejection (not an inert waiting card) for an unregistered suspending tool', async () => {
@@ -644,21 +644,21 @@ describe('AssistantToolSuspendNotice', () => {
     const notice = screen.getByTestId('assistant-tool-suspend-unsupported-notice');
     expect(notice).toBeInTheDocument();
     expect(notice).toHaveAttribute('role', 'alert');
-    expect(screen.getByText(/Cannot resume brainstrike\.somethingElse/)).toBeInTheDocument();
+    expect(screen.getByText(/Cannot resume brainstrike\.somethingElse/u)).toBeInTheDocument();
     // Never present the pause as still-actionable, and never guess a typed action.
-    expect(screen.queryByText(/Waiting on input/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Waiting on input/u)).not.toBeInTheDocument();
     // The copy must claim nothing about server-side state: the run is NOT stopped
     // (the mapper leaves the Mastra snapshot suspended on purpose) and there is no
     // run.failed to point at.
     expect(
-      screen.getByText(/the pause cannot be answered and the run cannot continue here/i)
+      screen.getByText(/the pause cannot be answered and the run cannot continue here/iu)
     ).toBeInTheDocument();
-    expect(screen.queryByText(/run was stopped/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/run diagnostics/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/run was stopped/iu)).not.toBeInTheDocument();
+    expect(screen.queryByText(/run diagnostics/iu)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve/iu })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send/iu })).not.toBeInTheDocument();
     // The user is not stranded: the dead card is explicitly dismissible.
-    await user.click(screen.getByRole('button', { name: /dismiss/i }));
+    await user.click(screen.getByRole('button', { name: /dismiss/iu }));
     expect(
       screen.queryByTestId('assistant-tool-suspend-unsupported-notice')
     ).not.toBeInTheDocument();
@@ -691,7 +691,7 @@ describe('AssistantToolSuspendNotice', () => {
     expect(
       screen.queryByTestId('assistant-tool-suspend-unsupported-notice')
     ).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await user.click(screen.getByRole('button', { name: /approve/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()).toMatchObject({
       resumeData: { action: 'approved' },
@@ -704,8 +704,8 @@ describe('AssistantToolSuspendNotice', () => {
     expect(
       screen.queryByTestId('assistant-tool-suspend-unsupported-notice')
     ).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText(/your answer/i), 'Lisbon');
-    await user.click(screen.getByRole('button', { name: /send/i }));
+    await user.type(screen.getByLabelText(/your answer/iu), 'Lisbon');
+    await user.click(screen.getByRole('button', { name: /send/iu }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(2));
     expect(lastResumeAction()).toMatchObject({
       resumeData: { answer: 'Lisbon' },
@@ -728,11 +728,11 @@ describe('rediscovered suspend pauses (BST-1084)', () => {
         }}
       />
     );
-    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
-    expect(screen.getByText(/pending a while/i)).toBeInTheDocument();
+    expect(screen.getByText(/pending since/iu)).toBeInTheDocument();
+    expect(screen.getByText(/pending a while/iu)).toBeInTheDocument();
     // Advisory only — the answer control stays usable (surface, never auto-decline).
     // (Send itself stays disabled until text is entered, which is its normal state.)
-    expect(screen.getByRole('textbox', { name: /your answer/i })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: /your answer/iu })).toBeEnabled();
   });
 
   it('renders pending-since but no advisory for a fresh rediscovered pause', () => {
@@ -748,8 +748,8 @@ describe('rediscovered suspend pauses (BST-1084)', () => {
         }}
       />
     );
-    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
-    expect(screen.queryByText(/pending a while/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/pending since/iu)).toBeInTheDocument();
+    expect(screen.queryByText(/pending a while/iu)).not.toBeInTheDocument();
   });
 
   it('renders a LIVE pause (no suspendedAt) without the rediscovery lines', () => {
@@ -763,7 +763,7 @@ describe('rediscovered suspend pauses (BST-1084)', () => {
         }}
       />
     );
-    expect(screen.queryByText(/pending since/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending since/iu)).not.toBeInTheDocument();
   });
 
   it('renders the dead-end notice with rediscovery lines for an unregistered rediscovered pause', () => {
@@ -781,7 +781,7 @@ describe('rediscovered suspend pauses (BST-1084)', () => {
       />
     );
     expect(screen.getByTestId('assistant-tool-suspend-unsupported-notice')).toBeInTheDocument();
-    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+    expect(screen.getByText(/pending since/iu)).toBeInTheDocument();
   });
 });
 
@@ -806,9 +806,9 @@ describe('run_python network escalation — Gate B (BST-1070)', () => {
     render(<AssistantToolSuspendNotice data={networkRequest} />);
 
     expect(screen.getByText('This script wants to reach the internet')).toBeInTheDocument();
-    expect(screen.getByText(/every other address is blocked/i)).toBeInTheDocument();
-    expect(screen.getByText(/it can also send data out/i)).toBeInTheDocument();
-    expect(screen.getByText(/no "always allow" for internet access/i)).toBeInTheDocument();
+    expect(screen.getByText(/every other address is blocked/iu)).toBeInTheDocument();
+    expect(screen.getByText(/it can also send data out/iu)).toBeInTheDocument();
+    expect(screen.getByText(/no "always allow" for internet access/iu)).toBeInTheDocument();
     // Wildcard gloss, exact host bare.
     expect(screen.getByText('— any host ending in .githubusercontent.com')).toBeInTheDocument();
 
@@ -818,7 +818,7 @@ describe('run_python network escalation — Gate B (BST-1070)', () => {
     expect(deny.compareDocumentPosition(allow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(allow).toBeDisabled();
     expect(allow).toHaveTextContent('Allow these 2 domains');
-    expect(screen.getByText(/tick each domain above/i)).toBeInTheDocument();
+    expect(screen.getByText(/tick each domain above/iu)).toBeInTheDocument();
 
     // One tick is not enough.
     await user.click(screen.getByTestId('run-python-network-domain-pypi.org'));
@@ -909,8 +909,8 @@ describe('run_python network escalation — Gate B (BST-1070)', () => {
       />
     );
     expect(screen.getByText('This script wants to reach the internet')).toBeInTheDocument();
-    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
-    expect(screen.getByText(/pending a while/i)).toBeInTheDocument();
+    expect(screen.getByText(/pending since/iu)).toBeInTheDocument();
+    expect(screen.getByText(/pending a while/iu)).toBeInTheDocument();
     // Ticks reset across remounts, so allow starts disabled post-reload too.
     expect(screen.getByTestId('run-python-network-allow')).toBeDisabled();
   });

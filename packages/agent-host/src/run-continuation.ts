@@ -10,11 +10,8 @@ import {
   type ToolContent,
 } from 'ai';
 import { Schema } from 'effect';
-import { toBoundaryFailure } from './boundary-wire.ts';
-
-const logger = createLogger('AgentHost');
-
 import { ApprovalInputReconstructionError, validateApprovalInput } from './approval-input.ts';
+import { toBoundaryFailure } from './boundary-wire.ts';
 import {
   browserOriginDeniedReason,
   type HostBrowserOriginStore,
@@ -39,6 +36,8 @@ import {
 } from './protocol.ts';
 import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.ts';
 import { hostStartPosition } from './run-branch.ts';
+
+const logger = createLogger('AgentHost');
 
 type Action = Extract<
   HostEvent,

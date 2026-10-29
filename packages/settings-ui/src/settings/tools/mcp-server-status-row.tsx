@@ -129,7 +129,7 @@ function McpAuthStatus({ server }: { readonly server: McpServerInfo }) {
       ? undefined
       : formatConnectionTimestamp(auth.lastSuccessfulConnectionAt);
   return (
-    <div className="mt-1 space-y-0.5 text-muted-foreground text-xs">
+    <div className="text-muted-foreground mt-1 space-y-0.5 text-xs">
       <div>OAuth credentials {credentialLabel}</div>
       <div className="break-all">Protected resource: {auth.resourceUrl}</div>
       <div>
@@ -173,7 +173,7 @@ function McpExtensionStatus({ server }: { readonly server: McpServerInfo }) {
   );
   return (
     <div
-      className="mt-1 text-muted-foreground text-xs"
+      className="text-muted-foreground mt-1 text-xs"
       data-testid={`mcp-extensions-${server.configuredServerId}`}
       {...extensionAttributes}
     >
@@ -197,7 +197,7 @@ function McpDiagnostics({ server }: { readonly server: McpServerInfo }) {
   }
   return (
     <div
-      className="mt-1 whitespace-pre-line text-muted-foreground text-xs"
+      className="text-muted-foreground mt-1 text-xs whitespace-pre-line"
       data-testid={`mcp-diagnostics-${server.configuredServerId}`}
     >
       {server.diagnostics
@@ -219,10 +219,10 @@ function formatToolTimeout(ms: number): string {
 
 function McpConnectionDetails({ server }: { readonly server: McpServerInfo }) {
   return (
-    <details className="mt-2 text-muted-foreground text-xs">
+    <details className="text-muted-foreground mt-2 text-xs">
       <summary
         aria-label={`Connection details for ${server.configuredServerId}`}
-        className="cursor-pointer rounded-sm py-1 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+        className="focus-visible:outline-ring cursor-pointer rounded-sm py-1 focus-visible:outline-2 focus-visible:outline-offset-2"
       >
         Connection details
       </summary>

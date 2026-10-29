@@ -259,7 +259,7 @@ async function fetchWasmBinary(module: Record<string, unknown>): Promise<ArrayBu
     return decodeDataUrlToArrayBuffer(rawWasmUrl);
   }
 
-  const strippedUrl = rawWasmUrl.replace(/\?url$/, '');
+  const strippedUrl = rawWasmUrl.replace(/\?url$/u, '');
   const wasmUrl = resolveRuntimeAssetUrl(strippedUrl);
 
   const fetchFn = globalThis.fetch;
@@ -282,7 +282,7 @@ function decodeDataUrlToArrayBuffer(dataUrl: string): ArrayBuffer {
 
   const metadata = dataUrl.slice(0, commaIndex);
   const payload = dataUrl.slice(commaIndex + 1);
-  const isBase64 = /;base64$/i.test(metadata);
+  const isBase64 = /;base64$/iu.test(metadata);
 
   if (!isBase64) {
     return new TextEncoder().encode(decodeURIComponent(payload)).buffer;
@@ -345,7 +345,7 @@ async function fetchEncoderConfig(
     throw new Error('global fetch is not available in this environment');
   }
 
-  const configUrl = resolveRuntimeAssetUrl(rawConfigUrl.replace(/\?url$/, ''));
+  const configUrl = resolveRuntimeAssetUrl(rawConfigUrl.replace(/\?url$/u, ''));
   const response = await fetchFn(configUrl);
   if (!response.ok) {
     throw new Error(

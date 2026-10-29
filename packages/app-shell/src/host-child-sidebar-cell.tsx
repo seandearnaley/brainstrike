@@ -34,7 +34,7 @@ export function HostChildSidebarCell({
   const tint = getThreadTint(child.color);
   return (
     <button
-      className={`${THREAD_PANEL_ROW_CLASS_NAME} w-full items-center gap-2 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${tint.washClassName}`}
+      className={`${THREAD_PANEL_ROW_CLASS_NAME} focus-visible:ring-ring w-full items-center gap-2 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset ${tint.washClassName}`}
       data-agent-color={child.color}
       onClick={() =>
         threadWorkspaceNavigation.open(
@@ -61,11 +61,11 @@ export function HostChildSidebarCell({
       {row.unread ? (
         <span
           aria-label="Unread child activity"
-          className="size-1.5 shrink-0 rounded-full bg-primary"
+          className="bg-primary size-1.5 shrink-0 rounded-full"
           role="img"
         />
       ) : null}
-      <span className="ml-auto shrink-0 pr-1 text-[11px] text-muted-foreground">
+      <span className="text-muted-foreground ml-auto shrink-0 pr-1 text-[11px]">
         {STATUS_LABEL[child.status]}
       </span>
     </button>

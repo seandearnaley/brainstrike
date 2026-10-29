@@ -58,10 +58,10 @@ test('denying edits removes the edit tools from the next host run and its instru
   await send('First look.', 1);
   const allowed = lastRunRequest();
   expect(allowed.toolNames).toContain(WRITE);
-  expect(allowed.instructions).toMatch(/writeWorkspaceFile/);
+  expect(allowed.instructions).toMatch(/writeWorkspaceFile/u);
 
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   await window.getByTestId('permission-policy-edit').selectOption('deny');
 
   await send('Second look.', 2);
@@ -69,6 +69,6 @@ test('denying edits removes the edit tools from the next host run and its instru
   expect(denied.toolNames).toContain(READ);
   expect(denied.toolNames).not.toContain(WRITE);
   expect(denied.toolNames).not.toContain('brainstrike_stringReplaceWorkspaceFile');
-  expect(denied.instructions).not.toMatch(/writeWorkspaceFile/);
+  expect(denied.instructions).not.toMatch(/writeWorkspaceFile/u);
   expect(modelProvider.refusals()).toEqual([]);
 });

@@ -1,5 +1,10 @@
 import { clearPersistentUiState } from '@brainstrike/app-state/factory-reset';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  CHUNK_RELOAD_STORAGE_KEY,
+  consumeChunkReloadMarker,
+  writeChunkReloadMarker,
+} from '../chunk-reload-guard';
 
 const { loggerMock, markReloadAlreadyAttempted } = vi.hoisted(() => ({
   loggerMock: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -12,12 +17,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
 }));
 // The guard's contract with the store is one call; the store has its own tests.
 vi.mock('@brainstrike/ui', () => ({ appReloadStore: { markReloadAlreadyAttempted } }));
-
-import {
-  CHUNK_RELOAD_STORAGE_KEY,
-  consumeChunkReloadMarker,
-  writeChunkReloadMarker,
-} from '../chunk-reload-guard';
 
 /** A blocked or full store throws a DOMException, not a plain Error. */
 function storageFailure(name: 'QuotaExceededError' | 'SecurityError'): DOMException {

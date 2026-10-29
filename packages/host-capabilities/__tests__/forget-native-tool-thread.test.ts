@@ -32,7 +32,7 @@ test('a deleted thread loses its read cursors, read-before-write observations an
 
   forgetSharedNativeToolThread(deleted.threadId, registry);
 
-  expect(() => registry.resolve(deletedHandle, deleted)).toThrow(/unknown or no longer available/);
+  expect(() => registry.resolve(deletedHandle, deleted)).toThrow(/unknown or no longer available/u);
   expect(registry.resolve(keptHandle, kept)).toEqual(cursor);
   expect(getKnownFileMtime(deleted.threadId, '/root/notes.txt')).toBeUndefined();
   expect(getKnownFileMtime(kept.threadId, '/root/notes.txt')).toBe(22);

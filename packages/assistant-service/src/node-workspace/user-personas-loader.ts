@@ -37,7 +37,7 @@ const logger = createLogger('UserPersonas');
 
 const AGENTS_SUBPATH = ['.brainstrike', 'agents'] as const;
 
-const MD_EXTENSION = /\.(md|markdown|mdown|mkd)$/i;
+const MD_EXTENSION = /\.(md|markdown|mdown|mkd)$/iu;
 
 /** Hard cap on accepted personas per scan (abuse/DoS bound). */
 export const MAX_USER_PERSONAS_SCAN = MAX_USER_PERSONAS;
@@ -126,7 +126,7 @@ function warnCountCapReached(): void {
 }
 
 function joinPath(base: string, segments: readonly string[]): string {
-  return [base.replace(/\/+$/, ''), ...segments].join('/');
+  return [base.replace(/\/+$/u, ''), ...segments].join('/');
 }
 
 interface ScanSource {

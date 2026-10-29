@@ -73,7 +73,7 @@ describe('createClosedTabHistory', () => {
   });
 
   it('rejects a non-positive limit', () => {
-    expect(() => createClosedTabHistory(0)).toThrow(/positive integer/);
+    expect(() => createClosedTabHistory(0)).toThrow(/positive integer/u);
   });
 });
 
@@ -113,7 +113,7 @@ describe('placeTabAtIndex', () => {
   });
 
   it('throws when the tab is not in the order', () => {
-    expect(() => placeTabAtIndex(['a'], 'b', 0)).toThrow(/not open/);
+    expect(() => placeTabAtIndex(['a'], 'b', 0)).toThrow(/not open/u);
   });
 });
 

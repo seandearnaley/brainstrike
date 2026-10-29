@@ -47,19 +47,19 @@ export function McpConfigAlert({
   return (
     <section
       aria-labelledby={titleId}
-      className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3"
+      className="bg-muted/30 flex items-start gap-3 rounded-lg border p-3"
       data-testid="mcp-config-alert"
     >
-      <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      <Info aria-hidden="true" className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0" />
 
       <div className="min-w-0 flex-1">
-        <h3 className="font-medium text-sm" id={titleId}>
+        <h3 className="text-sm font-medium" id={titleId}>
           No MCP servers configured yet
         </h3>
-        <p className="mt-0.5 text-muted-foreground text-xs">
+        <p className="text-muted-foreground mt-0.5 text-xs">
           MCP servers are read from
           {configInfo.path ? (
-            <code className="mx-1 break-all rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+            <code className="bg-muted mx-1 rounded px-1 py-0.5 font-mono text-[11px] break-all">
               {configInfo.path}
             </code>
           ) : (

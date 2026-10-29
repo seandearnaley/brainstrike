@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '../../tooltip';
+import { MarkdownCodeBlock } from '../markdown-code-block';
 
 const mocks = vi.hoisted(() => ({
   useShikiHighlighter: vi.fn<() => unknown>(() => null),
@@ -25,9 +27,6 @@ vi.mock('../../shiki/highlighter-core', () => ({
   normalizeShikiLanguage: (language: string | undefined) => language ?? '',
   useShikiHighlighter: mocks.useShikiHighlighter,
 }));
-
-import { TooltipProvider } from '../../tooltip';
-import { MarkdownCodeBlock } from '../markdown-code-block';
 
 // The real app mounts one TooltipProvider at the AppLayout root; the copy
 // button's tooltip needs it.

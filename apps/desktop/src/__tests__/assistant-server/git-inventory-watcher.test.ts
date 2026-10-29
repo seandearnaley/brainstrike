@@ -9,6 +9,13 @@ import path from 'node:path';
 import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createGitInventoryWatchers,
+  GIT_INVENTORY_WATCH_BATCH_MS,
+  GIT_INVENTORY_WATCH_MAX_BATCH_MS,
+  type GitInventoryWatcherDeps,
+  type WatchGitCommonDir,
+} from '../../assistant-server/git-inventory-watcher';
 
 const loggerErrorSpy = vi.hoisted(() => vi.fn());
 const loggerDebugSpy = vi.hoisted(() => vi.fn());
@@ -22,14 +29,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     },
   };
 });
-
-import {
-  createGitInventoryWatchers,
-  GIT_INVENTORY_WATCH_BATCH_MS,
-  GIT_INVENTORY_WATCH_MAX_BATCH_MS,
-  type GitInventoryWatcherDeps,
-  type WatchGitCommonDir,
-} from '../../assistant-server/git-inventory-watcher';
 
 interface FakeSubscriptionRecord {
   readonly commonDir: string;

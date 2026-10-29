@@ -17,7 +17,7 @@ test('a saved permission policy survives a restart from the agent host, and Main
 }) => {
   const userDataDir = await electronApp.app.evaluate(({ app }) => app.getPath('userData'));
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   const edit = window.getByTestId('permission-policy-edit');
   await expect(edit).toHaveValue('ask');
   await edit.selectOption('deny');
@@ -27,7 +27,7 @@ test('a saved permission policy survives a restart from the agent host, and Main
   const { waitForAppReady } = await loadElectronHelpers();
   await waitForAppReady(restarted.window);
   await new HomePage(restarted.window).openSettings();
-  await new SettingsPage(restarted.window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(restarted.window).openCategory(/Permissions/iu, 'permissions');
   await expect(restarted.window.getByTestId('permission-policy-edit')).toHaveValue('deny');
 
   const mainStorage = path.join(userDataDir, 'electron-storage.json');

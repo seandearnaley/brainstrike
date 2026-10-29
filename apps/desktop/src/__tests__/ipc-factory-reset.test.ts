@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  registerFactoryResetIpcHandlers,
+  registerProfilePathIpcHandlers,
+} from '../ipc-factory-reset';
+import {
   createAllowlistedSenderFrame,
   invokeDesktopIpc,
   invokeDesktopIpcFrom,
@@ -7,11 +11,6 @@ import {
 
 const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
 vi.mock('electron', () => ({ ipcMain }));
-
-import {
-  registerFactoryResetIpcHandlers,
-  registerProfilePathIpcHandlers,
-} from '../ipc-factory-reset';
 
 const originalPlatform = process.platform;
 afterEach(() => {

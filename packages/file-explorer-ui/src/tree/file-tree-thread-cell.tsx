@@ -91,10 +91,10 @@ function FileThreadValue({
         ))}
       </span>
       {status.freshness === 'changed' ? (
-        <FileDiff aria-hidden="true" className="size-3 shrink-0 text-warning" />
+        <FileDiff aria-hidden="true" className="text-warning size-3 shrink-0" />
       ) : null}
       {status.editedWithoutRead ? (
-        <EyeOff aria-hidden="true" className="size-3 shrink-0 text-destructive" />
+        <EyeOff aria-hidden="true" className="text-destructive size-3 shrink-0" />
       ) : null}
       <span className="sr-only">{summary}</span>
     </span>
@@ -119,7 +119,7 @@ function FolderThreadValue({
   const summary = `This thread touched ${count.toLocaleString()} ${count === 1 ? 'file' : 'files'} here`;
   return (
     <span
-      className="font-mono text-muted-foreground text-xs tabular-nums"
+      className="text-muted-foreground font-mono text-xs tabular-nums"
       data-testid="explorer-thread-folder"
       title={summary}
     >

@@ -54,7 +54,7 @@ function AdmittedConfiguration({ details }: { readonly details: HostChildToolbar
           <summary className="cursor-pointer">
             {details.tools.length} admitted {details.tools.length === 1 ? 'tool' : 'tools'}
           </summary>
-          <ul className="mt-1 max-h-36 overflow-auto break-words text-muted-foreground">
+          <ul className="text-muted-foreground mt-1 max-h-36 overflow-auto break-words">
             {details.tools.map((id) => (
               <li key={id}>{id.replace(/^brainstrike\./u, '')}</li>
             ))}
@@ -79,7 +79,7 @@ export function HostChildToolbar({
   const { profile, usage } = details;
   if (!profile) {
     return (
-      <p className="px-2 text-destructive text-xs" role="alert">
+      <p className="text-destructive px-2 text-xs" role="alert">
         This child’s admitted persona was not recorded.
       </p>
     );
@@ -88,7 +88,7 @@ export function HostChildToolbar({
   return (
     <div className="flex items-center gap-2">
       {details.executionUnreadable ? (
-        <p className="px-2 text-destructive text-xs" role="alert">
+        <p className="text-destructive px-2 text-xs" role="alert">
           Latest run settings are unavailable.
         </p>
       ) : null}

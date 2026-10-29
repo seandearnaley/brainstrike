@@ -157,13 +157,13 @@ describe('ContextPacker', () => {
     ['infinite', Number.POSITIVE_INFINITY],
   ])('throws for invalid budget tokens (%s)', (_label, value) => {
     expect(() => new ContextPacker({ budgetTokens: value })).toThrow(
-      /ContextPacker: budgetTokens must be a finite non-negative number/
+      /ContextPacker: budgetTokens must be a finite non-negative number/u
     );
   });
 
   it('throws when budget exceeds safe integer range', () => {
     expect(() => new ContextPacker({ budgetTokens: Number.MAX_SAFE_INTEGER + 1 })).toThrow(
-      /exceeds safe integer range/
+      /exceeds safe integer range/u
     );
   });
 
@@ -171,13 +171,13 @@ describe('ContextPacker', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
     const chunk = { content: 'missing id' } as unknown as ContextPackerChunk;
 
-    expect(() => packer.pack([chunk])).toThrow(/chunk id must be a non-empty string/);
+    expect(() => packer.pack([chunk])).toThrow(/chunk id must be a non-empty string/u);
   });
 
   it('throws when chunk content is missing', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
     const chunk = { id: 'chunk-1' } as unknown as ContextPackerChunk;
 
-    expect(() => packer.pack([chunk])).toThrow(/chunk content must be a string/);
+    expect(() => packer.pack([chunk])).toThrow(/chunk content must be a string/u);
   });
 });

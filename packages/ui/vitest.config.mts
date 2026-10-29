@@ -20,7 +20,7 @@ const browserProject = createBrowserProject({
 
 const workspaceAliases = [
   {
-    find: /^@brainstrike\/utils\/(.*)$/,
+    find: /^@brainstrike\/utils\/(.*)$/u,
     replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
   },
   {

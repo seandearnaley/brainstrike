@@ -4,11 +4,6 @@ import path from 'node:path';
 import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { WatcherHealthTransition } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
-
-const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
-
-vi.mock('electron', () => ({ ipcMain }));
-
 import { untrackAppWindow } from '../../app-windows';
 import {
   type FileSystemWatchSubscription,
@@ -24,6 +19,10 @@ import {
   invokeEventFor,
   toDirectoryHandle,
 } from './file-system-watch-ipc-test-helpers';
+
+const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
+
+vi.mock('electron', () => ({ ipcMain }));
 
 function invoke(owner: FakeWebContents, method: string, ...args: unknown[]): Promise<unknown> {
   return invokeDesktopIpcFrom(ipcMain, invokeEventFor(owner), method, ...args);

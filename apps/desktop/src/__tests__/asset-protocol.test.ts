@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { net } from 'electron';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAssetProtocolHandler } from '../asset-protocol';
 
 vi.mock('electron', () => ({
   net: {
@@ -10,8 +11,6 @@ vi.mock('electron', () => ({
   },
   protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
 }));
-
-import { createAssetProtocolHandler } from '../asset-protocol';
 
 let root: string;
 let outside: string;

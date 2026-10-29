@@ -185,7 +185,7 @@ const GOOGLE_DEFINITION = { authType: 'api_key', displayName: 'Google', id: 'goo
 
 const waitForReady = async (): Promise<void> => {
   await waitFor(() => {
-    expect(screen.queryAllByTestId(/credential-status-skeleton-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/credential-status-skeleton-/u)).toHaveLength(0);
   });
 };
 

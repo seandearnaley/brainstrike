@@ -192,15 +192,13 @@ function migrateModelList(provider: SupportedProvider, models: Iterable<string>)
 
 // Enable all provider models by default so the UI exposes full model lists
 // even before the DB-backed registry loads.
-const DEFAULT_ENABLED_MODELS = SUPPORTED_PROVIDERS.reduce((acc, provider) => {
-  acc[provider] = cloneModelList(PROVIDER_MODELS[provider]);
-  return acc;
-}, {} as EnabledModelsMap);
+const DEFAULT_ENABLED_MODELS = Object.fromEntries(
+  SUPPORTED_PROVIDERS.map((provider) => [provider, cloneModelList(PROVIDER_MODELS[provider])])
+) as EnabledModelsMap;
 
-const DEFAULT_PROVIDER_SETTINGS = SUPPORTED_PROVIDERS.reduce((acc, provider) => {
-  acc[provider] = {};
-  return acc;
-}, {} as ProviderSettingsMap);
+const DEFAULT_PROVIDER_SETTINGS = Object.fromEntries(
+  SUPPORTED_PROVIDERS.map((provider) => [provider, {}])
+) as ProviderSettingsMap;
 
 function orderByProviderCanonicalList(
   provider: SupportedProvider,

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileGitRunner } from '../git-ipc-handlers';
 
 const spawnMock = vi.hoisted(() => vi.fn());
 
@@ -12,8 +13,6 @@ vi.mock('node:child_process', async (importOriginal) => {
     spawn: spawnMock,
   };
 });
-
-import { execFileGitRunner } from '../git-ipc-handlers';
 
 /** A git child that exits cleanly with no output. */
 function exitedChild(): EventEmitter {

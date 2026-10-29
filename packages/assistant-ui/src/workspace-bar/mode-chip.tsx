@@ -33,15 +33,15 @@ const WorktreeInfo = ({
 }): ReactElement => (
   <div className="px-2 py-1.5 text-xs">
     <span className="block truncate font-medium">{worktree.name}</span>
-    <span className="block truncate font-mono text-[10px] text-muted-foreground">
+    <span className="text-muted-foreground block truncate font-mono text-[10px]">
       {worktree.path}
     </span>
-    <span className="mt-0.5 block text-[10px] text-muted-foreground">
+    <span className="text-muted-foreground mt-0.5 block text-[10px]">
       {worktree.detached ? 'Detached HEAD' : (worktree.branch ?? 'Detached HEAD')}
     </span>
     {worktree.setupReason ? (
       <span
-        className="mt-1 block text-[10px] text-warning leading-snug"
+        className="text-warning mt-1 block text-[10px] leading-snug"
         data-testid="workspace-bar-mode-setup-reason"
       >
         {worktree.setupReason}
@@ -117,7 +117,7 @@ const ModeMenuBody = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEleme
   const { worktree } = mode;
   if (!worktree) {
     return (
-      <div className="px-2 py-1.5 text-muted-foreground text-xs">
+      <div className="text-muted-foreground px-2 py-1.5 text-xs">
         Local — edits land in {mode.localPath ?? 'this folder'}.
       </div>
     );
@@ -162,7 +162,7 @@ const DiagnosticOnlyModeChip = ({
     <DropdownMenuContent align="start" className="w-80">
       <DropdownMenuLabel>Checkout mode unavailable</DropdownMenuLabel>
       <div
-        className="px-2 pb-2 text-[11px] text-muted-foreground"
+        className="text-muted-foreground px-2 pb-2 text-[11px]"
         data-testid="workspace-bar-mode-diagnostic"
       >
         {reason}
@@ -219,11 +219,11 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
           <ChevronDown aria-hidden="true" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-80">
-          <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
+          <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
             Where this thread works
           </DropdownMenuLabel>
           {mode.pending ? (
-            <span className="block px-3 py-1 text-[10px] text-muted-foreground">
+            <span className="text-muted-foreground block px-3 py-1 text-[10px]">
               Worktree operation in progress.
             </span>
           ) : null}
@@ -254,7 +254,7 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
               <span className="block">New worktree…</span>
               {mode.createDisabledReason ? (
                 <span
-                  className="block whitespace-normal text-[10px] text-muted-foreground"
+                  className="text-muted-foreground block text-[10px] whitespace-normal"
                   data-testid="workspace-bar-mode-create-disabled-reason"
                 >
                   {mode.createDisabledReason}

@@ -112,7 +112,7 @@ test.describe('Database integrity containment (desktop) @desktop-db-storage', ()
     await expect(
       reopened
         .getByTestId('thread-read-failure')
-        .and(reopened.getByRole('button', { name: new RegExp(threadId) }))
+        .and(reopened.getByRole('button', { name: new RegExp(threadId, 'u') }))
     ).toBeVisible();
     const catalog = await withAppHost(userData, (host) => host.request('thread/list', {}));
     expect(catalog.threads.find((thread) => thread.threadId === threadId)?.damage).toBeTruthy();

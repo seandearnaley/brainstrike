@@ -91,7 +91,7 @@ describe('root-registration-events', () => {
   it('rejects loudly on timeout instead of hanging silently', async () => {
     vi.useFakeTimers();
     const waiter = awaitRootRegistration('/ws/never', { since: 0, timeoutMs: 1000 });
-    const assertion = expect(waiter).rejects.toThrow(/Timed out after 1000ms.*\/ws\/never/);
+    const assertion = expect(waiter).rejects.toThrow(/Timed out after 1000ms.*\/ws\/never/u);
 
     await vi.advanceTimersByTimeAsync(1000);
     await assertion;

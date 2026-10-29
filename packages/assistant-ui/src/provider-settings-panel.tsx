@@ -274,15 +274,15 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
   );
 
   return (
-    <section aria-label="Agent context" className="min-w-0 space-y-3 border-border border-t pt-4">
+    <section aria-label="Agent context" className="border-border min-w-0 space-y-3 border-t pt-4">
       <div>
-        <h3 className="font-semibold text-foreground text-xs">Agent context</h3>
+        <h3 className="text-foreground text-xs font-semibold">Agent context</h3>
         <p className="text-muted-foreground text-xs">Bounds for each agent run.</p>
       </div>
       <div className="space-y-4">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="min-w-[160px] flex-1">
-            <Label className="font-medium text-foreground text-xs" htmlFor={maxStepsInputId}>
+            <Label className="text-foreground text-xs font-medium" htmlFor={maxStepsInputId}>
               Max steps
             </Label>
             <p className="text-muted-foreground text-xs" id={maxStepsHelpId}>
@@ -317,7 +317,7 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
         <FieldRefusal id={maxStepsErrorId} message={maxSteps.error} />
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="min-w-[160px] flex-1">
-            <Label className="font-medium text-foreground text-xs" htmlFor={inputTokenLimitInputId}>
+            <Label className="text-foreground text-xs font-medium" htmlFor={inputTokenLimitInputId}>
               Input tokens
             </Label>
             <p className="text-muted-foreground text-xs" id={inputTokenLimitHelpId}>
@@ -352,7 +352,7 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
         <FieldRefusal id={inputTokenLimitErrorId} message={inputTokenLimit.error} />
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="min-w-[160px] flex-1">
-            <Label className="font-medium text-foreground text-xs" htmlFor={memoryInputId}>
+            <Label className="text-foreground text-xs font-medium" htmlFor={memoryInputId}>
               Recent messages
             </Label>
             <p className="text-muted-foreground text-xs" id={memoryHelpId}>
@@ -375,7 +375,7 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
         <FieldRefusal id={memoryErrorId} message={memory.error} />
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="font-medium text-foreground text-xs">Working memory</p>
+            <p className="text-foreground text-xs font-medium">Working memory</p>
             <p className="text-muted-foreground text-xs">Keep useful context between steps.</p>
           </div>
           <Switch
@@ -467,10 +467,10 @@ const MaxOutputSection = ({
   });
 
   return (
-    <section aria-label="Output tokens" className="min-w-0 space-y-3 border-border border-t pt-4">
+    <section aria-label="Output tokens" className="border-border min-w-0 space-y-3 border-t pt-4">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-semibold text-foreground text-xs">Output tokens per step</h3>
+          <h3 className="text-foreground text-xs font-semibold">Output tokens per step</h3>
           <p className="text-muted-foreground text-xs" id={helpId}>
             Maximum output tokens for each model step. {autoDescription}
           </p>
@@ -503,12 +503,12 @@ const MaxOutputSection = ({
           type="number"
           {...field.inputProps}
         />
-        <span className="shrink-0 text-muted-foreground text-xs">tokens</span>
+        <span className="text-muted-foreground shrink-0 text-xs">tokens</span>
       </div>
       <FieldRefusal id={errorId} message={field.error} />
       <input
         aria-label="Max output tokens"
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-colors hover:bg-muted/80"
+        className="bg-muted accent-primary hover:bg-muted/80 h-1.5 w-full cursor-pointer appearance-none rounded-lg transition-colors"
         disabled={disabled || !maxOutputEnabled}
         max={maximum}
         min={MAX_OUTPUT_MIN}
@@ -523,7 +523,7 @@ const MaxOutputSection = ({
         type="range"
         value={maxOutputEnabled ? maxOutputValue : defaultValue}
       />
-      <div className="flex justify-between text-[11px] text-muted-foreground">
+      <div className="text-muted-foreground flex justify-between text-[11px]">
         <span>{settingsNumberFormatter.format(MAX_OUTPUT_MIN)}</span>
         <span>{settingsNumberFormatter.format(maximum)} tokens</span>
       </div>
@@ -533,42 +533,50 @@ const MaxOutputSection = ({
 
 // Reasoning EFFORT moved to the composer model menu (Effort submenu); this
 // section keeps only the provider-supported reasoning-summary control.
-const OpenAiReasoningSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
-  <section aria-label="Reasoning output" className="min-w-0 space-y-3 border-border border-t pt-4">
-    <div>
-      <h3 className="font-semibold text-foreground text-xs">Reasoning output</h3>
-      <p className="text-muted-foreground text-xs">Choose how much reasoning summary to show.</p>
-    </div>
-    <div className="min-w-0 space-y-1">
-      <Label className="font-medium text-foreground text-xs">Reasoning summary</Label>
-      <Select
-        disabled={disabled}
-        // `reasoningSummary: undefined` no longer means "no summary" — the
-        // shared visibility default fills it in. Off must therefore write the
-        // explicit opt-out, or the option would render but do nothing.
-        onValueChange={(value) =>
-          onUpdate(
-            value === 'off'
-              ? { reasoningSummary: undefined, reasoningVisible: false }
-              : { reasoningSummary: value as OpenAiReasoningSummary, reasoningVisible: true }
-          )
-        }
-        value={resolveReasoningVisible(settings) ? (settings.reasoningSummary ?? 'auto') : 'off'}
-      >
-        <SelectTrigger className="h-9 w-full min-w-0 text-sm">
-          <SelectValue placeholder="Auto" />
-        </SelectTrigger>
-        <SelectContent>
-          {OPENAI_SUMMARY_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  </section>
-);
+const OpenAiReasoningSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
+  const summaryId = useId();
+  return (
+    <section
+      aria-label="Reasoning output"
+      className="border-border min-w-0 space-y-3 border-t pt-4"
+    >
+      <div>
+        <h3 className="text-foreground text-xs font-semibold">Reasoning output</h3>
+        <p className="text-muted-foreground text-xs">Choose how much reasoning summary to show.</p>
+      </div>
+      <div className="min-w-0 space-y-1">
+        <Label className="text-foreground text-xs font-medium" htmlFor={summaryId}>
+          Reasoning summary
+        </Label>
+        <Select
+          disabled={disabled}
+          // `reasoningSummary: undefined` no longer means "no summary" — the
+          // shared visibility default fills it in. Off must therefore write the
+          // explicit opt-out, or the option would render but do nothing.
+          onValueChange={(value) =>
+            onUpdate(
+              value === 'off'
+                ? { reasoningSummary: undefined, reasoningVisible: false }
+                : { reasoningSummary: value as OpenAiReasoningSummary, reasoningVisible: true }
+            )
+          }
+          value={resolveReasoningVisible(settings) ? (settings.reasoningSummary ?? 'auto') : 'off'}
+        >
+          <SelectTrigger className="h-9 w-full min-w-0 text-sm" id={summaryId}>
+            <SelectValue placeholder="Auto" />
+          </SelectTrigger>
+          <SelectContent>
+            {OPENAI_SUMMARY_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </section>
+  );
+};
 
 const AnthropicReasoningSection = ({
   settings,
@@ -594,17 +602,17 @@ const AnthropicReasoningSection = ({
   return (
     <section
       aria-label="Claude reasoning"
-      className="min-w-0 space-y-3 border-border border-t pt-4"
+      className="border-border min-w-0 space-y-3 border-t pt-4"
     >
       <div>
-        <h3 className="font-semibold text-foreground text-xs">Claude reasoning</h3>
+        <h3 className="text-foreground text-xs font-semibold">Claude reasoning</h3>
         <p className="text-muted-foreground text-xs" id={thinkingHelpId}>
           Optional budget for Claude thinking.
         </p>
       </div>
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <span className="font-medium text-foreground text-xs">Thinking budget</span>
+          <span className="text-foreground text-xs font-medium">Thinking budget</span>
           <Switch
             aria-label="Limit Anthropic thinking budget"
             checked={thinkingEnabled}
@@ -631,12 +639,12 @@ const AnthropicReasoningSection = ({
             type="number"
             {...thinkingBudget.inputProps}
           />
-          <span className="shrink-0 text-muted-foreground text-xs">tokens</span>
+          <span className="text-muted-foreground shrink-0 text-xs">tokens</span>
         </div>
         <FieldRefusal id={thinkingErrorId} message={thinkingBudget.error} />
         <input
           aria-label="Anthropic thinking budget"
-          className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-colors hover:bg-muted/80"
+          className="bg-muted accent-primary hover:bg-muted/80 h-1.5 w-full cursor-pointer appearance-none rounded-lg transition-colors"
           disabled={disabled || !thinkingEnabled}
           max={ANTHROPIC_THINKING_MAX}
           min={ANTHROPIC_THINKING_MIN}
@@ -655,7 +663,7 @@ const AnthropicReasoningSection = ({
           type="range"
           value={thinkingEnabled ? thinkingValue : ANTHROPIC_THINKING_DEFAULT}
         />
-        <div className="flex justify-between text-[11px] text-muted-foreground">
+        <div className="text-muted-foreground flex justify-between text-[11px]">
           <span>{settingsNumberFormatter.format(ANTHROPIC_THINKING_MIN)}</span>
           <span>{settingsNumberFormatter.format(ANTHROPIC_THINKING_MAX)} tokens</span>
         </div>
@@ -667,13 +675,13 @@ const AnthropicReasoningSection = ({
 // The thinking LEVEL select moved to the composer model menu (Effort
 // submenu); this section keeps only the include-thoughts debug toggle.
 const GoogleThinkingSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
-  <section aria-label="Gemini thinking" className="min-w-0 space-y-3 border-border border-t pt-4">
+  <section aria-label="Gemini thinking" className="border-border min-w-0 space-y-3 border-t pt-4">
     <div>
-      <h3 className="font-semibold text-foreground text-xs">Gemini thinking</h3>
+      <h3 className="text-foreground text-xs font-semibold">Gemini thinking</h3>
     </div>
     <div className="flex min-w-0 items-center justify-between gap-3">
       <div className="min-w-0">
-        <p className="font-medium text-foreground text-xs">Include thoughts</p>
+        <p className="text-foreground text-xs font-medium">Include thoughts</p>
         <p className="text-muted-foreground text-xs">Stream internal reasoning for debugging.</p>
       </div>
       <Switch

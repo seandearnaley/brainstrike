@@ -62,7 +62,7 @@ interface MetadataCellProps {
 function PendingValue({ title }: { title: string }) {
   return (
     <span className="inline-flex items-center" title={title}>
-      <span aria-hidden="true" className="h-1.5 w-5 rounded-full bg-foreground/15" />
+      <span aria-hidden="true" className="bg-foreground/15 h-1.5 w-5 rounded-full" />
       <span className="sr-only">{title}</span>
     </span>
   );
@@ -78,7 +78,7 @@ function UnavailableValue({ title }: { title: string }) {
 
 function NumericValue({ children, title }: { children: string; title: string }) {
   return (
-    <span className="whitespace-nowrap font-mono text-xs tabular-nums" title={title}>
+    <span className="font-mono text-xs whitespace-nowrap tabular-nums" title={title}>
       {children}
     </span>
   );

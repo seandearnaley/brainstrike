@@ -135,12 +135,12 @@ describe('ViewFilterPresetDropdown', () => {
     renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} />);
 
     await user.click(screen.getByRole('button'));
-    await user.type(screen.getByRole('textbox', { name: /filter presets/i }), 'Documentation');
+    await user.type(screen.getByRole('textbox', { name: /filter presets/iu }), 'Documentation');
     await user.keyboard('{Enter}');
 
     expect(mockOnSelect).toHaveBeenCalledWith(getMockPreset(1));
     await waitFor(() => {
-      expect(screen.queryByRole('textbox', { name: /filter presets/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: /filter presets/iu })).not.toBeInTheDocument();
     });
   });
 
@@ -226,7 +226,7 @@ describe('ViewFilterPresetDropdown', () => {
     await userEvent.click(screen.getByText('Create New Preset'));
 
     await userEvent.type(screen.getByPlaceholderText('e.g. My Custom Filter'), '  Frontend  ');
-    await userEvent.click(screen.getByRole('button', { name: /^Select Code icon$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^Select Code icon$/iu }));
     await userEvent.type(screen.getByPlaceholderText('*.ts, src/**'), ' src/**, , *.tsx ');
     await userEvent.type(screen.getByPlaceholderText('node_modules, dist'), ' dist, , build ');
     await userEvent.click(screen.getByText('Use Regex'));
@@ -274,7 +274,7 @@ describe('ViewFilterPresetDropdown', () => {
     const documentationRow = getPresetRow('Documentation');
     await userEvent.click(within(documentationRow).getByRole('button', { name: 'Edit preset' }));
 
-    await userEvent.click(screen.getByRole('button', { name: /select data icon/i }));
+    await userEvent.click(screen.getByRole('button', { name: /select data icon/iu }));
     await userEvent.clear(screen.getByDisplayValue('Documentation'));
     await userEvent.type(screen.getByPlaceholderText('Name'), 'Docs Edited');
     await userEvent.clear(screen.getByDisplayValue('*.md, *.txt'));
@@ -303,7 +303,7 @@ describe('ViewFilterPresetDropdown', () => {
 
     const documentationRow = getPresetRow('Documentation');
     await userEvent.click(within(documentationRow).getByRole('button', { name: 'Edit preset' }));
-    await userEvent.click(screen.getByRole('button', { name: /delete/i }));
+    await userEvent.click(screen.getByRole('button', { name: /delete/iu }));
 
     await waitFor(() => {
       expect(mockOnDelete).toHaveBeenCalledWith('preset-2');
@@ -316,11 +316,11 @@ describe('ViewFilterPresetDropdown', () => {
     renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} />);
 
     await user.click(screen.getByRole('button'));
-    await user.type(screen.getByRole('textbox', { name: /filter presets/i }), '.');
+    await user.type(screen.getByRole('textbox', { name: /filter presets/iu }), '.');
     await user.keyboard('{Enter}');
 
     expect(mockOnSelect).not.toHaveBeenCalled();
-    expect(screen.getByRole('textbox', { name: /filter presets/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /filter presets/iu })).toBeInTheDocument();
   });
 
   it('keeps the trigger enabled when presets are still loading', () => {

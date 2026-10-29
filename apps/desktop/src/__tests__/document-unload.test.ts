@@ -1,13 +1,5 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const electron = vi.hoisted(() => ({ windows: [] as unknown[] }));
-vi.mock('electron', () => ({
-  BrowserWindow: { getAllWindows: () => electron.windows },
-}));
-const prepare = vi.hoisted(() => ({ prepareDocumentUnload: vi.fn() }));
-vi.mock('../prepare-document-unload', () => prepare);
-
 import { trackAppWindow } from '../app-windows';
 import {
   admitDocumentClose,
@@ -17,6 +9,13 @@ import {
   reloadDocument,
   visibleDocumentWindows,
 } from '../document-unload';
+
+const electron = vi.hoisted(() => ({ windows: [] as unknown[] }));
+vi.mock('electron', () => ({
+  BrowserWindow: { getAllWindows: () => electron.windows },
+}));
+const prepare = vi.hoisted(() => ({ prepareDocumentUnload: vi.fn() }));
+vi.mock('../prepare-document-unload', () => prepare);
 
 let nextWebContentsId = 1;
 

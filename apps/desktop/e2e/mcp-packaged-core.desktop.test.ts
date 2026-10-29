@@ -206,7 +206,7 @@ function buildConfig(options: {
 }
 async function openToolsSettings(page: Page): Promise<void> {
   await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+  await new SettingsPage(page).openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   await expect(page.getByTestId('mcp-config-editor-panel')).toBeVisible({ timeout: 30_000 });
   // The editor renders only once the panel's first config read settles. Filling
@@ -279,10 +279,10 @@ async function disarmDiagnosticFaults(
   });
 }
 async function verifyDiagnosticFailure(page: Page, controlDirectory: string): Promise<void> {
-  await waitForServerState(page, 'diagnostic-stdio', /Connected/i);
+  await waitForServerState(page, 'diagnostic-stdio', /Connected/iu);
   await sendDiagnosticCommand(controlDirectory, 2, 'stderr');
   await sendDiagnosticCommand(controlDirectory, 3, 'exit');
-  await waitForServerState(page, 'diagnostic-stdio', /Error/i);
+  await waitForServerState(page, 'diagnostic-stdio', /Error/iu);
   await expect(page.getByTestId('mcp-diagnostics-diagnostic-stdio')).toContainText(
     '[redacted-secret:bearer-token]'
   );
@@ -317,11 +317,11 @@ async function connectOAuthThroughNativeBrowser(
     )
     .toBe('authorization-observed');
   await page.getByRole('button', { exact: true, name: 'Cancel oauth' }).click();
-  await waitForServerState(page, 'oauth', /authentication-required|disconnected/i);
+  await waitForServerState(page, 'oauth', /authentication-required|disconnected/iu);
   cancellationFixture.releaseAuthorization();
   await expect.poll(() => cancellationFixture.authorizationSettled()).toBe(true);
   await page.getByRole('button', { exact: true, name: 'Connect oauth' }).click();
-  await waitForServerState(page, 'oauth', /Connected/i);
+  await waitForServerState(page, 'oauth', /Connected/iu);
   await expect(serverRow(page, 'oauth')).toContainText('2026-07-28');
 }
 function processIsGone(pid: number): boolean {
@@ -485,7 +485,7 @@ async function executeAssistantTool(
   // The Settings action commits the choice and publishes the acknowledged
   // catalog snapshot to the same renderer registry the composer observes.
   await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/Model Catalog/i, 'embedding-models');
+  await new SettingsPage(page).openCategory(/Model Catalog/iu, 'embedding-models');
   await page.getByRole('searchbox', { name: 'Search models' }).fill('openai/gpt-5.6-terra');
   const modelToggle = page.getByTestId('model-toggle-openai/gpt-5.6-terra');
   await expect(modelToggle).toBeVisible();
@@ -536,7 +536,7 @@ async function executeAssistantTool(
   // The accessible name leads with the visible tool and payload. Match the
   // details affordance within this completed card, keeping its first row tight.
   await toolCard
-    .getByRole('button', { name: /expand details/i })
+    .getByRole('button', { name: /expand details/iu })
     .first()
     .click();
   await expect(toolCard).toContainText(ASSISTANT_TOOL_PAYLOAD);
@@ -586,7 +586,7 @@ async function executeElicitationTool(
   // the locator single-match the way `exact: true` used to (see the sibling
   // `executeAssistantTool` above).
   await toolCard
-    .getByRole('button', { name: /expand details/i })
+    .getByRole('button', { name: /expand details/iu })
     .first()
     .click();
   await expect(toolCard).toContainText(ELICITATION_TOOL_PAYLOAD);
@@ -752,10 +752,10 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       ['modern', '2026-07-28'],
       ['legacy', '2025-11-25'],
     ] as const) {
-      await waitForServerState(first.window, server, /Connected/i);
+      await waitForServerState(first.window, server, /Connected/iu);
       await expect(serverRow(first.window, server)).toContainText(revision);
     }
-    await waitForServerState(first.window, 'stdio', /Connected/i);
+    await waitForServerState(first.window, 'stdio', /Connected/iu);
     await verifyResourceRead(first.window);
     const firstStdioPid = await readOwnedPid(stdioPidFile);
     await verifyDiagnosticFailure(first.window, diagnosticControlDirectory);
@@ -765,9 +765,9 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     // every configured MCP server rather than silently skipping a failed one.
     await disarmDiagnosticFaults(diagnosticControlDirectory, diagnosticControlPath);
     await first.window.getByRole('button', { exact: true, name: 'Retry diagnostic-stdio' }).click();
-    await waitForServerState(first.window, 'diagnostic-stdio', /Connected/i);
+    await waitForServerState(first.window, 'diagnostic-stdio', /Connected/iu);
     await connectOAuthThroughNativeBrowser(first.window, oauth);
-    await new SettingsPage(first.window).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(first.window).openCategory(/Permissions/iu, 'permissions');
     const permission = first.window.getByRole('combobox', { name: 'MCP permission' });
     await permission.selectOption('ask');
     await expect(permission).toHaveValue('ask');
@@ -837,13 +837,13 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     });
     await openToolsSettings(restarted.window);
     await restarted.window.getByRole('tab', { name: 'Tools' }).click();
-    await waitForServerState(restarted.window, 'modern', /Connected/i);
-    await waitForServerState(restarted.window, 'stdio', /Connected/i);
+    await waitForServerState(restarted.window, 'modern', /Connected/iu);
+    await waitForServerState(restarted.window, 'stdio', /Connected/iu);
     const restartedStdioPid = await readOwnedPid(stdioPidFile, firstStdioPid);
     const beforeResetDiagnostics = await readLifecycleDiagnostics(restarted.window, userDataDir);
     // A persisted grant reconnects during startup discovery, without another
     // Connect action. Waiting for authentication-required encoded the old bug.
-    await waitForServerState(restarted.window, 'oauth', /Connected/i);
+    await waitForServerState(restarted.window, 'oauth', /Connected/iu);
     await expect(serverRow(restarted.window, 'oauth')).toContainText('OAuth credentials stored');
     await expect(
       restarted.window.getByRole('button', { exact: true, name: 'Connect oauth' })
@@ -867,7 +867,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       )
     ).toEqual([]);
     await new HomePage(restarted.window).openSettings();
-    await new SettingsPage(restarted.window).openCategory(/Factory Reset/i, 'factory-reset');
+    await new SettingsPage(restarted.window).openCategory(/Factory Reset/iu, 'factory-reset');
     if (process.platform === 'win32') {
       await expect(restarted.window.getByTestId('factory-reset-button')).toBeDisabled();
       await expect(
@@ -920,7 +920,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
         restarted.window,
         JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })
       );
-      await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
+      await waitForServerState(restarted.window, 'oauth', /authentication-required/iu);
       await expect(serverRow(restarted.window, 'oauth')).toContainText(
         'OAuth credentials not stored'
       );

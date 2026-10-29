@@ -114,7 +114,7 @@ describe('TokenCacheContext', () => {
       </TokenCacheProvider>
     );
 
-    expect(await screen.findByText(/Count: 100/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Count: 100/iu)).toBeInTheDocument();
   });
 
   it('throws error when used outside provider', () => {

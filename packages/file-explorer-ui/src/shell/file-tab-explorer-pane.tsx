@@ -70,7 +70,7 @@ export function FileTabExplorerPane({
     // renders; only the pane says why it cannot.
     return (
       <div
-        className="flex h-full items-center justify-center p-4 text-center text-muted-foreground text-xs"
+        className="text-muted-foreground flex h-full items-center justify-center p-4 text-center text-xs"
         data-testid="file-tab-pane-unavailable"
       >
         This file's workspace root is not connected.

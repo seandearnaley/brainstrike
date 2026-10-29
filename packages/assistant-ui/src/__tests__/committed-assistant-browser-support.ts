@@ -14,9 +14,6 @@ import { commands, page, userEvent } from 'vitest/browser';
 import type { CommittedAssistantCommands } from '../committed-assistant-store';
 
 import { ATTRIBUTION_TRIALS, TRIALS } from './committed-publication-config';
-
-export { ATTRIBUTION_TRIALS, TRIALS } from './committed-publication-config';
-
 import {
   createPublicationInstrumentation,
   drainMicrotasks,
@@ -24,12 +21,13 @@ import {
   type PublicationTiming,
   yieldTask,
 } from './committed-publication-instrumentation';
-
 import {
   RUN_REFUSED,
   recordedBaseline,
   recordedChildPublications,
 } from './committed-recording-support';
+
+export { ATTRIBUTION_TRIALS, TRIALS } from './committed-publication-config';
 
 export {
   answerStepLength,

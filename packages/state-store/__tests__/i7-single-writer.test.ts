@@ -70,7 +70,7 @@ describe('item 7 · single writer', () => {
         const real = realpathSync(root);
         const rel = (n: string): string => relative(real, n).split('\\').join('/');
         const dataFile = (f: OpenFile): boolean =>
-          rel(f.name).endsWith(STATE_DB) && /^\d+$/.test(f.fd);
+          rel(f.name).endsWith(STATE_DB) && /^\d+$/u.test(f.fd);
         expect(samples.length).toBeGreaterThan(3);
         // positive controls: the instrument sees both processes on the truth
         expect(flat.some((f) => f.pid === process.pid && dataFile(f))).toBe(true);

@@ -59,7 +59,7 @@ describe('FileTree', () => {
     });
     expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
     expect(screen.getByText('src')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /expand/iu })).toBeInTheDocument();
   });
 
   it('shows directory structure', async () => {
@@ -72,7 +72,7 @@ describe('FileTree', () => {
     expect(screen.getByText('src')).toBeInTheDocument();
 
     // Should have expand/collapse button for directories
-    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /expand/iu })).toBeInTheDocument();
   });
 
   it('handles basic user interactions', async () => {
@@ -83,13 +83,13 @@ describe('FileTree', () => {
     });
 
     // Find and click expand button
-    const expandButton = screen.getByRole('button', { name: /expand/i });
+    const expandButton = screen.getByRole('button', { name: /expand/iu });
 
     // Should be able to click without errors
     await user.click(expandButton);
 
     // Directory selection checkbox should be present
-    const checkbox = screen.getByRole('checkbox', { name: /select src/i });
+    const checkbox = screen.getByRole('checkbox', { name: /select src/iu });
     expect(checkbox).toBeInTheDocument();
 
     // Should be able to click checkbox without errors
@@ -142,9 +142,9 @@ describe('FileTree', () => {
     // the toggle reads Collapse. (The old /expand/i assertions only held
     // because the fixture lacked loadState and expansion silently no-oped.)
     expect(screen.getByText('index.ts')).toBeInTheDocument();
-    const collapseButton = screen.getByRole('button', { name: /collapse/i });
+    const collapseButton = screen.getByRole('button', { name: /collapse/iu });
     await user.click(collapseButton);
-    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /expand/iu })).toBeInTheDocument();
     expect(screen.queryByText('index.ts')).not.toBeInTheDocument();
   });
 });

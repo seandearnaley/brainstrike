@@ -17,9 +17,6 @@
  * byte-identical — OpenRouter normalizes for Anthropic-style upstreams where
  * an empty text block is itself invalid.
  */
-type LanguageModelV2CallOptions = Parameters<ModelRouterLanguageModel['doStream']>[0];
-type LanguageModelV2Prompt = LanguageModelV2CallOptions['prompt'];
-
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -28,6 +25,9 @@ import {
   openRouterModelRequiresStringContent,
 } from '../providers/openrouter-strict-content';
 import { createProvider } from '../providers/provider-factory';
+
+type LanguageModelV2CallOptions = Parameters<ModelRouterLanguageModel['doStream']>[0];
+type LanguageModelV2Prompt = LanguageModelV2CallOptions['prompt'];
 
 interface CapturedRequest {
   body: string;
@@ -296,7 +296,7 @@ describe('OpenRouterStrictContentGateway getApiKey (BST-1361)', () => {
     clearOpenRouterEnv();
     const gateway = new OpenRouterStrictContentGateway();
     await expect(gateway.getApiKey('openrouter/qwen/qwen3.8-max')).rejects.toThrow(
-      /Could not find API key/i
+      /Could not find API key/iu
     );
   });
 });

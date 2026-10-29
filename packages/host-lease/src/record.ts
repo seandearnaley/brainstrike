@@ -11,10 +11,10 @@ export const HOST_RECORD_FILE = 'host.json';
 const PositiveInt = Schema.Int.check(
   Schema.isBetween({ maximum: Number.MAX_SAFE_INTEGER, minimum: 1 })
 );
-const Nonempty = Schema.String.check(Schema.isPattern(/^.{1,256}$/));
-const Token = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+const Nonempty = Schema.String.check(Schema.isPattern(/^.{1,256}$/u));
+const Token = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
 const Endpoint = Schema.String.check(
-  Schema.isPattern(/^(?:\/[^\r\n\0]+|\\\\\.\\pipe\\brainstrike-[a-f0-9]+)$/)
+  Schema.isPattern(/^(?:\/[^\r\n\0]+|\\\\\.\\pipe\\brainstrike-[a-f0-9]+)$/u)
 );
 
 export const HostRecordSchema = Schema.Struct({

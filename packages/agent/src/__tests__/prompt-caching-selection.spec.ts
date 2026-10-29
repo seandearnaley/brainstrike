@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  findModelCapabilities,
+  wrapModelWithDeclaredPromptCaching,
+} from '../providers/prompt-caching';
 
 // Hoisted: `vi.mock` factories run before module-scope consts initialize.
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
@@ -11,11 +15,6 @@ vi.mock('@brainstrike/logging', () => ({
     warn,
   }),
 }));
-
-import {
-  findModelCapabilities,
-  wrapModelWithDeclaredPromptCaching,
-} from '../providers/prompt-caching';
 
 interface Message {
   content: unknown;

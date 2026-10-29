@@ -92,7 +92,7 @@ describe('BudgetGuardrailSettingsPanel', () => {
     await user.clear(input);
     await user.type(input, '-5');
 
-    expect(screen.getByTestId('budget-daily-cap-error')).toHaveTextContent(/greater than \$0/i);
+    expect(screen.getByTestId('budget-daily-cap-error')).toHaveTextContent(/greater than \$0/iu);
     // Invalid input is never coerced into the store; clearing set it to null
     // (cap off) and the invalid text left it there.
     expect(useAssistantBudgetPreferencesStore.getState().dailyCapUsd).toBeNull();

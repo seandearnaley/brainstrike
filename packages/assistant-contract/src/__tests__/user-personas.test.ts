@@ -71,7 +71,7 @@ describe('parseUserPersonaFile', () => {
     const parsed = parseUserPersonaFile('just a body, no frontmatter');
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
-      expect(parsed.error).toMatch(/frontmatter/i);
+      expect(parsed.error).toMatch(/frontmatter/iu);
     }
   });
 
@@ -133,7 +133,7 @@ describe('deriveUserPersonaId', () => {
     const rejected = deriveUserPersonaId(`${overId}.md`);
     expect(rejected).toMatchObject({ ok: false });
     if (!rejected.ok) {
-      expect(rejected.error).toMatch(/64|length|long/i);
+      expect(rejected.error).toMatch(/64|length|long/iu);
     }
   });
 });
@@ -215,7 +215,7 @@ describe('buildUserPersona', () => {
     });
     expect(result).toMatchObject({ ok: false });
     if (!result.ok) {
-      expect(result.error).toMatch(/read-only|read risk|not 'read'/i);
+      expect(result.error).toMatch(/read-only|read risk|not 'read'/iu);
     }
   });
 
@@ -247,7 +247,7 @@ describe('buildUserPersona', () => {
       });
       expect(result).toMatchObject({ ok: false });
       if (!result.ok) {
-        expect(result.error).toMatch(/task-list state belongs to the parent/i);
+        expect(result.error).toMatch(/task-list state belongs to the parent/iu);
       }
     }
   );
@@ -267,7 +267,7 @@ describe('buildUserPersona', () => {
     });
     expect(result).toMatchObject({ ok: false });
     if (!result.ok) {
-      expect(result.error).toMatch(/description/i);
+      expect(result.error).toMatch(/description/iu);
     }
   });
 
@@ -278,7 +278,7 @@ describe('buildUserPersona', () => {
     });
     expect(result).toMatchObject({ ok: false });
     if (!result.ok) {
-      expect(result.error).toMatch(/instructions|body/i);
+      expect(result.error).toMatch(/instructions|body/iu);
     }
   });
 
@@ -290,7 +290,7 @@ describe('buildUserPersona', () => {
       });
       expect(result).toMatchObject({ ok: false });
       if (!result.ok) {
-        expect(result.error).toMatch(/built-in/i);
+        expect(result.error).toMatch(/built-in/iu);
       }
     }
   });
@@ -326,7 +326,7 @@ describe('buildUserPersona', () => {
     });
     expect(unknown).toMatchObject({ ok: false });
     if (!unknown.ok) {
-      expect(unknown.error).toMatch(/provider/i);
+      expect(unknown.error).toMatch(/provider/iu);
     }
   });
 

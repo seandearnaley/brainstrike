@@ -2,6 +2,9 @@ import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { APPROVAL_PREVIEW_CHAR_CAP } from '../approval-preview';
+import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import { expandApprovalRow } from './approval-row-helpers';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 vi.mock('@assistant-ui/react', () => ({
@@ -57,10 +60,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ),
 }));
 
-import { APPROVAL_PREVIEW_CHAR_CAP } from '../approval-preview';
-import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
-import { expandApprovalRow } from './approval-row-helpers';
-
 beforeAll(() => {
   global.ResizeObserver = class {
     disconnect() {}
@@ -102,7 +101,7 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     );
     // Raw-JSON expander remains available as a secondary view.
     expect(
-      screen.getByRole('button', { name: /expand tool approval details/i })
+      screen.getByRole('button', { name: /expand tool approval details/iu })
     ).toBeInTheDocument();
   });
 
@@ -120,7 +119,7 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     const preview = screen.getByTestId('approval-write-preview');
     expect(preview.getAttribute('data-value')).toBe('export const x = 1;\n');
     expect(preview.getAttribute('data-path')).toBe('src/new-file.ts');
-    expect(screen.getByText(/Creates or overwrites/i)).toBeInTheDocument();
+    expect(screen.getByText(/Creates or overwrites/iu)).toBeInTheDocument();
     expect(screen.getByTestId('approval-file-target-summary')).toHaveTextContent(
       'Creates or overwrites · Path: src/new-file.ts · Workspace root: workspace'
     );
@@ -241,7 +240,7 @@ describe('AssistantToolApprovalNotice diff preview', () => {
       toolName: 'brainstrike.writeWorkspaceFile',
     });
 
-    await user.click(screen.getByRole('button', { name: /expand tool approval details/i }));
+    await user.click(screen.getByRole('button', { name: /expand tool approval details/iu }));
 
     expect(view.container.textContent).toContain(bigContent);
   });
@@ -287,7 +286,7 @@ describe('AssistantToolApprovalNotice execute command preview', () => {
     expect(screen.getByTestId('approval-command-root')).toHaveTextContent('brainstrike');
     expect(screen.getByTestId('approval-command-timeout')).toHaveTextContent('240000 ms');
     expect(screen.getByTestId('approval-command-root').closest('dl')).toHaveTextContent(
-      /Working directory\s*packages\/ui\s*Workspace\s*brainstrike\s*Timeout\s*240000 ms/
+      /Working directory\s*packages\/ui\s*Workspace\s*brainstrike\s*Timeout\s*240000 ms/u
     );
     expect(screen.queryByText('Selected workspace root (default)')).toBeNull();
   });
@@ -338,7 +337,7 @@ describe('AssistantToolApprovalNotice execute command preview', () => {
     expect(screen.queryByTestId('approval-command-preview')).toBeNull();
     expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /expand tool approval details/i })
+      screen.getByRole('button', { name: /expand tool approval details/iu })
     ).toBeInTheDocument();
   });
 
@@ -358,7 +357,7 @@ describe('AssistantToolApprovalNotice execute command preview', () => {
     expect(screen.getByTestId('approval-command-code').textContent).toBe('pnpm build');
     expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent('/workspace');
     expect(screen.getByTestId('approval-command-timeout')).toHaveTextContent('600000 ms');
-    expect(screen.getByText(/This request has been pending a while/i)).toBeInTheDocument();
+    expect(screen.getByText(/This request has been pending a while/iu)).toBeInTheDocument();
   });
 });
 
@@ -444,7 +443,7 @@ describe('durable delegated approval recovery', () => {
       ).not.toBeInTheDocument();
       expect(screen.getByText('Tool decision')).toBeInTheDocument();
       expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
-      expect(screen.queryByText(/re-running it may be safer/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/re-running it may be safer/iu)).not.toBeInTheDocument();
     }
   );
 });

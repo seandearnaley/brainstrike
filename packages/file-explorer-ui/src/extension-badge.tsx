@@ -29,7 +29,7 @@ export const ExtensionBadge = React.memo(
     return (
       <Badge
         className={cn(
-          'dark:!bg-[var(--extension-badge-dark-bg)] dark:!text-[var(--extension-badge-dark-text)] inline-flex shrink-0 items-center truncate transition-colors',
+          'inline-flex shrink-0 items-center truncate transition-colors dark:!bg-[var(--extension-badge-dark-bg)] dark:!text-[var(--extension-badge-dark-text)]',
           styles.badge,
           className
         )}

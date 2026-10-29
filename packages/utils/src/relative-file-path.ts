@@ -1,6 +1,6 @@
 import { extractPathSegments } from './path-utils.ts';
-export const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
-const WINDOWS_DRIVE_PREFIX_REGEX = /^[a-zA-Z]:\//;
+export const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/u;
+const WINDOWS_DRIVE_PREFIX_REGEX = /^[a-zA-Z]:\//u;
 const LAST_ASCII_CONTROL_CHARACTER_CODE = 0x1f;
 const DELETE_CHARACTER_CODE = 0x7f;
 const DEFAULT_PATH_LABEL = 'File path';
@@ -50,7 +50,7 @@ function stripAbsoluteFolderPrefix(normalizedPath: string, folderId: string): st
     return null;
   }
 
-  const normalizedFolderId = folderId.replace(/\\/g, '/').replace(/\/+$/u, '');
+  const normalizedFolderId = folderId.replace(/\\/gu, '/').replace(/\/+$/u, '');
   if (!normalizedFolderId) {
     return null;
   }
@@ -74,7 +74,7 @@ function stripAbsoluteFolderPrefix(normalizedPath: string, folderId: string): st
 }
 
 function normalizeFolderId(folderId: string): string {
-  return folderId.replace(/\\/g, '/').replace(/\/+$/u, '');
+  return folderId.replace(/\\/gu, '/').replace(/\/+$/u, '');
 }
 
 export function isAbsoluteFileSystemPath(filePath: string): boolean {
@@ -91,7 +91,7 @@ export function isAbsoluteFileSystemPath(filePath: string): boolean {
  * filesystem paths for files that belong to a known workspace folder.
  */
 export function normalizeFilePathForFolder(filePath: string, folderId: string): string {
-  const normalizedForChecks = filePath.replace(/\\/g, '/');
+  const normalizedForChecks = filePath.replace(/\\/gu, '/');
   const isAbsolutePath =
     normalizedForChecks.startsWith('/') || WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedForChecks);
   if (!isAbsolutePath) {
@@ -126,7 +126,7 @@ export function normalizeFilePathForFolder(filePath: string, folderId: string): 
   }
 
   // Unix rooted path: /<path> -> <path>
-  return normalizedForChecks.replace(/^\/+/, '');
+  return normalizedForChecks.replace(/^\/+/u, '');
 }
 
 export function normalizeSelectionPathForFolder(
@@ -175,7 +175,7 @@ export function validateRelativeFilePath(
   }
 
   // Split on both separator styles so mixed paths are normalized before checks.
-  const pathSegments = filePath.split(/[\\/]/);
+  const pathSegments = filePath.split(/[\\/]/u);
   const hasTraversalSegments = pathSegments.some((segment) => segment === '.' || segment === '..');
   if (hasTraversalSegments) {
     throw new Error(`${pathLabel} must not contain relative traversal segments`);

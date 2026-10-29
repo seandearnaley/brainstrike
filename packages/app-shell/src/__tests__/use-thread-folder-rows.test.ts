@@ -1,5 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useThreadFolderRows } from '../hooks/use-thread-folder-rows';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: {
@@ -15,8 +16,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => loggerMock,
 }));
-
-import { useThreadFolderRows } from '../hooks/use-thread-folder-rows';
 
 interface RootsRow {
   readonly displayName: string;

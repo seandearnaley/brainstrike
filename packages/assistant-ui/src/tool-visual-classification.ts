@@ -1,6 +1,6 @@
 export type ToolVisualCategory = 'memory' | 'internal' | 'mcp' | 'lifecycle';
 
-const INTERNAL_TOOL_PREFIX = /^brainstrike[._]/i;
+const INTERNAL_TOOL_PREFIX = /^brainstrike[._]/iu;
 
 /** Internal Brainstrike tools render as `brainstrike.x` or (Mastra-sanitized) `brainstrike_x`. */
 export function isInternalToolName(name: string): boolean {

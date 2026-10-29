@@ -3,6 +3,7 @@ import { render as renderElement, screen, waitFor } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { type ReactElement, type ReactNode, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import type {
   CommandSessionBridge,
   CommandSessionInfo,
@@ -16,6 +17,7 @@ import type {
   TerminalExitEvent,
   TerminalResult,
 } from '../terminal-panel/terminal-bridge';
+import { TerminalPanel } from '../terminal-panel/terminal-panel';
 import {
   NO_WORKSPACE_TERMINAL_SERVICES,
   type WorkspaceTerminalServices,
@@ -125,9 +127,6 @@ vi.mock('@xterm/addon-web-links', () => {
   }
   return { WebLinksAddon };
 });
-
-import { useTerminalTargetStore } from '../stores/terminal-target-store';
-import { TerminalPanel } from '../terminal-panel/terminal-panel';
 
 // ── Bridge fixtures ───────────────────────────────────────────────────────────
 // `TerminalResult<T>` is a conditional type (void → no `value`), so build the
@@ -502,8 +501,8 @@ describe('TerminalPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Command sessions' }));
 
     expect(await screen.findByText('server ready')).toBeInTheDocument();
-    expect(screen.getByText(/command-session-1234567890/)).toBeInTheDocument();
-    expect(screen.getByText(/PID 314/)).toBeInTheDocument();
+    expect(screen.getByText(/command-session-1234567890/u)).toBeInTheDocument();
+    expect(screen.getByText(/PID 314/u)).toBeInTheDocument();
     expect(commandSessions.list).toHaveBeenCalledWith({ rootId: 'root-1' });
     expect(commandSessions.read).toHaveBeenCalledWith({
       rootId: 'root-1',
@@ -521,7 +520,7 @@ describe('TerminalPanel', () => {
 
     const output = await screen.findByRole('log', { name: 'Command session output' });
     await waitFor(() => expect(output).toHaveTextContent('server ready'));
-    expect(output.textContent?.match(/server ready/g)).toHaveLength(1);
+    expect(output.textContent?.match(/server ready/gu)).toHaveLength(1);
   });
 
   it('starts from the retained-output cursor when refresh selects a replacement session', async () => {
@@ -666,7 +665,7 @@ describe('TerminalPanel', () => {
         sessionId: firstSession.id,
       })
     );
-    await user.click(screen.getByRole('button', { name: /desktop/i }));
+    await user.click(screen.getByRole('button', { name: /desktop/iu }));
     expect(await screen.findByText('second ready')).toBeInTheDocument();
 
     resolveFirstRead?.({

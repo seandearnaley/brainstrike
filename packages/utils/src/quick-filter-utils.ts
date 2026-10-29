@@ -7,8 +7,8 @@ export interface FilterPatterns {
  * Parses a quick filter string into include and exclude patterns.
  */
 export function parseFilterString(filter: string): FilterPatterns {
-  const terms = filter.trim().split(/\s+/).filter(Boolean);
-  return terms.reduce(
+  const terms = filter.trim().split(/\s+/u).filter(Boolean);
+  return terms.reduce<FilterPatterns>(
     (acc, term) => {
       if (term.startsWith('-')) {
         const excludePattern = term.slice(1).toLowerCase();
@@ -20,6 +20,6 @@ export function parseFilterString(filter: string): FilterPatterns {
       }
       return acc;
     },
-    { excludes: [], includes: [] } as FilterPatterns
+    { excludes: [], includes: [] }
   );
 }

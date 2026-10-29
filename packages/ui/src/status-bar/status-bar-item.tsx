@@ -62,7 +62,7 @@ export function StatusBarItem({
     <span
       aria-atomic={announce ? true : undefined}
       className={cn(
-        'flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none',
+        'flex h-full min-w-0 items-center gap-1.5 overflow-hidden px-1.5 leading-none whitespace-nowrap',
         statusClasses[status],
         className
       )}

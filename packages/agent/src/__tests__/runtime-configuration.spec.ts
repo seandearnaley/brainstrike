@@ -21,7 +21,7 @@ describe('runtime configuration provider keys (BST-1349)', () => {
       expect(
         () => resolveRuntimeConfiguration({ provider: provider.id }),
         `${provider.id} must throw without a key`
-      ).toThrowError(/missing_api_key/);
+      ).toThrowError(/missing_api_key/u);
       expect(
         resolveRuntimeConfiguration({ apiKey: 'runtime-key', provider: provider.id }).apiKey
       ).toBe('runtime-key');
@@ -49,13 +49,13 @@ describe('runtime configuration auth input (BST-1352)', () => {
     }
     expect(() =>
       resolveRuntimeConfiguration({ provider: 'anthropic' }, { apiKey: '', kind: 'api_key' })
-    ).toThrowError(/missing_api_key/);
+    ).toThrowError(/missing_api_key/u);
   });
 
   it('an aws auth input without a region fails typed, never missing_api_key', () => {
     expect(() =>
       resolveRuntimeConfiguration({ provider: 'anthropic' }, { kind: 'aws', region: ' ' })
-    ).toThrowError(/region/);
+    ).toThrowError(/region/u);
   });
 
   it('an aws auth input with a region skips the bearer-key requirement', () => {

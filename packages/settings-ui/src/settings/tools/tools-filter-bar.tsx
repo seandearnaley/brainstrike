@@ -44,7 +44,7 @@ export function ToolsFilterBar({
 
   return (
     <div
-      className="rounded-lg border border-border/50 bg-muted/30 p-2"
+      className="border-border/50 bg-muted/30 rounded-lg border p-2"
       data-testid="tools-filter-bar"
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -113,7 +113,7 @@ export function ToolsFilterBar({
         </Tooltip>
 
         {totalCount !== undefined && (
-          <span className="ml-auto text-muted-foreground text-sm" data-testid="tool-count">
+          <span className="text-muted-foreground ml-auto text-sm" data-testid="tool-count">
             {totalCount} tools
           </span>
         )}

@@ -67,7 +67,7 @@ test('a host run’s approved file write is undone from its tool card, says so, 
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
     // The default `edit: ask` policy pauses the write; the file is untouched until approved.
-    const approve = region.getByRole('button', { name: /^Approve / });
+    const approve = region.getByRole('button', { name: /^Approve /u });
     await expect(approve).toBeVisible({ timeout: 90_000 });
     expect(readFileSync(notes, 'utf8')).toBe(ORIGINAL);
     await approve.click();
@@ -118,7 +118,7 @@ test('a host run’s approved file write is undone from its tool card, says so, 
     target = 'draft.txt';
     await reloaded.getByRole('textbox', { name: 'Message input' }).fill('Rewrite the draft.');
     await reloaded.getByRole('button', { exact: true, name: 'Send' }).click();
-    const approveAgain = reloaded.getByRole('button', { name: /^Approve / });
+    const approveAgain = reloaded.getByRole('button', { name: /^Approve /u });
     await expect(approveAgain).toBeVisible({ timeout: 90_000 });
     await approveAgain.click();
     await expect(reloaded.getByText(REPLY)).toHaveCount(2, { timeout: 90_000 });

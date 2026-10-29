@@ -75,7 +75,7 @@ async function openModelsSettings(
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();
-  await settingsPage.openCategory(/Model Catalog/i, 'embedding-models');
+  await settingsPage.openCategory(/Model Catalog/iu, 'embedding-models');
 }
 
 test.describe('Model Catalog settings (desktop)', () => {

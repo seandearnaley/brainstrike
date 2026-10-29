@@ -133,7 +133,7 @@ NAT64.addSubnet('64:ff9b::', 96, 'ipv6');
 function ipv6Bytes(address: string): Uint8Array | null {
   let text = address;
   const tail: number[] = [];
-  const dotted = text.match(/^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/);
+  const dotted = text.match(/^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/u);
   if (dotted?.[1] && dotted[2]) {
     if (!isIPv4(dotted[2])) {
       return null;
@@ -188,7 +188,7 @@ function classifyIpv4(address: string): RefusedAddressClass | null {
  * as `invalid`, so a caller that forgets to resolve fails closed.
  */
 export function refusedAddressClass(address: string): RefusedAddressClass | null {
-  const unbracketed = address.replace(/^\[(.*)\]$/, '$1');
+  const unbracketed = address.replace(/^\[(.*)\]$/u, '$1');
   if (isIPv4(unbracketed)) {
     return classifyIpv4(unbracketed);
   }

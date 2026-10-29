@@ -5,7 +5,7 @@ import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { sendCatalogRequest } from './request.ts';
 
-const Id = Schema.String.check(Schema.isPattern(/\S/));
+const Id = Schema.String.check(Schema.isPattern(/\S/u));
 const Metadata = Schema.Struct({
   category: omitUndefinedOptional(Schema.String),
   description: omitUndefinedOptional(Schema.String),

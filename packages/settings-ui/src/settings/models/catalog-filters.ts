@@ -54,7 +54,7 @@ export function parseContextBand(value: string): CatalogContextBand {
 function queryWords(query: string): string[] {
   return query
     .toLowerCase()
-    .split(/\s+/)
+    .split(/\s+/u)
     .filter((word) => word.length > 0);
 }
 

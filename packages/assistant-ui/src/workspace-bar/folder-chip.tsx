@@ -182,10 +182,10 @@ function RootRowIcon({
   readonly root: WorkspaceBarRoot;
 }): ReactElement {
   if (root.removed) {
-    return <FolderX aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />;
+    return <FolderX aria-hidden="true" className="text-destructive size-3.5 shrink-0" />;
   }
   return isPrimary ? (
-    <Star aria-hidden="true" className="size-3.5 shrink-0 fill-current text-foreground" />
+    <Star aria-hidden="true" className="text-foreground size-3.5 shrink-0 fill-current" />
   ) : (
     <Folder aria-hidden="true" className="size-3.5 shrink-0" />
   );
@@ -209,7 +209,7 @@ const RootRowContent = ({
       ) : null}
     </span>
     {isPrimary ? (
-      <span className="shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide">
+      <span className="text-muted-foreground shrink-0 text-[10px] tracking-wide uppercase">
         Primary
       </span>
     ) : null}
@@ -259,10 +259,10 @@ const DisableableMenuItem = ({
     >
       <Icon
         aria-hidden="true"
-        className={disabledReason ? 'size-3.5 text-muted-foreground' : 'size-3.5'}
+        className={disabledReason ? 'text-muted-foreground size-3.5' : 'size-3.5'}
       />
       <span className="flex min-w-0 flex-col">
-        <span className={disabledReason ? 'truncate text-muted-foreground' : 'truncate'}>
+        <span className={disabledReason ? 'text-muted-foreground truncate' : 'truncate'}>
           {label}
         </span>
         {disabledReason ? (
@@ -433,7 +433,7 @@ export const FolderChip = ({
       <DropdownMenuContent align="start" className="w-72">
         {primaryRoot || secondaryRoots.length > 0 ? (
           <>
-            <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
+            <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
               This thread
             </DropdownMenuLabel>
             {primaryRoot ? (
@@ -461,7 +461,7 @@ export const FolderChip = ({
         ) : null}
         {noLiveFolder || workspaceFolders.length === 0 ? null : (
           <>
-            <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
+            <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
               Not in this thread
             </DropdownMenuLabel>
             {workspaceFolders.map((folder) => (
@@ -480,7 +480,7 @@ export const FolderChip = ({
         )}
         {onAddRecent && visibleRecents.length > 0 ? (
           <>
-            <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
+            <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
               Recent
             </DropdownMenuLabel>
             {visibleRecents.map((recent) => (

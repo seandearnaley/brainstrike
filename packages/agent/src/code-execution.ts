@@ -90,9 +90,9 @@ export const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;
 const positiveIntUpTo = (maximum: number) =>
   Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(maximum));
 
-const POSIX_ABSOLUTE_PATH = /^\//;
-const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/;
-const WINDOWS_UNC_PATH = /^\\\\[^\\/]+[\\/][^\\/]+/;
+const POSIX_ABSOLUTE_PATH = /^\//u;
+const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
+const WINDOWS_UNC_PATH = /^\\\\[^\\/]+[\\/][^\\/]+/u;
 
 /**
  * Splits on the separators the path's own platform actually uses. A backslash
@@ -102,7 +102,7 @@ const WINDOWS_UNC_PATH = /^\\\\[^\\/]+[\\/][^\\/]+/;
  * a descendant of `/tmp/scratch`.
  */
 function pathSegments(value: string): string[] {
-  const separator = isWindowsShapedPath(value) ? /[\\/]+/ : /\/+/;
+  const separator = isWindowsShapedPath(value) ? /[\\/]+/u : /\/+/u;
   return value.split(separator).filter((segment) => segment.length > 0);
 }
 

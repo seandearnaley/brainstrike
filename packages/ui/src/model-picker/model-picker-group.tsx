@@ -20,13 +20,13 @@ export function ModelPickerGroup({
 
   return (
     <Command.Group
-      className="overflow-hidden py-1 text-foreground [&_[cmdk-group-heading]]:px-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:text-xs"
+      className="text-foreground [&_[cmdk-group-heading]]:text-muted-foreground overflow-hidden py-1 [&_[cmdk-group-heading]]:px-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
       heading={
-        <div className="sticky top-0 z-10 flex items-center gap-2 bg-popover/95 px-2 py-1 backdrop-blur-sm">
+        <div className="bg-popover/95 sticky top-0 z-10 flex items-center gap-2 px-2 py-1 backdrop-blur-sm">
           <ProviderIcon className="size-3" providerId={provider.id} style={{ color }} />
           <span className="tracking-wide">{provider.name}</span>
           {modelCount !== undefined && (
-            <span className="ml-auto min-w-5 rounded-full border border-border/60 bg-muted/55 px-1.5 text-center font-normal text-[10px] tabular-nums">
+            <span className="border-border/60 bg-muted/55 ml-auto min-w-5 rounded-full border px-1.5 text-center text-[10px] font-normal tabular-nums">
               {modelCount}
             </span>
           )}

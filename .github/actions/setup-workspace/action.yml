@@ -40,7 +40,7 @@ description: pnpm, Node, optional .turbo cache, and install deps. Callers MUST c
 inputs:
   turbo-cache:
     description: restore/save the local .turbo cache layer
-    default: 'false'
+    default: "false"
 outputs:
   node-version:
     # BST-1375: `.nvmrc` pins a MAJOR (`24`), so the exact version this action
@@ -107,7 +107,7 @@ runs:
         # apps/desktop's install step downloads the dev Electron binary unless
         # this is set. CI provisions it from a cache, only in the jobs that
         # launch Electron (.github/actions/provision-electron).
-        ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       run: |
         # node-gyp compiles the native workspace packages during this install.
         # Point it at the headers of the Node setup-node just installed (.nvmrc,

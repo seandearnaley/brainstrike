@@ -16,7 +16,7 @@ export default defineConfig(
       },
     },
     resolve: {
-      alias: [{ find: /^react-dom\/client$/, replacement: 'react-dom/profiling' }],
+      alias: [{ find: /^react-dom\/client$/u, replacement: 'react-dom/profiling' }],
     },
     root: resolve(import.meta.dirname, 'src/__tests__/streaming-perf'),
   })

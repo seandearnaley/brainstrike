@@ -44,7 +44,7 @@ function currentStrip(): TabChordStrip {
 async function renderThreeTabs(): Promise<TabChordStrip> {
   addThreadRow('thread-c', TITLES['thread-c']);
   renderWorkspace();
-  await screen.findByRole('tab', { name: new RegExp(TITLES['thread-a']) });
+  await screen.findByRole('tab', { name: new RegExp(TITLES['thread-a'], 'u') });
   openThreadTabs('thread-b', 'thread-c', 'thread-a');
   const strip = getTabChordStrip('assistant-threads');
   if (!strip) {
@@ -103,7 +103,7 @@ describe('assistant thread strip — chords and closed-tab history', () => {
 
   it('records a Delete-key close', async () => {
     const strip = await renderThreeTabs();
-    const tab = screen.getByRole('tab', { name: new RegExp(TITLES['thread-c']) });
+    const tab = screen.getByRole('tab', { name: new RegExp(TITLES['thread-c'], 'u') });
 
     tab.focus();
     fireEvent.keyDown(tab, { key: 'Delete' });
@@ -116,7 +116,7 @@ describe('assistant thread strip — chords and closed-tab history', () => {
   it('records a menu bulk close so consecutive reopens rebuild the old order', async () => {
     const strip = await renderThreeTabs();
 
-    fireEvent.contextMenu(screen.getByRole('tab', { name: new RegExp(TITLES['thread-a']) }));
+    fireEvent.contextMenu(screen.getByRole('tab', { name: new RegExp(TITLES['thread-a'], 'u') }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
     expect(openThreadIds()).toEqual(['thread-a']);
 
@@ -130,10 +130,10 @@ describe('assistant thread strip — chords and closed-tab history', () => {
   it('records Close to the Right and Close All', async () => {
     const strip = await renderThreeTabs();
 
-    fireEvent.contextMenu(screen.getByRole('tab', { name: new RegExp(TITLES['thread-a']) }));
+    fireEvent.contextMenu(screen.getByRole('tab', { name: new RegExp(TITLES['thread-a'], 'u') }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close to the Right' }));
     expect(openThreadIds()).toEqual(['thread-a']);
-    fireEvent.contextMenu(screen.getByRole('tab', { name: new RegExp(TITLES['thread-a']) }));
+    fireEvent.contextMenu(screen.getByRole('tab', { name: new RegExp(TITLES['thread-a'], 'u') }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All' }));
     expect(openThreadIds()).toEqual([]);
 

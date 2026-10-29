@@ -91,7 +91,7 @@ export function ModelSelectionPage() {
   if (error) {
     return (
       <div
-        className="rounded-md bg-destructive/10 p-4 text-destructive"
+        className="bg-destructive/10 text-destructive rounded-md p-4"
         data-testid="model-registry-error"
       >
         <p className="font-medium">Error loading models</p>

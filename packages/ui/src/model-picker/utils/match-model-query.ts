@@ -24,7 +24,7 @@ const FIELD_SEPARATOR = '\n';
 export function matchesModelQuery(fields: ModelQueryFields, query: string): boolean {
   const words = query
     .toLowerCase()
-    .split(/\s+/)
+    .split(/\s+/u)
     .filter((word) => word.length > 0);
   if (words.length === 0) {
     return true;

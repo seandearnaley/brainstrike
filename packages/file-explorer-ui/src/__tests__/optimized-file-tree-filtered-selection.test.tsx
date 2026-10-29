@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { FileTreeNormalizedContextValue } from '../tree/file-tree-provider';
+import OptimizedFileTree from '../tree/optimized-file-tree';
 import {
   createNormalizedFileTreeState,
   getNormalizedDescendantFileCount,
@@ -12,6 +13,8 @@ import {
   materializeNormalizedSubtree,
   type NormalizedFileTreeState,
 } from '../utils/normalized-file-tree';
+import { type FileExplorerStore, StoreHandleBridge } from './optimized-file-tree-test-support';
+import { FileExplorerTestWrapper } from './test-helpers';
 
 // Inject a REAL NormalizedFileTreeState through the provider seam so the
 // component exercises its normalized (desktop) branch — the raw/unfiltered
@@ -42,10 +45,6 @@ vi.mock('../tree/optimized-file-tree-selection-counts', async (importOriginal) =
     },
   };
 });
-
-import OptimizedFileTree from '../tree/optimized-file-tree';
-import { type FileExplorerStore, StoreHandleBridge } from './optimized-file-tree-test-support';
-import { FileExplorerTestWrapper } from './test-helpers';
 
 function fileNode(path: string, depth: number): IFileNode {
   const name = path.split('/').at(-1) ?? path;

@@ -14,6 +14,6 @@ export const AssistantMessageError = () => (
   // on Message, which renders only when the message actually has an error —
   // styling Root paints an empty red bar under every assistant message.
   <ErrorPrimitive.Root>
-    <ErrorPrimitive.Message className="mt-1 block break-words rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-destructive text-sm" />
+    <ErrorPrimitive.Message className="border-destructive/40 bg-destructive/5 text-destructive mt-1 block rounded-md border px-3 py-2 text-sm break-words" />
   </ErrorPrimitive.Root>
 );

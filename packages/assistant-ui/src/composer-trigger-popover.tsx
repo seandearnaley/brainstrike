@@ -71,7 +71,7 @@ export const ComposerTriggerPopover = ({
               key={item.id}
               title={item.description}
             >
-              <Icon className="size-4 shrink-0 text-muted-foreground" />
+              <Icon className="text-muted-foreground size-4 shrink-0" />
               <span className="bs-composer-trigger-item-label">{item.label}</span>
             </ComposerPrimitive.Unstable_TriggerPopoverItem>
           );

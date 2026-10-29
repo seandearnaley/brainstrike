@@ -136,11 +136,11 @@ export function StateStoreDamageNotice({
   }
   return (
     <div
-      className="flex items-start gap-3 border-destructive/30 border-b bg-destructive/10 px-4 py-2 text-sm"
+      className="border-destructive/30 bg-destructive/10 flex items-start gap-3 border-b px-4 py-2 text-sm"
       data-testid="state-store-damage-notice"
       role="alert"
     >
-      <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+      <AlertTriangle aria-hidden="true" className="text-destructive mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1 space-y-1">
         {view.kind === 'damaged' ? (
           <>
@@ -153,7 +153,7 @@ export function StateStoreDamageNotice({
             </p>
             <details>
               <summary className="cursor-pointer">Details</summary>
-              <p className="break-words font-mono text-xs">{view.health.stateDamage}</p>
+              <p className="font-mono text-xs break-words">{view.health.stateDamage}</p>
               {view.health.damagedThreads > 0 ? (
                 <p className="text-xs">
                   {view.health.damagedThreads === 1

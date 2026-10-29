@@ -1,3 +1,13 @@
+// Boundary-fixture rule (BST-1795 final review): the mocked `use-model-toggle`
+// suite stubs `toggleModel` directly with `mockRejectedValue`, a shape the
+// real store never produces (it optimistically applies, then reverts via a
+// scheduled `fetchRegistry`, then rethrows). This file drives the hook
+// against the real `model-registry-store` so a failed write is verified
+// against what the store actually does, not an assumed shape.
+import {
+  __resetModelRegistryStoreForTests,
+  useModelRegistryStore,
+} from '@brainstrike/app-state/stores/model-registry-store';
 import { type ModelCatalogCapability, projectModelCatalog } from '@brainstrike/assistant-contract';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import {
@@ -7,6 +17,7 @@ import {
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type ModelBulkToggleOutcome, useModelToggle } from '../use-model-toggle';
 
 const toast = vi.fn();
 const { diagnosticError } = vi.hoisted(() => ({ diagnosticError: vi.fn() }));
@@ -36,18 +47,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     }),
   };
 });
-
-// Boundary-fixture rule (BST-1795 final review): the mocked `use-model-toggle`
-// suite stubs `toggleModel` directly with `mockRejectedValue`, a shape the
-// real store never produces (it optimistically applies, then reverts via a
-// scheduled `fetchRegistry`, then rethrows). This file drives the hook
-// against the real `model-registry-store` so a failed write is verified
-// against what the store actually does, not an assumed shape.
-import {
-  __resetModelRegistryStoreForTests,
-  useModelRegistryStore,
-} from '@brainstrike/app-state/stores/model-registry-store';
-import { type ModelBulkToggleOutcome, useModelToggle } from '../use-model-toggle';
 
 describe('useModelToggle against the real model-registry-store', () => {
   beforeEach(() => {

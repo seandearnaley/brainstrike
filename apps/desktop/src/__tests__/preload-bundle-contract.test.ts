@@ -62,7 +62,7 @@ describe('preload bundle contract', () => {
         violations: [],
       });
       // Not an empty proof: the one allowed require is really there.
-      expect(source).toMatch(/require\("electron"\)/);
+      expect(source).toMatch(/require\("electron"\)/u);
     }
   });
 });

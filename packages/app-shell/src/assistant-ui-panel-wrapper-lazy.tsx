@@ -56,7 +56,7 @@ export const AssistantUiPanelWrapperLazy = memo(function AssistantUiPanelWrapper
 
   if (loadError) {
     return (
-      <div className="p-4 text-destructive text-xs" data-testid="assistant-ui-load-error">
+      <div className="text-destructive p-4 text-xs" data-testid="assistant-ui-load-error">
         Failed to load assistant UI: {loadError.message}
       </div>
     );

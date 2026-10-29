@@ -72,7 +72,7 @@ function describeDelegationOwner(
   if (!prompt) {
     return label;
   }
-  const preview = prompt.trim().replace(/\s+/g, ' ');
+  const preview = prompt.trim().replace(/\s+/gu, ' ');
   return `${label} · ${
     preview.length > DELEGATION_PROMPT_PREVIEW_CHARS
       ? `${preview.slice(0, DELEGATION_PROMPT_PREVIEW_CHARS - 1)}…`

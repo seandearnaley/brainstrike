@@ -67,7 +67,7 @@ describe('sqliteVecExtensionPath', () => {
   it('resolves this platform vec0 library outside any asar under Node', () => {
     const resolved = sqliteVecExtensionPath();
 
-    expect(basename(resolved)).toMatch(/^vec0\.(dylib|so|dll)$/);
+    expect(basename(resolved)).toMatch(/^vec0\.(dylib|so|dll)$/u);
     expect(resolved).not.toContain('app.asar');
   });
 });
@@ -86,7 +86,7 @@ describe('openConnection against the real prebuilds', HOST_DISK_BUDGET, () => {
     try {
       const row = db.prepare('select vec_version() as version').get();
 
-      expect(row).toEqual({ version: expect.stringMatching(/^v\d+\.\d+\.\d+/) });
+      expect(row).toEqual({ version: expect.stringMatching(/^v\d+\.\d+\.\d+/u) });
     } finally {
       db.close();
     }
@@ -112,7 +112,7 @@ describe('openConnection against the real prebuilds', HOST_DISK_BUDGET, () => {
 
   it('forwards options to better-sqlite3', () => {
     expect(() => openConnection(join(root, 'absent.db'), { fileMustExist: true })).toThrow(
-      /unable to open database file/
+      /unable to open database file/u
     );
   });
 });

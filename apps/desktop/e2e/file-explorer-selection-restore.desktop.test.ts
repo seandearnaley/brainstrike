@@ -561,7 +561,7 @@ test.describe('Desktop file explorer selection restore', () => {
     // it counts uncounted files as pending, so a settled total has none left.
     await restartedWindow.getByTestId('explorer-export-trigger').click();
     await expect(restartedWindow.getByTestId('explorer-export-tokens')).toHaveText(
-      /^~[1-9]\d*(?:,\d{3})* tokens$/,
+      /^~[1-9]\d*(?:,\d{3})* tokens$/u,
       { timeout: 20_000 }
     );
   });

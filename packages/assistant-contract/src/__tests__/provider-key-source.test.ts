@@ -46,8 +46,8 @@ describe('createStoredKeyFingerprint', () => {
   });
 
   it('rejects an empty or whitespace-only secret instead of fabricating a fingerprint', () => {
-    expect(() => createStoredKeyFingerprint('', new Date())).toThrow(/empty/i);
-    expect(() => createStoredKeyFingerprint('   ', new Date())).toThrow(/empty/i);
+    expect(() => createStoredKeyFingerprint('', new Date())).toThrow(/empty/iu);
+    expect(() => createStoredKeyFingerprint('   ', new Date())).toThrow(/empty/iu);
   });
 
   it('defaults savedAt to now', () => {

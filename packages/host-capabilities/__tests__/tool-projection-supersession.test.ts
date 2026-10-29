@@ -1,6 +1,20 @@
+import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent';
 import type { HostToolInvocation } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildGrepSupersededMarker,
+  collectSupersessionCandidates,
+  grepProjectionHeaderPrefix,
+  type PersistedToolInvocation,
+  projectGrepSearchModelOutput,
+  projectReadWorkspaceFileModelOutput,
+  readProjectionHeaderPrefix,
+  resetMalformedProjectionMemoForTests,
+  selectHostProjectionRewrites,
+  setMalformedWarnMemoCapForTests,
+  TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS,
+} from '../src/native-tools/index.js';
 
 const { logger } = vi.hoisted(() => ({
   logger: {
@@ -26,21 +40,6 @@ vi.mock('../src/native-tools/read-workspace-file-model-projection.js', async (im
     projectReadWorkspaceFileModelOutput: vi.fn(actual.projectReadWorkspaceFileModelOutput),
   };
 });
-
-import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent';
-import {
-  buildGrepSupersededMarker,
-  collectSupersessionCandidates,
-  grepProjectionHeaderPrefix,
-  type PersistedToolInvocation,
-  projectGrepSearchModelOutput,
-  projectReadWorkspaceFileModelOutput,
-  readProjectionHeaderPrefix,
-  resetMalformedProjectionMemoForTests,
-  selectHostProjectionRewrites,
-  setMalformedWarnMemoCapForTests,
-  TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS,
-} from '../src/native-tools/index.js';
 
 // The UNMOCKED projector builds fixtures: the host commits the PROJECTED model
 // output, so fixtures must too, without polluting the mocked projector's calls.

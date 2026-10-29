@@ -80,7 +80,7 @@ describe('toast persistence through the Radix provider default', () => {
 
   it('throws on the contradictory persistent + numeric duration combination', () => {
     expect(() => toast({ duration: 4000, persistent: true, title: 'Contradiction' })).toThrow(
-      /persistent/
+      /persistent/u
     );
   });
 });

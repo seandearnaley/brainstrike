@@ -209,7 +209,7 @@ describe('loadHooksConfig', () => {
 
     expect(result.hooks.PreToolUse ?? []).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]?.message).toMatch(/timeout/i);
+    expect(result.errors[0]?.message).toMatch(/timeout/iu);
   });
 
   it('records no error for missing files and marks them exists:false', () => {
@@ -310,7 +310,7 @@ describe('loadHooksConfig', () => {
       expect(result.hooks.Stop ?? []).toHaveLength(0);
       // A trust exists, but for other bytes: the file changed since its review.
       expect(result.errors[0]?.reason).toBe('changed');
-      expect(result.errors[0]?.message).toMatch(/changed since it was trusted/i);
+      expect(result.errors[0]?.message).toMatch(/changed since it was trusted/iu);
     });
 
     it('does not cross-apply one root approval to a different root file', () => {
@@ -364,7 +364,7 @@ describe('loadHooksConfig', () => {
 
     expect(result.hooks.UserPromptSubmit ?? []).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]?.message).toMatch(/aggregate budget/i);
+    expect(result.errors[0]?.message).toMatch(/aggregate budget/iu);
     expect(result.errors[0]?.reason).toBe('over-budget');
   });
 

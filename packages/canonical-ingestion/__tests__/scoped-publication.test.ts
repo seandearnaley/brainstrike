@@ -206,7 +206,7 @@ it('projects distinct matching native plans only after commit acknowledgement', 
   });
   expect(replacement.generation).toBe(ticket.generation + 1);
   expect(f.publication.getReadiness()[0]?.publication).toBeUndefined();
-  await expect(commit()).rejects.toThrow(/stale/);
+  await expect(commit()).rejects.toThrow(/stale/u);
 });
 
 it.each(['aborted', 'failed', 'invalidated'] as const)(
@@ -301,7 +301,7 @@ it.each(['store', 'profile', 'scope'] as const)(
         profile: hostedProfile,
         ticket,
       })
-    ).rejects.toThrow(/plan|identity|scope/);
+    ).rejects.toThrow(/plan|identity|scope/u);
     expect(f.port.commitScopedFile).not.toHaveBeenCalled();
     expect(f.publication.getReadiness()[0]?.publication).toBeUndefined();
   }

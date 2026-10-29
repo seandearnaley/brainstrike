@@ -33,7 +33,7 @@ export function ToolRowExpanded({ tool, onExecuteTest }: ToolRowExpandedProps): 
   return (
     <div
       className={cn(
-        'mt-1 ml-6 rounded-md border border-border/50 bg-muted/20 p-3',
+        'border-border/50 bg-muted/20 mt-1 ml-6 rounded-md border p-3',
         'slide-in-from-top-1 fade-in animate-in duration-200'
       )}
       data-testid={`tool-row-expanded-${tool.id}`}
@@ -42,7 +42,7 @@ export function ToolRowExpanded({ tool, onExecuteTest }: ToolRowExpandedProps): 
       <p className="mb-3 text-sm">{tool.description}</p>
 
       {/* Metadata */}
-      <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
+      <div className="text-muted-foreground mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
         {tool.source === 'mcp' && tool.serverName && (
           <div className="flex items-center gap-1.5">
             <span className="font-medium">Server:</span>

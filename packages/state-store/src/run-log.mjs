@@ -21,7 +21,7 @@ import { checkpointTruncate } from './sqlite-checkpoint.mjs';
  */
 export const isCorrupt = (e) => {
   const code = /** @type {{ code?: unknown }} */ (e).code;
-  return typeof code === 'string' && /^SQLITE_(CORRUPT|NOTADB)/.test(code);
+  return typeof code === 'string' && /^SQLITE_(CORRUPT|NOTADB)/u.test(code);
 };
 
 /** A refusal (a damaged thread cannot be written), not a write failure: it does not fail the store. */

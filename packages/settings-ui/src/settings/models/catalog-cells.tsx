@@ -77,7 +77,7 @@ export function ModelCell({ row }: { readonly row: CatalogRow }) {
   return (
     // `model-row-<id>` is kept for E2E continuity; TreeTable owns the <tr>.
     <div className={cn(ROW_LINE, 'min-w-0 gap-2')} data-testid={`model-row-${row.id}`}>
-      <span className="truncate font-medium text-[13px]" title={row.id}>
+      <span className="truncate text-[13px] font-medium" title={row.id}>
         <HighlightedText query={query} text={row.name} />
       </span>
       {row.recommended ? (
@@ -92,7 +92,7 @@ export function ModelCell({ row }: { readonly row: CatalogRow }) {
       ) : null}
       {secondary ? (
         <span
-          className={cn('min-w-0 truncate text-muted-foreground text-xs', showId && 'font-mono')}
+          className={cn('text-muted-foreground min-w-0 truncate text-xs', showId && 'font-mono')}
         >
           <HighlightedText query={query} text={secondary} />
         </span>

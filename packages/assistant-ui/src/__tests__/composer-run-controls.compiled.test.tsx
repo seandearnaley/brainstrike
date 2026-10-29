@@ -237,7 +237,7 @@ describe('composer run controls over the committed queue', () => {
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'held after stop{Enter}');
-    await user.click(screen.getByRole('button', { name: /^Stop/ }));
+    await user.click(screen.getByRole('button', { name: /^Stop/u }));
     await host.endRun();
     expect(host.onNew).not.toHaveBeenCalled();
 
@@ -264,7 +264,7 @@ describe('composer run controls over the committed queue', () => {
     const host = runningHost();
     const view = render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'held after stop{Enter}');
-    await user.click(screen.getByRole('button', { name: /^Stop/ }));
+    await user.click(screen.getByRole('button', { name: /^Stop/u }));
     await host.endRun();
     view.rerender(<Conversation onNew={(message) => host.onNew(message)} store={host.store} />);
 
@@ -326,7 +326,7 @@ describe('composer run controls over the committed queue', () => {
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'queued{Enter}');
-    expect(screen.queryByRole('button', { name: /^Steer/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Steer/u })).toBeNull();
     expect(
       screen.getByRole('button', { name: 'Queue message to send after this run' })
     ).toBeDisabled();

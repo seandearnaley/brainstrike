@@ -108,7 +108,7 @@ describe('native vector availability', () => {
       rootIds: ['root-a'],
     });
     expect(result.available).toBe(false);
-    expect(result.reason).toMatch(/native.*unavailable/i);
+    expect(result.reason).toMatch(/native.*unavailable/iu);
   });
 
   it('requires a complete explicitly configured profile', async () => {
@@ -149,7 +149,7 @@ describe('native vector availability', () => {
     expect(result).toMatchObject({
       available: true,
       hint: expect.stringMatching(
-        /Partial index coverage.*2 files.*4 chunks.*4 vectors.*Source scan incomplete/
+        /Partial index coverage.*2 files.*4 chunks.*4 vectors.*Source scan incomplete/u
       ),
     });
     expect(bridge.coverage).toHaveBeenCalledOnce();
@@ -200,7 +200,7 @@ describe('native vector availability', () => {
       rootIds: ['root-a'],
     });
     expect(result.available).toBe(false);
-    expect(result.reason).toMatch(/profile/i);
+    expect(result.reason).toMatch(/profile/iu);
     expect(bridge.coverageBatch).toHaveBeenCalled();
   });
 
@@ -276,7 +276,7 @@ describe('frozen native pool fusion', () => {
   it('requires the named BM25 and grep pools', async () => {
     const { fuseNativeSearchPools } = await import('../native-workspace-search');
     expect(() => fuseNativeSearchPools({ bm25: null, grep: null }, identity)).toThrow(
-      /BM25.*grep/i
+      /BM25.*grep/iu
     );
   });
 });
@@ -435,7 +435,7 @@ describe('native search consumer boundary', () => {
       new NativeWorkspaceSearchExecutor({ capability: bridge, embedQuery, profile }).searchSemantic(
         request
       )
-    ).rejects.toThrow(/coverage.*incomplete/i);
+    ).rejects.toThrow(/coverage.*incomplete/iu);
     expect(embedQuery).not.toHaveBeenCalled();
     expect(bridge.search).not.toHaveBeenCalled();
     expect(bridge.grep).not.toHaveBeenCalled();
@@ -453,7 +453,7 @@ describe('native search consumer boundary', () => {
       new NativeWorkspaceSearchExecutor({ capability: bridge, embedQuery, profile }).searchSemantic(
         request
       )
-    ).rejects.toThrow(/coverage.*incomplete/i);
+    ).rejects.toThrow(/coverage.*incomplete/iu);
     expect(embedQuery).toHaveBeenCalledExactlyOnceWith(profile, 'needle', {
       signal: expect.any(AbortSignal),
     });
@@ -542,7 +542,7 @@ describe('native search consumer boundary', () => {
         { bm25: pool([hit('a')]), grep: pool([{ ...hit('a'), contentHash: 'b'.repeat(64) }]) },
         identity
       )
-    ).toThrow(/source chunk identity/i);
+    ).toThrow(/source chunk identity/iu);
   });
   it('applies requested pattern options without changing original RRF ranks', async () => {
     const bridge = capability();

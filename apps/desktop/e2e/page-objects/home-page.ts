@@ -30,7 +30,7 @@ export class HomePage {
 
   get themeToggle() {
     // Theme toggle button has aria-label "Switch to dark mode" or "Switch to light mode"
-    return this.page.getByRole('button', { name: /Switch to (dark|light) mode/i });
+    return this.page.getByRole('button', { name: /Switch to (dark|light) mode/iu });
   }
 
   // Actions
@@ -98,7 +98,7 @@ export class HomePage {
   }
 
   async openFileExplorer() {
-    const fileExplorerButton = this.page.getByRole('button', { name: /file explorer/i });
+    const fileExplorerButton = this.page.getByRole('button', { name: /file explorer/iu });
     if (await fileExplorerButton.isVisible().catch(() => false)) {
       await fileExplorerButton.click();
     }

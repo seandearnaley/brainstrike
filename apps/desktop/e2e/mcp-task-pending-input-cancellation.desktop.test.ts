@@ -140,7 +140,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
       // a later answer for a different task. Absence of a cancelled-task update
       // must not be explained by a broken observer or disabled input delivery.
       await beginPendingInputTask(page, 'Start a fresh task and accept its input as a control.');
-      await dialog.getByRole('checkbox', { name: /approved/i }).check();
+      await dialog.getByRole('checkbox', { name: /approved/iu }).check();
       await dialog.getByRole('button', { name: /^Accept and send input/u }).click();
       await expect
         .poll(async () => (await readTasks()).map(({ status }) => status))

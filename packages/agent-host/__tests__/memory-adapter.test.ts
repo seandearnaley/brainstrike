@@ -311,7 +311,7 @@ test('a Memory tool call that fails answers the model and never fails the turn',
     // The model asks for a part the message does not have, as a real run did.
     const input = { cursor: user.id, detail: 'high', limit: 1, mode: 'messages', partIndex: 5 };
     await expect(f.adapter.executeTool('recall', input, 'call-1')).rejects.toThrow(
-      /Part index 5 not found/
+      /Part index 5 not found/u
     );
     await expect(f.adapter.endTurn()).resolves.toBeUndefined();
   } finally {

@@ -90,7 +90,7 @@ export function ProviderModelSection({
   return (
     <div className="space-y-2" data-testid={`provider-models-${providerId}`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium text-xs">Models</p>
+        <p className="text-xs font-medium">Models</p>
         <p
           className="text-muted-foreground text-xs"
           data-testid={`provider-model-count-${providerId}`}
@@ -98,7 +98,7 @@ export function ProviderModelSection({
           {models.length} {models.length === 1 ? 'model' : 'models'} · {enabledCount} enabled
         </p>
       </div>
-      <ul className="divide-y divide-border/60 rounded-md border">
+      <ul className="divide-border/60 divide-y rounded-md border">
         {ordered.map((model) => {
           const isRecommended = recommendedModelIds.has(model.id);
           const busy = busyModelIds.has(model.id);
@@ -117,7 +117,7 @@ export function ProviderModelSection({
               />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="truncate font-medium text-sm">{model.name}</span>
+                  <span className="truncate text-sm font-medium">{model.name}</span>
                   <ModelTypeBadge model={model} />
                   {isRecommended ? (
                     <Badge
@@ -130,7 +130,7 @@ export function ProviderModelSection({
                   ) : null}
                 </div>
                 {model.tagline ? (
-                  <p className="truncate text-muted-foreground text-xs">{model.tagline}</p>
+                  <p className="text-muted-foreground truncate text-xs">{model.tagline}</p>
                 ) : null}
               </div>
             </li>

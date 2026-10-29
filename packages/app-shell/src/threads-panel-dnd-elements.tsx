@@ -54,7 +54,7 @@ function toEdge(value: ReturnType<typeof extractClosestEdge>): 'bottom' | 'top' 
 function DropEdgeIndicator({ edge }: { readonly edge: 'bottom' | 'top' }): ReactElement {
   return (
     <div
-      className={`pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-primary ${
+      className={`bg-primary pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full ${
         edge === 'top' ? '-top-[3px]' : '-bottom-[3px]'
       }`}
       data-testid="thread-drop-indicator"
@@ -185,7 +185,7 @@ export function GroupHeaderDndShell({
   return (
     <div
       className={`relative rounded-md ${isDragging ? 'opacity-50' : ''} ${
-        isThreadOver ? 'bg-primary/10 ring-1 ring-primary/40' : ''
+        isThreadOver ? 'bg-primary/10 ring-primary/40 ring-1' : ''
       }`}
       ref={elementRef}
     >
@@ -232,7 +232,7 @@ export function GroupBodyDndShell({
 
   return (
     <div
-      className={`rounded-md ${isThreadOver ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}
+      className={`rounded-md ${isThreadOver ? 'bg-primary/10 ring-primary/40 ring-1' : ''}`}
       ref={elementRef}
     >
       {children}
@@ -268,7 +268,7 @@ export function UngroupedSectionDndShell({
 
   return (
     <div
-      className={`rounded-md ${isThreadOver ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}
+      className={`rounded-md ${isThreadOver ? 'bg-primary/10 ring-primary/40 ring-1' : ''}`}
       ref={elementRef}
     >
       {children}

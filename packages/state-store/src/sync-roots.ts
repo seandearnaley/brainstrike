@@ -77,10 +77,10 @@ export function assertNotSyncedRoot(root: string, e: SyncEnv = {}): void {
     return;
   }
   const first = path.relative(home, real).split(path.sep)[0] ?? '';
-  if (/^dropbox( \(.+\))?$/i.test(first)) {
+  if (/^dropbox( \(.+\))?$/iu.test(first)) {
     throw new SyncedRootError(root, 'Dropbox', path.join(home, first));
   }
-  if (/^onedrive( - .+)?$/i.test(first)) {
+  if (/^onedrive( - .+)?$/iu.test(first)) {
     throw new SyncedRootError(root, 'OneDrive', path.join(home, first));
   }
 }
@@ -105,10 +105,10 @@ function assertWin(
   }
   if (userProfile && under(userProfile)) {
     const first = w.relative(resolveReal(userProfile, w), resolvedRoot).split('\\')[0] ?? '';
-    if (/^onedrive( - .+)?$/i.test(first)) {
+    if (/^onedrive( - .+)?$/iu.test(first)) {
       throw new SyncedRootError(root, 'OneDrive', w.join(userProfile, first));
     }
-    if (/^dropbox( \(.+\))?$/i.test(first)) {
+    if (/^dropbox( \(.+\))?$/iu.test(first)) {
       throw new SyncedRootError(root, 'Dropbox', w.join(userProfile, first));
     }
   }

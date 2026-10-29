@@ -217,7 +217,7 @@ function subscribeToAssistantAvailabilityOverride(onStoreChange: () => void): ()
   };
 }
 
-const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
+const trimTrailingSlash = (value: string): string => value.replace(/\/+$/u, '');
 
 interface FetchAssistantStatusStateOptions {
   fetchImpl?: typeof fetch;

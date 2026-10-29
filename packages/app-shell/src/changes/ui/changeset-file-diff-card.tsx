@@ -93,17 +93,17 @@ function displayPath(entry: ChangedFileEntry): string {
 function CardHeader({ entry }: { readonly entry: ChangedFileEntry }): ReactElement {
   return (
     <div
-      className="sticky top-0 z-10 flex items-center gap-2 border-border border-b bg-muted/85 px-3 py-1.5 backdrop-blur-sm"
+      className="border-border bg-muted/85 sticky top-0 z-10 flex items-center gap-2 border-b px-3 py-1.5 backdrop-blur-sm"
       data-testid="changeset-file-diff-card-header"
     >
-      <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">
+      <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">
         {STATUS_LABELS[entry.status]}
       </span>
       <span className="min-w-0 flex-1 truncate font-mono text-xs" title={displayPath(entry)}>
         {displayPath(entry)}
       </span>
       <span
-        className="shrink-0 text-muted-foreground text-xs"
+        className="text-muted-foreground shrink-0 text-xs"
         data-testid="changeset-file-diff-card-stats"
       >
         <span aria-hidden="true">
@@ -120,7 +120,7 @@ function CardHeader({ entry }: { readonly entry: ChangedFileEntry }): ReactEleme
 function LoadingBody(): ReactElement {
   return (
     <div
-      className="flex h-40 items-center justify-center text-muted-foreground text-xs"
+      className="text-muted-foreground flex h-40 items-center justify-center text-xs"
       data-testid="changeset-file-diff-card-loading"
       role="status"
     >
@@ -132,7 +132,7 @@ function LoadingBody(): ReactElement {
 function BinaryBody(): ReactElement {
   return (
     <div
-      className="flex h-40 flex-col items-center justify-center gap-1 px-6 text-center text-muted-foreground text-sm"
+      className="text-muted-foreground flex h-40 flex-col items-center justify-center gap-1 px-6 text-center text-sm"
       data-testid="changeset-file-diff-card-binary"
     >
       <span>Binary file — no textual diff available.</span>
@@ -149,7 +149,7 @@ function ErrorBody({
 }): ReactElement {
   return (
     <div
-      className="flex flex-col gap-2 border-destructive/30 border-b bg-destructive/5 px-4 py-3 text-sm"
+      className="border-destructive/30 bg-destructive/5 flex flex-col gap-2 border-b px-4 py-3 text-sm"
       data-testid="changeset-file-diff-card-error"
       role="alert"
     >

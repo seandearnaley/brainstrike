@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadToolPreferencesForProjection } from '../src/mcp/tool-discovery.js';
 
 const { loadToolPreferencesMock, saveToolPreferencesMock } = vi.hoisted(() => ({
   loadToolPreferencesMock: vi.fn(),
@@ -15,8 +16,6 @@ vi.mock('@brainstrike/agent/mcp-client', () => ({
   __esModule: true,
   mcpToolRegistry: { getAllTools: vi.fn(() => ({})) },
 }));
-
-import { loadToolPreferencesForProjection } from '../src/mcp/tool-discovery.js';
 
 const USER_DATA = 'mock-user-data';
 

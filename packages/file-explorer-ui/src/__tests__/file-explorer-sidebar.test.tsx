@@ -106,7 +106,7 @@ describe('FileExplorerSidebar', () => {
     });
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByText(/Tree loading failed/i, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(/Tree loading failed/iu, { exact: false })).toBeInTheDocument();
   });
 
   it('displays error message when filterError exists', () => {
@@ -116,7 +116,7 @@ describe('FileExplorerSidebar', () => {
     });
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByText(/Filter error/i, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(/Filter error/iu, { exact: false })).toBeInTheDocument();
   });
 
   it('displays both errors when treeError and filterError exist', () => {
@@ -324,7 +324,7 @@ describe('FileExplorerSidebar', () => {
     await waitFor(() => {
       // Forest sections name their own root (BST-1208 a11y), so match the
       // shared prefix rather than the single-root exact name.
-      const trees = screen.getAllByRole('treegrid', { name: /^File tree/ });
+      const trees = screen.getAllByRole('treegrid', { name: /^File tree/u });
       expect(trees).toHaveLength(2);
     });
   });
@@ -374,9 +374,9 @@ describe('FileExplorerSidebar', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Couldn't read this folder/i)).toBeInTheDocument();
+      expect(screen.getByText(/Couldn't read this folder/iu)).toBeInTheDocument();
     });
-    expect(screen.getByText(/operation not permitted/i)).toBeInTheDocument();
+    expect(screen.getByText(/operation not permitted/iu)).toBeInTheDocument();
     // The misleading empty-state copy must NOT render for a failed scan.
     expect(screen.queryByText('No files in this folder')).not.toBeInTheDocument();
     // Root A is unaffected.
@@ -433,14 +433,14 @@ describe('FileExplorerSidebar', () => {
 
     // Wait for root B's treegrid to appear then click a row in it
     await waitFor(() => {
-      const trees = screen.getAllByRole('treegrid', { name: /^File tree/ });
+      const trees = screen.getAllByRole('treegrid', { name: /^File tree/u });
       // At least root B's tree should be present (has content)
       expect(trees.length).toBeGreaterThanOrEqual(1);
     });
 
     // The second root section wraps its tree in a focus-switch div;
     // clicking any row in root B's tree should trigger setFocusedRoot('/project-b').
-    const trees = screen.getAllByRole('treegrid', { name: /^File tree/ });
+    const trees = screen.getAllByRole('treegrid', { name: /^File tree/u });
     const rootBTree = trees.at(-1) as HTMLElement;
     await user.click(rootBTree);
     expect(setFocusedRoot).toHaveBeenCalledWith('/project-b');
@@ -1762,7 +1762,7 @@ describe('FileExplorerSidebar', () => {
 
       // Dialog states the data-kept semantics and names the root.
       expect(screen.getByText('Disconnect project-b?')).toBeInTheDocument();
-      expect(screen.getByText(/indexed data is kept/i)).toBeInTheDocument();
+      expect(screen.getByText(/indexed data is kept/iu)).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'Disconnect' }));
 
@@ -1778,7 +1778,7 @@ describe('FileExplorerSidebar', () => {
 
       const disconnectButtons = screen.getAllByLabelText('Disconnect folder');
       await user.click(disconnectButtons.at(1) as HTMLElement);
-      await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/i }));
+      await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/iu }));
       await user.click(screen.getByRole('button', { name: 'Disconnect' }));
 
       expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith(ROOT_ID_B, { deleteData: true });

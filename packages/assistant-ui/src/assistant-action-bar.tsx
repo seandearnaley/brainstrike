@@ -67,7 +67,7 @@ export const AssistantActionBar = () => {
         {isCopied ? (
           <CheckIcon className="size-3.5" />
         ) : (
-          <CopyIcon className={isFailed ? 'size-3.5 text-destructive' : 'size-3.5'} />
+          <CopyIcon className={isFailed ? 'text-destructive size-3.5' : 'size-3.5'} />
         )}
       </TooltipIconButton>
       {/* Proactively announce a broken clipboard to screen readers — the

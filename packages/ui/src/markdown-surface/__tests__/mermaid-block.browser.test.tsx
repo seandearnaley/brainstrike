@@ -158,9 +158,9 @@ flowchart LR
   const svg = await renderedSvg();
   expect(svg.querySelector('script, [onclick], [onerror]')).toBeNull();
   for (const anchor of svg.querySelectorAll('a')) {
-    expect(anchor.getAttribute('href')).not.toEqual(expect.stringMatching(/^\s*javascript:/i));
+    expect(anchor.getAttribute('href')).not.toEqual(expect.stringMatching(/^\s*javascript:/iu));
     expect(anchor.getAttribute('xlink:href')).not.toEqual(
-      expect.stringMatching(/^\s*javascript:/i)
+      expect.stringMatching(/^\s*javascript:/iu)
     );
   }
 });
@@ -179,7 +179,7 @@ async function pngPixels(png: Blob) {
 }
 
 function rgb(color: string): [number, number, number] {
-  const channels = color.match(/\d+(\.\d+)?/g)?.map(Number) ?? [];
+  const channels = color.match(/\d+(\.\d+)?/gu)?.map(Number) ?? [];
   return [channels[0] ?? -1, channels[1] ?? -1, channels[2] ?? -1];
 }
 

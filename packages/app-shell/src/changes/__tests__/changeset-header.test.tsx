@@ -226,7 +226,7 @@ describe('ChangesetHeader', () => {
     expect(screen.getByTestId('changeset-header-error')).toHaveTextContent(
       'window.changes bridge threw ECONNRESET'
     );
-    screen.getByRole('button', { name: /retry/i }).click();
+    screen.getByRole('button', { name: /retry/iu }).click();
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
@@ -290,7 +290,7 @@ describe('ChangesetHeader', () => {
     );
 
     const container = screen.getByTestId('changeset-header-inventory-error');
-    screen.getByRole('button', { name: /retry/i }).click();
+    screen.getByRole('button', { name: /retry/iu }).click();
     expect(onRetryInventory).toHaveBeenCalledOnce();
     expect(container).toHaveTextContent('inventory load failed');
   });

@@ -50,7 +50,7 @@ async function enableModel(page: Page): Promise<void> {
 
 async function saveServer(page: Page, url: string): Promise<void> {
   await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+  await new SettingsPage(page).openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   const editor = page.getByTestId('mcp-config-editor');
   await expect(editor).toBeVisible({ timeout: 30_000 });

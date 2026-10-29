@@ -10,11 +10,11 @@ export function EditComposer(): ReactNode {
   // shell explains the block and offers the explicit session override.
   const budgetSendBlocked = useBudgetSendGate();
   return (
-    <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
+    <ComposerPrimitive.Root className="bg-muted my-4 flex w-full flex-col gap-2 rounded-xl">
       {/* disabled mirrors ComposerInputRow: the Input submits on Enter, so a
           gate on the Send button alone leaves a keyboard bypass (review #1714). */}
       <ComposerPrimitive.Input
-        className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none"
+        className="text-foreground flex h-8 w-full resize-none bg-transparent p-4 pb-0 outline-none"
         disabled={budgetSendBlocked}
       />
 

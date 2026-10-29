@@ -57,7 +57,7 @@ test('adding a provider key on a host thread enables its recommended models, whi
   await homePage.openSettings();
   await page
     .getByRole('navigation', { name: 'Settings categories' })
-    .getByRole('button', { name: /^Providers$/i })
+    .getByRole('button', { name: /^Providers$/iu })
     .click();
   await page.getByTestId('provider-card-toggle-openrouter').click();
   // Settings saves a key through the agent host, the only credential writer, so

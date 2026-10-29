@@ -507,7 +507,7 @@ describe('ProviderVerificationService aws probes', () => {
       const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
       const { service } = createService(envBearerOverrides(fetchImpl, {}));
 
-      await expect(service.verify('bedrock')).rejects.toThrow(/AWS region/i);
+      await expect(service.verify('bedrock')).rejects.toThrow(/AWS region/iu);
       expect(fetchImpl).not.toHaveBeenCalled();
     });
   });

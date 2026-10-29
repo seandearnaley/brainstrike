@@ -1109,7 +1109,7 @@ describe('IdeLayout', () => {
         'utf-8'
       );
       // Match Separator JSX blocks with their className props
-      const separatorBlocks = source.match(/<Separator[\s\S]*?\/>/g) ?? [];
+      const separatorBlocks = source.match(/<Separator[\s\S]*?\/>/gu) ?? [];
       expect(separatorBlocks.length).toBeGreaterThanOrEqual(3);
       for (const block of separatorBlocks) {
         expect(block).not.toContain('transition-colors');
@@ -1210,7 +1210,7 @@ describe('IdeLayout', () => {
         expect(handle.className).toContain('bg-transparent');
         // The base bg-* color must be transparent, and no interaction state may light
         // it up — a highlight flash on an invisible handle reads as a rendering glitch.
-        expect(handle.className).not.toMatch(/(^|\s)bg-panel-divider(\s|$)/);
+        expect(handle.className).not.toMatch(/(^|\s)bg-panel-divider(\s|$)/u);
         expect(handle.className).not.toContain('data-[separator=');
       }
     });
@@ -1240,7 +1240,7 @@ describe('IdeLayout', () => {
         expect(handle.className).not.toContain('hover:bg-panel-divider');
         expect(handle.className).not.toContain('bg-transparent');
         // And no stale reference to the old generic border token on any Separator.
-        expect(handle.className).not.toMatch(/(^|\s)bg-border(\s|\/|$)/);
+        expect(handle.className).not.toMatch(/(^|\s)bg-border(\s|\/|$)/u);
       }
     });
 
@@ -1259,7 +1259,7 @@ describe('IdeLayout', () => {
       expect(horizontal).toHaveLength(1);
       for (const handle of handles) {
         // The old 4px bar must be gone; the library inflates the hit target on its own.
-        expect(handle.className).not.toMatch(/(^|\s)[wh]-1(\s|$)/);
+        expect(handle.className).not.toMatch(/(^|\s)[wh]-1(\s|$)/u);
       }
     });
 
@@ -1276,7 +1276,7 @@ describe('IdeLayout', () => {
       expect(toolsPanel).not.toBeNull();
       const wrapper = toolsPanel?.firstElementChild as HTMLElement | null;
       expect(wrapper).not.toBeNull();
-      expect(wrapper?.className ?? '').not.toMatch(/\bborder-l\b/);
+      expect(wrapper?.className ?? '').not.toMatch(/\bborder-l\b/u);
     });
   });
 });

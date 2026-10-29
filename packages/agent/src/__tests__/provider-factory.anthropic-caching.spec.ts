@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createProvider } from '../providers/provider-factory';
 
 const doStream = vi.fn().mockResolvedValue({ stream: 'anthropic-stream' });
 const doGenerate = vi.fn().mockResolvedValue({ finishReason: 'stop' });
@@ -12,8 +13,6 @@ vi.mock('@ai-sdk/anthropic', () => ({
     specificationVersion: 'v2',
   })),
 }));
-
-import { createProvider } from '../providers/provider-factory';
 
 interface PromptMessageLike {
   content: unknown;

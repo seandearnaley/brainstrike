@@ -214,8 +214,8 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     await result.current.openLink('');
 
     const [payload] = toastMock.mock.calls[0] as [{ description?: string }];
-    expect(payload.description).not.toMatch(/[—-]\s*$/);
-    expect(payload.description).toMatch(/absolute url/i);
+    expect(payload.description).not.toMatch(/[—-]\s*$/u);
+    expect(payload.description).toMatch(/absolute url/iu);
   });
 
   it('does not reject when the bridge returns an unstringifiable error field', async () => {
@@ -262,7 +262,7 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     const [payload] = toastMock.mock.calls[0] as [{ description?: string }];
     // "Could not open link" plus a bare URL leaves the user guessing between an
     // unsupported protocol, a relative path, and a platform failure.
-    expect(payload.description).toMatch(/absolute url/i);
+    expect(payload.description).toMatch(/absolute url/iu);
   });
 
   it('keeps a stable identity across renders so memoized markdown does not remount', () => {
@@ -352,7 +352,7 @@ describe('link choices with the built-in browser', () => {
     expect(result.ok).toBe(false);
     expect(toastMock).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        description: expect.stringMatching(/Send a message first/),
+        description: expect.stringMatching(/Send a message first/u),
         title: 'Could not open link',
         variant: 'destructive',
       })

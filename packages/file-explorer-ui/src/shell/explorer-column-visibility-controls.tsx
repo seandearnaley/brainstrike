@@ -76,7 +76,7 @@ export const ExplorerColumnVisibilityControls = memo(
               const columnId = config.id;
               return (
                 <div
-                  className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent"
+                  className="hover:bg-accent flex items-center gap-2 rounded px-2 py-1.5"
                   key={columnId}
                 >
                   <Checkbox
@@ -85,7 +85,7 @@ export const ExplorerColumnVisibilityControls = memo(
                     onCheckedChange={(checked) => setColumnVisible(columnId, checked === true)}
                   />
                   <label
-                    className="cursor-pointer select-none text-sm"
+                    className="cursor-pointer text-sm select-none"
                     htmlFor={`explorer-column-${columnId}`}
                   >
                     {config.label}
@@ -96,7 +96,7 @@ export const ExplorerColumnVisibilityControls = memo(
           </div>
           <p
             className={cn(
-              'mt-1 border-t px-2 pt-2 text-[11px] text-muted-foreground',
+              'text-muted-foreground mt-1 border-t px-2 pt-2 text-[11px]',
               !areMetadataColumnsSuppressed && 'sr-only'
             )}
           >

@@ -134,7 +134,7 @@ describe('useAssistantThreadStore thread appearance', () => {
           color: 'rose',
           model: 'gpt-5.2',
         } as never)
-    ).rejects.toThrow(/only icon and color: model/);
+    ).rejects.toThrow(/only icon and color: model/u);
     expect(repository.updateThreadMetadata).not.toHaveBeenCalled();
     expect(shown()?.metadata).toEqual({ color: 'blue' });
   });

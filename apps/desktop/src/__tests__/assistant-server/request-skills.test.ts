@@ -138,7 +138,7 @@ describe('prepareRequestSkills', () => {
       expect(names).toEqual(['global-skill', 'root-skill']);
       expect(
         records.some(
-          (record) => record.level === 'warn' && /skills preference/i.test(String(record.message))
+          (record) => record.level === 'warn' && /skills preference/iu.test(String(record.message))
         )
       ).toBe(true);
     } finally {

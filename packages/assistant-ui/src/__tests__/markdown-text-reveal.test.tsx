@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { MarkdownText } from '../markdown-text';
 
 const primitiveMocks = vi.hoisted(() => ({
   markdownTextPrimitive: vi.fn((_props: unknown) => null),
@@ -20,8 +21,6 @@ vi.mock('@brainstrike/context-actions', () => ({
 vi.mock('../shiki-highlighter', () => ({
   SyntaxHighlighterComponent: () => null,
 }));
-
-import { MarkdownText } from '../markdown-text';
 
 describe('MarkdownText streaming reveal', () => {
   it('reveals words with Streamdown animation instead of a frame-paced re-render', () => {

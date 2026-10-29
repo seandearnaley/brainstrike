@@ -60,7 +60,7 @@ describe('MCP Apps ordinary tool-call authority', () => {
         toolName: 'create_issue',
       }),
       expect.objectContaining({
-        id: expect.stringMatching(/^mcp-app-preparation-[0-9a-f-]{36}-1-1$/),
+        id: expect.stringMatching(/^mcp-app-preparation-[0-9a-f-]{36}-1-1$/u),
         signal: expect.any(AbortSignal),
       })
     );

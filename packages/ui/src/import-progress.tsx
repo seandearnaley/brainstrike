@@ -32,11 +32,11 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-sm">
             {isComplete ? (
-              <CheckCircle aria-hidden="true" className="h-4 w-4 text-success" />
+              <CheckCircle aria-hidden="true" className="text-success h-4 w-4" />
             ) : (
               <div
                 aria-hidden="true"
-                className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"
+                className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
                 data-testid="import-progress-spinner"
               />
             )}
@@ -66,7 +66,7 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
           <Progress aria-label="Import progress" className="h-2" value={percentage} />
 
           {current && (
-            <div className="truncate text-muted-foreground text-xs">Current: {current}</div>
+            <div className="text-muted-foreground truncate text-xs">Current: {current}</div>
           )}
 
           <div className="flex gap-2">
@@ -97,7 +97,7 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
             ) : (
               <ChevronRight aria-hidden="true" className="mr-2 h-3 w-3" />
             )}
-            <AlertTriangle aria-hidden="true" className="mr-2 h-3 w-3 text-warning" />
+            <AlertTriangle aria-hidden="true" className="text-warning mr-2 h-3 w-3" />
             <span className="text-xs">
               View {errors.length} error{errors.length === 1 ? '' : 's'}
             </span>
@@ -110,11 +110,11 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
           >
             {errors.map((error) => (
               <div
-                className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
+                className="border-destructive bg-destructive/10 rounded border-l-2 p-2 text-xs"
                 key={`${error.file}-${error.error}`}
               >
                 <div className="truncate font-medium">{error.file}</div>
-                <div className="mt-1 text-muted-foreground">{error.error}</div>
+                <div className="text-muted-foreground mt-1">{error.error}</div>
               </div>
             ))}
           </div>

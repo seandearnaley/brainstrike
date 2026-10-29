@@ -48,7 +48,7 @@ describe('item 2 · thread delete and factory reset', () => {
       expect((await store.read('t2')).map((e) => sha256Hex(e.raw))).toEqual(t2Before);
       if (HAS_LSOF) {
         // No handle keeps the deleted thread's bytes alive (POSIX: an unlinked inode held open survives).
-        for (const f of lsofUnder([process.pid], root).filter((x) => /^\d+$/.test(x.fd))) {
+        for (const f of lsofUnder([process.pid], root).filter((x) => /^\d+$/u.test(x.fd))) {
           expect(existsSync(f.name), `${f.name} still open`).toBe(true);
           expect(f.inode).toBe(inodeOf(f.name));
         }

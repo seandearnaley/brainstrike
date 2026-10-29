@@ -159,7 +159,7 @@ describe('RuntimeSubagentSettings', () => {
     ],
   ])('THROWS on %s instead of coercing', (_label, value) => {
     expect(() => parseRuntimeSubagentSettings(value)).toThrow(RuntimeSubagentSettingsError);
-    expect(() => parseRuntimeSubagentSettings(value)).toThrow(/Subagent settings are malformed/);
+    expect(() => parseRuntimeSubagentSettings(value)).toThrow(/Subagent settings are malformed/u);
   });
 
   describe('applyTurnSubagentLimits', () => {
@@ -198,7 +198,7 @@ describe('RuntimeSubagentSettings', () => {
     it('THROWS on a stored row the contract rejects instead of trusting it', () => {
       expect(() =>
         applyTurnSubagentLimits(request, { ...turn, maxTreeOutputTokens: 1024 })
-      ).toThrow(/maxChildOutputTokens must not exceed maxTreeOutputTokens/);
+      ).toThrow(/maxChildOutputTokens must not exceed maxTreeOutputTokens/u);
     });
   });
 

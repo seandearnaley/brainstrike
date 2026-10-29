@@ -209,8 +209,8 @@ export function SubagentSettingsSection() {
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <Layers aria-hidden="true" className="h-4 w-4 text-muted-foreground" />
-            <h3 className="font-medium text-sm">Subagent limits</h3>
+            <Layers aria-hidden="true" className="text-muted-foreground h-4 w-4" />
+            <h3 className="text-sm font-medium">Subagent limits</h3>
           </div>
           <p className="text-muted-foreground text-sm">
             Limits every delegated subagent runs under. They are copied into the turn when its first
@@ -230,9 +230,9 @@ export function SubagentSettingsSection() {
           Reset to defaults
         </Button>
       </div>
-      <h4 className="font-medium text-sm">Each turn</h4>
+      <h4 className="text-sm font-medium">Each turn</h4>
       <div className="grid gap-4 md:grid-cols-2">{TURN_FIELDS.map(renderField)}</div>
-      <h4 className="font-medium text-sm">Each subagent</h4>
+      <h4 className="text-sm font-medium">Each subagent</h4>
       <div className="grid gap-4 md:grid-cols-2">
         {CHILD_FIELDS.map(renderField)}
         <BudgetField

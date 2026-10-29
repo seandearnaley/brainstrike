@@ -55,7 +55,7 @@ test('a host run’s approved shell command runs in the agent host over the work
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
     // The default `execute: ask` policy pauses the command; nothing runs until approved.
-    const approve = region.getByRole('button', { name: /^Approve / });
+    const approve = region.getByRole('button', { name: /^Approve /u });
     await expect(approve).toBeVisible({ timeout: 90_000 });
     expect(() => readFileSync(path.join(root, 'shell-out.txt'), 'utf8')).toThrow();
     await approve.click();

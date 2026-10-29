@@ -2,6 +2,8 @@ import { useRequestAppReload } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppReloadGate } from '../app-reload-gate';
+import { CHUNK_RELOAD_STORAGE_KEY } from '../chunk-reload-guard';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -11,9 +13,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => loggerMock,
 }));
-
-import { AppReloadGate } from '../app-reload-gate';
-import { CHUNK_RELOAD_STORAGE_KEY } from '../chunk-reload-guard';
 
 function Trigger() {
   const requestAppReload = useRequestAppReload();

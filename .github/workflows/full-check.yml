@@ -9,7 +9,7 @@ name: Full Check
 
 on:
   pull_request:
-    types: [labeled, synchronize]
+    types: [ labeled, synchronize ]
 
 # A called workflow can only narrow these, and merge-queue.yml asks for both.
 permissions:

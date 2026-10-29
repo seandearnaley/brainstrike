@@ -78,7 +78,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     const assistantChatCard = await ensureAssistantShellVisible(window);
     await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
 
-    const loadingIndicator = window.getByText(/Loading assistant/i);
+    const loadingIndicator = window.getByText(/Loading assistant/iu);
     if (await loadingIndicator.isVisible().catch(() => false)) {
       await loadingIndicator.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {
         throw new Error('Assistant UI chunk did not finish loading on initial mount');
@@ -100,7 +100,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     const assistantChatCard = await ensureAssistantShellVisible(window);
     await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
 
-    const loadingIndicator = window.getByText(/Loading assistant/i);
+    const loadingIndicator = window.getByText(/Loading assistant/iu);
     if (await loadingIndicator.isVisible().catch(() => false)) {
       await loadingIndicator.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {
         console.warn('⚠️ Assistant UI chunk still loading after timeout');

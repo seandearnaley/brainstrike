@@ -27,7 +27,7 @@ describe('useRequestAppReload', () => {
       return null;
     }
 
-    expect(() => render(<Probe />)).toThrow(/AppReloadProvider/);
+    expect(() => render(<Probe />)).toThrow(/AppReloadProvider/u);
   });
 
   it('returns the provided requestAppReload', async () => {
@@ -110,6 +110,6 @@ describe('AppReloadNotice', () => {
     const { AppReloadNotice } = await loadFresh();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    expect(() => render(<AppReloadNotice />)).toThrow(/AppReloadProvider/);
+    expect(() => render(<AppReloadNotice />)).toThrow(/AppReloadProvider/u);
   });
 });

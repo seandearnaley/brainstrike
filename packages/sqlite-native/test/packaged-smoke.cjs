@@ -58,7 +58,7 @@ const out = path.join(
   `sqlite-native-smoke-packaged-${process.platform}-${process.arch}.json`
 );
 rmSync(out, { force: true });
-const ptyOut = out.replace(/\.json$/, '-pty.json');
+const ptyOut = out.replace(/\.json$/u, '-pty.json');
 rmSync(ptyOut, { force: true });
 
 const env = { ...process.env };

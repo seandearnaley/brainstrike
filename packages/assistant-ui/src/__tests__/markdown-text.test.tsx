@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MarkdownText } from '../markdown-text';
 
 const useMessagePartTextMock = vi.hoisted(() =>
   vi.fn(() => ({
@@ -58,8 +59,6 @@ vi.mock('../../../ui/src/tooltip-icon-button', () => ({
     </button>
   ),
 }));
-
-import { MarkdownText } from '../markdown-text';
 
 describe('MarkdownText', () => {
   beforeEach(() => {

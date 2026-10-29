@@ -218,10 +218,10 @@ function ModelComparisonCard({ models }: { readonly models: readonly LedgerModel
               <TableHead>Model</TableHead>
               <TableHead className="w-14 text-right">Runs</TableHead>
               <TableHead className="w-24 text-right">Completed</TableHead>
-              <TableHead className="@xl:table-cell hidden w-24 whitespace-nowrap text-right">
+              <TableHead className="hidden w-24 text-right whitespace-nowrap @xl:table-cell">
                 Avg time
               </TableHead>
-              <TableHead className="@md:table-cell hidden w-20 text-right">Tokens</TableHead>
+              <TableHead className="hidden w-20 text-right @md:table-cell">Tokens</TableHead>
               <TableHead className="w-20 text-right">Cost</TableHead>
             </TableRow>
           </TableHeader>
@@ -235,11 +235,11 @@ function ModelComparisonCard({ models }: { readonly models: readonly LedgerModel
                 <TableCell className="text-right tabular-nums" title={modelOutcomesTitle(row)}>
                   {successRate(row)}
                 </TableCell>
-                <TableCell className="@xl:table-cell hidden whitespace-nowrap text-right tabular-nums">
+                <TableCell className="hidden text-right whitespace-nowrap tabular-nums @xl:table-cell">
                   {formatDurationMs(row.avgDurationMs)}
                 </TableCell>
                 <TableCell
-                  className="@md:table-cell hidden text-right tabular-nums"
+                  className="hidden text-right tabular-nums @md:table-cell"
                   title={`${row.inputTokens.toLocaleString()} input (${row.cacheReadTokens.toLocaleString()} cached) · ${row.outputTokens.toLocaleString()} output`}
                 >
                   {formatTokensCompact(row.inputTokens + row.outputTokens)}
@@ -281,7 +281,7 @@ function RunBreakdown({ row }: { readonly row: RunLedgerRow }) {
   ] as const;
   return (
     <dl
-      className="grid grid-cols-[auto_auto_1fr] gap-x-4 gap-y-1 rounded-md bg-muted/40 px-3 py-2.5 text-xs"
+      className="bg-muted/40 grid grid-cols-[auto_auto_1fr] gap-x-4 gap-y-1 rounded-md px-3 py-2.5 text-xs"
       data-testid="task-ledger-run-breakdown"
     >
       {lines.map(([label, count, note]) => (
@@ -292,9 +292,9 @@ function RunBreakdown({ row }: { readonly row: RunLedgerRow }) {
         </div>
       ))}
       <div className="contents">
-        <dt className="border-t pt-1 text-muted-foreground">Cost</dt>
+        <dt className="text-muted-foreground border-t pt-1">Cost</dt>
         <dd className="border-t pt-1 text-right font-semibold tabular-nums">{runCostLabel(row)}</dd>
-        <dd className="border-t pt-1 text-muted-foreground">
+        <dd className="text-muted-foreground border-t pt-1">
           {row.estimatedCostUsd === null
             ? 'a model in this run has no list price'
             : 'each request priced at its own rate'}
@@ -363,7 +363,7 @@ function RunList({
     <Accordion className="rounded-md border" collapsible type="single">
       {rows.map((row) => (
         <AccordionItem data-testid="task-ledger-run-row" key={row.runId} value={row.runId}>
-          <AccordionTrigger className="gap-3 px-3 py-2.5 hover:bg-muted/40 hover:no-underline">
+          <AccordionTrigger className="hover:bg-muted/40 gap-3 px-3 py-2.5 hover:no-underline">
             <span className="flex min-w-0 flex-1 items-start gap-2.5">
               <span
                 aria-hidden="true"
@@ -373,7 +373,7 @@ function RunList({
                 <span className="flex min-w-0 items-center gap-2 font-normal">
                   <ModelName model={row.model} provider={row.provider} />
                 </span>
-                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-normal text-muted-foreground text-xs">
+                <span className="text-muted-foreground flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs font-normal">
                   <span className="shrink-0 tabular-nums">
                     {startedAtFormatter.format(row.startedAt)}
                   </span>
@@ -389,8 +389,8 @@ function RunList({
               </span>
               <span
                 className={cn(
-                  'shrink-0 text-right font-semibold text-sm tabular-nums',
-                  row.estimatedCostUsd === null && 'font-normal text-muted-foreground'
+                  'shrink-0 text-right text-sm font-semibold tabular-nums',
+                  row.estimatedCostUsd === null && 'text-muted-foreground font-normal'
                 )}
                 data-testid="task-ledger-run-cost"
               >

@@ -37,13 +37,14 @@ export const DEFAULT_IGNORE_PATTERNS = [
  */
 export function buildIgnorePatternRegex(patterns: readonly string[]): RegExp {
   if (patterns.length === 0) {
-    return /(?!)/;
+    return /(?!)/u;
   }
   if (patterns.some((pattern) => pattern === '')) {
     throw new Error('buildIgnorePatternRegex: empty-string pattern would match every path');
   }
   return new RegExp(
-    `(?:^|[\\\\/])(?:${patterns.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:$|[\\\\/])`
+    `(?:^|[\\\\/])(?:${patterns.map((p) => p.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('|')})(?:$|[\\\\/])`,
+    'u'
   );
 }
 
@@ -59,9 +60,9 @@ const invalidRegexPatterns = new Set<string>();
 const minimatchCache = new Map<string, Minimatch>();
 const MAX_REGEX_PATTERN_LENGTH = 256;
 const UNSAFE_REGEX_PATTERNS = [
-  /\\[1-9]/, // backreferences can explode search time and are unnecessary here
-  /\(\?<([=!])/, // lookbehind
-  /\((?:[^()\\]|\\.)*[+*{](?:[^()\\]|\\.)*\)[+*{]/, // nested quantifiers
+  /\\[1-9]/u, // backreferences can explode search time and are unnecessary here
+  /\(\?<([=!])/u, // lookbehind
+  /\((?:[^()\\]|\\.)*[+*{](?:[^()\\]|\\.)*\)[+*{]/u, // nested quantifiers
 ];
 
 const getLogger = (): ReturnType<typeof createLogger> => createLogger('fileFilter');
@@ -100,6 +101,7 @@ const getRegexMatcher = (pattern: string): RegExp | null => {
   }
 
   try {
+    // biome-ignore lint/style/useUnicodeRegex: a user-written pattern keeps the non-unicode syntax people type, such as `\-`.
     const regex = new RegExp(pattern);
     regexCache.set(pattern, regex);
     return regex;

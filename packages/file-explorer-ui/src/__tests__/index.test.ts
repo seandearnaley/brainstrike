@@ -80,7 +80,7 @@ describe('file-explorer-ui index exports', () => {
     expect(rootLoadSource).toContain("from './use-lazy-file-tree-types'");
     expect(rootLoadSource).not.toContain("from './use-lazy-file-tree'");
     expect(lazyTreeSource).not.toMatch(
-      /export type (?:RootLoadOutcome\b|\{[^}]*RootLoadOutcome[^}]*\})/s
+      /export type (?:RootLoadOutcome\b|\{[^}]*RootLoadOutcome[^}]*\})/su
     );
     expect(treeIndexSource).not.toContain('use-lazy-file-tree-types');
   });

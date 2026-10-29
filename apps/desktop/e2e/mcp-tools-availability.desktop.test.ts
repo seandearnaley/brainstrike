@@ -47,7 +47,7 @@ test('a connected server with no tools says so plainly, without a warning flash'
   });
 
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/AI Tools/i, 'ai-tools');
+  await new SettingsPage(window).openCategory(/AI Tools/iu, 'ai-tools');
   await window.getByRole('tab', { name: 'MCP Config' }).click();
   await window.getByTestId('mcp-config-editor').fill(
     JSON.stringify({
@@ -76,8 +76,8 @@ test('a connected server with no tools says so plainly, without a warning flash'
     [promptsOnly, 'unsupported'],
   ] as const) {
     const notice = row.locator(`[data-tools-availability="${availability}"]`);
-    await expect(notice).toHaveClass(/text-muted-foreground/);
-    await expect(notice).not.toHaveClass(/text-warning/);
+    await expect(notice).toHaveClass(/text-muted-foreground/u);
+    await expect(notice).not.toHaveClass(/text-warning/u);
   }
 
   expect(

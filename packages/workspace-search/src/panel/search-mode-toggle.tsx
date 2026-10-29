@@ -13,7 +13,7 @@ function modeButtonClass(isActive: boolean, gated: boolean): string {
     isActive
       ? 'bg-primary text-primary-foreground'
       : 'bg-muted text-muted-foreground hover:bg-muted/80',
-    gated && 'cursor-not-allowed opacity-50 hover:bg-muted'
+    gated && 'hover:bg-muted cursor-not-allowed opacity-50'
   );
 }
 

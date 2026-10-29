@@ -165,8 +165,8 @@ describe('M0-A1 S', () => {
     const { s } = await open(newRoot());
     await expect(
       s.append([{ event: ev('a'), threadId: null as unknown as string }])
-    ).rejects.toThrow(/NOT NULL/);
-    await expect(s.append([{ event: ev('b'), threadId: 't' }])).rejects.toThrow(/failed earlier/);
+    ).rejects.toThrow(/NOT NULL/u);
+    await expect(s.append([{ event: ev('b'), threadId: 't' }])).rejects.toThrow(/failed earlier/u);
     await s.close().catch(() => undefined);
   });
 
@@ -185,10 +185,10 @@ describe('M0-A1 S', () => {
         }),
       ]);
     await expect(settle(pending)).resolves.toMatch(
-      /^(resolved|rejected: StateStore writer worker exited)/
+      /^(resolved|rejected: StateStore writer worker exited)/u
     );
     await expect(settle(s.append([{ event: ev('b'), threadId: 't' }]))).resolves.toMatch(
-      /^rejected: StateStore failed earlier/
+      /^rejected: StateStore failed earlier/u
     );
   });
 });

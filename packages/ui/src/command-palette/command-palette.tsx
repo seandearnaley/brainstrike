@@ -166,7 +166,7 @@ export function CommandPalette({
       contentClassName={cn(
         'fixed top-[20%] left-1/2 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2',
         COMMAND_PALETTE_CONTENT_CLASS,
-        'overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-2xl'
+        'bg-popover text-popover-foreground overflow-hidden rounded-lg border shadow-2xl'
       )}
       label="Command palette"
       onOpenChange={handleOpenChange}
@@ -194,13 +194,13 @@ export function CommandPalette({
           value={query}
         />
       </div>
-      <Cmdk.List className="max-h-[320px] overflow-y-auto overflow-x-hidden p-1">
-        <Cmdk.Empty className="py-6 text-center text-muted-foreground text-sm">
+      <Cmdk.List className="max-h-[320px] overflow-x-hidden overflow-y-auto p-1">
+        <Cmdk.Empty className="text-muted-foreground py-6 text-center text-sm">
           {page ? 'No matches.' : 'No commands found.'}
         </Cmdk.Empty>
         {sections.map((section) => (
           <Cmdk.Group
-            className="px-1 py-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:text-xs"
+            className="[&_[cmdk-group-heading]]:text-muted-foreground px-1 py-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
             heading={section.heading}
             key={section.heading}
           >
@@ -235,7 +235,7 @@ function CommandPaletteItem({ command, onSelect }: CommandPaletteItemProps): Rea
       {Icon ? <Icon className="h-4 w-4 shrink-0 opacity-70" /> : null}
       <span className="flex-1 truncate">{command.label}</span>
       {keywordHint ? (
-        <span className="truncate text-muted-foreground text-xs">{keywordHint}</span>
+        <span className="text-muted-foreground truncate text-xs">{keywordHint}</span>
       ) : null}
     </Cmdk.Item>
   );

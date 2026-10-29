@@ -61,12 +61,12 @@ describe('filter-utils', () => {
     });
 
     it('throws for invalid regex patterns', () => {
-      expect(() => createPathFilterMatcher(['('], [], true)).toThrow(/Invalid regex pattern/);
+      expect(() => createPathFilterMatcher(['('], [], true)).toThrow(/Invalid regex pattern/u);
     });
 
     it('rejects obviously unsafe nested quantified regex patterns', () => {
       expect(() => createPathFilterMatcher(['(a+)+$'], [], true)).toThrow(
-        /Unsafe regex pattern rejected/
+        /Unsafe regex pattern rejected/u
       );
     });
 
@@ -105,13 +105,13 @@ describe('filter-utils', () => {
   describe('assertSafeRegexSource (ReDoS guard)', () => {
     it('rejects catastrophic-backtracking patterns before they compile/run', () => {
       // Nested quantifier — the classic ReDoS shape.
-      expect(() => assertSafeRegexSource('(a+)+$')).toThrow(/catastrophic backtracking/);
+      expect(() => assertSafeRegexSource('(a+)+$')).toThrow(/catastrophic backtracking/u);
       // Alternation under a quantifier.
-      expect(() => assertSafeRegexSource('(a|aa)+')).toThrow(/catastrophic backtracking/);
+      expect(() => assertSafeRegexSource('(a|aa)+')).toThrow(/catastrophic backtracking/u);
     });
 
     it('rejects over-long patterns', () => {
-      expect(() => assertSafeRegexSource('a'.repeat(300))).toThrow(/maximum supported length/);
+      expect(() => assertSafeRegexSource('a'.repeat(300))).toThrow(/maximum supported length/u);
     });
 
     it('accepts ordinary safe patterns', () => {

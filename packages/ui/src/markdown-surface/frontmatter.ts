@@ -14,7 +14,7 @@ export interface FrontmatterResult {
 // Frontmatter must open the document: optional BOM, `---`, newline, optional
 // content, closing `---` (or YAML's `...`) on its own line. The content group is
 // optional so an empty block (`---\n---\n`) matches and is stripped from the body.
-const FRONTMATTER_RE = /^﻿?---\r?\n(?:([\s\S]*?)\r?\n)?(?:---|\.\.\.)\r?\n?/;
+const FRONTMATTER_RE = /^﻿?---\r?\n(?:([\s\S]*?)\r?\n)?(?:---|\.\.\.)\r?\n?/u;
 
 export function extractFrontmatter(markdown: string): FrontmatterResult {
   const match = FRONTMATTER_RE.exec(markdown);

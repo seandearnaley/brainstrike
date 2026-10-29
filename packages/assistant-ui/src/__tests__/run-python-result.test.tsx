@@ -60,7 +60,7 @@ describe('run_python result surface', () => {
   it('says so explicitly when a clean finish printed nothing', () => {
     renderRunPython({ ...streams, exitCode: 0, kind: 'completed' });
     expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
-      /didn't print anything/i
+      /didn't print anything/iu
     );
   });
 
@@ -91,16 +91,16 @@ describe('run_python result surface', () => {
     expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
       'Stopped after 30 seconds — the script was still running.'
     );
-    expect(screen.getByText(/ended by SIGKILL, so there's no exit code/i)).toBeInTheDocument();
+    expect(screen.getByText(/ended by SIGKILL, so there's no exit code/iu)).toBeInTheDocument();
     expect(screen.getByTestId('run-python-stdout')).toHaveTextContent('tick');
   });
 
   it('renders killed as its own state — not completed, not "nothing ran"', () => {
     renderRunPython({ ...streams, kind: 'killed', signal: 'SIGSEGV', stdout: 'partial' });
     expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
-      /stopped by the system before it finished/i
+      /stopped by the system before it finished/iu
     );
-    expect(screen.getByText(/ended by SIGSEGV/i)).toBeInTheDocument();
+    expect(screen.getByText(/ended by SIGSEGV/iu)).toBeInTheDocument();
     // Output the script produced before dying is still shown.
     expect(screen.getByTestId('run-python-stdout')).toHaveTextContent('partial');
     expect(screen.getByTestId('run-python-result-state')).toHaveAttribute('data-state', 'killed');
@@ -109,9 +109,9 @@ describe('run_python result surface', () => {
   it('renders a defensive signal-less kill line rather than "ended by null"', () => {
     renderRunPython({ ...streams, kind: 'killed', signal: null });
     expect(
-      screen.getByText(/ended before it finished, so there's no exit code/i)
+      screen.getByText(/ended before it finished, so there's no exit code/iu)
     ).toBeInTheDocument();
-    expect(screen.queryByText(/ended by null/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ended by null/iu)).not.toBeInTheDocument();
   });
 
   it('cancelled with output renders partial output, never a success icon', () => {
@@ -144,7 +144,7 @@ describe('run_python result surface', () => {
       stdoutOmittedBytes: 0,
     });
     expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
-      /before the script printed anything/i
+      /before the script printed anything/iu
     );
   });
 
@@ -155,7 +155,7 @@ describe('run_python result surface', () => {
       reason: 'no_sandbox_configured',
     });
     expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
-      /nothing ran — there's no sandbox to run python in/i
+      /nothing ran — there's no sandbox to run python in/iu
     );
     expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
   });
@@ -167,9 +167,9 @@ describe('run_python result surface', () => {
       reason: 'network_unsupported',
     });
     expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
-      /can't give the script internet access/i
+      /can't give the script internet access/iu
     );
-    expect(screen.getByText(/wasn't run at all/i)).toBeInTheDocument();
+    expect(screen.getByText(/wasn't run at all/iu)).toBeInTheDocument();
   });
 
   it('a run can be both timed out AND truncated on one stream only — per-stream notes', () => {
@@ -199,7 +199,7 @@ describe('run_python result surface', () => {
       stdout: 'done',
     });
     const note = screen.getByTestId('run-python-cleanup-failed');
-    expect(note).toHaveTextContent(/couldn't be deleted/i);
+    expect(note).toHaveTextContent(/couldn't be deleted/iu);
     expect(note).toHaveTextContent('/tmp/brainstrike-run-python-abc');
   });
 
@@ -212,9 +212,9 @@ describe('run_python result surface', () => {
     });
     // Empty displayed streams + positive omitted bytes: the script DID print.
     expect(screen.getByTestId('run-python-result-header')).not.toHaveTextContent(
-      /didn't print anything/i
+      /didn't print anything/iu
     );
-    expect(screen.getByTestId('run-python-stdout-omitted')).toHaveTextContent(/wasn't captured/i);
+    expect(screen.getByTestId('run-python-stdout-omitted')).toHaveTextContent(/wasn't captured/iu);
   });
 
   it('a running status keeps the generic card — no structured surface, thinking indicator intact', () => {
@@ -312,7 +312,7 @@ describe('gate refusal reasons (BST-1097)', () => {
       reason: 'approval_confirmation_unavailable',
     });
     expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
-      /needed your approval and there was no way to ask you for it/i
+      /needed your approval and there was no way to ask you for it/iu
     );
   });
 
@@ -322,9 +322,9 @@ describe('gate refusal reasons (BST-1097)', () => {
       kind: 'unavailable',
       reason: 'resume_unrecognized',
     });
-    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(/couldn't be read/i);
-    expect(screen.queryByText(/you didn't approve/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/fresh prompt/i)).toBeInTheDocument();
+    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(/couldn't be read/iu);
+    expect(screen.queryByText(/you didn't approve/iu)).not.toBeInTheDocument();
+    expect(screen.getByText(/fresh prompt/iu)).toBeInTheDocument();
   });
 });
 
@@ -333,39 +333,39 @@ describe('sandbox readiness refusals (BST-1317)', () => {
     {
       detail:
         'Sandbox dependencies are missing: socat not installed. No user code ran. Ask your administrator to install the required sandbox tools (on Linux: bubblewrap, socat and ripgrep), then retry.',
-      headline: /required sandbox tools are missing/i,
+      headline: /required sandbox tools are missing/iu,
       reason: 'sandbox_dependencies_missing',
     },
     {
       detail:
         'This Linux host blocked creation of the sandbox namespace. No user code ran. Ask your administrator to provide a supported bubblewrap/user-namespace configuration, or use a supported host. Brainstrike will not change host security settings or run without the sandbox.',
-      headline: /computer blocks the isolation the sandbox needs/i,
+      headline: /computer blocks the isolation the sandbox needs/iu,
       reason: 'sandbox_namespace_blocked',
     },
     {
       detail:
         'This runtime cannot confirm the complete OS sandbox. Sandbox runtime warnings: seccomp not available - unix socket access not restricted. No user code ran. Use a supported runtime with all sandbox components available; ask your administrator to check the Brainstrike installation.',
-      headline: /operating system or runtime isn't supported/i,
+      headline: /operating system or runtime isn't supported/iu,
       reason: 'sandbox_unsupported_runtime',
     },
     {
       detail:
         'The sandbox readiness check did not finish within 5 seconds. No user code ran. Retry once; if it persists, restart Brainstrike and ask your administrator to check sandbox support on this host.',
-      headline: /sandbox readiness check reached its time limit/i,
+      headline: /sandbox readiness check reached its time limit/iu,
       reason: 'sandbox_readiness_timeout',
     },
     {
       // The actual fenceReadinessFailure detail includes a safe negation.
       detail:
         'The sandbox readiness check failed before user code could run. Restart Brainstrike and retry; if it persists, ask your administrator to check the sandbox runtime and Brainstrike logs. No unsandboxed fallback is available.',
-      headline: /sandbox couldn't confirm it was ready to isolate your code/i,
+      headline: /sandbox couldn't confirm it was ready to isolate your code/iu,
       reason: 'sandbox_readiness_failed',
     },
   ])('explains $reason and preserves actionable backend detail', ({ detail, headline, reason }) => {
     renderRunPython({ detail, kind: 'unavailable', reason });
 
     const header = screen.getByTestId('run-python-result-header');
-    expect(header).toHaveTextContent(/^Nothing ran/);
+    expect(header).toHaveTextContent(/^Nothing ran/u);
     expect(header).toHaveTextContent(headline);
     expect(screen.getByText(detail)).toBeInTheDocument();
     // One headline and one detail paragraph, with no duplicated remediation.
@@ -380,7 +380,7 @@ describe('sandbox readiness refusals (BST-1317)', () => {
   it('keeps curated remediation when a readiness result has no backend detail', () => {
     renderRunPython({ detail: '', kind: 'unavailable', reason: 'sandbox_namespace_blocked' });
     expect(
-      screen.getByText(/administrator to check the host.*sandbox support/i)
+      screen.getByText(/administrator to check the host.*sandbox support/iu)
     ).toBeInTheDocument();
   });
 
@@ -394,14 +394,14 @@ describe('sandbox readiness refusals (BST-1317)', () => {
     expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
       "Nothing ran — the sandbox's Python couldn't be prepared on this machine."
     );
-    expect(screen.queryByText(/required sandbox tools are missing/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/required sandbox tools are missing/iu)).not.toBeInTheDocument();
   });
 
   it('retains generic detail for a reason this renderer does not recognize', () => {
     const detail = 'A future backend reported a new readiness condition.';
     renderRunPython({ detail, kind: 'unavailable', reason: 'future_backend_reason' });
 
-    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(/^Nothing ran\.$/);
+    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(/^Nothing ran\.$/u);
     expect(screen.getByText(detail)).toBeInTheDocument();
   });
 });

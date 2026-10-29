@@ -153,7 +153,7 @@ describe('resolveGuardedToolSignal', () => {
     ).toThrow(TypeError);
     expect(() =>
       resolveGuardedToolSignal({ abortSignal: duckTyped, toolCallId: 'call-duck' })
-    ).toThrow(/non-AbortSignal abortSignal/);
+    ).toThrow(/non-AbortSignal abortSignal/u);
     // Absent stays fine: the guard deadline alone, or nothing at all.
     expect(resolveGuardedToolSignal({ toolCallId: 'call-absent' })).toBeUndefined();
   });

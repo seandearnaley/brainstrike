@@ -59,9 +59,9 @@ function SearchResultRow({
       tabIndex={-1}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-medium text-[13px] leading-5">{title}</span>
+        <span className="truncate text-[13px] leading-5 font-medium">{title}</span>
         {groupName ? (
-          <span className="shrink-0 rounded-full border border-border bg-background px-1.5 py-px text-[10px] text-muted-foreground">
+          <span className="border-border bg-background text-muted-foreground shrink-0 rounded-full border px-1.5 py-px text-[10px]">
             {groupName}
           </span>
         ) : null}
@@ -70,11 +70,11 @@ function SearchResultRow({
         <ul className="mt-0.5 space-y-0.5">
           {result.matches.map((match) => (
             <li
-              className="flex min-w-0 items-baseline gap-1.5 text-[12px] text-muted-foreground leading-4"
+              className="text-muted-foreground flex min-w-0 items-baseline gap-1.5 text-[12px] leading-4"
               data-testid="thread-search-match"
               key={match.messageId}
             >
-              <span className="shrink-0 text-[10px] uppercase tracking-wide opacity-70">
+              <span className="shrink-0 text-[10px] tracking-wide uppercase opacity-70">
                 {roleLabel(match.role)}
               </span>
               <span className="min-w-0 flex-1 truncate">
@@ -99,7 +99,7 @@ interface SearchErrorNoticeProps {
 function SearchErrorNotice({ error, onRetry }: SearchErrorNoticeProps) {
   return (
     <div className="px-2 py-2" data-testid="thread-search-error">
-      <p className="text-[12px] text-destructive">{error}</p>
+      <p className="text-destructive text-[12px]">{error}</p>
       <Button
         className="mt-1.5 h-7 px-2 text-xs"
         onClick={onRetry}
@@ -192,17 +192,17 @@ export function ThreadsPanelSearch({
     >
       <div className="px-3 py-2">
         <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
           {status === 'searching' ? (
             <Loader2
-              className="absolute top-1/2 right-2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground"
+              className="text-muted-foreground absolute top-1/2 right-2 h-3.5 w-3.5 -translate-y-1/2 animate-spin"
               data-testid="thread-search-spinner"
             />
           ) : null}
           {query && status !== 'searching' ? (
             <button
               aria-label="Clear search"
-              className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5"
               onClick={() => {
                 clearSearch();
                 inputRef.current?.focus();
@@ -217,7 +217,7 @@ export function ThreadsPanelSearch({
             aria-controls="thread-search-results"
             aria-expanded={searchActive}
             aria-label="Search threads"
-            className="w-full rounded-md border border-border bg-background py-1.5 pr-7 pl-7 text-[13px] leading-4 outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="border-border bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border py-1.5 pr-7 pl-7 text-[13px] leading-4 outline-none focus-visible:ring-2"
             data-testid="thread-search-input"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -233,7 +233,7 @@ export function ThreadsPanelSearch({
       {searchActive ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {navigationError ? (
-            <p className="px-3 py-2 text-destructive text-xs" role="alert">
+            <p className="text-destructive px-3 py-2 text-xs" role="alert">
               {navigationError}
             </p>
           ) : null}
@@ -241,7 +241,7 @@ export function ThreadsPanelSearch({
 
           {status === 'results' && resultCount === 0 ? (
             <p
-              className="px-2 py-3 text-[12px] text-muted-foreground"
+              className="text-muted-foreground px-2 py-3 text-[12px]"
               data-testid="thread-search-empty"
             >
               No matching threads.

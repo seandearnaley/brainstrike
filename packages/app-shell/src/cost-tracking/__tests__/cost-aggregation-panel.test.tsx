@@ -112,7 +112,7 @@ describe('CostAggregationPanelView', () => {
 
     const row = screen.getByTestId('cost-aggregation-row');
     expect(row).toHaveTextContent('Brainstrike');
-    expect(row).toHaveTextContent(/worktree/i);
+    expect(row).toHaveTextContent(/worktree/iu);
     expect(screen.getByTestId('cost-aggregation-branch')).toHaveTextContent('cost/ledger-redesign');
   });
 

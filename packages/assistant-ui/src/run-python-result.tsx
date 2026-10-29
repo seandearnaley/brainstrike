@@ -166,20 +166,20 @@ function RunPythonStreamPane({
   }
   return (
     <div className="px-2 pb-1.5">
-      <p className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+      <p className="text-muted-foreground mb-1 text-[11px] font-medium tracking-wide uppercase">
         {label}
       </p>
       {text.length > 0 ? (
         <section
           aria-label={label}
-          className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-[11px] leading-relaxed"
+          className="bg-muted/50 max-h-64 overflow-auto rounded p-2 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap"
           data-testid={testId}
         >
           {text}
         </section>
       ) : null}
       {omittedBytes > 0 ? (
-        <p className="mt-1 text-warning text-xs" data-testid={`${testId}-omitted`}>
+        <p className="text-warning mt-1 text-xs" data-testid={`${testId}-omitted`}>
           {/* The seam reports a count, not a position — never claim WHERE the
               drop happened. */}
           Output was too long — {formatOmittedBytes(omittedBytes)} wasn't captured.
@@ -212,7 +212,7 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
         result.stdoutOmittedBytes === 0 &&
         result.stderrOmittedBytes === 0;
       return {
-        icon: <CheckCircle className="size-4 text-success" />,
+        icon: <CheckCircle className="text-success size-4" />,
         state: 'completed',
         text: silent ? "Finished — the script didn't print anything." : 'Finished',
       };
@@ -234,7 +234,7 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
       // Design §4.4: Globe, muted; the model sees deniedDomains and can
       // rewrite the script to work offline.
       return {
-        icon: <Globe className="size-4 text-muted-foreground" />,
+        icon: <Globe className="text-muted-foreground size-4" />,
         state: 'network_denied',
         text: "You didn't allow internet access, so the script didn't run.",
       };
@@ -242,7 +242,7 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
       // Gate A declined (BST-1097): the user's choice, same muted treatment
       // as network_denied — not a failure, never destructive chrome.
       return {
-        icon: <CircleSlash className="size-4 text-muted-foreground" />,
+        icon: <CircleSlash className="text-muted-foreground size-4" />,
         state: 'declined',
         text: "You didn't approve this, so the script didn't run.",
       };
@@ -253,7 +253,7 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
         result.stdoutOmittedBytes === 0 &&
         result.stderrOmittedBytes === 0;
       return {
-        icon: <CircleSlash className="size-4 text-muted-foreground" />,
+        icon: <CircleSlash className="text-muted-foreground size-4" />,
         state: 'cancelled',
         text: silent
           ? 'You stopped this before the script printed anything.'
@@ -263,7 +263,7 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
     default: {
       const copy = unavailableCopy(result.reason);
       return {
-        icon: <AlertCircle className="size-4 text-destructive" />,
+        icon: <AlertCircle className="text-destructive size-4" />,
         state: 'unavailable',
         text: copy?.headline ?? 'Nothing ran.',
       };
@@ -393,7 +393,7 @@ export function RunPythonResultSurface({
             {header.text}
           </p>
           {model.secondaryLines.map((line) => (
-            <p className="mt-0.5 text-muted-foreground" key={line}>
+            <p className="text-muted-foreground mt-0.5" key={line}>
               {line}
             </p>
           ))}
@@ -411,7 +411,7 @@ export function RunPythonResultSurface({
         </>
       )}
       {cleanupDir ? (
-        <p className="px-2 pb-1.5 text-warning text-xs" data-testid="run-python-cleanup-failed">
+        <p className="text-warning px-2 pb-1.5 text-xs" data-testid="run-python-cleanup-failed">
           The run's temporary folder couldn't be deleted:{' '}
           <span className="font-mono [overflow-wrap:anywhere]">{cleanupDir}</span>
         </p>

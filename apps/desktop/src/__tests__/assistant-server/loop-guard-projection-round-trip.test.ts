@@ -126,7 +126,7 @@ describe('BST-1188 loop-guard warning/refusal projection round trip', () => {
     // Proves this candidate really did hit the omitted-by-projection path
     // (offset-form continuation), the branch that discards `hint`.
     expect(projected.value).toMatch(
-      /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/
+      /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/u
     );
     expect(projected.value).toContain('warning: You have made this exact');
   });

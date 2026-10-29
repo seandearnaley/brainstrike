@@ -72,12 +72,12 @@ function Segmented<T extends string>({
   return (
     <div
       aria-label={label}
-      className="inline-flex h-8 shrink-0 items-center rounded-lg border bg-muted/40 p-0.5"
+      className="bg-muted/40 inline-flex h-8 shrink-0 items-center rounded-lg border p-0.5"
       role="radiogroup"
     >
       {options.map((option) => (
         <label
-          className="flex h-full cursor-pointer items-center rounded-md px-2.5 text-muted-foreground text-xs transition-colors has-[:checked]:bg-background has-[:checked]:text-foreground has-[:checked]:shadow-xs has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring/50"
+          className="text-muted-foreground has-[:checked]:bg-background has-[:checked]:text-foreground has-[:focus-visible]:ring-ring/50 flex h-full cursor-pointer items-center rounded-md px-2.5 text-xs transition-colors has-[:checked]:shadow-xs has-[:focus-visible]:ring-2"
           key={option.value}
         >
           <input
@@ -177,7 +177,7 @@ function ProvidersList({
         const checkboxId = `${idPrefix}-${option.providerId}`;
         return (
           <label
-            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+            className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
             htmlFor={checkboxId}
             key={option.providerId}
           >
@@ -232,16 +232,16 @@ function SummaryText({ summary }: { readonly summary: CatalogSummary }) {
   if (!summary.filtering) {
     return (
       <>
-        <span className="font-semibold text-foreground">{summary.totalModels}</span>{' '}
+        <span className="text-foreground font-semibold">{summary.totalModels}</span>{' '}
         {pluralNoun(summary.totalModels, 'model')} · {summary.totalProviders}{' '}
         {pluralNoun(summary.totalProviders, 'provider')} ·{' '}
-        <span className="font-semibold text-foreground">{summary.enabledModels}</span> enabled
+        <span className="text-foreground font-semibold">{summary.enabledModels}</span> enabled
       </>
     );
   }
   return (
     <>
-      <span className="font-semibold text-foreground">{summary.matchingModels}</span> of{' '}
+      <span className="text-foreground font-semibold">{summary.matchingModels}</span> of{' '}
       {summary.totalModels} {pluralNoun(summary.totalModels, 'model')} match ·{' '}
       {summary.matchingProviders} {pluralNoun(summary.matchingProviders, 'provider')}
     </>
@@ -309,7 +309,7 @@ export function CatalogToolbar({
   return (
     <div className="flex shrink-0 flex-col gap-2" data-testid="model-catalog-toolbar">
       <div className="flex flex-wrap items-center gap-2">
-        <div className={cn('relative', compact ? 'w-full' : 'min-w-0 max-w-96 flex-[1_1_14rem]')}>
+        <div className={cn('relative', compact ? 'w-full' : 'max-w-96 min-w-0 flex-[1_1_14rem]')}>
           <SettingsSearchIcon />
           <Input
             aria-label="Search models"
@@ -336,7 +336,7 @@ export function CatalogToolbar({
           />
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground"
+            className="bg-muted text-muted-foreground pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1.5 font-mono text-[10px]"
           >
             /
           </span>
@@ -381,7 +381,7 @@ export function CatalogToolbar({
                 {contextSelect}
               </div>
               <div className="space-y-1">
-                <p className="font-medium text-muted-foreground text-xs">Providers</p>
+                <p className="text-muted-foreground text-xs font-medium">Providers</p>
                 <ProvidersList
                   onChange={(ids) => update('providerIds', ids)}
                   options={providerOptions}
@@ -410,13 +410,13 @@ export function CatalogToolbar({
         </p>
         {chips.map((chip) => (
           <span
-            className="inline-flex h-6 items-center gap-1 rounded-full border bg-muted/40 pr-1 pl-2.5"
+            className="bg-muted/40 inline-flex h-6 items-center gap-1 rounded-full border pr-1 pl-2.5"
             key={chip.key}
           >
             {chip.label}
             <button
               aria-label={`Remove filter ${chip.label}`}
-              className="rounded-full p-0.5 hover:bg-accent"
+              className="hover:bg-accent rounded-full p-0.5"
               onClick={() => onClearChip(chip.key)}
               type="button"
             >

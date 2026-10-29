@@ -18,7 +18,7 @@ describe('hash-utils', () => {
       const inputs = ['test', 'very/long/path/to/somewhere', '!@#$special%^&*chars', ''];
 
       for (const input of inputs) {
-        expect(stableHash(input)).toMatch(/^h[a-z0-9]+$/);
+        expect(stableHash(input)).toMatch(/^h[a-z0-9]+$/u);
       }
     });
 
@@ -75,7 +75,7 @@ describe('hash-utils', () => {
       // Hashes should have reasonable length
       for (const hash of hashes) {
         expect(hash.length).toBeGreaterThan(2);
-        expect(hash).toMatch(/^h[a-z0-9]+$/);
+        expect(hash).toMatch(/^h[a-z0-9]+$/u);
       }
     });
 
@@ -95,7 +95,7 @@ describe('hash-utils', () => {
 
       for (const input of unicodeInputs) {
         const hash = stableHash(input);
-        expect(hash).toMatch(/^h[a-z0-9]+$/);
+        expect(hash).toMatch(/^h[a-z0-9]+$/u);
         expect(stableHash(input)).toBe(hash); // Consistency check
       }
     });
@@ -130,7 +130,7 @@ describe('hash-utils', () => {
 
       // Test that the hash contains expected characteristics from bit operations
       for (const hash of hashes) {
-        expect(hash).toMatch(/^h[a-z0-9]+$/);
+        expect(hash).toMatch(/^h[a-z0-9]+$/u);
         expect(hash.length).toBeGreaterThan(1);
       }
     });

@@ -132,7 +132,7 @@ describe('working-memory template (must never fall back to Mastra stock)', () =>
     // instruction says "If you're unsure whether to store something, store it".
     // Every section here names something small, current, and losable.
     const template = DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.template;
-    expect(template).not.toMatch(/^#+\s*(Facts|Notes|Misc|Other)\b/im);
+    expect(template).not.toMatch(/^#+\s*(Facts|Notes|Misc|Other)\b/imu);
   });
 
   it('is thread-scoped, so one thread cannot bill every other thread forever', () => {

@@ -76,7 +76,7 @@ describe('host provider methods', () => {
     });
 
     await expect(failure).rejects.toBeInstanceOf(ResponseError);
-    await expect(failure).rejects.toThrow(/^No API key configured for provider "openrouter"\.$/);
+    await expect(failure).rejects.toThrow(/^No API key configured for provider "openrouter"\.$/u);
   });
 
   it('refuses every provider read on a host that owns no credential store', async () => {

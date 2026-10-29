@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CodeBlockHeader } from '../code-block-header';
 
 const clipboardMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
@@ -29,8 +30,6 @@ vi.mock('../../tooltip-icon-button', () => ({
     </button>
   ),
 }));
-
-import { CodeBlockHeader } from '../code-block-header';
 
 describe('CodeBlockHeader', () => {
   beforeEach(() => {

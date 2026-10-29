@@ -57,18 +57,18 @@ const ERROR_MESSAGES = {
 
 // Error mapping configuration
 const ERROR_PATTERNS = [
-  { message: ERROR_MESSAGES.permissionDenied, pattern: /Permission denied/i },
+  { message: ERROR_MESSAGES.permissionDenied, pattern: /Permission denied/iu },
   {
     message: ERROR_MESSAGES.dialogFailed,
-    pattern: /Unable to open directory selection dialog|Failed to open directory dialog/i,
+    pattern: /Unable to open directory selection dialog|Failed to open directory dialog/iu,
   },
   {
     message: ERROR_MESSAGES.directoryReadFailed,
-    pattern: /Unable to read the selected directory/i,
+    pattern: /Unable to read the selected directory/iu,
   },
   {
     message: ERROR_MESSAGES.directoryAccessFailed,
-    pattern: /Cannot access selected directory/i,
+    pattern: /Cannot access selected directory/iu,
   },
 ] as const satisfies ReadonlyArray<{ pattern: RegExp; message: string }>;
 

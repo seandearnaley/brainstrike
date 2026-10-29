@@ -44,15 +44,15 @@ export function WorktreeArchiveConfirmationDialog({
             archive snapshot and cannot be recovered by BrainStrike.
           </DialogDescription>
         </DialogHeader>
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
-          <p className="font-medium text-sm">Ignored top-level paths</p>
+        <div className="border-destructive/30 bg-destructive/5 rounded-md border p-3">
+          <p className="text-sm font-medium">Ignored top-level paths</p>
           <ul className="mt-2 list-inside list-disc font-mono text-xs">
             {preview.ignoredTopLevelEntries.map((entry) => (
               <li key={entry}>{entry}</li>
             ))}
           </ul>
           {preview.ignoredTopLevelEntriesTruncated && hiddenTopLevelEntryCount > 0 ? (
-            <p className="mt-2 text-muted-foreground text-xs">
+            <p className="text-muted-foreground mt-2 text-xs">
               {hiddenTopLevelEntryCount} additional top-level{' '}
               {hiddenTopLevelEntryCount === 1 ? 'path is' : 'paths are'} hidden.
             </p>

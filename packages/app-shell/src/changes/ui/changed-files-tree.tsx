@@ -92,7 +92,7 @@ const EMPTY_ROOT_LABELS: ReadonlyMap<string, string> = new Map();
 function EmptyChangedFiles(): ReactElement {
   return (
     <div
-      className="flex h-32 items-center justify-center px-6 text-center text-muted-foreground text-sm"
+      className="text-muted-foreground flex h-32 items-center justify-center px-6 text-center text-sm"
       data-testid="changed-files-tree-empty"
     >
       No changed files.

@@ -48,7 +48,7 @@ for (const field of ['token', 'pid', 'start', 'host', 'root', 'released', 'missi
       const value = field === 'pid' ? lock.owner.pid + 1 : field === 'released' ? true : 'changed';
       fs.writeFileSync(generation(lock), JSON.stringify({ ...lock.owner, [field]: value }));
     }
-    expect(() => lock.release()).toThrow(/no longer ours/);
+    expect(() => lock.release()).toThrow(/no longer ours/u);
     expect(lock.isReleased).toBe(false);
     expect(fs.existsSync(generation(lock, lock.gen + 1))).toBe(false);
     expect(temps(lock)).toEqual([]);
@@ -59,7 +59,7 @@ test('release refuses once a newer generation exists and leaves that claim as it
   const lock = await acquire();
   const newer = JSON.stringify({ ...lock.owner, token: 'new-owner' });
   fs.writeFileSync(generation(lock, lock.gen + 1), newer);
-  expect(() => lock.release()).toThrow(/superseded/);
+  expect(() => lock.release()).toThrow(/superseded/u);
   expect(lock.isReleased).toBe(false);
   expect(fs.readFileSync(generation(lock, lock.gen + 1), 'utf8')).toBe(newer);
   expect(temps(lock)).toEqual([]);

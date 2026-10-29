@@ -149,7 +149,10 @@ function fsyncDir(dir) {
  * @param {string} content
  */
 function putBlob(hash, content) {
-  if (!/^[a-f0-9]{64}$/.test(hash) || createHash('sha256').update(content).digest('hex') !== hash) {
+  if (
+    !/^[a-f0-9]{64}$/u.test(hash) ||
+    createHash('sha256').update(content).digest('hex') !== hash
+  ) {
     throw new Error('blob hash does not match its content');
   }
   const p = join(cfg.blobsDir, hash);

@@ -327,7 +327,7 @@ describe('ModelCatalog filtering', () => {
     const props = catalogProps();
     const { rerender } = render(<ModelCatalog {...props} />);
     await userEvent.click(screen.getByTestId('model-catalog-providers-trigger'));
-    await userEvent.click(await screen.findByRole('checkbox', { name: /Anthropic/ }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Anthropic/u }));
     expect(await screen.findByRole('button', { name: 'Remove filter Anthropic' })).toBeVisible();
     expect(screen.queryByTestId('model-catalog-section-openai')).not.toBeInTheDocument();
 
@@ -371,7 +371,7 @@ describe('ModelCatalog states', () => {
       expect(screen.getByTestId('model-catalog')).toHaveAttribute('data-width-tier', 'narrow');
     });
     expect(screen.getByTestId('model-catalog-filters-trigger')).toBeInTheDocument();
-    expect(screen.queryByText(/per million tokens/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/per million tokens/u)).not.toBeInTheDocument();
   });
 
   it('shows the tagline until the catalog is narrow', async () => {

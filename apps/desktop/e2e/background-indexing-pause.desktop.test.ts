@@ -31,7 +31,7 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
 
     await window
       .getByRole('navigation', { name: 'Settings categories' })
-      .getByRole('button', { name: /Search & Indexing/i })
+      .getByRole('button', { name: /Search & Indexing/iu })
       .click();
 
     const settingsPanel = window.getByTestId('settings-category-search-indexing');
@@ -39,7 +39,7 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(
       settingsPanel
         .getByRole('group', { name: 'Search mode' })
-        .getByRole('button', { name: /^Text/ })
+        .getByRole('button', { name: /^Text/u })
     ).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
     expect(await readIndexConfig(window)).toMatchObject({ mode: 'text', paused: false });
 
@@ -98,7 +98,7 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(
       indexingPopover.getByRole('button', { name: 'Pause workspace index' })
     ).toBeVisible();
-    await expect(indexingPopover.getByTestId('indexing-action-region')).toHaveClass(/\bh-11\b/);
+    await expect(indexingPopover.getByTestId('indexing-action-region')).toHaveClass(/\bh-11\b/u);
 
     await indexingPopover.getByRole('button', { name: 'Worker and database diagnostics' }).click();
     // Native search has no JS embedding worker: fe6b0f85e (BST-1974) omits the

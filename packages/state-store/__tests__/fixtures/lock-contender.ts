@@ -18,7 +18,7 @@ commands.on('line', (line: string) => {
     release.resolve();
     return;
   }
-  const match = /^ACQUIRE (\d+)$/.exec(line);
+  const match = /^ACQUIRE (\d+)$/u.exec(line);
   if (match) {
     acquire.resolve(Number(match[1]));
     return;

@@ -138,6 +138,7 @@ function validateMatcher(raw: unknown): {
     throw new Error('matcher.tool_name must be a string');
   }
   // Throws on an un-compilable pattern — caught by validateFile (whole file disabled).
+  // biome-ignore lint/style/useUnicodeRegex: a user-written pattern keeps the non-unicode syntax people type, such as `\-`.
   const regex = new RegExp(toolName);
   return { matcher: { tool_name: toolName }, regex };
 }

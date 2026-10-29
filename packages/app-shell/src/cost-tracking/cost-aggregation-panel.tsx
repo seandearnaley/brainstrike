@@ -84,7 +84,7 @@ function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregat
   }
   if (loading && !hasRows) {
     return (
-      <p className="flex items-center gap-2 text-muted-foreground text-sm">
+      <p className="text-muted-foreground flex items-center gap-2 text-sm">
         <Loader2 className="size-3.5 animate-spin" />
         Loading cost data…
       </p>
@@ -110,7 +110,7 @@ function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregat
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 space-y-0.5">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate font-medium text-sm" title={row.displayName}>
+                <span className="truncate text-sm font-medium" title={row.displayName}>
                   {row.displayName}
                 </span>
                 {row.localRootId === null ? null : (
@@ -121,7 +121,7 @@ function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregat
               </div>
               {row.branch ? (
                 <p
-                  className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs"
+                  className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs"
                   data-testid="cost-aggregation-branch"
                 >
                   <GitBranch aria-hidden="true" className="size-3 shrink-0" />
@@ -134,8 +134,8 @@ function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregat
             <div className="shrink-0 text-right">
               <p
                 className={cn(
-                  'font-semibold text-sm tabular-nums',
-                  !row.cost.available && 'font-normal text-muted-foreground'
+                  'text-sm font-semibold tabular-nums',
+                  !row.cost.available && 'text-muted-foreground font-normal'
                 )}
                 data-testid="cost-aggregation-cost"
               >
@@ -147,9 +147,9 @@ function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregat
               </p>
             </div>
           </div>
-          <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-muted">
+          <div aria-hidden="true" className="bg-muted h-1 overflow-hidden rounded-full">
             <div
-              className="h-full rounded-full bg-primary/70"
+              className="bg-primary/70 h-full rounded-full"
               style={{ width: shareWidth(costOf(row), total) }}
             />
           </div>

@@ -25,7 +25,7 @@ test('approving with "Allow edits this session" lets the same run edit again wit
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   await window.getByTestId('permission-policy-edit').selectOption('ask');
   modelProvider.setScript(({ requestBody, toolNames }) =>
     (requestBody as { stream?: unknown }).stream === true && toolNames.length > 0

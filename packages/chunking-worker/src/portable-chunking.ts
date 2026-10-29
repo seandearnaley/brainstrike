@@ -62,58 +62,58 @@ export interface PortableChunkingResult {
 
 // File patterns that should be skipped or handled differently
 const SKIP_CHUNKING_PATTERNS = [
-  /package-lock\.json$/i,
-  /pnpm-lock\.yaml$/i,
-  /yarn\.lock$/i,
-  /composer\.lock$/i,
-  /Gemfile\.lock$/i,
-  /Pipfile\.lock$/i,
-  /poetry\.lock$/i,
-  /go\.sum$/i,
-  /Cargo\.lock$/i,
-  /npm-shrinkwrap\.json$/i,
-  /\.min\.[jt]s$/i,
-  /\.map$/i,
-  /\.wasm$/i,
-  /\.bin$/i,
-  /(^|\/)node_modules(\/|$)/i,
-  /(^|\/)dist(\/|$)/i,
-  /(^|\/)build(\/|$)/i,
-  /(^|\/)coverage(\/|$)/i,
+  /package-lock\.json$/iu,
+  /pnpm-lock\.yaml$/iu,
+  /yarn\.lock$/iu,
+  /composer\.lock$/iu,
+  /Gemfile\.lock$/iu,
+  /Pipfile\.lock$/iu,
+  /poetry\.lock$/iu,
+  /go\.sum$/iu,
+  /Cargo\.lock$/iu,
+  /npm-shrinkwrap\.json$/iu,
+  /\.min\.[jt]s$/iu,
+  /\.map$/iu,
+  /\.wasm$/iu,
+  /\.bin$/iu,
+  /(^|\/)node_modules(\/|$)/iu,
+  /(^|\/)dist(\/|$)/iu,
+  /(^|\/)build(\/|$)/iu,
+  /(^|\/)coverage(\/|$)/iu,
 ];
 
 const CODE_LANGUAGE_PATTERNS: Array<{ pattern: RegExp; language: CodeLanguage }> = [
-  { language: 'javascript', pattern: /\.vue$/i },
-  { language: 'javascript', pattern: /\.svelte$/i },
-  { language: 'typescript', pattern: /\.(ts|tsx|mts|cts)$/i },
-  { language: 'javascript', pattern: /\.(js|jsx|mjs|cjs)$/i },
-  { language: 'cpp', pattern: /\.mm$/i },
-  { language: 'cpp', pattern: /\.m$/i },
+  { language: 'javascript', pattern: /\.vue$/iu },
+  { language: 'javascript', pattern: /\.svelte$/iu },
+  { language: 'typescript', pattern: /\.(ts|tsx|mts|cts)$/iu },
+  { language: 'javascript', pattern: /\.(js|jsx|mjs|cjs)$/iu },
+  { language: 'cpp', pattern: /\.mm$/iu },
+  { language: 'cpp', pattern: /\.m$/iu },
   // P2 fix from #1002 review: .pyi (Python stub files) also count as
   // Python source. Without this, the routing test for .pyi passes at the
   // selectAdapter level but the chunker's supportsAst gate (in chunkCode)
   // returns false for .pyi files because detectCodeLanguage returns null.
   // Net effect: .pyi files would silently bypass tree-sitter even when
   // the operator enables it.
-  { language: 'python', pattern: /\.pyi?$/i },
-  { language: 'rust', pattern: /\.rs$/i },
-  { language: 'go', pattern: /\.go$/i },
-  { language: 'java', pattern: /\.(java|class)$/i },
-  { language: 'csharp', pattern: /\.cs$/i },
-  { language: 'cpp', pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i },
-  { language: 'ruby', pattern: /\.rb$/i },
-  { language: 'php', pattern: /\.php$/i },
-  { language: 'swift', pattern: /\.swift$/i },
-  { language: 'kotlin', pattern: /\.(kt|kts)$/i },
+  { language: 'python', pattern: /\.pyi?$/iu },
+  { language: 'rust', pattern: /\.rs$/iu },
+  { language: 'go', pattern: /\.go$/iu },
+  { language: 'java', pattern: /\.(java|class)$/iu },
+  { language: 'csharp', pattern: /\.cs$/iu },
+  { language: 'cpp', pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/iu },
+  { language: 'ruby', pattern: /\.rb$/iu },
+  { language: 'php', pattern: /\.php$/iu },
+  { language: 'swift', pattern: /\.swift$/iu },
+  { language: 'kotlin', pattern: /\.(kt|kts)$/iu },
 ];
 
 const LARGE_STRUCTURED_PATTERNS = [
-  /\.json$/i,
-  /\.xml$/i,
-  /\.csv$/i,
-  /\.tsv$/i,
-  /\.sql$/i,
-  /\.log$/i,
+  /\.json$/iu,
+  /\.xml$/iu,
+  /\.csv$/iu,
+  /\.tsv$/iu,
+  /\.sql$/iu,
+  /\.log$/iu,
 ];
 
 type TokenUtilsLiteModule = typeof import('@brainstrike/tokenization/token-utils-lite');

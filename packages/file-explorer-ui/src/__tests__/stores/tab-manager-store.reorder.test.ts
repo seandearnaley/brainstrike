@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { __resetTabManagerStoreForTests, useTabManagerStore } from '../../stores/tab-manager-store';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -8,8 +9,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return { ...actual, createLogger: () => loggerMock };
 });
-
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../../stores/tab-manager-store';
 
 const STORE_KEY = 'tab-manager.v1';
 

@@ -26,7 +26,7 @@ test('approving a plan in plan mode continues into a follow-up run that edits', 
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   await window.getByTestId('permission-policy-edit').selectOption('allow');
   modelProvider.setScript(({ requestBody, toolNames }) => {
     if ((requestBody as { stream?: unknown }).stream !== true || toolNames.length === 0) {

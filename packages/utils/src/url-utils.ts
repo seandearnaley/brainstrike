@@ -11,7 +11,7 @@ const logger = createLogger('UrlUtils');
  * @returns The URL without trailing slashes
  */
 export function removeTrailingSlash(url: string): string {
-  return url.replace(/\/+$/, '');
+  return url.replace(/\/+$/u, '');
 }
 
 /**
@@ -32,14 +32,14 @@ export function joinUrlParts(...parts: string[]): string {
   const joined = parts
     .map((part, i) => {
       if (i === 0) {
-        return part.replace(/\/+$/, '');
+        return part.replace(/\/+$/u, '');
       }
-      return part.replace(/^\/+|\/+$/g, '');
+      return part.replace(/^\/+|\/+$/gu, '');
     })
     .filter(Boolean)
     .join('/');
 
-  return joined.replace(/(?<!:)\/+/g, '/');
+  return joined.replace(/(?<!:)\/+/gu, '/');
 }
 
 /**

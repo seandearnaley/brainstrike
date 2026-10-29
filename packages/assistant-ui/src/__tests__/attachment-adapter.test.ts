@@ -40,13 +40,13 @@ describe('createAssistantImageAttachmentAdapter', () => {
       'huge.png',
       new Uint8Array(ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES + 1)
     );
-    await expect(adapter.add({ file: oversized })).rejects.toThrow(/5 MB/);
+    await expect(adapter.add({ file: oversized })).rejects.toThrow(/5 MB/u);
   });
 
   it('rejects a non-allowlisted media type even if the picker let it through', async () => {
     const adapter = createAssistantImageAttachmentAdapter();
     const svg = new File(['<svg/>'], 'vector.svg', { type: 'image/svg+xml' });
-    await expect(adapter.add({ file: svg })).rejects.toThrow(/image\/svg\+xml/);
+    await expect(adapter.add({ file: svg })).rejects.toThrow(/image\/svg\+xml/u);
   });
 
   it('sends a pending image as a complete attachment with a data-URL image part', async () => {
@@ -57,7 +57,7 @@ describe('createAssistantImageAttachmentAdapter', () => {
     expect(complete.content).toHaveLength(1);
     const [part] = complete.content;
     expect(part).toMatchObject({ type: 'image' });
-    expect((part as { image: string }).image).toMatch(/^data:image\/png;base64,/);
+    expect((part as { image: string }).image).toMatch(/^data:image\/png;base64,/u);
   });
 });
 
@@ -67,7 +67,7 @@ describe('adapter-level staging caps (count + combined bytes)', () => {
     for (let index = 0; index < 4; index += 1) {
       await adapter.add({ file: makePngFile(`shot-${index}.png`) });
     }
-    await expect(adapter.add({ file: makePngFile('shot-4.png') })).rejects.toThrow(/attachment/i);
+    await expect(adapter.add({ file: makePngFile('shot-4.png') })).rejects.toThrow(/attachment/iu);
   });
 
   it('rejects an image that would push the COMBINED staged bytes over the cap', async () => {
@@ -77,7 +77,7 @@ describe('adapter-level staging caps (count + combined bytes)', () => {
     const fourMb = new Uint8Array(4 * 1024 * 1024);
     await adapter.add({ file: makePngFile('a.png', fourMb) });
     await adapter.add({ file: makePngFile('b.png', fourMb) });
-    await expect(adapter.add({ file: makePngFile('c.png', fourMb) })).rejects.toThrow(/combined/i);
+    await expect(adapter.add({ file: makePngFile('c.png', fourMb) })).rejects.toThrow(/combined/iu);
   });
 
   it('frees a staged slot when an attachment is removed', async () => {

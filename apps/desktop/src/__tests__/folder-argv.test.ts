@@ -161,7 +161,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
         isPackaged: false,
         workingDirectory: DEV_APP_PATH,
       })
-    ).toThrow(/appPath/);
+    ).toThrow(/appPath/u);
     expect(() =>
       resolveFolderCandidatesFromArgv({
         appEntryPath: '   ',
@@ -170,7 +170,7 @@ describe('resolveFolderCandidatesFromArgv', () => {
         isPackaged: false,
         workingDirectory: DEV_APP_PATH,
       })
-    ).toThrow(/appEntryPath/);
+    ).toThrow(/appEntryPath/u);
   });
 
   it('emits nothing for the plain first-launch dev shape `electron .`', () => {

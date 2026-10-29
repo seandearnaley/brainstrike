@@ -169,7 +169,7 @@ test('a host thread using the task list, a canvas, a file write and its undo wri
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   // Edit-risk tools (the canvas and the write) ask first; approve each as it comes.
   const final = region.getByText(FINAL);
-  const approve = region.getByRole('button', { name: /^Approve / });
+  const approve = region.getByRole('button', { name: /^Approve /u });
   await expect(async () => {
     if (await final.isVisible()) {
       return;

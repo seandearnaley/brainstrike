@@ -13,7 +13,7 @@ export function filterCommands(commands: readonly Command[], query: string): rea
   if (trimmed.length === 0) {
     return commands;
   }
-  const tokens = trimmed.split(/\s+/);
+  const tokens = trimmed.split(/\s+/u);
   return commands.filter((command) => {
     const haystack = [command.label, ...(command.keywords ?? [])].join(' ').toLowerCase();
     return tokens.every((token) => haystack.includes(token));

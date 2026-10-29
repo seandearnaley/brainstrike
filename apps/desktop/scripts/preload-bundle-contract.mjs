@@ -10,7 +10,7 @@
 export const PRELOAD_BUNDLE_ENTRY_NAMES = ['preload'];
 export const ALLOWED_PRELOAD_REQUIRES = ['electron'];
 
-const REQUIRE_CALL_PATTERN = /\brequire\(\s*(['"])([^'"]+)\1\s*\)/g;
+const REQUIRE_CALL_PATTERN = /\brequire\(\s*(['"])([^'"]+)\1\s*\)/gu;
 
 /**
  * Specifiers required by `source` that a sandboxed preload cannot resolve, deduped and sorted.

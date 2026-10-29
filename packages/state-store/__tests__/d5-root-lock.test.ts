@@ -102,7 +102,7 @@ async function finishHeldRace(
       contender
         .out()
         .split('\n')
-        .find((line) => /^(WON|REFUSED|ERROR) /.test(line))
+        .find((line) => /^(WON|REFUSED|ERROR) /u.test(line))
         ?.trim() ?? ''
   );
 }
@@ -164,7 +164,7 @@ describe('D5: data-root lock', () => {
     await sleeper.line('UP');
     const pid = sleeper.p.pid as number;
     const start = processStartTime(pid) as string;
-    expect(start).toMatch(process.platform === 'win32' ? /^\d+$/ : /\d{4}$/);
+    expect(start).toMatch(process.platform === 'win32' ? /^\d+$/u : /\d{4}$/u);
     // same pid, different start time -> the pid was reused -> stale
     plant(root, { host: hostname(), pid, start: 'Thu Jan  1 00:00:00 1970', token: 'reused' });
     const broken: LockOwner[] = [];
@@ -194,7 +194,7 @@ describe('D5: data-root lock', () => {
       throw Object.assign(new Error('process probe unavailable'), { code: 'EIO' });
     };
     try {
-      await expect(RootLock.acquire(root)).rejects.toThrow(/process probe unavailable/);
+      await expect(RootLock.acquire(root)).rejects.toThrow(/process probe unavailable/u);
       expect(lockOf(root)?.token).toBe('probe-error');
     } finally {
       process.kill = original;
@@ -321,7 +321,7 @@ describe('D5: data-root lock', () => {
         refused: outs.filter((o) => o.startsWith('REFUSED')).length,
         won: outs.filter((o) => o.startsWith('WON')).length,
       };
-      lateness.push(outs.map((o) => Number(/late=(-?\d+)ms/.exec(o)?.[1] ?? Number.NaN)));
+      lateness.push(outs.map((o) => Number(/late=(-?\d+)ms/u.exec(o)?.[1] ?? Number.NaN)));
       rounds.push(r);
     }
     process.stdout.write(
@@ -347,8 +347,8 @@ describe('D5: data-root lock', () => {
       expect(await refuser.line('DECIDED')).toBe('DECIDED REFUSED');
       expect(lockOf(root)?.pid).toBe(winner.p.pid);
       const outs = await finishHeldRace(root, [winner, refuser]);
-      expect(outs[0]).toMatch(/^WON /);
-      expect(outs[1]).toMatch(/^REFUSED /);
+      expect(outs[0]).toMatch(/^WON /u);
+      expect(outs[1]).toMatch(/^REFUSED /u);
     }
   );
 });

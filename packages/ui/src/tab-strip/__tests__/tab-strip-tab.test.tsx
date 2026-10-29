@@ -48,7 +48,7 @@ describe('TabStripTab', () => {
 
   it('keeps the close control out of the accessibility tree and the tab order', () => {
     const { container, props } = renderTab();
-    expect(screen.queryByRole('button', { name: /close/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /close/iu })).toBeNull();
     const close = container.querySelector<HTMLButtonElement>('[data-slot="tab-close"]');
     expect(close).toHaveAttribute('aria-hidden', 'true');
     expect(close).toHaveAttribute('tabindex', '-1');

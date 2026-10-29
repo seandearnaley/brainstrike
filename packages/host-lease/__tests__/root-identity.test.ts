@@ -34,7 +34,7 @@ test("the lock's writer and the launcher's comparer derive a root's identity fro
         },
         startupTimeoutMs: 50,
       })
-    ).rejects.toThrow(new RegExp(`Live host pid ${process.pid}`));
+    ).rejects.toThrow(new RegExp(`Live host pid ${process.pid}`, 'u'));
   } finally {
     lease.release();
   }

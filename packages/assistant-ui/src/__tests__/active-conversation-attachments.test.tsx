@@ -143,7 +143,7 @@ it('retains the complete failed receipt and refuses changed attachments until ex
   expect(send.mock.calls[1]?.[0]).toEqual(send.mock.calls[0]?.[0]);
   await act(() => runtime.thread.composer.addAttachment(file('second.png')));
   await userEvent.click(screen.getByRole('button', { name: 'Send child' }));
-  await screen.findByText(/earlier input is unconfirmed/);
+  await screen.findByText(/earlier input is unconfirmed/u);
   expect(send).toHaveBeenCalledTimes(2);
   expect(runtime.thread.composer.getState().attachments).toHaveLength(2);
   await userEvent.click(screen.getByRole('button', { name: 'Discard' }));

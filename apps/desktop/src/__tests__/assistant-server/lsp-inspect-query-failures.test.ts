@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { disposeLspServers, getLspInspection } from '../../assistant-server/lsp-diagnostics';
 
 const { fakeChildren, warnSpy, wire } = vi.hoisted(() => {
   const state = {
@@ -137,8 +138,6 @@ vi.mock('vscode-jsonrpc/node', () => ({
   StreamMessageWriter: class {},
 }));
 
-import { disposeLspServers, getLspInspection } from '../../assistant-server/lsp-diagnostics';
-
 const ROOT = path.join(os.tmpdir(), 'brainstrike-lsp-inspect-failures');
 const FILE = path.join(ROOT, 'target.ts');
 const FILE_URI = new URL(`file://${FILE}`).href;
@@ -251,7 +250,7 @@ describe('lspInspect per-query failures are distinguishable from empty results',
     expect(result.queryFailures).toEqual([
       expect.objectContaining({ query: 'definition', reason: 'timeout' }),
     ]);
-    expect(result.queryFailures?.[0]?.message).toMatch(/timed out/i);
+    expect(result.queryFailures?.[0]?.message).toMatch(/timed out/iu);
     // Visible to a human at the DEFAULT log level — not `debug`.
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });

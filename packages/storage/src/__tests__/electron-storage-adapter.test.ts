@@ -429,14 +429,14 @@ describe('ElectronStorageAdapter', () => {
       expect(writeFileSpy).toHaveBeenCalled();
       const writeCall = writeFileSpy.mock.calls[0];
       const writePath = writeCall?.[0] as string;
-      expect(writePath).toMatch(/\.tmp$/);
+      expect(writePath).toMatch(/\.tmp$/u);
 
       // Should rename temp file to final path
       expect(renameSpy).toHaveBeenCalled();
       const renameCall = renameSpy.mock.calls[0];
       const renameSrc = renameCall?.[0] as string;
       const renameDest = renameCall?.[1] as string;
-      expect(renameSrc).toMatch(/\.tmp$/);
+      expect(renameSrc).toMatch(/\.tmp$/u);
       expect(renameDest).toBe(storageFile);
 
       writeFileSpy.mockRestore();

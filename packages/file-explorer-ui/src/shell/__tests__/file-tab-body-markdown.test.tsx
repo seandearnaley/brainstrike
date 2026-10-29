@@ -3,10 +3,19 @@ import {
   defineContextAction,
   type TargetOf,
 } from '@brainstrike/context-actions';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act } from '@brainstrike/test-utils/react-act';
 import { ActionRegistryProvider, type LinkChoices } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
+import { fileEntryActions } from '../../context-actions/file-entry-actions';
+import {
+  type MarkdownLinkChoices,
+  MarkdownPreviewCapabilitiesProvider,
+} from '../../contexts/markdown-preview-capabilities';
+import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
+import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
 interface MockMarkdownSurfaceProps {
   readonly linkChoices?: (href: string) => LinkChoices | null;
@@ -96,16 +105,6 @@ vi.mock('@brainstrike/ui/markdown-surface', () => ({
     );
   },
 }));
-
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
-import { fileEntryActions } from '../../context-actions/file-entry-actions';
-import {
-  type MarkdownLinkChoices,
-  MarkdownPreviewCapabilitiesProvider,
-} from '../../contexts/markdown-preview-capabilities';
-import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
-import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
 const MD_KEY = encodeFileSelection('folder-1', '/root/docs/readme.md');
 const TS_KEY = encodeFileSelection('folder-1', '/root/src/main.ts');
@@ -241,7 +240,7 @@ describe('FileTabBody markdown integration', () => {
     await waitFor(() => {
       expect(screen.getByTestId('markdown-surface')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole('button', { name: /source/i }));
+    fireEvent.click(screen.getByRole('button', { name: /source/iu }));
     expect(useEditorViewStateStore.getState().getMode(MD_KEY)).toBe('source');
     expect(screen.queryByTestId('markdown-surface')).not.toBeInTheDocument();
   });
@@ -255,7 +254,7 @@ describe('FileTabBody markdown integration', () => {
       const { writtenTexts } = renderBody(TS_KEY, 'const x = 1;');
 
       fireEvent.contextMenu(screen.getByTestId('file-code-surface'));
-      const copyItem = await screen.findByRole('menuitem', { name: /copy\s+(ctrl|⌘)/i });
+      const copyItem = await screen.findByRole('menuitem', { name: /copy\s+(ctrl|⌘)/iu });
       contextSelections.code = 'changed later';
       fireEvent.click(copyItem);
 
@@ -287,7 +286,7 @@ describe('FileTabBody markdown integration', () => {
       await screen.findByTestId('markdown-surface');
 
       fireEvent.contextMenu(screen.getByTestId('markdown-surface'));
-      fireEvent.click(await screen.findByRole('menuitem', { name: /copy\s+(ctrl|⌘)/i }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: /copy\s+(ctrl|⌘)/iu }));
 
       await waitFor(() => {
         expect(writtenTexts).toEqual(['  Hello\n']);
@@ -331,7 +330,7 @@ describe('FileTabBody markdown integration', () => {
         await waitFor(() => {
           expect(screen.getByText('Preview failed to render')).toBeInTheDocument();
         });
-        fireEvent.click(screen.getByRole('button', { name: /open in source/i }));
+        fireEvent.click(screen.getByRole('button', { name: /open in source/iu }));
         expect(screen.getByTestId('file-code-surface')).toBeInTheDocument();
         expect(useEditorViewStateStore.getState().getMode(MD_KEY)).toBe('source');
       } finally {
@@ -347,10 +346,10 @@ describe('FileTabBody markdown integration', () => {
       // resources — remote srcs reject (MarkdownImage renders its placeholder)
       // and never reach the platform capability or the network.
       await expect(mdProps().resolveImageSrc('https://tracker.example/x.png')).rejects.toThrow(
-        /remote images are blocked/i
+        /remote images are blocked/iu
       );
       await expect(mdProps().resolveImageSrc('http://localhost:9999/x.png')).rejects.toThrow(
-        /remote images are blocked/i
+        /remote images are blocked/iu
       );
       expect(capabilities.resolveImageSrc).not.toHaveBeenCalled();
     });

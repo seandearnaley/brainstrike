@@ -46,7 +46,7 @@ export class SettingsPage {
    * runs before the blur, which would commit a draft on its own.
    */
   async setSubagentLimit(label: string, settingKey: string, value: number): Promise<void> {
-    const section = (await this.openCategory(/Subagents/i, 'subagents')).getByTestId(
+    const section = (await this.openCategory(/Subagents/iu, 'subagents')).getByTestId(
       'subagent-settings-section'
     );
     const field = section.getByRole('spinbutton', { exact: true, name: label });

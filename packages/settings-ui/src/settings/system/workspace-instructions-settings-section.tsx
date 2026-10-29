@@ -132,7 +132,7 @@ export function WorkspaceInstructionsSettingsSection() {
       <CardContent className="space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="font-medium text-sm" htmlFor="context-files-master-toggle">
+            <Label className="text-sm font-medium" htmlFor="context-files-master-toggle">
               Inject workspace instructions
             </Label>
             <p className="text-muted-foreground text-sm">On by default.</p>
@@ -147,7 +147,7 @@ export function WorkspaceInstructionsSettingsSection() {
 
         <fieldset className="space-y-3 border-0 p-0" disabled={!masterEnabled}>
           <div className="flex items-center justify-between gap-4">
-            <legend className="font-medium text-sm">Detected files</legend>
+            <legend className="text-sm font-medium">Detected files</legend>
             {/* The scan runs on mount; mounting/unmounting a workspace root while
                 this panel stays open leaves the list stale, so offer a manual
                 rescan (bridge is desktop-only — omitted on web). */}
@@ -165,7 +165,7 @@ export function WorkspaceInstructionsSettingsSection() {
           </div>
           {scanError ? (
             <div
-              className="space-y-2 rounded-md border border-destructive/50 p-3"
+              className="border-destructive/50 space-y-2 rounded-md border p-3"
               data-testid="context-files-scan-error"
             >
               <p className="text-destructive text-sm">
@@ -196,8 +196,8 @@ export function WorkspaceInstructionsSettingsSection() {
                     key={entry.rootId}
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-sm">{entry.displayName}</p>
-                      <p className="truncate text-muted-foreground text-xs">
+                      <p className="truncate text-sm font-medium">{entry.displayName}</p>
+                      <p className="text-muted-foreground truncate text-xs">
                         {entry.fileName
                           ? `${entry.fileName} · ${formatBytes(entry.sizeBytes)} · ${formatTokens(entry.approxTokens)}`
                           : 'No AGENTS.md / AGENT.md / CLAUDE.md'}

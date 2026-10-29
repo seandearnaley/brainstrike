@@ -187,7 +187,7 @@ export function WorktreeMapSurface(): ReactElement {
           ) : null}
           {collection.total > 0 && collection.matched === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-center">
-              <p className="font-medium text-sm">No matching worktrees</p>
+              <p className="text-sm font-medium">No matching worktrees</p>
               <p className="text-muted-foreground text-xs">Try another name, branch or filter.</p>
               <Button
                 onClick={() => {
@@ -206,21 +206,21 @@ export function WorktreeMapSurface(): ReactElement {
             <section className="flex min-w-0 flex-col gap-2" key={repositoryModel.repoCommonDir}>
               <header className="flex min-w-0 items-center justify-between gap-3 px-1">
                 <div className="min-w-0">
-                  <h2 className="truncate font-medium text-sm">{repositoryModel.repositoryName}</h2>
+                  <h2 className="truncate text-sm font-medium">{repositoryModel.repositoryName}</h2>
                   <p
-                    className="truncate text-[10px] text-muted-foreground"
+                    className="text-muted-foreground truncate text-[10px]"
                     title={repositoryModel.repositoryRoot}
                   >
                     {repositoryModel.repositoryRoot}
                   </p>
                 </div>
-                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                <span className="text-muted-foreground shrink-0 text-[10px] tabular-nums">
                   {repositoryModel.cards.length} shown
                 </span>
               </header>
               <div
                 aria-hidden="true"
-                className="@min-[760px]/worktrees:grid hidden grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem] gap-3 border-l-2 border-l-transparent px-3 text-[10px] text-muted-foreground"
+                className="text-muted-foreground hidden grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem] gap-3 border-l-2 border-l-transparent px-3 text-[10px] @min-[760px]/worktrees:grid"
               >
                 <span>Checkout</span>
                 <span>Git status</span>
@@ -228,7 +228,7 @@ export function WorktreeMapSurface(): ReactElement {
                 <span className="text-right">Actions</span>
               </div>
               <div
-                className="overflow-hidden rounded-lg border border-border bg-card [&>article+article]:border-border [&>article+article]:border-t"
+                className="border-border bg-card [&>article+article]:border-border overflow-hidden rounded-lg border [&>article+article]:border-t"
                 data-testid="worktree-map-rows"
                 key={`${collection.page}:${query}:${filter}:${sort}`}
               >

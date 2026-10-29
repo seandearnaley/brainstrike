@@ -225,7 +225,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   for (const [index, child] of [first, second].entries()) {
     await delegations
       .nth(index)
-      .getByRole('button', { name: /Open .* conversation/ })
+      .getByRole('button', { name: /Open .* conversation/u })
       .click();
     await expect(selectedTab).toHaveText(child.callSign);
   }
@@ -365,7 +365,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   // Expand the actual shared TreeTable; listing children mounts no transcripts.
   const rootRow = window.getByRole('row').filter({ has: threadRow(ROOT_TITLE) });
-  await rootRow.getByRole('button', { name: /Expand/ }).click();
+  await rootRow.getByRole('button', { name: /Expand/u }).click();
   const childRow = (callSign: string) =>
     window.getByRole('row').filter({
       has: window.getByRole('button', { exact: true, name: `${callSign} Child` }),
@@ -389,7 +389,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
     'background-color',
     flintMarkBackground
   );
-  await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
+  await sidebarCedar.getByRole('button', { name: /Expand/u }).click();
   const wrenRow = childRow(grand.callSign);
   await expect(wrenRow).toHaveAttribute('aria-level', '4');
   const wrenButton = wrenRow.getByRole('button', { exact: true, name: `${grand.callSign} Child` });

@@ -66,7 +66,7 @@ describe('assistant composer command store', () => {
         text: '   ',
         threadId: 'thread-a',
       })
-    ).toThrow(/non-whitespace text/i);
+    ).toThrow(/non-whitespace text/iu);
   });
   it('reports rejected storage writes without throwing through the composer', () => {
     const { result } = renderHook(() => useToast());

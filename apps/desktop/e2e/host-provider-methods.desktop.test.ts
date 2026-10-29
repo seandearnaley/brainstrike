@@ -9,12 +9,12 @@ import { ensureAssistantShellVisible } from './utils/layout-helpers';
 const STORED_KEY = 'profile-store-openrouter-key';
 // The shim's one recorded OpenRouter metadata fixture.
 const MODEL = 'anthropic/claude-sonnet-4.6';
-const MAIN_PROVIDER_ROUTES = /\/assistant\/(status|verify-provider|openrouter-model)$/;
+const MAIN_PROVIDER_ROUTES = /\/assistant\/(status|verify-provider|openrouter-model)$/u;
 
 async function openProvidersCategory(window: Page): Promise<void> {
   const categories = window.getByRole('navigation', { name: 'Settings categories' });
   await expect(categories).toBeVisible();
-  await categories.getByRole('button', { name: /^Providers$/i }).click();
+  await categories.getByRole('button', { name: /^Providers$/iu }).click();
   await expect(window.getByTestId('settings-category-providers')).toBeVisible();
 }
 

@@ -121,7 +121,7 @@ describe('resolveGitScopeChangesetView — containment', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^outside-roots-unsupported:/);
+    expect(result.error).toMatch(/^outside-roots-unsupported:/u);
   });
 });
 
@@ -325,7 +325,7 @@ describe('resolveGitScopeChangesetView — branch-vs-base base-ref resolution', 
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^base-ref-unresolved:/);
+    expect(result.error).toMatch(/^base-ref-unresolved:/u);
     // The `@{u}`-never invariant is asserted suite-wide in `afterEach` above.
   });
 });
@@ -420,8 +420,8 @@ describe('resolveGitScopeStructuredFileDiffParams — unborn HEAD (NTH-1)', () =
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^head-unborn:/);
-    expect(result.error).not.toMatch(/^base-ref-unresolved:/);
+    expect(result.error).toMatch(/^head-unborn:/u);
+    expect(result.error).not.toMatch(/^base-ref-unresolved:/u);
   });
 });
 
@@ -497,7 +497,7 @@ describe('resolveGitScopeStructuredFileDiffParams — bogus commitId (NTH-9)', (
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^commit-id-unresolved:/);
+    expect(result.error).toMatch(/^commit-id-unresolved:/u);
   });
 });
 
@@ -585,7 +585,7 @@ describe('listRefComparisonChanges — unmerged path (R3)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^unmerged-path:/);
+    expect(result.error).toMatch(/^unmerged-path:/u);
     expect(result.error).toContain('conflict.txt');
   });
 });

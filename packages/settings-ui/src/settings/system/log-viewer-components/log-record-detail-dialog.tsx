@@ -50,9 +50,9 @@ function buildCauseRows(
 
 function DetailValue({ label, value }: DetailValueProps) {
   return (
-    <div className="min-w-0 rounded-md border border-border/50 bg-muted/20 p-2">
-      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</div>
-      <div className="mt-1 break-all font-mono text-xs">{value ?? '—'}</div>
+    <div className="border-border/50 bg-muted/20 min-w-0 rounded-md border p-2">
+      <div className="text-muted-foreground text-[10px] tracking-wider uppercase">{label}</div>
+      <div className="mt-1 font-mono text-xs break-all">{value ?? '—'}</div>
     </div>
   );
 }
@@ -93,23 +93,23 @@ export function LogRecordDetailDialog({ record, onClose }: LogRecordDetailDialog
           </div>
 
           <section className="space-y-2">
-            <h4 className="font-semibold text-sm">Message</h4>
-            <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-sm">
+            <h4 className="text-sm font-semibold">Message</h4>
+            <div className="border-border/50 bg-muted/20 rounded-md border p-3 text-sm">
               {record.message ?? '—'}
             </div>
           </section>
 
           <section className="space-y-2">
-            <h4 className="font-semibold text-sm">Cause chain</h4>
+            <h4 className="text-sm font-semibold">Cause chain</h4>
             {causeChain.length === 0 ? (
               <div className="text-muted-foreground text-sm">No cause chain recorded.</div>
             ) : (
               <ol className="space-y-2">
                 {causeRows.map(({ cause, key }, index) => (
-                  <li className="rounded-md border border-border/50 bg-muted/20 p-3" key={key}>
+                  <li className="border-border/50 bg-muted/20 rounded-md border p-3" key={key}>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">Cause {index + 1}</Badge>
-                      <span className="font-semibold text-sm">{cause.name}</span>
+                      <span className="text-sm font-semibold">{cause.name}</span>
                       {cause.code ? <code className="text-xs">{cause.code}</code> : null}
                     </div>
                     <p className="mt-2 text-sm">{cause.message}</p>
@@ -118,7 +118,7 @@ export function LogRecordDetailDialog({ record, onClose }: LogRecordDetailDialog
               </ol>
             )}
             {causeDiagnostics.malformedEntryCount > 0 ? (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive text-sm">
+              <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-2 text-sm">
                 {causeDiagnostics.malformedEntryCount}{' '}
                 {causeDiagnostics.malformedEntryCount === 1
                   ? 'malformed cause entry was'
@@ -130,16 +130,16 @@ export function LogRecordDetailDialog({ record, onClose }: LogRecordDetailDialog
 
           {stack ? (
             <section className="space-y-2">
-              <h4 className="font-semibold text-sm">Stack</h4>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-xs">
+              <h4 className="text-sm font-semibold">Stack</h4>
+              <pre className="border-border/50 bg-muted/20 max-h-48 overflow-auto rounded-md border p-3 font-mono text-xs whitespace-pre-wrap">
                 {stack}
               </pre>
             </section>
           ) : null}
 
           <section className="space-y-2">
-            <h4 className="font-semibold text-sm">Context</h4>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-xs">
+            <h4 className="text-sm font-semibold">Context</h4>
+            <pre className="border-border/50 bg-muted/20 max-h-48 overflow-auto rounded-md border p-3 font-mono text-xs whitespace-pre-wrap">
               {serializeLogContextJson(context)}
             </pre>
           </section>

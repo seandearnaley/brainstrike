@@ -271,7 +271,7 @@ async function assertWorkerWrite(
       });
       await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
       await new HomePage(window).openSettings();
-      await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+      await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
       await window
         .getByTestId('permission-policy-edit')
         .selectOption(autoApprove ? 'allow' : 'ask');
@@ -299,11 +299,11 @@ async function assertWorkerWrite(
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       }
       await root.getByRole('button', { exact: true, name: 'Expand activity' }).click();
-      await root.getByRole('button', { name: /Open .* conversation/ }).click();
+      await root.getByRole('button', { name: /Open .* conversation/u }).click();
       const selectedTab = window
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
-      await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
+      await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
       await expect(selectedTab).toBeFocused();
       const firstChildName = (await selectedTab.innerText()).trim();
       for (let level = 1; level < depth; level += 1) {
@@ -312,17 +312,17 @@ async function assertWorkerWrite(
         await expect(current.getByText('Waiting for approval', { exact: true })).toHaveCount(0);
         // Activity is collapsed by default; the running delegation's card is inside it.
         await ensureActivityExpanded(current);
-        await current.getByRole('button', { name: /Open .* conversation/ }).click();
+        await current.getByRole('button', { name: /Open .* conversation/u }).click();
         await expect(selectedTab).not.toHaveText(currentName);
         await expect(selectedTab).toBeFocused();
-        await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
+        await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
         const nextName = (await selectedTab.innerText()).trim();
         const nextPanel = window.getByRole('tabpanel', { exact: true, name: nextName });
         await nextPanel
           .getByRole('navigation', { name: 'Conversation ancestry' })
           .getByRole('button', { exact: true, name: currentName })
           .click();
-        const origin = current.getByRole('button', { name: /Open .* conversation/ });
+        const origin = current.getByRole('button', { name: /Open .* conversation/u });
         await expect(origin).toBeFocused();
         await origin.press('Enter');
         await expect(selectedTab).toHaveText(nextName);
@@ -419,7 +419,7 @@ async function assertWorkerWrite(
         await reloadRenderer(window, 'delegated-worker-write: reload after child stop');
         await ensureAssistantShellVisible(window);
         await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
-        const reopen = root.getByRole('button', { name: /Open .* conversation/ }).first();
+        const reopen = root.getByRole('button', { name: /Open .* conversation/u }).first();
         await expect(reopen).toBeVisible();
         await reopen.click();
         await expect(selectedTab).toHaveText(childName);
@@ -555,10 +555,10 @@ async function assertWorkerWrite(
           ).toBeVisible();
           await root.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
           await root
-            .getByRole('button', { name: /Open .* conversation/ })
+            .getByRole('button', { name: /Open .* conversation/u })
             .last()
             .click();
-          await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
+          await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
           const secondName = (await selectedTab.innerText()).trim();
           expect(secondName).not.toBe(firstChildName);
           await expect(
@@ -572,7 +572,7 @@ async function assertWorkerWrite(
             .getByRole('button', { exact: true, includeHidden: true, name: `Close ${secondName}` })
             .click();
           await root
-            .getByRole('button', { name: /Open .* conversation/ })
+            .getByRole('button', { name: /Open .* conversation/u })
             .last()
             .click();
           await expect(selectedTab).toHaveText(secondName);
@@ -590,7 +590,7 @@ async function assertWorkerWrite(
         }
         if (autoApprove) {
           await ensureActivityExpanded(root);
-          await root.getByRole('button', { name: /Open .* conversation/ }).click();
+          await root.getByRole('button', { name: /Open .* conversation/u }).click();
           await expect(selectedTab).toHaveText(childName);
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
           await ensureActivityExpanded(child);

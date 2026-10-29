@@ -164,14 +164,14 @@ export function WorkspaceSearchPanel({
       {/* Scrollable results / status area. */}
       <div className="flex min-h-0 flex-col overflow-hidden">
         {status === 'idle' ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+          <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
             <Search className="h-8 w-8 opacity-40" />
             <p className="text-sm">Search your workspace by text or meaning.</p>
           </div>
         ) : null}
         {status === 'searching' ? (
           <div
-            className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground"
+            className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center"
             role="status"
           >
             <Loader2 className="h-6 w-6 animate-spin opacity-60" />
@@ -180,9 +180,9 @@ export function WorkspaceSearchPanel({
         ) : null}
         {status === 'error' ? (
           <div className="p-2">
-            <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+            <div className="border-destructive/40 bg-destructive/10 flex flex-col gap-2 rounded-md border p-3">
               <p
-                className="flex items-center gap-2 text-destructive text-sm"
+                className="text-destructive flex items-center gap-2 text-sm"
                 data-testid="workspace-search-results-error"
                 role="alert"
               >

@@ -58,12 +58,12 @@ function PhaseGlyph({ phase }: { readonly phase: TracePhase }): ReactNode {
     );
   }
   if (phase === 'cancelled') {
-    return <Square className="bs-trace-phase-icon size-4 text-muted-foreground" />;
+    return <Square className="bs-trace-phase-icon text-muted-foreground size-4" />;
   }
   if (phase === 'failed') {
-    return <AlertCircle className="bs-trace-phase-icon size-4 text-destructive" />;
+    return <AlertCircle className="bs-trace-phase-icon text-destructive size-4" />;
   }
-  return <CheckCircle className="bs-trace-phase-icon size-4 text-success" />;
+  return <CheckCircle className="bs-trace-phase-icon text-success size-4" />;
 }
 
 function LiveSummary({
@@ -210,7 +210,7 @@ function TraceSummaryButton({
       onClick={onToggle}
       type="button"
     >
-      <ChevronRight className="bs-trace-glyph size-3.5 shrink-0 text-muted-foreground" />
+      <ChevronRight className="bs-trace-glyph text-muted-foreground size-3.5 shrink-0" />
       <span className="bs-trace-phase-glyph inline-flex shrink-0 items-center">
         <PhaseGlyph phase={phase} />
       </span>

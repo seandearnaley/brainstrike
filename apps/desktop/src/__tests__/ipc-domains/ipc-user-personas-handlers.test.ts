@@ -136,7 +136,7 @@ describe('listUserPersonas', () => {
     });
     const invalid = result.personas.find((row) => row.status === 'invalid');
     expect(invalid).toBeDefined();
-    expect(invalid?.error).toMatch(/read/i);
+    expect(invalid?.error).toMatch(/read/iu);
     expect(invalid?.source).toBe('user');
   });
 

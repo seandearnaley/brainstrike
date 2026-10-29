@@ -279,7 +279,7 @@ function SearchModeCard({
           {MODES.map((option) => (
             <Button
               aria-pressed={mode === option.mode}
-              className="h-auto flex-col items-start gap-1 whitespace-normal p-3 text-left"
+              className="h-auto flex-col items-start gap-1 p-3 text-left whitespace-normal"
               disabled={applying}
               key={option.mode}
               onClick={() => onChoose(option.mode)}
@@ -287,7 +287,7 @@ function SearchModeCard({
               variant={mode === option.mode ? 'secondary' : 'outline'}
             >
               <span className="font-semibold">{option.label}</span>
-              <span className="font-normal text-muted-foreground text-xs">
+              <span className="text-muted-foreground text-xs font-normal">
                 {option.description}
               </span>
             </Button>
@@ -424,7 +424,7 @@ function AutomaticSizes() {
         {AUTO_SIZES.map(([kind, size]) => (
           <div className="flex justify-between gap-3 rounded-md border px-2 py-1" key={kind}>
             <dt>{kind}</dt>
-            <dd className="font-mono text-muted-foreground tabular-nums">{size}</dd>
+            <dd className="text-muted-foreground font-mono tabular-nums">{size}</dd>
           </div>
         ))}
       </dl>
@@ -573,12 +573,12 @@ function PendingChanges({
   return (
     <div
       aria-label="Pending changes"
-      className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary bg-card p-3 shadow-md"
+      className="border-primary bg-card sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 shadow-md"
       role="status"
     >
       <div className="space-y-1 text-sm">
         <p className="font-semibold">Re-index needed</p>
-        <ul className="list-disc pl-5 text-muted-foreground">
+        <ul className="text-muted-foreground list-disc pl-5">
           {lines.map((line) => (
             <li key={line}>{line}</li>
           ))}

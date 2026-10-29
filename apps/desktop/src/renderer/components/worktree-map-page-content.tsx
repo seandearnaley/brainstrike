@@ -13,7 +13,7 @@ export function WorktreeMapPageContent(): ReactElement {
   return (
     <Suspense
       fallback={
-        <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+        <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
           Loading Worktrees…
         </div>
       }

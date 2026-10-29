@@ -54,7 +54,7 @@ export function CodeBlockHeader({
   if (isCopied) {
     copyIcon = <CheckIcon className="size-3.5" />;
   } else if (isFailed) {
-    copyIcon = <CopyIcon className="size-3.5 text-destructive" />;
+    copyIcon = <CopyIcon className="text-destructive size-3.5" />;
   } else {
     copyIcon = <CopyIcon className="size-3.5" />;
   }
@@ -62,7 +62,7 @@ export function CodeBlockHeader({
   return (
     <div
       className={cn(
-        'bs-code-block-header flex items-center justify-between rounded-t-md border border-border border-b-0 bg-muted/60 px-3 py-1.5 text-xs',
+        'bs-code-block-header border-border bg-muted/60 flex items-center justify-between rounded-t-md border border-b-0 px-3 py-1.5 text-xs',
         className
       )}
     >

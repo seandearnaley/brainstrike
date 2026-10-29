@@ -45,7 +45,7 @@ describe('ReadWorkspaceFileCursorRegistry', () => {
     const first = registry.issue(SCOPE, STATE);
     const second = registry.issue(SCOPE, STATE);
     const third = registry.issue(SCOPE, STATE);
-    expect(() => registry.resolve(first, SCOPE)).toThrow(/unknown or no longer available/i);
+    expect(() => registry.resolve(first, SCOPE)).toThrow(/unknown or no longer available/iu);
     expect(registry.resolve(second, SCOPE)).toEqual(STATE);
     expect(registry.resolve(third, SCOPE)).toEqual(STATE);
   });
@@ -57,10 +57,10 @@ describe('ReadWorkspaceFileCursorRegistry', () => {
     registry.issue(SCOPE, STATE);
 
     expect(() => registry.resolve(HANDLE, { ...SCOPE, threadId: 'thread-b' })).toThrow(
-      /belongs to another assistant thread/i
+      /belongs to another assistant thread/iu
     );
     expect(() => registry.resolve(`${HANDLE.slice(0, -1)}w`, SCOPE)).toThrow(
-      /unknown or no longer available/i
+      /unknown or no longer available/iu
     );
   });
 
@@ -74,12 +74,12 @@ describe('ReadWorkspaceFileCursorRegistry', () => {
     registry.issue(SCOPE, STATE);
 
     now = 150;
-    expect(() => registry.resolve(HANDLE, SCOPE)).toThrow(/has expired/i);
+    expect(() => registry.resolve(HANDLE, SCOPE)).toThrow(/has expired/iu);
 
     now = 200;
     registry.issue(SCOPE, STATE);
     registry.clear();
-    expect(() => registry.resolve(HANDLE, SCOPE)).toThrow(/unknown or no longer available/i);
+    expect(() => registry.resolve(HANDLE, SCOPE)).toThrow(/unknown or no longer available/iu);
   });
 
   it.each([
@@ -91,7 +91,7 @@ describe('ReadWorkspaceFileCursorRegistry', () => {
     const registry = new ReadWorkspaceFileCursorRegistry({ createHandle: () => HANDLE });
     registry.issue(SCOPE, STATE);
     expect(() => registry.resolve(handle, scope)).toThrow(ToolInputError);
-    expect(() => registry.resolve(handle, scope)).toThrow(/Start a new read without cursor/);
+    expect(() => registry.resolve(handle, scope)).toThrow(/Start a new read without cursor/u);
     expect(registry.resolve(HANDLE, SCOPE)).toEqual(STATE);
   });
 

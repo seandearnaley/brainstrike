@@ -6,9 +6,6 @@ import { fileNodeToFileHandle } from '@brainstrike/file-system/file-node-handles
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { getKnownFileSize } from '@brainstrike/utils/file-content';
-
-const logger = createLogger('SharedFileContentLoading');
-
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { resolveDirectReadPath, supportsDirectPathRead } from './file-content-direct-read-path';
@@ -35,6 +32,8 @@ import {
   getFileNodeFromCache,
   refreshFileNodeCacheEntry,
 } from './utils/file-node-cache';
+
+const logger = createLogger('SharedFileContentLoading');
 
 // File node validation helper
 function isFileNodeValid(fileNode: IFileNode | null, folderId: string): boolean {

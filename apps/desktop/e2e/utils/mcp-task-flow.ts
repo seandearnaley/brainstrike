@@ -13,7 +13,7 @@ export const PENDING_INPUT_TOOL_NAME = 'pending-input_start_task';
 export async function configurePendingInputServer(page: Page, url: string): Promise<void> {
   await new HomePage(page).openSettings();
   const settings = new SettingsPage(page);
-  await settings.openCategory(/AI Tools/i, 'ai-tools');
+  await settings.openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   const editor = page.getByTestId('mcp-config-editor');
   await expect(editor).toBeVisible();
@@ -33,9 +33,9 @@ export async function configurePendingInputServer(page: Page, url: string): Prom
   await expect(page.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
   await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
   const row = page.getByTestId(`mcp-server-row-${PENDING_INPUT_SERVER_ID}`);
-  await expect(row).toContainText(/Connected/i, { timeout: 60_000 });
+  await expect(row).toContainText(/Connected/iu, { timeout: 60_000 });
   await expect(row).toContainText('2026-07-28');
-  await settings.openCategory(/Permissions/i, 'permissions');
+  await settings.openCategory(/Permissions/iu, 'permissions');
   const permission = page.getByRole('combobox', { name: 'MCP permission' });
   await permission.selectOption('ask');
   await expect(permission).toHaveValue('ask');

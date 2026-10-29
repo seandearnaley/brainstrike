@@ -5,7 +5,7 @@ import {
   prepareFactoryReset,
 } from '@brainstrike/app-state/factory-reset';
 import { createLogger } from '@brainstrike/logging';
-import { Button, Label } from '@brainstrike/ui';
+import { Button } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
 import { reloadThroughLifecycle } from './reload-through-lifecycle';
 
@@ -95,9 +95,9 @@ export function FactoryResetPanel() {
   }, []);
 
   return (
-    <div className="space-y-1 rounded-md border bg-destructive/5 p-3">
-      <Label className="text-destructive text-xs">Factory Reset</Label>
-      <p className="text-[11px] text-muted-foreground">
+    <div className="bg-destructive/5 space-y-1 rounded-md border p-3">
+      <p className="text-destructive text-xs leading-none font-medium">Factory Reset</p>
+      <p className="text-muted-foreground text-[11px]">
         Irreversibly deletes local data, stored folders, API keys, tool settings, runtime caches,
         and UI state from this device. Diagnostic logs may be preserved.
       </p>
@@ -112,7 +112,7 @@ export function FactoryResetPanel() {
         Factory Reset Brainstrike
       </Button>
       {resetAvailable ? null : (
-        <p className="mt-1 text-muted-foreground text-xs">
+        <p className="text-muted-foreground mt-1 text-xs">
           {unavailableReason ??
             'Factory reset is unavailable until the database is ready. Restart the app if this does not clear.'}
         </p>

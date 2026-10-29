@@ -31,7 +31,7 @@ export function captureResetLogs(): {
       for (const log of processLogs()) {
         expect.soft(log).not.toContain('Error occurred in handler');
         // Pino levels 50/60 are error/fatal. Retain every scope, including shutdown.
-        expect.soft(log).not.toMatch(/"level"\s*:\s*(?:50|60)\b/);
+        expect.soft(log).not.toMatch(/"level"\s*:\s*(?:50|60)\b/u);
       }
     },
     attach: async (testInfo) => {

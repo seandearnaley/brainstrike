@@ -35,10 +35,10 @@ export function GitFailureDetails({
       <p className={summaryClassName}>{summary}</p>
       {full === summary ? null : (
         <details className="w-full text-left text-xs" data-testid="git-failure-details">
-          <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+          <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring cursor-pointer select-none focus-visible:ring-1 focus-visible:outline-none">
             Full git output
           </summary>
-          <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/30 p-2 font-mono text-[11px] text-foreground">
+          <pre className="border-border bg-muted/30 text-foreground mt-2 max-h-64 overflow-auto rounded-md border p-2 font-mono text-[11px] break-all whitespace-pre-wrap">
             {boundedDetails(full)}
           </pre>
         </details>

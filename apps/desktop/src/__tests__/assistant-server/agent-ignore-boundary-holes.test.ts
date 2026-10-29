@@ -80,7 +80,7 @@ describe('HOLE 1 — an unreadable .llmignore must STOP the walk, not widen it',
       await fsPromises.chmod(path.join(root, '.llmignore'), 0o000);
       try {
         await expect(runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root))).rejects.toThrow(
-          /agent ignore file/i
+          /agent ignore file/iu
         );
       } finally {
         await fsPromises.chmod(path.join(root, '.llmignore'), 0o644);
@@ -132,7 +132,7 @@ describe('HOLE 2 — a .llmignore added AFTER the first query must take effect',
 
     await expect(
       assertNotAgentIgnored({ canonicalRootPath: root, relativePath: 'secrets/key.ts' })
-    ).rejects.toThrow(/agent ignore file/i);
+    ).rejects.toThrow(/agent ignore file/iu);
   });
 });
 
@@ -219,7 +219,7 @@ describe('REGRESSION GUARDS for the fail-closed reader (BST-1436 review)', () =>
         // The healthy root still answers...
         expect(result.matches.map((m) => m.path).join(',')).toContain('b.md');
         // ...and the failure is NAMED, never silently dropped.
-        expect(JSON.stringify(result)).toMatch(/bad/);
+        expect(JSON.stringify(result)).toMatch(/bad/u);
       } finally {
         await fsPromises.chmod(path.join(bad, '.llmignore'), 0o644);
       }
@@ -376,7 +376,7 @@ describe('REGRESSION GUARDS for the review fixes themselves (BST-1436)', () => {
         // the ignore reader can hit the EACCES first, and both must refuse
         // rather than answer "not ignored". Asserting the specific message
         // would pin an ordering neither side guarantees.
-        await expect(guard.ignoresFile('a.ts')).rejects.toThrow(/Refusing to (continue|proceed)/i);
+        await expect(guard.ignoresFile('a.ts')).rejects.toThrow(/Refusing to (continue|proceed)/iu);
       } finally {
         await fsPromises.chmod(path.join(outer, 'locked'), 0o755);
       }

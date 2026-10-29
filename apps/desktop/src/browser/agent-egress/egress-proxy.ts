@@ -107,7 +107,7 @@ function loopbackKeys(authorities: readonly string[]): ReadonlySet<string> {
 
 /** `host:port`, with a bracketed IPv6 host. Null when it is not one. */
 function parseAuthority(authority: string): { host: string; port: number } | null {
-  const match = authority.match(/^(?:\[([^\]]+)\]|([^:[\]]+)):(\d{1,5})$/);
+  const match = authority.match(/^(?:\[([^\]]+)\]|([^:[\]]+)):(\d{1,5})$/u);
   const host = match?.[1] ?? match?.[2];
   const port = Number(match?.[3]);
   if (!(host && Number.isInteger(port)) || port < 1 || port > 65_535) {
@@ -118,7 +118,7 @@ function parseAuthority(authority: string): { host: string; port: number } | nul
 
 function credentialMatches(headers: IncomingHttpHeaders, expected: Buffer): boolean {
   const header = headers['proxy-authorization'];
-  const match = typeof header === 'string' ? header.match(/^Basic\s+(\S+)$/i) : null;
+  const match = typeof header === 'string' ? header.match(/^Basic\s+(\S+)$/iu) : null;
   if (!match?.[1]) {
     return false;
   }
@@ -333,7 +333,7 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
     let upstream: Socket;
     try {
       const port = url.port === '' ? 80 : Number(url.port);
-      upstream = await admit(url.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase(), port);
+      upstream = await admit(url.hostname.replace(/^\[(.*)\]$/u, '$1').toLowerCase(), port);
     } catch (failure) {
       const { headers, status } = failureReply(failure);
       fail(status, headers);

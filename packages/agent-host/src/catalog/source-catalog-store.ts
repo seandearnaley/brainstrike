@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { sendCatalogRequest } from './request.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
-const Hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+const Hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
 const Stat = Schema.Struct({
   mtimeMs: Schema.NullOr(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
   size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),

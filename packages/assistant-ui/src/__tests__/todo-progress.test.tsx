@@ -100,7 +100,7 @@ describe('TaskListToolCard', () => {
     });
     expect(screen.getByText('Updated tasks')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Completed' })).toBeInTheDocument();
-    expect(screen.queryByText(/"merge"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/"merge"/u)).not.toBeInTheDocument();
   });
 
   it('opens the raw args and result behind the row toggle', () => {
@@ -113,8 +113,8 @@ describe('TaskListToolCard', () => {
       toolName: 'brainstrike.manageTaskList',
     });
     fireEvent.click(screen.getByRole('button', { name: 'Updated tasks, expand details' }));
-    expect(screen.getByText(/"merge"/)).toBeInTheDocument();
-    expect(screen.getByText(/"ok"/)).toBeInTheDocument();
+    expect(screen.getByText(/"merge"/u)).toBeInTheDocument();
+    expect(screen.getByText(/"ok"/u)).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Updated tasks, collapse details' })
     ).toBeInTheDocument();

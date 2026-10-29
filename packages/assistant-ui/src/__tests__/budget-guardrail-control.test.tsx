@@ -99,7 +99,7 @@ describe('BudgetGuardrailControl', () => {
     const notice = screen.getByTestId('budget-guardrail-blocked');
     expect(notice).toHaveTextContent('Last-24h budget cap reached — $11.00 of $10.00');
 
-    await user.click(screen.getByRole('button', { name: /send anyway/i }));
+    await user.click(screen.getByRole('button', { name: /send anyway/iu }));
     expect(override).toHaveBeenCalledTimes(1);
   });
 
@@ -126,7 +126,7 @@ describe('BudgetGuardrailControl', () => {
     expect(screen.queryByTestId('budget-guardrail-blocked')).not.toBeInTheDocument();
     // Never a silent allow: the active override is stated next to the chip.
     expect(screen.getByTestId('budget-guardrail-overridden')).toHaveTextContent(
-      /overridden for this session/i
+      /overridden for this session/iu
     );
   });
 

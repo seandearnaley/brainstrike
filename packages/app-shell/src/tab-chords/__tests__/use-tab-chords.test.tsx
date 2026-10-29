@@ -3,12 +3,6 @@ import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { render } from '@testing-library/react';
 import { type ReactElement, useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const toastSpy = vi.fn();
-vi.mock('@brainstrike/ui', () => ({
-  useToast: () => ({ toast: toastSpy }),
-}));
-
 import {
   getTabChordStrip,
   registerTabChordStrip,
@@ -16,6 +10,11 @@ import {
   type TabChordStripId,
 } from '../tab-chord-registry';
 import { useTabChords } from '../use-tab-chords';
+
+const toastSpy = vi.fn();
+vi.mock('@brainstrike/ui', () => ({
+  useToast: () => ({ toast: toastSpy }),
+}));
 
 interface FakeStrip extends TabChordStrip {
   readonly activate: ReturnType<typeof vi.fn<(id: string) => Promise<void>>>;
@@ -695,7 +694,7 @@ describe('registerTabChordStrip', () => {
       });
 
       expect(errors).toHaveLength(1);
-      expect(errors[0]?.message).toMatch(/already registered/);
+      expect(errors[0]?.message).toMatch(/already registered/u);
       expect(getTabChordStrip('workspace')).toBe(first);
       // The duplicate's release is a no-op: the first registration survives it.
       releaseSecond();

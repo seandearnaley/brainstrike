@@ -51,7 +51,7 @@ test.describe('OpenRouter output room (desktop, BST-1810)', () => {
       await root.getByRole('button', { name: 'Open assistant controls' }).click();
       const controls = window.getByRole('dialog', { name: 'Assistant controls' });
       await controls.getByText('Output & Limits', { exact: true }).click();
-      await expect(controls.getByText(/Live metadata unavailable/)).toBeVisible();
+      await expect(controls.getByText(/Live metadata unavailable/u)).toBeVisible();
       await controls.getByRole('switch', { name: 'Limit output tokens per step' }).click();
       const output = controls.getByRole('spinbutton', { name: 'Output token limit' });
       await expect(output).toHaveAttribute('max', '943718');

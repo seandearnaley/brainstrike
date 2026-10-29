@@ -86,7 +86,7 @@ describe('McpTaskToolResult', () => {
     expect(summary()).toHaveTextContent('Working');
     expect(screen.getByText('Persisted snapshot')).toBeInTheDocument();
     expect(screen.getByTestId('mcp-task-live-status-note')).toHaveTextContent(
-      /live status unavailable/i
+      /live status unavailable/iu
     );
   });
 
@@ -95,7 +95,7 @@ describe('McpTaskToolResult', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Cancel task' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/unavailable/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/unavailable/iu);
     expect(summary()).toHaveTextContent('Working');
   });
 
@@ -183,7 +183,7 @@ describe('McpTaskToolResult', () => {
     renderWithBridge(harness.bridge);
 
     expect(await screen.findByTestId('mcp-task-live-status-note')).toHaveTextContent(
-      /could not be loaded/i
+      /could not be loaded/iu
     );
     expect(summary()).toHaveTextContent('Working');
   });

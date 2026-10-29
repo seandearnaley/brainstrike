@@ -121,7 +121,7 @@ describe('HooksSettingsSection', () => {
     mockBridge({ ...onDisk('root-a', 'new-hash'), approvedSha256: 'old-hash' });
     render(<HooksSettingsSection roots={roots} />);
 
-    expect(await screen.findByText(/Changed — re-approve/)).not.toBeNull();
+    expect(await screen.findByText(/Changed — re-approve/u)).not.toBeNull();
     // A changed root offers Approve (to re-pin), not Revoke.
     expect(screen.getByTestId('hooks-approve-root-a')).not.toBeNull();
   });
@@ -156,7 +156,7 @@ describe('HooksSettingsSection', () => {
 
     // In flight: the security-meaningful "Untrusted" badge must NOT be shown as a
     // placeholder; a neutral "Checking…" state is shown instead.
-    expect(await screen.findByText(/Checking/)).not.toBeNull();
+    expect(await screen.findByText(/Checking/u)).not.toBeNull();
     expect(screen.queryByText('Untrusted')).toBeNull();
     // …and no action control either. A disabled placeholder Approve would swallow
     // a press (React drops click listeners on disabled buttons) and would make
@@ -176,7 +176,7 @@ describe('HooksSettingsSection', () => {
 
     // A transport-level bridge failure must surface as a visible per-row error,
     // never a stale "Untrusted"/empty state (honest failure surfacing).
-    expect(await screen.findByText(/Unavailable/)).not.toBeNull();
+    expect(await screen.findByText(/Unavailable/u)).not.toBeNull();
   });
 
   it('disables approve for a config with a parse error', async () => {
@@ -192,6 +192,6 @@ describe('HooksSettingsSection', () => {
 
     const approve = await screen.findByTestId('hooks-approve-root-a');
     expect((approve as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/Config error/)).not.toBeNull();
+    expect(screen.getByText(/Config error/u)).not.toBeNull();
   });
 });

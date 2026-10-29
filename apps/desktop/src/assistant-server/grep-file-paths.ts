@@ -65,13 +65,13 @@ interface ResolveGrepFilePathsArgs {
  * reject path instead.
  */
 function isAbsolutePath(value: string): boolean {
-  return value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:[/\\]/.test(value);
+  return value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:[/\\]/u.test(value);
 }
 
 /** Backslashes to slashes, collapse runs, drop `.` segments. Keeps `..` for the caller to judge. */
 function toPosixSegments(value: string): string[] {
   return value
-    .replace(/\\/g, '/')
+    .replace(/\\/gu, '/')
     .split('/')
     .filter((segment) => segment.length > 0 && segment !== '.');
 }

@@ -4,7 +4,6 @@
 
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { Button } from './button';
-import { Label } from './label';
 import { useTheme } from './theme-provider';
 
 export function ThemeSettings() {
@@ -13,7 +12,7 @@ export function ThemeSettings() {
   return (
     <div className="grid gap-6">
       <div className="space-y-2">
-        <Label>Theme</Label>
+        <p className="text-sm leading-none font-medium">Theme</p>
         <div className="grid grid-cols-3 gap-4">
           <Button
             className="w-full"

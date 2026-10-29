@@ -49,7 +49,7 @@ describe('getProjectHooksForReview', () => {
       readFile: () => Buffer.alloc(0),
       resolveDbRoot: () => null,
     });
-    expect(result.error).toMatch(/absolute/);
+    expect(result.error).toMatch(/absolute/u);
     expect(result.exists).toBe(false);
   });
 
@@ -58,7 +58,7 @@ describe('getProjectHooksForReview', () => {
       readFile: () => Buffer.alloc(0),
       resolveDbRoot: () => null,
     });
-    expect(result.error).toMatch(/rootId/);
+    expect(result.error).toMatch(/rootId/u);
   });
 
   it('refuses a path that is not within any mounted workspace root (containment)', () => {
@@ -67,7 +67,7 @@ describe('getProjectHooksForReview', () => {
       resolveDbRoot: () => null,
     });
     // Fail closed: no DB root → no read, no content, structured error.
-    expect(result.error).toMatch(/mounted workspace root/);
+    expect(result.error).toMatch(/mounted workspace root/u);
     expect(result.exists).toBe(false);
     expect(result.content).toBeUndefined();
   });
@@ -81,7 +81,7 @@ describe('getProjectHooksForReview', () => {
       resolveDbRoot: resolveTo('db-root', ROOT),
     });
     expect(result.exists).toBe(true);
-    expect(result.error).toMatch(/could not be read/);
+    expect(result.error).toMatch(/could not be read/u);
     expect(result.path).toBe(HOOKS);
     expect(result.dbRootId).toBe('db-root');
     expect(result.content).toBeUndefined();
@@ -120,7 +120,7 @@ describe('getProjectHooksForReview', () => {
       realpath: (p) => (p === HOOKS ? resolve('/etc/passwd') : p),
       resolveDbRoot: resolveTo('db-root', ROOT),
     });
-    expect(result.error).toMatch(/outside the workspace root/);
+    expect(result.error).toMatch(/outside the workspace root/u);
     expect(result.exists).toBe(false);
     expect(result.content).toBeUndefined();
   });
@@ -138,7 +138,7 @@ describe('getProjectHooksForReview', () => {
       realpath: (p) => (p === HOOKS ? resolve('/etc/passwd') : p),
       resolveDbRoot: resolveTo('db-root', ROOT),
     });
-    expect(result.error).toMatch(/outside the workspace root/);
+    expect(result.error).toMatch(/outside the workspace root/u);
     expect(result.exists).toBe(false);
     expect(result.content).toBeUndefined();
     expect(readCount).toBe(0);

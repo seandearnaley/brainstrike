@@ -59,7 +59,7 @@ function SkillRow(props: {
     <div className="flex items-start justify-between gap-4 rounded-md border p-3">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="font-medium text-sm">{title}</p>
+          <p className="text-sm font-medium">{title}</p>
           {entry.tier === 'root-claude' || entry.tier === 'global-claude' ? (
             <Badge variant="outline">Claude Code</Badge>
           ) : null}
@@ -70,7 +70,7 @@ function SkillRow(props: {
         {entry.status === 'invalid' ? (
           <div className="space-y-0.5">
             {(entry.errors ?? []).map((error) => (
-              <p className="flex items-center gap-1 text-destructive text-sm" key={error}>
+              <p className="text-destructive flex items-center gap-1 text-sm" key={error}>
                 <AlertTriangle className="size-3.5 shrink-0" />
                 {error}
               </p>
@@ -86,12 +86,12 @@ function SkillRow(props: {
           </p>
         ) : null}
         {(entry.warnings ?? []).map((warning) => (
-          <p className="flex items-center gap-1 text-warning text-xs" key={warning}>
+          <p className="text-warning flex items-center gap-1 text-xs" key={warning}>
             <AlertTriangle className="size-3 shrink-0" />
             {warning}
           </p>
         ))}
-        <p className="truncate text-muted-foreground text-xs" title={entry.absPath}>
+        <p className="text-muted-foreground truncate text-xs" title={entry.absPath}>
           {entry.absPath}
         </p>
       </div>
@@ -200,7 +200,7 @@ export function SkillsSettingsSection({
       <CardContent className="space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="font-medium text-sm" htmlFor="skills-master-toggle">
+            <Label className="text-sm font-medium" htmlFor="skills-master-toggle">
               Enable Agent Skills
             </Label>
             <p className="text-muted-foreground text-sm">
@@ -218,7 +218,7 @@ export function SkillsSettingsSection({
         {hasHost ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
-              <p className="font-medium text-sm">Installed skills</p>
+              <p className="text-sm font-medium">Installed skills</p>
               <Button
                 disabled={scanState.kind === 'loading'}
                 onClick={retry}
@@ -237,10 +237,10 @@ export function SkillsSettingsSection({
 
             {scanState.kind === 'error' ? (
               <div
-                className="flex items-center justify-between gap-4 rounded-md border border-destructive/50 p-3"
+                className="border-destructive/50 flex items-center justify-between gap-4 rounded-md border p-3"
                 data-testid="skills-scan-error"
               >
-                <p className="flex items-center gap-1 text-destructive text-sm">
+                <p className="text-destructive flex items-center gap-1 text-sm">
                   <AlertTriangle className="size-3.5 shrink-0" />
                   Skills scan failed: {scanState.message}
                 </p>
@@ -261,7 +261,7 @@ export function SkillsSettingsSection({
             <fieldset className="space-y-4 border-0 p-0" disabled={!masterEnabled}>
               {groups.map(([label, entries]) => (
                 <div className="space-y-2" key={label}>
-                  <p className="text-muted-foreground text-xs uppercase tracking-wide">{label}</p>
+                  <p className="text-muted-foreground text-xs tracking-wide uppercase">{label}</p>
                   {entries.map((entry) => (
                     <SkillRow
                       disabled={!masterEnabled}

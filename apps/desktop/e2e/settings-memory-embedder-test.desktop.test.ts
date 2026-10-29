@@ -17,7 +17,7 @@ test.use({ electronEnv: { BRAINSTRIKE_OPENAI_API_KEY: OPENAI_KEY } });
 async function openAssistantMemory(homePage: HomePage, page: Page): Promise<Locator> {
   await homePage.openSettings();
   const section = await new SettingsPage(page).openCategory(
-    /Assistant Memory/i,
+    /Assistant Memory/iu,
     'assistant-memory'
   );
   // A fresh profile selects text-embedding-3-small, with semantic recall off.

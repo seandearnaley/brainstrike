@@ -36,7 +36,7 @@ const logger = createLogger('BedrockMessageHygiene');
 const BEDROCK_NAMESPACE = 'bedrock';
 const BEDROCK_PROVIDER_ID = 'bedrock';
 /** AWS Converse `toolUseId` charset. */
-const UNSUPPORTED_TOOL_CALL_ID_CHARS = /[^a-zA-Z0-9_-]/g;
+const UNSUPPORTED_TOOL_CALL_ID_CHARS = /[^a-zA-Z0-9_-]/gu;
 /** AWS Converse `toolUseId` maximum length. */
 const MAX_TOOL_CALL_ID_LENGTH = 64;
 

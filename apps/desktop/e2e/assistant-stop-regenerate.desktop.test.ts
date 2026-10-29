@@ -98,7 +98,7 @@ test('stops the owned generation, regenerates the prompt and stops a long respon
     // Turn 3: a long reply, stopped the same way.
     await input.fill(LONG_PROMPT);
     await send.click();
-    await expect(panel.getByText(/Long response\. Long response\./).first()).toBeVisible({
+    await expect(panel.getByText(/Long response\. Long response\./u).first()).toBeVisible({
       timeout: 60_000,
     });
     await stop.click();

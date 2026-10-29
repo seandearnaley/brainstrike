@@ -290,7 +290,7 @@ export function buildEffortSliderModel(model: EffortControlModel): EffortSliderM
   const foundIndex = stops.findIndex((stop) => stop.value === model.currentValue);
   // An unresolvable current value would silently mis-position the thumb, so
   // fall back to `auto` — position 0 always exists.
-  const index = foundIndex >= 0 ? foundIndex : 0;
+  const index = Math.max(foundIndex, 0);
   const active = stops[index];
   const valueText = active?.isModelDefault
     ? `${active.label} (recommended)`

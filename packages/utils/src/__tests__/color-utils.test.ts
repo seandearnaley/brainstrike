@@ -28,13 +28,13 @@ describe('color-utils', () => {
 
       // Check light theme
       expect(color.light).toBeDefined();
-      expect(color.light.bg).toMatch(/^#[0-9A-F]{6}$/i);
-      expect(color.light.text).toMatch(/^#[0-9A-F]{6}$/i);
+      expect(color.light.bg).toMatch(/^#[0-9A-F]{6}$/iu);
+      expect(color.light.text).toMatch(/^#[0-9A-F]{6}$/iu);
 
       // Check dark theme
       expect(color.dark).toBeDefined();
-      expect(color.dark.bg).toMatch(/^#[0-9A-F]{6}$/i);
-      expect(color.dark.text).toMatch(/^#[0-9A-F]{6}$/i);
+      expect(color.dark.bg).toMatch(/^#[0-9A-F]{6}$/iu);
+      expect(color.dark.text).toMatch(/^#[0-9A-F]{6}$/iu);
     });
 
     it('should handle empty strings', () => {
@@ -84,12 +84,12 @@ describe('color-utils', () => {
         const color = getFolderColor(path);
 
         // Light theme checks
-        expect(color.light.bg).toMatch(/^#([A-F0-9]{6})$/i);
-        expect(color.light.text).toMatch(/^#([A-F0-9]{6})$/i);
+        expect(color.light.bg).toMatch(/^#([A-F0-9]{6})$/iu);
+        expect(color.light.text).toMatch(/^#([A-F0-9]{6})$/iu);
 
         // Dark theme checks
-        expect(color.dark.bg).toMatch(/^#([A-F0-9]{6})$/i);
-        expect(color.dark.text).toMatch(/^#([A-F0-9]{6})$/i);
+        expect(color.dark.bg).toMatch(/^#([A-F0-9]{6})$/iu);
+        expect(color.dark.text).toMatch(/^#([A-F0-9]{6})$/iu);
       }
     });
 
@@ -98,8 +98,8 @@ describe('color-utils', () => {
       const inputs = ['', 'a', 'test', '!@#$', 'very-long-extension-name'];
       for (const input of inputs) {
         const color = getFolderColor(input);
-        expect(color.light.bg).toMatch(/^#[0-9A-F]{6}$/i);
-        expect(color.dark.bg).toMatch(/^#[0-9A-F]{6}$/i);
+        expect(color.light.bg).toMatch(/^#[0-9A-F]{6}$/iu);
+        expect(color.dark.bg).toMatch(/^#[0-9A-F]{6}$/iu);
       }
     });
   });

@@ -3,8 +3,8 @@ import { join } from 'node:path';
 
 function redact(value: string): string {
   return value
-    .replace(/("(?:token|password|apiKey|authorization)"\s*:\s*")[^"]*/gi, '$1[REDACTED]')
-    .replace(/((?:token|password|api[_-]?key|authorization)=)[^\s]+/gi, '$1[REDACTED]');
+    .replace(/("(?:token|password|apiKey|authorization)"\s*:\s*")[^"]*/giu, '$1[REDACTED]')
+    .replace(/((?:token|password|api[_-]?key|authorization)=)[^\s]+/giu, '$1[REDACTED]');
 }
 
 function redactEvidence(value: unknown): unknown {
@@ -18,7 +18,7 @@ function redactEvidence(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        /^(?:token|password|api[_-]?key|authorization|secret)$/i.test(key)
+        /^(?:token|password|api[_-]?key|authorization|secret)$/iu.test(key)
           ? '[REDACTED]'
           : redactEvidence(item),
       ])

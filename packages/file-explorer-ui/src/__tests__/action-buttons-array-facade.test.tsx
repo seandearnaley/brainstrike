@@ -23,7 +23,7 @@ describe('ActionButtonsArrayFacade', () => {
     );
 
     // Click Select All
-    const btn = screen.getByRole('button', { name: /select all/i });
+    const btn = screen.getByRole('button', { name: /select all/iu });
     await user.click(btn);
 
     expect(setSelectedFiles).toHaveBeenCalledTimes(1);

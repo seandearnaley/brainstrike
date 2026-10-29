@@ -56,7 +56,7 @@ export function MarkdownImage({ alt, resolveImageSrc, src }: MarkdownImageProps)
     return (
       <span
         aria-label={`Image unavailable: ${src}`}
-        className="inline-block rounded border border-muted-foreground/40 border-dashed px-2 py-1 text-muted-foreground text-xs"
+        className="border-muted-foreground/40 text-muted-foreground inline-block rounded border border-dashed px-2 py-1 text-xs"
         data-testid="markdown-image-error"
         role="img"
       >
@@ -66,7 +66,7 @@ export function MarkdownImage({ alt, resolveImageSrc, src }: MarkdownImageProps)
   }
   if (state.kind === 'loading') {
     return (
-      <span className="inline-block rounded bg-muted px-2 py-1 text-muted-foreground text-xs">
+      <span className="bg-muted text-muted-foreground inline-block rounded px-2 py-1 text-xs">
         Loading image… {alt || src}
       </span>
     );

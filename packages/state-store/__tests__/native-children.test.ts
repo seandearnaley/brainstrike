@@ -53,10 +53,10 @@ const sleeper = (): ChildProcess => {
 test('a host spawn after its Root was released, or between two held Roots, is refused', async () => {
   const first = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
   const second = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
-  expect(() => sleeper()).toThrow(/several shared Root leases/);
+  expect(() => sleeper()).toThrow(/several shared Root leases/u);
   second.release();
   first.release();
-  expect(() => sleeper()).toThrow(/Root lease is released/);
+  expect(() => sleeper()).toThrow(/Root lease is released/u);
 });
 
 test("the observer learns each native child's process group and its exit", async () => {

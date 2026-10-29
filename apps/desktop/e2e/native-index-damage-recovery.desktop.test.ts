@@ -161,7 +161,7 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
       const home = new HomePage(reopened);
       await home.openSettings();
       const settings = await new SettingsPage(reopened).openCategory(
-        /Search & Indexing/i,
+        /Search & Indexing/iu,
         'search-indexing'
       );
       await settings.getByRole('button', { name: 'Rebuild index' }).click();
@@ -227,14 +227,14 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
       const home = new HomePage(reopened);
       await home.openSettings();
       const settings = await new SettingsPage(reopened).openCategory(
-        /Search & Indexing/i,
+        /Search & Indexing/iu,
         'search-indexing'
       );
       const unreadable = settings.getByRole('alert').first();
       await expect(unreadable).toContainText('cannot be read');
       await expect(unreadable).not.toContainText('Factory Reset');
       await settings.getByRole('button', { name: 'Reset search settings' }).click();
-      await expect(settings.getByRole('button', { name: /^Text/ })).toHaveAttribute(
+      await expect(settings.getByRole('button', { name: /^Text/u })).toHaveAttribute(
         'aria-pressed',
         'true',
         { timeout: 60_000 }

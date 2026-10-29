@@ -28,7 +28,7 @@ test(
     try {
       await once(child, 'message');
       const creation = getProcessCreationTime(child.pid);
-      assert.match(creation, /^\d+$/);
+      assert.match(creation, /^\d+$/u);
       assert.equal(getProcessCreationTime(process.pid), getCurrentProcessIdentity().creationTime);
       // Keep an OS process handle open past exit. GetProcessTimes still returns
       // creation time on that handle; it must never imply that the owner is live.

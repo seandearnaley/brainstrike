@@ -30,6 +30,6 @@ test.describe('Agent DevTools endpoint', { tag: '@smoke' }, () => {
         { intervals: [250, 500, 1000], timeout: 10_000 }
       )
       .toBe(true);
-    await expect(electronApp.window).toHaveTitle(/BrainStrike/i);
+    await expect(electronApp.window).toHaveTitle(/BrainStrike/iu);
   });
 });

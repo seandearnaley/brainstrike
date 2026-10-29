@@ -118,7 +118,7 @@ interface SkillListings {
 }
 
 function joinPath(base: string, segments: readonly string[]): string {
-  return [base.replace(/\/+$/, ''), ...segments].join('/');
+  return [base.replace(/\/+$/u, ''), ...segments].join('/');
 }
 
 /**
@@ -157,12 +157,12 @@ function scriptExtension(scriptPath: string): string {
 }
 
 function globPatternMatches(pattern: string, value: string): boolean {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*');
-  return new RegExp(`^${escaped}$`).test(value);
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/gu, '\\$&').replaceAll('*', '.*');
+  return new RegExp(`^${escaped}$`, 'u').test(value);
 }
 
 function renderShellPolicyArgument(value: string): string {
-  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/u.test(value)) {
     return value;
   }
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -186,7 +186,7 @@ function isAllowedByClaudePolicy(
     `${runtime} .claude/skills/${skill.name}/${scriptPath}${argumentSuffix}`,
   ];
   return skill.allowedTools.some((rule) => {
-    const match = /^Bash\((.+)\)$/.exec(rule.trim());
+    const match = /^Bash\((.+)\)$/u.exec(rule.trim());
     return match
       ? candidates.some((candidate) => globPatternMatches(match[1] ?? '', candidate))
       : false;
@@ -371,7 +371,7 @@ export function createScannedWorkspaceSkills(
       return RUNTIME_EXTENSIONS[runtime].has(extension);
     }
     return RUNTIME_SHEBANGS[runtime].has(
-      readTextContent(skillName, scriptPath)?.split(/\r?\n/, 1)[0] ?? ''
+      readTextContent(skillName, scriptPath)?.split(/\r?\n/u, 1)[0] ?? ''
     );
   }
 
@@ -430,7 +430,7 @@ export function createScannedWorkspaceSkills(
   ): SkillSearchResult[] {
     const terms = query
       .toLowerCase()
-      .split(/\s+/)
+      .split(/\s+/u)
       .filter((term) => term.length > 0);
     if (terms.length === 0) {
       return [];
@@ -522,7 +522,7 @@ export function createScannedWorkspaceSkills(
     async resolveScriptExecution(
       input: ResolveSkillScriptExecutionInput
     ): Promise<ResolvedSkillScriptExecution> {
-      if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(input.skillName)) {
+      if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(input.skillName)) {
         throw new ToolInputError('skillName must be a canonical installed skill name');
       }
       const skill = enabledSkills().find((candidate) => candidate.name === input.skillName);

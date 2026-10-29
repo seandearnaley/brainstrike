@@ -149,6 +149,6 @@ describe('resolveZeroMatchProbeNote', () => {
 
     await expect(
       resolveZeroMatchProbeNote({ caseSensitive: false, isRegex: false }, deps)
-    ).resolves.toMatch(/did not finish/);
+    ).resolves.toMatch(/did not finish/u);
   });
 });

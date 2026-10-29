@@ -68,9 +68,9 @@ describe('renderCanvasFrameShellHtml', () => {
   it('references no external resources of any scheme', () => {
     // The shell must be fully self-contained: any URL reference would be both a
     // CSP violation at runtime and a supply-chain surface.
-    expect(shell).not.toMatch(/src="(?!data:)[^"]*:\/\//);
-    expect(shell).not.toMatch(/href=/);
-    expect(shell).not.toMatch(/https?:\/\//);
+    expect(shell).not.toMatch(/src="(?!data:)[^"]*:\/\//u);
+    expect(shell).not.toMatch(/href=/u);
+    expect(shell).not.toMatch(/https?:\/\//u);
   });
 
   it('creates the inner content frame sandboxed with allow-scripts only', () => {

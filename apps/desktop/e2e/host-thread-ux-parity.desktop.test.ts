@@ -72,7 +72,7 @@ async function prepare(page: Page): Promise<void> {
   await recordNotifications(page);
   await new HomePage(page).openSettings();
   const notifications = await new SettingsPage(page).openCategory(
-    /Notifications/i,
+    /Notifications/iu,
     'notifications'
   );
   const master = notifications.getByTestId('notifications-master-toggle');
@@ -104,7 +104,7 @@ test('a host thread queues a follow-up, badges its runs, and notifies when they 
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
   // Running: the tab badge reads the host's committed run state.
-  await expect(strip.getByRole('tab', { name: /, running$/ })).toBeVisible({ timeout: 60_000 });
+  await expect(strip.getByRole('tab', { name: /, running$/u })).toBeVisible({ timeout: 60_000 });
   await input.fill(QUEUED);
   await region.getByRole('button', { name: 'Queue message to send after this run' }).click();
   await expect(region.getByRole('list', { name: 'Queued follow-up messages' })).toContainText(
@@ -118,7 +118,7 @@ test('a host thread queues a follow-up, badges its runs, and notifies when they 
   await expect(region.getByText(SECOND_REPLY)).toBeVisible({ timeout: 90_000 });
   await expect(region.getByRole('list', { name: 'Queued follow-up messages' })).toHaveCount(0);
   // Finished while the window was away: unseen.
-  await expect(strip.getByRole('tab', { name: /, finished$/ })).toBeVisible({ timeout: 30_000 });
+  await expect(strip.getByRole('tab', { name: /, finished$/u })).toBeVisible({ timeout: 30_000 });
   await expect
     .poll(() => readNotifications(page), { timeout: 30_000 })
     .toEqual([
@@ -167,7 +167,7 @@ test('a host question badges its thread as needing input and notifies once', asy
 
   const form = region.getByRole('group', { name: 'Question for you' });
   await expect(form).toBeVisible({ timeout: 90_000 });
-  await expect(strip.getByRole('tab', { name: /, needs your input$/ })).toBeVisible();
+  await expect(strip.getByRole('tab', { name: /, needs your input$/u })).toBeVisible();
   // The Threads panel row shows the same pending state, from the host's committed runs.
   const needsYou = page.getByTestId('thread-row').getByTestId('thread-needs-you-glyph');
   await expect(needsYou).toHaveCount(1);
@@ -178,7 +178,7 @@ test('a host question badges its thread as needing input and notifies once', asy
   await form.getByRole('checkbox', { name: 'Local' }).check();
   await form.getByRole('button', { name: 'Send answer' }).click();
   await expect(region.getByText(ANSWERED_REPLY)).toBeVisible({ timeout: 90_000 });
-  await expect(strip.getByRole('tab', { name: /, finished$/ })).toBeVisible({ timeout: 30_000 });
+  await expect(strip.getByRole('tab', { name: /, finished$/u })).toBeVisible({ timeout: 30_000 });
   await expect(needsYou).toHaveCount(0);
   await expect
     .poll(() => readNotifications(page), { timeout: 30_000 })

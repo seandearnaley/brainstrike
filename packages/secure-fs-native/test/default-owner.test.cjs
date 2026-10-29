@@ -53,7 +53,7 @@ function probe(paths) {
 
 test('takes no arguments', () => {
   assert.throws(() => setDefaultOwnerToCurrentUserSync('Administrators'), {
-    message: /^setDefaultOwnerToCurrentUserSync takes no arguments$/,
+    message: /^setDefaultOwnerToCurrentUserSync takes no arguments$/u,
     name: 'TypeError',
   });
 });

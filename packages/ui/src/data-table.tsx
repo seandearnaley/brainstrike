@@ -100,7 +100,7 @@ export function DataTable<TData>({
 
   if (data.length === 0) {
     return (
-      <div className="flex h-32 items-center justify-center text-muted-foreground text-sm">
+      <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">
         {emptyState || 'No data available'}
       </div>
     );
@@ -110,7 +110,7 @@ export function DataTable<TData>({
     <div className={cn('flex flex-col', className)}>
       <div className="overflow-auto rounded-md border" style={{ maxHeight }}>
         <Table>
-          <TableHeader className="sticky top-0 z-10 bg-background">
+          <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow>
               {columns.map((column) => (
                 <TableHead

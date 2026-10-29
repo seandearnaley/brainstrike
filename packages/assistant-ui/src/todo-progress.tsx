@@ -144,7 +144,7 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
     resolveToolDisplayPolicy(detailLevel).showResultSummary
   );
   return (
-    <div className="bs-tasklist-tool-card my-1 rounded-md border border-border/60 bg-background/40 text-xs">
+    <div className="bs-tasklist-tool-card border-border/60 bg-background/40 my-1 rounded-md border text-xs">
       <StepRowHeader
         family="tasks"
         label={open ? 'Collapse details' : 'Expand details'}
@@ -176,12 +176,12 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
       {open ? (
         <div className="flex flex-col gap-1 px-2.5 pb-2" id={bodyId}>
           {rawArgs ? (
-            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
+            <pre className="text-muted-foreground overflow-x-auto text-[11px] break-words whitespace-pre-wrap">
               {rawArgs}
             </pre>
           ) : null}
           {rawResult ? (
-            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
+            <pre className="text-muted-foreground overflow-x-auto text-[11px] break-words whitespace-pre-wrap">
               {rawResult}
             </pre>
           ) : null}

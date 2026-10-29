@@ -81,7 +81,7 @@ function CompactionDetails({ details }: { readonly details: CompactionSummaryDet
       {rows.map((row) => (
         <div className="contents" data-testid={`compaction-summary-${row.id}`} key={row.id}>
           <dt className="text-muted-foreground">{row.label}</dt>
-          <dd className="break-words text-foreground/80 tabular-nums">{row.value}</dd>
+          <dd className="text-foreground/80 break-words tabular-nums">{row.value}</dd>
         </div>
       ))}
     </dl>
@@ -100,25 +100,25 @@ export function CompactionSummaryCard(props: CompactionSummaryCardProps) {
   return (
     <section
       aria-label="Conversation compacted"
-      className="w-full max-w-2xl text-muted-foreground"
+      className="text-muted-foreground w-full max-w-2xl"
       data-compaction-fallback={fallbackKind}
       data-testid="compaction-summary-card"
     >
       <div className="flex items-center gap-3">
-        <span aria-hidden="true" className="flex-1 border-border border-t" />
-        <span className="flex shrink-0 items-center gap-1.5 font-medium text-xs">
+        <span aria-hidden="true" className="border-border flex-1 border-t" />
+        <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium">
           <ArchiveRestore aria-hidden="true" className="size-3.5" />
           Conversation compacted
         </span>
-        <span aria-hidden="true" className="flex-1 border-border border-t" />
+        <span aria-hidden="true" className="border-border flex-1 border-t" />
       </div>
 
-      <div className="mt-3 rounded-lg border border-border bg-muted/60 px-4 py-3">
-        <p className="mb-2 font-medium text-foreground/80 text-xs">
+      <div className="border-border bg-muted/60 mt-3 rounded-lg border px-4 py-3">
+        <p className="text-foreground/80 mb-2 text-xs font-medium">
           {kindLabel(fallbackKind, details)}
         </p>
         {details && <CompactionDetails details={details} />}
-        <div className="break-words text-sm leading-6">{children}</div>
+        <div className="text-sm leading-6 break-words">{children}</div>
       </div>
     </section>
   );

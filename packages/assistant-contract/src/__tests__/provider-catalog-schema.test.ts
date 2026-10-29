@@ -80,7 +80,7 @@ describe('ProviderCatalogSchema', () => {
       Schema.decodeUnknownSync(ProviderCatalogSchema, { errors: 'all', onExcessProperty: 'error' })(
         catalogWith(modelWithout('contextWindow'))
       )
-    ).toThrowError(/"contextWindow"/);
+    ).toThrowError(/"contextWindow"/u);
   });
 
   it('rejects an unknown key rather than silently dropping it', () => {
@@ -88,7 +88,7 @@ describe('ProviderCatalogSchema', () => {
       Schema.decodeUnknownSync(ProviderCatalogSchema, { errors: 'all', onExcessProperty: 'error' })(
         catalogWith({ ...WELL_FORMED_MODEL, visoin: 'supported' })
       )
-    ).toThrowError(/visoin/);
+    ).toThrowError(/visoin/u);
   });
 
   it('rejects a vision value outside the declared union', () => {
@@ -144,7 +144,7 @@ describe('parseProviderCatalog', () => {
   it('names the offending provider and model instead of array indices', () => {
     expect(() =>
       parseProviderCatalog(catalogWith({ ...WELL_FORMED_MODEL, vision: 'maybe' }))
-    ).toThrowError(/openai\.models\.gpt-5\.6-sol\.vision/);
+    ).toThrowError(/openai\.models\.gpt-5\.6-sol\.vision/u);
   });
 
   it('keeps the ZodError as the thrown error cause', () => {
@@ -194,6 +194,6 @@ describe('provider-registry module load', () => {
       default: catalogWith(modelWithout('vision')),
     }));
 
-    await expect(import('../provider-registry.js')).rejects.toThrow(/vision/);
+    await expect(import('../provider-registry.js')).rejects.toThrow(/vision/u);
   });
 });

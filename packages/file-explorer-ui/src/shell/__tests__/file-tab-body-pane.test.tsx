@@ -8,9 +8,14 @@
  */
 
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
+import { fileEntryActions } from '../../context-actions/file-entry-actions';
+import { useFileTabPaneStore } from '../../stores/file-tab-pane-store';
+import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
 const { openFileInTab, paneProps, toastFn } = vi.hoisted(() => ({
   openFileInTab: vi.fn(),
@@ -61,12 +66,6 @@ vi.mock('../file-tab-breadcrumb-popover', () => ({
     </div>
   ),
 }));
-
-import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
-import { fileEntryActions } from '../../context-actions/file-entry-actions';
-import { useFileTabPaneStore } from '../../stores/file-tab-pane-store';
-import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
 const KEY = encodeFileSelection('folder-1', '/root/src/app.ts');
 

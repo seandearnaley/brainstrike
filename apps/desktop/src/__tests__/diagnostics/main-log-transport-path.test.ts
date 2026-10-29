@@ -71,6 +71,6 @@ describe('main log transport path', () => {
   it('rejects an unexpected packaged application layout', () => {
     expect(() =>
       resolveMainLogTransportPath('/Applications/BrainStrike/resources/app', true)
-    ).toThrow(/app\.asar/);
+    ).toThrow(/app\.asar/u);
   });
 });

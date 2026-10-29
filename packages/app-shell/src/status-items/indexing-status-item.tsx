@@ -358,11 +358,11 @@ interface MetricTileProps {
 
 function MetricTile({ label, testId, value }: MetricTileProps) {
   return (
-    <div className="flex h-16 flex-col justify-between rounded-md border bg-muted/30 px-2.5 py-2">
-      <div className="font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+    <div className="bg-muted/30 flex h-16 flex-col justify-between rounded-md border px-2.5 py-2">
+      <div className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
         {label}
       </div>
-      <div className="truncate font-semibold text-base tabular-nums" data-testid={testId}>
+      <div className="truncate text-base font-semibold tabular-nums" data-testid={testId}>
         {formatCount(value)}
       </div>
     </div>
@@ -417,7 +417,7 @@ function IndexingActivityRegion({
   if (error) {
     return (
       <div
-        className="flex h-16 flex-col justify-center rounded-md border bg-muted/20 px-3 py-2"
+        className="bg-muted/20 flex h-16 flex-col justify-center rounded-md border px-3 py-2"
         data-testid="indexing-activity-region"
       >
         <div className="text-destructive text-xs" title={error}>
@@ -431,12 +431,12 @@ function IndexingActivityRegion({
   if (currentActivity) {
     return (
       <div
-        className="flex h-16 flex-col justify-center rounded-md border bg-muted/20 px-3 py-2"
+        className="bg-muted/20 flex h-16 flex-col justify-center rounded-md border px-3 py-2"
         data-testid="indexing-activity-region"
       >
         <div className="min-w-0 text-xs">
           <div className="font-medium">{currentActivity.label}</div>
-          <div className="truncate text-muted-foreground" title={currentActivity.value}>
+          <div className="text-muted-foreground truncate" title={currentActivity.value}>
             {truncateMiddle(currentActivity.value)}
           </div>
         </div>
@@ -447,12 +447,12 @@ function IndexingActivityRegion({
   if (databaseWork?.backgroundWaiting) {
     return (
       <div
-        className="flex h-16 flex-col justify-center rounded-md border bg-muted/20 px-3 py-2"
+        className="bg-muted/20 flex h-16 flex-col justify-center rounded-md border px-3 py-2"
         data-testid="indexing-activity-region"
       >
         <div className="text-xs">
           <div className="font-medium">Yielding to foreground database work</div>
-          <div className="truncate text-muted-foreground tabular-nums">
+          <div className="text-muted-foreground truncate tabular-nums">
             Waiting {Math.round(databaseWork.currentBackgroundWaitMs)}ms
           </div>
         </div>
@@ -462,7 +462,7 @@ function IndexingActivityRegion({
 
   return (
     <div
-      className="flex h-16 flex-col justify-center rounded-md border bg-muted/20 px-3 py-2"
+      className="bg-muted/20 flex h-16 flex-col justify-center rounded-md border px-3 py-2"
       data-testid="indexing-activity-region"
     >
       <div className="text-muted-foreground text-xs">No active indexing work</div>
@@ -603,7 +603,7 @@ export function IndexingStatusItem({
       <PopoverTrigger asChild>
         <button
           aria-label={`Workspace Index status: ${displayStatus.value}. Open indexing activity`}
-          className="flex h-7 w-7 shrink-0 cursor-pointer items-center overflow-hidden whitespace-nowrap rounded-sm px-1.5 text-left transition-[background-color,color] duration-150 hover:bg-accent/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset md:w-56 md:px-2"
+          className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 w-7 shrink-0 cursor-pointer items-center overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-none focus-visible:ring-inset md:w-56 md:px-2"
           data-testid="indexing-status-trigger"
           type="button"
         >
@@ -617,7 +617,7 @@ export function IndexingStatusItem({
               Workspace Index
             </span>
             <span
-              className="hidden w-20 shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-right font-medium tabular-nums md:block"
+              className="hidden w-20 shrink-0 overflow-hidden text-right font-medium text-ellipsis whitespace-nowrap tabular-nums md:block"
               data-testid="indexing-status-value"
             >
               {displayStatus.value}
@@ -635,14 +635,14 @@ export function IndexingStatusItem({
         side="top"
         sideOffset={8}
       >
-        <div className="border-b bg-muted/20 px-4 py-3">
+        <div className="bg-muted/20 border-b px-4 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="font-semibold text-sm" id={popoverTitleId}>
+              <div className="text-sm font-semibold" id={popoverTitleId}>
                 Workspace Index
               </div>
               <div
-                className="truncate text-muted-foreground text-xs"
+                className="text-muted-foreground truncate text-xs"
                 data-testid="indexing-status-subtitle"
                 title={searchIndexLabel}
               >
@@ -659,7 +659,7 @@ export function IndexingStatusItem({
               {displayStatus.value}
             </Badge>
           </div>
-          <div className="mt-1 text-[11px] text-muted-foreground">Policy: {policyLabel}</div>
+          <div className="text-muted-foreground mt-1 text-[11px]">Policy: {policyLabel}</div>
         </div>
 
         <div className="space-y-3 p-4">

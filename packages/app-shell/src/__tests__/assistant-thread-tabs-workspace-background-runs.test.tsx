@@ -34,9 +34,9 @@ import {
 describe('AssistantThreadTabsWorkspace closing a running thread', () => {
   async function renderWithRunningThreadB(): Promise<ReturnType<typeof userEvent.setup>> {
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
-    await screen.findByRole('tab', { name: /Amazon Bedrock Converse/ });
+    await screen.findByRole('tab', { name: /Amazon Bedrock Converse/u });
     setPanelRunning('thread-b', true);
     return userEvent.setup();
   }
@@ -47,7 +47,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
 
     expect(openThreadIds()).toEqual(['thread-a']);
-    expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/u })).not.toBeInTheDocument();
     const panel = screen.getByTestId('assistant-thread-panel-thread-b');
     expect(panel).toHaveAttribute('hidden');
     expect(within(panel).getByTestId('assistant-thread-wrapper')).toBeInTheDocument();
@@ -78,7 +78,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     openThreadTabs('thread-b');
 
     await waitFor(() => expect(activeThreadId()).toBe('thread-b'));
-    const reopened = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const reopened = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
     expect(reopened).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('assistant-thread-panel-thread-b')).toBe(panel);
     expect(panel).toBeVisible();
@@ -97,7 +97,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
     setPanelRunning('thread-b', false);
     openThreadTabs('thread-b');
-    await screen.findByRole('tab', { name: /Amazon Bedrock Converse/ });
+    await screen.findByRole('tab', { name: /Amazon Bedrock Converse/u });
 
     await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
 
@@ -120,7 +120,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
   it('does not keep a panel alive for a durable running row its own runtime does not report', async () => {
     dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
     await screen.findByRole('tab', { name: 'Amazon Bedrock Converse, running' });
     const user = userEvent.setup();
@@ -136,7 +136,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
   it('keeps the retained panel when its durable run row flips to terminal', async () => {
     dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
     await screen.findByRole('tab', { name: 'Amazon Bedrock Converse, running' });
     setPanelRunning('thread-b', true);
@@ -158,7 +158,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));
     setPanelRunning('thread-b', false);
     openThreadTabs('thread-b');
-    await screen.findByRole('tab', { name: /Amazon Bedrock Converse/ });
+    await screen.findByRole('tab', { name: /Amazon Bedrock Converse/u });
 
     // A direct store close (not the strip's recorded close): nothing reports the
     // removal to the retained set, so reopening must already have released it.
@@ -166,7 +166,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
       useAssistantThreadStore.getState().closeThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
     });
 
-    expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/u })).not.toBeInTheDocument();
     expect(screen.queryByTestId('assistant-thread-panel-thread-b')).not.toBeInTheDocument();
     expect(wrapperLifecycle).toContain('unmount:thread-b');
   });
@@ -213,7 +213,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
  * which neither a reopen (retained -> open) nor a tab reorder can change.
  */
 describe('AssistantThreadTabsWorkspace panel DOM stability', () => {
-  const PANEL_TEST_ID = /^assistant-thread-panel-/;
+  const PANEL_TEST_ID = /^assistant-thread-panel-/u;
 
   function panelOrder(): string[] {
     return screen
@@ -248,9 +248,9 @@ describe('AssistantThreadTabsWorkspace panel DOM stability', () => {
   async function renderThreeOpenTabs(): Promise<void> {
     addThreadRow('thread-c', 'Release checklist');
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b', 'thread-c');
-    await screen.findByRole('tab', { name: /Release checklist/ });
+    await screen.findByRole('tab', { name: /Release checklist/u });
   }
 
   it('reopens a retained thread at its old tab index without detaching any panel', async () => {

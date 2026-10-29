@@ -36,7 +36,7 @@ describe('AppReloadStrip', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     try {
-      expect(() => render(<AppReloadStrip />)).toThrow(/AppReload(Provider|Gate)/);
+      expect(() => render(<AppReloadStrip />)).toThrow(/AppReload(Provider|Gate)/u);
     } finally {
       consoleError.mockRestore();
     }

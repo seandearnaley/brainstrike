@@ -71,7 +71,7 @@ describe('crypto', () => {
       expect(spy).toHaveBeenCalledOnce();
       // Should be a valid UUID v4 format
       expect(result).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
       );
     });
 
@@ -106,10 +106,10 @@ describe('crypto', () => {
 
       expect(uuid1).not.toBe(uuid2);
       expect(uuid1).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
       );
       expect(uuid2).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
       );
     });
   });
@@ -133,7 +133,7 @@ describe('crypto', () => {
 
       expect(mockDigest).toHaveBeenCalledWith('SHA-256', expect.any(Uint8Array));
       expect(result).toBe('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f');
-      expect(result).toMatch(/^[0-9a-f]{64}$/);
+      expect(result).toMatch(/^[0-9a-f]{64}$/u);
     });
 
     it('rejects an invalid SHA-256 digest length', async () => {
@@ -183,7 +183,7 @@ describe('crypto', () => {
       const hash2 = await generateContentHash(content);
 
       expect(hash1).toBe(hash2);
-      expect(hash1).toMatch(/^[0-9a-f]{64}$/);
+      expect(hash1).toMatch(/^[0-9a-f]{64}$/u);
     });
 
     it('generates different hashes for different content', async () => {
@@ -191,8 +191,8 @@ describe('crypto', () => {
       const hash2 = await generateContentHash('content 2');
 
       expect(hash1).not.toBe(hash2);
-      expect(hash1).toMatch(/^[0-9a-f]{64}$/);
-      expect(hash2).toMatch(/^[0-9a-f]{64}$/);
+      expect(hash1).toMatch(/^[0-9a-f]{64}$/u);
+      expect(hash2).toMatch(/^[0-9a-f]{64}$/u);
     });
 
     it('handles empty content', async () => {
@@ -205,7 +205,7 @@ describe('crypto', () => {
       const largeContent = 'a'.repeat(10_000);
       const result = await generateContentHash(largeContent);
 
-      expect(result).toMatch(/^[0-9a-f]{64}$/);
+      expect(result).toMatch(/^[0-9a-f]{64}$/u);
     });
   });
 

@@ -68,7 +68,7 @@ describe('SkillsSettingsSection', () => {
   it('shows an honest desktop-only note without a host scan (web)', () => {
     render(<SkillsSettingsSection />);
     expect(screen.getByTestId('skills-master-toggle')).toBeInTheDocument();
-    expect(screen.getByText(/desktop/i)).toBeInTheDocument();
+    expect(screen.getByText(/desktop/iu)).toBeInTheDocument();
   });
 
   it('lists scanned skills with enable switches and toggling writes the durable key', async () => {
@@ -87,18 +87,18 @@ describe('SkillsSettingsSection', () => {
 
   it('renders invalid skills with their exact errors and no switch', async () => {
     render(<SkillsSettingsSection scanSkills={() => Promise.resolve(SCAN)} />);
-    expect(await screen.findByText(/Skill name cannot be empty/)).toBeInTheDocument();
+    expect(await screen.findByText(/Skill name cannot be empty/u)).toBeInTheDocument();
     expect(screen.queryByTestId('skill-toggle-global:broken')).not.toBeInTheDocument();
   });
 
   it('renders shadowed skills with the winner named', async () => {
     render(<SkillsSettingsSection scanSkills={() => Promise.resolve(SCAN)} />);
-    expect(await screen.findByText(/shadowed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/shadowed/iu)).toBeInTheDocument();
   });
 
   it('surfaces spec warnings on valid skills', async () => {
     render(<SkillsSettingsSection scanSkills={() => Promise.resolve(SCAN)} />);
-    expect(await screen.findByText(/600 lines/)).toBeInTheDocument();
+    expect(await screen.findByText(/600 lines/u)).toBeInTheDocument();
   });
 
   it('master switch writes the store', async () => {
@@ -118,14 +118,14 @@ describe('SkillsSettingsSection', () => {
     render(<SkillsSettingsSection scanSkills={scanSkills} />);
 
     expect(await screen.findByTestId('skills-scan-error')).toBeInTheDocument();
-    expect(screen.queryByText(/no skills found/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no skills found/iu)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /retry/i }));
+    await user.click(screen.getByRole('button', { name: /retry/iu }));
     expect(await screen.findByText('Extract text from PDFs.')).toBeInTheDocument();
   });
 
   it('shows an honest empty state when the scan finds nothing', async () => {
     render(<SkillsSettingsSection scanSkills={() => Promise.resolve({ entries: [] })} />);
-    expect(await screen.findByText(/no skills found/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no skills found/iu)).toBeInTheDocument();
   });
 });

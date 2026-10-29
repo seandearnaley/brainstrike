@@ -42,17 +42,17 @@ function formatContextFilePath(
   }
 
   const info = rootDisplayInfoById[decoded.folderId];
-  const normalizedPath = decoded.path.replace(/\\/g, '/');
+  const normalizedPath = decoded.path.replace(/\\/gu, '/');
   if (!info) {
     // Unknown root (e.g. disconnected): still never render the UUID.
     return normalizedPath;
   }
 
-  const normalizedRoot = info.path.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedRoot = info.path.replace(/\\/gu, '/').replace(/\/+$/u, '');
   const relativePath =
     normalizedRoot && normalizedPath.toLowerCase().startsWith(`${normalizedRoot.toLowerCase()}/`)
       ? normalizedPath.slice(normalizedRoot.length + 1)
-      : normalizedPath.replace(/^\/+/, '');
+      : normalizedPath.replace(/^\/+/u, '');
 
   if (!relativePath) {
     return info.displayName;
@@ -68,7 +68,7 @@ function formatContextFilePath(
 // These are characters < 0x20, EXCEPT tab (0x9), line feed (0xa), and carriage return (0xd).
 // eslint-disable-next-line no-control-regex
 // biome-ignore lint/suspicious/noControlCharactersInRegex: Intentionally matching control characters for sanitization
-const ILLEGAL_XML_CONTROL_CHARS_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
+const ILLEGAL_XML_CONTROL_CHARS_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F]/gu;
 
 function stripXmlIllegalControlChars(value: string): string {
   // Using a pre-compiled regex and native .replace() is significantly faster than
@@ -80,11 +80,11 @@ function stripXmlIllegalControlChars(value: string): string {
 function escapeXmlAttribute(value: string): string {
   const sanitized = stripXmlIllegalControlChars(value);
   return sanitized
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/'/g, '&apos;');
+    .replace(/&/gu, '&amp;')
+    .replace(/"/gu, '&quot;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;')
+    .replace(/'/gu, '&apos;');
 }
 
 function buildFileContextContent(args: {

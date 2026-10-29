@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type {
+  ContentClearResult as ClearContentResult,
   ThreadGroupsReply,
   ThreadGroupsRequest,
   ViewFilterPresetReply,
@@ -64,8 +65,6 @@ export const STORE_ENTRIES: readonly string[] = [
 ];
 
 export type { ContentClearResult as ClearContentResult } from '@brainstrike/types';
-
-import type { ContentClearResult as ClearContentResult } from '@brainstrike/types';
 
 export { BLOB_MIN_BYTES, largeText, PREVIEW_CHARS, type StoredText } from './large-text.ts';
 export type {

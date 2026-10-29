@@ -13,7 +13,7 @@ export function singleRootRuntime(rootPath: string): RuntimeData {
     workspaceRootPath: rootPath,
     workspaceRoots: [
       {
-        displayName: rootPath.split(/[\\/]/).filter(Boolean).at(-1) ?? rootPath,
+        displayName: rootPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? rootPath,
         path: rootPath,
         rootId: rootPath,
       },

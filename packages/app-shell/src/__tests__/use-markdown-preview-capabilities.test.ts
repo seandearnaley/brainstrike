@@ -81,7 +81,7 @@ describe('useMarkdownPreviewCapabilitiesValue', () => {
 
   it('resolveImageSrc rejects with a clear reason when no image capability exists', async () => {
     const { result } = renderHook(() => useMarkdownPreviewCapabilitiesValue());
-    await expect(result.current.resolveImageSrc('/root/a.png')).rejects.toThrow(/unavailable/i);
+    await expect(result.current.resolveImageSrc('/root/a.png')).rejects.toThrow(/unavailable/iu);
   });
 
   it('builds a brainstrike-asset URL on desktop', async () => {

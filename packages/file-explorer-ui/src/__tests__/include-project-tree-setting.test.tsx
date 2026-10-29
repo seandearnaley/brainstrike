@@ -6,7 +6,7 @@ import IncludeProjectTreeSetting from '../include-project-tree-setting';
 describe('IncludeProjectTreeSetting', () => {
   it('renders switch with label and state', () => {
     render(<IncludeProjectTreeSetting checked={true} onChange={vi.fn()} />);
-    const sw = screen.getByRole('switch', { name: /Include Project Tree/i });
+    const sw = screen.getByRole('switch', { name: /Include Project Tree/iu });
     expect(sw).toBeInTheDocument();
     expect(sw).toHaveAttribute('data-state', 'checked');
   });
@@ -15,7 +15,7 @@ describe('IncludeProjectTreeSetting', () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(<IncludeProjectTreeSetting checked={false} onChange={onChange} />);
-    const sw = screen.getByRole('switch', { name: /Include Project Tree/i });
+    const sw = screen.getByRole('switch', { name: /Include Project Tree/iu });
     await user.click(sw);
     expect(onChange).toHaveBeenCalledWith(true);
   });

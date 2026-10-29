@@ -29,11 +29,11 @@ describe('FileTabHeader', () => {
       />
     );
     expect(screen.getByTestId('file-tab-mode-toggle')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /preview/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /preview/iu })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
-    expect(screen.getByRole('button', { name: /source/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /source/iu })).toHaveAttribute(
       'aria-pressed',
       'false'
     );
@@ -78,7 +78,7 @@ describe('FileTabHeader', () => {
         showModeToggle={true}
       />
     );
-    fireEvent.click(screen.getByRole('button', { name: /source/i }));
+    fireEvent.click(screen.getByRole('button', { name: /source/iu }));
     expect(onModeChange).toHaveBeenCalledWith('source');
   });
 

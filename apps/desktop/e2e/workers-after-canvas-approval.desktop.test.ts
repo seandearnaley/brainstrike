@@ -264,7 +264,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
     });
     await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await new HomePage(window).openSettings();
-    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
     await window
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption('ask');
@@ -318,7 +318,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
     expect(new Set(checkpoints.map((row) => row.threadId)).size).toBe(2);
     for (const checkpoint of checkpoints) {
       expect(checkpoint).toMatchObject({
-        childName: expect.stringMatching(/^[A-Z][a-z]+-[a-f0-9]{6}$/),
+        childName: expect.stringMatching(/^[A-Z][a-z]+-[a-f0-9]{6}$/u),
         color: expect.stringMatching(/^family:/u),
         owned: true,
         parentThreadId: rootThreadId,

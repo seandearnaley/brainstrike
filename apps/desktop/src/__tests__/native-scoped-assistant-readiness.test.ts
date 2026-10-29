@@ -71,7 +71,7 @@ it.each(
     });
     expect(result.hits).toHaveLength(1);
     expect(result.hits[0]?.hit.content).toBe('notes.md marker');
-    expect(result.hint).toMatch(/Partial index coverage/);
+    expect(result.hint).toMatch(/Partial index coverage/u);
     expect(queryEmbedding).toHaveBeenCalledOnce();
     expect(f.searchScopes).toHaveBeenCalledTimes(mode === 'hybrid' ? 2 : 1);
     await expect(result.assertCurrent()).resolves.toBeUndefined();

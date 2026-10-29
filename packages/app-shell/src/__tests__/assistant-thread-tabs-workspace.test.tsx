@@ -50,7 +50,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       selectedThreadByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'retired-thread' },
     });
     renderWorkspace({}, host);
-    expect(await screen.findByText(/Your saved conversation is unavailable/)).toBeVisible();
+    expect(await screen.findByText(/Your saved conversation is unavailable/u)).toBeVisible();
     // An empty catalog is the new-thread composer: nothing is created for it.
     expect(await screen.findByTestId('new-thread-composer')).toBeVisible();
     expect(screen.queryByTestId('host-thread')).not.toBeInTheDocument();
@@ -60,7 +60,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('does not reload the old thread catalog when reset remounts the workspace', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     cleanup();
     const preparation = vi
       .spyOn(factoryReset, 'hasFactoryResetPreparationStarted')
@@ -81,7 +81,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/u })).toBeVisible();
     });
 
     openThreadTabs('thread-b');
@@ -91,7 +91,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.getByTestId('assistant-thread-panel-thread-a')).toHaveAttribute('hidden');
     expect(screen.getByTestId('assistant-thread-panel-thread-a')).not.toBeVisible();
     expect(screen.getByTestId('assistant-thread-panel-thread-b')).toBeVisible();
-    expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/u })).toHaveAttribute(
       'aria-selected',
       'true'
     );
@@ -101,7 +101,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     wrapperCrashThreadIds.add('thread-b');
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
 
     openThreadTabs('thread-b');
     consoleError.mockRestore();
@@ -118,7 +118,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       'thread-a'
     );
     expect(screen.getByRole('tablist', { name: 'Open assistant threads' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/u })).toHaveAttribute(
       'aria-selected',
       'true'
     );
@@ -174,7 +174,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/u })).toBeVisible();
     });
     const rowsBefore = threadRows.length;
     await user.click(screen.getByRole('button', { name: 'New assistant thread' }));
@@ -195,14 +195,14 @@ describe('AssistantThreadTabsWorkspace', () => {
     await waitFor(() => {
       expect(screen.getByTestId('assistant-thread-panel-thread-sent')).toBeVisible();
     });
-    expect(screen.getByRole('tab', { selected: true })).toHaveAccessibleName(/New Thread/);
+    expect(screen.getByRole('tab', { selected: true })).toHaveAccessibleName(/New Thread/u);
     expect(screen.queryByTestId('new-thread-composer')).toBeNull();
   });
 
   it('renders the shared strip with New as trailing chrome outside the tablist', async () => {
     renderWorkspace();
 
-    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     const tabStrip = screen.getByTestId('assistant-thread-tab-strip');
     const tabScroll = screen.getByTestId('assistant-thread-tab-scroll');
     const tabList = screen.getByRole('tablist', { name: 'Open assistant threads' });
@@ -223,7 +223,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(firstTab).toHaveClass('pl-2');
     expect(firstTab).not.toHaveClass('pr-8');
     // BST-1836 D2: overflow has no chevrons; the All-tabs menu is the affordance.
-    expect(screen.queryByRole('button', { name: /Scroll assistant tabs/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Scroll assistant tabs/u })).toBeNull();
     expect(within(tabStrip).getByRole('button', { name: 'All tabs' })).toBeInTheDocument();
     expect(newThreadButton).toHaveClass(...TAB_STRIP_ICON_BUTTON_CLASS_NAME.split(' '));
     expect(newThreadButton).toHaveAttribute('data-size', 'xs');
@@ -237,9 +237,9 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('links tabs and force-mounted panels while keeping one tab in the page tab sequence', async () => {
     renderWorkspace();
 
-    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
-    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
     const firstPanel = screen.getByTestId('assistant-thread-panel-thread-a');
     const secondPanel = screen.getByTestId('assistant-thread-panel-thread-b');
 
@@ -255,14 +255,14 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('renders the Threads-panel identity mark on each tab and leaves unassigned tabs neutral', async () => {
     renderWorkspace();
 
-    const coloredTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const coloredTab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     expect(coloredTab).toHaveAttribute('data-thread-color', 'rose');
     // Color lives on the leading identity mark; the old top accent stripe is gone.
     expect(within(coloredTab).getByTestId('thread-color-rose')).toBeVisible();
     expect(screen.queryByTestId('assistant-thread-tab-accent-rose')).not.toBeInTheDocument();
 
     openThreadTabs('thread-b');
-    const neutralTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const neutralTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
     expect(neutralTab).toHaveAttribute('data-thread-color', 'unassigned');
     expect(within(neutralTab).getByTestId('thread-color-unassigned')).toBeVisible();
     expect(within(neutralTab).getByTestId('thread-icon-message')).toBeVisible();
@@ -271,7 +271,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('projects durable icon and color updates into an already-open tab without remounting it', async () => {
     renderWorkspace();
 
-    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     const panel = screen.getByTestId('assistant-thread-panel-thread-a');
     expect(within(tab).getByTestId('thread-icon-research')).toBeVisible();
 
@@ -302,21 +302,21 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     const shellOf = (name: RegExp): HTMLElement | null =>
       screen.getByRole('tab', { name }).closest('[data-slot="tab-shell"]');
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     // Active tab = the panel row's selected fill, not the neutral raised surface.
-    expect(shellOf(/Purchasing app search log/)).toHaveClass(
+    expect(shellOf(/Purchasing app search log/u)).toHaveClass(
       ...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.selectedClassName.split(' ')
     );
-    expect(shellOf(/Purchasing app search log/)).not.toHaveClass('bg-background');
+    expect(shellOf(/Purchasing app search log/u)).not.toHaveClass('bg-background');
 
     openThreadTabs('thread-b');
 
-    expect(shellOf(/Purchasing app search log/)).toHaveClass(
+    expect(shellOf(/Purchasing app search log/u)).toHaveClass(
       ...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.idleClassName.split(' ')
     );
-    expect(shellOf(/Purchasing app search log/)).not.toHaveClass('hover:bg-background/70');
+    expect(shellOf(/Purchasing app search log/u)).not.toHaveClass('hover:bg-background/70');
     // Unassigned threads still get a surface — neutral, never blue.
-    expect(shellOf(/Amazon Bedrock Converse/)).toHaveClass(
+    expect(shellOf(/Amazon Bedrock Converse/u)).toHaveClass(
       ...UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION.selectedClassName.split(' ')
     );
   });
@@ -324,7 +324,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('sizes the tab from the tab-strip tokens around the shared thread mark', async () => {
     renderWorkspace();
 
-    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     const shell = tab.closest('[data-slot="tab-shell"]');
     // 28px pill on the token scale; the selected tint supplies the ring, so no border.
     expect(shell).toHaveClass('h-7', 'rounded-md');
@@ -335,7 +335,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     openThreadTabs('thread-b');
     const idleShell = screen
-      .getByRole('tab', { name: /Purchasing app search log/ })
+      .getByRole('tab', { name: /Purchasing app search log/u })
       .closest('[data-slot="tab-shell"]');
     expect(idleShell).toHaveClass('text-muted-foreground');
     expect(idleShell).not.toHaveClass('text-foreground');
@@ -350,12 +350,12 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('keeps the mouse-only close affordance in flow and optically matched with the mark', async () => {
     renderWorkspace();
 
-    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     // BST-1836: the ✕ is a mouse-only sibling — out of the AT tree and tab order.
     const closeButton = screen.getByTitle('Close Purchasing app search log');
     expect(closeButton).toHaveAttribute('aria-hidden', 'true');
     expect(closeButton).toHaveAttribute('tabindex', '-1');
-    expect(screen.queryByRole('button', { name: /Close Purchasing/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Close Purchasing/u })).toBeNull();
 
     expect(closeButton).not.toHaveClass('absolute');
     expect(closeButton.parentElement).toBe(tab.parentElement);
@@ -363,9 +363,9 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(closeButton).toHaveClass(...THREAD_CONTROL_ACTION_CLASS_NAME.split(' '));
     // Tinted tabs: the hover fill rides the surface instead of an opaque chip.
     expect(closeButton).not.toHaveClass('hover:bg-muted');
-    expect(closeButton.className).toMatch(/hover:bg-foreground\//);
+    expect(closeButton.className).toMatch(/hover:bg-foreground\//u);
     // Visual box is 20px; the pseudo-element extends the hit target to 28px.
-    expect(closeButton.className).toMatch(/after:-inset-1/);
+    expect(closeButton.className).toMatch(/after:-inset-1/u);
 
     // Leading and close glyphs share one optical size (12px in a 20px box).
     const mark = within(tab).getByTestId('thread-color-rose');
@@ -377,9 +377,9 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('moves focus with Arrow, Home and End and activates only on Enter or Space', async () => {
     const user = userEvent.setup();
     renderWorkspace();
-    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
-    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
 
     secondTab.focus();
     await user.keyboard('{ArrowLeft}');
@@ -407,23 +407,23 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('closes the focused tab with Delete and moves focus to the following tab', async () => {
     addThreadRow('thread-c', 'Release checklist');
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b', 'thread-c', 'thread-b');
-    const middleTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
-    const followingTab = screen.getByRole('tab', { name: /Release checklist/ });
+    const middleTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
+    const followingTab = screen.getByRole('tab', { name: /Release checklist/u });
 
     middleTab.focus();
     fireEvent.keyDown(middleTab, { key: 'Delete' });
 
     await waitFor(() => expect(followingTab).toHaveFocus());
-    expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/u })).not.toBeInTheDocument();
     expect(followingTab).toHaveAttribute('aria-selected', 'true');
   });
 
   it('keeps activation and focus where they were when the mouse closes an inactive tab', async () => {
     addThreadRow('thread-c', 'Release checklist');
     renderWorkspace();
-    const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b', 'thread-c', 'thread-a');
     activeTab.focus();
 
@@ -433,7 +433,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     // The ✕ never takes focus (mouse-only), so focus stays on what the user had.
     expect(activeTab).toHaveFocus();
     expect(activeTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: /Release checklist/ })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /Release checklist/u })).toHaveAttribute(
       'aria-selected',
       'false'
     );
@@ -441,9 +441,9 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('reorders tabs with Alt+Shift+Arrow without changing the active thread', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
-    const activeTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const activeTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
 
     activeTab.focus();
     fireEvent.keyDown(activeTab, { altKey: true, key: 'ArrowLeft', shiftKey: true });
@@ -462,7 +462,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/u })).toBeVisible();
     });
     expect(screen.queryByText('No workspace open')).not.toBeInTheDocument();
     expect(screen.getByRole('tablist', { name: 'Open assistant threads' })).toBeInTheDocument();
@@ -492,7 +492,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   it('lists every open thread in the All-tabs menu and closes them all from it', async () => {
     const user = userEvent.setup();
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
 
     await user.click(screen.getByRole('button', { name: 'All tabs' }));
@@ -523,7 +523,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     });
     try {
       renderWorkspace();
-      await screen.findByRole('tab', { name: /Purchasing app search log/ });
+      await screen.findByRole('tab', { name: /Purchasing app search log/u });
 
       openThreadTabs('thread-b');
 
@@ -546,7 +546,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
     try {
       renderWorkspace();
-      await screen.findByRole('tab', { name: /Purchasing app search log/ });
+      await screen.findByRole('tab', { name: /Purchasing app search log/u });
 
       openThreadTabs('thread-b');
 
@@ -566,7 +566,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/u })).toBeVisible();
     });
 
     const tabScroll = screen.getByTestId('assistant-thread-tab-scroll');
@@ -584,10 +584,10 @@ describe('AssistantThreadTabsWorkspace', () => {
     const { writtenTexts } = renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/u })).toBeVisible();
     });
     openThreadTabs('thread-b');
-    const inactiveTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
+    const inactiveTab = screen.getByRole('tab', { name: /Purchasing app search log/u });
 
     fireEvent.contextMenu(inactiveTab);
     expect(activeThreadId()).toBe('thread-b');
@@ -613,7 +613,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('offers the standard tab menu plus the global thread copy actions', async () => {
     renderWorkspace();
-    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
 
     fireEvent.contextMenu(tab);
@@ -638,10 +638,10 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('restores focus after closing a tab from its context menu', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
-    const closingTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
-    const remainingTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
+    const closingTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
+    const remainingTab = screen.getByRole('tab', { name: /Purchasing app search log/u });
 
     fireEvent.contextMenu(closingTab);
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close' }));
@@ -652,7 +652,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('moves focus to New after closing all tabs from the context menu', async () => {
     renderWorkspace();
-    const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
 
     fireEvent.contextMenu(activeTab);
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All' }));
@@ -668,10 +668,10 @@ describe('AssistantThreadTabsWorkspace', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/u })).toBeVisible();
     });
     openThreadTabs('thread-b', 'thread-c');
-    const middleTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const middleTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
 
     fireEvent.contextMenu(middleTab);
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close to the Right' }));
@@ -687,9 +687,9 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('moves a tab left from its context action while preserving focus identity', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
-    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/u });
     secondTab.focus();
 
     fireEvent.contextMenu(secondTab);
@@ -703,7 +703,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('exposes Move Right and disables movement beyond the left edge', async () => {
     renderWorkspace();
-    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b');
     firstTab.focus();
 
@@ -718,7 +718,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
   it('offers New Thread and Close All from the empty strip background', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
 
     fireEvent.contextMenu(screen.getByTestId('assistant-thread-tab-strip'));
     const menu = await screen.findByRole('menu');
@@ -755,7 +755,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/u })).toBeVisible();
     });
     openThreadTabs('thread-b');
     await user.click(screen.getByTitle('Close Amazon Bedrock Converse'));

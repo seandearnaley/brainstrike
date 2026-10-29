@@ -107,10 +107,10 @@ export function buildMcpAppSandboxPolicy(
 
 function escapeHtmlAttribute(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/&/gu, '&amp;')
+    .replace(/"/gu, '&quot;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;');
 }
 
 /**
@@ -121,7 +121,7 @@ function escapeHtmlAttribute(value: string): string {
  * alter the script element.
  */
 function embedAsJavaScriptString(value: string): string {
-  return JSON.stringify(value).replace(/</g, String.raw`\x3c`);
+  return JSON.stringify(value).replace(/</gu, String.raw`\x3c`);
 }
 
 function cspMeta(policy: string): string {

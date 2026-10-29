@@ -36,7 +36,10 @@ function caselessIgnorePattern(pattern: string): string {
   if (pattern.includes('[')) {
     throw new Error(`The credential floor pattern "${pattern}" cannot be made caseless for rg`);
   }
-  return pattern.replace(/[a-z]/gi, (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`);
+  return pattern.replace(
+    /[a-z]/giu,
+    (letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`
+  );
 }
 
 /**
@@ -420,7 +423,7 @@ export function runRipgrep(args: {
 }
 
 function normalizeRipgrepCandidatePath(value: string): string | null {
-  const normalized = value.replaceAll('\\', '/').replace(/^\.\//, '');
+  const normalized = value.replaceAll('\\', '/').replace(/^\.\//u, '');
   return normalized.length > 0 ? normalized : null;
 }
 
@@ -452,7 +455,7 @@ function parseRipgrepCandidates(stdout: string): Set<string> {
 function parseRipgrepFileCandidates(stdout: string): Set<string> {
   const paths = new Set<string>();
   for (const rawLine of stdout.split('\n')) {
-    const normalized = normalizeRipgrepCandidatePath(rawLine.replace(/\r$/, ''));
+    const normalized = normalizeRipgrepCandidatePath(rawLine.replace(/\r$/u, ''));
     if (normalized !== null) {
       paths.add(normalized);
     }

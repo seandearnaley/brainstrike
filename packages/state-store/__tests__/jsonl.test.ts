@@ -24,7 +24,7 @@ test('JSONL round trip preserves sequences, timestamps, raw counts and content-a
     expect(await imported.read('b')).toEqual(await store.read('b'));
     const blob = (await imported.read('a'))[0]?.event['blob'] as string;
     expect(readFileSync(join(target, BLOBS_DIR, blob), 'utf8')).toBe('x'.repeat(14_000));
-    await expect(imported.importJsonl(path)).rejects.toThrow(/empty/);
+    await expect(imported.importJsonl(path)).rejects.toThrow(/empty/u);
   } finally {
     await store.close();
     await imported.close();
@@ -39,7 +39,7 @@ test('malformed or checksum-damaged JSONL imports write no rows', async () => {
       path,
       '{"format":"brainstrike-run-log","version":1}\n{"kind":"event","threadId":"a","seq":1,"payload":"{\\"seq\\":1,\\"type\\":\\"text\\"}","crc":0,"rawCount":null,"createdAt":1}\n'
     );
-    await expect(store.importJsonl(path)).rejects.toThrow(/checksum/);
+    await expect(store.importJsonl(path)).rejects.toThrow(/checksum/u);
     expect(await store.threads()).toEqual([]);
     writeFileSync(path, '{"format":"brainstrike-run-log","version":1}\nnot json\n');
     await expect(store.importJsonl(path)).rejects.toThrow();

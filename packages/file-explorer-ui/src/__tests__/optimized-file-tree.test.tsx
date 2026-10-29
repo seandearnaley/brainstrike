@@ -163,7 +163,7 @@ describe('OptimizedFileTree', () => {
       </FileExplorerTestWrapper>
     );
 
-    const expandButton = screen.getByRole('button', { name: /expand/i });
+    const expandButton = screen.getByRole('button', { name: /expand/iu });
     fireEvent.click(expandButton);
     fireEvent.click(expandButton);
 
@@ -250,7 +250,7 @@ describe('OptimizedFileTree', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByRole('button', { name: /collapse/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /collapse/iu })).toBeInTheDocument();
     expect(screen.queryByText('stale-child.ts')).not.toBeInTheDocument();
   });
 
@@ -295,8 +295,8 @@ describe('OptimizedFileTree', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /collapse/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /expand/iu })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /collapse/iu })).not.toBeInTheDocument();
   });
 
   it('calls onRender callback when provided', async () => {

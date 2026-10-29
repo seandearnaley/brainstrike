@@ -42,10 +42,10 @@ function Stat({
   readonly value: string;
 }) {
   return (
-    <div className="min-w-0 rounded-md border bg-background/60 px-3 py-2.5" data-testid={testId}>
+    <div className="bg-background/60 min-w-0 rounded-md border px-3 py-2.5" data-testid={testId}>
       <p className="text-muted-foreground text-xs">{label}</p>
-      <p className="mt-0.5 truncate font-semibold text-lg tabular-nums tracking-tight">{value}</p>
-      <p className="truncate text-muted-foreground text-xs">{detail}</p>
+      <p className="mt-0.5 truncate text-lg font-semibold tracking-tight tabular-nums">{value}</p>
+      <p className="text-muted-foreground truncate text-xs">{detail}</p>
     </div>
   );
 }
@@ -60,7 +60,7 @@ function TokenMix({ totals }: { readonly totals: LedgerUsageTotals }) {
         aria-label={classes
           .map((tokenClass) => `${tokenClass.label} ${formatTokensCompact(tokenClass.count)}`)
           .join(', ')}
-        className="flex h-2.5 overflow-hidden rounded-full bg-muted"
+        className="bg-muted flex h-2.5 overflow-hidden rounded-full"
         role="img"
       >
         {classes.map((tokenClass) =>
@@ -108,7 +108,7 @@ function DailySpend({ trend }: { readonly trend: readonly LedgerTrendPoint[] }) 
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
-        <h4 className="font-medium text-sm">Daily spend</h4>
+        <h4 className="text-sm font-medium">Daily spend</h4>
         <p className="text-muted-foreground text-xs tabular-nums">Peak {formatUsd(peak)} a day</p>
       </div>
       <ol
@@ -134,7 +134,7 @@ function DailySpend({ trend }: { readonly trend: readonly LedgerTrendPoint[] }) 
           </li>
         ))}
       </ol>
-      <ol aria-hidden="true" className="flex gap-1.5 text-[11px] text-muted-foreground">
+      <ol aria-hidden="true" className="text-muted-foreground flex gap-1.5 text-[11px]">
         {days.map((point) => (
           <li className="min-w-0 flex-1 truncate text-center" key={point.day}>
             {point.label}

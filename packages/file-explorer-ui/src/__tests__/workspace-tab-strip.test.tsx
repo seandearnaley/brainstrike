@@ -154,9 +154,9 @@ describe('workspace tab strip on the shared TabStrip', () => {
       openFileTabs(A);
       renderWorkspace();
 
-      await screen.findByRole('tab', { name: /a\.ts/i });
-      expect(screen.queryByRole('button', { name: /scroll tabs/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /more tab actions/i })).toBeNull();
+      await screen.findByRole('tab', { name: /a\.ts/iu });
+      expect(screen.queryByRole('button', { name: /scroll tabs/iu })).toBeNull();
+      expect(screen.queryByRole('button', { name: /more tab actions/iu })).toBeNull();
       const strip = screen.getByTestId('workspace-tab-strip');
       expect(within(strip).getByRole('button', { name: 'All tabs' })).toBeInTheDocument();
       expect(within(strip).getByTestId('workspace-add-tab')).toBeInTheDocument();
@@ -179,7 +179,7 @@ describe('workspace tab strip on the shared TabStrip', () => {
       const locked = await screen.findByRole('tab', { name: 'a.ts, needs permission' });
       expect(locked.querySelector('[data-tab-status="locked"]')).not.toBeNull();
       expect(locked).toHaveAttribute('title', 'Click to restore access');
-      expect(tabNamed(/^b\.ts$/)).toHaveAttribute('title', 'b.ts');
+      expect(tabNamed(/^b\.ts$/u)).toHaveAttribute('title', 'b.ts');
     });
 
     it('never lets an app id pass for a file-tab id (the menu dispatches on it)', () => {
@@ -213,11 +213,11 @@ describe('workspace tab strip on the shared TabStrip', () => {
       const user = userEvent.setup();
       renderWorkspace();
 
-      const filesTab = await screen.findByRole('tab', { name: /files/i });
+      const filesTab = await screen.findByRole('tab', { name: /files/iu });
       filesTab.focus();
       await user.keyboard('{ArrowRight}');
 
-      const locked = tabNamed(/a\.ts/);
+      const locked = tabNamed(/a\.ts/u);
       expect(locked).toHaveFocus();
       expect(requestTabPermission).not.toHaveBeenCalled();
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
@@ -251,7 +251,7 @@ describe('workspace tab strip on the shared TabStrip', () => {
     it('offers Close, Close Others and Close All — and no reordering', async () => {
       renderWorkspace();
 
-      const filesTab = await screen.findByRole('tab', { name: /files/i });
+      const filesTab = await screen.findByRole('tab', { name: /files/iu });
       expect(filesTab).toHaveAttribute('aria-haspopup', 'menu');
       fireEvent.contextMenu(filesTab);
 
@@ -269,7 +269,7 @@ describe('workspace tab strip on the shared TabStrip', () => {
       const user = userEvent.setup();
       renderWorkspace(APPS);
 
-      fireEvent.contextMenu(await screen.findByRole('tab', { name: /changes/i }));
+      fireEvent.contextMenu(await screen.findByRole('tab', { name: /changes/iu }));
       await user.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
 
       expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([
@@ -290,7 +290,7 @@ describe('workspace tab strip on the shared TabStrip', () => {
       const user = userEvent.setup();
       renderWorkspace(APPS);
 
-      fireEvent.contextMenu(await screen.findByRole('tab', { name: /cedar/i }));
+      fireEvent.contextMenu(await screen.findByRole('tab', { name: /cedar/iu }));
       await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
 
       expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([
@@ -311,7 +311,7 @@ describe('workspace tab strip on the shared TabStrip', () => {
       const user = userEvent.setup();
       renderWorkspace([FILES_APP, CHANGES_APP]);
 
-      fireEvent.contextMenu(await screen.findByRole('tab', { name: /files/i }));
+      fireEvent.contextMenu(await screen.findByRole('tab', { name: /files/iu }));
       await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
 
       expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([]);
@@ -329,7 +329,7 @@ describe('workspace tab strip on the shared TabStrip', () => {
       const { registry } = createTestActionRegistry({ actions: fileEntryActions });
       renderWorkspace([FILES_APP], { actionRegistry: registry });
 
-      fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+      fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/iu }));
 
       const menu = await screen.findByRole('menu');
       const labels = within(menu)
@@ -351,7 +351,7 @@ describe('workspace tab strip on the shared TabStrip', () => {
       const user = userEvent.setup();
       renderWorkspace();
 
-      fireEvent.contextMenu(await screen.findByRole('tab', { name: /a\.ts/i }));
+      fireEvent.contextMenu(await screen.findByRole('tab', { name: /a\.ts/iu }));
       await user.click(await screen.findByRole('menuitem', { name: 'Move Right' }));
 
       expect(fileTabOrder()).toEqual([B, A, C]);
@@ -374,14 +374,14 @@ describe('workspace tab strip on the shared TabStrip', () => {
       openFileTabs(A, B, C);
       renderWorkspace();
 
-      const tabA = await screen.findByRole('tab', { name: /a\.ts/i });
+      const tabA = await screen.findByRole('tab', { name: /a\.ts/iu });
       tabA.focus();
       fireEvent.keyDown(tabA, { altKey: true, key: 'ArrowRight', shiftKey: true });
 
       expect(fileTabOrder()).toEqual([B, A, C]);
       expect(await screen.findByRole('status')).toHaveTextContent('a.ts moved to position 2 of 3');
       await waitFor(() => {
-        expect(tabNamed(/a\.ts/)).toHaveFocus();
+        expect(tabNamed(/a\.ts/u)).toHaveFocus();
       });
     });
 
@@ -390,13 +390,13 @@ describe('workspace tab strip on the shared TabStrip', () => {
       openFileTabs(A, B);
       renderWorkspace([FILES_APP, CHILD_CEDAR_APP]);
 
-      const cedar = await screen.findByRole('tab', { name: /cedar/i });
+      const cedar = await screen.findByRole('tab', { name: /cedar/iu });
       fireEvent.keyDown(cedar, { altKey: true, key: 'ArrowRight', shiftKey: true });
-      fireEvent.keyDown(tabNamed(/a\.ts/), { altKey: true, key: 'ArrowLeft', shiftKey: true });
+      fireEvent.keyDown(tabNamed(/a\.ts/u), { altKey: true, key: 'ArrowLeft', shiftKey: true });
 
       expect(fileTabOrder()).toEqual([A, B]);
       expect(cedar.closest('[data-slot="tab-shell"]')).not.toHaveAttribute('data-reorderable');
-      expect(tabNamed(/a\.ts/).closest('[data-slot="tab-shell"]')).toHaveAttribute(
+      expect(tabNamed(/a\.ts/u).closest('[data-slot="tab-shell"]')).toHaveAttribute(
         'data-reorderable',
         'true'
       );
@@ -407,7 +407,7 @@ describe('workspace tab strip on the shared TabStrip', () => {
       openFileTabs(A, B, C);
       renderWorkspace([FILES_APP, CHILD_CEDAR_APP]);
 
-      const tabA = await screen.findByRole('tab', { name: /a\.ts/i });
+      const tabA = await screen.findByRole('tab', { name: /a\.ts/iu });
       tabA.focus();
       fireEvent.keyDown(tabA, { altKey: true, key: 'ArrowRight', shiftKey: true });
 
@@ -435,12 +435,12 @@ describe('workspace tab strip on the shared TabStrip', () => {
       const user = userEvent.setup();
       renderWorkspace();
 
-      await screen.findByRole('tab', { name: /a\.ts/i });
+      await screen.findByRole('tab', { name: /a\.ts/iu });
       fireEvent.contextMenu(screen.getByRole('tablist', { name: 'Workspace tabs' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Close All Files' }));
 
       expect(fileTabOrder()).toEqual([]);
-      expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /files/iu })).toBeInTheDocument();
     });
 
     it('the All-tabs menu lists every group, pinned apps first, and offers no Close All', async () => {

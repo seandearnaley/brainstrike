@@ -43,15 +43,15 @@ describe('ContextUsageMeter tool-call attribution (inside the popover)', () => {
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
     expect(screen.getByTestId('context-usage-breakdown-tool-calls')).toHaveTextContent(
-      /Tool calls and results/
+      /Tool calls and results/u
     );
-    expect(screen.getByTestId('context-usage-breakdown-tool-calls')).toHaveTextContent(/3\.0K/);
+    expect(screen.getByTestId('context-usage-breakdown-tool-calls')).toHaveTextContent(/3\.0K/u);
     expect(screen.getByTestId('context-usage-toolcall-0')).toHaveTextContent(
-      /brainstrike\.readWorkspaceFile/
+      /brainstrike\.readWorkspaceFile/u
     );
-    expect(screen.getByTestId('context-usage-toolcall-1')).toHaveTextContent(/400/);
+    expect(screen.getByTestId('context-usage-toolcall-1')).toHaveTextContent(/400/u);
     // 10_000 − (1200 + 900 + 3000) = 4_900
-    expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/4\.9K/);
+    expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/4\.9K/u);
   });
 
   it('keeps tool activity out of the Conversation split when tool calls have their own row', () => {

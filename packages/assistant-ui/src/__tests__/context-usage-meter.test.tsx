@@ -48,16 +48,16 @@ describe('ContextUsageMeter', () => {
 
   it('shows the heuristic estimate (flagged) on the compact ring row before any exact usage', () => {
     render(<ContextUsageMeter {...props} />);
-    expect(screen.getByText(/4\.0K/)).toBeInTheDocument();
-    expect(screen.getByText(/est\./)).toBeInTheDocument();
+    expect(screen.getByText(/4\.0K/u)).toBeInTheDocument();
+    expect(screen.getByText(/est\./u)).toBeInTheDocument();
     expect(screen.getByTestId('context-ring')).toBeInTheDocument();
   });
 
   it('flips to exact once usage is recorded', () => {
     useContextUsageStore.getState().recordUsage('t1', { inputTokens: 100_000, outputTokens: 8000 });
     render(<ContextUsageMeter {...props} />);
-    expect(screen.getByText(/108\.0K/)).toBeInTheDocument();
-    expect(screen.queryByText(/est\./)).not.toBeInTheDocument();
+    expect(screen.getByText(/108\.0K/u)).toBeInTheDocument();
+    expect(screen.queryByText(/est\./u)).not.toBeInTheDocument();
   });
 
   it('keeps recordUsage provider truth exact regardless of the conversation heuristic (BST-1205)', () => {
@@ -77,14 +77,14 @@ describe('ContextUsageMeter', () => {
 
     render(<ContextUsageMeter {...props} estimatedTokens={20_000} />);
 
-    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/4\.4K/);
-    expect(screen.queryByText(/est\./)).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/4\.4K/u);
+    expect(screen.queryByText(/est\./u)).not.toBeInTheDocument();
   });
 
   it('reads the active fallback key when no threadKey is provided', () => {
     useContextUsageStore.getState().recordUsage('active', { inputTokens: 5000, outputTokens: 500 });
     render(<ContextUsageMeter {...props} threadKey={undefined} />);
-    expect(screen.getByText(/5\.5K/)).toBeInTheDocument();
+    expect(screen.getByText(/5\.5K/u)).toBeInTheDocument();
   });
 
   it('applies warning state at >=75% of the effective budget and critical at >=90%', () => {
@@ -96,7 +96,7 @@ describe('ContextUsageMeter', () => {
     rerender(<ContextUsageMeter {...props} />);
     expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'critical');
     expect(screen.getByTestId('context-ring')).toHaveAttribute('data-state', 'critical');
-    expect(screen.getByText(/older messages may be trimmed/i)).toBeInTheDocument();
+    expect(screen.getByText(/older messages may be trimmed/iu)).toBeInTheDocument();
   });
 
   it('keeps the critical trimming-risk notice INLINE (visible without opening the popover)', () => {
@@ -105,7 +105,7 @@ describe('ContextUsageMeter', () => {
     // Popover closed — the notice must still be visible next to the ring.
     expect(screen.queryByTestId('context-usage-popover')).not.toBeInTheDocument();
     expect(screen.getByTestId('context-usage-critical-notice')).toHaveTextContent(
-      /older messages may be trimmed/i
+      /older messages may be trimmed/iu
     );
   });
 
@@ -138,9 +138,9 @@ describe('ContextUsageMeter', () => {
     expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent('126.0K');
     expect(screen.getByTestId('context-usage-trigger')).not.toHaveTextContent('200.0K');
     openMeterPopover();
-    expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(/126\.0K tokens/);
+    expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(/126\.0K tokens/u);
     expect(screen.getByTestId('context-usage-popover-window')).toHaveTextContent(
-      /model window 200\.0K tokens/
+      /model window 200\.0K tokens/u
     );
   });
 
@@ -149,7 +149,7 @@ describe('ContextUsageMeter', () => {
     expect(screen.queryByTestId('context-usage-popover')).not.toBeInTheDocument();
     openMeterPopover();
     expect(screen.getByTestId('context-usage-popover')).toBeInTheDocument();
-    expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(/% full/);
+    expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(/% full/u);
   });
 
   it('keeps the detail popover closed on hover and focus', () => {
@@ -164,9 +164,9 @@ describe('ContextUsageMeter', () => {
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
     expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(
-      /Conversation \(estimated\)/
+      /Conversation \(estimated\)/u
     );
-    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(/4\.0K/);
+    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(/4\.0K/u);
     expect(screen.queryByTestId('context-usage-breakdown-exact')).not.toBeInTheDocument();
   });
 
@@ -174,7 +174,7 @@ describe('ContextUsageMeter', () => {
     useContextUsageStore.getState().recordUsage('t1', { inputTokens: 100_000, outputTokens: 8000 });
     render(<ContextUsageMeter {...props} estimatedTokens={undefined} />);
     openMeterPopover();
-    expect(screen.getByTestId('context-usage-breakdown-exact')).toHaveTextContent(/108\.0K/);
+    expect(screen.getByTestId('context-usage-breakdown-exact')).toHaveTextContent(/108\.0K/u);
     expect(screen.queryByTestId('context-usage-breakdown-conversation')).not.toBeInTheDocument();
   });
 
@@ -201,13 +201,13 @@ describe('ContextUsageMeter', () => {
     );
     openMeterPopover();
     const total = screen.getByTestId('context-usage-thread-total');
-    expect(total).toHaveTextContent(/1\.8M tokens/);
+    expect(total).toHaveTextContent(/1\.8M tokens/u);
     expect(screen.getByTestId('context-usage-thread-total-split')).toHaveTextContent(
-      /1\.6M in · 200\.0K out/
+      /1\.6M in · 200\.0K out/u
     );
     expect(screen.getByTestId('context-usage-cost')).toHaveTextContent('$12.50');
     expect(screen.getByTestId('context-usage-thread-total-split')).toHaveTextContent(
-      /list-price estimate/
+      /list-price estimate/u
     );
   });
 
@@ -228,7 +228,7 @@ describe('ContextUsageMeter', () => {
     );
     openMeterPopover();
     const cost = screen.getByTestId('context-usage-cost');
-    expect(cost).toHaveTextContent(/cost unavailable/i);
+    expect(cost).toHaveTextContent(/cost unavailable/iu);
     expect(cost).not.toHaveTextContent('$0');
   });
 });
@@ -263,10 +263,10 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
   it('leads the chip with the overall thread total (+cost), not the context fraction', () => {
     render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} />);
     const trigger = screen.getByTestId('context-usage-trigger');
-    expect(trigger).toHaveTextContent(/1\.1M tokens/);
-    expect(screen.getByTestId('context-usage-trigger-cost')).toHaveTextContent(/\$12\.50/);
+    expect(trigger).toHaveTextContent(/1\.1M tokens/u);
+    expect(screen.getByTestId('context-usage-trigger-cost')).toHaveTextContent(/\$12\.50/u);
     // The context fraction moves to the title/popover; the ring still conveys capacity.
-    expect(trigger).not.toHaveTextContent(/126\.0K/);
+    expect(trigger).not.toHaveTextContent(/126\.0K/u);
     expect(screen.getByTestId('context-ring')).toBeInTheDocument();
   });
 
@@ -278,14 +278,14 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     });
     render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} isRunning={true} />);
     const trigger = screen.getByTestId('context-usage-trigger');
-    expect(trigger).toHaveTextContent(/1\.2M tokens/);
-    expect(trigger).toHaveTextContent(/live/);
+    expect(trigger).toHaveTextContent(/1\.2M tokens/u);
+    expect(trigger).toHaveTextContent(/live/u);
     // The durable cost excludes the live tokens — pairing them would be a
     // current total beside a lagging price (review fix): chip suppresses it,
     // the popover keeps it with an explicit qualifier.
     expect(screen.queryByTestId('context-usage-trigger-cost')).not.toBeInTheDocument();
     openMeterPopover();
-    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent(/excl\. live/);
+    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent(/excl\. live/u);
   });
 
   it('ignores a stranded live sum when no run is in flight (BST-1652)', () => {
@@ -300,14 +300,14 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     });
     render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} isRunning={false} />);
     const trigger = screen.getByTestId('context-usage-trigger');
-    expect(trigger).toHaveTextContent(/1\.1M tokens/);
-    expect(trigger).not.toHaveTextContent(/live/);
-    expect(screen.getByTestId('context-usage-trigger-cost')).toHaveTextContent(/\$12\.50/);
+    expect(trigger).toHaveTextContent(/1\.1M tokens/u);
+    expect(trigger).not.toHaveTextContent(/live/u);
+    expect(screen.getByTestId('context-usage-trigger-cost')).toHaveTextContent(/\$12\.50/u);
     openMeterPopover();
     const popoverTotal = screen.getByTestId('context-usage-thread-total-tokens');
-    expect(popoverTotal).toHaveTextContent(/Thread total · 1\.1M tokens/);
-    expect(popoverTotal).not.toHaveTextContent(/\(live\)/);
-    expect(screen.getByTestId('context-usage-cost')).not.toHaveTextContent(/excl\. live/);
+    expect(popoverTotal).toHaveTextContent(/Thread total · 1\.1M tokens/u);
+    expect(popoverTotal).not.toHaveTextContent(/\(live\)/u);
+    expect(screen.getByTestId('context-usage-cost')).not.toHaveTextContent(/excl\. live/u);
   });
 
   it('keeps the live sum through the settle window after the stream finishes (BST-1652)', () => {
@@ -325,8 +325,8 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} isRunning={false} />);
     const trigger = screen.getByTestId('context-usage-trigger');
     // Still the WITH-live figure, exactly as while streaming — no dip to 1.1M.
-    expect(trigger).toHaveTextContent(/1\.2M tokens/);
-    expect(trigger).toHaveTextContent(/live/);
+    expect(trigger).toHaveTextContent(/1\.2M tokens/u);
+    expect(trigger).toHaveTextContent(/live/u);
   });
 
   it('drops the live sum once the settle completes, without a second clear call', () => {
@@ -344,8 +344,8 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
 
     render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} isRunning={false} />);
     const trigger = screen.getByTestId('context-usage-trigger');
-    expect(trigger).toHaveTextContent(/1\.1M tokens/);
-    expect(trigger).not.toHaveTextContent(/live/);
+    expect(trigger).toHaveTextContent(/1\.1M tokens/u);
+    expect(trigger).not.toHaveTextContent(/live/u);
   });
 
   it('shows the live headline during a NEW thread first run (zero durable baseline)', () => {
@@ -369,28 +369,28 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     });
     render(<ContextUsageMeter {...props} cumulativeUsage={zeroBaseline} isRunning={true} />);
     const trigger = screen.getByTestId('context-usage-trigger');
-    expect(trigger).toHaveTextContent(/12\.4K tokens/);
-    expect(trigger).toHaveTextContent(/live/);
+    expect(trigger).toHaveTextContent(/12\.4K tokens/u);
+    expect(trigger).toHaveTextContent(/live/u);
   });
 
   it('renders the by-source rows and cache savings line inside the popover', () => {
     render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} />);
     openMeterPopover();
     expect(screen.getByTestId('context-usage-source-chat')).toHaveTextContent(
-      /900\.0K in · 90\.0K out/
+      /900\.0K in · 90\.0K out/u
     );
     expect(screen.getByTestId('context-usage-source-subagent')).toHaveTextContent('unpriced');
-    expect(screen.getByTestId('context-usage-source-subagent')).toHaveTextContent(/Subagents/);
+    expect(screen.getByTestId('context-usage-source-subagent')).toHaveTextContent(/Subagents/u);
     // OM figures are local estimates and must SAY so.
     expect(screen.getByTestId('context-usage-source-om-observation')).toHaveTextContent(
-      /Memory observer \(est\.\)/
+      /Memory observer \(est\.\)/u
     );
     expect(screen.getByTestId('context-usage-cache-line')).toHaveTextContent(
-      /700\.0K read \(70% of input\) · 50\.0K written · saved ~\$5\.18/
+      /700\.0K read \(70% of input\) · 50\.0K written · saved ~\$5\.18/u
     );
     // The context section survives BELOW the thread total.
     expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(
-      /Context .*% full/
+      /Context .*% full/u
     );
   });
 
@@ -436,17 +436,17 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
     expect(screen.getByTestId('context-usage-breakdown-system')).toHaveTextContent(
-      /System instructions/
+      /System instructions/u
     );
-    expect(screen.getByTestId('context-usage-breakdown-system')).toHaveTextContent(/1\.2K/);
-    expect(screen.getByTestId('context-usage-breakdown-task-list')).toHaveTextContent(/40/);
+    expect(screen.getByTestId('context-usage-breakdown-system')).toHaveTextContent(/1\.2K/u);
+    expect(screen.getByTestId('context-usage-breakdown-task-list')).toHaveTextContent(/40/u);
     // Server wire figure wins over the client estimate and is NOT labelled estimated.
-    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(/900/);
+    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(/900/u);
     expect(screen.getByTestId('context-usage-breakdown-conversation')).not.toHaveTextContent(
-      /estimated/
+      /estimated/u
     );
     expect(screen.getByTestId('context-usage-breakdown-attachments')).toHaveTextContent(
-      /2 attached/
+      /2 attached/u
     );
     // No exact usage yet → no Unattributed row (nothing exact to attribute against).
     expect(screen.queryByTestId('context-usage-breakdown-unattributed')).not.toBeInTheDocument();
@@ -485,7 +485,7 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
     // 10_000 − (1200 + 100 + 900) = 7_800
-    expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/7\.8K/);
+    expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/7\.8K/u);
   });
 
   it('clamps a negative Unattributed remainder to 0 (heuristic overshoot is display math)', () => {
@@ -502,7 +502,7 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
     const row = screen.getByTestId('context-usage-breakdown-unattributed');
-    expect(row).toHaveTextContent(/~0/);
+    expect(row).toHaveTextContent(/~0/u);
     expect(row).not.toHaveTextContent('-');
   });
 
@@ -510,11 +510,11 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
     useContextUsageStore.getState().recordBreakdown('t1', { invalid: true });
     render(<ContextUsageMeter {...props} estimatedTokens={4000} />);
     openMeterPopover();
-    expect(screen.getByTestId('context-usage-breakdown-invalid')).toHaveTextContent(/malformed/i);
+    expect(screen.getByTestId('context-usage-breakdown-invalid')).toHaveTextContent(/malformed/iu);
     expect(screen.queryByTestId('context-usage-breakdown-system')).not.toBeInTheDocument();
     // The client conversation estimate still renders honestly.
     expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(
-      /estimated/
+      /estimated/u
     );
   });
 
@@ -524,7 +524,7 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
     expect(screen.queryByTestId('context-usage-breakdown-system')).not.toBeInTheDocument();
     expect(screen.queryByTestId('context-usage-breakdown-invalid')).not.toBeInTheDocument();
     expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(
-      /Conversation \(estimated\)/
+      /Conversation \(estimated\)/u
     );
   });
 });
@@ -561,17 +561,17 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     openMeterPopover();
     const stats = screen.getByTestId('context-usage-om-stats');
     expect(stats).toBeInTheDocument();
-    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/active om/i);
-    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/20/);
-    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/buffered/i);
-    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.0k.*30\.0k/i);
+    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/active om/iu);
+    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/20/u);
+    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/buffered/iu);
+    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.0k.*30\.0k/iu);
     // Compaction-benefit stat.
-    expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/saved/i);
-    expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/30/);
+    expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/saved/iu);
+    expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/30/u);
     // FIX 2: there is NO budget segment bar and NO over-budget marker for OM.
     expect(screen.queryByTestId('context-usage-om-segments')).not.toBeInTheDocument();
-    expect(stats).not.toHaveTextContent(/over budget/i);
-    expect(stats).not.toHaveTextContent(/free/i);
+    expect(stats).not.toHaveTextContent(/over budget/iu);
+    expect(stats).not.toHaveTextContent(/free/iu);
   });
 
   it('omits the compaction stat when nothing has been compacted, still shows observed', () => {
@@ -610,9 +610,9 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     openMeterPopover();
     const stats = screen.getByTestId('context-usage-om-stats');
     expect(screen.queryByTestId('context-usage-om-active')).not.toBeInTheDocument();
-    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/867/);
-    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.6k.*30\.0k/i);
-    expect(stats).not.toHaveTextContent(/0 tokens observed/i);
+    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/867/u);
+    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.6k.*30\.0k/iu);
+    expect(stats).not.toHaveTextContent(/0 tokens observed/iu);
   });
 
   it('FIX 1: loading state stays QUIET (no note, no stats, no empty flash)', () => {
@@ -633,7 +633,7 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     );
     openMeterPopover();
     expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(
-      /no recommended observer model is enabled in your model catalog/i
+      /no recommended observer model is enabled in your model catalog/iu
     );
     rerender(
       <ContextUsageMeter
@@ -642,7 +642,7 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
       />
     );
     expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(
-      /needs a chat provider with a saved key/i
+      /needs a chat provider with a saved key/iu
     );
   });
 
@@ -650,8 +650,8 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'inactive' }} />);
     openMeterPopover();
     const note = screen.getByTestId('context-usage-om-note');
-    expect(note).toHaveTextContent(/inactive/i);
-    expect(note).not.toHaveTextContent(/saved/i);
+    expect(note).toHaveTextContent(/inactive/iu);
+    expect(note).not.toHaveTextContent(/saved/iu);
     expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 
@@ -659,14 +659,14 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'chat-only' }} />);
     openMeterPopover();
     const note = screen.getByTestId('context-usage-om-note');
-    expect(note).toHaveTextContent(/desktop/i);
+    expect(note).toHaveTextContent(/desktop/iu);
     expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 
   it('renders an honest empty state when no OM row exists yet', () => {
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'empty' }} />);
     openMeterPopover();
-    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(/no observations yet/i);
+    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(/no observations yet/iu);
     expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 
@@ -674,8 +674,8 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'error', reason: 'bad column' }} />);
     openMeterPopover();
     const note = screen.getByTestId('context-usage-om-note');
-    expect(note).toHaveTextContent(/unavailable/i);
-    expect(note).not.toHaveTextContent(/^0 /);
+    expect(note).toHaveTextContent(/unavailable/iu);
+    expect(note).not.toHaveTextContent(/^0 /u);
     expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 });
@@ -705,10 +705,10 @@ describe('ThreadContextMeter', () => {
     render(<ThreadContextMeter {...meterProps} />);
     // The meter must show an estimate (flagged with "est.") rather than zero.
     expect(screen.getByTestId('context-usage-meter')).toBeInTheDocument();
-    expect(screen.getByText(/est\./)).toBeInTheDocument();
+    expect(screen.getByText(/est\./u)).toBeInTheDocument();
     // The used-token count must be greater than zero.
     const meterEl = screen.getByTestId('context-usage-meter');
-    expect(meterEl.textContent).not.toMatch(/^0 /);
+    expect(meterEl.textContent).not.toMatch(/^0 /u);
   });
 
   it('does not show the estimated badge when exact usage is already recorded', () => {
@@ -717,15 +717,15 @@ describe('ThreadContextMeter', () => {
       .getState()
       .recordUsage('test-thread', { inputTokens: 5000, outputTokens: 500 });
     render(<ThreadContextMeter {...meterProps} />);
-    expect(screen.queryByText(/est\./)).not.toBeInTheDocument();
-    expect(screen.getByText(/5\.5K/)).toBeInTheDocument();
+    expect(screen.queryByText(/est\./u)).not.toBeInTheDocument();
+    expect(screen.getByText(/5\.5K/u)).toBeInTheDocument();
   });
 
   it('falls back to parts when content is absent (legacy message shape)', () => {
     // Ensure the content-first fallback doesn't break messages that only carry parts.
     mockMessages = [{ parts: [{ text: 'Legacy parts-only text.', type: 'text' }] }];
     render(<ThreadContextMeter {...meterProps} />);
-    expect(screen.getByText(/est\./)).toBeInTheDocument();
+    expect(screen.getByText(/est\./u)).toBeInTheDocument();
   });
 
   it('counts tool results in the estimate (the v1 text-only walk read absurdly low)', () => {
@@ -745,8 +745,8 @@ describe('ThreadContextMeter', () => {
     ];
     render(<ThreadContextMeter {...meterProps} />);
     // ~20K tokens of tool result must show up, not the ~4 tokens of text.
-    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/20\.0K/);
-    expect(screen.getByText(/est\./)).toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/20\.0K/u);
+    expect(screen.getByText(/est\./u)).toBeInTheDocument();
   });
 
   it('keeps moving WHILE a run streams even after exact usage exists (live estimate)', () => {
@@ -770,8 +770,8 @@ describe('ThreadContextMeter', () => {
     render(<ThreadContextMeter {...meterProps} />);
     // Live estimate (~30K) exceeds the stale exact figure (5.5K) → the gauge
     // must lead with the estimate and flag it.
-    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/30\.0K/);
-    expect(screen.getByText(/est\./)).toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/30\.0K/u);
+    expect(screen.getByText(/est\./u)).toBeInTheDocument();
     mockIsRunning = false;
   });
 
@@ -782,8 +782,8 @@ describe('ThreadContextMeter', () => {
     mockIsRunning = true;
     mockMessages = [{ content: [{ text: 'short new turn', type: 'text' }], role: 'user' }];
     render(<ThreadContextMeter {...meterProps} />);
-    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/52\.0K/);
-    expect(screen.getByText(/est\./)).toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/52\.0K/u);
+    expect(screen.getByText(/est\./u)).toBeInTheDocument();
     mockIsRunning = false;
   });
 });
@@ -827,17 +827,17 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
     expect(screen.getByTestId('context-usage-breakdown-tool-definitions')).toHaveTextContent(
-      /Tool definitions/
+      /Tool definitions/u
     );
     expect(screen.getByTestId('context-usage-breakdown-tool-definitions')).toHaveTextContent(
-      /3\.2K|3\.1K/
+      /3\.2K|3\.1K/u
     );
     expect(screen.getByTestId('context-usage-tooldef-0')).toHaveTextContent(
-      /brainstrike\.readWorkspaceFile/
+      /brainstrike\.readWorkspaceFile/u
     );
-    expect(screen.getByTestId('context-usage-tooldef-4')).toHaveTextContent(/manageTaskList/);
-    expect(screen.getByTestId('context-usage-tooldef-6')).toHaveTextContent(/tiny_two/);
-    expect(screen.queryByText(/more tools/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-tooldef-4')).toHaveTextContent(/manageTaskList/u);
+    expect(screen.getByTestId('context-usage-tooldef-6')).toHaveTextContent(/tiny_two/u);
+    expect(screen.queryByText(/more tools/u)).not.toBeInTheDocument();
   });
 
   it('renders the segmented capacity bar with one segment per non-zero category', () => {
@@ -883,18 +883,18 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
       />
     );
     openMeterPopover();
-    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(/11\.0K/);
-    expect(screen.getByTestId('context-usage-conv-user')).toHaveTextContent(/You/);
-    expect(screen.getByTestId('context-usage-conv-assistant')).toHaveTextContent(/Assistant/);
-    expect(screen.getByTestId('context-usage-conv-reasoning')).toHaveTextContent(/Reasoning/);
-    expect(screen.getByTestId('context-usage-conv-tools')).toHaveTextContent(/10\.0K/);
-    expect(screen.getByTestId('context-usage-conv-tool-0')).toHaveTextContent(/run_shell/);
+    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(/11\.0K/u);
+    expect(screen.getByTestId('context-usage-conv-user')).toHaveTextContent(/You/u);
+    expect(screen.getByTestId('context-usage-conv-assistant')).toHaveTextContent(/Assistant/u);
+    expect(screen.getByTestId('context-usage-conv-reasoning')).toHaveTextContent(/Reasoning/u);
+    expect(screen.getByTestId('context-usage-conv-tools')).toHaveTextContent(/10\.0K/u);
+    expect(screen.getByTestId('context-usage-conv-tool-0')).toHaveTextContent(/run_shell/u);
     expect(screen.getByTestId('context-usage-conv-tool-1')).toHaveTextContent(
-      /brainstrike\.search/
+      /brainstrike\.search/u
     );
     // Client-walk attachments render without a fabricated token figure.
     expect(screen.getByTestId('context-usage-breakdown-attachments')).toHaveTextContent(
-      /1 attached/
+      /1 attached/u
     );
   });
 
@@ -913,7 +913,7 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
     // 10_000 − (2000 + 3000 + 1000) = 4_000
-    expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/4\.0K/);
+    expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/4\.0K/u);
   });
 
   it('preserves a measured ZERO wire attachment count over stale client history (review fix)', () => {
@@ -972,7 +972,7 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
     );
     openMeterPopover();
     expect(screen.getByTestId('context-usage-breakdown-attachments')).toHaveTextContent(
-      /2 attached/
+      /2 attached/u
     );
   });
 });

@@ -57,13 +57,13 @@ async function installBrowserStandIn(electron: ElectronHarness): Promise<void> {
 
 async function openTools(page: Page): Promise<void> {
   await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+  await new SettingsPage(page).openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
 }
 
 async function configureServer(page: Page, url: string): Promise<void> {
   await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+  await new SettingsPage(page).openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   const editor = page.getByTestId('mcp-config-editor');
   await expect(editor).toBeVisible({ timeout: 30_000 });
@@ -110,7 +110,7 @@ test('the agent host stores an MCP OAuth grant in its profile store and reconnec
     await page
       .getByRole('button', { exact: true, name: `Connect ${SERVER_ID}` })
       .click({ timeout: 60_000 });
-    await expect(row).toContainText(/Connected/i, { timeout: 60_000 });
+    await expect(row).toContainText(/Connected/iu, { timeout: 60_000 });
     await expect(row).toContainText('OAuth credentials stored');
 
     // The grant sits in the host's profile store under one 64-hex identity account;
@@ -131,7 +131,7 @@ test('the agent host stores an MCP OAuth grant in its profile store and reconnec
     await refuseBrowser(electron);
     await openTools(restarted);
     const restartedRow = restarted.getByTestId(`mcp-server-row-${SERVER_ID}`);
-    await expect(restartedRow).toContainText(/Connected/i, { timeout: 60_000 });
+    await expect(restartedRow).toContainText(/Connected/iu, { timeout: 60_000 });
     await expect(restartedRow).toContainText('OAuth credentials stored');
     await expect(
       restarted.getByRole('button', { exact: true, name: `Connect ${SERVER_ID}` })

@@ -99,7 +99,7 @@ export async function resolveLoginShellEnvironment(
         );
         return;
       }
-      const printed = new RegExp(`${mark}(\\{.*\\})${mark}`).exec(
+      const printed = new RegExp(`${mark}(\\{.*\\})${mark}`, 'u').exec(
         Buffer.concat(stdout).toString('utf8')
       )?.[1];
       if (printed === undefined) {

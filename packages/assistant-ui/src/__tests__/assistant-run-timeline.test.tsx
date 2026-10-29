@@ -38,7 +38,7 @@ function runEventPart(event: Record<string, unknown>) {
 function countedParts(parts: unknown[], reads: { count: number }): unknown[] {
   return new Proxy(parts, {
     get(target, property, receiver) {
-      if (typeof property === 'string' && /^\d+$/.test(property)) {
+      if (typeof property === 'string' && /^\d+$/u.test(property)) {
         reads.count += 1;
       }
       return Reflect.get(target, property, receiver);
@@ -705,7 +705,7 @@ describe('AssistantRunTimeline render', () => {
     expect(card.getAttribute('data-tool-category')).toBe('memory');
     expect(screen.queryByText('Completed')).toBeNull(); // no visible pill text
     expect(screen.queryByText('memory.working.loaded')).toBeNull(); // kind only in fold
-    fireEvent.click(screen.getByRole('button', { name: /expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /expand/iu }));
     expect(screen.getByText('memory.working.loaded')).toBeInTheDocument();
   });
 

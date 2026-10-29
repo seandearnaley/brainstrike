@@ -73,10 +73,10 @@ const getReportFilenameParts = (filename: string): { base: string; extension: st
 const hyphenateFilenameSegment = (value: string): string =>
   value
     .trim()
-    .replace(/[<>:"/\\|?*]/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '');
+    .replace(/[<>:"/\\|?*]/gu, '-')
+    .replace(/\s+/gu, '-')
+    .replace(/-+/gu, '-')
+    .replace(/^[-.]+|[-.]+$/gu, '');
 
 // The desktop save bridge rejects whole filenames over 250 characters
 // (`MAX_FILENAME_LENGTH` in apps/desktop/src/ipc-file-exports-handlers.ts);
@@ -95,7 +95,7 @@ const buildContextFilename = (
   const rootName = rootDirectoryHandle?.name
     ? sanitizeFilenameSegment(hyphenateFilenameSegment(rootDirectoryHandle.name))
         .slice(0, ROOT_SEGMENT_MAX_CHARS)
-        .replace(/[-.]+$/, '')
+        .replace(/[-.]+$/u, '')
     : '';
   return formatTimestampedDownloadFilename({
     extension,

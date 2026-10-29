@@ -120,11 +120,11 @@ export function HostChildConversationHeader({
         <span className={`bs-agent-solid-mark rounded-md border p-1 ${appearance.markClassName}`}>
           <Icon aria-hidden="true" className="size-4" />
         </span>
-        <h2 className="truncate font-semibold text-sm">{child.callSign}</h2>
+        <h2 className="truncate text-sm font-semibold">{child.callSign}</h2>
         {ancestry && isAgentColor(parentColor) ? (
           <span
             aria-label={`Parent: ${parentName}`}
-            className="ml-auto flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground"
+            className="text-muted-foreground ml-auto flex shrink-0 items-center gap-1 text-[11px]"
             role="img"
             title={`Parent: ${parentName}`}
           >

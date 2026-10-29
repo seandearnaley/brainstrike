@@ -23,7 +23,7 @@ function workspaceSourceExports(): Record<string, string> {
     for (const [subpath, target] of Object.entries(manifest.exports ?? {})) {
       const source =
         typeof target === 'string' ? target : (target as { types?: unknown } | null)?.types;
-      if (typeof source === 'string' && /\.tsx?$/.test(source) && !subpath.includes('*')) {
+      if (typeof source === 'string' && /\.tsx?$/u.test(source) && !subpath.includes('*')) {
         entries.push([
           `${manifest.name}${subpath.slice(1)}`,
           path.join(packagesRoot, directory, source),

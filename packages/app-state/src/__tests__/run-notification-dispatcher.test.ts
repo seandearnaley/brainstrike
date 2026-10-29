@@ -202,13 +202,13 @@ describe('createRunNotificationDispatcher', () => {
     });
 
     expect(harness.constructed[0]?.title).toBe('Refactor plan');
-    expect(harness.constructed[0]?.options?.body).toMatch(/finished/i);
+    expect(harness.constructed[0]?.options?.body).toMatch(/finished/iu);
 
     expect(harness.constructed[1]?.title).toBe('Assistant');
-    expect(harness.constructed[1]?.options?.body).toMatch(/failed/i);
+    expect(harness.constructed[1]?.options?.body).toMatch(/failed/iu);
 
     expect(harness.constructed[2]?.title).toBe('Assistant');
-    expect(harness.constructed[2]?.options?.body).toMatch(/approval/i);
+    expect(harness.constructed[2]?.options?.body).toMatch(/approval/iu);
   });
 
   it('resetCoalescing forgets prior dispatches so a repeated event can notify again', () => {

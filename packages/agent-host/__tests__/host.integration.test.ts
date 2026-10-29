@@ -446,9 +446,9 @@ test('host/stop fences later commands while the platform join is pending', async
   try {
     await entered.promise;
     await expect(client.request('thread/start', { commandId: randomUUID() })).rejects.toThrow(
-      /closing/
+      /closing/u
     );
-    await expect(client.request('host/stop', {})).rejects.toThrow(/closing/);
+    await expect(client.request('host/stop', {})).rejects.toThrow(/closing/u);
     await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
   } finally {
     joined.resolve();
@@ -467,7 +467,7 @@ test('host/stop reports cleanup failure and retains Root instead of reporting re
     throw new Error('Owned fixture cleanup failed');
   };
   try {
-    await expect(client.request('host/stop', {})).rejects.toThrow(/cleanup failed/i);
+    await expect(client.request('host/stop', {})).rejects.toThrow(/cleanup failed/iu);
     await expect(host.closed).rejects.toThrow();
     await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
   } finally {

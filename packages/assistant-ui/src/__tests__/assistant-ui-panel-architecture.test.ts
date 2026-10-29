@@ -82,13 +82,13 @@ function reducedMotionBlockContaining(cssSource: string, marker: string): string
  * review round 2, Claude Minor 2).
  */
 function assertSelectorResetsAnimationNone(block: string, selector: string): void {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`${escaped}\\s*[,{]`).exec(block);
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const match = new RegExp(`${escaped}\\s*[,{]`, 'u').exec(block);
   expect(match).not.toBeNull();
   const matchIndex = match?.index ?? -1;
   const ruleEnd = block.indexOf('}', matchIndex);
   expect(ruleEnd).toBeGreaterThan(matchIndex);
-  expect(block.slice(matchIndex, ruleEnd)).toMatch(/animation:\s*none/);
+  expect(block.slice(matchIndex, ruleEnd)).toMatch(/animation:\s*none/u);
 }
 
 describe('assistant UI panel architecture', () => {
@@ -345,7 +345,7 @@ describe('assistant UI panel architecture', () => {
     expect(editComposerSource).toContain('useBudgetSendGate()');
     // The gate must reach the Input too, not just the Send button — Enter in
     // the edit input is a submit path (review #1714).
-    expect(editComposerSource.match(/disabled=\{budgetSendBlocked\}/g)?.length).toBe(2);
+    expect(editComposerSource.match(/disabled=\{budgetSendBlocked\}/gu)?.length).toBe(2);
 
     const composerInputSource = readSource('composer-input.tsx');
     expect(composerInputSource).toContain('useBudgetSendGate()');
@@ -447,7 +447,7 @@ describe('assistant UI panel architecture', () => {
     // BST-897: the button's chrome (class, icon, label, test id) is declared
     // ONCE and shared by both tiers — only the behaviour differs.
     expect(regionSource).toContain("'data-testid': 'assistant-scroll-to-bottom'");
-    expect(regionSource.match(/JUMP_TO_LATEST_PROPS/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(regionSource.match(/JUMP_TO_LATEST_PROPS/gu)?.length).toBeGreaterThanOrEqual(3);
 
     // Reduced motion: an explicit `behavior` on the tier-1 jump would bypass
     // CSS scroll-behavior and therefore globals.css's prefers-reduced-motion
@@ -490,7 +490,7 @@ describe('assistant UI panel architecture', () => {
 
     // The switch point is a single exported constant — never a magic number
     // duplicated between the renderer and its tests.
-    expect(regionSource).toMatch(/export const THREAD_VIRTUALIZATION_THRESHOLD = \d+;/);
+    expect(regionSource).toMatch(/export const THREAD_VIRTUALIZATION_THRESHOLD = \d+;/u);
     expect(regionSource).toContain('export const THREAD_MESSAGE_ESTIMATED_HEIGHT_PX');
 
     // NO SILENT FALLBACKS: the active tier is observable in the DOM.
@@ -520,7 +520,7 @@ describe('assistant UI panel architecture', () => {
     // outright and the engine idles with no element. The engine itself never
     // grows a second attach site.
     expect(regionSource).toContain("if (!el || tier !== 'static')");
-    expect(followSource.match(/new ResizeObserver/g)?.length).toBe(1);
+    expect(followSource.match(/new ResizeObserver/gu)?.length).toBe(1);
     expect(regionSource).toContain("if (tier === 'static') {");
 
     // Live-region announcements fork per tier: on the virtual tier rows mount
@@ -665,7 +665,7 @@ describe('assistant UI panel architecture', () => {
     // the preference; nothing else pins the rule that produces it.
     const cssSource = readSource('overrides.css');
     expect(cssSource).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{\s*\.assistant-ui-panel \.bs-trace-label,\s*\.assistant-ui-panel \.bs-trace-reveal \{\s*animation: none;/
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.assistant-ui-panel \.bs-trace-label,\s*\.assistant-ui-panel \.bs-trace-reveal \{\s*animation: none;/u
     );
     // Not vacuous: every row form really does carry the class.
     expect(readSource('activity-step-row.tsx')).toContain('bs-step-row bs-trace-reveal');
@@ -698,7 +698,7 @@ describe('assistant UI panel architecture', () => {
     // Data: X }}`, exactly like the existing `Text: AssistantMessageText`
     // entry — so the guard must match a bare `Data:` object key, not just a
     // quoted string key (the previous `/['"`]Data:['"`]/` could never fail).
-    expect(panelSource).not.toMatch(/(^|[{,\s])Data:/m);
+    expect(panelSource).not.toMatch(/(^|[{,\s])Data:/mu);
 
     const partsSource = readSource('assistant-activity-parts.tsx');
     expect(partsSource).toContain("case 'data':");

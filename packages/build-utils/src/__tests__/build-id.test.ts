@@ -57,7 +57,7 @@ describe('resolveBuildId', () => {
         ],
       })
     ).toThrow(
-      /No build id could be resolved[\s\S]*VERCEL_DEPLOYMENT_ID: not set[\s\S]*git HEAD: not a git repository/
+      /No build id could be resolved[\s\S]*VERCEL_DEPLOYMENT_ID: not set[\s\S]*git HEAD: not a git repository/u
     );
   });
 
@@ -77,7 +77,7 @@ describe('resolveBuildId', () => {
 
   it('never returns the dev literal for a build with no sources', () => {
     expect(() => resolveBuildId({ command: 'build', sources: [] })).toThrow(
-      /No build id could be resolved/
+      /No build id could be resolved/u
     );
   });
 });
@@ -138,6 +138,6 @@ describe('buildIdPlugin', () => {
   it('fails the production build when nothing resolves', () => {
     const plugin = buildIdPlugin([source('A', () => undefined)]);
 
-    expect(() => runConfigHook(plugin, 'build')).toThrow(/No build id could be resolved/);
+    expect(() => runConfigHook(plugin, 'build')).toThrow(/No build id could be resolved/u);
   });
 });

@@ -27,24 +27,24 @@ describe('ProviderSettingsPanel number fields', () => {
     );
 
     expect(screen.getByLabelText('Max steps')).toHaveAccessibleDescription(
-      /model steps.*default.*100/i
+      /model steps.*default.*100/iu
     );
     expect(screen.getByLabelText('Input tokens')).toHaveAccessibleDescription(
-      /input tokens.*step/i
+      /input tokens.*step/iu
     );
     expect(screen.getByLabelText('Recent messages')).toHaveAccessibleDescription(
-      /recent messages.*0.*off/i
+      /recent messages.*0.*off/iu
     );
     expect(
       screen.getByRole('spinbutton', { name: 'Output token limit' })
-    ).toHaveAccessibleDescription(/output tokens.*step.*auto/i);
+    ).toHaveAccessibleDescription(/output tokens.*step.*auto/iu);
   });
 
   it('describes the Claude thinking budget field with its visible help', () => {
     render(<ProviderSettingsPanel providerId="anthropic" settings={{}} />);
     expect(
       screen.getByRole('spinbutton', { name: 'Anthropic thinking budget input' })
-    ).toHaveAccessibleDescription(/optional budget for Claude thinking/i);
+    ).toHaveAccessibleDescription(/optional budget for Claude thinking/iu);
   });
 
   it('stores a typed step limit once, on blur — clearing it to retype never switches it off', async () => {
@@ -125,7 +125,7 @@ describe('ProviderSettingsPanel number fields', () => {
     await user.tab();
     expect(steps).toHaveValue(0);
     expect(steps).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByRole('alert')).toHaveTextContent(/Enter a whole number of steps from 1 to/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Enter a whole number of steps from 1 to/u);
 
     const limit = screen.getByRole('spinbutton', { name: 'Input tokens' });
     await user.clear(limit);
@@ -262,7 +262,7 @@ describe('ProviderSettingsPanel number fields', () => {
     const output = screen.getByRole('spinbutton', { name: 'Output token limit' });
     await user.clear(output);
     await user.type(output, '99999{Enter}');
-    expect(screen.getByRole('alert')).toHaveTextContent(/8,192 maximum/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/8,192 maximum/u);
     expect(onValidationChange).toHaveBeenLastCalledWith(expect.stringContaining('8,192 maximum'));
     await user.type(output, '{Escape}');
     expect(output).toHaveValue(1024);
@@ -293,7 +293,7 @@ describe('ProviderSettingsPanel number fields', () => {
     const output = screen.getByRole('spinbutton', { name: 'Output token limit' });
     await user.clear(output);
     await user.type(output, '99999{Enter}');
-    expect(screen.getByRole('alert')).toHaveTextContent(/8,192 maximum/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/8,192 maximum/u);
 
     await user.click(screen.getByRole('switch', { name: 'Limit output tokens per step' }));
 

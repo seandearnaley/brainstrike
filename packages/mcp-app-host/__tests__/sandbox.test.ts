@@ -194,7 +194,7 @@ describe('MCP Apps shell ownership', () => {
       limits: { maxActiveFrames: 1, maxRetainedBytes: 4096 },
       shellHost: failing.shellHost,
     });
-    await expect(owner.open(createOwnedResource())).rejects.toThrow(/shell registration failed/);
+    await expect(owner.open(createOwnedResource())).rejects.toThrow(/shell registration failed/u);
     expect(owner.activeFrames).toBe(0);
     expect(owner.retainedBytes).toBe(0);
 
@@ -205,7 +205,7 @@ describe('MCP Apps shell ownership', () => {
     });
     // Two concurrent opens: the second is rejected while the first is still registering.
     const first = stable.open(createOwnedResource());
-    await expect(stable.open(createOwnedResource())).rejects.toThrow(/active frame limit/);
+    await expect(stable.open(createOwnedResource())).rejects.toThrow(/active frame limit/u);
     await first;
     expect(stable.activeFrames).toBe(1);
     await stable.closeAll();
@@ -215,7 +215,7 @@ describe('MCP Apps shell ownership', () => {
       limits: { maxActiveFrames: 4, maxRetainedBytes: 16 },
       shellHost: host.shellHost,
     });
-    await expect(tiny.open(createOwnedResource())).rejects.toThrow(/retained memory limit/);
+    await expect(tiny.open(createOwnedResource())).rejects.toThrow(/retained memory limit/u);
     expect(host.shellHost.prepareShell).toHaveBeenCalledTimes(1);
   });
 });

@@ -7,11 +7,11 @@
 import { refuseExtractUrl } from '@brainstrike/host-capabilities/extract-url-refusal';
 
 /** Explicit `scheme://authority` at the START of the string (not a substring). */
-const HIERARCHICAL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
+const HIERARCHICAL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//iu;
 /** `about:` / `data:` a user may type; NO `file:`/`devtools:`/`chrome:`/`blob:`. */
-const PRESERVED_SCHEME = /^(about|data):/i;
+const PRESERVED_SCHEME = /^(about|data):/iu;
 /** A bare host: a dotted name, `localhost`, or an explicit `host:port`. */
-const BARE_HOST = /^(localhost|[^\s/]+\.[^\s/]+|[^\s/]+:\d+)(\/|$|\?|#)/i;
+const BARE_HOST = /^(localhost|[^\s/]+\.[^\s/]+|[^\s/]+:\d+)(\/|$|\?|#)/iu;
 /** DuckDuckGo query fallback for input that is neither a URL nor a host. */
 const SEARCH_PREFIX = 'https://duckduckgo.com/?q=';
 
@@ -40,7 +40,7 @@ export function normalizeUrl(url: string | undefined): string {
 }
 
 /** Schemes the pane will actually load — everything else is refused. */
-const NAVIGABLE_SCHEME = /^(https?|about|data):/i;
+const NAVIGABLE_SCHEME = /^(https?|about|data):/iu;
 
 /**
  * Final navigation gate (also applied to attacker-controlled popup urls). Only
@@ -88,7 +88,7 @@ function loopbackAuthorityOf(url: string | URL): string | undefined {
   if (parsed === undefined || defaultPort === undefined || !LOOPBACK_HOSTS.has(parsed.hostname)) {
     return;
   }
-  return `${parsed.hostname.replace(/^\[(.*)\]$/, '$1')}:${parsed.port === '' ? defaultPort : parsed.port}`;
+  return `${parsed.hostname.replace(/^\[(.*)\]$/u, '$1')}:${parsed.port === '' ? defaultPort : parsed.port}`;
 }
 
 /**

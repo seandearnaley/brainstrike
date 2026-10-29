@@ -152,7 +152,7 @@ function settleFileSystemResult<T>(
 }
 
 function isWindowsAbsolutePath(value: string): boolean {
-  return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
+  return /^[a-zA-Z]:[\\/]/u.test(value) || /^\\\\[^\\]+\\[^\\]+/u.test(value);
 }
 
 /**

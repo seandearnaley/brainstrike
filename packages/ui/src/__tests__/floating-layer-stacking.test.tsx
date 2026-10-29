@@ -17,11 +17,11 @@ import { Tooltip, TooltipContent, TooltipProvider } from '../tooltip';
  * the DOM, but nothing was visible on screen.
  */
 function zIndexOf(className: string): number {
-  const arbitrary = /(?:^|\s)z-\[(\d+)\]/.exec(className);
+  const arbitrary = /(?:^|\s)z-\[(\d+)\]/u.exec(className);
   if (arbitrary?.[1]) {
     return Number(arbitrary[1]);
   }
-  const bare = /(?:^|\s)z-(\d+)(?:\s|$)/.exec(className);
+  const bare = /(?:^|\s)z-(\d+)(?:\s|$)/u.exec(className);
   if (bare?.[1]) {
     return Number(bare[1]);
   }

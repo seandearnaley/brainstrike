@@ -502,7 +502,7 @@ function buildProviderFunctionTools(
 function buildAuthoredProviderFunctionTools(tools: HostToolDefinitions): ProviderFunctionTool[] {
   const providerTools = snapshotProviderToolSurface(tools);
   const nameMap = new Map(
-    Object.keys(providerTools).map((toolId) => [toolId.replace(/[^a-zA-Z0-9_-]/g, '_'), toolId])
+    Object.keys(providerTools).map((toolId) => [toolId.replace(/[^a-zA-Z0-9_-]/gu, '_'), toolId])
   );
   return buildProviderFunctionTools(providerTools, nameMap);
 }

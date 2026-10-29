@@ -176,7 +176,7 @@ function posixStartTime(pid: number): string | null {
       env: psEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
-    const row = /^(\S+)\s+(.+)$/.exec(out);
+    const row = /^(\S+)\s+(.+)$/u.exec(out);
     if (!row) {
       return null;
     }
@@ -283,7 +283,7 @@ function holdRootFlock(dir: string): number | null | undefined {
   return null;
 }
 
-const GEN = /^g(\d{12})$/;
+const GEN = /^g(\d{12})$/u;
 const genName = (g: number): string => `g${String(g).padStart(12, '0')}`;
 const generations = (dir: string): number[] =>
   readdirSync(dir)

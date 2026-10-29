@@ -48,7 +48,7 @@ describe('installWebAssemblyCounter', () => {
       'instantiate',
       'memory',
     ]);
-    expect(snapshot.recentFailures[0]?.message).toMatch(/WebAssembly|module/i);
+    expect(snapshot.recentFailures[0]?.message).toMatch(/WebAssembly|module/iu);
     expect(Date.parse(snapshot.installedAt)).not.toBeNaN();
     for (const failure of snapshot.recentFailures) {
       expect(Date.parse(failure.at)).not.toBeNaN();

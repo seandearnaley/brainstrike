@@ -21,7 +21,7 @@ export function canonicalChunker(codeAdapter: ParserAdapter): CanonicalChunker {
   const pythonAdapter = treeSitterAdapter('python');
   return (content, options) =>
     chunkContent(content, options, {
-      selectAdapter: (fileName) => (/\.pyi?$/i.test(fileName ?? '') ? pythonAdapter : codeAdapter),
+      selectAdapter: (fileName) => (/\.pyi?$/iu.test(fileName ?? '') ? pythonAdapter : codeAdapter),
       strict: true,
     });
 }

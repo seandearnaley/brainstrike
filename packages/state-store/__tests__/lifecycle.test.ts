@@ -20,6 +20,6 @@ test('retained readers reject after close instead of waiting forever on a termin
       ),
       new Promise<string>((resolve) => setTimeout(() => resolve('hung'), 100)),
     ]);
-    expect(result).toMatch(/closed/);
+    expect(result).toMatch(/closed/u);
   }
 });

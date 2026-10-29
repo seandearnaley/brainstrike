@@ -108,7 +108,7 @@ describe('workspace inspection model projections', () => {
     expect(serializedChars(projected)).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
-    expect(projected.value).toMatch(/shown=\d+\/50 \| truncated=true/);
+    expect(projected.value).toMatch(/shown=\d+\/50 \| truncated=true/u);
     expect(projected.value).toContain(
       'continue: reuse the prior brainstrike.findWorkspaceSymbol input with contextLines=0 and a narrower query; offset pagination is unavailable'
     );
@@ -222,7 +222,7 @@ describe('workspace inspection model projections', () => {
     );
     expect(projected.value).toContain('chars omitted]');
     expect(projected.value).toMatch(
-      /projection_omitted: diagnostics=\d+, definitions=\d+, implementations=\d+/
+      /projection_omitted: diagnostics=\d+, definitions=\d+, implementations=\d+/u
     );
   });
 

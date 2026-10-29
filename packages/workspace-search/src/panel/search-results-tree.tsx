@@ -27,7 +27,7 @@ export type HeadlineSegment = string | { mark: string };
  */
 export function splitHeadline(headline: string): HeadlineSegment[] {
   const segments: HeadlineSegment[] = [];
-  const pattern = /<mark>([\s\S]*?)<\/mark>/g;
+  const pattern = /<mark>([\s\S]*?)<\/mark>/gu;
   let lastIndex = 0;
   let match = pattern.exec(headline);
   while (match !== null) {
@@ -158,11 +158,11 @@ function FileRow({
   // The checkbox (the explorer selection) lives on TreeTable via the pluggable API.
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span className="truncate font-medium text-sm" title={file.path}>
+      <FileIcon aria-hidden="true" className="text-muted-foreground h-4 w-4 shrink-0" />
+      <span className="truncate text-sm font-medium" title={file.path}>
         {file.path}
       </span>
-      <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
+      <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
         {file.children.length} {file.children.length === 1 ? 'match' : 'matches'}
       </span>
       {ctx.showRootBadge && file.rootDisplayName ? (
@@ -205,14 +205,14 @@ function ChunkRow({
   const content =
     data.kind === 'text-chunk' ? (
       <>
-        <TextQuote aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate text-muted-foreground text-xs">
+        <TextQuote aria-hidden="true" className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+        <span className="text-muted-foreground truncate text-xs">
           Lines {chunk.startLine}–{chunk.endLine}
           {data.matchCount > 1 ? ` · ${data.matchCount} matches` : ''}
         </span>
       </>
     ) : (
-      <span className="truncate font-mono text-muted-foreground text-xs">
+      <span className="text-muted-foreground truncate font-mono text-xs">
         {renderSegments(
           data.chunk.headline ? splitHeadline(data.chunk.headline) : [data.chunk.content]
         )}
@@ -243,11 +243,11 @@ function MatchRow({
 
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <span className="w-9 shrink-0 text-right font-mono text-muted-foreground/70 text-xs tabular-nums">
+      <span className="text-muted-foreground/70 w-9 shrink-0 text-right font-mono text-xs tabular-nums">
         {match.line}
       </span>
       {/* A narrow panel truncates the line; its title keeps the whole line readable. */}
-      <span className="truncate font-mono text-foreground/80 text-xs" title={match.lineText}>
+      <span className="text-foreground/80 truncate font-mono text-xs" title={match.lineText}>
         {content}
       </span>
     </span>
@@ -536,7 +536,7 @@ export function SearchResultsTree({
           ariaRole="treegrid"
           autoWindowingContext="search"
           columns={columns}
-          emptyState={<p className="p-3 text-muted-foreground text-sm">No matches found</p>}
+          emptyState={<p className="text-muted-foreground p-3 text-sm">No matches found</p>}
           expandedIds={expandedIds}
           getCheckboxAriaLabel={getCheckboxAriaLabel}
           getCheckboxState={getCheckboxState}
@@ -559,7 +559,7 @@ export function SearchResultsTree({
         // workspace-search-executor.ts's buildSemanticResults).
         mode === 'text' && onShowMore ? (
           <button
-            className="self-start text-primary text-xs underline"
+            className="text-primary self-start text-xs underline"
             onClick={onShowMore}
             type="button"
           >

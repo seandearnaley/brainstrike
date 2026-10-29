@@ -55,10 +55,10 @@ async function ensureExplorerVisible(page: Page): Promise<void> {
   }
 
   const explorerButton = page
-    .getByRole('button', { name: /context explorer/i })
-    .or(page.getByRole('link', { name: /context explorer/i }))
-    .or(page.getByRole('button', { name: /explorer/i }))
-    .or(page.getByRole('link', { name: /explorer/i }));
+    .getByRole('button', { name: /context explorer/iu })
+    .or(page.getByRole('link', { name: /context explorer/iu }))
+    .or(page.getByRole('button', { name: /explorer/iu }))
+    .or(page.getByRole('link', { name: /explorer/iu }));
 
   if ((await explorerButton.count()) > 0) {
     await explorerButton.first().click();
@@ -87,8 +87,8 @@ export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
   await ensureExplorerVisible(page);
 
   const responsiveExplorerActions = page
-    .getByRole('button', { name: /view filters/i })
-    .or(page.getByRole('button', { name: /more explorer actions/i }))
+    .getByRole('button', { name: /view filters/iu })
+    .or(page.getByRole('button', { name: /more explorer actions/iu }))
     .filter({ visible: true });
   if (await responsiveExplorerActions.isVisible().catch(() => false)) {
     return;
@@ -98,7 +98,7 @@ export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
   // ('Add Folder to Workspace'); '^browse$' is a legacy exact-match fallback.
   // It stays anchored so .first() can only ever pick a folder picker.
   const selectRootButton = page
-    .getByRole('button', { name: /add folder to workspace|^browse$/i })
+    .getByRole('button', { name: /add folder to workspace|^browse$/iu })
     .first();
   await selectRootButton.waitFor({ state: 'visible', timeout: 10_000 });
   await selectRootButton.click();
@@ -109,7 +109,7 @@ export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
 export async function clearDatabaseRecords(page: Page): Promise<Page> {
   const activePage = await resolveActivePage(page);
   await new HomePage(activePage).openSettings();
-  await new SettingsPage(activePage).openCategory(/Factory Reset/i, 'factory-reset');
+  await new SettingsPage(activePage).openCategory(/Factory Reset/iu, 'factory-reset');
   await activePage.getByRole('button', { exact: true, name: 'Clear content…' }).click();
   const dialog = activePage.getByRole('dialog', { name: 'Clear content' });
   // Main replaces the renderer once the content is gone. Subscribe before confirming:

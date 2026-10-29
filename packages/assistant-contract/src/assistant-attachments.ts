@@ -66,7 +66,7 @@ export function isSupportedImageAttachmentMediaType(mediaType: string): boolean 
 }
 
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const DATA_URL_PREFIX_PATTERN = /^data:([A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+);base64,/;
+const DATA_URL_PREFIX_PATTERN = /^data:([A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+);base64,/u;
 
 interface ParsedBase64DataUrl {
   bytes: number;

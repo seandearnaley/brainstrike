@@ -4,21 +4,21 @@ export function AssistantPanelLoadingState({ label }: { readonly label: string }
   return (
     <div
       aria-label={label}
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      className="bg-background flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       data-testid="assistant-panel-loading"
       role="status"
     >
       <div
-        className="flex h-9 shrink-0 items-center gap-2 border-border border-b bg-muted/20 px-2"
+        className="border-border bg-muted/20 flex h-9 shrink-0 items-center gap-2 border-b px-2"
         data-testid="assistant-panel-loading-tab-strip"
       >
-        <div aria-hidden="true" className="size-7 rounded-full bg-muted/55" />
-        <div aria-hidden="true" className="h-7 min-w-0 flex-1 rounded-t-lg bg-muted/45" />
-        <div aria-hidden="true" className="size-7 rounded-full bg-muted/55" />
-        <div aria-hidden="true" className="h-7 w-16 rounded-full bg-muted/55" />
+        <div aria-hidden="true" className="bg-muted/55 size-7 rounded-full" />
+        <div aria-hidden="true" className="bg-muted/45 h-7 min-w-0 flex-1 rounded-t-lg" />
+        <div aria-hidden="true" className="bg-muted/55 size-7 rounded-full" />
+        <div aria-hidden="true" className="bg-muted/55 h-7 w-16 rounded-full" />
         <span className="sr-only">{label}</span>
       </div>
-      <div aria-hidden="true" className="min-h-0 flex-1 bg-background" />
+      <div aria-hidden="true" className="bg-background min-h-0 flex-1" />
     </div>
   );
 }

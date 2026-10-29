@@ -221,7 +221,7 @@ export function ProvidersSettings({
       {groups.map((group) => (
         <section className="space-y-2" key={group.runtime}>
           <h3
-            className="font-medium text-muted-foreground text-xs uppercase tracking-wide"
+            className="text-muted-foreground text-xs font-medium tracking-wide uppercase"
             data-testid={`provider-group-${group.runtime}`}
           >
             {group.label}

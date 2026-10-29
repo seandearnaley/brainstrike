@@ -131,7 +131,7 @@ function freshConnectDir(label: string): string {
  */
 async function waitForPinnedShellReady(page: Page, cwdDir: string): Promise<void> {
   await page.getByTestId('terminal-panel').waitFor({ state: 'visible', timeout: 30_000 });
-  await expect(page.getByText(/Loading Terminal/i)).toHaveCount(0, { timeout: 20_000 });
+  await expect(page.getByText(/Loading Terminal/iu)).toHaveCount(0, { timeout: 20_000 });
   await expect(page.getByTestId('terminal-panel')).toContainText(path.basename(cwdDir), {
     timeout: 30_000,
   });
@@ -171,7 +171,7 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     // isVisible gate, proven against the real registry rather than a mock.
     await expect(page.getByRole('menuitem', { name: 'Set as Main' })).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: 'Copy Path' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: /^Reveal in / })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /^Reveal in /u })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'New Thread Here' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Disconnect…' })).toBeVisible();
 

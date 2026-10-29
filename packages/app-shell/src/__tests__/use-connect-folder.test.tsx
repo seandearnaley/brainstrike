@@ -2,6 +2,7 @@ import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/bo
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useConnectFolder } from '../workspace-connect/use-connect-folder';
 
 const {
   addRootDirectoryByPathMock,
@@ -36,8 +37,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   toast: toastMock,
 }));
-
-import { useConnectFolder } from '../workspace-connect/use-connect-folder';
 
 describe('useConnectFolder', () => {
   beforeEach(() => {

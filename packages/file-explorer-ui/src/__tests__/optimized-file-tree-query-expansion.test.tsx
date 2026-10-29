@@ -218,7 +218,7 @@ describe('OptimizedFileTree query expansion states', () => {
     expect(packagesCheckbox).toHaveAttribute('data-state', 'checked');
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /expand/i }));
+      fireEvent.click(screen.getByRole('button', { name: /expand/iu }));
     });
     expect(onLoadChildren).toHaveBeenCalledWith('/packages');
 

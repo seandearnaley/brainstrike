@@ -2,6 +2,7 @@ import type { ViewFilterPreset } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useViewFilterPresets } from '../use-view-filter-presets';
 
 // Store mock functions at module level for access in tests
 const mockFindAll = vi.fn();
@@ -31,9 +32,6 @@ vi.mock('@brainstrike/logging', () => ({
     warn: vi.fn(),
   })),
 }));
-
-// Import hook after mocks are set up
-import { useViewFilterPresets } from '../use-view-filter-presets';
 
 const mockPresets: ViewFilterPreset[] = [
   {

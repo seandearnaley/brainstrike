@@ -60,14 +60,14 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       sha:
         description: Full commit SHA to build; it must have every required nightly green. Empty builds the newest all-green main commit.
         type: string
         required: false
-        default: ''
+        default: ""
       unsigned:
         description: Build the unsigned macOS posture even if signing secrets exist (a dispatch never publishes)
         type: boolean
@@ -89,7 +89,7 @@ env:
   # identity by ambient keychain discovery. The `Package DMG` step overrides
   # this with the resolved posture, so a new macOS packaging step added later
   # inherits "never half-signed" rather than auto-discovery (#2960 review).
-  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
 jobs:
   resolve:
@@ -134,7 +134,7 @@ jobs:
 
   context:
     name: Release context
-    needs: [resolve]
+    needs: [ resolve ]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     outputs:
@@ -169,7 +169,7 @@ jobs:
 
   build-macos:
     name: Build macOS (${{ matrix.arch }})
-    needs: [resolve, context]
+    needs: [ resolve, context ]
     # One leg per arch, each on a runner OF that arch (BST-2148): the Native
     # Package Matrix's darwin targets (scripts/native-package-targets.mjs).
     runs-on: ${{ matrix.os }}
@@ -197,7 +197,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       # As in the Native Package Matrix: the install above fetched this host's
       # platform packages and compiled the workspace addons for it, so the
@@ -448,7 +448,7 @@ jobs:
 
   build-windows:
     name: Build Windows (x64)
-    needs: [resolve, context]
+    needs: [ resolve, context ]
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -460,7 +460,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       - name: Build desktop dependency graph
         run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
@@ -521,7 +521,7 @@ jobs:
 
   build-linux:
     name: Build Linux (${{ matrix.arch }})
-    needs: [resolve, context]
+    needs: [ resolve, context ]
     # One leg per arch, each on a Ubicloud runner OF that arch, the Native
     # Package Matrix's linux targets (scripts/native-package-targets.mjs): as on
     # macOS, pnpm installs only the host's platform packages and node-gyp
@@ -548,7 +548,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       - name: Assert the runner is the target
         env:
@@ -638,7 +638,7 @@ jobs:
 
   publish:
     name: Publish release + manifest
-    needs: [resolve, context, build-macos, build-windows, build-linux]
+    needs: [ resolve, context, build-macos, build-windows, build-linux ]
     if: needs.context.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -655,7 +655,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       - name: Download build artifacts
         uses: actions/download-artifact@v7

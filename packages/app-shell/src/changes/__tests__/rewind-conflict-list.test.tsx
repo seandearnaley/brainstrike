@@ -37,8 +37,8 @@ describe('RewindConflictList — acknowledgment copy', () => {
         onAcknowledgedChange={vi.fn()}
       />
     );
-    expect(screen.getByText(/these files will be overwritten/i)).toBeInTheDocument();
-    expect(screen.queryByText(/left as they are/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/these files will be overwritten/iu)).toBeInTheDocument();
+    expect(screen.queryByText(/left as they are/iu)).not.toBeInTheDocument();
   });
 
   it('does not claim an overwrite for conflicts force cannot touch', () => {
@@ -49,8 +49,8 @@ describe('RewindConflictList — acknowledgment copy', () => {
         onAcknowledgedChange={vi.fn()}
       />
     );
-    expect(screen.queryByText(/these files will be overwritten/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/left as they are/i)).toBeInTheDocument();
+    expect(screen.queryByText(/these files will be overwritten/iu)).not.toBeInTheDocument();
+    expect(screen.getByText(/left as they are/iu)).toBeInTheDocument();
   });
 
   it('uses the mixed copy when only SOME conflicts in the set are forceable', () => {
@@ -61,7 +61,7 @@ describe('RewindConflictList — acknowledgment copy', () => {
         onAcknowledgedChange={vi.fn()}
       />
     );
-    expect(screen.queryByText(/these files will be overwritten/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/left as they are/i)).toBeInTheDocument();
+    expect(screen.queryByText(/these files will be overwritten/iu)).not.toBeInTheDocument();
+    expect(screen.getByText(/left as they are/iu)).toBeInTheDocument();
   });
 });

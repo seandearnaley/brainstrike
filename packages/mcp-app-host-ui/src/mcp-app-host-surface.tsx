@@ -38,7 +38,7 @@ function focus(element: HTMLElement | null): void {
 
 function LoadingState({ appName, onCancel }: Pick<McpAppHostSurfaceProps, 'appName' | 'onCancel'>) {
   return (
-    <section aria-label={appName} className="rounded-lg border border-border bg-card p-4">
+    <section aria-label={appName} className="border-border bg-card rounded-lg border p-4">
       <div className="flex items-center justify-between gap-3">
         <span aria-live="polite" role="status">
           Loading {appName}…
@@ -68,7 +68,7 @@ function ErrorState({
   );
   const focusRetry = useCallback((node: HTMLButtonElement | null): void => node?.focus(), []);
   return (
-    <section aria-label={appName} className="rounded-lg border border-destructive/40 bg-card p-4">
+    <section aria-label={appName} className="border-destructive/40 bg-card rounded-lg border p-4">
       <div className="flex flex-col items-start gap-3" ref={focusAlert} role="alert" tabIndex={-1}>
         <p>{ERROR_MESSAGES[code]}</p>
         {onRetry ? (
@@ -106,7 +106,7 @@ function TerminalState({
     <section
       aria-label={appName}
       aria-live="polite"
-      className="rounded-lg border border-border bg-card p-4 text-muted-foreground text-sm"
+      className="border-border bg-card text-muted-foreground rounded-lg border p-4 text-sm"
       ref={recover}
       role="status"
     >
@@ -208,14 +208,14 @@ export function McpAppHostSurface({
 
   if (authoritySnapshot.phase === 'closed') {
     return (
-      <section aria-label={appName} className="rounded-lg border border-destructive/40 bg-card p-4">
+      <section aria-label={appName} className="border-destructive/40 bg-card rounded-lg border p-4">
         <p role="alert">The app session is closed.</p>
       </section>
     );
   }
 
   return (
-    <section aria-label={appName} className="relative rounded-lg border border-border bg-card">
+    <section aria-label={appName} className="border-border bg-card relative rounded-lg border">
       <div aria-hidden={approval ? true : undefined} inert={approval ? true : undefined}>
         <div className="min-h-24">{children}</div>
         {onCancel ? (
@@ -234,10 +234,10 @@ export function McpAppHostSurface({
         <div
           aria-label={`Allow ${appName} to use ${approval.toolName}?`}
           aria-modal="true"
-          className="absolute inset-0 flex items-center justify-center bg-background/90 p-4"
+          className="bg-background/90 absolute inset-0 flex items-center justify-center p-4"
           role="alertdialog"
         >
-          <div className="flex max-w-sm flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-lg">
+          <div className="border-border bg-card flex max-w-sm flex-col gap-3 rounded-lg border p-4 shadow-lg">
             <p className="font-medium">Allow {approval.toolName}?</p>
             <p className="text-muted-foreground text-sm">
               This {approval.riskCategory} action requires your approval.

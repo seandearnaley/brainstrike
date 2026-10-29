@@ -240,7 +240,7 @@ function resolveFixtureLookupPath(fixtureState: FixtureState, path: string): str
   return path;
 }
 
-const FIXTURE_ROOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const FIXTURE_ROOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 /**
  * A fixture-DECLARED durable rootId becomes the root's canonical identity, and

@@ -127,7 +127,7 @@ describe('ElectronHarness state seeding', () => {
     await closeElectronApp(context as unknown as FakeContext);
 
     await expect(harness.restart()).rejects.toThrow(
-      /Electron process exited unexpectedly before intentional close began/
+      /Electron process exited unexpectedly before intentional close began/u
     );
   });
 
@@ -148,8 +148,8 @@ describe('ElectronHarness state seeding', () => {
       'Electron process health check and intentional close both failed'
     );
     expect((aggregate.errors[0] as Error).message).toMatch(
-      /Electron process exited unexpectedly before intentional close began \(code=0, signal=none\)/
+      /Electron process exited unexpectedly before intentional close began \(code=0, signal=none\)/u
     );
-    expect((aggregate.errors[1] as Error).message).toMatch(/reading '_object'/);
+    expect((aggregate.errors[1] as Error).message).toMatch(/reading '_object'/u);
   });
 });

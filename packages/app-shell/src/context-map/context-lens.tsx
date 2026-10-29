@@ -47,7 +47,7 @@ export const ContextLens = memo(function ContextLens({
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="context-map-lens">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="break-all font-medium font-mono text-sm">{row.path}</span>
+        <span className="font-mono text-sm font-medium break-all">{row.path}</span>
         <span className="text-muted-foreground text-xs">
           {folderLabel} · in window {tokens(row.windowTokens)} · delivered{' '}
           {tokens(row.deliveredTokens)}
@@ -62,7 +62,7 @@ export const ContextLens = memo(function ContextLens({
       <table className="w-full table-fixed border-collapse text-xs">
         <caption className="sr-only">Calls that delivered this file</caption>
         <thead>
-          <tr className="text-left text-muted-foreground">
+          <tr className="text-muted-foreground text-left">
             <th className="w-10 py-1 font-normal" scope="col">
               Turn
             </th>
@@ -84,7 +84,7 @@ export const ContextLens = memo(function ContextLens({
                 data-freshness={fresh ?? 'unknown'}
                 key={`${at.call.toolCallId}:${span.startLine ?? 'all'}:${span.chunkId ?? ''}`}
               >
-                <td className="py-1.5 font-mono text-muted-foreground">T{at.turn}</td>
+                <td className="text-muted-foreground py-1.5 font-mono">T{at.turn}</td>
                 <td className="min-w-0 py-1.5">
                   <span className="flex items-center gap-1.5">
                     <span
@@ -95,7 +95,7 @@ export const ContextLens = memo(function ContextLens({
                     {span.partial ? ' (part)' : ''}
                     {span.repeat ? ' (unchanged repeat)' : ''}
                   </span>
-                  <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                  <span className="text-muted-foreground block truncate font-mono text-[11px]">
                     {at.call.toolName} · {STATE_LABEL[at.state]}
                     {fresh && fresh !== 'unknown' ? ` · ${FRESHNESS_LABEL[fresh]}` : ''}
                   </span>

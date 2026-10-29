@@ -8,11 +8,11 @@ export default defineConfig({
     alias: [
       // Capability tests run Node-only provider/tool code directly from source.
       {
-        find: /^@brainstrike\/agent$/,
+        find: /^@brainstrike\/agent$/u,
         replacement: resolve(import.meta.dirname, '../agent/src/index.ts'),
       },
       ...['mcp-client', 'provider-request', 'provider-runtime', 'tool-runtime'].map((subpath) => ({
-        find: new RegExp(`^@brainstrike/agent/${subpath}$`),
+        find: new RegExp(`^@brainstrike/agent/${subpath}$`, 'u'),
         replacement: resolve(import.meta.dirname, `../agent/src/${subpath}.ts`),
       })),
     ],

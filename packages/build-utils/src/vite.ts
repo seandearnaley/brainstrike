@@ -7,7 +7,7 @@ import { isCompilerHotspot } from './compiler-hotspots.ts';
 const CSP_QUALIFIED_EVAL_MODULES = [
   // Python grammar path requalified under the production CSP (BST-2033).
   // Keep version and module exact.
-  /\/node_modules\/\.pnpm\/web-tree-sitter@0\.27\.1\/node_modules\/web-tree-sitter\/web-tree-sitter\.js$/,
+  /\/node_modules\/\.pnpm\/web-tree-sitter@0\.27\.1\/node_modules\/web-tree-sitter\/web-tree-sitter\.js$/u,
 ] as const;
 
 /**
@@ -67,7 +67,7 @@ export function isContextActionSystemModule(id: string): boolean {
   // Matches the core package (…/context-actions/src/…, which also hosts the
   // commands registry under src/commands/) and every feature
   // …/src/context-actions/… module that calls defineContextAction at init.
-  return /[\\/]context-actions[\\/]/.test(id);
+  return /[\\/]context-actions[\\/]/u.test(id);
 }
 
 /**
@@ -80,7 +80,7 @@ export function isContextActionSystemModule(id: string): boolean {
  * initializes before any store chunk can need it.
  */
 export function isZustandModule(id: string): boolean {
-  return /[\\/]node_modules[\\/]zustand[\\/]/.test(id);
+  return /[\\/]node_modules[\\/]zustand[\\/]/u.test(id);
 }
 
 /**
@@ -95,7 +95,7 @@ export function isSanitizedPersistMergeModule(id: string): boolean {
   if (id.includes('node_modules')) {
     return false;
   }
-  return /[\\/]app-state[\\/](?:src|dist)[\\/]stores[\\/]sanitized-persist-merge\.[cm]?[jt]s$/.test(
+  return /[\\/]app-state[\\/](?:src|dist)[\\/]stores[\\/]sanitized-persist-merge\.[cm]?[jt]s$/u.test(
     id
   );
 }

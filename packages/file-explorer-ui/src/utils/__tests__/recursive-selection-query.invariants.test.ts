@@ -2,6 +2,8 @@
 import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { querySelectableFiles } from '../recursive-selection-query';
+import { createDirectoryNode, createFileNode } from './helpers/recursive-selection-test-kit';
 
 // Future-regression simulation switch: when enabled, loadDirectoryChildren
 // behaves like a loader variant WITHOUT the post-read AbortError recheck —
@@ -42,9 +44,6 @@ vi.mock('../lazy-tree-loader', async (importOriginal) => {
     },
   };
 });
-
-import { querySelectableFiles } from '../recursive-selection-query';
-import { createDirectoryNode, createFileNode } from './helpers/recursive-selection-test-kit';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();

@@ -404,7 +404,7 @@ export function CodeSurface({
   return (
     <div
       className={cn(
-        'h-full min-h-0 overflow-hidden border-border border-t bg-background text-foreground',
+        'border-border bg-background text-foreground h-full min-h-0 overflow-hidden border-t',
         className
       )}
       data-editable={editable ? 'true' : 'false'}

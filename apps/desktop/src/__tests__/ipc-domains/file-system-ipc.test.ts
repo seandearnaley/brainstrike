@@ -12,19 +12,16 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { RootDescriptor } from '@brainstrike/types';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  createAllowlistedSenderFrame,
-  createTrustedInvokeEvent,
-} from '../helpers/desktop-ipc-sender-test-helpers';
-
-vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
-
 import { trackAppWindow, untrackAppWindow } from '../../app-windows';
 import { fileSystemContract } from '../../ipc-domains/file-system.contract';
 import {
   createFileSystemIpcDomain,
   registerFileSystemIpcHandlers,
 } from '../../ipc-domains/file-system-ipc';
+import {
+  createAllowlistedSenderFrame,
+  createTrustedInvokeEvent,
+} from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   capabilityHandler,
   createFileSystem,
@@ -35,6 +32,8 @@ import {
   resetRootsCatalog,
   rootsCatalogRequest,
 } from './file-system-ipc-test-harness';
+
+vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
 const WORKSPACE = path.resolve('/users/test/workspace');
 const MANAGED = path.resolve('/managed/app/bright-fox');
@@ -181,7 +180,7 @@ describe('file system IPC domain', () => {
       path: WORKSPACE,
       platform: 'electron',
     });
-    expect(handle.rootId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(handle.rootId).toMatch(/^[0-9a-f-]{36}$/u);
     expect(storage.setItem).toHaveBeenCalledWith(
       'rootsList',
       expect.stringContaining(handle.rootId ?? '')

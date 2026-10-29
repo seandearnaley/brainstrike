@@ -50,7 +50,7 @@ describe('renderMarkedText', () => {
     const mark = screen.getByText('b');
     expect(mark.tagName).toBe('MARK');
     // Angle-bracket content outside <mark> stays literal text, never HTML.
-    expect(screen.getByText(/<script>x<\/script>/)).toBeInTheDocument();
+    expect(screen.getByText(/<script>x<\/script>/u)).toBeInTheDocument();
   });
 });
 

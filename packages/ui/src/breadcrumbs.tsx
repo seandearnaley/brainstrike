@@ -61,7 +61,7 @@ export interface BreadcrumbsProps {
 
 function Separator() {
   return (
-    <ChevronRight aria-hidden="true" className="h-3 w-3 flex-shrink-0 text-muted-foreground/60" />
+    <ChevronRight aria-hidden="true" className="text-muted-foreground/60 h-3 w-3 flex-shrink-0" />
   );
 }
 
@@ -76,7 +76,7 @@ function SegmentButton({
   segment: BreadcrumbSegment;
 }) {
   if (!onSegmentClick) {
-    return <span className="truncate text-muted-foreground">{segment.label}</span>;
+    return <span className="text-muted-foreground truncate">{segment.label}</span>;
   }
   return (
     <button
@@ -164,7 +164,7 @@ export function Breadcrumbs({
       );
     } else if (isLeaf) {
       content = (
-        <span aria-current="page" className="truncate text-foreground" title={segment.path}>
+        <span aria-current="page" className="text-foreground truncate" title={segment.path}>
           {segment.label}
         </span>
       );
@@ -188,7 +188,7 @@ export function Breadcrumbs({
             <Separator />
             <span
               aria-hidden="true"
-              className="flex h-4 w-4 items-center justify-center text-muted-foreground"
+              className="text-muted-foreground flex h-4 w-4 items-center justify-center"
               title={collapsed.map((segment) => segment.label).join(' / ')}
             >
               <MoreHorizontal className="h-3 w-3" />
@@ -202,7 +202,7 @@ export function Breadcrumbs({
               <DropdownMenuTrigger asChild>
                 <button
                   aria-label="Show hidden path segments"
-                  className="flex h-4 w-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex h-4 w-4 items-center justify-center rounded-sm transition-colors focus-visible:ring-1 focus-visible:outline-none"
                   type="button"
                 >
                   <MoreHorizontal className="h-3 w-3" />

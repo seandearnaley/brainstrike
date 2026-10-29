@@ -1,5 +1,8 @@
+// Import mocked Electron parts for use in assertions
+import { ipcMain } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { invokeDesktopIpc } from './helpers/desktop-ipc-sender-test-helpers';
+import '../main';
 
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
@@ -85,9 +88,6 @@ vi.mock('electron', async () => {
   };
 });
 
-// Import mocked Electron parts for use in assertions
-import { ipcMain } from 'electron';
-
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('@brainstrike/file-system/electron', () => {
   const MockAdapter = vi.fn();
@@ -113,8 +113,6 @@ vi.mock('electron-store', () => {
   });
   return { default: MockElectronStore };
 });
-
-import '../main';
 
 describe('db:getUserDataPath IPC handler', () => {
   it('returns the Electron profile path without constructing a PostgreSQL path', async () => {

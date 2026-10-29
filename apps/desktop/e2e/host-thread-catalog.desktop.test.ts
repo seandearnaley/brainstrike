@@ -122,7 +122,7 @@ test('@smoke every offered chat opens, New sends, and current conversations surv
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, 'current-chat-saved-retired-tab');
   await ensureAssistantShellVisible(page);
-  await expect(page.getByText(/Your saved conversation is unavailable/)).toBeVisible();
+  await expect(page.getByText(/Your saved conversation is unavailable/u)).toBeVisible();
   await expect(page.getByTestId('assistant-new-thread-button')).toBeEnabled();
 
   const inspectAllChats = async (): Promise<void> => {

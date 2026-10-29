@@ -142,7 +142,7 @@ describe('injectActivatedSkillsContext', () => {
     const text = systemTextOf(result);
     expect(text).toContain('Alpha body.');
     expect(text).toContain('Beta body.');
-    expect(text).toMatch(/ghost.*not available|not available.*ghost/i);
+    expect(text).toMatch(/ghost.*not available|not available.*ghost/iu);
   });
 
   it('scans only the LAST user message', async () => {
@@ -170,7 +170,7 @@ describe('injectActivatedSkillsContext', () => {
     const result = await injectActivatedSkillsContext(messages, engine);
     const text = systemTextOf(result);
     expect(text.length).toBeLessThanOrEqual(MAX_SKILL_ACTIVATION_CHARS_PER_SKILL + 2000);
-    expect(text).toMatch(/truncated/i);
+    expect(text).toMatch(/truncated/iu);
   });
 
   it('enforces the aggregate budget as a HARD ceiling with an honest omission note', async () => {
@@ -184,7 +184,7 @@ describe('injectActivatedSkillsContext', () => {
     const result = await injectActivatedSkillsContext(messages, engine);
     const text = systemTextOf(result);
     expect(text.length).toBeLessThanOrEqual(MAX_SKILL_ACTIVATION_TOTAL_CHARS + 2000);
-    expect(text).toMatch(/omitted/i);
+    expect(text).toMatch(/omitted/iu);
     expect(text).toContain('big-c');
   });
 
@@ -199,6 +199,6 @@ describe('injectActivatedSkillsContext', () => {
     const text = systemTextOf(result);
     expect(text).toContain(`${names[0]} body.`);
     expect(text).not.toContain(`${names.at(-1)} body.`);
-    expect(text).toMatch(/omitted|not activated/i);
+    expect(text).toMatch(/omitted|not activated/iu);
   });
 });

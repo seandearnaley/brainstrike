@@ -72,14 +72,14 @@ describe('SelectionCounter', () => {
 
       const button = screen.getByTestId('selection-count').closest('button');
       expect(button).toHaveClass('text-sm');
-      expect(button?.className).toMatch(/bg-background/);
+      expect(button?.className).toMatch(/bg-background/u);
     });
 
     it('uses destructive styling when at limit', () => {
       render(<SelectionCounter maxSelectionCount={10} selectedCount={10} />);
 
       const button = screen.getByTestId('selection-count').closest('button');
-      expect(button?.className).toMatch(/bg-destructive/);
+      expect(button?.className).toMatch(/bg-destructive/u);
     });
 
     it('displays as output element for accessibility', () => {
@@ -170,7 +170,7 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
     });
 
@@ -190,14 +190,14 @@ describe('SelectionCounter', () => {
 
       // Wait for input to appear
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
       fireEvent.change(input, { target: { value: '250' } });
 
       // Click apply button
-      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      const applyButton = screen.getByLabelText(/Apply selection count/iu);
       fireEvent.click(applyButton);
 
       expect(onChange).toHaveBeenCalledWith(250);
@@ -243,17 +243,17 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
       fireEvent.change(input, { target: { value: 'invalid' } });
 
-      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      const applyButton = screen.getByLabelText(/Apply selection count/iu);
       fireEvent.click(applyButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/Please enter a whole number/i)).toBeInTheDocument();
+        expect(screen.getByText(/Please enter a whole number/iu)).toBeInTheDocument();
       });
 
       expect(onChange).not.toHaveBeenCalled();
@@ -274,14 +274,14 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const cancelButton = screen.getByLabelText(/Cancel/i);
+      const cancelButton = screen.getByLabelText(/Cancel/iu);
       fireEvent.click(cancelButton);
 
       await waitFor(() => {
-        expect(screen.queryByLabelText(/Maximum selection count input/i)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/Maximum selection count input/iu)).not.toBeInTheDocument();
       });
     });
 
@@ -332,10 +332,10 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
       expect(input).toHaveAttribute('inputMode', 'numeric');
     });
 
@@ -354,14 +354,14 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
       fireEvent.keyDown(input, { key: 'Escape' });
 
       await waitFor(() => {
-        expect(screen.queryByLabelText(/Maximum selection count input/i)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/Maximum selection count input/iu)).not.toBeInTheDocument();
       });
 
       expect(onChange).not.toHaveBeenCalled();
@@ -382,10 +382,10 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
       fireEvent.change(input, { target: { value: '75' } });
       fireEvent.keyDown(input, { key: 'Enter' });
 
@@ -407,19 +407,19 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
 
       // Enter invalid value
       fireEvent.change(input, { target: { value: 'invalid' } });
-      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      const applyButton = screen.getByLabelText(/Apply selection count/iu);
       fireEvent.click(applyButton);
 
       // Error should appear
       await waitFor(() => {
-        expect(screen.getByText(/Please enter a whole number/i)).toBeInTheDocument();
+        expect(screen.getByText(/Please enter a whole number/iu)).toBeInTheDocument();
       });
 
       // Correct the input
@@ -427,7 +427,7 @@ describe('SelectionCounter', () => {
 
       // Error should disappear
       await waitFor(() => {
-        expect(screen.queryByText(/Please enter a whole number/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Please enter a whole number/iu)).not.toBeInTheDocument();
       });
     });
 
@@ -446,17 +446,17 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
       fireEvent.change(input, { target: { value: '0' } });
 
-      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      const applyButton = screen.getByLabelText(/Apply selection count/iu);
       fireEvent.click(applyButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/Minimum selection count is 1/i)).toBeInTheDocument();
+        expect(screen.getByText(/Minimum selection count is 1/iu)).toBeInTheDocument();
       });
 
       expect(onChange).not.toHaveBeenCalled();
@@ -477,17 +477,17 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
       fireEvent.change(input, { target: { value: '50000' } });
 
-      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      const applyButton = screen.getByLabelText(/Apply selection count/iu);
       fireEvent.click(applyButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/Maximum selection count is 10,000/i)).toBeInTheDocument();
+        expect(screen.getByText(/Maximum selection count is 10,000/iu)).toBeInTheDocument();
       });
 
       expect(onChange).not.toHaveBeenCalled();
@@ -508,20 +508,20 @@ describe('SelectionCounter', () => {
       fireEvent.click(badge!);
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
-      const input = screen.getByLabelText(/Maximum selection count input/i);
+      const input = screen.getByLabelText(/Maximum selection count input/iu);
       fireEvent.change(input, { target: { value: 'abc' } });
 
-      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      const applyButton = screen.getByLabelText(/Apply selection count/iu);
       fireEvent.click(applyButton);
 
       await waitFor(() => {
         const errorElement = screen.getByRole('alert');
         expect(errorElement).toBeInTheDocument();
         expect(errorElement).toHaveAttribute('aria-live', 'polite');
-        expect(errorElement).toHaveTextContent(/Please enter a whole number/i);
+        expect(errorElement).toHaveTextContent(/Please enter a whole number/iu);
       });
     });
   });

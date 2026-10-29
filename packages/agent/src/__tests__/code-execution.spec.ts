@@ -67,18 +67,18 @@ describe('parseExecutorKind', () => {
   it.each(['docker', '', 'FENCE', 0, null, undefined, {}, Symbol('fence')])(
     'throws the contracted error on unsupported value %j',
     (value) => {
-      expect(() => parseExecutorKind(value)).toThrowError(/not a supported code-execution mode/);
+      expect(() => parseExecutorKind(value)).toThrowError(/not a supported code-execution mode/u);
     }
   );
 
   it('throws the contracted error for a BigInt rather than a serialization TypeError', () => {
-    expect(() => parseExecutorKind(1n)).toThrowError(/not a supported code-execution mode/);
+    expect(() => parseExecutorKind(1n)).toThrowError(/not a supported code-execution mode/u);
   });
 
   it('throws the contracted error for a circular object', () => {
     const circular: Record<string, unknown> = {};
     circular['self'] = circular;
-    expect(() => parseExecutorKind(circular)).toThrowError(/not a supported code-execution mode/);
+    expect(() => parseExecutorKind(circular)).toThrowError(/not a supported code-execution mode/u);
   });
 });
 
@@ -190,7 +190,7 @@ describe('parseExecInput', () => {
           scratchDir: '/tmp/scratch',
         })
       )
-    ).toThrowError(/scratchDir must be covered by policy.allowWrite/);
+    ).toThrowError(/scratchDir must be covered by policy.allowWrite/u);
   });
 
   it('accepts a scratchDir nested under an allowed write root', () => {
@@ -514,7 +514,7 @@ describe('ExecAbortedError', () => {
     expect(error.code).toBe('exec_aborted');
     expect(error.name).toBe('ExecAbortedError');
     expect(error.processStarted).toBe(false);
-    expect(error.message).toMatch(/before any process started/i);
+    expect(error.message).toMatch(/before any process started/iu);
     expect(error.partialStdout).toBe('');
     expect(error.partialStderr).toBe('');
     expect(error.stdoutOmittedBytes).toBe(0);
@@ -534,7 +534,7 @@ describe('ExecAbortedError', () => {
     expect(error.partialStderr).toBe('warn');
     expect(error.stdoutOmittedBytes).toBe(12);
     expect(error.stderrOmittedBytes).toBe(3);
-    expect(error.message).toMatch(/process tree was terminated/i);
+    expect(error.message).toMatch(/process tree was terminated/iu);
   });
 
   it('is an Error, so one catch covers both positions', () => {

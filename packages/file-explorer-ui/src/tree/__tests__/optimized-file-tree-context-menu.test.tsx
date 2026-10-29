@@ -162,7 +162,7 @@ describe('OptimizedFileTree context menu', () => {
     expect(screen.getByRole('menuitem', { name: 'Copy Name' })).toBeInTheDocument();
     // Web-style relative paths → no absolutePath → absolute-path actions hidden.
     expect(screen.queryByRole('menuitem', { name: 'Copy Full Path' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: /Reveal in/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Reveal in/u })).not.toBeInTheDocument();
   });
 
   it('copies the relative path of the right-clicked file', async () => {

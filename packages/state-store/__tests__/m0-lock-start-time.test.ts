@@ -87,7 +87,7 @@ test('L-error: an unavailable identity source rejects identity instead of claimi
   windowsIdentity.getProcessCreationTime = unavailable;
   syncBuiltinESMExports();
   try {
-    expect(() => processStartTime(99_999_999)).toThrow(/identity source unavailable/);
+    expect(() => processStartTime(99_999_999)).toThrow(/identity source unavailable/u);
   } finally {
     (cp as { execFileSync: unknown }).execFileSync = originalPs;
     (fs as { readFileSync: unknown }).readFileSync = originalProc;

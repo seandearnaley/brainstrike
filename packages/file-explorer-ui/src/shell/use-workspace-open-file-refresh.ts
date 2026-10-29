@@ -42,7 +42,7 @@ function normalizePath(path: string): string {
   if (/^[A-Za-z]:\/+$/u.test(withForwardSlashes)) {
     return `${withForwardSlashes.slice(0, 2)}/`;
   }
-  return withForwardSlashes.replace(/\/+$/, '');
+  return withForwardSlashes.replace(/\/+$/u, '');
 }
 
 function isWindowsRootPath(rootPath: string): boolean {
@@ -67,7 +67,7 @@ function pathComparisonKey(path: string, rootPath: string): string {
       relativePath = normalizeFilePathForFolder(path, rootPath);
     }
   }
-  const normalizedRelativePath = normalizePath(relativePath).replace(/^\/+/, '');
+  const normalizedRelativePath = normalizePath(relativePath).replace(/^\/+/u, '');
   return windowsRoot ? normalizedRelativePath.toLowerCase() : normalizedRelativePath;
 }
 

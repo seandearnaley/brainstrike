@@ -80,7 +80,7 @@ describe('canonical utility ownership', () => {
         owner: 'foreign',
         value: 'late',
       })
-    ).toThrow(/owner/);
+    ).toThrow(/owner/u);
     expect(channel.pendingCount).toBe(1);
     channel.receive({
       channel: 'canonical-ingestion-v1',
@@ -119,7 +119,7 @@ describe('canonical utility ownership', () => {
         owner: 'owner',
         value: 'x'.repeat(MAX_CANONICAL_MESSAGE_BYTES),
       })
-    ).toThrow(/bound/);
+    ).toThrow(/bound/u);
   });
 
   it('bounds pending calls and rolls back a synchronous failed send', async () => {
@@ -132,7 +132,7 @@ describe('canonical utility ownership', () => {
     expect(channel.pendingCount).toBe(0);
     const full = new CanonicalUtilityChannel(() => {}, 1);
     const pending = full.call('owner', 'load-files', {}, Schema.String);
-    await expect(full.call('owner', 'load-files', {}, Schema.String)).rejects.toThrow(/pending/);
+    await expect(full.call('owner', 'load-files', {}, Schema.String)).rejects.toThrow(/pending/u);
     full.fail(new Error('exit joined'));
     await expect(pending).rejects.toThrow('exit joined');
   });

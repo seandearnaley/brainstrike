@@ -40,7 +40,7 @@ export class AssistantPanelErrorBoundary extends Component<Props, State> {
         <div className="flex flex-col items-start gap-2 p-4 text-sm" role="alert">
           <p>The assistant panel hit an error and stopped rendering.</p>
           <button
-            className="rounded-md border border-border px-3 py-1"
+            className="border-border rounded-md border px-3 py-1"
             onClick={this.reset}
             type="button"
           >

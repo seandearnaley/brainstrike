@@ -81,6 +81,7 @@ declare global {
   // This is a TypeScript ambient `var` declaration (no runtime effect — the var
   // keyword here is a TypeScript idiom for declaring a constructable global in
   // a declare-global block; it does not produce a real var statement in output).
+  // biome-ignore lint/style/useVarsOnTop: an ambient global declaration, not a runtime var.
   var FileSystemObserver: {
     new (callback: FileSystemObserverCallback): FileSystemObserver;
   };

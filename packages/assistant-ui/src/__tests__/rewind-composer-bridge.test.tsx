@@ -7,17 +7,16 @@
  * is that the drain happens exactly once and only for real text.
  */
 import { render } from '@testing-library/react';
+import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RewindComposerBridge } from '../message-rewind-action';
+import { useRewindComposerStore } from '../rewind-composer-store';
+import { RewindProvider } from '../rewind-context';
 
 const setText = vi.fn();
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({ composer: () => ({ setText }) }),
 }));
-
-import type { PropsWithChildren } from 'react';
-import { RewindComposerBridge } from '../message-rewind-action';
-import { useRewindComposerStore } from '../rewind-composer-store';
-import { RewindProvider } from '../rewind-context';
 
 beforeEach(() => {
   useRewindComposerStore.getState().consume();
@@ -27,7 +26,7 @@ beforeEach(() => {
 describe('useRewindComposerStore', () => {
   it('refuses whitespace-only text rather than storing an empty repopulation', () => {
     expect(() => useRewindComposerStore.getState().requestComposerText('   ')).toThrow(
-      /non-whitespace/
+      /non-whitespace/u
     );
     expect(useRewindComposerStore.getState().pendingText).toBeNull();
   });

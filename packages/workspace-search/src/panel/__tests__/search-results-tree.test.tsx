@@ -11,6 +11,7 @@ import type {
   WorkspaceSearchTextMatch,
 } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
+import { highlightQuery, SearchResultsTree, splitHeadline } from '../search-results-tree';
 
 // Render every virtual row headlessly (happy-dom has no layout dimensions).
 vi.mock('@tanstack/react-virtual', () => ({
@@ -36,8 +37,6 @@ const bridgeMock: SearchSelectionBridge = {
 vi.mock('../../bridge/use-search-selection-bridge', () => ({
   useSearchSelectionBridge: () => bridgeMock,
 }));
-
-import { highlightQuery, SearchResultsTree, splitHeadline } from '../search-results-tree';
 
 const resolveAdapterRootId = (dbRootId: string): string | null =>
   dbRootId === 'root-unmounted' ? null : `adapter-${dbRootId}`;
@@ -239,7 +238,7 @@ describe('SearchResultsTree', () => {
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
     expect(screen.getByText('beta', { selector: 'mark' })).toBeInTheDocument();
     // The literal tag text must never reach the DOM.
-    expect(screen.queryByText(/<mark>/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/<mark>/u)).not.toBeInTheDocument();
   });
 
   it('navigates on row click: match rows pass their line', () => {
@@ -341,14 +340,14 @@ describe('SearchResultsTree', () => {
     const multi = render(
       <SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />
     );
-    expect(multi.getByText(/· 2 matches/)).toBeInTheDocument();
+    expect(multi.getByText(/· 2 matches/u)).toBeInTheDocument();
     multi.unmount();
 
     seedResults(
       makeResults([fileResult({ children: [textMatch({ chunkId: 'chunk-1', line: 9 })] })])
     );
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    expect(screen.queryByText(/matches/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/matches/u)).not.toBeInTheDocument();
   });
 
   it('navigates to the chunk startLine and selects the range when a text chunk row is clicked', () => {
@@ -364,7 +363,7 @@ describe('SearchResultsTree', () => {
     render(
       <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
     );
-    fireEvent.click(screen.getByText(/Lines 8–/));
+    fireEvent.click(screen.getByText(/Lines 8–/u));
     expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', {
       line: 8,
       selection: { endLine: 12, startLine: 8 },
@@ -435,7 +434,7 @@ describe('SearchResultsTree', () => {
     );
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
     // The honest fallback copy still renders instead.
-    expect(screen.getByText(/Results limited to first/)).toBeInTheDocument();
+    expect(screen.getByText(/Results limited to first/u)).toBeInTheDocument();
   });
 
   it('renders the missing-line-metadata notice with a count and honest cause copy', () => {
@@ -525,7 +524,7 @@ describe('SearchResultsTree select-all header', () => {
   it('renders no header when zero files are rendered', () => {
     seedResults(makeResults([]));
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    expect(screen.queryByRole('checkbox', { name: /Select .* shown/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Select .* shown/u })).not.toBeInTheDocument();
   });
 
   it('reads checked when every rendered file is checked', () => {

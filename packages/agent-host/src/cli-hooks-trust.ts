@@ -41,7 +41,7 @@ async function reviewProjectHooks(root: string, interactive: boolean): Promise<s
   const terminal = createInterface({ input: process.stdin, output: process.stderr });
   try {
     const answer = await terminal.question('Trust these project hooks? [y/N] ');
-    if (!/^y(es)?$/i.test(answer.trim())) {
+    if (!/^y(es)?$/iu.test(answer.trim())) {
       throw new HostCliExitError('The project hooks were not trusted', 1);
     }
   } finally {

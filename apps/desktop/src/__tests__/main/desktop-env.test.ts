@@ -167,7 +167,7 @@ describe('createCredentialIsolatedChildEnvironment', () => {
     // A tripwire on the whole set rather than on the names BST-1353 happened
     // to add: anything that looks like a secret must never land here.
     for (const name of NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES) {
-      expect(name).not.toMatch(/KEY|SECRET|TOKEN|PASSWORD/);
+      expect(name).not.toMatch(/KEY|SECRET|TOKEN|PASSWORD/u);
     }
   });
 });

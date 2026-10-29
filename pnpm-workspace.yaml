@@ -29,27 +29,27 @@ catalog:
   # ADR-0012: only the new host consumes this pin; the legacy Mastra closure retains ai 6.
   ai: 7.0.142
   vscode-jsonrpc: 9.0.3
-  '@ai-sdk/amazon-bedrock': 5.0.117
+  "@ai-sdk/amazon-bedrock": 5.0.117
   # BST-2067: the AI SDK's OpenTelemetry GenAI integration. LOCKSTEP with `ai`:
   # each release depends on `ai` at an EXACT version (1.0.142 -> ai 7.0.142) and
   # reads that release's telemetry events, so a split bump installs a second `ai`.
   # Node-only: the host process loads it when tracing is on; no browser bundle.
-  '@ai-sdk/otel': 1.0.142
+  "@ai-sdk/otel": 1.0.142
   # BST-2029: retain the qualified fence until 0.0.79 passes both OS suites.
   # macOS behavior passed; Linux readiness is blocked by host AppArmor policy.
-  '@anthropic-ai/sandbox-runtime': 0.0.80
+  "@anthropic-ai/sandbox-runtime": 0.0.80
   # BST-1353: the AWS default credential chain (profiles, SSO, process creds,
   # instance/container roles) behind Bedrock's `credentialProvider` seam.
   # Node-only — imported ONLY beside the provider factory, never from the
   # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
-  '@aws-sdk/credential-providers': 3.1159.0
-  '@assistant-ui/react': '~0.15.32'
-  '@assistant-ui/react-streamdown': 0.3.21
+  "@aws-sdk/credential-providers": 3.1159.0
+  "@assistant-ui/react": "~0.15.32"
+  "@assistant-ui/react-streamdown": 0.3.21
   # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
   # implementation (eslint/prettier/lint-staged/globby all use it); already
   # present transitively, promoted to a direct dep so the walk can rely on it.
-  '@babel/core': ^8.0.9
-  '@codemirror/state': ^6.7.6
+  "@babel/core": ^8.0.9
+  "@codemirror/state": ^6.7.6
   # ADR-0004: the Effect language service on TypeScript 7. Run in dedicated
   # `effect-tsgo diagnostics` mode from each Effect package's type-check, never
   # `effect-tsgo patch`: patch rewrites the shared `tsc`, and the `typescript`
@@ -57,13 +57,13 @@ catalog:
   # the second type-check stands; see docs/agents/effect-boundary.md.
   # Exact pin: its supported TypeScript list moves with every release (0.52.0
   # supports 7.0.2 and 7.1.0-dev, matching the `@typescript/native` alias).
-  '@effect/tsgo': 0.53.3
+  "@effect/tsgo": 0.53.3
   # BST-1939: the native grep trigram planner parses the JS regex AST. Already
   # resolved through eslint; promoted to a direct dependency of @brainstrike/utils.
-  '@eslint-community/regexpp': 4.12.2
-  '@fontsource-variable/geist': ^5.3.0
-  '@fontsource-variable/geist-mono': ^5.3.0
-  '@mastra/schema-compat': 1.3.15
+  "@eslint-community/regexpp": 4.12.2
+  "@fontsource-variable/geist": ^5.3.0
+  "@fontsource-variable/geist-mono": ^5.3.0
+  "@mastra/schema-compat": 1.3.15
   # GHSA-6qxp-vccf-f47h / CVE-2026-104850 (HIGH, CVSS 7.5): in 2.0.0-2.1.0 the
   # MCP *server* chose which authorization server received a stored
   # `refresh_token` or `client_secret`, because saved credentials carried no
@@ -77,52 +77,52 @@ catalog:
   # `core` at an EXACT version, so a split bump resolves two copies of the
   # protocol schema. `node` has no 2.3.x release; 2.1.1 is its head and
   # peer-depends on `server` at ^2.3.0, so it moves with them.
-  '@modelcontextprotocol/client': 2.4.0
-  '@modelcontextprotocol/core': 2.4.0
-  '@modelcontextprotocol/node': 2.1.2
-  '@modelcontextprotocol/server': 2.4.0
-  '@openrouter/ai-sdk-provider': 3.1.0
+  "@modelcontextprotocol/client": 2.4.0
+  "@modelcontextprotocol/core": 2.4.0
+  "@modelcontextprotocol/node": 2.1.2
+  "@modelcontextprotocol/server": 2.4.0
+  "@openrouter/ai-sdk-provider": 3.1.0
   # BST-2067: OTLP trace export for host runs (packages/agent-host/src/telemetry).
   # Node-only. `@ai-sdk/otel` depends on `@opentelemetry/api` at 1.9.1 exactly and
   # the SDK peer-depends on <1.10.0: pin the same version so one copy installs.
   # LOCKSTEP: the 0.223.0 exporter depends on the 2.12.0 SDK packages exactly.
-  '@opentelemetry/api': 1.9.1
-  '@opentelemetry/exporter-trace-otlp-http': 0.223.0
-  '@opentelemetry/resources': 2.12.0
-  '@opentelemetry/sdk-trace-node': 2.12.0
-  '@playwright/test': 1.64.1
-  '@radix-ui/react-accordion': ^1.3.1
-  '@radix-ui/react-checkbox': ^1.4.1
-  '@radix-ui/react-dialog': ^1.3.1
-  '@radix-ui/react-scroll-area': ^1.4.0
-  '@radix-ui/react-tabs': ^1.2.1
-  '@radix-ui/react-toast': ^1.3.1
-  '@shikijs/langs': ^4.5.0
-  '@shikijs/themes': ^4.5.0
-  '@smithy/eventstream-codec': ^4.5.2
-  '@smithy/util-utf8': ^4.5.2
-  '@tailwindcss/typography': ^0.5.20
-  '@tailwindcss/vite': ^4.3.3
-  '@tanstack/react-table': ^9.3.1
-  '@tanstack/react-virtual': 3.14.23
-  '@testing-library/dom': ^10.4.2
-  '@testing-library/jest-dom': ^7.0.1
-  '@testing-library/react': ^16.3.3
-  '@testing-library/user-event': ^14.6.8
+  "@opentelemetry/api": 1.9.1
+  "@opentelemetry/exporter-trace-otlp-http": 0.223.0
+  "@opentelemetry/resources": 2.12.0
+  "@opentelemetry/sdk-trace-node": 2.12.0
+  "@playwright/test": 1.64.1
+  "@radix-ui/react-accordion": ^1.3.1
+  "@radix-ui/react-checkbox": ^1.4.1
+  "@radix-ui/react-dialog": ^1.3.1
+  "@radix-ui/react-scroll-area": ^1.4.0
+  "@radix-ui/react-tabs": ^1.2.1
+  "@radix-ui/react-toast": ^1.3.1
+  "@shikijs/langs": ^4.5.0
+  "@shikijs/themes": ^4.5.0
+  "@smithy/eventstream-codec": ^4.5.2
+  "@smithy/util-utf8": ^4.5.2
+  "@tailwindcss/typography": ^0.5.20
+  "@tailwindcss/vite": ^4.3.3
+  "@tanstack/react-table": ^9.3.1
+  "@tanstack/react-virtual": 3.14.23
+  "@testing-library/dom": ^10.4.2
+  "@testing-library/jest-dom": ^7.0.1
+  "@testing-library/react": ^16.3.3
+  "@testing-library/user-event": ^14.6.8
   # BST-1920: types for better-sqlite3 (13.x ships none). Exact pin on the newest
   # published release (9.6.0, 2026-08-01); DefinitelyTyped majors do not track the
   # runtime's. `Database.Options` and `loadExtension(path)` type-check against
   # better-sqlite3 13.0.3 (packages/sqlite-native `tsc` and its type-check).
-  '@types/better-sqlite3': 9.6.0
+  "@types/better-sqlite3": 9.6.0
   # BST-2028: maintain the Node 24 application API line; Node 26 is the toolchain.
-  '@types/node': ^24.19.2
-  '@types/react': ^19.3.0
-  '@types/react-dom': ^19.3.0
-  '@typescript/native': 'npm:typescript@7.0.2'
-  '@typescript/old': 'npm:typescript@6.0.3'
-  '@vitejs/plugin-react': ^6.1.2
-  '@vitest/browser-playwright': ^5.0.5
-  '@vitest/coverage-v8': ^5.0.5
+  "@types/node": ^24.19.2
+  "@types/react": ^19.3.0
+  "@types/react-dom": ^19.3.0
+  "@typescript/native": "npm:typescript@7.0.2"
+  "@typescript/old": "npm:typescript@6.0.3"
+  "@vitejs/plugin-react": ^6.1.2
+  "@vitest/browser-playwright": ^5.0.5
+  "@vitest/coverage-v8": ^5.0.5
   assistant-stream: 0.3.55
   # BST-1920: the SQLite state/index engine. Exact pin. It ships a PREBUILT
   # `prebuilds/<platform>-<arch>.node` for every release target and must never
@@ -176,7 +176,7 @@ catalog:
   tailwindcss: ^4.3.3
   tiktoken: ^1.0.22
   tw-animate-css: ^1.4.0
-  typescript: 'npm:@typescript/typescript6@6.0.2'
+  typescript: "npm:@typescript/typescript6@6.0.2"
   # 8.3.3 fixes three dev-server advisories (GHSA-rq7h-c2jc-7f22,
   # GHSA-vfpm-58rq-9qcg, GHSA-9jrq-w75r-8gcw).
   vite: ^8.3.5
@@ -187,17 +187,17 @@ catalog:
   yaml: ^2.9.1
   zod: ^4.6.7
   zustand: ^5.0.16
-  '@codemirror/language': ^6.13.1
-  '@codemirror/view': ^6.43.15
-  '@ai-sdk/anthropic': 4.0.81
-  '@ai-sdk/google': 4.0.98
-  '@ai-sdk/openai': 4.0.96
-  '@atlaskit/pragmatic-drag-and-drop': ^4.0.0
-  '@atlaskit/pragmatic-drag-and-drop-hitbox': ^3.0.0
-  '@mastra/core': 1.78.0
-  '@mastra/memory': 1.38.0
-  '@modelcontextprotocol/ext-apps': 2.0.4
-  '@napi-rs/keyring': 2.1.2
+  "@codemirror/language": ^6.13.1
+  "@codemirror/view": ^6.43.15
+  "@ai-sdk/anthropic": 4.0.81
+  "@ai-sdk/google": 4.0.98
+  "@ai-sdk/openai": 4.0.96
+  "@atlaskit/pragmatic-drag-and-drop": ^4.0.0
+  "@atlaskit/pragmatic-drag-and-drop-hitbox": ^3.0.0
+  "@mastra/core": 1.78.0
+  "@mastra/memory": 1.38.0
+  "@modelcontextprotocol/ext-apps": 2.0.4
+  "@napi-rs/keyring": 2.1.2
   cmdk: ^1.1.1
   fastest-levenshtein: ^1.0.16
   jsonc-parser: ^3.3.1
@@ -210,12 +210,12 @@ overrides:
   # Tailwind scans the direct Streamdown install; its adapter must use the same
   # catalog release on future resolutions too. Retarget on adapter upgrades;
   # retain while packages/assistant-ui/styles.css scans that direct dependency.
-  '@assistant-ui/react-streamdown@0.3.21>streamdown': 'catalog:'
+  "@assistant-ui/react-streamdown@0.3.21>streamdown": "catalog:"
   # BST-874: compatible patches for all installed brace-expansion majors.
   # Remove when every minimatch owner resolves these advisory floors unaided.
-  'brace-expansion@1.0.0 - 1.1.20': 1.1.21
-  'brace-expansion@2.0.0 - 2.1.6': 2.1.7
-  'brace-expansion@5.0.0 - 5.0.11': 5.0.12
+  "brace-expansion@1.0.0 - 1.1.20": 1.1.21
+  "brace-expansion@2.0.0 - 2.1.6": 2.1.7
+  "brace-expansion@5.0.0 - 5.0.11": 5.0.12
   # GHSA-68fv-2mgg-jv7q (HIGH): source-map-js <1.2.2. A FLOOR, not a pin --
   # @tailwindcss/node, css-tree and magicast all already declare ^1.2.1, which
   # 1.2.2 satisfies, so this crosses no owner's range and needs no per-owner
@@ -224,55 +224,55 @@ overrides:
   # magicast but leaves css-tree (reached through a peer-keyed jsdom subtree)
   # on 1.2.1, and nothing stops any of them picking 1.2.1 again on a later
   # resolution. Remove when every owner's floor is >=1.2.2 unaided.
-  'source-map-js@1.0.0 - 1.2.1': 1.2.2
+  "source-map-js@1.0.0 - 1.2.1": 1.2.2
   # BST-878: keep YAML on its owner's major; 4.3.2 also fixes empty merge
   # sources. Retire when every 4.x owner resolves >=4.3.2 without this floor.
-  'js-yaml@4.0.0 - 4.3.1': 4.3.2
+  "js-yaml@4.0.0 - 4.3.1": 4.3.2
   # W05 follow-up: Typography 0.5.20 still pins selector-parser 6.0.10.
   # 7.1.6 fixes flat-selector CPU exhaustion (GHSA-rj75-hqrm-r3gf).
   # Its 7.0 iteration change is qualified against Typography's actual caller
   # and generated prose CSS in both apps. Retire when the owner admits >=7.1.6.
   # https://github.com/postcss/postcss-selector-parser/releases/tag/7.1.6
-  '@tailwindcss/typography@0.5.20>postcss-selector-parser': 7.1.6
+  "@tailwindcss/typography@0.5.20>postcss-selector-parser": 7.1.6
   # BST-2031 follow-up: align KaTeX CSS and the Markdown renderers on
   # the vendor-recommended 0.19.0 release (0.18.11 is deprecated). 0.18.2
   # fixes inherited trust; 0.18 renamed CSS classes. Qualify these older
   # parent ranges with real browser/CLI rendering and security regressions.
   # Retire each exception when the owner admits the matched patched release.
   # https://github.com/KaTeX/KaTeX/releases/tag/v0.19.0
-  'rehype-katex@7.0.1>katex': 0.19.1
-  'micromark-extension-math@3.1.0>katex': 0.19.1
+  "rehype-katex@7.0.1>katex": 0.19.1
+  "micromark-extension-math@3.1.0>katex": 0.19.1
   # Retire sprintf-js (GHSA-hp3w-g68c-fv3c) through its actual owners.
   # Migrate only YAML 3's CLI to argparse 3's documented API (patch below);
   # retain safeLoad/safeDump for Mastra and nyc without sprintf-js or v1 aliases.
   # Retire when this owner admits a parser without sprintf-js unaided.
   # https://github.com/nodeca/argparse/blob/master/doc/migrate_v2_to_v3.md
-  'js-yaml@3.15.2>argparse': 3.0.3
+  "js-yaml@3.15.2>argparse": 3.0.3
   # Electron get 3 calls the unchanged bootstrap API. global-agent 4 removes
   # Roarr/sprintf-js; qualify real downloads, proxy/NO_PROXY, CA and checksums.
   # Retire when this owner admits the qualified proxy adapter unaided.
   # https://github.com/gajus/global-agent/releases/tag/v4.0.0
-  '@electron/get@3.1.0>global-agent': 4.1.3
+  "@electron/get@3.1.0>global-agent": 4.1.3
   react: ^19.3.1
   react-dom: ^19.3.1
   # BST-886: retain the tar 7.x safety floor, including container 19.1.2.
   # fun 1.3.6 now pins 7.5.22 unaided; its old exception is retired.
-  'tar@': 7.5.22
+  "tar@": 7.5.22
   # GHSA-rmxm-3fg6-px4f: @hono/node-server's serveStatic decodes the path twice
   # before 2.1.3, and the 1.x line has no fix. MCP node 2.1.2 already admits
   # `^1.19.9 || ^2.1.3`, so this picks the patched major inside the owner's own
   # range. Retire when the owner drops the 1.x alternative.
-  '@modelcontextprotocol/node@2.1.2>@hono/node-server': ^2.1.5
+  "@modelcontextprotocol/node@2.1.2>@hono/node-server": ^2.1.5
   # BST-881: converge Express/body-parser edges on a patched qs. 6.16.1 also
   # fixes the comma-stringify TypeError in 6.16.0 (GHSA-6pq8-jhm2-2vcw).
-  'qs@': 6.16.1
+  "qs@": 6.16.1
 allowBuilds:
-  '@brainstrike/secure-fs-native': true
-  '@brainstrike/windows-job-native': true
-  '@biomejs/biome': false
-  '@jacobwolf/biome-unnecessary-effect': true
-  '@swc/core': true
-  '@tailwindcss/oxide': true
+  "@brainstrike/secure-fs-native": true
+  "@brainstrike/windows-job-native": true
+  "@biomejs/biome": false
+  "@jacobwolf/biome-unnecessary-effect": true
+  "@swc/core": true
+  "@tailwindcss/oxide": true
   # BST-1920: DENIED, never allowed. better-sqlite3 ships `binding.gyp`, so pnpm
   # counts an implicit `node-gyp rebuild` as an unreviewed build script and fails
   # `pnpm install` with ERR_PNPM_IGNORED_BUILDS unless the package is reviewed.
@@ -296,12 +296,12 @@ patchedDependencies:
   # committed observation-group attribution, rebased onto its runOMCommit
   # lifecycle. Unpatched 1.38 fails every public-lifecycle owner case in
   # packages/agent-host/__tests__/memory-public-lifecycle.test.ts.
-  '@mastra/memory@1.38.0': patches/@mastra__memory@1.38.0.patch
+  "@mastra/memory@1.38.0": patches/@mastra__memory@1.38.0.patch
   # BST-2070: Core 1.78 drops the caller's abort reason in AgentThreadStreamRuntime,
   # which Memory's internal observer/reflector streams now pass through. The 1.71
   # SemanticRecall and BackgroundTaskManager hunks are retired: nothing reaches them.
-  '@mastra/core@1.78.0': patches/@mastra__core@1.78.0.patch
-  '@assistant-ui/core@0.3.32': patches/@assistant-ui__core@0.3.32.patch
+  "@mastra/core@1.78.0": patches/@mastra__core@1.78.0.patch
+  "@assistant-ui/core@0.3.32": patches/@assistant-ui__core@0.3.32.patch
   vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
   # CLI-only vendor API migration paired with the argparse 3 override above.
   # Retire both when the legacy YAML owner publishes this migration.

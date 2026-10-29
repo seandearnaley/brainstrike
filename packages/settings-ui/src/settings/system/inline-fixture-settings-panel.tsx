@@ -24,7 +24,7 @@ export function InlineFixtureSettingsPanel({
           <Label className="text-xs" htmlFor="inline-fixture-settings-toggle">
             Developer: Inline Fixtures
           </Label>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-muted-foreground text-[11px]">
             Load a built-in test fixture into the file explorer without selecting a real folder.
           </p>
         </div>

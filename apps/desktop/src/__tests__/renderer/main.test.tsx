@@ -96,7 +96,7 @@ describe('renderer main entry', () => {
     Reflect.deleteProperty(window, '__BRAINSTRIKE_READY__');
     window.history.replaceState({}, '', '/');
     // Ensure root element exists for each test
-    const existing = document.getElementById('root');
+    const existing = document.querySelector('#root');
     if (existing) {
       existing.remove();
     }
@@ -165,7 +165,7 @@ describe('renderer main entry', () => {
   it('should create root and render app', async () => {
     await import('../../renderer/main.tsx');
 
-    const rootEl = document.getElementById('root');
+    const rootEl = document.querySelector('#root');
     expect(rootEl).not.toBeNull();
     expect(mockCreateRoot).toHaveBeenCalledWith(rootEl);
     expect(mockRender).toHaveBeenCalledTimes(1);

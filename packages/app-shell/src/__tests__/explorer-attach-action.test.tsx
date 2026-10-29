@@ -2,6 +2,10 @@ import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import { ExplorerAttachAction } from '../explorer-attach-action';
+import { folderRelativePath, MAX_ATTACHED_FILES, planAttachment } from '../explorer-attach-plan';
+import { RootIdentityProvider } from '../roots/root-identity-context';
 
 const explorer = vi.hoisted(() => ({
   active: 'thread-1' as string | null,
@@ -32,11 +36,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   toast,
 }));
-
-import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
-import { ExplorerAttachAction } from '../explorer-attach-action';
-import { folderRelativePath, MAX_ATTACHED_FILES, planAttachment } from '../explorer-attach-plan';
-import { RootIdentityProvider } from '../roots/root-identity-context';
 
 const identity = new Map([
   ['adapter-a', 'root-a'],

@@ -169,7 +169,7 @@ export function SearchIndexStatus({
         </dl>
         {syncStatus.lastError ? (
           <p
-            className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm"
+            className="border-destructive/30 bg-destructive/5 text-destructive rounded-md border p-3 text-sm"
             role="alert"
           >
             {syncStatus.lastError}

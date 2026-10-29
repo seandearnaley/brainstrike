@@ -249,7 +249,7 @@ describe('stable MCP Apps message allowlist', () => {
         },
         'app-to-host'
       )
-    ).toThrow(/must not contain cycles/);
+    ).toThrow(/must not contain cycles/u);
   });
 
   it('preserves own __proto__ JSON fields without prototype mutation', () => {
@@ -288,7 +288,7 @@ describe('stable MCP Apps message allowlist', () => {
         },
         'app-to-host'
       )
-    ).toThrow(/maximum JSON depth/);
+    ).toThrow(/maximum JSON depth/u);
   });
 
   it.each(['', 'javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,test'])(
@@ -299,7 +299,7 @@ describe('stable MCP Apps message allowlist', () => {
           { id: 'open-link', jsonrpc: '2.0', method: 'ui/open-link', params: { url } },
           'app-to-host'
         )
-      ).toThrow(/MCP Apps message ui\/open-link\.params\.url/);
+      ).toThrow(/MCP Apps message ui\/open-link\.params\.url/u);
     }
   );
 
@@ -309,7 +309,7 @@ describe('stable MCP Apps message allowlist', () => {
     ['app-to-host', { id: 1, jsonrpc: '2.0', method: 'tools/list', params: {} }],
     ['app-to-host', { jsonrpc: '2.0', method: 'notifications/tools/list_changed', params: {} }],
   ] as const)('rejects a draft-only or non-extension %s message: %j', (direction, message) => {
-    expect(() => parseMcpAppMessage(message, direction)).toThrow(/stable MCP Apps method/);
+    expect(() => parseMcpAppMessage(message, direction)).toThrow(/stable MCP Apps method/u);
   });
 
   it('rejects a stable method in the wrong direction', () => {
@@ -323,7 +323,7 @@ describe('stable MCP Apps message allowlist', () => {
         },
         'host-to-app'
       )
-    ).toThrow(/not allowed in direction/);
+    ).toThrow(/not allowed in direction/u);
   });
 
   it.each([
@@ -355,7 +355,7 @@ describe('stable MCP Apps message allowlist', () => {
         },
         'host-to-app'
       )
-    ).toThrow(/unsupported field "reason"/);
+    ).toThrow(/unsupported field "reason"/u);
   });
 
   it.each([
@@ -393,7 +393,7 @@ describe('stable MCP Apps message allowlist', () => {
       expect(schema.safeParse({ method: message.method, params: message.params }).success).toBe(
         false
       );
-      expect(() => parseMcpAppMessage(message, direction)).toThrow(/canonical schema/);
+      expect(() => parseMcpAppMessage(message, direction)).toThrow(/canonical schema/u);
     }
   );
 
@@ -496,6 +496,6 @@ describe('stable MCP Apps message allowlist', () => {
       },
     ],
   ])('rejects a malformed stable message: %s', (_label, message) => {
-    expect(() => parseMcpAppMessage(message, 'app-to-host')).toThrow(/MCP Apps message/);
+    expect(() => parseMcpAppMessage(message, 'app-to-host')).toThrow(/MCP Apps message/u);
   });
 });

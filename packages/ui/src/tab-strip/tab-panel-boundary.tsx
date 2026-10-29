@@ -135,12 +135,12 @@ function TabPanelFallback({
   if (layout === 'inline') {
     return (
       <div
-        className="flex h-9 min-w-0 flex-1 items-center gap-2 px-2 text-muted-foreground text-xs"
+        className="text-muted-foreground flex h-9 min-w-0 flex-1 items-center gap-2 px-2 text-xs"
         data-layout="inline"
         data-slot="tab-panel-boundary"
         role="alert"
       >
-        <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
+        <AlertTriangle aria-hidden="true" className="text-destructive size-3.5 shrink-0" />
         <span className="min-w-0 truncate">{label} unavailable</span>
         <Button onClick={onReload} size="xs" type="button" variant="ghost">
           <RotateCw aria-hidden="true" />
@@ -157,9 +157,9 @@ function TabPanelFallback({
       data-slot="tab-panel-boundary"
       role="alert"
     >
-      <AlertTriangle aria-hidden="true" className="size-5 text-destructive" />
-      <p className="font-medium text-sm">{label} stopped working</p>
-      <p className="max-w-sm break-words text-muted-foreground text-xs">{error.message}</p>
+      <AlertTriangle aria-hidden="true" className="text-destructive size-5" />
+      <p className="text-sm font-medium">{label} stopped working</p>
+      <p className="text-muted-foreground max-w-sm text-xs break-words">{error.message}</p>
       <div className="flex items-center gap-2">
         <Button onClick={onReload} size="sm" type="button" variant="outline">
           <RotateCw aria-hidden="true" />
@@ -199,12 +199,12 @@ function ChunkLoadFallback({
   if (layout === 'inline') {
     return (
       <div
-        className="flex h-9 min-w-0 flex-1 items-center gap-2 px-2 text-muted-foreground text-xs"
+        className="text-muted-foreground flex h-9 min-w-0 flex-1 items-center gap-2 px-2 text-xs"
         data-layout="inline"
         data-slot="tab-panel-boundary"
         role="alert"
       >
-        <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
+        <AlertTriangle aria-hidden="true" className="text-destructive size-3.5 shrink-0" />
         <span className="min-w-0 truncate">{title}</span>
         <Button onClick={() => requestAppReload()} size="xs" type="button" variant="ghost">
           <RotateCw aria-hidden="true" />
@@ -247,9 +247,9 @@ function ChunkLoadFallback({
       data-slot="tab-panel-boundary"
       role="alert"
     >
-      <AlertTriangle aria-hidden="true" className="size-5 text-destructive" />
-      <p className="font-medium text-sm">{title}</p>
-      <p className="max-w-sm break-words text-muted-foreground text-xs">
+      <AlertTriangle aria-hidden="true" className="text-destructive size-5" />
+      <p className="text-sm font-medium">{title}</p>
+      <p className="text-muted-foreground max-w-sm text-xs break-words">
         {reloadAlreadyAttempted
           ? "Reloading didn't fix this. Copy the details and report the problem."
           : 'Part of BrainStrike failed to download, usually after an update or a dropped connection. Reload the app to fix it.'}

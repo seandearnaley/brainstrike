@@ -68,7 +68,7 @@ describe('ActionButtons', () => {
         />
       );
 
-      await user.click(screen.getByRole('button', { name: /Select All/i }));
+      await user.click(screen.getByRole('button', { name: /Select All/iu }));
 
       expect(quickFilterSelectAllOverride).toHaveBeenCalledTimes(1);
       // The local fallback (focused-tree-only) must NOT run.
@@ -91,7 +91,7 @@ describe('ActionButtons', () => {
 
       // The override owns zero-match feedback — the button must stay live so
       // matches in OTHER roots are reachable.
-      const button = screen.getByRole('button', { name: /Select All/i });
+      const button = screen.getByRole('button', { name: /Select All/iu });
       expect(button).toBeEnabled();
       await user.click(button);
       expect(quickFilterSelectAllOverride).toHaveBeenCalledTimes(1);

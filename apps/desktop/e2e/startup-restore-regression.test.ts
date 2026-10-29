@@ -266,7 +266,7 @@ test.describe('Startup Restore Regression', () => {
     const restartedContext = await electronHarness.restart();
     const restartedWindow = restartedContext.window;
     await expect(
-      restartedWindow.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'i') })
+      restartedWindow.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'iu') })
     ).toBeVisible({ timeout: 15_000 });
 
     await restartedWindow.waitForTimeout(1000);

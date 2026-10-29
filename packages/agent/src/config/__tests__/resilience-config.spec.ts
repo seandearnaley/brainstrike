@@ -54,12 +54,12 @@ describe('resilience-config', () => {
 
   it('throws on a malformed env value (no silent coercion)', () => {
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = 'not-a-number';
-    expect(() => resolveToolTimeoutMs()).toThrow(/BRAINSTRIKE_TOOL_TIMEOUT_MS/);
+    expect(() => resolveToolTimeoutMs()).toThrow(/BRAINSTRIKE_TOOL_TIMEOUT_MS/u);
   });
 
   it('throws on a non-positive env value', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '0';
-    expect(() => resolveStreamInactivityMs()).toThrow(/BRAINSTRIKE_STREAM_INACTIVITY_MS/);
+    expect(() => resolveStreamInactivityMs()).toThrow(/BRAINSTRIKE_STREAM_INACTIVITY_MS/u);
   });
 
   it('resolves the documented assistant resilience defaults together', () => {
@@ -106,14 +106,14 @@ describe('resilience-config', () => {
 
   it('throws on a malformed tool-call-input env value (no silent coercion)', () => {
     process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = 'soon';
-    expect(() => resolveToolCallInputMs()).toThrow(/BRAINSTRIKE_TOOL_CALL_INPUT_MS/);
+    expect(() => resolveToolCallInputMs()).toThrow(/BRAINSTRIKE_TOOL_CALL_INPUT_MS/u);
   });
 
   it('throws when BOTH budgets are set explicitly and the input one is tighter', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
     process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '119999';
     expect(() => resolveAssistantResilienceConfig()).toThrow(
-      /BRAINSTRIKE_TOOL_CALL_INPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
+      /BRAINSTRIKE_TOOL_CALL_INPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/u
     );
   });
 
@@ -149,12 +149,12 @@ describe('resilience-config', () => {
 
   it('throws on a malformed approval-staleness env value (no silent coercion)', () => {
     process.env['BRAINSTRIKE_APPROVAL_STALE_MS'] = 'abc';
-    expect(() => resolveApprovalStaleMs()).toThrow(/BRAINSTRIKE_APPROVAL_STALE_MS/);
+    expect(() => resolveApprovalStaleMs()).toThrow(/BRAINSTRIKE_APPROVAL_STALE_MS/u);
   });
 
   it('throws on a non-positive approval-staleness env value', () => {
     process.env['BRAINSTRIKE_APPROVAL_STALE_MS'] = '0';
-    expect(() => resolveApprovalStaleMs()).toThrow(/BRAINSTRIKE_APPROVAL_STALE_MS/);
+    expect(() => resolveApprovalStaleMs()).toThrow(/BRAINSTRIKE_APPROVAL_STALE_MS/u);
   });
 
   it('gives the first output a window far wider than an inter-output gap', () => {
@@ -182,12 +182,12 @@ describe('resilience-config', () => {
 
   it('throws on a malformed reasoning-gap env value (no silent coercion)', () => {
     process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = 'a while';
-    expect(() => resolveStreamReasoningGapMs()).toThrow(/BRAINSTRIKE_STREAM_REASONING_GAP_MS/);
+    expect(() => resolveStreamReasoningGapMs()).toThrow(/BRAINSTRIKE_STREAM_REASONING_GAP_MS/u);
   });
 
   it('throws on a non-positive reasoning-gap env value', () => {
     process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '0';
-    expect(() => resolveStreamReasoningGapMs()).toThrow(/BRAINSTRIKE_STREAM_REASONING_GAP_MS/);
+    expect(() => resolveStreamReasoningGapMs()).toThrow(/BRAINSTRIKE_STREAM_REASONING_GAP_MS/u);
   });
 
   it('throws when an EXPLICIT reasoning gap is tighter than inactivity', () => {
@@ -197,7 +197,7 @@ describe('resilience-config', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
     process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '119999';
     expect(() => resolveAssistantResilienceConfig()).toThrow(
-      /BRAINSTRIKE_STREAM_REASONING_GAP_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
+      /BRAINSTRIKE_STREAM_REASONING_GAP_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/u
     );
   });
 
@@ -220,19 +220,19 @@ describe('resilience-config', () => {
 
   it('throws on a malformed first-output env value (no silent coercion)', () => {
     process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = 'eventually';
-    expect(() => resolveStreamFirstOutputMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS/);
+    expect(() => resolveStreamFirstOutputMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS/u);
   });
 
   it('throws on a non-positive first-output env value', () => {
     process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '0';
-    expect(() => resolveStreamFirstOutputMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS/);
+    expect(() => resolveStreamFirstOutputMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS/u);
   });
 
   it('throws when BOTH windows are set explicitly and the first-output one is tighter', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
     process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '119999';
     expect(() => resolveAssistantResilienceConfig()).toThrow(
-      /BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
+      /BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/u
     );
   });
 
@@ -280,13 +280,13 @@ describe('resilience-config', () => {
     // likely to hand-set.
     process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = 'twice';
     expect(() => resolveStreamStallAttempts()).toThrow(
-      /BRAINSTRIKE_STREAM_STALL_ATTEMPTS must be a positive integer \(attempts\)/
+      /BRAINSTRIKE_STREAM_STALL_ATTEMPTS must be a positive integer \(attempts\)/u
     );
-    expect(() => resolveStreamStallAttempts()).not.toThrow(/\(ms\)/);
+    expect(() => resolveStreamStallAttempts()).not.toThrow(/\(ms\)/u);
   });
 
   it('throws on a zero stall-attempt budget (a turn always gets one attempt)', () => {
     process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '0';
-    expect(() => resolveStreamStallAttempts()).toThrow(/BRAINSTRIKE_STREAM_STALL_ATTEMPTS/);
+    expect(() => resolveStreamStallAttempts()).toThrow(/BRAINSTRIKE_STREAM_STALL_ATTEMPTS/u);
   });
 });
