@@ -588,6 +588,16 @@
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
+  /* The app shell fills the window and every surface scrolls inside its own
+     container, so the document itself never scrolls. Without this, a wheel or
+     trackpad scroll that reaches the end of a pane chains up to the document,
+     and macOS rubber-bands the whole window: the status bar lifts over blank
+     space as if the page continued below it. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
   /* ==========================================================================
    * Shared code-block box (packages/ui/src/code-block/): element-level metrics.
    * Component chrome (borders, rounding, background) is Tailwind classes on
