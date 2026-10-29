@@ -24,6 +24,12 @@ export interface WriteBehindWriter {
   /** Cancels the key's buffered write, then removes it from the owner. */
   removeItem: (key: string) => Promise<void>;
   /**
+   * Flushes, then hands the owner nothing more: for a document that has become terminal, such
+   * as one a factory reset is replacing, whose owner the reset is about to purge. A write or
+   * removal after retirement resolves without reaching the owner.
+   */
+  retire: () => Promise<void>;
+  /**
    * Buffers `value` for `delayMs`; a later value for the same key replaces it. Resolves once the
    * owner acknowledged the write that carried this value or a later one, and rejects with it.
    */
@@ -57,6 +63,7 @@ export function createWriteBehindWriter(
   const inFlight = new Set<Promise<void>>();
   /** Per key, the refusal of its newest write; writes settle in order, so the last one decides. */
   const refused = new Map<string, unknown>();
+  let retired = false;
 
   const send = (key: string, start: () => void | Promise<void>): Promise<void> => {
     let sent: Promise<void>;
@@ -92,27 +99,32 @@ export function createWriteBehindWriter(
     );
   };
 
+  const flush = async (): Promise<void> => {
+    // Until quiescent: a value buffered while earlier writes were in flight goes out too.
+    while (buffered.size > 0 || inFlight.size > 0) {
+      for (const key of [...buffered.keys()]) {
+        write(key);
+      }
+      await Promise.allSettled([...inFlight]);
+    }
+    if (refused.size > 0) {
+      throw new AggregateError(
+        [...refused.values()],
+        'Write-behind writes failed to reach their owner'
+      );
+    }
+  };
+
   return {
-    flush: async () => {
-      // Until quiescent: a value buffered while earlier writes were in flight goes out too.
-      while (buffered.size > 0 || inFlight.size > 0) {
-        for (const key of [...buffered.keys()]) {
-          write(key);
-        }
-        await Promise.allSettled([...inFlight]);
-      }
-      if (refused.size > 0) {
-        throw new AggregateError(
-          [...refused.values()],
-          'Write-behind writes failed to reach their owner'
-        );
-      }
-    },
+    flush,
     getItem: (key) => {
       const entry = buffered.get(key);
       return entry ? entry.value : adapter.getItem(key);
     },
     removeItem: async (key) => {
+      if (retired) {
+        return;
+      }
       const entry = buffered.get(key);
       if (entry) {
         buffered.delete(key);
@@ -122,7 +134,14 @@ export function createWriteBehindWriter(
       }
       await send(key, () => adapter.removeItem(key));
     },
+    retire: async () => {
+      retired = true;
+      await flush();
+    },
     setItem: (key, value) => {
+      if (retired) {
+        return Promise.resolve();
+      }
       const previous = buffered.get(key);
       if (previous) {
         clearTimeout(previous.timer);
@@ -142,7 +161,7 @@ export function createWriteBehindWriter(
 export function createWriteBehindStorageAdapter(
   adapter: StorageAdapter,
   options: WriteBehindWriterOptions
-): StorageAdapter & Pick<WriteBehindWriter, 'flush'> {
+): StorageAdapter & Pick<WriteBehindWriter, 'flush' | 'retire'> {
   const writer = createWriteBehindWriter(adapter, options);
   return {
     // Whole-store operations see every buffered write first.
@@ -157,6 +176,7 @@ export function createWriteBehindStorageAdapter(
     },
     getItem: async (key) => await writer.getItem(key),
     removeItem: writer.removeItem,
+    retire: writer.retire,
     setItem: writer.setItem,
   };
 }

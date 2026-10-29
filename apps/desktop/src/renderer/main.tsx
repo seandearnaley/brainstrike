@@ -1,4 +1,5 @@
 import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/app-reload';
+import { registerFactoryResetPreparation } from '@brainstrike/app-state/factory-reset';
 import { registerDurableFlush } from '@brainstrike/app-state/renderer-close';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
@@ -76,9 +77,13 @@ const storageAdapter = createWriteBehindStorageAdapter(new ElectronRendererStora
 });
 if (bridgeValidation.ok) {
   const unregisterStorageFlush = registerDurableFlush(storageAdapter.flush);
+  // A factory reset purges Main's storage and replaces this document: the writer lands what it
+  // holds, then writes nothing into the files the reset is moving away.
+  const unregisterStorageRetirement = registerFactoryResetPreparation(storageAdapter.retire);
   // Under HMR this module re-executes with a new adapter; the old registration goes with it.
   import.meta.hot?.dispose(() => {
     unregisterStorageFlush();
+    unregisterStorageRetirement();
   });
 }
 
