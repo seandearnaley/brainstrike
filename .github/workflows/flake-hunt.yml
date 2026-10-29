@@ -1,0 +1,53 @@
+# Hunts flaky desktop E2E tests before they turn a merge-queue batch red (owner
+# decision 2026-10-29). Each night it runs the queue's own desktop regression on
+# main with every test three times. A red night files a Linear issue, so a flaky
+# test is found and fixed at its cause, never retried or skipped. It is not one
+# of the nightlies a release must pass (scripts/release-required-workflows.mjs):
+# a flake it finds is a defect to fix, not a broken build.
+#
+# Three times a batch's tests is about 80-130 runner-minutes on
+# ubicloud-standard-4, $0.20-0.35 a night. It starts in the quiet hours before
+# nightly.yml, when no batch needs the runners.
+
+name: Flake Hunt
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+# One hunt per ref at a time, never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# A called workflow can only narrow what its caller grants.
+permissions: {}
+
+jobs:
+  desktop-e2e:
+    name: Desktop E2E
+    if: github.repository == 'seandearnaley/brainstrike'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/desktop-e2e.yml
+    with:
+      suite: full
+      repeat-each: 3
+    secrets:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+  # A red hunt must announce itself: the shared notifier files one
+  # `nightly-alert` issue for this workflow and comments on later nights.
+  notify-linear:
+    name: Notify Linear
+    needs: [desktop-e2e]
+    if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: Flake Hunt
+      results: desktop-e2e=${{ needs.desktop-e2e.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
