@@ -147,10 +147,15 @@ function ThreadStateCard({
     variant === 'error'
       ? 'rounded-xl border border-destructive/30 bg-destructive/5 p-4'
       : 'rounded-xl border border-border border-dashed bg-background/70 p-4';
+  // The panel body is a flex row: without its own full-width lane the card
+  // shrinks to its text and stretches to the panel's height. The lane takes
+  // the search field's inset so both edges line up.
   return (
-    <div className={className} data-testid={testId}>
-      <div className="font-medium text-sm">{title}</div>
-      <p className="pt-2 text-muted-foreground text-xs leading-5">{description}</p>
+    <div className="w-full min-w-0 px-3">
+      <div className={className} data-testid={testId}>
+        <div className="font-medium text-sm">{title}</div>
+        <p className="pt-2 text-muted-foreground text-xs leading-5">{description}</p>
+      </div>
     </div>
   );
 }
