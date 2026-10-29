@@ -309,32 +309,6 @@ function isConcreteLanguageModel(
   );
 }
 
-/**
- * Present a current @ai-sdk embedding model (specification 'v4') as spec 'v3'
- * for Mastra memory. V3 and V4 are structurally identical apart from the
- * `specificationVersion` literal, but the literal is LOAD-BEARING inside
- * @mastra/memory: its embed dispatch switches on it ('v3' → embedMany3,
- * 'v2' → embedMany2, anything else → a legacy v1-only pipeline that throws
- * "AI SDK 4 only supports … v1"). A raw 'v4' model therefore fails every
- * observational-memory VECTOR retrieval cycle and semantic-recall embed
- * (BST-940 field failure, debug bundle 2026-07-27). Same facade technique
- * @mastra/memory itself uses internally (`asEmbeddingModelV3`).
- */
-function asSpecV3EmbeddingModel(model: unknown): MastraEmbeddingModel<string> {
-  return new Proxy(model as object, {
-    get(target, prop) {
-      if (prop === 'specificationVersion') {
-        return 'v3';
-      }
-      // Bind methods (and run getters) against the TARGET, not the proxy:
-      // an embedding model whose method reads `this.#private` or checks its
-      // own identity must never observe the facade as `this`.
-      const value = Reflect.get(target, prop, target);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  }) as MastraEmbeddingModel<string>;
-}
-
 /** Create a hosted embedding model instance for Mastra semantic recall. */
 export function createEmbeddingProvider(
   provider: SupportedProvider | string,
@@ -351,12 +325,12 @@ export function createEmbeddingProvider(
   switch (provider) {
     case 'openai': {
       const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
-      return asSpecV3EmbeddingModel(openaiProvider.embeddingModel(model));
+      return openaiProvider.embeddingModel(model);
     }
 
     case 'google': {
       const googleProvider = createGoogle(apiKey ? { apiKey } : undefined);
-      return asSpecV3EmbeddingModel(googleProvider.embeddingModel(model));
+      return googleProvider.embeddingModel(model);
     }
 
     case 'anthropic':

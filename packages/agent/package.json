@@ -9,7 +9,7 @@
     "@ai-sdk/anthropic": "catalog:",
     "@ai-sdk/google": "catalog:",
     "@ai-sdk/openai": "catalog:",
-    "@ai-sdk/provider": "4.0.28",
+    "@ai-sdk/provider": "4.0.29",
     "@anthropic-ai/sandbox-runtime": "catalog:",
     "@aws-sdk/credential-providers": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
