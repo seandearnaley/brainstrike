@@ -211,6 +211,25 @@ describe('createWriteBehindWriter', () => {
     expect(owner.removeItem).toHaveBeenCalledWith('one');
   });
 
+  it('lands what it holds on retirement, then hands the owner no later write or removal', async () => {
+    vi.useFakeTimers();
+    const owner = createHeldOwner();
+    const writer = createWriteBehindWriter(owner, { delayMs: 500 });
+    const held = writer.setItem('one', 'held');
+
+    const retired = writer.retire();
+    // A write arriving while the retirement drains is already past the document's end.
+    const late = writer.setItem('two', 'late');
+    owner.acks[0]?.resolve();
+    await Promise.all([retired, held, late]);
+    await writer.removeItem('one');
+    vi.runAllTimers();
+
+    expect(owner.setItem).toHaveBeenCalledTimes(1);
+    expect(owner.values.get('one')).toBe('held');
+    expect(owner.removeItem).not.toHaveBeenCalled();
+  });
+
   it('owns no unload listener', () => {
     vi.useFakeTimers();
     const owner = createSyncOwner();
