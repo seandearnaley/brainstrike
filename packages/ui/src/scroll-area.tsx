@@ -42,15 +42,19 @@ const ScrollArea = ({
   contentWidth?: ScrollAreaContentWidth;
   ref?: React.RefObject<HTMLDivElement | null>;
 }) => (
+  // A flex column, so a `max-h-*` on the root caps the viewport too. The
+  // viewport's `size-full` cannot resolve against a root with only a
+  // max-height, so without this the viewport grows to its content, the root
+  // clips it, and nothing past the cap can ever be scrolled into view.
   <ScrollAreaPrimitive.Root
-    className={cn('relative overflow-hidden', className)}
+    className={cn('relative flex flex-col overflow-hidden', className)}
     data-slot="scroll-area"
     ref={ref}
     {...props}
   >
     <ScrollAreaPrimitive.Viewport
       className={cn(
-        'size-full rounded-[inherit] outline-hidden transition-[color,box-shadow] focus-visible:outline-1 focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        'size-full min-h-0 rounded-[inherit] outline-hidden transition-[color,box-shadow] focus-visible:outline-1 focus-visible:ring-[3px] focus-visible:ring-ring/50',
         // `& > div` is the content wrapper Radix renders inside every viewport.
         contentWidth === 'viewport' && '[&>div]:!block'
       )}
