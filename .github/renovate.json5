@@ -1,0 +1,185 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    ':semanticCommits',
+    'helpers:pinGitHubActionDigestsToSemver',
+  ],
+  timezone: 'America/New_York',
+  // One weekly window. Every PR Renovate opens lands at once, so Mergify can
+  // batch the ready ones together instead of one gate per PR.
+  schedule: ['before 6am on monday'],
+  prConcurrentLimit: 3,
+  prHourlyLimit: 0,
+  branchConcurrentLimit: 3,
+  // No per-PR CI exists; rebasing only on conflict keeps bot pushes rare.
+  rebaseWhen: 'conflicted',
+  // Mergify is the only merger. Renovate never merges, and a ready PR is
+  // queued by Mergify's auto_merge_conditions; a draft stays out of the queue.
+  automerge: false,
+  platformAutomerge: false,
+  draftPR: true,
+  rangeStrategy: 'bump',
+  dependencyDashboard: true,
+  dependencyDashboardApproval: false,
+  labels: ['dependencies'],
+  // pnpm catalogs, overrides and the lockfile all live at the root.
+  ignorePaths: ['**/node_modules/**', '**/__fixtures__/**', '**/fixtures/**'],
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ['before 6am on the first day of the month'],
+    // Ready: one PR a month, one batch.
+    draftPR: false,
+  },
+  osvVulnerabilityAlerts: true,
+  vulnerabilityAlerts: {
+    // Security fixes skip the schedule and arrive ready (one batch each).
+    schedule: ['at any time'],
+    draftPR: false,
+    labels: ['dependencies', 'security'],
+  },
+  customManagers: [
+    {
+      description: 'The MCP lab asserts the SDK version it bundles; bump it with the MCP SDK group.',
+      customType: 'regex',
+      managerFilePatterns: ['/^packages/mcp-test-lab/src/scenario\\.ts$/', '/^packages/mcp-test-lab/scripts/verify-built-package\\.mjs$/'],
+      matchStrings: ["MCP_LAB_SDK_VERSION(?: = |, )'(?<currentValue>[^']+)'"],
+      depNameTemplate: '@modelcontextprotocol/server',
+      datasourceTemplate: 'npm',
+    },
+  ],
+  packageRules: [
+    // ---- Safe lane: ready PRs that Mergify queues on its own ----
+    {
+      description: 'All non-major npm updates that touch no patch or lockstep family: one weekly PR.',
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch', 'digest', 'pin'],
+      groupName: 'non-major dependencies',
+      draftPR: false,
+    },
+    {
+      description: 'GitHub Actions: one monthly PR.',
+      matchManagers: ['github-actions'],
+      groupName: 'GitHub Actions',
+      schedule: ['before 6am on the first day of the month'],
+      draftPR: false,
+    },
+
+    // ---- Lockstep families: one PR each, ready when non-major ----
+    {
+      description: 'Mastra and AI SDK move together: @mastra/core pins @ai-sdk/provider exactly, @ai-sdk/otel pins ai exactly (BST-2067), and both Mastra packages carry a patch (BST-2070).',
+      matchPackageNames: ['ai', '@ai-sdk/**', '@mastra/**'],
+      groupName: 'Mastra and AI SDK',
+      draftPR: true,
+      addLabels: ['needs-patch-rebase'],
+    },
+    {
+      description: 'MCP SDK: client/server/server-legacy pin core exactly.',
+      matchPackageNames: ['@modelcontextprotocol/**', '!@modelcontextprotocol/ext-apps'],
+      groupName: 'MCP SDK',
+    },
+    {
+      description: 'OpenTelemetry: exporter pins SDK exactly; api pinned to what @ai-sdk/otel needs.',
+      matchPackageNames: ['@opentelemetry/**'],
+      groupName: 'OpenTelemetry',
+      draftPR: true,
+    },
+    {
+      description: 'Vitest family moves together.',
+      matchPackageNames: ['vitest', '@vitest/**'],
+      groupName: 'Vitest',
+    },
+    {
+      description: 'Effect and its language service; tsgo pins the TS 7 it supports.',
+      matchPackageNames: ['effect', '@effect/**'],
+      groupName: 'Effect and TypeScript 7',
+      draftPR: true,
+    },
+    {
+      description: 'The @typescript/native alias resolves to the package `typescript`, so match its dependency name.',
+      matchDepNames: ['@typescript/native'],
+      groupName: 'Effect and TypeScript 7',
+      draftPR: true,
+    },
+
+    // ---- Manual lane: drafts Sean marks ready (patched or policy-pinned) ----
+    {
+      description: 'Packages with a pnpm patch: a bump orphans the patch, so each needs a rebased patch by hand.',
+      matchPackageNames: [
+        '@assistant-ui/core',
+        '@assistant-ui/react',
+        '@assistant-ui/react-streamdown',
+        'streamdown',
+        'vscode-jsonrpc',
+        'electron-builder',
+        'electron-builder-squirrel-windows',
+        'playwright',
+        'playwright-core',
+        '@playwright/test',
+      ],
+      groupName: 'patched dependencies',
+      draftPR: true,
+      addLabels: ['needs-patch-rebase'],
+    },
+    {
+      description: 'Native binaries with prebuild provenance (BST-1920).',
+      matchPackageNames: ['better-sqlite3', 'sqlite-vec', 'node-addon-api', 'node-gyp', '@napi-rs/keyring'],
+      groupName: 'native modules',
+      draftPR: true,
+    },
+    {
+      description: 'Pinned for code that reads vendor surface: ignore (private _rules.test in workspace-ignore-matcher.ts) and ext-apps (commit and schema sha256 in mcp-app-host/src/capabilities.ts).',
+      matchPackageNames: ['ignore', '@modelcontextprotocol/ext-apps'],
+      // Its own group: an inherited non-major group name would put these in a ready PR.
+      groupName: 'code-checked pins',
+      draftPR: true,
+      addLabels: ['needs-code-check'],
+    },
+    {
+      description: 'Sandbox runtime stays on its qualified fence (BST-2029).',
+      matchPackageNames: ['@anthropic-ai/sandbox-runtime'],
+      groupName: 'sandbox runtime',
+      draftPR: true,
+    },
+    {
+      description: 'Electron Chromium security releases: one ready PR. Majors fall to the major rule; 46 removes the synchronous safeStorage calls.',
+      matchPackageNames: ['electron'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'Electron',
+      draftPR: false,
+    },
+    {
+      description: 'Node 24 application API line (BST-2028).',
+      matchPackageNames: ['@types/node'],
+      allowedVersions: '<25',
+    },
+    {
+      description: 'The `typescript` catalog entry is TypeScript 6 on purpose (ADR-0004).',
+      matchDepNames: ['typescript', '@typescript/old'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+    {
+      description: 'oxc-transform-react must stay inside @vitejs/plugin-react\'s peer range (BST-1659).',
+      matchPackageNames: ['oxc-transform-react', '@vitejs/plugin-react'],
+      groupName: 'React compiler toolchain',
+      draftPR: true,
+    },
+    {
+      description: 'Node and pnpm toolchain pins move by hand.',
+      matchDepTypes: ['engines', 'packageManager', 'devEngines.runtime', 'devEngines.packageManager'],
+      draftPR: true,
+      groupName: 'toolchain',
+    },
+
+    // ---- Majors: drafts, one per package, monthly ----
+    {
+      description: 'Every major is a reviewed draft, at most one window a month.',
+      matchUpdateTypes: ['major'],
+      draftPR: true,
+      schedule: ['before 6am on the first day of the month'],
+      dependencyDashboardApproval: true,
+      addLabels: ['major'],
+    },
+  ],
+}
