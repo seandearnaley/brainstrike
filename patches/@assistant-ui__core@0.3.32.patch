@@ -1,5 +1,5 @@
 diff --git a/dist/react/primitives/message/MessageGroupedParts.d.ts b/dist/react/primitives/message/MessageGroupedParts.d.ts
-index 615bacb5cb664b8954c4fc088e849bdbcc2f983b..fba5045f5e964ca04063d3a410b390585241a345 100644
+index 615bacb5cb664b8954c4fc088e849bdbcc2f983b..572f515ae35b2e7c4caafe1455c397fbb4c1da96 100644
 --- a/dist/react/primitives/message/MessageGroupedParts.d.ts
 +++ b/dist/react/primitives/message/MessageGroupedParts.d.ts
 @@ -130,7 +130,7 @@ export declare namespace MessagePrimitiveGroupedParts {
@@ -12,7 +12,7 @@ index 615bacb5cb664b8954c4fc088e849bdbcc2f983b..fba5045f5e964ca04063d3a410b39058
   * Groups adjacent message parts into a tree of coalesced runs and
   * renders each node — group or part — through a single `children`
 diff --git a/dist/react/primitives/message/MessageGroupedParts.js b/dist/react/primitives/message/MessageGroupedParts.js
-index 276b795ddaf9231dfb7de92a59b3a79155bcd060..59ecc92ed734a1800e6be68118473c1fa80d020c 100644
+index 6eef20a1f6b5da1b2e087236c3488292f2e4e714..90fbc7affe3670d3fb05370a70d1ee8e60a860f7 100644
 --- a/dist/react/primitives/message/MessageGroupedParts.js
 +++ b/dist/react/primitives/message/MessageGroupedParts.js
 @@ -29,13 +29,10 @@ const shouldShowIndicator = (mode, parts, isRunning) => {

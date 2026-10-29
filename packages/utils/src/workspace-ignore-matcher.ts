@@ -262,7 +262,7 @@ const directTestCache = new WeakMap<Ignore, Map<string, IgnoreTestResult>>();
  * every descendant. Cross-scope resolution needs the rule manager's direct
  * path verdict instead so that a deeper scope can re-include the parent while a
  * leaf-specific rule in the outer scope still wins at the leaf. This structural
- * dependency is pinned to ignore@7.0.5 in the workspace catalog; throw if that
+ * dependency is pinned to ignore@7.0.14 in the workspace catalog; throw if that
  * contract moves instead of silently reverting to inherited verdicts.
  */
 function directTest(matcher: Ignore, candidate: string): IgnoreTestResult {
@@ -274,20 +274,16 @@ function directTest(matcher: Ignore, candidate: string): IgnoreTestResult {
   const ruleManager = (
     matcher as unknown as {
       readonly _rules?: {
-        readonly test?: (
-          path: string,
-          checkUnignored: boolean,
-          mode: 'regex'
-        ) => ReturnType<Ignore['test']>;
+        readonly test?: (path: string, mode: 'regex') => ReturnType<Ignore['test']>;
       };
     }
   )._rules;
   if (typeof ruleManager?.test !== 'function') {
     throw new Error(
-      'ignore@7.0.5 direct rule evaluation is unavailable; refusing to apply incomplete cross-scope ignore semantics.'
+      'ignore@7.0.14 direct rule evaluation is unavailable; refusing to apply incomplete cross-scope ignore semantics.'
     );
   }
-  const result = ruleManager.test(candidate, true, 'regex');
+  const result = ruleManager.test(candidate, 'regex');
   if (matcherCache === undefined) {
     matcherCache = new Map<string, IgnoreTestResult>();
     directTestCache.set(matcher, matcherCache);

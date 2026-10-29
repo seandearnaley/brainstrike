@@ -2,8 +2,8 @@
   "name": "@brainstrike/test-utils",
   "version": "0.1.0",
   "devDependencies": {
-    "@mastra/core": "1.78.0",
-    "@mastra/memory": "1.38.0",
+    "@mastra/core": "catalog:",
+    "@mastra/memory": "catalog:",
     "@playwright/test": "catalog:",
     "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "catalog:",

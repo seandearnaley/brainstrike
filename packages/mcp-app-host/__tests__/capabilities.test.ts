@@ -59,8 +59,8 @@ describe('stable MCP Apps client capability', () => {
     const installedMetadata = await readInstalledExtAppsMetadata();
     expect(installedMetadata).toEqual({
       schemaMethods: [...MCP_APPS_PINNED_SCHEMA_UI_METHODS].sort(),
-      schemaSha256: 'e9af2289956641a266d99273facb746c2023bae48567d64bb83c63aadecb856f',
-      version: '2.0.3',
+      schemaSha256: '3823abdec2ab00069420812520c20f561428e1bf328c8f61189094f5160e33d9',
+      version: '2.0.4',
     });
     expect({
       capability: MCP_APPS_CLIENT_CAPABILITY,
@@ -73,12 +73,12 @@ describe('stable MCP Apps client capability', () => {
       extensionId: 'io.modelcontextprotocol/ui',
       mimeType: 'text/html;profile=mcp-app',
       source: {
-        gitCommit: '82221c0c8ce7661efa6771c9d461511b1650495f',
+        gitCommit: '7af9a75da720b8a81be0f9aff47b25f75e9530ad',
         package: '@modelcontextprotocol/ext-apps',
-        packageVersion: '2.0.3',
-        schemaSha256: 'e9af2289956641a266d99273facb746c2023bae48567d64bb83c63aadecb856f',
+        packageVersion: '2.0.4',
+        schemaSha256: '3823abdec2ab00069420812520c20f561428e1bf328c8f61189094f5160e33d9',
         specificationUrl:
-          'https://github.com/modelcontextprotocol/ext-apps/blob/82221c0c8ce7661efa6771c9d461511b1650495f/specification/2026-01-26/apps.mdx',
+          'https://github.com/modelcontextprotocol/ext-apps/blob/7af9a75da720b8a81be0f9aff47b25f75e9530ad/specification/2026-01-26/apps.mdx',
       },
       specVersion: '2026-01-26',
     });
