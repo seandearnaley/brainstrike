@@ -11,7 +11,6 @@ import {
   Card,
   CardContent,
   ErrorBoundary,
-  ScrollArea,
   Tabs,
   TabsContent,
   TabsList,
@@ -869,71 +868,67 @@ function ToolsAccordionList({
       key={errorBoundaryKey}
       onReset={onErrorBoundaryReset}
     >
-      <ScrollArea className="max-h-[600px]" contentWidth="viewport">
-        <Accordion defaultValue={defaultExpandedGroups} type="multiple">
-          {toolGroups.map((group) => {
-            const serverName = group.source === 'mcp' ? group.serverName : undefined;
-            const connectionStatus = serverName ? getServerStatus(serverName) : undefined;
-            const toolsAvailability = serverName
-              ? getServerToolsAvailability(serverName)
-              : undefined;
-            const mcpProps =
-              serverName === undefined
-                ? {}
-                : {
-                    ...(connectionStatus ? { connectionStatus } : {}),
-                    ...(toolsAvailability ? { toolsAvailability } : {}),
-                    errorMessage: getServerError(serverName),
-                    ...(operations.openMcpConfig && {
-                      onOpenConfigFile: () => operations.openMcpConfig?.(),
-                    }),
-                    ...(operations.refreshMcpServers && {
-                      onRefreshConnection: onRefreshMcp,
-                    }),
-                  };
-            const description =
-              group.source === 'native'
-                ? 'Built-in BrainStrike tools'
-                : `MCP server: ${serverName ?? 'unknown'}`;
+      <Accordion defaultValue={defaultExpandedGroups} type="multiple">
+        {toolGroups.map((group) => {
+          const serverName = group.source === 'mcp' ? group.serverName : undefined;
+          const connectionStatus = serverName ? getServerStatus(serverName) : undefined;
+          const toolsAvailability = serverName ? getServerToolsAvailability(serverName) : undefined;
+          const mcpProps =
+            serverName === undefined
+              ? {}
+              : {
+                  ...(connectionStatus ? { connectionStatus } : {}),
+                  ...(toolsAvailability ? { toolsAvailability } : {}),
+                  errorMessage: getServerError(serverName),
+                  ...(operations.openMcpConfig && {
+                    onOpenConfigFile: () => operations.openMcpConfig?.(),
+                  }),
+                  ...(operations.refreshMcpServers && {
+                    onRefreshConnection: onRefreshMcp,
+                  }),
+                };
+          const description =
+            group.source === 'native'
+              ? 'Built-in BrainStrike tools'
+              : `MCP server: ${serverName ?? 'unknown'}`;
 
-            return (
-              <ToolGroupAccordion
-                description={description}
-                enabledCount={group.enabledCount}
-                id={group.id}
-                key={group.id}
-                label={group.label}
-                onDisableAll={() => onDisableGroup(group)}
-                onEnableAll={() => onEnableGroup(group)}
-                source={group.source}
-                totalCount={group.tools.length}
-                {...mcpProps}
-              >
-                <div className="space-y-1">
-                  {group.tools.map((tool) => (
-                    <div key={tool.id}>
-                      <ToolRow
-                        expanded={expandedToolId === tool.id}
-                        onExpand={onExpandTool}
-                        onToggle={onToggleTool}
+          return (
+            <ToolGroupAccordion
+              description={description}
+              enabledCount={group.enabledCount}
+              id={group.id}
+              key={group.id}
+              label={group.label}
+              onDisableAll={() => onDisableGroup(group)}
+              onEnableAll={() => onEnableGroup(group)}
+              source={group.source}
+              totalCount={group.tools.length}
+              {...mcpProps}
+            >
+              <div className="space-y-1">
+                {group.tools.map((tool) => (
+                  <div key={tool.id}>
+                    <ToolRow
+                      expanded={expandedToolId === tool.id}
+                      onExpand={onExpandTool}
+                      onToggle={onToggleTool}
+                      tool={tool}
+                    />
+                    {expandedToolId === tool.id && (
+                      <ToolRowExpanded
                         tool={tool}
+                        {...(operations.executeToolTest !== undefined && {
+                          onExecuteTest: operations.executeToolTest,
+                        })}
                       />
-                      {expandedToolId === tool.id && (
-                        <ToolRowExpanded
-                          tool={tool}
-                          {...(operations.executeToolTest !== undefined && {
-                            onExecuteTest: operations.executeToolTest,
-                          })}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </ToolGroupAccordion>
-            );
-          })}
-        </Accordion>
-      </ScrollArea>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </ToolGroupAccordion>
+          );
+        })}
+      </Accordion>
     </ErrorBoundary>
   );
 }
