@@ -22,7 +22,7 @@ import { useId } from 'react';
 
 /** Absolute path heuristic: POSIX or Windows drive/UNC. Web FSA paths are neither. */
 function isAbsolutePathLike(path: string): boolean {
-  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(path) || path.startsWith('\\\\');
 }
 
 interface RootRowModel {
@@ -44,28 +44,28 @@ function RootRow({
 }) {
   return (
     <li className="flex items-center gap-2 px-3 py-2" data-testid="workspace-root-row">
-      <Folder aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+      <Folder aria-hidden="true" className="text-muted-foreground size-3.5 shrink-0" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="truncate font-medium text-xs">{root.displayName}</span>
+          <span className="truncate text-xs font-medium">{root.displayName}</span>
           {root.isMain && (
             <Badge className="px-1.5 py-0 text-[9px]" variant="secondary">
               Main
             </Badge>
           )}
           {root.isFocused && (
-            <span className="shrink-0 text-[10px] text-muted-foreground">Focused</span>
+            <span className="text-muted-foreground shrink-0 text-[10px]">Focused</span>
           )}
           {root.threadScope ? (
             <span
-              className="shrink-0 text-[10px] text-muted-foreground"
+              className="text-muted-foreground shrink-0 text-[10px]"
               data-testid="workspace-root-thread-scope"
             >
               {root.threadScope === 'in' ? 'This thread' : 'Not in this thread'}
             </span>
           ) : null}
         </div>
-        <div className="truncate text-[11px] text-muted-foreground" title={root.pathLabel}>
+        <div className="text-muted-foreground truncate text-[11px]" title={root.pathLabel}>
           {root.pathLabel}
         </div>
       </div>
@@ -138,16 +138,16 @@ export function WorkspaceRootStatusItem() {
               ? `Workspace main root ${mainName} plus ${otherCount} more. Open workspace folders`
               : `Workspace folder ${mainName}. Open workspace folders`
           }
-          className="flex h-7 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-sm px-1.5 text-left transition-[background-color,color] duration-150 hover:bg-accent/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset md:px-2"
+          className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-none focus-visible:ring-inset md:px-2"
           data-testid="workspace-root-status-trigger"
           title={mainPathTitle}
           type="button"
         >
-          <Folder aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
+          <Folder aria-hidden="true" className="text-muted-foreground size-3 shrink-0" />
           <span aria-hidden="true" className="hidden min-w-0 items-center gap-1 md:flex">
-            <span className="min-w-0 truncate whitespace-nowrap text-xs">{mainName}</span>
+            <span className="min-w-0 truncate text-xs whitespace-nowrap">{mainName}</span>
             {isMulti && (
-              <span className="shrink-0 text-muted-foreground text-xs">+{otherCount}</span>
+              <span className="text-muted-foreground shrink-0 text-xs">+{otherCount}</span>
             )}
           </span>
         </button>
@@ -162,12 +162,12 @@ export function WorkspaceRootStatusItem() {
         side="top"
         sideOffset={8}
       >
-        <div className="border-b bg-muted/20 px-3 py-2">
-          <div className="font-semibold text-sm" id={popoverTitleId}>
+        <div className="bg-muted/20 border-b px-3 py-2">
+          <div className="text-sm font-semibold" id={popoverTitleId}>
             Workspace folders
           </div>
           {isMulti && (
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-muted-foreground text-[11px]">
               A new thread starts in Main, then works in its own folders. Focused follows your
               selection.
             </div>

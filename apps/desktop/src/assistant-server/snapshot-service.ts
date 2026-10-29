@@ -135,7 +135,7 @@ interface RootEntry {
 }
 
 const GITLINK_MODE = '160000';
-const ALL_ZERO_OID_PATTERN = /^0+$/;
+const ALL_ZERO_OID_PATTERN = /^0+$/u;
 
 const RAW_DIFF_ARGS = ['diff', '--raw', '-z', '--no-abbrev', '--no-renames'] as const;
 const NUMSTAT_DIFF_ARGS = ['diff', '--numstat', '-z', '--no-renames'] as const;

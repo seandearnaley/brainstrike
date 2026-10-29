@@ -63,7 +63,7 @@ export function ThreadFolderHeader({
       countTestId="thread-folder-count"
       label={
         <span
-          className="min-w-0 flex-1 truncate font-medium text-xs leading-4"
+          className="min-w-0 flex-1 truncate text-xs leading-4 font-medium"
           // The path, when the root has one: a display name is not an identity
           // and two roots can share it. FSA roots have no path and get none.
           title={folder?.path ?? undefined}

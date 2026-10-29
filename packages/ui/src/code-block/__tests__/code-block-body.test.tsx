@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CodeBlockBody } from '../code-block-body';
 
 interface CapturedShikiProps {
   addDefaultStyles?: boolean;
@@ -29,8 +30,6 @@ vi.mock('../../shiki/highlighter-core', () => ({
   normalizeShikiLanguage: (language: string | undefined) => `normalized:${language ?? ''}`,
   useShikiHighlighter: mocks.useShikiHighlighter,
 }));
-
-import { CodeBlockBody } from '../code-block-body';
 
 describe('CodeBlockBody', () => {
   beforeEach(() => {

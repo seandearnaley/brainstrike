@@ -83,7 +83,7 @@ test('public storage projects committed identities without appending native tran
   expect(mutations).toBe(0);
   await adapter.close();
   await expect(adapter.saveMessages({ messages: [committed] })).rejects.toThrow(
-    /admission is closed/
+    /admission is closed/u
   );
 });
 

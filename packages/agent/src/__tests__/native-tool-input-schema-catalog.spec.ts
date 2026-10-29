@@ -15,7 +15,7 @@ function isJsonSchemaRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function jsonPathProperty(path: string, property: string): string {
-  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(property)
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(property)
     ? `${path}.${property}`
     : `${path}[${JSON.stringify(property)}]`;
 }

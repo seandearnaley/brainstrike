@@ -221,7 +221,7 @@ describe('createAwsCredentialChain (EMPIRICAL — real AWS SDK, bogus HOME)', ()
     useHome('ssoexpired', { config: SSO_CONFIG, ...ssoCacheEntry() });
 
     await expect(createAwsCredentialChain('ssoprof')()).rejects.toThrow(
-      /AWS SSO session expired.*aws sso login --profile ssoprof/s
+      /AWS SSO session expired.*aws sso login --profile ssoprof/su
     );
   });
 
@@ -229,16 +229,16 @@ describe('createAwsCredentialChain (EMPIRICAL — real AWS SDK, bogus HOME)', ()
     useHome('ssofresh', { config: SSO_CONFIG });
 
     await expect(createAwsCredentialChain('ssoprof')()).rejects.toThrow(
-      /AWS SSO session expired.*aws sso login --profile ssoprof/s
+      /AWS SSO session expired.*aws sso login --profile ssoprof/su
     );
   });
 
   it('classifies a missing named profile as no-credentials-found, naming the profile', async () => {
     useHome('missing');
 
-    await expect(createAwsCredentialChain('does-not-exist')()).rejects.toThrow(/does-not-exist/);
+    await expect(createAwsCredentialChain('does-not-exist')()).rejects.toThrow(/does-not-exist/u);
     await expect(createAwsCredentialChain('does-not-exist')()).rejects.toThrow(
-      new RegExp(AWS_CHAIN_NO_CREDENTIALS_HINT)
+      new RegExp(AWS_CHAIN_NO_CREDENTIALS_HINT, 'u')
     );
   });
 
@@ -246,9 +246,9 @@ describe('createAwsCredentialChain (EMPIRICAL — real AWS SDK, bogus HOME)', ()
     useHome('empty');
 
     await expect(createAwsCredentialChain(undefined)()).rejects.toThrow(
-      new RegExp(AWS_CHAIN_NO_CREDENTIALS_HINT)
+      new RegExp(AWS_CHAIN_NO_CREDENTIALS_HINT, 'u')
     );
-    await expect(createAwsCredentialChain(undefined)()).rejects.toThrow(/default/);
+    await expect(createAwsCredentialChain(undefined)()).rejects.toThrow(/default/u);
   });
 
   it('honors the NAMED profile — a profile with static keys resolves them', async () => {

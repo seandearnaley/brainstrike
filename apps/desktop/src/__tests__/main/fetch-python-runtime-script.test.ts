@@ -312,7 +312,7 @@ describe('fetch-python-runtime script', () => {
         platform: 'all',
         resourcesDir,
       })
-    ).rejects.toThrow(/sha256/i);
+    ).rejects.toThrow(/sha256/iu);
     await expect(fsPromises.access(archivePath(resourcesDir, TARGET_A))).rejects.toThrow();
   });
 
@@ -325,7 +325,7 @@ describe('fetch-python-runtime script', () => {
         platform: 'all',
         resourcesDir,
       })
-    ).rejects.toThrow(/bytes/i);
+    ).rejects.toThrow(/bytes/iu);
   });
 
   it('fails loudly on a non-OK download response', async () => {
@@ -333,7 +333,7 @@ describe('fetch-python-runtime script', () => {
     const fetchImpl = vi.fn(() => Promise.resolve(new Response('nope', { status: 404 })));
     await expect(
       fetchPythonRuntime({ fetchImpl, log: () => undefined, platform: 'all', resourcesDir })
-    ).rejects.toThrow(/404/);
+    ).rejects.toThrow(/404/u);
   });
 
   it('fails fast with a clear message instead of hanging when the download stalls (PR #2205)', async () => {
@@ -360,7 +360,7 @@ describe('fetch-python-runtime script', () => {
         platform: 'all',
         resourcesDir,
       })
-    ).rejects.toThrow(/timed out/i);
+    ).rejects.toThrow(/timed out/iu);
     expect(fetchImpl).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ signal: expect.any(AbortSignal) })

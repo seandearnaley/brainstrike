@@ -380,7 +380,7 @@ function DiagramFullSizeView({
         aria-describedby={undefined}
         className={cn(
           container ? 'absolute' : 'fixed',
-          'inset-0 flex flex-col bg-background outline-hidden',
+          'bg-background inset-0 flex flex-col outline-hidden',
           DIALOG_LAYER_CLASSES[0].content
         )}
         data-testid="mermaid-full-size"
@@ -394,9 +394,9 @@ function DiagramFullSizeView({
         }}
         ref={contentRef}
       >
-        <div className="flex items-center gap-3 border-border border-b px-3 py-1.5">
-          <DialogPrimitive.Title className="font-medium text-sm">Diagram</DialogPrimitive.Title>
-          <p className="truncate text-muted-foreground text-xs">
+        <div className="border-border flex items-center gap-3 border-b px-3 py-1.5">
+          <DialogPrimitive.Title className="text-sm font-medium">Diagram</DialogPrimitive.Title>
+          <p className="text-muted-foreground truncate text-xs">
             Pinch or Ctrl + scroll to zoom, drag to pan, double-click to zoom in or reset
           </p>
           <DiagramToolbar
@@ -418,7 +418,7 @@ function DiagramFullSizeView({
             >
               <XIcon className="size-3.5" />
               Close
-              <kbd className="rounded border border-border px-1 font-mono text-[10px] text-muted-foreground">
+              <kbd className="border-border text-muted-foreground rounded border px-1 font-mono text-[10px]">
                 Esc
               </kbd>
             </Button>
@@ -458,7 +458,7 @@ export function MermaidBlock({ code }: { readonly code: string }) {
       <div className="not-prose group/diagram relative [--pele-zoom-bottom:8px] [--pele-zoom-top:auto]">
         <DiagramCanvas className="not-prose" code={code} drawn={drawn} />
         <DiagramToolbar
-          className="absolute top-1 right-1 rounded-md bg-background/90 opacity-0 shadow-xs transition-opacity focus-within:opacity-100 group-hover/diagram:opacity-100 has-[[data-state=open]]:opacity-100"
+          className="bg-background/90 absolute top-1 right-1 rounded-md opacity-0 shadow-xs transition-opacity group-hover/diagram:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100"
           code={code}
           fullSize={false}
           onOptionsChange={setOptions}

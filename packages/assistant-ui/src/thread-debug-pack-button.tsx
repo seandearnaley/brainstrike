@@ -35,7 +35,7 @@ export function ThreadDebugPackButton() {
     }
   };
   return (
-    <details className="shrink-0 px-3 py-1 text-muted-foreground text-xs">
+    <details className="text-muted-foreground shrink-0 px-3 py-1 text-xs">
       <summary className="cursor-pointer text-right">Debug pack</summary>
       <p className="py-2">
         Includes this conversation and its subagents: messages, tool inputs and results, approvals
@@ -45,7 +45,7 @@ export function ThreadDebugPackButton() {
         conversation and file content before sharing.
       </p>
       <Button
-        className="h-7 gap-1 text-muted-foreground text-xs"
+        className="text-muted-foreground h-7 gap-1 text-xs"
         disabled={phase.kind === 'building'}
         onClick={() => void download()}
         size="sm"

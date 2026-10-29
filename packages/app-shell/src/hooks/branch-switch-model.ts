@@ -45,7 +45,7 @@ export function deriveBranchSwitchDirty(status: Pick<GitStatus, 'files'>): boole
 
 /** Basename of a worktree path, separator-normalized (git prints POSIX or native). */
 function worktreeBasename(worktreePath: string): string {
-  const normalized = worktreePath.replaceAll('\\', '/').replace(/\/+$/, '');
+  const normalized = worktreePath.replaceAll('\\', '/').replace(/\/+$/u, '');
   return normalized.slice(normalized.lastIndexOf('/') + 1);
 }
 

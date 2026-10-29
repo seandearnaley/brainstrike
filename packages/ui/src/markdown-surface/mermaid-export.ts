@@ -10,7 +10,7 @@ export type DiagramPngScale = (typeof DIAGRAM_PNG_SCALES)[number];
 export const MAX_CANVAS_SIDE = 16_384;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const PELE_VARIABLE = /var\((--pele-[a-z0-9-]+)/g;
+const PELE_VARIABLE = /var\((--pele-[a-z0-9-]+)/gu;
 
 export interface StandaloneDiagram {
   readonly height: number;
@@ -40,7 +40,7 @@ function familyNames(stack: string): string[] {
     .map((name) =>
       name
         .trim()
-        .replace(/^["']|["']$/g, '')
+        .replace(/^["']|["']$/gu, '')
         .toLowerCase()
     )
     .filter((name) => name.length > 0);
@@ -93,7 +93,7 @@ async function embeddedFontFaces(doc: Document, families: ReadonlySet<string>): 
         continue;
       }
       const base = rule.parentStyleSheet?.href ?? doc.baseURI;
-      const urls = [...rule.cssText.matchAll(/url\(\s*(["']?)([^"')]+)\1\s*\)/g)];
+      const urls = [...rule.cssText.matchAll(/url\(\s*(["']?)([^"')]+)\1\s*\)/gu)];
       faces.push(
         Promise.all(
           urls.map(async (match) => [match[0], await dataUrl(new URL(match[2] ?? '', base).href)])

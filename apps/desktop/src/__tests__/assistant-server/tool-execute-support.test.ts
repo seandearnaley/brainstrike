@@ -125,7 +125,7 @@ describe('parseToolExecuteInput', () => {
     }
     // Pin the truncated issue list itself: a schema the producer refuses throws
     // a short TypeError that would also pass the length check.
-    expect(caught?.message).toMatch(/^invalid tool input — field0: .+…$/);
+    expect(caught?.message).toMatch(/^invalid tool input — field0: .+…$/u);
     expect(caught?.message.length ?? 0).toBeLessThanOrEqual(700);
   });
 });

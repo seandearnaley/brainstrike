@@ -84,7 +84,7 @@ export function ThreadExpandedDetails({
   const maxOutputValue = getMaxOutputValue(thread);
   return (
     <div
-      className="mt-1 mb-1 rounded-md border border-border bg-background/70 p-2"
+      className="border-border bg-background/70 mt-1 mb-1 rounded-md border p-2"
       data-testid="thread-expanded-details"
     >
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
@@ -108,9 +108,9 @@ export function ThreadExpandedDetails({
         <ThreadDetail label="Created" value={formatThreadDate(thread.createdAt)} />
         <ThreadDetail label="Updated" value={formatThreadDate(thread.updatedAt)} />
       </div>
-      <div className="mt-2 border-border border-t pt-2">
-        <div className="font-medium text-[11px] text-muted-foreground">Diagnostics</div>
-        <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+      <div className="border-border mt-2 border-t pt-2">
+        <div className="text-muted-foreground text-[11px] font-medium">Diagnostics</div>
+        <div className="text-muted-foreground mt-1 font-mono text-[11px] break-all">
           {thread.id}
         </div>
       </div>
@@ -160,7 +160,7 @@ export function ThreadMetadataBadges({
   const protectedBadgePresent = Boolean(branch);
   return (
     <div
-      className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden"
+      className="hidden min-w-0 shrink items-center gap-1 overflow-hidden @[420px]/threads:flex"
       data-testid="thread-metadata-badges"
     >
       {/* Branch first: in folder grouping it is the row's most local fact, and
@@ -227,7 +227,7 @@ function ThreadBadge({
 }): ReactElement {
   return (
     <span
-      className={`${wideOnly ? '@[560px]/threads:inline-flex hidden' : 'inline-flex'} shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] text-muted-foreground leading-4`}
+      className={`${wideOnly ? 'hidden @[560px]/threads:inline-flex' : 'inline-flex'} border-border/70 bg-background/70 text-muted-foreground shrink-0 items-center gap-0.5 rounded-full border px-1.5 py-0 text-[9px] leading-4`}
     >
       {Icon ? <Icon aria-hidden="true" className="size-2.5" /> : null}
       {children}
@@ -255,7 +255,7 @@ export function ThreadReadFailureMarker({
         {/* A button only so a keyboard can reach the reason; it does nothing else. */}
         <button
           aria-label={`${title}: its history cannot be read. ${reason}`}
-          className="inline-flex size-6 items-center justify-center rounded-sm text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="text-destructive focus-visible:ring-ring inline-flex size-6 items-center justify-center rounded-sm focus-visible:ring-2 focus-visible:outline-none"
           data-testid="thread-read-failure"
           // Like the row's other controls, a click here never opens the row.
           onClick={(event) => event.stopPropagation()}

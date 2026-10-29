@@ -130,7 +130,7 @@ describe('tool output artifact settlement', () => {
     expect(encoded).not.toContain('output was truncated');
     expect(encoded.length).toBeLessThanOrEqual(8000);
 
-    const cursor = encoded.match(/"cursor":"(bsto1\.[^"]+)"/)?.[1];
+    const cursor = encoded.match(/"cursor":"(bsto1\.[^"]+)"/u)?.[1];
     if (!cursor) {
       throw new TypeError('Expected a continuation cursor in the bounded page.');
     }

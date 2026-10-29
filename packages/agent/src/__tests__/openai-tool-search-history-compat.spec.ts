@@ -309,7 +309,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     result.providerOptions = { openai: { itemId: 'tso_conflict' } };
 
     expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
-      /conflicting OpenAI tool-search output item IDs/
+      /conflicting OpenAI tool-search output item IDs/u
     );
   });
 
@@ -333,7 +333,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
   it('rejects an output item ID that duplicates its call item ID', () => {
     expect(() =>
       processPrompt(new OpenAIToolSearchHistoryCompat(), createSymmetricallyHydratedPrompt())
-    ).toThrow(/duplicates its call item ID/);
+    ).toThrow(/duplicates its call item ID/u);
   });
 
   it('rejects a duplicating output item ID recorded in providerOptions', () => {
@@ -350,7 +350,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     result.providerOptions = { openai: { itemId: TOOL_SEARCH_CALL_ITEM_ID } };
 
     expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
-      /duplicates its call item ID/
+      /duplicates its call item ID/u
     );
   });
 
@@ -367,7 +367,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     result.providerMetadata = undefined;
 
     expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
-      /missing its provider item ID/
+      /missing its provider item ID/u
     );
   });
 

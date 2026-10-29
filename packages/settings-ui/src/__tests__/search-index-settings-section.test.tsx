@@ -105,9 +105,9 @@ describe('Search & Indexing', () => {
 
   it('opens a fresh profile on text search with no model to choose', () => {
     show(DEFAULT_INDEX_CONFIG);
-    expect(screen.getByRole('button', { name: /^Text/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Text/u })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText('Embedding model')).not.toBeInTheDocument();
-    expect(screen.getByText(/Files over 500 KB are skipped\./)).toBeInTheDocument();
+    expect(screen.getByText(/Files over 500 KB are skipped\./u)).toBeInTheDocument();
   });
 
   it('points to Factory Reset by the name its clear control carries', () => {
@@ -123,27 +123,27 @@ describe('Search & Indexing', () => {
     useIndexConfigStore.setState({ state: { kind: 'loading' }, update });
     render(<SearchIndexSettingsSection />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading search index settings');
-    expect(screen.queryByRole('button', { name: /^Off/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Off/u })).not.toBeInTheDocument();
     expect(screen.queryAllByRole('button', { pressed: true })).toHaveLength(0);
   });
 
   it('changes nothing when the saved mode is chosen again', async () => {
     show(DEFAULT_INDEX_CONFIG);
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /^Text/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Text/u }));
     });
     expect(update).not.toHaveBeenCalled();
   });
 
   it('asks for a model before semantic search can be applied, and takes it back on Text', async () => {
     show(DEFAULT_INDEX_CONFIG);
-    fireEvent.click(screen.getByRole('button', { name: /^Semantic/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Semantic/u }));
     expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
       'Choose an embedding model first.'
     );
     expect(screen.getByRole('button', { name: 'Apply and re-index' })).toBeDisabled();
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /^Text/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Text/u }));
     });
     expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
     expect(update).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe('Search & Indexing', () => {
 
   it('turns the index off at once', async () => {
     show(DEFAULT_INDEX_CONFIG);
-    fireEvent.click(screen.getByRole('button', { name: /^Off/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Off/u }));
     await waitFor(() => expect(update).toHaveBeenCalledWith({ mode: 'off' }));
   });
 
@@ -217,7 +217,7 @@ describe('Search & Indexing', () => {
     show(DEFAULT_INDEX_CONFIG);
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /^Off/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Off/u }));
     });
     await act(async () => finish());
     expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
@@ -228,10 +228,10 @@ describe('Search & Indexing', () => {
 
   it('turns semantic search on from Off with new chunking in one Apply', async () => {
     show({ ...DEFAULT_INDEX_CONFIG, mode: 'off' });
-    fireEvent.click(screen.getByRole('button', { name: /^Semantic/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Semantic/u }));
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/u }));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
     });
@@ -351,7 +351,7 @@ describe('Search & Indexing', () => {
   it('applies the chosen model with its verified dimensions', async () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/u }));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
     });
@@ -361,29 +361,29 @@ describe('Search & Indexing', () => {
   it('stages no model change when the saved model is chosen again', async () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/u }));
     expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
       'Model changes.'
     );
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/u }));
     expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
   });
 
   it('stages nothing when the saved model is picked again', async () => {
     show({ ...SEMANTIC, model: LARGE });
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/u }));
     expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
   });
 
   it('drops a model staged under Semantic when search switches to Text', async () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/u }));
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /^Text/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Text/u }));
     });
     expect(update).toHaveBeenCalledExactlyOnceWith({ mode: 'text' });
     const pending = screen.getByRole('status', { name: 'Pending changes' });
@@ -394,7 +394,7 @@ describe('Search & Indexing', () => {
   it('cannot choose a model without verified dimensions', async () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Unmeasured/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /Unmeasured/u }));
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Unmeasured has no verified embedding dimensions.'
     );
@@ -442,7 +442,7 @@ describe('Search & Indexing', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('cannot be read');
     fireEvent.click(screen.getByRole('button', { name: 'Reset search settings' }));
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /^Text/ })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: /^Text/u })).toHaveAttribute('aria-pressed', 'true')
     );
     expect(reset).toHaveBeenCalledOnce();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

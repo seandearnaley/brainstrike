@@ -478,7 +478,7 @@ export const ThreadMessagesRegion = ({
         ref={scrollerRef}
       >
         {disabledReason && (
-          <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
+          <p aria-live="polite" className="text-muted-foreground px-4 py-3 text-xs">
             {disabledReason}
           </p>
         )}

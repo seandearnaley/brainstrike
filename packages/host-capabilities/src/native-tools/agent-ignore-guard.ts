@@ -260,7 +260,7 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
       // making every caller remember (the refusal surfaces as a confusing
       // `path.relative()` error, not as a missed exclusion — but a guard whose
       // correctness depends on caller punctuation is a trap either way).
-      const normalized = relativePath.replace(/^\/+/, '');
+      const normalized = relativePath.replace(/^\/+/u, '');
       if (normalized === '') {
         return false;
       }
@@ -373,7 +373,7 @@ async function agentIgnoreCandidatePaths(args: {
     return candidates;
   }
   const posixTarget = targetRelative.split(path.sep).join('/');
-  if (posixTarget !== args.relativePath.replace(/^\/+/, '')) {
+  if (posixTarget !== args.relativePath.replace(/^\/+/u, '')) {
     candidates.push(posixTarget);
   }
   return candidates;

@@ -21,7 +21,7 @@ test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 async function configureServer(page: Page, url: string): Promise<void> {
   await new HomePage(page).openSettings();
   const settings = new SettingsPage(page);
-  await settings.openCategory(/AI Tools/i, 'ai-tools');
+  await settings.openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   const editor = page.getByTestId('mcp-config-editor');
   await expect(editor).toBeVisible();
@@ -33,11 +33,11 @@ async function configureServer(page: Page, url: string): Promise<void> {
   await page.getByTestId('mcp-config-save').click();
   await expect(page.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
   await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
-  await expect(page.getByTestId(`mcp-server-row-${SERVER}`)).toContainText(/Connected/i, {
+  await expect(page.getByTestId(`mcp-server-row-${SERVER}`)).toContainText(/Connected/iu, {
     timeout: 60_000,
   });
   // MCP tools ask: the model's call and the app's call meet the same policy.
-  await settings.openCategory(/Permissions/i, 'permissions');
+  await settings.openCategory(/Permissions/iu, 'permissions');
   await page.getByTestId('permission-policy-mcp').selectOption('ask');
   await page.keyboard.press('Escape');
 }

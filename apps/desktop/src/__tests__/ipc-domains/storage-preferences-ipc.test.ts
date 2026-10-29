@@ -1,18 +1,17 @@
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
-
-const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
-
-vi.mock('electron', () => ({ ipcMain }));
-
 import { untrackAppWindow } from '../../app-windows';
 import { registerStoragePreferencesIpcHandlers } from '../../ipc-domains/storage-preferences-ipc';
+import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 import {
   invokeDesktopIpcFrom,
   trackTestAppWindow,
 } from '../helpers/desktop-ipc-sender-test-helpers';
+
+const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
+
+vi.mock('electron', () => ({ ipcMain }));
 
 const VISIBLE_UI_SENDER_ID = 9402;
 const UNTRACKED_SENDER_ID = 9403;

@@ -2,6 +2,11 @@ import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import {
+  type ToolApprovalGrantHandlers,
+  ToolApprovalGrantProvider,
+} from '../tool-approval-grant-context';
 import { expandApprovalRow } from './approval-row-helpers';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
@@ -14,12 +19,6 @@ vi.mock('@assistant-ui/react', () => ({
   useAuiState: (selector: (state: { thread: { messages: readonly unknown[] } }) => unknown) =>
     selector({ thread: { messages: [] } }),
 }));
-
-import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
-import {
-  type ToolApprovalGrantHandlers,
-  ToolApprovalGrantProvider,
-} from '../tool-approval-grant-context';
 
 const baseApproval = {
   args: { command: 'git status' },
@@ -71,7 +70,7 @@ describe('AssistantToolApprovalNotice grant actions', () => {
     expect(screen.getByTestId('approval-grant-category-session')).toBeInTheDocument();
     // The session button names the category in user terms.
     expect(screen.getByTestId('approval-grant-category-session').textContent).toMatch(
-      /commands this session/i
+      /commands this session/iu
     );
   });
 
@@ -109,7 +108,7 @@ describe('AssistantToolApprovalNotice grant actions', () => {
     expect(screen.queryByTestId('approval-grant-tool-always')).toBeNull();
     expect(screen.queryByTestId('approval-grant-category-session')).toBeNull();
     // Plain Approve/Decline still render.
-    expect(screen.getByRole('button', { name: /^approve /i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^approve /iu })).toBeInTheDocument();
   });
 
   it('omits grant buttons when the approval carries no risk category (non-policy pause)', () => {
@@ -152,7 +151,7 @@ describe('AssistantToolApprovalNotice grant actions', () => {
   it('disables the grant overflow after any action is submitted', async () => {
     renderNotice(baseApproval, makeHandlers());
 
-    await userEvent.click(screen.getByRole('button', { name: /^approve /i }));
+    await userEvent.click(screen.getByRole('button', { name: /^approve /iu }));
     // An answered notice collapses into a row; its buttons live in the expanded body.
     await expandApprovalRow(userEvent.setup());
 
@@ -164,7 +163,7 @@ describe('AssistantToolApprovalNotice grant actions', () => {
   it('disables grant buttons after any action is submitted', async () => {
     renderNotice(baseApproval, makeHandlers());
 
-    await userEvent.click(screen.getByRole('button', { name: /^approve /i }));
+    await userEvent.click(screen.getByRole('button', { name: /^approve /iu }));
     await expandApprovalRow(userEvent.setup());
 
     expect((screen.getByTestId('approval-grant-tool-always') as HTMLButtonElement).disabled).toBe(

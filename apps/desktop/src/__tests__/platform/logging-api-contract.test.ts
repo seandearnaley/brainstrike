@@ -176,7 +176,7 @@ describe('logging API contract', () => {
     expect(source).toContain('LOGGING_API_CHANNELS.preferencesUpdated');
     expect(source).not.toContain('function assertLogRecord');
     expect(source).not.toMatch(
-      /(?:ipcMain\.(?:handle|on|removeHandler|removeListener)|contents\.send)\(\s*['"`]logging:/
+      /(?:ipcMain\.(?:handle|on|removeHandler|removeListener)|contents\.send)\(\s*['"`]logging:/u
     );
   });
 
@@ -184,7 +184,7 @@ describe('logging API contract', () => {
     const source = readDesktopSource('logging-ipc.ts');
 
     expect(source).toContain('createDesktopIpcRegistry');
-    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
-    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/u);
+    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/u);
   });
 });

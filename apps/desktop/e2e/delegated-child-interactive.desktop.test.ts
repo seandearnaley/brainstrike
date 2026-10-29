@@ -142,7 +142,7 @@ async function assertAssembledChildControl(
       await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
       await new HomePage(window).openSettings();
       const settings = new SettingsPage(window);
-      await settings.openCategory(/Permissions/i, 'permissions');
+      await settings.openCategory(/Permissions/iu, 'permissions');
       await window
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('ask');
@@ -182,7 +182,7 @@ async function assertAssembledChildControl(
         await root
           .getByTestId('subagent-execution-card')
           .filter({ hasText: persona })
-          .getByRole('button', { name: /Open .* conversation/ })
+          .getByRole('button', { name: /Open .* conversation/u })
           .click();
         await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
         const name = (await selectedTab.innerText()).trim();
@@ -676,7 +676,7 @@ async function assertChildDecision(
       });
       await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
       await new HomePage(window).openSettings();
-      await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+      await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
       await window
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('allow');
@@ -695,11 +695,11 @@ async function assertChildDecision(
       );
       const noticeName = scenario.tool === 'askUser' ? 'Question for you' : 'Plan decision';
       await root.getByRole('button', { exact: true, name: 'Expand activity' }).click();
-      await root.getByRole('button', { name: /Open .* conversation/ }).click();
+      await root.getByRole('button', { name: /Open .* conversation/u }).click();
       const childTab = window
         .getByRole('tablist', { name: 'Workspace tabs' })
         .getByRole('tab', { selected: true });
-      await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
+      await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
       const childName = (await childTab.innerText()).trim();
       const child = window.getByRole('region', { exact: true, name: childName });
       await expect(child.getByRole('group', { name: noticeName })).toBeVisible();

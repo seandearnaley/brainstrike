@@ -1,5 +1,7 @@
 import type { GitWorkspaceEvent } from '@brainstrike/agent-host/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createDesktopGitWorkspace } from '../agent-host-platform/desktop-git-workspace';
+import { watchGitCommonDirNatively } from '../assistant-server/git-inventory-watcher';
 
 const { createGitInventoryServiceMock, createWorktreeServiceMock } = vi.hoisted(() => ({
   createGitInventoryServiceMock: vi.fn(),
@@ -12,9 +14,6 @@ vi.mock('../assistant-server/git-inventory-service', () => ({
 vi.mock('../assistant-server/worktree-service', () => ({
   createWorktreeService: createWorktreeServiceMock,
 }));
-
-import { createDesktopGitWorkspace } from '../agent-host-platform/desktop-git-workspace';
-import { watchGitCommonDirNatively } from '../assistant-server/git-inventory-watcher';
 
 function createWorkspace({ subscribe = true } = {}) {
   const gitInventoryService = {

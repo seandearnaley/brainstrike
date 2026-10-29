@@ -44,7 +44,7 @@ describe('ThreadSearchService', () => {
   it('rejects a blank query', async () => {
     const service = createThreadSearchService(createStubRepository({}));
     await expect(service.searchThreads('   ', { resourceId: RESOURCE_ID })).rejects.toThrow(
-      /query/i
+      /query/iu
     );
   });
 

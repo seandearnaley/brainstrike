@@ -88,7 +88,7 @@ describe('detectCodeLanguage', () => {
   });
 
   it('consults only the caller-provided patterns when given', () => {
-    const patterns = [{ language: 'sql', pattern: /\.sql$/i }] as const;
+    const patterns = [{ language: 'sql', pattern: /\.sql$/iu }] as const;
 
     expect(detectCodeLanguage('query.SQL', patterns)).toBe('sql');
     expect(detectCodeLanguage('main.ts', patterns)).toBeNull();

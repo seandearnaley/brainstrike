@@ -68,17 +68,17 @@ export function RewindConflictList({
 
   return (
     <div
-      className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
+      className="border-destructive/40 bg-destructive/5 flex flex-col gap-2 rounded-md border px-3 py-2"
       data-testid="rewind-conflicts"
     >
-      <p className="flex items-center gap-1.5 font-medium text-destructive text-xs">
+      <p className="text-destructive flex items-center gap-1.5 text-xs font-medium">
         <AlertTriangle aria-hidden="true" className="size-3.5" />
         {unique.length} file{unique.length === 1 ? '' : 's'} cannot be restored cleanly
       </p>
       <ul className="flex flex-col gap-0.5" data-testid="rewind-conflict-paths">
         {unique.map((conflict) => (
           <li className="text-muted-foreground text-xs" key={`${conflict.rootId}|${conflict.path}`}>
-            <span className="font-mono text-foreground">{conflict.path}</span>
+            <span className="text-foreground font-mono">{conflict.path}</span>
             {conflict.rootLabel ? <span> — {conflict.rootLabel}</span> : null}
             <span> — {conflict.message}</span>
           </li>

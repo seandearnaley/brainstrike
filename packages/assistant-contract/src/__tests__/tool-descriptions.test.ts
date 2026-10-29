@@ -26,9 +26,9 @@ describe('TOOL_DESCRIPTIONS', () => {
     // Live-app verifier runs 6/7 (2026-09-15): the root pre-created an empty
     // shell "to receive the report" and wrote it behind a second approval.
     const description = TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas];
-    expect(description).toMatch(/deliverable/);
-    expect(description).toMatch(/placeholder/);
-    expect(description).toMatch(/when the content is ready/);
+    expect(description).toMatch(/deliverable/u);
+    expect(description).toMatch(/placeholder/u);
+    expect(description).toMatch(/when the content is ready/u);
   });
 
   it('guards dynamic lookups instead of widening the exact registry', () => {
@@ -44,8 +44,8 @@ describe('TOOL_DESCRIPTIONS', () => {
     // numbers) must live here instead — paid once per request, not per match.
     const grep = TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch];
     expect(grep).toContain('root:path');
-    expect(grep).toMatch(/line/i);
+    expect(grep).toMatch(/line/iu);
     const glob = TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.globWorkspace];
-    expect(glob).toMatch(/root name/i);
+    expect(glob).toMatch(/root name/iu);
   });
 });

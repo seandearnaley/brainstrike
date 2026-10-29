@@ -22,6 +22,10 @@ import { ApprovalQueueStrip } from './approval-queue-strip';
 import { AssistantDataRendererRegistration } from './assistant-data-renderer-registration';
 import { useThreadPresentationActivityMode } from './use-thread-presentation-activity-mode';
 import './overrides.css';
+import type {
+  AssistantProviderSettingsMap,
+  AssistantProviderSettingsUpdate,
+} from '@brainstrike/types';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
 import { DiagramFullSizeContainerContext } from '@brainstrike/ui/diagram-full-size-container';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
@@ -50,26 +54,17 @@ import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './compose
 import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
-import { CopyDebugBundleButton } from './copy-debug-bundle-button';
-import { EditComposer } from './edit-composer';
-import { RewindComposerBridge } from './message-rewind-action';
-import { ThreadBody } from './new-thread-welcome';
-import { ThreadDebugPackButton } from './thread-debug-pack-button';
-import { UserMessage } from './user-message';
-
-export type { ComposerAttachmentsAvailability } from './composer-input';
-// Re-exported for the suites that mount these against a real runtime
-// (user-action-bar-copy, assistant-chat-polish.browser) — extraction moved the
-// source module, not the public import path.
-export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
-
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
   type CumulativeUsageDisplay,
   type OmMeterState,
   ThreadContextMeter,
 } from './context-usage-meter';
+import { CopyDebugBundleButton } from './copy-debug-bundle-button';
+import { EditComposer } from './edit-composer';
 import { FollowUpQueueChips, QueuedDecisionPruner } from './follow-up-queue';
+import { RewindComposerBridge } from './message-rewind-action';
+import { ThreadBody } from './new-thread-welcome';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
 import { RunningStateBridge } from './running-state-bridge';
@@ -78,7 +73,15 @@ import {
   type SlashCommand,
   toSlashCommandAdapterOptions,
 } from './slash-commands';
+import { ThreadDebugPackButton } from './thread-debug-pack-button';
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
+import { UserMessage } from './user-message';
+
+export type { ComposerAttachmentsAvailability } from './composer-input';
+// Re-exported for the suites that mount these against a real runtime
+// (user-action-bar-copy, assistant-chat-polish.browser) — extraction moved the
+// source module, not the public import path.
+export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
 // Re-export types needed by consumers
 export type { ModelPickerModel, ModelPickerProvider };
@@ -166,11 +169,6 @@ export type {
 } from '@brainstrike/types';
 export type { ComposerDraftCommand } from './composer-draft-command';
 
-import type {
-  AssistantProviderSettingsMap,
-  AssistantProviderSettingsUpdate,
-} from '@brainstrike/types';
-
 /**
  * A capability this turn runs WITHOUT — never a reason it cannot run. Lives in
  * the composer shell (a non-scrolling sibling of the viewport) so it stays
@@ -184,7 +182,7 @@ const CapabilityNotice = ({ text }: { text: string | undefined }) =>
   text ? (
     <p
       aria-live="polite"
-      className="px-1 pb-2 text-muted-foreground text-xs"
+      className="text-muted-foreground px-1 pb-2 text-xs"
       data-testid="assistant-capability-notice"
     >
       {text}
@@ -507,7 +505,7 @@ const AssistantMessage = () => {
   if (compactionSummary) {
     return (
       <MessagePrimitive.Root
-        className="aui-assistant-message-root fade-in slide-in-from-bottom-1 w-full animate-in py-3 duration-150"
+        className="aui-assistant-message-root fade-in slide-in-from-bottom-1 animate-in w-full py-3 duration-150"
         data-message-id={messageId}
         tabIndex={-1}
       >
@@ -529,11 +527,11 @@ const AssistantMessage = () => {
   }
   return (
     <MessagePrimitive.Root
-      className="aui-assistant-message-root fade-in slide-in-from-bottom-1 relative grid w-full animate-in grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2 duration-150"
+      className="aui-assistant-message-root fade-in slide-in-from-bottom-1 animate-in relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2 duration-150"
       data-message-id={messageId}
       tabIndex={-1}
     >
-      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-6">
+      <div className="aui-assistant-message-content text-foreground col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl leading-6 break-words">
         {/* Grouped rendering (activity groups + text + data parts) lives in
             assistant-activity-parts.tsx; see its header for the grouping rule. */}
         <AssistantActivityParts />

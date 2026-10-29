@@ -93,7 +93,7 @@ it('says the later turns leave the conversation for their branch, before and aft
       'Returns the conversation to before this message only. Nothing on disk is touched.'
     )
   ).toBeInTheDocument();
-  expect(screen.queryByText(/hidden|deleted/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/hidden|deleted/iu)).not.toBeInTheDocument();
 
   await user.click(screen.getByTestId('rewind-confirm'));
   expect(port.apply).toHaveBeenCalledWith({
@@ -104,5 +104,5 @@ it('says the later turns leave the conversation for their branch, before and aft
   expect(await screen.findByTestId('rewind-outcome-messages')).toHaveTextContent(
     '2 turns left this conversation; switch back to them with the branch picker.'
   );
-  expect(screen.queryByText(/hidden|deleted/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/hidden|deleted/iu)).not.toBeInTheDocument();
 });

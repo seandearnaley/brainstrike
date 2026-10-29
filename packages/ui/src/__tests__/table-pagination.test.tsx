@@ -11,7 +11,7 @@ describe('TablePagination', () => {
     );
 
     // Shows item range (items 11-20 for page 2 with default pageSize of 50, capped at totalItems)
-    expect(screen.getByText(/11-20 of 30/)).toBeInTheDocument();
+    expect(screen.getByText(/11-20 of 30/u)).toBeInTheDocument();
 
     // Has page input showing current page
     const pageInput = screen.getByRole('spinbutton', { name: 'Page number' });

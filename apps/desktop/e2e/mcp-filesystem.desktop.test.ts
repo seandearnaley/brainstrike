@@ -18,7 +18,7 @@ test.describe('Assistant chat (desktop)', () => {
     const assistantChatCard = await ensureAssistantShellVisible(window);
     await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
 
-    const loadingIndicator = window.getByText(/Loading assistant/i);
+    const loadingIndicator = window.getByText(/Loading assistant/iu);
     if (await loadingIndicator.isVisible().catch(() => false)) {
       await loadingIndicator.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {
         console.warn('⚠️ Assistant UI chunk still loading after timeout');

@@ -3,6 +3,7 @@ import { platform } from 'node:process';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodeExecutor, ExecInput } from '../code-execution';
+import { createFenceExecutor } from '../fence/fence-executor';
 
 const sandbox = vi.hoisted(() => ({
   checkDependenciesAsync: vi.fn(async () => ({ errors: [] as string[], warnings: [] as string[] })),
@@ -24,8 +25,6 @@ vi.mock('node:fs/promises', async (importOriginal) => ({
   rm: mocks.rm,
 }));
 const actualFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-
-import { createFenceExecutor } from '../fence/fence-executor';
 
 const interpreters = { python: { command: '/usr/bin/python3', scriptExtension: 'py' } } as const;
 const childProcess = () =>

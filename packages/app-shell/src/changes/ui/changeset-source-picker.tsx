@@ -149,7 +149,7 @@ export function ChangesetSourcePicker({
           type="button"
           variant="outline"
         >
-          <GitBranch aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+          <GitBranch aria-hidden="true" className="text-muted-foreground size-3.5 shrink-0" />
           <span className="min-w-0 truncate font-medium">
             {describeActiveSource(changeset, inventory)}
           </span>
@@ -190,7 +190,7 @@ export function ChangesetSourcePicker({
         <DropdownMenuLabel>Git scopes</DropdownMenuLabel>
         {inventory === null ? (
           <div
-            className="px-2 py-1.5 text-muted-foreground text-xs"
+            className="text-muted-foreground px-2 py-1.5 text-xs"
             data-testid="changeset-source-inventory-loading"
           >
             Loading repositories…
@@ -203,7 +203,7 @@ export function ChangesetSourcePicker({
           >
             {inventory.errors.map((message) => (
               <span
-                className="flex items-start gap-1.5 text-[11px] text-destructive"
+                className="text-destructive flex items-start gap-1.5 text-[11px]"
                 data-testid="changeset-source-inventory-error"
                 key={message}
               >
@@ -215,7 +215,7 @@ export function ChangesetSourcePicker({
         ) : null}
         {inventory && inventory.repositories.length === 0 ? (
           <div
-            className="px-2 py-1.5 text-muted-foreground text-xs"
+            className="text-muted-foreground px-2 py-1.5 text-xs"
             data-testid="changeset-source-no-repositories"
           >
             No Git repositories in your workspace roots.
@@ -223,7 +223,7 @@ export function ChangesetSourcePicker({
         ) : null}
         {inventory?.repositories.map((repository) => (
           <div className="py-1" key={repository.identity.repositoryRoot}>
-            <div className="truncate px-2 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+            <div className="text-muted-foreground truncate px-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
               {repository.identity.repositoryRoot}
             </div>
             {repository.worktrees.map((worktree) => {
@@ -245,10 +245,10 @@ export function ChangesetSourcePicker({
                     >
                       <span className="flex min-w-0 flex-1 flex-col items-start">
                         <span className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate font-medium text-sm">{worktree.name}</span>
+                          <span className="truncate text-sm font-medium">{worktree.name}</span>
                           {worktree.trust === 'unvalidated' ? (
                             <Badge
-                              className="gap-1 border-amber-500/40 text-warning"
+                              className="text-warning gap-1 border-amber-500/40"
                               data-testid="worktree-trust-badge"
                               variant="outline"
                             >
@@ -257,12 +257,12 @@ export function ChangesetSourcePicker({
                             </Badge>
                           ) : null}
                         </span>
-                        <span className="truncate text-[10px] text-muted-foreground">
+                        <span className="text-muted-foreground truncate text-[10px]">
                           {worktree.path}
                         </span>
                         {worktree.trust === 'unvalidated' && worktree.trustReason ? (
                           <span
-                            className="text-[10px] text-warning"
+                            className="text-warning text-[10px]"
                             data-testid="worktree-trust-reason"
                           >
                             {worktree.trustReason}
@@ -270,7 +270,7 @@ export function ChangesetSourcePicker({
                         ) : null}
                         {isResolvable ? null : (
                           <span
-                            className="text-[10px] text-muted-foreground"
+                            className="text-muted-foreground text-[10px]"
                             data-testid="worktree-unresolvable-reason"
                           >
                             Outside every workspace root

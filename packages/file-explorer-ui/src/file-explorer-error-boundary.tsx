@@ -120,13 +120,13 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
     const Icon = info?.icon || AlertTriangle;
 
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-background/95 p-6 backdrop-blur-xs">
-        <div className="w-full max-w-md overflow-hidden rounded-lg border bg-card shadow-lg">
-          <div className="border-b bg-muted/30 p-4">
+      <div className="bg-background/95 flex h-full flex-col items-center justify-center p-6 backdrop-blur-xs">
+        <div className="bg-card w-full max-w-md overflow-hidden rounded-lg border shadow-lg">
+          <div className="bg-muted/30 border-b p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <Icon className={`mr-2 h-6 w-6 ${info?.color ?? 'text-destructive'}`} />
-                <h2 className="font-bold text-xl">{info?.displayTitle ?? 'Error'}</h2>
+                <h2 className="text-xl font-bold">{info?.displayTitle ?? 'Error'}</h2>
               </div>
               <Button
                 aria-label="Dismiss Error"
@@ -141,7 +141,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
           </div>
 
           <div className="p-4">
-            <p className="mb-4 text-destructive">{info?.message ?? error?.message}</p>
+            <p className="text-destructive mb-4">{info?.message ?? error?.message}</p>
             {info?.actions}
             <div className="mt-4 flex flex-wrap gap-2">
               <Button className="flex items-center" onClick={this.handleReload}>
@@ -175,9 +175,9 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
           </div>
 
           {detailsVisible && details && (
-            <div className="border-t bg-muted/20 p-4">
+            <div className="bg-muted/20 border-t p-4">
               <h3 className="mb-2 font-semibold">Error Details</h3>
-              <ScrollArea className="max-h-60 rounded bg-muted p-2 font-mono text-sm">
+              <ScrollArea className="bg-muted max-h-60 rounded p-2 font-mono text-sm">
                 <p>
                   <strong>Name:</strong> {error?.name}
                 </p>
@@ -187,7 +187,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
                 {error?.stack && (
                   <div className="mt-2">
                     <strong>Stack:</strong>
-                    <pre className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs">
+                    <pre className="text-muted-foreground mt-1 text-xs whitespace-pre-wrap">
                       {error.stack}
                     </pre>
                   </div>
@@ -195,7 +195,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
                 {errorInfo?.componentStack && (
                   <div className="mt-2">
                     <strong>Component Stack:</strong>
-                    <pre className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs">
+                    <pre className="text-muted-foreground mt-1 text-xs whitespace-pre-wrap">
                       {errorInfo.componentStack}
                     </pre>
                   </div>

@@ -45,9 +45,9 @@ describe('ToolFallback', () => {
     });
     const card = screen.getByTestId('tool-fallback');
     expect(card.getAttribute('data-tool-category')).toBe('mcp');
-    fireEvent.click(screen.getByRole('button', { name: /expand/i }));
-    expect(screen.getByText(/Arguments/i)).toBeInTheDocument();
-    expect(screen.getByText(/Result/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /expand/iu }));
+    expect(screen.getByText(/Arguments/iu)).toBeInTheDocument();
+    expect(screen.getByText(/Result/iu)).toBeInTheDocument();
   });
 
   it('renders a persisted guarded result as failed when the tool part isError flag is set', () => {
@@ -172,8 +172,8 @@ describe('ToolFallback', () => {
 
     expect(deepReads).toBe(0);
 
-    fireEvent.click(screen.getByRole('button', { name: /expand/i }));
-    expect(screen.getByText(/Result/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /expand/iu }));
+    expect(screen.getByText(/Result/iu)).toBeInTheDocument();
     expect(deepReads).toBeGreaterThan(0);
   });
 });

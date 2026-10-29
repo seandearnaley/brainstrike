@@ -22,11 +22,11 @@ export const FileFilterBar = React.memo(
       <div className="relative min-w-0 flex-1">
         <Search
           aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2"
         />
         <Input
           aria-label="Filter files"
-          className={cn('h-8 w-full bg-background pr-8 pl-9 text-sm', isFiltering && 'pr-16')}
+          className={cn('bg-background h-8 w-full pr-8 pl-9 text-sm', isFiltering && 'pr-16')}
           data-testid="file-filter-input"
           onChange={(e) => onChange(e.target.value)}
           placeholder="Type to filter files... (e.g. 'test component -spec')"
@@ -34,7 +34,7 @@ export const FileFilterBar = React.memo(
           value={value}
         />
         {isFiltering && (
-          <span className="pointer-events-none absolute top-1/2 right-9 flex -translate-y-1/2 items-center gap-1 text-muted-foreground text-xs">
+          <span className="text-muted-foreground pointer-events-none absolute top-1/2 right-9 flex -translate-y-1/2 items-center gap-1 text-xs">
             <Loader2 className="h-3 w-3 animate-spin" />
           </span>
         )}
@@ -69,11 +69,11 @@ export const FileFilterBar = React.memo(
           <ul className="space-y-1 text-sm">
             <li>• Use spaces to separate multiple terms (matches all terms)</li>
             <li>
-              • Use <code className="rounded bg-muted px-1">-term</code> to exclude files containing
+              • Use <code className="bg-muted rounded px-1">-term</code> to exclude files containing
               "term"
             </li>
             <li>
-              • Example: <code className="rounded bg-muted px-1">test component -spec</code>
+              • Example: <code className="bg-muted rounded px-1">test component -spec</code>
             </li>
           </ul>
         </PopoverContent>

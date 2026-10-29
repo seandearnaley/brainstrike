@@ -261,7 +261,7 @@ export const ActionButtons = React.memo(
               <span className="inline-flex">
                 <Button
                   aria-label={actionLabel}
-                  className="flex @[96px]:size-7 size-6 @[180px]:w-auto min-w-0 items-center gap-1 p-0 @[180px]:px-2 @[260px]:px-3"
+                  className="flex size-6 min-w-0 items-center gap-1 p-0 @[96px]:size-7 @[180px]:w-auto @[180px]:px-2 @[260px]:px-3"
                   disabled={!(canSelectFiles || isLoadingForSelectAll)}
                   onClick={handleClick}
                   size="icon-xs"
@@ -270,14 +270,14 @@ export const ActionButtons = React.memo(
                   <ActionIcon className="size-3.5" />
                   <span
                     aria-hidden="true"
-                    className="@[180px]:inline @[280px]:hidden hidden"
+                    className="hidden @[180px]:inline @[280px]:hidden"
                     data-testid="bulk-action-short-label"
                   >
                     {compactActionLabel}
                   </span>
                   <span
                     aria-hidden="true"
-                    className="@[280px]:inline hidden"
+                    className="hidden @[280px]:inline"
                     data-testid="bulk-action-full-label"
                   >
                     {actionLabel}

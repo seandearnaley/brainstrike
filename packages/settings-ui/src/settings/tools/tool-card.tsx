@@ -44,7 +44,7 @@ export function ToolCard({
 
   return (
     <div
-      className="rounded-lg border border-border/50 transition-colors hover:border-border"
+      className="border-border/50 hover:border-border rounded-lg border transition-colors"
       data-testid={`tool-card-${tool.id}`}
     >
       {/* Header - Always Visible */}
@@ -55,9 +55,9 @@ export function ToolCard({
           type="button"
         >
           {expanded ? (
-            <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+            <ChevronDown className="text-muted-foreground h-4 w-4 flex-shrink-0" />
           ) : (
-            <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+            <ChevronRight className="text-muted-foreground h-4 w-4 flex-shrink-0" />
           )}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -74,7 +74,7 @@ export function ToolCard({
                 </Badge>
               )}
             </div>
-            <p className="mt-1 truncate text-muted-foreground text-sm">{tool.description}</p>
+            <p className="text-muted-foreground mt-1 truncate text-sm">{tool.description}</p>
           </div>
         </button>
         <div className="flex items-center gap-3">
@@ -90,7 +90,7 @@ export function ToolCard({
       {/* Expanded Content */}
       {expanded && (
         <div className="border-border/50 border-t p-3">
-          <p className="mb-3 text-muted-foreground text-sm">{tool.description}</p>
+          <p className="text-muted-foreground mb-3 text-sm">{tool.description}</p>
 
           {onExecuteTest && (
             <ToolPlayground

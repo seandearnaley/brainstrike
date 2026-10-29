@@ -5,5 +5,5 @@
  * deeper realpath/case match is desktop-only and verified live.
  */
 export function normalizeRootPathForLookup(rootPath: string): string {
-  return rootPath.trim().replace(/[/\\]+$/, '');
+  return rootPath.trim().replace(/[/\\]+$/u, '');
 }

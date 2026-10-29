@@ -87,7 +87,7 @@ describe('DesktopLoggingSettings', () => {
 
     await waitFor(() => expect(window.logging?.getPreferences).toHaveBeenCalledTimes(1));
 
-    const consoleSwitch = await screen.findByRole('switch', { name: /console logging/i });
+    const consoleSwitch = await screen.findByRole('switch', { name: /console logging/iu });
     expect(consoleSwitch).toBeChecked();
 
     fireEvent.click(consoleSwitch);
@@ -112,7 +112,7 @@ describe('DesktopLoggingSettings', () => {
     render(<DesktopLoggingSettings />);
 
     await waitFor(() =>
-      expect(screen.getByText(/logging configuration is unavailable/i)).toBeInTheDocument()
+      expect(screen.getByText(/logging configuration is unavailable/iu)).toBeInTheDocument()
     );
     expect(screen.getByText(INTERNAL_FAULT.message)).toBeInTheDocument();
   });

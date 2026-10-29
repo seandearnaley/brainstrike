@@ -6,7 +6,7 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^@brainstrike\/utils\/(.*)$/,
+        find: /^@brainstrike\/utils\/(.*)$/u,
         replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
       },
       {
@@ -14,7 +14,7 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../utils/src'),
       },
       {
-        find: /^@brainstrike\/file-system\/(.*)$/,
+        find: /^@brainstrike\/file-system\/(.*)$/u,
         replacement: path.resolve(import.meta.dirname, '../file-system/src/$1.ts'),
       },
       {

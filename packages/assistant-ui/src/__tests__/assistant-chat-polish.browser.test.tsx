@@ -271,7 +271,7 @@ describe('agent reply tint (real browser)', () => {
       // is where the wash is strongest.
       const tinted = await paintedPixel(reply, 4, reply.getBoundingClientRect().height / 2);
       const text = getComputedStyle(reply)
-        .color.match(/\d+(\.\d+)?/g)
+        .color.match(/\d+(\.\d+)?/gu)
         ?.slice(0, 3)
         .map(Number);
       if (!text) {
@@ -519,8 +519,8 @@ describe('ActivityTrace (real browser)', () => {
     // animates its opacity, so there is nothing left to wait for and a wait
     // here would only hide a regression behind a 2s timeout.
     expect(screen.getByText('Read 2 files, searched')).toBeVisible();
-    expect(screen.getByText(/Worked for 12\.0s/)).toBeVisible();
-    expect(screen.getByText(/5 steps/)).toBeVisible();
+    expect(screen.getByText(/Worked for 12\.0s/u)).toBeVisible();
+    expect(screen.getByText(/5 steps/u)).toBeVisible();
 
     // Auto-collapsed when done: the body is hidden (display:none via [hidden]).
     const body = screen.getByTestId('assistant-activity-body');
@@ -620,7 +620,7 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
   });
 
   afterAll(() => {
-    document.getElementById('bst-898-user-message-layout-shim')?.remove();
+    document.querySelector('#bst-898-user-message-layout-shim')?.remove();
   });
 
   const twoUserMessageModel: ChatModelAdapter = {

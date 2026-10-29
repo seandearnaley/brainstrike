@@ -68,7 +68,7 @@ describe('SubagentPersonasSettingsSection delegation limits', () => {
     render(<SubagentPersonasSettingsSection />);
     // Built-ins declare the 1000-step ceiling; the helper answers 3 while the
     // cap is 7. The panel must show that answer, not its own arithmetic.
-    expect(screen.getAllByText(/Up to 3 steps/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Up to 1000 steps/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Up to 3 steps/u).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Up to 1000 steps/u)).not.toBeInTheDocument();
   });
 });

@@ -119,7 +119,7 @@ it('groups retained events and reports output-budget truncation', async () => {
   const result = await runQueryDiagnostics({ limit: 20, mode: 'fingerprints' });
   expect(result.truncated).toBe(true);
   expect(result.returned).toBeLessThan(20);
-  expect(result.hint).toMatch(/output budget/i);
+  expect(result.hint).toMatch(/output budget/iu);
   expect(JSON.stringify(result).length).toBeLessThanOrEqual(11_000);
 });
 it('groups across rotation using latest matching event and exact count', async () => {

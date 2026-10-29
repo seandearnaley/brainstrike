@@ -51,7 +51,7 @@ describe('installMockWorkers', () => {
     const { teardown } = installMockWorkers({ maxWorkers: 1 });
     const MockWorker = globalThis.Worker;
     new MockWorker('first.js');
-    expect(() => new MockWorker('second.js')).toThrow(/Too many workers created/);
+    expect(() => new MockWorker('second.js')).toThrow(/Too many workers created/u);
     teardown();
   });
 });

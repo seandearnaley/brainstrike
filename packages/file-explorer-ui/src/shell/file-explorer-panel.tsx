@@ -8,10 +8,6 @@ import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { cn, LoadingFallback, SELECTION_BAR_SCROLL_PADDING } from '@brainstrike/ui';
-import { shallow } from 'zustand/shallow';
-
-const logger = createLogger('FileExplorerPanel');
-
 import * as React from 'react';
 import {
   Suspense,
@@ -22,6 +18,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { shallow } from 'zustand/shallow';
 import ActionButtons from '../action-buttons-array-facade';
 import { ExpandAllConfirmDialog } from '../components/expand-all-confirm-dialog';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -74,6 +71,8 @@ import { ForestTreeActionsProvider } from './forest-tree-actions-provider';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useForestExpandConfirm } from './use-forest-expand-confirm';
 import { useSelectionManager } from './use-selection-manager-context';
+
+const logger = createLogger('FileExplorerPanel');
 
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 
@@ -876,7 +875,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
                   // — measured live at a 349px panel, the counter covered the
                   // left half of Expand All and swallowed its clicks. Clipping
                   // makes that a visual truncation instead of a dead control.
-                  className="flex min-w-0 items-center @[128px]:gap-1.5 gap-0.5 overflow-hidden"
+                  className="flex min-w-0 items-center gap-0.5 overflow-hidden @[128px]:gap-1.5"
                   data-testid="selection-status-controls"
                 >
                   <SelectionModeBadge
@@ -901,7 +900,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
                       Gated on the TOOLBAR container because both edges of that
                       band are toolbar widths. */}
                   <div
-                    className="@[388px]/explorer-toolbar:block @max-[236px]/explorer-toolbar:block hidden"
+                    className="hidden @max-[236px]/explorer-toolbar:block @[388px]/explorer-toolbar:block"
                     data-testid="selection-counter-control"
                   >
                     <SelectionCounter
@@ -959,7 +958,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
                   <div className="space-y-2 border-b px-2 py-2">
                     <div className="flex items-center gap-1.5">
                       <ToolbarPresetSelector
-                        className="@[300px]:h-9 h-8 min-w-0 flex-1"
+                        className="h-8 min-w-0 flex-1 @[300px]:h-9"
                         onFilterChange={handleFilterChange}
                       />
                       <FilterChipsToggleButton

@@ -13,6 +13,9 @@ import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import type { AssistantHostWorkspaceDiscovery } from '../assistant-thread-host-context';
+import { useSkillSlashCommands } from '../use-skill-slash-commands';
 
 // The hook subscribes to activeRootIds purely as a refresh trigger.
 const storeState = { activeRootIds: ['root-1'] as string[] };
@@ -33,10 +36,6 @@ const hostState: {
 vi.mock('../assistant-thread-host-context', () => ({
   useAssistantThreadHost: () => hostState.host,
 }));
-
-import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
-import type { AssistantHostWorkspaceDiscovery } from '../assistant-thread-host-context';
-import { useSkillSlashCommands } from '../use-skill-slash-commands';
 
 function setBridge(result: SkillsScanResultSummary | null): void {
   hostState.host = result

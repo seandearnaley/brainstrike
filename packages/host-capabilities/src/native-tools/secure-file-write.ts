@@ -68,7 +68,7 @@ export async function resolveWorkspaceWritePath(
 }> {
   const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
   const relativePath =
-    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
+    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/u, '');
   if (relativePath.length === 0) {
     throw new ToolInputError(`Path "${workspacePath}" is the workspace root, not a writable file.`);
   }

@@ -43,10 +43,10 @@ export interface StrategyTextSplitterOptions extends RecursiveTextSplitterOption
   strategy: ResolvedChunkingStrategy;
 }
 
-export const MARKDOWN_CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
+export const MARKDOWN_CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/u;
 
 export function isMarkdownBlockBoundaryLine(line: string): boolean {
-  return MARKDOWN_CODE_FENCE_PATTERN.test(line) || /^(#{1,6})\s+/.test(line) || line.trim() === '';
+  return MARKDOWN_CODE_FENCE_PATTERN.test(line) || /^(#{1,6})\s+/u.test(line) || line.trim() === '';
 }
 
 const DEFAULT_SEPARATORS = ['\n\n', '\n', ' ', ''];
@@ -424,7 +424,7 @@ function splitMarkdownSemantically(
   chunkOverlap: number,
   customSeparators?: string[]
 ): string[] {
-  const headingRegex = /^(#{1,6})\s+.+$/gm;
+  const headingRegex = /^(#{1,6})\s+.+$/gmu;
   const sections = splitTextIntoSections(text, headingRegex);
   const { separators, isSeparatorRegex } = getStrategySeparators(
     'semantic-markdown',
@@ -459,7 +459,7 @@ function splitMarkdownBySections(
   chunkOverlap: number,
   customSeparators?: string[]
 ): string[] {
-  const headingRegex = /^(#{1,6})\s+.+$/gm;
+  const headingRegex = /^(#{1,6})\s+.+$/gmu;
   const sections = splitTextIntoSections(text, headingRegex);
   const { separators, isSeparatorRegex } = getStrategySeparators('markdown', customSeparators);
   const normalized: string[] = [];

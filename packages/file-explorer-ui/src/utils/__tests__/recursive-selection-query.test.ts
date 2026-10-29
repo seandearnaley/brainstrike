@@ -271,7 +271,7 @@ describe('recursive-selection-query', () => {
         roots: [createDirectoryNode({ loadState: 'unloaded', name: 'root', path: '/root' })],
         useRegex: false,
       })
-    ).rejects.toThrow(/cancelled/i);
+    ).rejects.toThrow(/cancelled/iu);
   });
 
   it('returns immediately when no slots are available', async () => {

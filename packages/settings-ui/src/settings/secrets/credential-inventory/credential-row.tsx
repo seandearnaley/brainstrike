@@ -91,7 +91,7 @@ function CredentialStatusCell({
   if (sourceState === 'loading') {
     return (
       <span
-        className="block h-5 w-24 animate-pulse rounded bg-muted"
+        className="bg-muted block h-5 w-24 animate-pulse rounded"
         data-testid={`credential-status-skeleton-${slot.id}`}
       />
     );
@@ -232,7 +232,7 @@ export function CredentialRow({
   return (
     <>
       <TableRow
-        className={highlighted ? 'bg-primary/10 ring-1 ring-primary/50' : undefined}
+        className={highlighted ? 'bg-primary/10 ring-primary/50 ring-1' : undefined}
         data-highlighted={highlighted ? 'true' : undefined}
         data-testid={`credential-row-${slot.id}`}
         ref={rowRef}
@@ -242,14 +242,14 @@ export function CredentialRow({
         </TableCell>
         <TableCell className="py-2">
           <code
-            className="break-all font-mono text-xs"
+            className="font-mono text-xs break-all"
             data-testid={`credential-env-var-${slot.id}`}
           >
             {slot.envVar}
           </code>
           {deprecatedReports.map((report) => (
             <p
-              className="mt-1 text-warning text-xs"
+              className="text-warning mt-1 text-xs"
               data-testid={`credential-deprecated-env-${slot.id}`}
               key={report.envVar}
             >

@@ -57,7 +57,7 @@ export const FileTabHeader = memo(function FileTabHeader({
   showModeToggle,
 }: FileTabHeaderProps) {
   return (
-    <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b bg-background px-3">
+    <div className="bg-background flex h-9 shrink-0 items-center justify-between gap-2 border-b px-3">
       <div className="flex min-w-0 items-center gap-2">
         {onTogglePane ? (
           <button
@@ -84,9 +84,9 @@ export const FileTabHeader = memo(function FileTabHeader({
           />
         ) : (
           <div className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate font-medium text-sm">{fileName}</span>
+            <span className="truncate text-sm font-medium">{fileName}</span>
             {directory ? (
-              <span className="truncate text-muted-foreground text-xs">{directory}</span>
+              <span className="text-muted-foreground truncate text-xs">{directory}</span>
             ) : null}
           </div>
         )}

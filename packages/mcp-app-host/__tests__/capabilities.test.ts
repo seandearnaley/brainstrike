@@ -108,6 +108,6 @@ describe('stable MCP Apps client capability', () => {
     { mimeTypes: ['text/html;profile=mcp-app', 'text/html'] },
     { features: [], mimeTypes: ['text/html;profile=mcp-app'] },
   ])('rejects malformed, missing, or extra capability settings: %j', (input) => {
-    expect(() => parseMcpAppsClientCapability(input)).toThrow(/MCP Apps client capability/);
+    expect(() => parseMcpAppsClientCapability(input)).toThrow(/MCP Apps client capability/u);
   });
 });

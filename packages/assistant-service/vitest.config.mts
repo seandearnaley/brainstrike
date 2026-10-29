@@ -6,7 +6,7 @@ const agentDir = resolve(import.meta.dirname, '../agent');
 
 export default defineConfig({
   resolve: {
-    alias: [{ find: /^@brainstrike\/agent$/, replacement: resolve(agentDir, 'src/index.ts') }],
+    alias: [{ find: /^@brainstrike\/agent$/u, replacement: resolve(agentDir, 'src/index.ts') }],
   },
   test: {
     environment: 'node',

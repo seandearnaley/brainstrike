@@ -57,7 +57,7 @@ test("a host run's edit and its revert count in the Task Ledger, and its cost un
     await region.getByRole('textbox', { name: 'Message input' }).fill('Rewrite the notes.');
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
     // The default `edit: ask` policy pauses the write.
-    const approve = region.getByRole('button', { name: /^Approve / });
+    const approve = region.getByRole('button', { name: /^Approve /u });
     await expect(approve).toBeVisible({ timeout: 90_000 });
     await approve.click();
     await expect(region.getByText(REPLY)).toBeVisible({ timeout: 90_000 });
@@ -66,7 +66,7 @@ test("a host run's edit and its revert count in the Task Ledger, and its cost un
     await expect(region.getByTestId('checkpoint-reverted')).toBeVisible({ timeout: 30_000 });
 
     await new HomePage(page).openSettings();
-    const cost = await new SettingsPage(page).openCategory(/Cost Tracking/i, 'cost-tracking');
+    const cost = await new SettingsPage(page).openCategory(/Cost Tracking/iu, 'cost-tracking');
     const run = cost
       .getByTestId('task-ledger-panel')
       .getByTestId('task-ledger-run-row')

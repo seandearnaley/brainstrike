@@ -89,7 +89,7 @@ describe('SubagentSettingsSection', () => {
     await user.type(treeOutput, '16384');
     await user.tab();
     expect(screen.getByRole('alert')).toHaveTextContent(
-      /maxChildOutputTokens must not exceed maxTreeOutputTokens/
+      /maxChildOutputTokens must not exceed maxTreeOutputTokens/u
     );
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
@@ -157,7 +157,7 @@ describe('SubagentSettingsSection', () => {
       await user.type(steps, '1001');
       await user.tab();
       expect(steps).toHaveValue(1001);
-      expect(screen.getByRole('alert')).toHaveTextContent(/Subagent settings are malformed/);
+      expect(screen.getByRole('alert')).toHaveTextContent(/Subagent settings are malformed/u);
       expect(stored.values).toEqual([]);
       await user.clear(steps);
       await user.type(steps, '40');
@@ -176,7 +176,7 @@ describe('SubagentSettingsSection', () => {
     await user.clear(child);
     await user.type(child, '1024');
     await user.tab();
-    expect(screen.getByRole('alert')).toHaveTextContent(/must not exceed maxChildOutputTokens/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/must not exceed maxChildOutputTokens/u);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
     );

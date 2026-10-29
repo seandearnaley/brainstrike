@@ -126,7 +126,9 @@ function execution(): HostToolContext {
 /** The seeded folders a grep or glob result's rows come from, read from each file's name. */
 function rowFolders(output: unknown): string[] {
   const { matches } = output as { matches: { path: string }[] };
-  return [...new Set(matches.map((match) => match.path.replace(/^\/?(\w+)-only.*$/, '$1')))].sort();
+  return [
+    ...new Set(matches.map((match) => match.path.replace(/^\/?(\w+)-only.*$/u, '$1'))),
+  ].sort();
 }
 
 const REFUSED = { error: { code: 'tool_input_invalid' }, ok: false };

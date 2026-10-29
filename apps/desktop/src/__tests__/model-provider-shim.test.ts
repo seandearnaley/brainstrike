@@ -78,7 +78,7 @@ describe('model provider shim', () => {
       })
     );
     const ids = responses.flatMap((body) =>
-      [...body.matchAll(/"id":"(call_e2e_[^"]+)"/g)].map((match) => match[1])
+      [...body.matchAll(/"id":"(call_e2e_[^"]+)"/gu)].map((match) => match[1])
     );
     expect(ids).toHaveLength(4);
     expect(new Set(ids).size).toBe(4);

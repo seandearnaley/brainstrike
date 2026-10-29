@@ -105,13 +105,13 @@ describe('workspace tabs — apps, launcher, selection', () => {
   });
 
   it('useWorkspaceTabs outside the provider throws (no silent fallback)', () => {
-    expect(() => renderHook(() => useWorkspaceTabs())).toThrow(/WorkspaceTabsProvider/);
+    expect(() => renderHook(() => useWorkspaceTabs())).toThrow(/WorkspaceTabsProvider/u);
   });
 
   it('renders the Files app tab and shows its body by default', async () => {
     renderWorkspace();
 
-    const filesTab = await screen.findByRole('tab', { name: /files/i });
+    const filesTab = await screen.findByRole('tab', { name: /files/iu });
     expect(filesTab).toBeInTheDocument();
     expect(filesTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('workspace-tab-strip')).toBeInTheDocument();
@@ -124,9 +124,9 @@ describe('workspace tabs — apps, launcher, selection', () => {
     renderWorkspace([FILES_APP, CHANGES_APP, CANVAS_APP]);
 
     const tabs = await screen.findAllByRole('tab');
-    expect(tabs[0]).toHaveAccessibleName(/files/i);
-    expect(tabs[1]).toHaveAccessibleName(/changes/i);
-    expect(tabs[2]).toHaveAccessibleName(/canvas/i);
+    expect(tabs[0]).toHaveAccessibleName(/files/iu);
+    expect(tabs[1]).toHaveAccessibleName(/changes/iu);
+    expect(tabs[2]).toHaveAccessibleName(/canvas/iu);
   });
 
   it('paints a dynamic conversation tab through its validated style and compact icon tile', async () => {
@@ -156,7 +156,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     expect(tab).toHaveAttribute('data-agent-color', 'family:1375:540');
     expect(surface).toHaveClass('bs-agent-family-selected');
     expect((surface as HTMLElement).style.getPropertyValue('--agent-accent-light')).toMatch(
-      /^oklch\(/
+      /^oklch\(/u
     );
     expect(screen.getByTestId('workspace-agent-mark')).toContainElement(tab.querySelector('svg'));
     expect(screen.getByTestId('workspace-agent-mark')).toHaveClass('bs-agent-family-mark');
@@ -166,9 +166,9 @@ describe('workspace tabs — apps, launcher, selection', () => {
   it('does not render tabs for registered apps that are not open', async () => {
     renderWorkspace([FILES_APP, CHANGES_APP, CANVAS_APP]);
 
-    await screen.findByRole('tab', { name: /files/i });
-    expect(screen.queryByRole('tab', { name: /changes/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: /canvas/i })).not.toBeInTheDocument();
+    await screen.findByRole('tab', { name: /files/iu });
+    expect(screen.queryByRole('tab', { name: /changes/iu })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /canvas/iu })).not.toBeInTheDocument();
   });
 
   it('app tabs are closable: closing the last open app shows the launcher', async () => {
@@ -178,7 +178,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     await user.click(await screen.findByTestId('workspace-app-tab-close-context-explorer'));
 
     expect(await screen.findByTestId('workspace-launcher')).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: /files/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /files/iu })).not.toBeInTheDocument();
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({ kind: 'empty' });
   });
 
@@ -196,7 +196,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     await user.click(screen.getByTestId('workspace-launcher-open-changes'));
 
     expect(await screen.findByTestId('changes-app-body')).toBeInTheDocument();
-    expect(await screen.findByRole('tab', { name: /changes/i })).toHaveAttribute(
+    expect(await screen.findByRole('tab', { name: /changes/iu })).toHaveAttribute(
       'aria-selected',
       'true'
     );
@@ -243,7 +243,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
 
     const tab = await screen.findByTestId(`workspace-app-tab-${CHILD_CEDAR_APP.id}`);
     expect(tab).toHaveAttribute('title', 'https://example.com/');
-    expect(tab).toHaveAccessibleName(/Cedar.*loading/i);
+    expect(tab).toHaveAccessibleName(/Cedar.*loading/iu);
   });
 
   it('the launcher only offers registered apps (web shows Files only)', async () => {
@@ -307,7 +307,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     expect(screen.getByTestId('probe-body')).toBeInTheDocument();
     expect(screen.getByTestId('probe-body')).not.toBeVisible();
 
-    await user.click(await screen.findByRole('tab', { name: /files/i }));
+    await user.click(await screen.findByRole('tab', { name: /files/iu }));
     await waitFor(() => {
       expect(screen.getByTestId('probe-body')).toBeVisible();
     });
@@ -335,8 +335,8 @@ describe('workspace tabs — apps, launcher, selection', () => {
     useWorkspaceTabSelectionStore.getState().selectApp('context-explorer');
     renderWorkspace([FILES_APP, CHANGES_APP]);
 
-    const filesTab = await screen.findByRole('tab', { name: /files/i });
-    const changesTab = await screen.findByRole('tab', { name: /changes/i });
+    const filesTab = await screen.findByRole('tab', { name: /files/iu });
+    const changesTab = await screen.findByRole('tab', { name: /changes/iu });
     filesTab.focus();
 
     fireEvent.keyDown(filesTab, { key: 'ArrowRight' });
@@ -374,18 +374,18 @@ describe('workspace tabs — apps, launcher, selection', () => {
     useWorkspaceTabSelectionStore.getState().selectApp('context-explorer');
     renderWorkspace([FILES_APP, CHANGES_APP]);
 
-    const filesTab = await screen.findByRole('tab', { name: /files/i });
+    const filesTab = await screen.findByRole('tab', { name: /files/iu });
     filesTab.focus();
 
     fireEvent.keyDown(filesTab, { key: 'Delete' });
 
     await waitFor(() => {
-      expect(screen.queryByRole('tab', { name: /files/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /files/iu })).not.toBeInTheDocument();
     });
     // Focus lands on the tab that slid into the closed one's place — keyboard
     // navigation survives the close (Codex review finding).
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /changes/i })).toHaveFocus();
+      expect(screen.getByRole('tab', { name: /changes/iu })).toHaveFocus();
     });
   });
 
@@ -460,7 +460,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     renderWorkspace();
 
     // Tab remains in the strip — restoration must not close it.
-    const tab = await screen.findByRole('tab', { name: /deleted\.ts/i });
+    const tab = await screen.findByRole('tab', { name: /deleted\.ts/iu });
     expect(tab).toBeInTheDocument();
     expect(closeTab).not.toHaveBeenCalled();
     // Marked as deleted: the status icon replaces the file icon and the
@@ -474,7 +474,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
   it('opens the workspace-app-tab menu on an app tab (BST-1836 D4)', async () => {
     renderWorkspace();
 
-    fireEvent.contextMenu(await screen.findByRole('tab', { name: /files/i }));
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /files/iu }));
     expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument();
   });
 });

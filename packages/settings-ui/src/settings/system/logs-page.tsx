@@ -62,7 +62,7 @@ export function LogsPage({
         </div>
       ) : null}
       {durableLogSource ? (
-        <div className="flex flex-wrap items-center gap-2 border-border/40 border-b px-2 py-1.5">
+        <div className="border-border/40 flex flex-wrap items-center gap-2 border-b px-2 py-1.5">
           <Label className="text-xs" htmlFor="log-source-mode">
             Log Source
           </Label>

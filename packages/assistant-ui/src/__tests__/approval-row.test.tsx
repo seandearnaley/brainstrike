@@ -190,7 +190,7 @@ describe('approval presentation: card vs row', () => {
     expect(row).toHaveTextContent('apps/desktop');
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
     expect(
-      screen.getByRole('button', { name: /^Explorer list apps\/desktop, show approval details$/ })
+      screen.getByRole('button', { name: /^Explorer list apps\/desktop, show approval details$/u })
     ).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -223,7 +223,7 @@ describe('approval presentation: card vs row', () => {
     const row = screen.getByTestId('assistant-tool-approval-notice');
     expect(row).toHaveAttribute('data-approval-presentation', 'row');
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Aster');
-    expect(screen.getByRole('button', { name: /^Aster list apps\/desktop/ })).toBeVisible();
+    expect(screen.getByRole('button', { name: /^Aster list apps\/desktop/u })).toBeVisible();
   });
 
   it('expands a row into the locked full card and collapses it again', async () => {
@@ -241,7 +241,7 @@ describe('approval presentation: card vs row', () => {
     expect(
       screen.queryByRole('button', { name: 'Approve brainstrike.readWorkspaceDirectory' })
     ).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /hide approval details/i }));
+    await user.click(screen.getByRole('button', { name: /hide approval details/iu }));
     expect(screen.queryByTestId('approval-row-card')).not.toBeInTheDocument();
   });
 

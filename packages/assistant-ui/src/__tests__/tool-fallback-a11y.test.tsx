@@ -35,7 +35,7 @@ describe('ToolFallback Accessibility', () => {
     const user = userEvent.setup();
     wrap(<ToolFallback {...mockBaseProps} />);
 
-    const button = screen.getByRole('button', { name: /Expand details/i });
+    const button = screen.getByRole('button', { name: /Expand details/iu });
     expect(button).toBeInTheDocument();
     expect(button).toHaveAttribute('aria-expanded', 'false');
     // BST-1681: the row IS the toggle, so its `title` is the raw tool id
@@ -45,7 +45,7 @@ describe('ToolFallback Accessibility', () => {
 
     await user.click(button);
 
-    const expandedButton = screen.getByRole('button', { name: /Collapse details/i });
+    const expandedButton = screen.getByRole('button', { name: /Collapse details/iu });
     expect(expandedButton).toHaveAttribute('aria-expanded', 'true');
     expect(expandedButton).toHaveAttribute('title', 'test-tool');
   });
@@ -61,13 +61,13 @@ describe('ToolFallback Accessibility', () => {
     // when the target exists; `aria-expanded="false"` is what announces the
     // collapsed state. Rows whose body stays mounted (the reasoning row)
     // opt back in with `controlsAlwaysMounted`.
-    const button = screen.getByRole('button', { name: /Expand details/i });
+    const button = screen.getByRole('button', { name: /Expand details/iu });
     expect(button).not.toHaveAttribute('aria-controls');
     expect(button).toHaveAttribute('aria-expanded', 'false');
 
     await user.click(button);
 
-    const expandedButton = screen.getByRole('button', { name: /Collapse details/i });
+    const expandedButton = screen.getByRole('button', { name: /Collapse details/iu });
     const controlsId = expandedButton.getAttribute('aria-controls');
     if (controlsId === null || controlsId.length === 0) {
       throw new Error('the expanded row must name the pane it toggles');
@@ -76,7 +76,7 @@ describe('ToolFallback Accessibility', () => {
     expect(container.querySelector(`#${CSS.escape(controlsId)}`)).toBeInTheDocument();
 
     await user.click(expandedButton);
-    const collapsedButton = screen.getByRole('button', { name: /Expand details/i });
+    const collapsedButton = screen.getByRole('button', { name: /Expand details/iu });
     expect(collapsedButton).not.toHaveAttribute('aria-controls');
     expect(collapsedButton).toHaveAttribute('aria-expanded', 'false');
     // BST-1685: an absent attribute alone would also be true if the row just
@@ -93,7 +93,7 @@ describe('ToolFallback Accessibility', () => {
     // The id is stable, not regenerated per expansion: a re-expanded row
     // names the same pane it named the first time.
     await user.click(collapsedButton);
-    expect(screen.getByRole('button', { name: /Collapse details/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /Collapse details/iu })).toHaveAttribute(
       'aria-controls',
       controlsId
     );
@@ -108,7 +108,7 @@ describe('ToolFallback Accessibility', () => {
       </>
     );
 
-    const collapsed = screen.getAllByRole('button', { name: /Expand details/i });
+    const collapsed = screen.getAllByRole('button', { name: /Expand details/iu });
     expect(collapsed).toHaveLength(2);
     // Both panes have to be OPEN for there to be ids to compare: the
     // attribute is emitted only while the pane it names is mounted.
@@ -116,7 +116,7 @@ describe('ToolFallback Accessibility', () => {
       await user.click(button);
     }
 
-    const buttons = screen.getAllByRole('button', { name: /Collapse details/i });
+    const buttons = screen.getAllByRole('button', { name: /Collapse details/iu });
     expect(buttons).toHaveLength(2);
     const [first, second] = buttons;
     expect(first?.getAttribute('aria-controls')).toBeTruthy();

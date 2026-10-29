@@ -7,7 +7,7 @@ import { chunkContent } from '../portable-chunking';
 
 /** A chunk with no letter, digit or identifier character carries nothing of its own. */
 const WORDLESS = /^[^\p{L}\p{N}_$]*$/u;
-const KEYWORD_ONLY = /^(?:export(?: default)?|default|declare|async|abstract|static)$/;
+const KEYWORD_ONLY = /^(?:export(?: default)?|default|declare|async|abstract|static)$/u;
 
 describe('canonical Node chunking', () => {
   it('preserves a recorded desktop canonical result including every graph and chunk field', async () => {

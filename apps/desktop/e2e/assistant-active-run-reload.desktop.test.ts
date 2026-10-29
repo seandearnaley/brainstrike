@@ -93,7 +93,7 @@ async function assertLiveReload(
     });
     await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await new HomePage(window).openSettings();
-    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
     await window
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption(approval ? 'ask' : 'allow');
@@ -146,7 +146,7 @@ async function assertLiveReload(
     expect(rootTurns()).toHaveLength(2);
     expect(nextUpTurns()).toHaveLength(1);
     expect(JSON.stringify(nextUpTurns()[0]?.messages)).toContain('RELOAD_READ_EVIDENCE');
-    await expect(panel.getByText(/awaiting stream reattachment/)).toHaveCount(0);
+    await expect(panel.getByText(/awaiting stream reattachment/u)).toHaveCount(0);
     await window.screenshot({ path: testInfo.outputPath('recovered-root-next-up.png') });
   } finally {
     release.resolve();

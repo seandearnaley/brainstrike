@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { shouldDenyMcpAppFrameNavigation } from '../../mcp/apps-frame-navigation';
 
 vi.mock('electron', () => ({
   protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
 }));
-
-import { shouldDenyMcpAppFrameNavigation } from '../../mcp/apps-frame-navigation';
 
 const SHELL = `brainstrike-mcp-app://${'a'.repeat(32)}/`;
 const HOST =

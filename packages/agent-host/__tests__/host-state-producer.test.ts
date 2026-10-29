@@ -55,7 +55,7 @@ describe('the host state producer, as the browser writer runs it', () => {
   it("decodes and projects every committed row exactly as the desktop's file-backed producer does", () => {
     const { blobs, raws } = storedCorpus();
     expect(raws.some(({ raw }) => raw.includes('"snapshotRef"'))).toBe(true);
-    expect(raws.some(({ raw }) => /"blob":"[a-f0-9]{64}"/.test(raw))).toBe(true);
+    expect(raws.some(({ raw }) => /"blob":"[a-f0-9]{64}"/u.test(raw))).toBe(true);
     const root = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-producer-'));
     roots.push(root);
     mkdirSync(path.join(root, BLOBS_DIR));

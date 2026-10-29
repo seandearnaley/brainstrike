@@ -12,6 +12,7 @@ import {
   stubWorktreesBridge,
   workspaceGitWrapper,
 } from '../../__tests__/helpers/workspace-git-services-wrapper';
+import { type UseWorktreeMapInput, useWorktreeMap } from '../use-worktree-map';
 
 const listMock = vi.fn();
 const checkoutStatusMock = vi.fn();
@@ -59,8 +60,6 @@ let rootIdentityValue: {
 vi.mock('../../roots/root-identity-context', () => ({
   useOptionalRootIdentity: () => rootIdentityValue,
 }));
-
-import { type UseWorktreeMapInput, useWorktreeMap } from '../use-worktree-map';
 
 /** An index that is ready and serves `root-1`. */
 const READY_STATUS = {

@@ -36,7 +36,7 @@ export function isEconnResetStreamError(error: unknown): boolean {
     return true;
   }
   const message = error instanceof Error ? error.message : undefined;
-  return typeof message === 'string' && /econnreset|socket hang up/i.test(message);
+  return typeof message === 'string' && /econnreset|socket hang up/iu.test(message);
 }
 
 /**

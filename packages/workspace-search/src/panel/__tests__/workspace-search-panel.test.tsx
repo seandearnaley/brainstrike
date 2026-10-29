@@ -8,6 +8,8 @@ import type {
 } from '../../bridge/use-search-selection-bridge';
 import type { WorkspaceSearchResults } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
+import { SEMANTIC_UNAVAILABLE_NO_CHUNKS } from '../semantic-availability';
+import { WorkspaceSearchPanel } from '../workspace-search-panel';
 
 // The coverage banner has its own projection tests.
 vi.mock('../search-coverage-banner', () => ({ SearchCoverageBanner: () => null }));
@@ -58,9 +60,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     SelectValue: () => null,
   };
 });
-
-import { SEMANTIC_UNAVAILABLE_NO_CHUNKS } from '../semantic-availability';
-import { WorkspaceSearchPanel } from '../workspace-search-panel';
 
 function makeResults(overrides?: Partial<WorkspaceSearchResults>): WorkspaceSearchResults {
   return {

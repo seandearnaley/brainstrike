@@ -5,10 +5,10 @@ export const AssistantDiscoveryErrorNotice = ({ data }: { data: unknown }) => {
   const validStatus = isSuspendedRunDiscoveryError(data);
   return (
     <div
-      className="flex gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+      className="border-destructive/30 bg-destructive/5 flex gap-3 rounded-lg border px-4 py-3 text-sm"
       role="alert"
     >
-      <CircleAlertIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+      <CircleAlertIcon aria-hidden="true" className="text-destructive mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 space-y-1">
         <p className="font-medium">
           {validStatus

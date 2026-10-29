@@ -45,7 +45,7 @@ describe('guardToolExecution', () => {
       error: { code: 'tool_input_invalid', message: 'Choose an existing file.', toolName: 'demo' },
       ok: false,
     });
-    expect(JSON.stringify(result)).not.toMatch(/PRIVATE|cause|stack/);
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE|cause|stack/u);
   });
 
   it('passes through a successful result unchanged', async () => {
@@ -199,7 +199,7 @@ describe('guardToolExecution', () => {
     const result = (await tool.execute({ context: {} })) as GuardedToolError;
     expect(result.error.code).toBe('tool_input_invalid');
     expect(result.error.message.length).toBeLessThanOrEqual(1000);
-    expect(result.error.message).toMatch(/\u2026 \[input error truncated\]$/);
+    expect(result.error.message).toMatch(/\u2026 \[input error truncated\]$/u);
   });
 
   it('aborts the deadline the running tool can observe before reporting the timeout', async () => {

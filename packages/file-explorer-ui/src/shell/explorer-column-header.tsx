@@ -133,7 +133,7 @@ export function ExplorerColumnHeader({
 
   return (
     <div
-      className="shrink-0 border-b bg-panel-surface"
+      className="bg-panel-surface shrink-0 border-b"
       data-testid="explorer-column-header"
       style={{ paddingRight: gutterWidth }}
     >
@@ -176,7 +176,7 @@ export function ExplorerColumnHeader({
           <tr>
             <th
               aria-sort={getTreeTableAriaSortValue('name', treeTableSortState)}
-              className={cn('text-left text-muted-foreground', EXPLORER_NAME_HEADER_CLASS)}
+              className={cn('text-muted-foreground text-left', EXPLORER_NAME_HEADER_CLASS)}
               data-column-id="name"
             >
               <button
@@ -203,7 +203,7 @@ export function ExplorerColumnHeader({
                     ? { 'aria-sort': getTreeTableAriaSortValue(config.id, treeTableSortState) }
                     : {})}
                   className={cn(
-                    'relative text-left text-muted-foreground',
+                    'text-muted-foreground relative text-left',
                     EXPLORER_METADATA_HEADER_CLASS
                   )}
                   data-column-id={config.id}

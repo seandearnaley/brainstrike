@@ -61,8 +61,8 @@ export function CommittedOriginConsent({
       data-testid="committed-origin-consent"
       ref={decisionRef}
     >
-      <legend className="font-medium text-xs">The agent wants to open this site</legend>
-      <p className="break-all font-mono text-xs" data-testid="committed-origin-consent-origin">
+      <legend className="text-xs font-medium">The agent wants to open this site</legend>
+      <p className="font-mono text-xs break-all" data-testid="committed-origin-consent-origin">
         {origin}
       </p>
       {LOCAL_ORIGIN.test(origin) ? (

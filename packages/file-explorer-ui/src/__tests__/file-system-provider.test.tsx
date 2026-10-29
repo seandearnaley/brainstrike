@@ -82,7 +82,7 @@ describe('FileSystemProvider (single shared instance)', () => {
       // intentional: assertion below is the signal
     });
     try {
-      expect(() => render(<Bare />)).toThrow(/requires a FileSystemProvider/);
+      expect(() => render(<Bare />)).toThrow(/requires a FileSystemProvider/u);
     } finally {
       consoleError.mockRestore();
     }

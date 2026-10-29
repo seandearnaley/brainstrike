@@ -26,5 +26,5 @@ test('a failed finalizer never skips another owned resource and its original cau
       async () => 'new',
       async () => undefined
     )
-  ).rejects.toThrow(/closing/);
+  ).rejects.toThrow(/closing/u);
 });

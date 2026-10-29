@@ -45,7 +45,7 @@ function validateSkillName(name: unknown): string[] {
   if (name.length > SKILL_LIMITS.MAX_NAME_LENGTH) {
     errors.push(`name: Skill name must be ${SKILL_LIMITS.MAX_NAME_LENGTH} characters or less`);
   }
-  if (!/^[a-z0-9-]+$/.test(name)) {
+  if (!/^[a-z0-9-]+$/u.test(name)) {
     errors.push('name: Skill name must contain only lowercase letters, numbers, and hyphens');
   }
   if (name.startsWith('-') || name.endsWith('-')) {
@@ -78,7 +78,7 @@ function validateSkillDescription(description: unknown): string[] {
 
 /** Word-count heuristic matching Mastra's estimateTokens (words × 1.3). */
 function estimateTokens(text: string): number {
-  const words = text.split(/\s+/).filter(Boolean).length;
+  const words = text.split(/\s+/u).filter(Boolean).length;
   return Math.ceil(words * 1.3);
 }
 

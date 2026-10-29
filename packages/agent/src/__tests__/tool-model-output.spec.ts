@@ -1,29 +1,6 @@
 import type { ToolPayloadTransform, ToolPayloadTransformTarget } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
-
-const loggerMocks = vi.hoisted(() => ({
-  error: vi.fn(),
-}));
-
-// Capture the fail-soft diagnostic without touching the rest of the logging
-// surface — the shape log is part of the contract under test.
-vi.mock('@brainstrike/logging', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
-  return {
-    ...actual,
-    createLogger: (scope: string) => {
-      const real = actual.createLogger(scope);
-      return {
-        ...real,
-        error: (...args: unknown[]) => {
-          loggerMocks.error(...args);
-        },
-      };
-    },
-  };
-});
-
 import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
@@ -53,6 +30,28 @@ import {
   readHookResultEnvelope,
 } from '../tools/hook-runner';
 import { applyToolHooks } from '../tools/hook-tool-wrap';
+
+const loggerMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+}));
+
+// Capture the fail-soft diagnostic without touching the rest of the logging
+// surface — the shape log is part of the contract under test.
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: (scope: string) => {
+      const real = actual.createLogger(scope);
+      return {
+        ...real,
+        error: (...args: unknown[]) => {
+          loggerMocks.error(...args);
+        },
+      };
+    },
+  };
+});
 
 type TestTool = ToolsInput[string] & {
   execute?: (...args: unknown[]) => unknown;
@@ -186,7 +185,7 @@ describe('applyToolModelOutputProjections', () => {
           stored,
           buildDefaultModelProjectionBudget(floorBudget)
         )
-      ).toThrow(/exceeds the 2000-character budget/);
+      ).toThrow(/exceeds the 2000-character budget/u);
       expect(() =>
         assertDomainProjectionWithinBudget(
           `brainstrike.${prefix}`,
@@ -221,7 +220,7 @@ describe('applyToolModelOutputProjections', () => {
           midRangeOutput,
           freshDefaultBudget
         )
-      ).toThrow(/exceeds the 2000-character budget/);
+      ).toThrow(/exceeds the 2000-character budget/u);
 
       const anchorSizedOutput = {
         type: 'text',
@@ -236,7 +235,7 @@ describe('applyToolModelOutputProjections', () => {
           anchorSizedOutput,
           freshDefaultBudget
         )
-      ).toThrow(/exceeds the 2000-character budget/);
+      ).toThrow(/exceeds the 2000-character budget/u);
     }
   );
 

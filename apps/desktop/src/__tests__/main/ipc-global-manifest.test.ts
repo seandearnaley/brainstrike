@@ -276,7 +276,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     const preload = readFileSync(path.resolve(import.meta.dirname, '../../preload.ts'), 'utf8');
     const expected = [
       ...preload.matchAll(
-        /ipcRenderer\.invoke(?:<[^>]*>)?\(\s*DESKTOP_IPC_CHANNELS\.(\w+)\.(\w+)/g
+        /ipcRenderer\.invoke(?:<[^>]*>)?\(\s*DESKTOP_IPC_CHANNELS\.(\w+)\.(\w+)/gu
       ),
     ].map(([, group = '', name = '']) => {
       const channel = groups[group]?.[name];

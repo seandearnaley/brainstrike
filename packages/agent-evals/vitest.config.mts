@@ -7,11 +7,11 @@ export default defineConfig({
     alias: [
       // The host protocol and platform imports reach Node-only agent code; run it from source.
       {
-        find: /^@brainstrike\/agent$/,
+        find: /^@brainstrike\/agent$/u,
         replacement: resolve(import.meta.dirname, '../agent/src/index.ts'),
       },
       ...['mcp-client', 'provider-request', 'provider-runtime', 'tool-runtime'].map((subpath) => ({
-        find: new RegExp(`^@brainstrike/agent/${subpath}$`),
+        find: new RegExp(`^@brainstrike/agent/${subpath}$`, 'u'),
         replacement: resolve(import.meta.dirname, `../agent/src/${subpath}.ts`),
       })),
     ],

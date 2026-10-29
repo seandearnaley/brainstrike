@@ -88,7 +88,7 @@ describe('resolveGrepFilePaths — rejects rather than returning a misleading em
     if (result.ok) {
       throw new Error('unreachable');
     }
-    expect(result.message).toMatch(/outside|escape|traversal/i);
+    expect(result.message).toMatch(/outside|escape|traversal/iu);
   });
 
   it('rejects an absolute path that traverses out of a root', () => {
@@ -145,7 +145,7 @@ describe('resolveGrepFilePaths — multi-root', () => {
     if (result.ok) {
       throw new Error('unreachable');
     }
-    expect(result.message).toMatch(/ambiguous|more than one|multiple/i);
+    expect(result.message).toMatch(/ambiguous|more than one|multiple/iu);
   });
 
   it('resolves an otherwise-ambiguous path against an explicitly scoped root', () => {
@@ -187,7 +187,7 @@ describe('resolveGrepFilePaths — no path-backed roots', () => {
     if (result.ok) {
       throw new Error('unreachable');
     }
-    expect(result.message).toMatch(/no open folder|not open|no workspace/i);
+    expect(result.message).toMatch(/no open folder|not open|no workspace/iu);
   });
 
   it('still accepts relative paths with no roots (the indexed pass can match them)', () => {

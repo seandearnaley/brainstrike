@@ -75,8 +75,8 @@ describe('AssistantToolApprovalNotice live answers', () => {
     renderNotice();
     await waitFor(() => expect(screen.getByText('Allowed by session grant')).toBeInTheDocument());
     await expandApprovalRow(userEvent.setup());
-    expect(screen.queryByRole('button', { name: /approve brainstrike/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /decline brainstrike/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve brainstrike/iu })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /decline brainstrike/iu })).not.toBeInTheDocument();
   });
 
   it("locks once the host applies the user's live answer", async () => {
@@ -84,7 +84,7 @@ describe('AssistantToolApprovalNotice live answers', () => {
     renderNotice();
     await waitFor(() => expect(screen.getByText('Declined')).toBeInTheDocument());
     await expandApprovalRow(userEvent.setup());
-    expect(screen.queryByRole('button', { name: /approve brainstrike/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve brainstrike/iu })).not.toBeInTheDocument();
   });
 
   it('keeps a completed initiating approval settled without its transient user echo', async () => {
@@ -98,8 +98,8 @@ describe('AssistantToolApprovalNotice live answers', () => {
     const view = renderNotice();
     expect(await screen.findByText('Approved')).toBeInTheDocument();
     await expandApprovalRow(userEvent.setup());
-    expect(screen.queryByRole('button', { name: /approve brainstrike/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /decline brainstrike/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve brainstrike/iu })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /decline brainstrike/iu })).not.toBeInTheDocument();
 
     // A later pause from the same delegation is still an independent decision.
     view.rerender(
@@ -112,7 +112,7 @@ describe('AssistantToolApprovalNotice live answers', () => {
         />
       </AnsweredApprovalsProvider>
     );
-    expect(screen.getByRole('button', { name: /approve brainstrike/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /approve brainstrike/iu })).toBeEnabled();
   });
 
   it.each(['error', 'cancelled'])(
@@ -131,10 +131,10 @@ describe('AssistantToolApprovalNotice live answers', () => {
       );
       await expandApprovalRow(userEvent.setup());
       expect(
-        screen.queryByRole('button', { name: /approve brainstrike/i })
+        screen.queryByRole('button', { name: /approve brainstrike/iu })
       ).not.toBeInTheDocument();
       expect(
-        screen.queryByRole('button', { name: /decline brainstrike/i })
+        screen.queryByRole('button', { name: /decline brainstrike/iu })
       ).not.toBeInTheDocument();
     }
   );

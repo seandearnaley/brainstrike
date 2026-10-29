@@ -28,7 +28,7 @@ function parseNumstatCount(raw: string, record: string): number | null {
   if (raw === '-') {
     return null;
   }
-  if (!/^\d+$/.test(raw)) {
+  if (!/^\d+$/u.test(raw)) {
     throw new Error(`git numstat -z returned a non-numeric count "${raw}" in record "${record}"`);
   }
   return Number(raw);
@@ -37,7 +37,7 @@ function parseNumstatCount(raw: string, record: string): number | null {
 // `-z` paths are emitted verbatim (no quoting/escaping), so a path may
 // legally contain a tab. Only the first two tabs are field separators; the
 // third capture group is everything after the second tab, tabs included.
-const NUMSTAT_RECORD_PATTERN = /^([^\t]*)\t([^\t]*)\t([\s\S]*)$/;
+const NUMSTAT_RECORD_PATTERN = /^([^\t]*)\t([^\t]*)\t([\s\S]*)$/u;
 
 /**
  * Parse `git diff --numstat -z [--find-renames]` output.
@@ -85,9 +85,9 @@ export function parseNumstatZ(output: string): readonly NumstatEntry[] {
   return entries;
 }
 
-const HUNK_HEADER_CANDIDATE = /^@@ -/;
-const HUNK_HEADER_PATTERN = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
-const FILE_HEADER_PATTERN = /^diff --git /;
+const HUNK_HEADER_CANDIDATE = /^@@ -/u;
+const HUNK_HEADER_PATTERN = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u;
+const FILE_HEADER_PATTERN = /^diff --git /u;
 const TRUNCATION_MARKER = '…(output truncated)';
 
 /**

@@ -9,10 +9,10 @@ describe('readWorkspaceFile continuation registry lifecycle wiring', () => {
     // Main imports the registry's clear from the shared native tools, beside
     // the other native-tool owners it retires.
     expect(source).toMatch(
-      /import \{[^}]*\bclearReadWorkspaceFileCursorRegistry\b[^}]*\} from '@brainstrike\/host-capabilities\/native-tools';/
+      /import \{[^}]*\bclearReadWorkspaceFileCursorRegistry\b[^}]*\} from '@brainstrike\/host-capabilities\/native-tools';/u
     );
     expect(source).toMatch(
-      /name:\s*'read-workspace-file-cursors',\s*stop:\s*clearReadWorkspaceFileCursorRegistry/
+      /name:\s*'read-workspace-file-cursors',\s*stop:\s*clearReadWorkspaceFileCursorRegistry/u
     );
   });
 });

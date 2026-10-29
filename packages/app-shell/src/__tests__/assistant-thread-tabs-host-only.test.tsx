@@ -60,7 +60,7 @@ test('New shows the new-thread composer and opens the thread its first send comm
       updatedAt: new Date(),
     })
   );
-  expect(await screen.findByRole('tab', { name: /New conversation/ })).toBeVisible();
+  expect(await screen.findByRole('tab', { name: /New conversation/u })).toBeVisible();
   expect(screen.queryByTestId('new-thread-composer')).toBeNull();
   expect(assistantWrapperProps).toEqual([]);
 });
@@ -94,7 +94,7 @@ test('host run notifications update tab status and unsubscribe', async () => {
       },
     }
   );
-  expect(await screen.findByRole('tab', { name: /Current conversation.*running/ })).toBeVisible();
+  expect(await screen.findByRole('tab', { name: /Current conversation.*running/u })).toBeVisible();
   act(() => {
     runs = new Map([
       [
@@ -106,7 +106,9 @@ test('host run notifications update tab status and unsubscribe', async () => {
       listener();
     }
   });
-  expect(screen.getByRole('tab', { name: /Current conversation.*needs your input/ })).toBeVisible();
+  expect(
+    screen.getByRole('tab', { name: /Current conversation.*needs your input/u })
+  ).toBeVisible();
   cleanup();
   expect(listeners.size).toBe(0);
 });

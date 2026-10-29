@@ -109,8 +109,8 @@ function RewindPreviewPanes({
   }
   const files = preview.view ? preview.view.files : NO_FILES;
   return (
-    <div className="flex min-h-56 flex-1 overflow-hidden rounded-md border border-border">
-      <div className="flex w-64 shrink-0 flex-col border-border border-r">
+    <div className="border-border flex min-h-56 flex-1 overflow-hidden rounded-md border">
+      <div className="border-border flex w-64 shrink-0 flex-col border-r">
         <ChangedFilesTree
           changesetKey={requestKey}
           files={files}
@@ -372,7 +372,7 @@ function RewindConfirmBody({
 
       {rewind.loading ? (
         <p
-          className="flex items-center gap-1.5 text-muted-foreground text-xs"
+          className="text-muted-foreground flex items-center gap-1.5 text-xs"
           data-testid="rewind-loading"
         >
           <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />

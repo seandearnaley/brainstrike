@@ -93,7 +93,7 @@ export function isFencePolicyError(value: unknown): value is FencePolicyError {
 export type FencePathResolver = (path: string) => Promise<string>;
 
 /** Metacharacters srt would expand into paths this module never inspected. */
-const GLOB_CHARACTERS = /[*?[\]{}]/;
+const GLOB_CHARACTERS = /[*?[\]{}]/u;
 
 /** True when `candidate` is `parent` itself or lives beneath it. */
 function isAtOrUnder(candidate: string, parent: string): boolean {

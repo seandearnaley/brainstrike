@@ -16,7 +16,7 @@ describe('createProvidersSettingsCategory', () => {
 
     expect(category.id).toBe('providers');
     expect(category.title).toBe('Providers');
-    expect(category.description).toMatch(/credential|connect/i);
+    expect(category.description).toMatch(/credential|connect/iu);
     // The old "API Keys" search terms must still find this surface.
     expect(category.keywords).toEqual(expect.arrayContaining(['api', 'keys', 'credentials']));
     expect(isValidElement(category.content)).toBe(true);

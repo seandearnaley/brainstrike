@@ -505,7 +505,7 @@ export class HostMemory implements HostRunOwner {
     if (this.closing || this.identity.signal.aborted) {
       return this.admit('open', async () => this.memory.getContext(this.identifiers()));
     }
-    if (this.beginning) {
+    if (this.beginning !== undefined) {
       return this.beginning;
     }
     this.beginning = this.admit(

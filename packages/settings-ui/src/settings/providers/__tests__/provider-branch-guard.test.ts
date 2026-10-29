@@ -32,7 +32,7 @@ function listSourceFiles(directory: string): string[] {
       found.push(...listSourceFiles(full));
       continue;
     }
-    if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+    if (/\.tsx?$/u.test(entry.name) && !/\.test\.tsx?$/u.test(entry.name)) {
       found.push(full);
     }
   }
@@ -105,7 +105,7 @@ export function tokenizeForBranchScan(source: string): string {
       }
       // Newlines inside a template literal are dropped into the atom; the
       // scan is line-agnostic, so this only affects reported offsets.
-      out.push(`${ATOM_OPEN}${contents.join('').replace(/\n/g, ' ')}${ATOM_CLOSE}`);
+      out.push(`${ATOM_OPEN}${contents.join('').replace(/\n/gu, ' ')}${ATOM_CLOSE}`);
       continue;
     }
     out.push(char);
@@ -122,14 +122,15 @@ export function tokenizeForBranchScan(source: string): string {
 function providerBranchPattern(): RegExp {
   const ids = listProviders().map((definition) => definition.id);
   expect(ids.length).toBeGreaterThan(1);
-  const alternation = ids.map((id) => id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|');
+  const alternation = ids.map((id) => id.replace(/[.*+?^${}()|[\]\\-]/gu, '\\$&')).join('|');
   // `x === 'openai'`, `'openai' === x`, and `case 'openai':` — all against a
   // string-literal ATOM, so only a literal actually used in the comparison
   // counts.
   return new RegExp(
     `(===|!==)\\s*${ATOM_OPEN}(${alternation})${ATOM_CLOSE}` +
       `|${ATOM_OPEN}(${alternation})${ATOM_CLOSE}\\s*(===|!==)` +
-      `|case\\s+${ATOM_OPEN}(${alternation})${ATOM_CLOSE}`
+      `|case\\s+${ATOM_OPEN}(${alternation})${ATOM_CLOSE}`,
+    'u'
   );
 }
 

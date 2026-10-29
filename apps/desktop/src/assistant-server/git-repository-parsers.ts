@@ -109,7 +109,7 @@ export function parseBranchSummaries(stdout: string): readonly GitBranchSummary[
   let index = 0;
   while (index + 3 < fields.length) {
     const rawName = fields[index] ?? '';
-    const name = rawName.replace(/^\n/, '');
+    const name = rawName.replace(/^\n/u, '');
     const head = fields[index + 1] ?? '';
     const currentMarker = fields[index + 2] ?? '';
     const upstream = fields[index + 3] ?? '';
@@ -118,7 +118,7 @@ export function parseBranchSummaries(stdout: string): readonly GitBranchSummary[
     if (name.length === 0) {
       throw new Error('git returned a branch with no name');
     }
-    if (!/^[0-9a-f]{40,64}$/.test(head)) {
+    if (!/^[0-9a-f]{40,64}$/u.test(head)) {
       throw new Error(`git returned an invalid object id for branch "${name}"`);
     }
     branches.push({
@@ -149,7 +149,7 @@ export function parseCommitFiles(stdout: string): readonly GitCommitFile[] {
     const rawStatus = fields[index] ?? '';
     index += 1;
     const status = rawStatus[0] ?? '';
-    if (!/^[ACDMRTUXB]$/.test(status)) {
+    if (!/^[ACDMRTUXB]$/u.test(status)) {
       throw new Error(`git returned an invalid commit file status "${rawStatus}"`);
     }
     if (status === 'R' || status === 'C') {

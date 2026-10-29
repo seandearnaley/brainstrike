@@ -172,8 +172,8 @@ function SubagentTaskSummary({
         />
       ) : null}
       <div className="min-w-0 text-xs">
-        <span className="font-medium text-muted-foreground">{label}</span>
-        {task ? <p className="line-clamp-2 whitespace-pre-wrap break-words">{task}</p> : null}
+        <span className="text-muted-foreground font-medium">{label}</span>
+        {task ? <p className="line-clamp-2 break-words whitespace-pre-wrap">{task}</p> : null}
       </div>
     </div>
   );
@@ -237,7 +237,7 @@ export const SubagentExecutionCard = ({
 
   return (
     <div
-      className="bs-subagent-card my-1 rounded-md border border-border bg-muted/30 text-sm"
+      className="bs-subagent-card border-border bg-muted/30 my-1 rounded-md border text-sm"
       data-agent-color={presentation?.colorId}
       data-testid="subagent-execution-card"
       style={agentColorStyle(presentation?.colorId)}
@@ -265,18 +265,18 @@ export const SubagentExecutionCard = ({
       <SubagentTaskSummary label={label} presentation={presentation} task={task} />
       <SubagentApprovalHistory approvals={approvalHistory} colorId={presentation?.colorId} />
       {navigationError ? (
-        <p className="border-border border-t px-3 py-2 text-destructive text-xs" role="alert">
+        <p className="border-border text-destructive border-t px-3 py-2 text-xs" role="alert">
           {navigationError}
         </p>
       ) : null}
       {childRun?.status === 'unavailable' ? (
-        <p className="border-border border-t px-3 py-2 text-destructive text-xs" role="alert">
+        <p className="border-border text-destructive border-t px-3 py-2 text-xs" role="alert">
           {childRun.reason}
         </p>
       ) : null}
       <SubagentPresentationError error={presentationError} onReload={onReloadPresentation} />
       {onOpenConversation ? (
-        <div className="flex justify-end border-border border-t px-2 py-1">
+        <div className="border-border flex justify-end border-t px-2 py-1">
           <Button
             aria-label={`Open ${presentation?.displayName ?? label} conversation`}
             className="h-7 gap-1.5 text-xs"

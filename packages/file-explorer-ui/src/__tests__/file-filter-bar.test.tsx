@@ -17,16 +17,16 @@ describe('FileFilterBar', () => {
   it('renders with placeholder text', () => {
     render(<FileFilterBar {...defaultProps} />);
     expect(
-      screen.getByPlaceholderText(/Type to filter files... \(e.g. 'test component -spec'\)/i)
+      screen.getByPlaceholderText(/Type to filter files... \(e.g. 'test component -spec'\)/iu)
     ).toBeInTheDocument();
   });
 
   it('shows clear button only when there is input', async () => {
     const { rerender } = render(<FileFilterBar {...defaultProps} />);
-    expect(screen.queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /clear/iu })).not.toBeInTheDocument();
 
     rerender(<FileFilterBar {...defaultProps} value="test" />);
-    expect(screen.getByRole('button', { name: /clear/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clear/iu })).toBeInTheDocument();
   });
 
   it('calls onChange when typing', async () => {
@@ -47,7 +47,7 @@ describe('FileFilterBar', () => {
     const onClear = vi.fn();
     render(<FileFilterBar {...defaultProps} onClear={onClear} value="test" />);
 
-    const clearButton = screen.getByRole('button', { name: /clear/i });
+    const clearButton = screen.getByRole('button', { name: /clear/iu });
     await userEvent.click(clearButton);
 
     expect(onClear).toHaveBeenCalledTimes(1);
@@ -58,15 +58,15 @@ describe('FileFilterBar', () => {
     render(<FileFilterBar {...defaultProps} />);
 
     const helpButton = screen.getByRole('button', {
-      name: /filter syntax help/i,
+      name: /filter syntax help/iu,
     });
     await user.click(helpButton);
 
     // Check content is visible
-    expect(screen.getByText(/Filter Syntax:/)).toBeInTheDocument();
-    expect(screen.getByText(/Use spaces to separate multiple terms/)).toBeInTheDocument();
-    expect(screen.getByText(/-term/)).toBeInTheDocument();
-    expect(screen.getByText(/test component -spec/)).toBeInTheDocument();
+    expect(screen.getByText(/Filter Syntax:/u)).toBeInTheDocument();
+    expect(screen.getByText(/Use spaces to separate multiple terms/u)).toBeInTheDocument();
+    expect(screen.getByText(/-term/u)).toBeInTheDocument();
+    expect(screen.getByText(/test component -spec/u)).toBeInTheDocument();
   });
 
   it('maintains input value while typing', async () => {
@@ -85,7 +85,7 @@ describe('FileFilterBar', () => {
     render(<FileFilterBar {...defaultProps} value="" />);
     const input = screen.getByRole('textbox');
     expect(input).toHaveValue('');
-    expect(screen.queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /clear/iu })).not.toBeInTheDocument();
   });
 
   describe('trailing slot', () => {
@@ -107,7 +107,7 @@ describe('FileFilterBar', () => {
         />
       );
       const trailing = screen.getByTestId('trailing-control');
-      const help = screen.getByRole('button', { name: /filter syntax help/i });
+      const help = screen.getByRole('button', { name: /filter syntax help/iu });
       // Node.DOCUMENT_POSITION_FOLLOWING (4) => `help` comes after `trailing`.
       expect(trailing.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING
@@ -131,13 +131,13 @@ describe('FileFilterBar', () => {
     it('uses the compact h-8 input height to match the toolbar filter input', () => {
       render(<FileFilterBar {...defaultProps} />);
       const input = screen.getByRole('textbox');
-      expect(input.className).toMatch(/\bh-8\b/);
+      expect(input.className).toMatch(/\bh-8\b/u);
     });
 
     it('uses pl-9 to leave room for the leading search icon', () => {
       render(<FileFilterBar {...defaultProps} />);
       const input = screen.getByRole('textbox');
-      expect(input.className).toMatch(/\bpl-9\b/);
+      expect(input.className).toMatch(/\bpl-9\b/u);
     });
   });
 });

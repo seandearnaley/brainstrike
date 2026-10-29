@@ -34,7 +34,7 @@ interface SelectedPathAncestorResolver {
   getResolvedCache: () => Map<string, string[]>;
 }
 
-const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
+const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/u;
 const WINDOWS_DRIVE_ROOT_LENGTH = 3;
 
 function incrementDirectoryCount(

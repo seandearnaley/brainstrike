@@ -208,7 +208,7 @@ test.describe('Workspace bar (desktop)', () => {
     await expect(menu).toBeVisible({ timeout: 15_000 });
     // Two ROOT rows now (primary + the re-mounted secondary), each keyed by a
     // durable `roots.id`; the name check is scoped to the same open menu.
-    await expect(menu.getByTestId(/^workspace-bar-root-/)).toHaveCount(2, { timeout: 15_000 });
+    await expect(menu.getByTestId(/^workspace-bar-root-/u)).toHaveCount(2, { timeout: 15_000 });
     await expect(menu.getByText(path.basename(recent), { exact: true })).toHaveCount(1);
     await page.keyboard.press('Escape');
   });
@@ -284,6 +284,6 @@ test.describe('Workspace bar (desktop)', () => {
       return event.defaultPrevented;
     });
     expect(filesPrevented).toBe(true);
-    await expect(zone).toHaveClass(/ring-2/);
+    await expect(zone).toHaveClass(/ring-2/u);
   });
 });

@@ -75,10 +75,10 @@ describe('applyStringReplace — WHITESPACE-NORMALIZED duplicate guard (wrong-lo
     expect(thrown).toBeInstanceOf(StringReplaceError);
     const typed = thrown as StringReplaceError;
     expect(typed.reason).toBe('ambiguous');
-    expect(typed.message).toMatch(/normaliz/i);
+    expect(typed.message).toMatch(/normaliz/iu);
     expect(typed.message).toContain('surrounding');
     // The message reports the colliding line numbers (lines 2 and 3).
-    expect(typed.message).toMatch(/2, 3/);
+    expect(typed.message).toMatch(/2, 3/u);
   });
 
   it('applies the edit when exactly ONE location matches after whitespace normalization', () => {
@@ -128,7 +128,7 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
     const typed = thrown as StringReplaceError;
     expect(typed.reason).toBe('ambiguous');
     // The message tells the model how to recover and lists the colliding lines.
-    expect(typed.message).toMatch(/multiple|matches \d+ locations/i);
+    expect(typed.message).toMatch(/multiple|matches \d+ locations/iu);
     expect(typed.message).toContain('surrounding');
   });
 
@@ -219,14 +219,14 @@ describe('applyStringReplace — MULTI-LINE duplicate block guard (over-broad-ed
     expect(thrown).toBeInstanceOf(StringReplaceError);
     const typed = thrown as StringReplaceError;
     expect(typed.reason).toBe('ambiguous');
-    expect(typed.message).toMatch(/2 locations/);
+    expect(typed.message).toMatch(/2 locations/u);
     expect(typed.message).toContain('surrounding');
   });
 
   it('THROWS ambiguous when a multi-line block appears exactly three times', () => {
     const fileContent = [block, 'a();', block, 'b();', block].join('\n');
     expect(() => applyStringReplace({ fileContent, newStr: 'x();', oldStr: block })).toThrow(
-      /3 locations/
+      /3 locations/u
     );
   });
 

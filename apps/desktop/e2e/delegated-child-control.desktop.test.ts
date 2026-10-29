@@ -87,7 +87,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     });
     await enableAssistantCatalogModel(window, 'openrouter::anthropic/claude-sonnet-4.6');
     await new HomePage(window).openSettings();
-    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
     await window
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption('ask');
@@ -107,13 +107,13 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(root.getByText('Waiting for approval', { exact: true })).toHaveCount(0);
     // The delegation card is inside the root's activity, collapsed by default.
     await ensureActivityExpanded(root);
-    const openChild = root.getByRole('button', { name: /Open .* conversation/ });
+    const openChild = root.getByRole('button', { name: /Open .* conversation/u });
     await expect(openChild).toBeVisible();
     await openChild.click();
     const childTab = window
       .getByRole('tablist', { name: 'Workspace tabs' })
       .getByRole('tab', { selected: true });
-    await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
+    await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
     const childName = (await childTab.innerText()).trim();
     const child = window.getByRole('region', { exact: true, name: childName });
     await expect(
@@ -248,7 +248,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       body: await root.innerText(),
       contentType: 'text/plain',
     });
-    await delegationGroup.getByRole('button', { name: /Open .* conversation/ }).click();
+    await delegationGroup.getByRole('button', { name: /Open .* conversation/u }).click();
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
     expect(modelCalls()).toBe(completedRequests);
     await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
@@ -401,7 +401,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     });
     await enableAssistantCatalogModel(window, 'openrouter::anthropic/claude-sonnet-4.6');
     await new HomePage(window).openSettings();
-    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
     await window
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption('allow');
@@ -418,11 +418,11 @@ test('sends human input to the active child and reloads its rich conversation', 
       JSON.stringify(provider.transcript())
     ).toBeVisible();
     await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
-    await root.getByRole('button', { name: /Open .* conversation/ }).click();
+    await root.getByRole('button', { name: /Open .* conversation/u }).click();
     const childTab = window
       .getByRole('tablist', { name: 'Workspace tabs' })
       .getByRole('tab', { selected: true });
-    await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/);
+    await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
     const childName = (await childTab.innerText()).trim();
     const child = window.getByRole('region', { exact: true, name: childName });
     const input = child.getByRole('textbox', { name: 'Message input' });
@@ -517,7 +517,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     ).toBeVisible();
     expect(modelCalls()).toBe(continuedRequests);
     await new HomePage(window).openSettings();
-    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
     await window
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption('ask');

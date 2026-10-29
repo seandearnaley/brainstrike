@@ -253,10 +253,10 @@ export const MemoryDeveloperPanel = ({ state }: { readonly state: OmMeterState }
   return (
     <section
       aria-labelledby={headingId}
-      className="mt-1.5 border-border/60 border-t pt-1.5 text-[11px]"
+      className="border-border/60 mt-1.5 border-t pt-1.5 text-[11px]"
       data-testid="context-usage-memory-panel"
     >
-      <h4 className="font-medium text-muted-foreground" id={headingId}>
+      <h4 className="text-muted-foreground font-medium" id={headingId}>
         Memory
       </h4>
       <dl className="mt-0.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-px">
@@ -266,8 +266,8 @@ export const MemoryDeveloperPanel = ({ state }: { readonly state: OmMeterState }
             <dd
               className={
                 row.tone === 'error'
-                  ? 'break-words text-destructive'
-                  : 'break-words text-foreground tabular-nums'
+                  ? 'text-destructive break-words'
+                  : 'text-foreground break-words tabular-nums'
               }
             >
               {row.value}

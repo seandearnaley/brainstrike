@@ -36,8 +36,8 @@ describe('assistant budget preferences store', () => {
   it('THROWS on non-finite or non-positive caps instead of coercing', () => {
     const store = useAssistantBudgetPreferencesStore.getState();
     for (const invalid of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => store.setDailyCapUsd(invalid)).toThrow(/finite/i);
-      expect(() => store.setPerRunCapUsd(invalid)).toThrow(/finite/i);
+      expect(() => store.setDailyCapUsd(invalid)).toThrow(/finite/iu);
+      expect(() => store.setPerRunCapUsd(invalid)).toThrow(/finite/iu);
     }
     // A rejected write never lands.
     expect(useAssistantBudgetPreferencesStore.getState().dailyCapUsd).toBeNull();

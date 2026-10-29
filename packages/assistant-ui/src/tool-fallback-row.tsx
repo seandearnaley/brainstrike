@@ -187,7 +187,7 @@ function ToolRunTiming({
   }
   return (
     <span
-      className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
+      className="text-muted-foreground shrink-0 text-[11px] tabular-nums"
       title="Execution time"
     >
       {durationLabel}
@@ -223,7 +223,7 @@ function CheckpointRevertButton({
   if (entry.revertedAt) {
     return (
       <span
-        className="shrink-0 text-[11px] text-muted-foreground"
+        className="text-muted-foreground shrink-0 text-[11px]"
         data-testid="checkpoint-reverted"
       >
         Reverted
@@ -245,7 +245,7 @@ function CheckpointRevertButton({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className="shrink-0 text-[11px] text-muted-foreground"
+            className="text-muted-foreground shrink-0 text-[11px]"
             data-testid="checkpoint-unrevertible"
           >
             Can't restore
@@ -325,7 +325,7 @@ function CheckpointRevertButton({
           Confirm restore
         </Button>
         <Button
-          className="h-5 px-1.5 text-[11px] text-muted-foreground"
+          className="text-muted-foreground h-5 px-1.5 text-[11px]"
           onClick={() => setPhase('idle')}
           size="sm"
           variant="ghost"

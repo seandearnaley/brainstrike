@@ -30,7 +30,7 @@ function manifestText(runtime: RuntimeData): string {
 
 function manifestPayload(runtime: RuntimeData): Record<string, unknown> {
   const text = manifestText(runtime);
-  const match = text.match(/<workspace-root-manifest>\n(.+)\n<\/workspace-root-manifest>/);
+  const match = text.match(/<workspace-root-manifest>\n(.+)\n<\/workspace-root-manifest>/u);
   if (!match?.[1]) {
     throw new TypeError('Workspace root manifest payload is missing');
   }
@@ -152,8 +152,8 @@ describe('workspace root manifest', () => {
       ],
     });
 
-    expect(text.match(/<workspace-root-manifest>/g)).toHaveLength(1);
-    expect(text.match(/<\/workspace-root-manifest>/g)).toHaveLength(1);
+    expect(text.match(/<workspace-root-manifest>/gu)).toHaveLength(1);
+    expect(text.match(/<\/workspace-root-manifest>/gu)).toHaveLength(1);
     expect(text).not.toContain('root-hostile\n');
     expect(text.length).toBeLessThanOrEqual(MAX_WORKSPACE_ROOT_MANIFEST_CHARS);
   });

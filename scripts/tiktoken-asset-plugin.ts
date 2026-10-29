@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { Plugin } from 'esbuild';
 
+// biome-ignore lint/style/useUnicodeRegex: esbuild runs plugin filters as Go regular expressions, which reject the u flag.
 const TOKENIZER_ASSET_IMPORT = /^tiktoken\/encoders\/o200k_base\.json\?url$/;
 const TOKENIZER_ASSET_NAMESPACE = 'brainstrike-tokenizer-asset';
 
@@ -29,6 +30,7 @@ export const tokenizerAssetPlugin: Plugin = {
       };
     });
 
+    // biome-ignore lint/style/useUnicodeRegex: esbuild runs plugin filters as Go regular expressions, which reject the u flag.
     build.onLoad({ filter: /.*/, namespace: TOKENIZER_ASSET_NAMESPACE }, async (args) => ({
       contents: await readFile(args.path),
       loader: 'file',

@@ -24,6 +24,6 @@ describe('AssistantChatPanel eager-import boundary', () => {
       "from '@brainstrike/assistant-ui/assistant-link-capabilities-provider'"
     );
     // A bare root-barrel specifier, in any import form.
-    expect(source).not.toMatch(/from\s+'@brainstrike\/assistant-ui'/);
+    expect(source).not.toMatch(/from\s+'@brainstrike\/assistant-ui'/u);
   });
 });

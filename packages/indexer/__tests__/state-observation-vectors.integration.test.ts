@@ -598,7 +598,7 @@ it(
           "UPDATE brainstrike_memory_entities SET payload=json_set(payload,'$.resourceId','foreign') WHERE id=?"
         )
         .run(record.id);
-      await expect(f.port.queryStateObservationVectors(query)).rejects.toThrow(/binding/);
+      await expect(f.port.queryStateObservationVectors(query)).rejects.toThrow(/binding/u);
       truth
         .prepare('UPDATE brainstrike_memory_entities SET payload=? WHERE id=?')
         .run(JSON.stringify(record.payload), record.id);
@@ -669,7 +669,9 @@ it(
       reader = openConnection(f.options.dbPath, { readonly: true });
       reader.exec('BEGIN');
       reader.prepare('SELECT count(*) FROM state_observation_vectors').get();
-      await expect(f.port.purgeStateObservationVectors(scope)).rejects.toThrow(/checkpoint|pinned/);
+      await expect(f.port.purgeStateObservationVectors(scope)).rejects.toThrow(
+        /checkpoint|pinned/u
+      );
       await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
         code: 'message-cleanup-pending',
       });

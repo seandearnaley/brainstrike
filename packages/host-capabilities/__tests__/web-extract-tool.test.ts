@@ -50,7 +50,7 @@ describe('web-extract-tool', () => {
     );
 
     expect(result.available).toBe(false);
-    expect(result.message).toMatch(/tavily api key/i);
+    expect(result.message).toMatch(/tavily api key/iu);
     expect(result.results).toEqual([]);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -106,7 +106,7 @@ describe('web-extract-tool', () => {
     // Every refused URL is reported honestly, never silently dropped.
     expect(result.failed).toHaveLength(9);
     for (const failure of result.failed) {
-      expect(failure.reason).toMatch(/refused|invalid/i);
+      expect(failure.reason).toMatch(/refused|invalid/iu);
     }
   });
 
@@ -134,7 +134,7 @@ describe('web-extract-tool', () => {
     expect(result.results).toEqual([]);
     expect(result.failed).toHaveLength(6);
     for (const failure of result.failed) {
-      expect(failure.reason).toMatch(/refused/i);
+      expect(failure.reason).toMatch(/refused/iu);
     }
   });
 
@@ -247,7 +247,7 @@ describe('web-extract-tool', () => {
     );
 
     expect(result.available).toBe(true);
-    expect(result.error).toMatch(/timed out/i);
+    expect(result.error).toMatch(/timed out/iu);
   });
 
   it('preserves oversized Unicode and escaped source content for central artifact settlement', async () => {

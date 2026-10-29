@@ -13,6 +13,11 @@ import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
 import { screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import FileExplorerSidebar from '../shell/file-explorer-sidebar';
+import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-provider';
+import { resolveSectionDisplayFilterFlag } from '../utils/quick-filter-tree';
+import { FileExplorerTestWrapper } from './test-helpers';
 
 // Count applyFileFilters tree walks per (input-tree identity, filter values)
 // pair. Two components filtering the same tree under the same filters each
@@ -53,12 +58,6 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
     },
   };
 });
-
-import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import FileExplorerSidebar from '../shell/file-explorer-sidebar';
-import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-provider';
-import { resolveSectionDisplayFilterFlag } from '../utils/quick-filter-tree';
-import { FileExplorerTestWrapper } from './test-helpers';
 
 const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
 const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';

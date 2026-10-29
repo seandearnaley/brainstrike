@@ -198,7 +198,7 @@ function buildLogColumns(
     {
       accessorKey: 'timestamp',
       cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => (
-        <span className="whitespace-nowrap font-mono text-muted-foreground text-xs">
+        <span className="text-muted-foreground font-mono text-xs whitespace-nowrap">
           {formatLogTimestamp(getValue() as number)}
         </span>
       ),
@@ -217,7 +217,7 @@ function buildLogColumns(
             : null;
         return (
           <Badge
-            className="h-5 px-1.5 py-0 font-bold text-[10px] uppercase tracking-wider"
+            className="h-5 px-1.5 py-0 text-[10px] font-bold tracking-wider uppercase"
             variant={knownLevel ? getLevelBadgeVariant(knownLevel) : 'outline'}
           >
             {knownLevel ?? `unknown (${String(rawLevel)})`}
@@ -233,7 +233,7 @@ function buildLogColumns(
       cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => {
         const scope = getValue() as string | undefined;
         return scope ? (
-          <span className="line-clamp-1 font-medium text-primary/80 text-xs">[{scope}]</span>
+          <span className="text-primary/80 line-clamp-1 text-xs font-medium">[{scope}]</span>
         ) : (
           <span className="text-muted-foreground/30 text-xs">—</span>
         );
@@ -248,7 +248,7 @@ function buildLogColumns(
         const message = getValue() as string | undefined;
         return (
           <div
-            className={`${messageClassName} font-medium text-foreground/90 text-xs`}
+            className={`${messageClassName} text-foreground/90 text-xs font-medium`}
             title={message ?? ''}
           >
             {message || <span className="text-muted-foreground/30">—</span>}
@@ -265,7 +265,7 @@ function buildLogColumns(
         const payload = getValue() as string;
         return payload ? (
           <code
-            className={`rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ${payloadClassName}`}
+            className={`border-border/20 bg-muted/30 text-muted-foreground rounded border px-1.5 py-0.5 font-mono text-[10px] ${payloadClassName}`}
             title={payload}
           >
             {payload}
@@ -285,7 +285,7 @@ function buildLogColumns(
         const parsed = bindings && bindings !== '{}' ? bindings : null;
         return parsed ? (
           <code
-            className={`rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ${payloadClassName}`}
+            className={`border-border/20 bg-muted/30 text-muted-foreground rounded border px-1.5 py-0.5 font-mono text-[10px] ${payloadClassName}`}
             title={parsed}
           >
             {parsed}
@@ -686,10 +686,10 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
             wrapLines={wrapLines}
             {...(emptyStateText === undefined ? {} : { emptyStateText })}
           />
-          <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-background to-transparent opacity-50" />
+          <div className="from-background pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t to-transparent opacity-50" />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-border/40 border-t bg-muted/20 px-3 py-1.5 text-[10px] text-muted-foreground">
+        <div className="border-border/40 bg-muted/20 text-muted-foreground flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5 text-[10px]">
           <span data-testid="log-viewer-summary">{summaryText}</span>
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span data-testid="log-viewer-source-coverage">{sourceCoverageText}</span>

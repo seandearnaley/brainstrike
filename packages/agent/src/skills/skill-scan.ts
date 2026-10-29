@@ -175,7 +175,7 @@ function warnDuplicate(name: string, dropped: string, kept: string): void {
 }
 
 function joinPath(base: string, segments: readonly string[]): string {
-  return [base.replace(/\/+$/, ''), ...segments].join('/');
+  return [base.replace(/\/+$/u, ''), ...segments].join('/');
 }
 
 interface ScanSource {

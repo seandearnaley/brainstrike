@@ -180,7 +180,7 @@ interface Subscription {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-const LOCK_SUFFIX_RE = /\.lock$/;
+const LOCK_SUFFIX_RE = /\.lock$/u;
 
 /**
  * The INTERESTING set (Global Constraints, settled): `HEAD`, `index`,
@@ -205,7 +205,7 @@ const LOCK_SUFFIX_RE = /\.lock$/;
  * `docs/agents/platform-contracts.md`).
  */
 const INTERESTING_RE =
-  /^(?:HEAD|ORIG_HEAD|index|packed-refs|refs\/.+|worktrees\/[^/]+(?:\/(?:HEAD|ORIG_HEAD|index|locked|gitdir))?)$/;
+  /^(?:HEAD|ORIG_HEAD|index|packed-refs|refs\/.+|worktrees\/[^/]+(?:\/(?:HEAD|ORIG_HEAD|index|locked|gitdir))?)$/u;
 
 function isInterestingGitMetadataPath(relativePosixPath: string): boolean {
   if (LOCK_SUFFIX_RE.test(relativePosixPath)) {

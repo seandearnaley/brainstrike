@@ -44,7 +44,7 @@ export const ModelPickerTrigger = ({
           : (placeholder ?? 'Select a model')
       }
       className={cn(
-        'group w-full min-w-0 justify-between gap-2 overflow-hidden border-border/70 bg-background/80 px-2.5 shadow-sm transition-[border-color,background-color,box-shadow] hover:border-border hover:bg-accent/35 hover:shadow-md',
+        'group border-border/70 bg-background/80 hover:border-border hover:bg-accent/35 w-full min-w-0 justify-between gap-2 overflow-hidden px-2.5 shadow-sm transition-[border-color,background-color,box-shadow] hover:shadow-md',
         className
       )}
       disabled={disabled}
@@ -56,7 +56,7 @@ export const ModelPickerTrigger = ({
       <div className="flex min-w-0 items-center gap-2">
         {firstModel ? (
           <>
-            <span className="grid size-6 shrink-0 place-items-center rounded-md border border-border/60 bg-muted/55 shadow-xs">
+            <span className="border-border/60 bg-muted/55 grid size-6 shrink-0 place-items-center rounded-md border shadow-xs">
               <ProviderIcon
                 className="size-3.5"
                 providerId={firstModel.providerId}
@@ -65,11 +65,11 @@ export const ModelPickerTrigger = ({
             </span>
             <span className="min-w-0 truncate text-left">
               <span className="font-medium">{firstModel.name}</span>
-              <span className="ml-1.5 text-muted-foreground">
+              <span className="text-muted-foreground ml-1.5">
                 · {provider?.name ?? firstModel.providerId}
               </span>
               {selectedModels.length > 1 && (
-                <span className="ml-1 text-muted-foreground">(+{selectedModels.length - 1})</span>
+                <span className="text-muted-foreground ml-1">(+{selectedModels.length - 1})</span>
               )}
             </span>
           </>
@@ -77,7 +77,7 @@ export const ModelPickerTrigger = ({
           <span className="text-muted-foreground">{placeholder ?? 'Select a model...'}</span>
         )}
       </div>
-      <span className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors group-hover:bg-background/70 group-hover:text-foreground">
+      <span className="text-muted-foreground group-hover:bg-background/70 group-hover:text-foreground grid size-6 shrink-0 place-items-center rounded-md transition-colors">
         <ChevronsUpDown className="size-3.5" />
       </span>
     </Button>

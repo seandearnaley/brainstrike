@@ -20,7 +20,7 @@ import { purgeWhileStreaming } from './suites/purge-while-streaming.js';
 const T = 't1';
 /** The child died at its crash point: SIGKILL on POSIX, TerminateProcess (a non-zero exit) on Windows. */
 const expectKilled = (p: Proc): void => {
-  expect(p.out()).not.toMatch(/crash point .* was not reached/);
+  expect(p.out()).not.toMatch(/crash point .* was not reached/u);
   if (process.platform === 'win32') {
     expect(p.p.exitCode).not.toBe(0);
   } else {
@@ -148,7 +148,7 @@ describe('item 1 · purge', () => {
     const store = await StateStore.open(root, { indexer });
     try {
       await appendInputs(store, T, seedInputs(3, 2));
-      await expect(store.purge(T, 2)).rejects.toThrow(/reference count/);
+      await expect(store.purge(T, 2)).rejects.toThrow(/reference count/u);
       const db = new Database(join(root, STATE_DB), { readonly: true });
       try {
         expect(db.prepare('SELECT count(*) FROM purge_intent').pluck().get()).toBe(1);

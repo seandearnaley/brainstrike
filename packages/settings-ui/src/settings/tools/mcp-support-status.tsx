@@ -102,7 +102,7 @@ function CatalogPreview({ items, label }: { items: readonly CatalogPreviewItem[]
       </div>
       {visible.map((item) => (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5" key={item.key}>
-          <span className="break-all text-muted-foreground">{item.text}</span>
+          <span className="text-muted-foreground break-all">{item.text}</span>
           {item.action && (
             <Button
               aria-busy={item.action.pending}
@@ -162,12 +162,12 @@ function ResourceContents({ result }: { result: McpReadResourceResult['result'] 
       <BoundedItemsNote label="Contents" total={result.contents.length} />
       {withStableKeys(result.contents, (content) => content.uri).map(({ item, key }) => (
         <div className="space-y-0.5" key={key}>
-          <div className="break-all text-muted-foreground">
+          <div className="text-muted-foreground break-all">
             {item.uri}
             {typeof item.mimeType === 'string' ? ` · ${item.mimeType}` : ''}
           </div>
           {'text' in item && typeof item.text === 'string' ? (
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2">
+            <pre className="bg-muted max-h-64 overflow-auto rounded p-2 break-all whitespace-pre-wrap">
               {truncateText(item.text)}
             </pre>
           ) : (
@@ -187,7 +187,7 @@ function ResourceContents({ result }: { result: McpReadResourceResult['result'] 
 function PromptMessageBody({ content }: { content: PromptMessageContent }) {
   if (content.type === 'text') {
     return (
-      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2">
+      <pre className="bg-muted max-h-64 overflow-auto rounded p-2 break-all whitespace-pre-wrap">
         {truncateText(content.text)}
       </pre>
     );
@@ -220,7 +220,7 @@ function ContentViewPanel({ content, serverId }: { content: ContentView; serverI
       className="space-y-1 rounded-md border px-2 py-1.5 text-xs"
       data-testid={`mcp-catalog-content-${serverId}`}
     >
-      <div className="break-all font-medium">
+      <div className="font-medium break-all">
         {content.kind === 'resource' ? `Resource ${content.uri}` : `Prompt ${content.name}`}
       </div>
       {content.kind === 'resource' ? (
@@ -610,7 +610,7 @@ export function McpSupportMatrix({
       data-testid="mcp-support-matrix"
     >
       <div>
-        <h3 className="font-medium text-sm" id="mcp-support-title">
+        <h3 className="text-sm font-medium" id="mcp-support-title">
           MCP protocol support
         </h3>
         <p className="text-muted-foreground text-xs">
@@ -642,7 +642,7 @@ export function McpSupportMatrix({
                   {SUPPORT_STATUS_LABELS[status]}
                 </span>
               </div>
-              <div className="break-all font-mono text-muted-foreground text-xs">{entry.id}</div>
+              <div className="text-muted-foreground font-mono text-xs break-all">{entry.id}</div>
               {turnedOff && (
                 <p className="text-muted-foreground text-xs">
                   Turned off in settings — not advertised on new connections.

@@ -192,7 +192,7 @@ function DatabaseStatusSection(): ReactElement {
   return (
     <DiagnosticCard
       description="PGlite database connection"
-      icon={<Database className="h-4 w-4 text-primary" />}
+      icon={<Database className="text-primary h-4 w-4" />}
       status={variant}
       statusLabel={label}
       title="Database"
@@ -210,11 +210,11 @@ function DatabaseStatusSection(): ReactElement {
         )}
         <div className="flex items-center gap-1.5 pt-1">
           {connected ? (
-            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+            <CheckCircle2 className="text-success h-3.5 w-3.5" />
           ) : (
-            <XCircle className="h-3.5 w-3.5 text-destructive" />
+            <XCircle className="text-destructive h-3.5 w-3.5" />
           )}
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground text-[10px]">
             {connected ? 'Database is operational' : 'Database connection failed'}
           </span>
         </div>
@@ -258,7 +258,7 @@ function WorkerStatusSection({
   return (
     <DiagnosticCard
       description="Token counting and indexing worker"
-      icon={<Server className="h-4 w-4 text-primary" />}
+      icon={<Server className="text-primary h-4 w-4" />}
       status={variant}
       statusLabel={label}
       title="Token Cache Worker"
@@ -278,7 +278,7 @@ function WorkerStatusSection({
             {persistenceMode}
           </Badge>
         </div>
-        <div className="pt-1 text-[10px] text-muted-foreground">
+        <div className="text-muted-foreground pt-1 text-[10px]">
           {modeDescriptions[persistenceMode]}
         </div>
       </div>
@@ -326,7 +326,7 @@ function TokenIndexerTelemetrySection({
   return (
     <DiagnosticCard
       description="Background file-token indexing, rolling one-minute window"
-      icon={<Timer className="h-4 w-4 text-primary" />}
+      icon={<Timer className="text-primary h-4 w-4" />}
       status={status}
       statusLabel={statusLabel}
       title="Token Indexing"
@@ -441,7 +441,7 @@ function DesktopPlatformStatusSection({
   return (
     <DiagnosticCard
       description={DESKTOP_PLATFORM_DESCRIPTION}
-      icon={<Server className="h-4 w-4 text-primary" />}
+      icon={<Server className="text-primary h-4 w-4" />}
       status="neutral"
       statusLabel="Collected"
       title="Desktop Platform"
@@ -465,7 +465,7 @@ function DesktopPlatformStatusSection({
             <span className="font-medium">{snapshot.reset.status}</span>
           </div>
         )}
-        <div className="truncate pt-1 text-[10px] text-muted-foreground">
+        <div className="text-muted-foreground truncate pt-1 text-[10px]">
           {snapshot.reset.userDataPath}
         </div>
       </div>
@@ -527,7 +527,7 @@ function RendererLongTaskStatusSection({
   return (
     <DiagnosticCard
       description="Main-thread stalls in the rolling one-minute window"
-      icon={<Timer className="h-4 w-4 text-primary" />}
+      icon={<Timer className="text-primary h-4 w-4" />}
       status={status}
       statusLabel={statusLabel}
       title="Renderer Long Tasks"
@@ -560,7 +560,7 @@ function RendererLongTaskStatusSection({
           </span>
         </div>
         {snapshot.unavailableReason && (
-          <div className="pt-1 text-[10px] text-muted-foreground">{snapshot.unavailableReason}</div>
+          <div className="text-muted-foreground pt-1 text-[10px]">{snapshot.unavailableReason}</div>
         )}
       </div>
     </DiagnosticCard>
@@ -669,9 +669,9 @@ export function SystemDiagnosticsPanel({
       {/* Header with refresh button */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Activity className="h-5 w-5 text-primary" />
+          <Activity className="text-primary h-5 w-5" />
           <div>
-            <h3 className="font-semibold text-lg">System Diagnostics</h3>
+            <h3 className="text-lg font-semibold">System Diagnostics</h3>
             <p className="text-muted-foreground text-xs">
               Real-time health monitoring for database, indexing, and workers
             </p>
@@ -679,7 +679,7 @@ export function SystemDiagnosticsPanel({
         </div>
         <button
           aria-label="Refresh all diagnostics"
-          className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition-colors disabled:opacity-50"
           data-testid="system-diagnostics-refresh"
           disabled={isRefreshing}
           onClick={handleRefreshAll}
@@ -704,7 +704,7 @@ export function SystemDiagnosticsPanel({
         {desktopDiagnosticsError && (
           <DiagnosticCard
             description={DESKTOP_PLATFORM_DESCRIPTION}
-            icon={<Server className="h-4 w-4 text-primary" />}
+            icon={<Server className="text-primary h-4 w-4" />}
             status="error"
             statusLabel="Issue"
             title="Desktop Platform"

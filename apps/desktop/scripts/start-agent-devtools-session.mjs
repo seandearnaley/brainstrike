@@ -77,7 +77,7 @@ function replacePlistStringValue(plist, key, value) {
   }
 
   const valueStart = keyIndex + keyTag.length;
-  const valueMatch = plist.slice(valueStart).match(/^(\s*)<string>[^<]*<\/string>/);
+  const valueMatch = plist.slice(valueStart).match(/^(\s*)<string>[^<]*<\/string>/u);
   if (!valueMatch) {
     throw new Error(`Electron Info.plist ${key} must have a string value.`);
   }

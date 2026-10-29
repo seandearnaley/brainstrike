@@ -10,7 +10,7 @@ describe('App Initialization Integration', () => {
     document.getElementById = vi.fn().mockReturnValue(null);
 
     expect(() => {
-      const rootElement = document.getElementById('root');
+      const rootElement = document.querySelector('#root');
       if (!rootElement) {
         throw new Error("Failed to find the root element with ID 'root'");
       }

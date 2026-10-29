@@ -127,8 +127,8 @@ describe('shared conversation panel', () => {
     );
     const panel = screen.getByTestId('assistant-conversation-panel');
     expect(panel).toHaveAttribute('data-agent-color', 'family:1375:540');
-    expect(panel.style.getPropertyValue('--agent-accent-light')).toMatch(/^oklch\(/);
-    expect(panel.style.getPropertyValue('--agent-accent-dark')).toMatch(/^oklch\(/);
+    expect(panel.style.getPropertyValue('--agent-accent-light')).toMatch(/^oklch\(/u);
+    expect(panel.style.getPropertyValue('--agent-accent-dark')).toMatch(/^oklch\(/u);
   });
 
   it.each(['pending', 'delivered'])(
@@ -289,7 +289,7 @@ describe('shared conversation panel', () => {
     expect(input).toHaveValue('Possibly delivered');
     expect(send).toHaveBeenCalledOnce();
     accepted.resolve();
-    await waitFor(() => expect(screen.getByText(/Waiting stopped/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/Waiting stopped/u)).toBeVisible());
     expect(input).toHaveValue('Possibly delivered');
     await user.click(input);
     await user.keyboard('{Enter}');
@@ -529,7 +529,7 @@ describe('shared conversation panel', () => {
     await user.type(input, 'Replacement instruction');
     await user.keyboard('{Enter}');
     expect(send).toHaveBeenCalledOnce();
-    expect(screen.getByText(/earlier input is unconfirmed/)).toHaveTextContent('Discard');
+    expect(screen.getByText(/earlier input is unconfirmed/u)).toHaveTextContent('Discard');
     expect(input).toHaveValue('Replacement instruction');
   });
 
@@ -709,7 +709,7 @@ describe('shared conversation panel', () => {
         />
       </TooltipProvider>
     );
-    await userEvent.setup().click(await screen.findByRole('button', { name: /^approve$/i }));
+    await userEvent.setup().click(await screen.findByRole('button', { name: /^approve$/iu }));
     expect(onExitPlanMode).not.toHaveBeenCalled();
     expect(onNew).toHaveBeenCalledTimes(1);
     expect(onNew.mock.calls[0]?.[0]).toMatchObject({
@@ -755,7 +755,7 @@ describe('shared conversation panel', () => {
       </TooltipProvider>
     );
     const child = within(screen.getByRole('region', { name: 'Cedar' }));
-    await user.click(await child.findByRole('button', { name: /approve workspace.writefile/i }));
+    await user.click(await child.findByRole('button', { name: /approve workspace.writefile/iu }));
     expect(childSend).toHaveBeenCalledTimes(1);
     expect(rootSend).not.toHaveBeenCalled();
     expect(childSend.mock.calls[0]?.[0]).toMatchObject({
@@ -904,7 +904,7 @@ describe('shared conversation panel', () => {
 
     await waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
     expect(
-      await screen.findByText(/Decision not sent: The owning run refused the decision/)
+      await screen.findByText(/Decision not sent: The owning run refused the decision/u)
     ).toHaveAttribute('role', 'alert');
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
     expect(onNew).not.toHaveBeenCalled();
@@ -951,8 +951,8 @@ describe('shared conversation panel', () => {
     await user.click(child.getByRole('button', { name: 'Expand activity' }));
     await user.click(child.getByRole('button', { name: 'Show thinking' }));
     expect(await child.findByText('Compare the evidence.')).toBeVisible();
-    await user.click(child.getByRole('button', { name: /expand details/i }));
-    expect(child.getByText(/Found evidence/)).toBeVisible();
+    await user.click(child.getByRole('button', { name: /expand details/iu }));
+    expect(child.getByText(/Found evidence/u)).toBeVisible();
     expect(onNew).not.toHaveBeenCalled();
   });
 

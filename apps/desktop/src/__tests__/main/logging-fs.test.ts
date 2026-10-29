@@ -1,5 +1,13 @@
+import fs from 'node:fs';
+// Import mocked fs
+import path from 'node:path';
+import type { LoggingPreferences } from '@brainstrike/logging';
+import { LogLevel } from '@brainstrike/logging';
+import { ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeDesktopIpc } from '../helpers/desktop-ipc-sender-test-helpers';
+// Import main to register handlers
+import '../../main';
 
 // Mock fs
 vi.mock('node:fs', async () => {
@@ -103,12 +111,6 @@ vi.mock('electron', async () => {
   };
 });
 
-import fs from 'node:fs'; // Import mocked fs
-import path from 'node:path';
-import type { LoggingPreferences } from '@brainstrike/logging';
-import { LogLevel } from '@brainstrike/logging';
-import { ipcMain } from 'electron';
-
 // Mock other dependencies
 vi.mock('@brainstrike/file-system/electron', () => {
   const MockAdapter = vi.fn();
@@ -145,9 +147,6 @@ vi.mock('@brainstrike/logging', async () => {
     initializeLogging: vi.fn(),
   };
 });
-
-// Import main to register handlers
-import '../../main';
 
 describe('logging IPC handler performance', () => {
   beforeEach(() => {

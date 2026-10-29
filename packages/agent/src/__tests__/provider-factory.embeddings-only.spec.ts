@@ -19,7 +19,7 @@ describe('provider-factory embeddings-only providers', () => {
       const { createProvider } = await import('../providers/provider-factory');
 
       expect(() => createProvider(provider)).toThrow(
-        new RegExp(`Provider ${provider} serves embeddings only`)
+        new RegExp(`Provider ${provider} serves embeddings only`, 'u')
       );
     }
   );
@@ -27,6 +27,6 @@ describe('provider-factory embeddings-only providers', () => {
   it('refuses from the broad package entrypoint too', async () => {
     const { createProvider } = await import('..');
 
-    expect(() => createProvider('cohere')).toThrow(/serves embeddings only/);
+    expect(() => createProvider('cohere')).toThrow(/serves embeddings only/u);
   });
 });

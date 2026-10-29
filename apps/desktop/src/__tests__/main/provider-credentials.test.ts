@@ -3,6 +3,7 @@
  * reader the persona availability handler uses.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveProviderCredential } from '../../assistant-server/provider-credentials';
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -31,8 +32,6 @@ vi.mock('../../provider-api-key', () => ({
   readProviderSecretKey: vi.fn(),
   resolveProviderEnvKey: vi.fn(),
 }));
-
-import { resolveProviderCredential } from '../../assistant-server/provider-credentials';
 
 beforeEach(() => {
   vi.clearAllMocks();

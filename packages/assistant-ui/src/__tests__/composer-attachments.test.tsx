@@ -76,7 +76,7 @@ describe('useAttachmentPreviewUrl', () => {
     });
     expect(result.current).toMatchObject({
       status: 'ready',
-      url: expect.stringMatching(/^data:image\/png;base64,/),
+      url: expect.stringMatching(/^data:image\/png;base64,/u),
     });
     expect(createObjectUrlSpy).not.toHaveBeenCalled();
   });
@@ -99,7 +99,7 @@ describe('useAttachmentPreviewUrl', () => {
     await waitFor(() => {
       expect(result.current).toMatchObject({
         status: 'ready',
-        url: expect.stringMatching(/^data:image\/png;base64,/),
+        url: expect.stringMatching(/^data:image\/png;base64,/u),
       });
       expect((result.current as { url: string }).url).not.toBe(firstUrl);
     });
@@ -209,7 +209,7 @@ describe('ComposerAttachmentChip', () => {
     const img = await screen.findByTestId<HTMLImageElement>(
       'assistant-composer-attachment-preview'
     );
-    expect(img.src).toMatch(/^data:image\/png;base64,/);
+    expect(img.src).toMatch(/^data:image\/png;base64,/u);
     expect(createObjectUrlSpy).not.toHaveBeenCalled();
   });
 
@@ -259,6 +259,6 @@ describe('ComposerAttachmentChip', () => {
     const survivor = await screen.findByTestId<HTMLImageElement>(
       'assistant-composer-attachment-preview'
     );
-    expect(survivor.src).toMatch(/^data:image\/png;base64,/);
+    expect(survivor.src).toMatch(/^data:image\/png;base64,/u);
   });
 });

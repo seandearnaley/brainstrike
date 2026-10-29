@@ -27,7 +27,7 @@ function Field({ label }: { readonly label: string }): ReactElement {
   return <input aria-label={label} defaultValue="" />;
 }
 
-const TRIGGER_WEIGHT_CLASS = /(^|:)font-(thin|extralight|light|normal|medium|semibold|bold)$/;
+const TRIGGER_WEIGHT_CLASS = /(^|:)font-(thin|extralight|light|normal|medium|semibold|bold)$/u;
 
 describe('Tabs', () => {
   it('renders Tabs with its children', () => {

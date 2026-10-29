@@ -71,7 +71,7 @@ describe('computeCost with Anthropic cache tokens', () => {
         },
         { cacheReadPerMTok: 0.3, cacheWritePerMTok: 3.75, inputPerMTok: 3, outputPerMTok: 15 }
       )
-    ).toThrow(/exceed/i);
+    ).toThrow(/exceed/iu);
   });
 
   it('keeps pre-cache behavior identical when no cache tokens are present', () => {

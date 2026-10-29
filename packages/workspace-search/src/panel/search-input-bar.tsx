@@ -52,6 +52,7 @@ function regexValidationError(isRegex: boolean, query: string): string | null {
     return null;
   }
   try {
+    // biome-ignore lint/style/useUnicodeRegex: a user-written pattern keeps the non-unicode syntax people type, such as `\-`.
     new RegExp(query);
     return null;
   } catch (err) {
@@ -93,11 +94,11 @@ export function SearchInputBar({ onSubmit }: SearchInputBarProps) {
           <div className="relative min-w-32 flex-1">
             <Search
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2"
             />
             <Input
               aria-invalid={blocksSubmit}
-              className="h-8 w-full bg-background pl-9 text-sm"
+              className="bg-background h-8 w-full pl-9 text-sm"
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search workspace"

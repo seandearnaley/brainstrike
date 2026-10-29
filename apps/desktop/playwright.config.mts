@@ -46,11 +46,11 @@ const playwrightConfig: PlaywrightTestConfig = {
   // Projects for selective test execution
   projects: [
     {
-      grep: /@smoke/,
+      grep: /@smoke/u,
       name: 'smoke',
     },
     {
-      grepInvert: /@smoke/,
+      grepInvert: /@smoke/u,
       name: 'regression',
     },
   ],

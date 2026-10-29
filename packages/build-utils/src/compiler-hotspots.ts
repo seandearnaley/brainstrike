@@ -4,8 +4,8 @@
  */
 
 const hotspotPatterns = [
-  /packages[\\/](file-explorer-ui|file-explorer-hooks|hooks)[\\/]src[\\/].*\.(ts|tsx)$/,
-  /packages[\\/]file-explorer-ui[\\/]src[\\/]workspace-settings\.tsx$/,
+  /packages[\\/](file-explorer-ui|file-explorer-hooks|hooks)[\\/]src[\\/].*\.(ts|tsx)$/u,
+  /packages[\\/]file-explorer-ui[\\/]src[\\/]workspace-settings\.tsx$/u,
 ];
 
 export function isCompilerHotspot(filePath: string): boolean {

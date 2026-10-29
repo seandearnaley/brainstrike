@@ -7,7 +7,7 @@
 /** RFC1918/loopback/link-local/unspecified IPv4, from a dotted-quad literal. */
 function isPrivateIpv4(dottedQuad: string): boolean {
   const octets = dottedQuad.split('.');
-  if (!(octets.length === 4 && octets.every((part) => /^\d{1,3}$/.test(part)))) {
+  if (!(octets.length === 4 && octets.every((part) => /^\d{1,3}$/u.test(part)))) {
     return false;
   }
   const [a, b] = octets.map(Number) as [number, number, number, number];
@@ -29,11 +29,11 @@ function isPrivateIpv4(dottedQuad: string): boolean {
  * forms; dotted forms are kept as defense in depth for non-URL callers.
  */
 function ipv4EmbeddedInIpv6(host: string): string | null {
-  const dotted = host.match(/^::(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/);
+  const dotted = host.match(/^::(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/u);
   if (dotted?.[1]) {
     return dotted[1];
   }
-  const hex = host.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  const hex = host.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/u);
   if (hex?.[1] && hex[2]) {
     const hi = Number.parseInt(hex[1], 16);
     const lo = Number.parseInt(hex[2], 16);
@@ -49,15 +49,15 @@ function isPrivateOrLoopbackHost(hostname: string): boolean {
   // ("localhost." resolves identically to "localhost").
   const host = hostname
     .toLowerCase()
-    .replace(/^\[|\]$/g, '')
-    .replace(/\.$/, '');
+    .replace(/^\[|\]$/gu, '')
+    .replace(/\.$/u, '');
   if (host === 'localhost' || host.endsWith('.localhost')) {
     return true;
   }
   // IPv6 literals: loopback, unspecified, link-local fe80::/10, unique-local
   // fc00::/7, and IPv4-mapped/compat carriers of a private IPv4.
   if (host.includes(':')) {
-    if (host === '::1' || host === '::' || /^fe[89ab]/.test(host) || /^f[cd]/.test(host)) {
+    if (host === '::1' || host === '::' || /^fe[89ab]/u.test(host) || /^f[cd]/u.test(host)) {
       return true;
     }
     const embeddedIpv4 = ipv4EmbeddedInIpv6(host);

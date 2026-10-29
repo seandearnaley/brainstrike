@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CopyTextButton } from '../copy-text-button';
 
 const clipboardMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
@@ -10,8 +11,6 @@ vi.mock('@brainstrike/context-actions', () => ({
     writeText: clipboardMocks.writeText,
   }),
 }));
-
-import { CopyTextButton } from '../copy-text-button';
 
 describe('CopyTextButton', () => {
   beforeEach(() => {

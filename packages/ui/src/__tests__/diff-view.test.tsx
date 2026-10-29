@@ -159,7 +159,7 @@ describe('DiffView', () => {
     const surface = await screen.findByTestId('diff');
     expect(surface.querySelectorAll('.cm-editor').length).toBe(1);
     expect(surface).toHaveTextContent('line 0');
-    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /switch to/iu })).toBeNull();
     expect(surface).not.toHaveAttribute('data-mode');
   });
 });
@@ -215,7 +215,7 @@ describe('DiffView structured mode', () => {
     // and won't necessarily render far-scrolled-down lines in the DOM.
     expect(surface).toHaveTextContent('line 0');
     // No split/unified toggle for a fallback that never diffs.
-    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /switch to/iu })).toBeNull();
     expect(surface).not.toHaveAttribute('data-mode');
   });
 
@@ -358,7 +358,7 @@ describe('DiffView structured mode', () => {
     const surface = await screen.findByTestId('diff');
     expect(surface).not.toHaveAttribute('data-mode');
     // No mode toggle button either.
-    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /switch to/iu })).toBeNull();
   });
 
   it('shows a status chip in structured mode, even when additions/deletions are both null', async () => {
@@ -435,8 +435,8 @@ describe('DiffView structured mode', () => {
     const editorBefore = surface.querySelector('.cm-editor');
     expect(editorBefore).not.toBeNull();
 
-    await user.click(screen.getByRole('button', { name: /bump/ }));
-    await user.click(screen.getByRole('button', { name: /bump/ }));
+    await user.click(screen.getByRole('button', { name: /bump/u }));
+    await user.click(screen.getByRole('button', { name: /bump/u }));
 
     const editorAfter = surface.querySelector('.cm-editor');
     expect(editorAfter).toBe(editorBefore);
@@ -462,7 +462,7 @@ describe('DiffView structured mode', () => {
     const editorBefore = surface.querySelector('.cm-editor');
     expect(editorBefore).not.toBeNull();
 
-    await user.click(screen.getByRole('button', { name: /bump/ }));
+    await user.click(screen.getByRole('button', { name: /bump/u }));
 
     const editorAfter = surface.querySelector('.cm-editor');
     expect(editorAfter).toBe(editorBefore);
@@ -506,7 +506,7 @@ describe('DiffView structured mode', () => {
     // the sliced doc is ~15 lines, all rendered).
     expect(surface).not.toHaveTextContent('value_000001');
     // A sliced diff is still a real two-document diff, so the mode toggle stays.
-    expect(screen.queryByRole('button', { name: /switch to/i })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /switch to/iu })).not.toBeNull();
   });
 
   it('marks elided regions in the gutter without fabricating a line number for them', async () => {
@@ -555,7 +555,7 @@ describe('DiffView structured mode', () => {
     expect(screen.queryByTestId('diff-sliced-note')).toBeNull();
     const surface = await screen.findByTestId('diff');
     expect(surface.querySelectorAll('.cm-editor').length).toBe(1);
-    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /switch to/iu })).toBeNull();
   });
 
   it('falls back to the single read-only side when the slice is itself still too large to diff', async () => {
@@ -614,8 +614,8 @@ describe('DiffView structured mode', () => {
     const editorBefore = surface.querySelector('.cm-editor');
     expect(editorBefore).not.toBeNull();
 
-    await user.click(screen.getByRole('button', { name: /bump/ }));
-    await user.click(screen.getByRole('button', { name: /bump/ }));
+    await user.click(screen.getByRole('button', { name: /bump/u }));
+    await user.click(screen.getByRole('button', { name: /bump/u }));
 
     expect(surface.querySelector('.cm-editor')).toBe(editorBefore);
   });
@@ -754,8 +754,10 @@ describe('buildSlicedTextDiff', () => {
 
   it('throws on a malformed serialized hunk range rather than dropping the hunk', () => {
     // Silently skipping an unparseable entry would silently hide a change.
-    expect(() => buildSlicedTextDiff('a\n', 'b\n', '1,2,3')).toThrow(/malformed serialized hunk/);
-    expect(() => buildSlicedTextDiff('a\n', 'b\n', '1,2,3,x')).toThrow(/malformed serialized hunk/);
+    expect(() => buildSlicedTextDiff('a\n', 'b\n', '1,2,3')).toThrow(/malformed serialized hunk/u);
+    expect(() => buildSlicedTextDiff('a\n', 'b\n', '1,2,3,x')).toThrow(
+      /malformed serialized hunk/u
+    );
   });
 
   it('clamps a pure insertion at the very start of the file (oldStart 0) into range', () => {

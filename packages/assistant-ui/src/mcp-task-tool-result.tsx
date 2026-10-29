@@ -120,7 +120,7 @@ function LiveMcpTask({
       <McpTaskStatusCard controller={controller} onTaskChange={setTask} task={task} />
       {liveStatus === 'failed' || liveStatus === 'unavailable' ? (
         <p
-          className="mt-1 text-muted-foreground text-xs"
+          className="text-muted-foreground mt-1 text-xs"
           data-testid="mcp-task-live-status-note"
           role="note"
         >

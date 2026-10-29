@@ -60,7 +60,7 @@ test('a range whose FROM run has no turn start, or crosses a failed capture, is 
     turnStart(2, 'run-2', [{ ...ROOT_B, commitOid: oid('0') }]),
   ];
   const crossed = await turns(failed).rangeTargetsOf(THREAD, 'run-1');
-  expect(!crossed.ok && crossed.error).toMatch(/^changeset-snapshot-capture-failed: /);
+  expect(!crossed.ok && crossed.error).toMatch(/^changeset-snapshot-capture-failed: /u);
   const missing = await turns(failed).rangeTargetsOf(THREAD, 'run-9');
-  expect(!missing.ok && missing.error).toMatch(/^changeset-snapshot-missing: /);
+  expect(!missing.ok && missing.error).toMatch(/^changeset-snapshot-missing: /u);
 });

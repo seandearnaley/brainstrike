@@ -46,12 +46,12 @@ describe('assistant subagent preferences store', () => {
 
   it('THROWS on an out-of-range tree limit and on a tree output budget below the child budget', () => {
     const store = useAssistantSubagentPreferencesStore.getState();
-    expect(() => store.setMaxDepth(9)).toThrow(/maxDepth/);
-    expect(() => store.setMaxInvocations(0)).toThrow(/maxInvocations/);
-    expect(() => store.setMaxConcurrentWork(21)).toThrow(/maxConcurrentWork/);
+    expect(() => store.setMaxDepth(9)).toThrow(/maxDepth/u);
+    expect(() => store.setMaxInvocations(0)).toThrow(/maxInvocations/u);
+    expect(() => store.setMaxConcurrentWork(21)).toThrow(/maxConcurrentWork/u);
     // Default child output is 32,768: the tree budget cannot drop below it.
     expect(() => store.setMaxTreeOutputTokens(16_384)).toThrow(
-      /maxChildOutputTokens must not exceed maxTreeOutputTokens/
+      /maxChildOutputTokens must not exceed maxTreeOutputTokens/u
     );
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
@@ -61,14 +61,14 @@ describe('assistant subagent preferences store', () => {
   it('THROWS on an out-of-range or non-integer value and lands nothing', () => {
     const store = useAssistantSubagentPreferencesStore.getState();
     for (const invalid of [0, 1001, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => store.setMaxChildSteps(invalid)).toThrow(/Subagent settings are malformed/);
+      expect(() => store.setMaxChildSteps(invalid)).toThrow(/Subagent settings are malformed/u);
     }
-    expect(() => store.setSynthesisOutputTokens(255)).toThrow(/synthesisOutputTokens/);
+    expect(() => store.setSynthesisOutputTokens(255)).toThrow(/synthesisOutputTokens/u);
     // Cross-field: a synthesis reservation cannot exceed the child's whole budget.
     store.setSynthesisOutputTokens(512);
     store.setMaxStepOutputTokens(512);
     store.setMaxChildOutputTokens(1024);
-    expect(() => store.setSynthesisOutputTokens(2048)).toThrow(/must not exceed/);
+    expect(() => store.setSynthesisOutputTokens(2048)).toThrow(/must not exceed/u);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
       ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       maxChildOutputTokens: 1024,
@@ -81,7 +81,7 @@ describe('assistant subagent preferences store', () => {
     // Defaults: synthesis 2048 and step 8192 both exceed 1024, so the write is
     // refused rather than silently shrinking them.
     const store = useAssistantSubagentPreferencesStore.getState();
-    expect(() => store.setMaxChildOutputTokens(1024)).toThrow(/must not exceed/);
+    expect(() => store.setMaxChildOutputTokens(1024)).toThrow(/must not exceed/u);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
     );
@@ -126,7 +126,7 @@ describe('assistant subagent preferences store', () => {
       3_600_000
     );
     for (const invalid of [999, 2 ** 31, Number.POSITIVE_INFINITY]) {
-      expect(() => store.setMaxChildRuntimeMs(invalid)).toThrow(/Subagent settings are malformed/);
+      expect(() => store.setMaxChildRuntimeMs(invalid)).toThrow(/Subagent settings are malformed/u);
     }
     store.setMaxChildRuntimeMs(null);
     expect(useAssistantSubagentPreferencesStore.getState().settings.maxChildRuntimeMs).toBeNull();

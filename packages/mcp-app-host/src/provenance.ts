@@ -137,7 +137,7 @@ function decodeBlob(value: unknown, label: string): string {
   if (value.length > MAX_RESOURCE_BASE64_LENGTH) {
     throw new TypeError(`${label} exceeds ${MAX_RESOURCE_BYTES} decoded bytes`);
   }
-  if (!/^(?:[A-Za-z\d+/]{4})*(?:[A-Za-z\d+/]{2}==|[A-Za-z\d+/]{3}=)?$/.test(value)) {
+  if (!/^(?:[A-Za-z\d+/]{4})*(?:[A-Za-z\d+/]{2}==|[A-Za-z\d+/]{3}=)?$/u.test(value)) {
     throw new TypeError(`${label} must be bounded canonical base64`);
   }
   let binary: string;

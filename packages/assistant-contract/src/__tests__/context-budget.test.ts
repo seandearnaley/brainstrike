@@ -25,19 +25,19 @@ describe('deriveEffectiveInputBudget', () => {
   });
 
   it('throws when the window cannot fit output + margin (no silent floor)', () => {
-    expect(() => deriveEffectiveInputBudget(4096, 4096)).toThrow(/cannot fit/);
+    expect(() => deriveEffectiveInputBudget(4096, 4096)).toThrow(/cannot fit/u);
   });
 
   it('throws on non-finite or non-positive maxOutputTokens (no NaN budgets)', () => {
-    expect(() => deriveEffectiveInputBudget(32_768, Number.NaN)).toThrow(/maxOutputTokens/);
+    expect(() => deriveEffectiveInputBudget(32_768, Number.NaN)).toThrow(/maxOutputTokens/u);
     expect(() => deriveEffectiveInputBudget(32_768, Number.POSITIVE_INFINITY)).toThrow(
-      /maxOutputTokens/
+      /maxOutputTokens/u
     );
-    expect(() => deriveEffectiveInputBudget(32_768, -1)).toThrow(/maxOutputTokens/);
+    expect(() => deriveEffectiveInputBudget(32_768, -1)).toThrow(/maxOutputTokens/u);
   });
 
   it('throws on non-positive windows', () => {
-    expect(() => deriveEffectiveInputBudget(0)).toThrow(/positive/);
+    expect(() => deriveEffectiveInputBudget(0)).toThrow(/positive/u);
   });
 
   it('exposes the constants used by the derivation', () => {
@@ -72,14 +72,14 @@ describe('deriveAgentLoopInputTokenLimit', () => {
   // pass the output limit the request actually sends.
   it('has no OpenRouter default: throws when the request output limit is not supplied', () => {
     expect(() => deriveAgentLoopInputTokenLimit(model, 'openrouter', undefined)).toThrow(
-      /output limit the request sends/
+      /output limit the request sends/u
     );
   });
 
   it('rejects a malformed OpenRouter request output limit loudly (never a plausible budget)', () => {
     for (const invalid of [0, -1, 1.5, Number.NaN, null as unknown as number]) {
       expect(() => deriveAgentLoopInputTokenLimit(model, 'openrouter', invalid)).toThrow(
-        /output limit the request sends/
+        /output limit the request sends/u
       );
     }
   });
@@ -91,7 +91,7 @@ describe('deriveAgentLoopInputTokenLimit', () => {
         'anthropic',
         undefined
       )
-    ).toThrow(/cannot fit/);
+    ).toThrow(/cannot fit/u);
   });
 });
 
@@ -106,11 +106,11 @@ describe('deriveMaxOutputTokensWithinBudget (BST-1810)', () => {
   ])('is the largest output a %i-token window can budget', (contextWindow, maximum) => {
     expect(deriveMaxOutputTokensWithinBudget(contextWindow)).toBe(maximum);
     expect(deriveEffectiveInputBudget(contextWindow, maximum)).toBe(1);
-    expect(() => deriveEffectiveInputBudget(contextWindow, maximum + 1)).toThrow(/cannot fit/);
+    expect(() => deriveEffectiveInputBudget(contextWindow, maximum + 1)).toThrow(/cannot fit/u);
   });
 
   it('throws for a window that cannot fit any output', () => {
-    expect(() => deriveMaxOutputTokensWithinBudget(1025)).toThrow(/cannot fit any output/);
-    expect(() => deriveMaxOutputTokensWithinBudget(0)).toThrow(/positive number/);
+    expect(() => deriveMaxOutputTokensWithinBudget(1025)).toThrow(/cannot fit any output/u);
+    expect(() => deriveMaxOutputTokensWithinBudget(0)).toThrow(/positive number/u);
   });
 });

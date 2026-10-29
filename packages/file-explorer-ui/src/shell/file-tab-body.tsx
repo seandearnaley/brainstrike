@@ -206,10 +206,10 @@ export function FileTabBody({
       // content must not trigger network requests (file-explorer-ui AGENTS.md
       // resource-loading restriction). Failure surfaces as the visible
       // image-unavailable placeholder.
-      if (/^https?:/i.test(src)) {
+      if (/^https?:/iu.test(src)) {
         throw new Error('Remote images are blocked in previews');
       }
-      if (/^data:/i.test(src)) {
+      if (/^data:/iu.test(src)) {
         return src;
       }
       if (!capabilities) {
@@ -233,7 +233,7 @@ export function FileTabBody({
         toast({ description: href, title: 'Unsupported link type', variant: 'destructive' });
         return;
       }
-      if (/^(https?|mailto):/i.test(href)) {
+      if (/^(https?|mailto):/iu.test(href)) {
         if (!capabilities) {
           toast({ description: href, title: 'External links unavailable', variant: 'destructive' });
           return;
@@ -252,7 +252,7 @@ export function FileTabBody({
       // Any other URL scheme (tel:, ftp:, javascript:, …) must not fall into the
       // relative-path branch — it would resolve to a nonsense workspace key or a
       // misleading "outside the workspace" toast. Name the real failure instead.
-      if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+      if (/^[a-z][a-z0-9+.-]*:/iu.test(href)) {
         toast({ description: href, title: 'Unsupported link type', variant: 'destructive' });
         return;
       }
@@ -360,7 +360,7 @@ export function FileTabBody({
         <MarkdownPreviewErrorBoundary onOpenSource={() => handleModeChange('source')}>
           <Suspense
             fallback={
-              <div className="flex h-full items-center justify-center text-muted-foreground">
+              <div className="text-muted-foreground flex h-full items-center justify-center">
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 <span>Loading preview…</span>
               </div>
@@ -432,10 +432,10 @@ export function FileTabBody({
             <Panel id="file-tab-content">
               <div className="h-full min-h-0">{body}</div>
             </Panel>
-            <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
+            <Separator className="bg-border hover:bg-border/80 z-10 w-1 transition-colors" />
             {/* Docked RIGHT (BST-1318), mirroring the main explorer's side. */}
             <Panel
-              className="overflow-hidden border-l bg-background"
+              className="bg-background overflow-hidden border-l"
               defaultSize={`${paneState?.widthPct ?? DEFAULT_PANE_WIDTH_PCT}%`}
               id="file-tab-pane"
               maxSize={`${MAX_PANE_WIDTH_PCT}%`}

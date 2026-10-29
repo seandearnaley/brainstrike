@@ -16,11 +16,6 @@ import type {
 } from '@brainstrike/types';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
-
-vi.mock('electron', () => ({ ipcMain }));
-
 import { untrackAppWindow } from '../../app-windows';
 import {
   disposeAllFileSystemWatchers,
@@ -38,6 +33,17 @@ import {
   invokeDesktopIpcFrom,
   trackTestAppWindow,
 } from '../helpers/desktop-ipc-sender-test-helpers';
+import {
+  FakeWebContents,
+  invokeEventFor,
+  TEARDOWN_EVENTS,
+  toDirectoryHandle,
+  totalTeardownListeners,
+} from './file-system-watch-ipc-test-helpers';
+
+const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
+
+vi.mock('electron', () => ({ ipcMain }));
 
 type StartTestNativeWatch = (
   ...args: Parameters<StartFileSystemWatch>
@@ -62,14 +68,6 @@ function registerTestWatchHandlers(options: {
     },
   });
 }
-
-import {
-  FakeWebContents,
-  invokeEventFor,
-  TEARDOWN_EVENTS,
-  toDirectoryHandle,
-  totalTeardownListeners,
-} from './file-system-watch-ipc-test-helpers';
 
 const createdDirs: string[] = [];
 
@@ -256,7 +254,7 @@ describe('file-system watch IPC domain', () => {
     unregister = registerTestWatchHandlers({ startWatch: async () => stop });
     const { watchId } = await invokeWatch(owner, directory);
     await expect(invokeUnwatch(owner, watchId)).rejects.toBe(failure);
-    await expect(invokeWatch(owner, directory)).rejects.toThrow(/retirement has not completed/);
+    await expect(invokeWatch(owner, directory)).rejects.toThrow(/retirement has not completed/u);
 
     let acknowledged = false;
     const closing = invokeUnwatch(owner, watchId).then(() => {
@@ -331,7 +329,7 @@ describe('file-system watch IPC domain', () => {
       const owner = new FakeWebContents(1);
 
       await expect(invokeFrom(invokeEventFor(owner), channel, { malformed: true })).rejects.toThrow(
-        /requires a string/
+        /requires a string/u
       );
     }
   );
@@ -461,7 +459,7 @@ describe('file-system watch IPC domain', () => {
     const filePath = path.join(dir, 'file.txt');
     await fsPromises.writeFile(filePath, 'x');
 
-    await expect(invokeWatch(owner, filePath)).rejects.toThrow(/not a directory/i);
+    await expect(invokeWatch(owner, filePath)).rejects.toThrow(/not a directory/iu);
     expect(harness.startedPaths).toEqual([]);
     expect(liveFileSystemWatcherCountForTest()).toBe(0);
   });
@@ -529,7 +527,7 @@ describe('file-system watch IPC domain', () => {
     const dir = await makeDir();
     owner.fireDestroyed();
 
-    await expect(invokeWatch(owner, dir)).rejects.toThrow(/destroyed/i);
+    await expect(invokeWatch(owner, dir)).rejects.toThrow(/destroyed/iu);
     expect(liveFileSystemWatcherCountForTest()).toBe(0);
     for (const stop of harness.stops) {
       expect(stop).toHaveBeenCalled();
@@ -582,7 +580,7 @@ describe('file-system watch IPC domain', () => {
       owner.fireDidNavigate();
       releaseStat?.();
 
-      await expect(pending).rejects.toThrow(/renderer context changed/i);
+      await expect(pending).rejects.toThrow(/renderer context changed/iu);
       expect(harness.startedPaths).toEqual([]);
       expect(liveFileSystemWatcherCountForTest()).toBe(0);
     } finally {
@@ -625,7 +623,7 @@ describe('file-system watch IPC domain', () => {
     for (let index = 0; index < MAX_FS_WATCHERS_PER_OWNER; index += 1) {
       await invokeWatch(owner, dirs[index]!);
     }
-    await expect(invokeWatch(owner, dirs[MAX_FS_WATCHERS_PER_OWNER]!)).rejects.toThrow(/limit/i);
+    await expect(invokeWatch(owner, dirs[MAX_FS_WATCHERS_PER_OWNER]!)).rejects.toThrow(/limit/iu);
     // The cap is per-owner: another renderer can still watch.
     await expect(invokeWatch(other, dirs[0]!)).resolves.toBeTruthy();
   });
@@ -658,7 +656,7 @@ describe('file-system watch IPC domain', () => {
       await invokeWatch(owner, dir);
     }
 
-    await expect(invokeWatch(owner, dir)).rejects.toThrow(/registration limit/i);
+    await expect(invokeWatch(owner, dir)).rejects.toThrow(/registration limit/iu);
     expect(harness.startedPaths).toEqual([dir]);
     await expect(invokeWatch(other, dir)).resolves.toBeTruthy();
   });
@@ -675,7 +673,7 @@ describe('file-system watch IPC domain', () => {
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
     const rejected = results.filter(
-      (r) => r.status === 'rejected' && /limit/i.test(String(r.reason))
+      (r) => r.status === 'rejected' && /limit/iu.test(String(r.reason))
     ).length;
 
     expect(fulfilled).toBe(MAX_FS_WATCHERS_PER_OWNER);

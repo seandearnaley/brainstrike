@@ -10,10 +10,9 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import type { ElectronApplication, Locator, Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
+import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 
 export { expect, test };
-
-import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 // NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
 // that a harness-owned app must only be closed via `closeForStateSeeding()`, so
 // it should not also hand callers `closeElectronApp`. Specs that genuinely need
@@ -84,7 +83,7 @@ export async function ensureFileExplorerPanelVisible(page: Page): Promise<void> 
   const explorerPanel = getContextExplorerFileExplorerPanel(page);
   const showExplorerPanelButton = page
     .getByTestId('show-explorer-panel')
-    .or(page.getByRole('button', { name: /show explorer/i }));
+    .or(page.getByRole('button', { name: /show explorer/iu }));
 
   if (
     !(await explorerPanel.isVisible().catch(() => false)) &&
@@ -132,11 +131,11 @@ async function clickExpandButton(expandButton: Locator): Promise<void> {
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function cssString(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return `"${value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`;
 }
 
 export async function expandNextDirectoryIfNeeded(args: {
@@ -154,7 +153,7 @@ export async function expandNextDirectoryIfNeeded(args: {
   const directoryRowByPath = fileTree.locator(`[data-node-id=${cssString(directoryPath)}]`).first();
   const directoryRowByName = fileTree
     .getByRole('row')
-    .filter({ hasText: new RegExp(`(^|\\s)${escapeRegExp(directoryName)}(\\s|$)`) })
+    .filter({ hasText: new RegExp(`(^|\\s)${escapeRegExp(directoryName)}(\\s|$)`, 'u') })
     .first();
   const directoryRow = (await directoryRowByPath.isVisible().catch(() => false))
     ? directoryRowByPath

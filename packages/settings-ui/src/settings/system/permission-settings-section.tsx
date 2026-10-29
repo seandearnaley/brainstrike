@@ -103,7 +103,7 @@ function PolicySelect({ category, disabled, label, onChange, value }: PolicySele
   return (
     <select
       aria-label={`${label} permission`}
-      className="h-9 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+      className="border-input bg-background h-9 rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
       data-testid={`permission-policy-${category}`}
       disabled={disabled}
       onChange={(event) => {
@@ -147,14 +147,14 @@ function PerToolOverridesBlock() {
 
   return (
     <fieldset className="space-y-3 border-0 p-0">
-      <legend className="font-medium text-sm">Per-tool overrides</legend>
+      <legend className="text-sm font-medium">Per-tool overrides</legend>
       <p className="text-muted-foreground text-sm">
         A per-tool decision beats its category policy. Add one from an approval prompt with{' '}
         <span className="font-medium">Always allow</span>, or adjust and remove overrides here.
       </p>
       {entries.length === 0 ? (
         <p
-          className="rounded-md border border-dashed p-3 text-muted-foreground text-sm"
+          className="text-muted-foreground rounded-md border border-dashed p-3 text-sm"
           data-testid="permission-tool-overrides-empty"
         >
           No per-tool overrides yet.
@@ -169,7 +169,7 @@ function PerToolOverridesBlock() {
             <div className="flex shrink-0 items-center gap-2">
               <select
                 aria-label={`${toolId} override`}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                className="border-input bg-background h-9 rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 data-testid={`permission-tool-override-${toolId}`}
                 onChange={(event) => {
                   const next = event.target.value;
@@ -219,7 +219,7 @@ function SessionGrantsBlock() {
 
   return (
     <fieldset className="space-y-3 border-0 p-0">
-      <legend className="font-medium text-sm">Session grants</legend>
+      <legend className="text-sm font-medium">Session grants</legend>
       <div className="flex items-start justify-between gap-4">
         <p className="text-muted-foreground text-sm">
           Categories allowed for this session only — cleared when the app reloads. Grant one from an
@@ -242,7 +242,7 @@ function SessionGrantsBlock() {
       </div>
       {active.length === 0 ? (
         <p
-          className="rounded-md border border-dashed p-3 text-muted-foreground text-sm"
+          className="text-muted-foreground rounded-md border border-dashed p-3 text-sm"
           data-testid="permission-session-grants-empty"
         >
           No session grants active.
@@ -323,7 +323,7 @@ export function PermissionSettingsSection() {
         )}
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="font-medium text-sm" htmlFor="permission-enforce-toggle">
+            <Label className="text-sm font-medium" htmlFor="permission-enforce-toggle">
               Enforce tool permissions
             </Label>
             <p className="text-muted-foreground text-sm">
@@ -340,7 +340,7 @@ export function PermissionSettingsSection() {
         </div>
 
         <fieldset className="space-y-3 border-0 p-0" disabled={!enforce}>
-          <legend className="font-medium text-sm">Tool category policies</legend>
+          <legend className="text-sm font-medium">Tool category policies</legend>
           <p className="text-muted-foreground text-sm">
             Choose how the assistant treats each category of tool. Per-category controls apply only
             while enforcement is on.
@@ -351,7 +351,7 @@ export function PermissionSettingsSection() {
               key={category}
             >
               <div className="min-w-0">
-                <p className="font-medium text-sm">{label}</p>
+                <p className="text-sm font-medium">{label}</p>
                 <p className="text-muted-foreground text-sm">{description}</p>
               </div>
               <PolicySelect
@@ -377,7 +377,7 @@ export function PermissionSettingsSection() {
         >
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <Label className="font-medium text-sm" htmlFor="permission-yolo-toggle">
+              <Label className="text-sm font-medium" htmlFor="permission-yolo-toggle">
                 YOLO mode
               </Label>
               {yolo ? (

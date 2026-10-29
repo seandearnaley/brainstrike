@@ -49,8 +49,8 @@ function CanvasNotice({
       <p
         className={
           tone === 'error'
-            ? 'max-w-72 text-center text-destructive text-xs'
-            : 'max-w-64 text-center text-muted-foreground text-xs'
+            ? 'text-destructive max-w-72 text-center text-xs'
+            : 'text-muted-foreground max-w-64 text-center text-xs'
         }
         data-testid={tone === 'error' ? 'canvas-error' : undefined}
         role={tone === 'error' ? 'alert' : 'status'}
@@ -92,7 +92,7 @@ export function CanvasDocumentView({ read, shellSrc, tab }: CanvasDocumentViewPr
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="canvas-document">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-border border-b px-2">
+      <div className="border-border flex h-9 shrink-0 items-center gap-2 border-b px-2">
         <span
           className="min-w-0 flex-1 truncate text-xs"
           data-testid="canvas-title"
@@ -164,7 +164,7 @@ export function CanvasDocumentView({ read, shellSrc, tab }: CanvasDocumentViewPr
       </div>
       {shellFailure ? (
         <p
-          className="shrink-0 border-border border-t px-2 py-1 text-destructive text-xs"
+          className="border-border text-destructive shrink-0 border-t px-2 py-1 text-xs"
           data-testid="canvas-shell-failure"
         >
           {shellFailure}

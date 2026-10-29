@@ -9,17 +9,16 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const toastSpy = vi.fn();
-vi.mock('@brainstrike/ui', () => ({
-  useToast: () => ({ toast: toastSpy }),
-}));
-
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { type McpContentCapability, McpContentCapabilityProvider } from '../mcp-content-capability';
 import { useMcpPromptSelectionStore } from '../mcp-prompts/mcp-prompt-selection-store';
 import { type McpStatusCapability, McpStatusCapabilityProvider } from '../mcp-status-capability';
 import { useMcpPromptSlashCommands } from '../use-mcp-prompt-slash-commands';
+
+const toastSpy = vi.fn();
+vi.mock('@brainstrike/ui', () => ({
+  useToast: () => ({ toast: toastSpy }),
+}));
 
 type StatusListener = (event: McpHostSnapshot) => void;
 

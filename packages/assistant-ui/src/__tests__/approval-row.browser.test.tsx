@@ -108,7 +108,7 @@ test('missing owner color inherits the current panel color in both themes', () =
 
 test('expanded row owns color and depth; its embedded card adds neither', () => {
   const { container } = renderSurface('violet');
-  fireEvent.click(screen.getByRole('button', { name: /show approval details/i }));
+  fireEvent.click(screen.getByRole('button', { name: /show approval details/iu }));
   const row = mustFind(container, '.bs-approval-row');
   const card = mustFind(row, '[data-testid="approval-row-card"]');
   expect(row).toHaveAttribute('data-agent-color', 'violet');
@@ -127,8 +127,8 @@ test('family color paints both approval forms in light and dark while unresolved
   const { container } = renderSurface('family:1375:540');
   const row = mustFind(container, '.bs-approval-row') as HTMLElement;
   const card = mustFind(container, '[data-approval-presentation="card"]');
-  expect(row.style.getPropertyValue('--agent-accent-light')).toMatch(/^oklch\(/);
-  expect(row.style.getPropertyValue('--agent-accent-dark')).toMatch(/^oklch\(/);
+  expect(row.style.getPropertyValue('--agent-accent-light')).toMatch(/^oklch\(/u);
+  expect(row.style.getPropertyValue('--agent-accent-dark')).toMatch(/^oklch\(/u);
   expect(getComputedStyle(row).backgroundColor).toBe(getComputedStyle(card).backgroundColor);
   const light = getComputedStyle(row).backgroundColor;
   document.documentElement.classList.add('dark');

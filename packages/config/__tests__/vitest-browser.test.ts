@@ -232,7 +232,7 @@ describe('boundTraceChunkName', () => {
       const tracePath = `src/__tests__/__traces__/follow-up-queue-repin.browser.test.tsx/browser--chromium--${chunkName}.trace.zip`;
       // vitest's sanitizeFilePath collapses runs of special characters.
       // biome-ignore lint/suspicious/noControlCharactersInRegex: mirrors vitest verbatim
-      const sanitized = tracePath.replace(/[\x00-\x2C\x2E\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+/g, '-');
+      const sanitized = tracePath.replace(/[\x00-\x2C\x2E\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+/gu, '-');
       const hash = createHash('sha1').update(tracePath).digest('hex');
       return `${sanitized}-${hash}.zip`;
     };
@@ -289,7 +289,7 @@ describe('bindTraceChunkNameBounding', () => {
     const browser = createFakeBrowser();
     browser.commands['__vitest_stopChunkTrace'] = undefined;
 
-    expect(() => bindTraceChunkNameBounding(browser)).toThrowError(/__vitest_stopChunkTrace/);
+    expect(() => bindTraceChunkNameBounding(browser)).toThrowError(/__vitest_stopChunkTrace/u);
   });
 
   it('does not double-wrap when applied twice', () => {

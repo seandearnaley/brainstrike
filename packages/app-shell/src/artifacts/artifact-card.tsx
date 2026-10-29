@@ -53,7 +53,7 @@ export function ArtifactCard({
   return (
     <li className="group relative">
       <button
-        className="flex w-full flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring flex w-full flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:outline-none motion-reduce:transition-none"
         data-testid="artifact-card"
         onClick={() => onOpen(artifact)}
         title={`Open ${title} in its thread`}
@@ -66,17 +66,17 @@ export function ArtifactCard({
           threadId={artifact.threadId}
           version={artifact.version}
         />
-        <span className="flex min-w-0 flex-col gap-0.5 border-border border-t px-3 py-2">
-          <span className="truncate font-medium text-foreground text-sm">{title}</span>
-          <span className="truncate text-muted-foreground text-xs">{threadLabel}</span>
-          <span className="truncate text-muted-foreground text-xs tabular-nums">
+        <span className="border-border flex min-w-0 flex-col gap-0.5 border-t px-3 py-2">
+          <span className="text-foreground truncate text-sm font-medium">{title}</span>
+          <span className="text-muted-foreground truncate text-xs">{threadLabel}</span>
+          <span className="text-muted-foreground truncate text-xs tabular-nums">
             v{artifact.version} · {updatedLabel}
           </span>
         </span>
       </button>
       <Button
         aria-label={`Download ${title} as HTML`}
-        className="absolute top-2 right-2 bg-background/90 opacity-0 shadow-sm focus-visible:opacity-100 group-hover:opacity-100"
+        className="bg-background/90 absolute top-2 right-2 opacity-0 shadow-sm group-hover:opacity-100 focus-visible:opacity-100"
         data-testid="artifact-download"
         onClick={() => {
           void download(artifacts, artifact);

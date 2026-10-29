@@ -193,7 +193,7 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
     // NOT gated on the group kill: a dead group leader does not prove a dead
     // tree, and the escaped grandchild is the exact case tree-kill exists for.
     // The already-dead race is filtered by message alone (no-silent-fallbacks).
-    if (error && !/no such process/i.test(error.message)) {
+    if (error && !/no such process/iu.test(error.message)) {
       logger.warn('tree-kill failed', { error: error.message, pid, signal });
     }
   });

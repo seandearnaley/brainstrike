@@ -100,7 +100,7 @@ describe('MCP optional input semantics', () => {
     });
     expect(requests).toHaveLength(2);
     expect(callTool).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(requests[1])).toMatch(/validation/i);
+    expect(JSON.stringify(requests[1])).toMatch(/validation/iu);
     expect(requests[0]).toMatchObject({
       tools: expect.arrayContaining([
         expect.objectContaining({

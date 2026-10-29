@@ -126,11 +126,11 @@ describe('ToolFallback', () => {
       // The raw tool id stays IN the card (sr-only text + hover title), even
       // though the visible line now reads the verb.
       expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
-      expect(screen.getByLabelText(/Running/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Running/u)).toBeInTheDocument();
       // BST-1681: the running state glyph is the shared live mark, not the
       // old dashed circle.
       expect(
-        screen.getByLabelText(/Running/).querySelector('[data-testid="step-running-mark"]')
+        screen.getByLabelText(/Running/u).querySelector('[data-testid="step-running-mark"]')
       ).not.toBeNull();
       // BST-849: the in-flight row reads its live progress, not a static
       // "Thinking" — with no streaming state or timing on the props it is
@@ -155,7 +155,7 @@ describe('ToolFallback', () => {
       );
 
       expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
-      expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Completed/u)).toBeInTheDocument();
     });
 
     it('shows the truncated arg while the hover title keeps the full value', () => {
@@ -200,16 +200,16 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Result:/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Arguments:/u)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Result:/u)).not.toBeInTheDocument();
 
-      const expandButton = screen.getByRole('button', { name: /expand details/i });
+      const expandButton = screen.getByRole('button', { name: /expand details/iu });
       await user.click(expandButton);
 
-      expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
-      expect(screen.getByText(/"input":"test value"/)).toBeInTheDocument();
-      expect(screen.getByText(/Result:/)).toBeInTheDocument();
-      expect(screen.getByText(/result value/)).toBeInTheDocument();
+      expect(screen.getByText(/Arguments:/u)).toBeInTheDocument();
+      expect(screen.getByText(/"input":"test value"/u)).toBeInTheDocument();
+      expect(screen.getByText(/Result:/u)).toBeInTheDocument();
+      expect(screen.getByText(/result value/u)).toBeInTheDocument();
     });
 
     it('can expand details after collapsing', async () => {
@@ -223,13 +223,13 @@ describe('ToolFallback', () => {
         />
       );
 
-      const expandButton = screen.getByRole('button', { name: /expand details/i });
+      const expandButton = screen.getByRole('button', { name: /expand details/iu });
       await user.click(expandButton);
-      expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
+      expect(screen.getByText(/Arguments:/u)).toBeInTheDocument();
 
-      const collapseButton = screen.getByRole('button', { name: /collapse details/i });
+      const collapseButton = screen.getByRole('button', { name: /collapse details/iu });
       await user.click(collapseButton);
-      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Arguments:/u)).not.toBeInTheDocument();
     });
   });
 
@@ -247,7 +247,7 @@ describe('ToolFallback', () => {
       );
 
       expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
-      expect(screen.getByLabelText(/Failed/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Failed/u)).toBeInTheDocument();
     });
 
     it('shows error message from status.error', () => {
@@ -275,7 +275,7 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.getByLabelText(/Failed/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Failed/u)).toBeInTheDocument();
       expect(screen.getByTestId('tool-failure-reason')).toHaveTextContent(
         '· Select an active embedding set to enable retrieval.'
       );
@@ -295,8 +295,8 @@ describe('ToolFallback', () => {
       );
 
       // Should stringify the error object
-      expect(screen.getByText(/code/)).toBeInTheDocument();
-      expect(screen.getByText(/500/)).toBeInTheDocument();
+      expect(screen.getByText(/code/u)).toBeInTheDocument();
+      expect(screen.getByText(/500/u)).toBeInTheDocument();
     });
 
     it('shows default error message when no specific error is provided', () => {
@@ -310,7 +310,7 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.getByText(/Tool incomplete: other/)).toBeInTheDocument();
+      expect(screen.getByText(/Tool incomplete: other/u)).toBeInTheDocument();
     });
 
     it('applies error styling', () => {
@@ -344,18 +344,18 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Arguments:/u)).not.toBeInTheDocument();
 
-      const expandButton = screen.getByRole('button', { name: /expand details/i });
+      const expandButton = screen.getByRole('button', { name: /expand details/iu });
       await user.click(expandButton);
 
-      expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
-      expect(screen.getByText(/"param":"value"/)).toBeInTheDocument();
-      expect(screen.queryByText(/Result:/)).not.toBeInTheDocument();
+      expect(screen.getByText(/Arguments:/u)).toBeInTheDocument();
+      expect(screen.getByText(/"param":"value"/u)).toBeInTheDocument();
+      expect(screen.queryByText(/Result:/u)).not.toBeInTheDocument();
 
-      const collapseButton = screen.getByRole('button', { name: /collapse details/i });
+      const collapseButton = screen.getByRole('button', { name: /collapse details/iu });
       await user.click(collapseButton);
-      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Arguments:/u)).not.toBeInTheDocument();
     });
   });
 
@@ -371,7 +371,7 @@ describe('ToolFallback', () => {
       );
 
       expect(screen.getByTestId('tool-fallback')).toHaveTextContent('testTool');
-      expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Completed/u)).toBeInTheDocument();
     });
 
     it('handles missing result and args', () => {
@@ -398,10 +398,10 @@ describe('ToolFallback', () => {
         />
       );
 
-      await user.click(screen.getByRole('button', { name: /expand details/i }));
-      expect(screen.getByText(/Result:/)).toBeInTheDocument();
-      expect(screen.getByText(/complex/)).toBeInTheDocument();
-      expect(screen.getByText(/nested/)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /expand details/iu }));
+      expect(screen.getByText(/Result:/u)).toBeInTheDocument();
+      expect(screen.getByText(/complex/u)).toBeInTheDocument();
+      expect(screen.getByText(/nested/u)).toBeInTheDocument();
     });
 
     it('handles string result after expanding', async () => {
@@ -414,8 +414,8 @@ describe('ToolFallback', () => {
         />
       );
 
-      await user.click(screen.getByRole('button', { name: /expand details/i }));
-      expect(screen.getByText(/Result:/)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /expand details/iu }));
+      expect(screen.getByText(/Result:/u)).toBeInTheDocument();
       expect(screen.getByText('Simple string result')).toBeInTheDocument();
     });
   });
@@ -431,10 +431,10 @@ describe('ToolFallback', () => {
         />
       );
 
-      const button = screen.getByRole('button', { name: /expand details/i });
+      const button = screen.getByRole('button', { name: /expand details/iu });
       // BST-1682: the name is the visible content plus the affordance clause,
       // so the affordance is asserted as the SUFFIX rather than the whole name.
-      expect(button).toHaveAttribute('aria-label', expect.stringMatching(/, expand details$/));
+      expect(button).toHaveAttribute('aria-label', expect.stringMatching(/, expand details$/u));
     });
 
     it('updates ARIA label after expanding', async () => {
@@ -448,13 +448,13 @@ describe('ToolFallback', () => {
         />
       );
 
-      const expandButton = screen.getByRole('button', { name: /expand details/i });
+      const expandButton = screen.getByRole('button', { name: /expand details/iu });
       await user.click(expandButton);
 
-      const collapseButton = screen.getByRole('button', { name: /collapse details/i });
+      const collapseButton = screen.getByRole('button', { name: /collapse details/iu });
       expect(collapseButton).toHaveAttribute(
         'aria-label',
-        expect.stringMatching(/, collapse details$/)
+        expect.stringMatching(/, collapse details$/u)
       );
     });
 

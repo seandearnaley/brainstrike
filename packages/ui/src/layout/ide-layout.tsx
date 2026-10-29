@@ -1173,7 +1173,7 @@ export const IdeLayout = React.memo(function IdeLayout({
             <Button
               aria-expanded={showLeftPanel}
               aria-label={resolvedLeftPanelChrome.showButtonLabel}
-              className="h-8 w-6 rounded-r-md rounded-l-none border border-border border-l-0 bg-muted/90 shadow-sm"
+              className="border-border bg-muted/90 h-8 w-6 rounded-l-none rounded-r-md border border-l-0 shadow-sm"
               data-testid={resolvedLeftPanelChrome.showButtonTestId}
               onClick={handleShowLeftPanel}
               size="icon"
@@ -1190,7 +1190,7 @@ export const IdeLayout = React.memo(function IdeLayout({
             <Button
               aria-expanded={showRightPanel}
               aria-label={resolvedRightPanelChrome.showButtonLabel}
-              className="h-8 w-6 rounded-r-none rounded-l-md border border-border border-r-0 bg-muted/90 shadow-sm"
+              className="border-border bg-muted/90 h-8 w-6 rounded-l-md rounded-r-none border border-r-0 shadow-sm"
               data-testid={resolvedRightPanelChrome.showButtonTestId}
               onClick={handleShowRightPanel}
               size="icon"
@@ -1216,7 +1216,7 @@ export const IdeLayout = React.memo(function IdeLayout({
           {hasExplorer && (
             <>
               <Panel
-                className="overflow-hidden bg-background"
+                className="bg-background overflow-hidden"
                 collapsedSize="0%"
                 collapsible
                 defaultSize={`${DEFAULT_PANEL_SIZES[0]}%`}
@@ -1228,7 +1228,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               >
                 <div className="flex h-full flex-col overflow-hidden [contain:layout_paint_style]">
                   <div
-                    className={`flex h-9 shrink-0 items-center justify-between border-border border-b bg-muted/30 ${
+                    className={`border-border bg-muted/30 flex h-9 shrink-0 items-center justify-between border-b ${
                       resolvedLeftPanelChrome.headerContent ? 'pr-2 pl-0' : 'px-2'
                     }`}
                     data-testid="left-panel-header"
@@ -1240,7 +1240,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     ) : (
                       <div className="flex items-center gap-2">
                         <LeftPanelIcon className="size-3.5" />
-                        <span className="font-medium text-xs">{resolvedLeftPanelChrome.title}</span>
+                        <span className="text-xs font-medium">{resolvedLeftPanelChrome.title}</span>
                       </div>
                     )}
                     <Button
@@ -1289,7 +1289,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                   <div className="min-h-0 flex-1">{children}</div>
                   {/* Show console toggle when collapsed - inside main content panel */}
                   {hasConsole && !showConsole && (
-                    <div className="flex shrink-0 items-center justify-center border-border border-t bg-muted/30 py-1">
+                    <div className="border-border bg-muted/30 flex shrink-0 items-center justify-center border-t py-1">
                       <Button
                         aria-label="Show File Editor"
                         className="h-6"
@@ -1331,12 +1331,12 @@ export const IdeLayout = React.memo(function IdeLayout({
                   >
                     <div className="flex h-full flex-col [contain:layout_paint_style]">
                       <div
-                        className="flex h-9 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                        className="border-border bg-muted/30 flex h-9 shrink-0 items-center justify-between border-b px-2"
                         data-testid="console-panel-header"
                       >
                         <div className="flex items-center gap-2">
                           <Terminal className="size-3.5" />
-                          <span className="font-medium text-xs">File Editor</span>
+                          <span className="text-xs font-medium">File Editor</span>
                         </div>
                         <Button
                           aria-label="Close File Editor"
@@ -1383,7 +1383,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               >
                 <div className="flex h-full flex-col [contain:layout_paint_style]">
                   <div
-                    className={`flex h-9 shrink-0 items-center justify-between border-border border-b bg-muted/30 ${
+                    className={`border-border bg-muted/30 flex h-9 shrink-0 items-center justify-between border-b ${
                       resolvedRightPanelChrome.headerContent ? 'pr-2 pl-0' : 'px-2'
                     }`}
                     data-testid="right-panel-header"
@@ -1395,7 +1395,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     ) : (
                       <div className="flex items-center gap-2">
                         <RightPanelIcon className="size-3.5" />
-                        <span className="font-medium text-xs">
+                        <span className="text-xs font-medium">
                           {resolvedRightPanelChrome.title}
                         </span>
                       </div>

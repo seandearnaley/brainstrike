@@ -94,12 +94,12 @@ export function LogToolbar({
 }: LogToolbarProps) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   return (
-    <div className="flex flex-col gap-2 border-border/40 border-b bg-background p-2">
+    <div className="border-border/40 bg-background flex flex-col gap-2 border-b p-2">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[10rem] flex-1">
           <SettingsSearchIcon />
           <Input
-            className="h-8 border-border/50 bg-muted/50 pl-10 transition-colors focus:bg-background"
+            className="border-border/50 bg-muted/50 focus:bg-background h-8 pl-10 transition-colors"
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Search logs..."
             style={SETTINGS_SEARCH_INPUT_STYLE}
@@ -107,25 +107,25 @@ export function LogToolbar({
           />
         </div>
         <Select onValueChange={(value) => onLevelChange(value as LogLevel)} value={logLevelFilter}>
-          <SelectTrigger aria-label="Level" className="h-8 w-[7.5rem] border-border/50 bg-muted/50">
+          <SelectTrigger aria-label="Level" className="border-border/50 bg-muted/50 h-8 w-[7.5rem]">
             <SelectValue placeholder="Level" />
           </SelectTrigger>
           <SelectContent>{logLevelItems}</SelectContent>
         </Select>
         <Select onValueChange={onScopeChange} value={scopeFilter}>
-          <SelectTrigger aria-label="Scope" className="h-8 w-[9rem] border-border/50 bg-muted/50">
+          <SelectTrigger aria-label="Scope" className="border-border/50 bg-muted/50 h-8 w-[9rem]">
             <SelectValue placeholder="Scope" />
           </SelectTrigger>
           <SelectContent>{scopeItems}</SelectContent>
         </Select>
-        <div className="flex h-8 items-center gap-2 rounded-md border border-border/30 bg-muted/30 px-2">
+        <div className="border-border/30 bg-muted/30 flex h-8 items-center gap-2 rounded-md border px-2">
           <Switch
             checked={autoScroll}
             className="scale-90"
             id="log-viewer-autoscroll"
             onCheckedChange={onAutoScrollChange}
           />
-          <Label className="cursor-pointer font-medium text-xs" htmlFor="log-viewer-autoscroll">
+          <Label className="cursor-pointer text-xs font-medium" htmlFor="log-viewer-autoscroll">
             Auto-scroll
           </Label>
         </div>
@@ -133,7 +133,7 @@ export function LogToolbar({
           aria-controls={FILTERS_PANEL_ID}
           aria-expanded={filtersOpen}
           aria-label={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
-          className="h-8 gap-1.5 bg-muted/30"
+          className="bg-muted/30 h-8 gap-1.5"
           onClick={() => setFiltersOpen((open) => !open)}
           size="sm"
           type="button"
@@ -149,7 +149,7 @@ export function LogToolbar({
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button className="h-8 gap-1.5 bg-muted/30" size="sm" variant="outline">
+            <Button className="bg-muted/30 h-8 gap-1.5" size="sm" variant="outline">
               <Settings2 aria-hidden="true" className="h-3.5 w-3.5" />
               View
             </Button>
@@ -219,7 +219,7 @@ export function LogToolbar({
               value={String(retentionLimit)}
             >
               <SelectTrigger
-                className="h-8 w-[8.5rem] border-border/50 bg-muted/40"
+                className="border-border/50 bg-muted/40 h-8 w-[8.5rem]"
                 id="log-viewer-retention"
               >
                 <SelectValue />
@@ -236,7 +236,7 @@ export function LogToolbar({
               value={String(pageSize)}
             >
               <SelectTrigger
-                className="h-8 w-[7.5rem] border-border/50 bg-muted/40"
+                className="border-border/50 bg-muted/40 h-8 w-[7.5rem]"
                 id="log-viewer-page-size"
               >
                 <SelectValue />

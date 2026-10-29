@@ -1,15 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-
-vi.mock('electron', () => ({
-  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
-}));
-
 import {
   createMcpAppShellProtocolHandler,
   MCP_APP_SHELL_PROTOCOL_SCHEME,
   McpAppShellRegistry,
   mcpAppShellUrl,
 } from '../../mcp/apps-shell-protocol';
+
+vi.mock('electron', () => ({
+  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
+}));
 
 const SHELL = Object.freeze({
   contentSecurityPolicy: "default-src 'none'; script-src 'unsafe-inline'",
@@ -100,9 +99,9 @@ describe('MCP App shell protocol', () => {
   it('fails closed on per-owner and document-size limits', () => {
     const registry = new McpAppShellRegistry({ maxDocumentBytes: 64, maxShellsPerOwner: 1 });
     registry.register(1, SHELL);
-    expect(() => registry.register(1, SHELL)).toThrow(/per-owner limit/);
+    expect(() => registry.register(1, SHELL)).toThrow(/per-owner limit/u);
     expect(() => registry.register(2, { ...SHELL, document: 'x'.repeat(65) })).toThrow(
-      /byte limit/
+      /byte limit/u
     );
     expect(registry.size).toBe(1);
     expect(() => new McpAppShellRegistry({ maxShellsPerOwner: 0 })).toThrow(TypeError);

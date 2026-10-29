@@ -82,9 +82,9 @@ function getTypeBadgeVariant(type: string): 'default' | 'secondary' | 'outline' 
  */
 function ParameterRow({ param }: { param: ToolParameterDisplay }) {
   return (
-    <div className="flex items-start gap-2 border-border/30 border-b py-1.5 last:border-0">
+    <div className="border-border/30 flex items-start gap-2 border-b py-1.5 last:border-0">
       <div className="flex min-w-[140px] items-center gap-1.5">
-        <code className="font-mono text-foreground text-xs">{param.name}</code>
+        <code className="text-foreground font-mono text-xs">{param.name}</code>
         {param.required && <span className="text-destructive text-xs">*</span>}
       </div>
       <Badge className="px-1.5 text-[9px]" variant={getTypeBadgeVariant(param.type)}>
@@ -92,18 +92,18 @@ function ParameterRow({ param }: { param: ToolParameterDisplay }) {
         {param.arrayItemType && `[${param.arrayItemType}]`}
       </Badge>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-muted-foreground text-xs">{param.description}</p>
+        <p className="text-muted-foreground truncate text-xs">{param.description}</p>
         {param.enumValues && (
           <div className="mt-0.5 flex flex-wrap gap-1">
             {param.enumValues.map((value: string) => (
-              <code className="rounded bg-muted/50 px-1 py-0.5 font-mono text-[10px]" key={value}>
+              <code className="bg-muted/50 rounded px-1 py-0.5 font-mono text-[10px]" key={value}>
                 {value}
               </code>
             ))}
           </div>
         )}
         {(param.min !== undefined || param.max !== undefined) && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground text-[10px]">
             {formatRangeLabel(param.min, param.max)}
           </span>
         )}
@@ -126,7 +126,7 @@ function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
       <button
         aria-controls={expanded ? contentId : undefined}
         aria-expanded={expanded}
-        className="mb-2 flex items-center gap-1 font-medium text-muted-foreground text-xs hover:text-foreground"
+        className="text-muted-foreground hover:text-foreground mb-2 flex items-center gap-1 text-xs font-medium"
         onClick={() => setExpanded(!expanded)}
         type="button"
       >
@@ -135,10 +135,10 @@ function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
       </button>
 
       {expanded && (
-        <div className="rounded-md border border-border/50 bg-muted/20 p-2" id={contentId}>
+        <div className="border-border/50 bg-muted/20 rounded-md border p-2" id={contentId}>
           {requiredParams.length > 0 && (
             <div className="mb-2">
-              <span className="font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+              <span className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
                 Required
               </span>
               <div className="mt-1">
@@ -151,7 +151,7 @@ function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
 
           {optionalParams.length > 0 && (
             <div>
-              <span className="font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+              <span className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
                 Optional
               </span>
               <div className="mt-1">
@@ -173,8 +173,8 @@ function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
 function ReturnsSection({ returns }: { returns: string }) {
   return (
     <div className="mb-3">
-      <span className="font-medium text-muted-foreground text-xs">Returns</span>
-      <p className="mt-1 text-foreground text-xs">{returns}</p>
+      <span className="text-muted-foreground text-xs font-medium">Returns</span>
+      <p className="text-foreground mt-1 text-xs">{returns}</p>
     </div>
   );
 }
@@ -258,7 +258,7 @@ export function ToolPlayground({
       {/* Input Editor */}
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <span className="font-medium text-xs">Test Input</span>
+          <span className="text-xs font-medium">Test Input</span>
           <div className="flex gap-2">
             {schemaDisplay && (
               <Button
@@ -286,14 +286,14 @@ export function ToolPlayground({
           aria-describedby={parseError ? parseErrorId : undefined}
           aria-invalid={Boolean(parseError)}
           aria-label="Tool input JSON"
-          className="h-32 w-full rounded-md border border-border bg-muted/30 p-2 font-mono text-xs"
+          className="border-border bg-muted/30 h-32 w-full rounded-md border p-2 font-mono text-xs"
           data-testid="json-input"
           onChange={(e) => handleInputChange(e.target.value)}
           placeholder="{}"
           value={input}
         />
         {parseError && (
-          <p className="mt-1 text-destructive text-xs" data-testid="parse-error" id={parseErrorId}>
+          <p className="text-destructive mt-1 text-xs" data-testid="parse-error" id={parseErrorId}>
             {parseError}
           </p>
         )}
@@ -311,7 +311,7 @@ export function ToolPlayground({
         >
           <div className="mb-1 flex items-center justify-between">
             <span
-              className={`font-medium text-xs ${
+              className={`text-xs font-medium ${
                 result.success ? 'text-success' : 'text-destructive'
               }`}
             >
@@ -319,7 +319,7 @@ export function ToolPlayground({
             </span>
             <span className="text-muted-foreground text-xs">{result.durationMs}ms</span>
           </div>
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs">
+          <pre className="max-h-48 overflow-auto font-mono text-xs whitespace-pre-wrap">
             {result.success ? JSON.stringify(result.result, null, 2) : result.error}
           </pre>
         </div>

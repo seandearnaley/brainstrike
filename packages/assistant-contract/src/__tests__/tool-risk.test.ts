@@ -217,7 +217,7 @@ describe('denormalizeNativeToolName (D3)', () => {
 
   it('round-trips every native tool id from its sanitized form', () => {
     for (const dotted of Object.keys(NATIVE_TOOL_DEFAULTS)) {
-      const sanitized = dotted.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const sanitized = dotted.replace(/[^a-zA-Z0-9_-]/gu, '_');
       expect(denormalizeNativeToolName(sanitized)).toBe(dotted);
     }
   });

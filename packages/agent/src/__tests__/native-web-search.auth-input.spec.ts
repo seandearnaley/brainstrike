@@ -5,6 +5,8 @@
  * settings each SDK factory receives.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MastraAgentError } from '../mastra-boundary/mastra-agent-error';
+import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
 
 const createAnthropicMock = vi.hoisted(() => vi.fn());
 const createOpenAIMock = vi.hoisted(() => vi.fn());
@@ -15,9 +17,6 @@ vi.mock('@ai-sdk/anthropic', () => ({
 vi.mock('@ai-sdk/openai', () => ({
   createOpenAI: createOpenAIMock,
 }));
-
-import { MastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
 
 const fakeAnthropicClient = {
   tools: { webSearch_20250305: vi.fn(() => ({ id: 'anthropic.web_search_20250305' })) },

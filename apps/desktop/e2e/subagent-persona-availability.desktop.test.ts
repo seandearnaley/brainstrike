@@ -35,7 +35,7 @@ test('shows actual host persona issues and refreshes an edited profile @smoke', 
     )
     .toBe('live');
   await homePage.openSettings();
-  await new SettingsPage(window).openCategory(/Subagents/i, 'subagents');
+  await new SettingsPage(window).openCategory(/Subagents/iu, 'subagents');
   // Settings is keep-mounted; refresh after root reconciliation completed.
   await window.getByRole('button', { name: 'Refresh personas and host checks' }).click();
   const availability = window.getByTestId('subagent-persona-availability-availability-proof');

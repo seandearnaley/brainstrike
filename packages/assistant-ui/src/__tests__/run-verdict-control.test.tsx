@@ -96,11 +96,11 @@ describe('RunVerdictButtons', () => {
     const onVerdict = vi.fn().mockResolvedValue(undefined);
     wrap(<RunVerdictButtons onVerdict={onVerdict} />);
 
-    await userEvent.click(screen.getByRole('button', { name: /worked/i }));
+    await userEvent.click(screen.getByRole('button', { name: /worked/iu }));
 
     expect(onVerdict).toHaveBeenCalledWith('succeeded');
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /worked/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: /worked/iu })).toHaveAttribute(
         'aria-pressed',
         'true'
       );
@@ -111,24 +111,24 @@ describe('RunVerdictButtons', () => {
     const onVerdict = vi.fn().mockResolvedValue(undefined);
     wrap(<RunVerdictButtons onVerdict={onVerdict} />);
 
-    await userEvent.click(screen.getByRole('button', { name: /didn't work/i }));
+    await userEvent.click(screen.getByRole('button', { name: /didn't work/iu }));
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /didn't work/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: /didn't work/iu })).toHaveAttribute(
         'aria-pressed',
         'true'
       );
     });
 
-    await userEvent.click(screen.getByRole('button', { name: /worked/i }));
+    await userEvent.click(screen.getByRole('button', { name: /worked/iu }));
 
     expect(onVerdict).toHaveBeenNthCalledWith(1, 'failed');
     expect(onVerdict).toHaveBeenNthCalledWith(2, 'succeeded');
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /worked/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: /worked/iu })).toHaveAttribute(
         'aria-pressed',
         'true'
       );
-      expect(screen.getByRole('button', { name: /didn't work/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: /didn't work/iu })).toHaveAttribute(
         'aria-pressed',
         'false'
       );
@@ -142,15 +142,15 @@ describe('RunVerdictButtons', () => {
       .mockResolvedValue(undefined);
     wrap(<RunVerdictButtons onVerdict={onVerdict} />);
 
-    await userEvent.click(screen.getByRole('button', { name: /worked/i }));
+    await userEvent.click(screen.getByRole('button', { name: /worked/iu }));
 
-    const retry = await screen.findByRole('button', { name: /retry/i });
+    const retry = await screen.findByRole('button', { name: /retry/iu });
     await userEvent.click(retry);
 
     expect(onVerdict).toHaveBeenCalledTimes(2);
     expect(onVerdict).toHaveBeenNthCalledWith(2, 'succeeded');
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /worked/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: /worked/iu })).toHaveAttribute(
         'aria-pressed',
         'true'
       );
@@ -165,11 +165,11 @@ describe('committed verdicts (host threads)', () => {
 
   it('shows a committed user verdict as chosen before any click, so it persists across reloads', () => {
     wrap(<RunVerdictButtons committed="failed" onVerdict={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /didn't work/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /didn't work/iu })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
-    expect(screen.getByRole('button', { name: /worked/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /worked/iu })).toHaveAttribute(
       'aria-pressed',
       'false'
     );
@@ -191,7 +191,7 @@ describe('committed verdicts (host threads)', () => {
       />
     );
     const label = screen.getByTestId('run-verdict-derived');
-    expect(label).toHaveTextContent(/^Edits reverted · run marked failed$/);
+    expect(label).toHaveTextContent(/^Edits reverted · run marked failed$/u);
     expect(label).toHaveAttribute('title', '1/1 edits reverted');
   });
 
@@ -202,7 +202,7 @@ describe('committed verdicts (host threads)', () => {
       />
     );
     expect(screen.getByTestId('run-verdict-derived')).toHaveTextContent(
-      /^Some edits reverted · run marked mixed$/
+      /^Some edits reverted · run marked mixed$/u
     );
   });
 });

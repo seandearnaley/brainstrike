@@ -42,7 +42,7 @@ const COLUMNS: TreeTableColumn<MiniTreeEntry>[] = [
         // listings (notice) both surface visibly instead of vanishing.
         const Icon = entry.kind === 'error' ? AlertTriangle : Info;
         return (
-          <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+          <span className="text-muted-foreground flex min-w-0 items-center gap-1.5">
             <Icon
               aria-hidden="true"
               className={`h-3.5 w-3.5 flex-shrink-0 ${entry.kind === 'error' ? 'text-warning' : ''}`}
@@ -55,11 +55,11 @@ const COLUMNS: TreeTableColumn<MiniTreeEntry>[] = [
       return (
         <span className="flex min-w-0 items-center gap-1.5" title={entry.node.path}>
           {isDir ? (
-            <Folder aria-hidden="true" className="h-3.5 w-3.5 flex-shrink-0 text-primary/70" />
+            <Folder aria-hidden="true" className="text-primary/70 h-3.5 w-3.5 flex-shrink-0" />
           ) : (
             <FileText
               aria-hidden="true"
-              className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground"
+              className="text-muted-foreground h-3.5 w-3.5 flex-shrink-0"
             />
           )}
           <span className="truncate">{entry.node.name}</span>

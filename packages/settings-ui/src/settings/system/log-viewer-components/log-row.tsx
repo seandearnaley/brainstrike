@@ -24,7 +24,7 @@ export const LogRow = memo(function LogRow({
 
   return (
     <TableRow
-      className="group align-top transition-colors duration-200 hover:bg-muted/40"
+      className="group hover:bg-muted/40 align-top transition-colors duration-200"
       data-index={virtualRow.index}
       ref={measureRow}
       style={{ height: `${virtualRow.size}px` }}

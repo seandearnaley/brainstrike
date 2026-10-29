@@ -102,7 +102,7 @@ function ProviderVerificationResult({
       <p className={cn('flex items-center gap-1.5 font-medium', TONE_CLASSES[presentation.tone])}>
         <Icon aria-hidden="true" className="size-3.5" />
         {presentation.label}
-        <span className="font-normal text-muted-foreground">
+        <span className="text-muted-foreground font-normal">
           · checked {formatCheckedAt(checkedAt)}
         </span>
       </p>

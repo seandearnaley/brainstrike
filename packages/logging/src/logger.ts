@@ -672,17 +672,17 @@ function resolveLogRecordMessage(args: readonly unknown[]): string | undefined {
 }
 
 function isSensitiveLogKey(key: string, path: readonly string[]): boolean {
-  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/gu, '');
   const configured =
     internalConfig.redactPaths?.some((redactPath) => {
       const parts = redactPath
-        .match(/[^.[\]]+|\[([^[\]]*?)\]/g)
-        ?.map((segment) => segment.replace(/^\[['"`]?|['"`]?\]$/g, ''));
+        .match(/[^.[\]]+|\[([^[\]]*?)\]/gu)
+        ?.map((segment) => segment.replace(/^\[['"`]?|['"`]?\]$/gu, ''));
       return (
         parts?.length === path.length && parts.every((part, i) => part === '*' || part === path[i])
       );
     }) === true;
-  return configured || /apikey|authorization|cookie|password|secret|token$/.test(normalized);
+  return configured || /apikey|authorization|cookie|password|secret|token$/u.test(normalized);
 }
 
 export function redactSensitiveLogValue(
@@ -773,7 +773,7 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
 
 type PinoLogMethod = (first: unknown, ...rest: unknown[]) => void;
 
-const PRINTF_DIRECTIVE = /%[sdifjoOc%]/;
+const PRINTF_DIRECTIVE = /%[sdifjoOc%]/u;
 
 function isMetadataObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

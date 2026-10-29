@@ -56,7 +56,7 @@ const ToolRow = ({
   const helpId = useId();
 
   return (
-    <div className="rounded-md hover:bg-accent/60">
+    <div className="hover:bg-accent/60 rounded-md">
       <div className="flex min-h-9 items-center gap-2 px-2 py-1">
         <span className="min-w-0 flex-1 truncate text-sm" title={tool.label}>
           {tool.label}
@@ -66,7 +66,7 @@ const ToolRow = ({
             aria-controls={helpOpen ? helpId : undefined}
             aria-expanded={helpOpen}
             aria-label={`About ${tool.label}`}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-ring flex size-7 shrink-0 items-center justify-center rounded-md focus-visible:outline-2"
             onClick={() => setHelpOpen((current) => !current)}
             type="button"
           >
@@ -82,7 +82,7 @@ const ToolRow = ({
       </div>
       {tool.description && helpOpen && (
         <p
-          className="wrap-break-word max-h-28 overflow-y-auto whitespace-pre-wrap border-t px-2 py-2 text-muted-foreground text-xs leading-relaxed"
+          className="text-muted-foreground max-h-28 overflow-y-auto border-t px-2 py-2 text-xs leading-relaxed wrap-break-word whitespace-pre-wrap"
           id={helpId}
         >
           {tool.description}
@@ -127,10 +127,10 @@ const OutputLimitsSection = ({
   }
 
   return (
-    <details className="group rounded-lg border border-border/70 bg-muted/20">
+    <details className="group border-border/70 bg-muted/20 rounded-lg border">
       {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is a native keyboard-operable disclosure; prevent closing over an invalid draft. */}
       <summary
-        className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-3 py-2.5 font-medium text-sm hover:bg-accent [&::-webkit-details-marker]:hidden"
+        className="hover:bg-accent flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium [&::-webkit-details-marker]:hidden"
         onClick={(event) => {
           const details = event.currentTarget.parentElement;
           if (details instanceof HTMLDetailsElement && details.open && !drafts.commitAll()) {
@@ -191,15 +191,15 @@ const ToolsControlsSection = ({
   return (
     <section aria-label="AI Tools" className="space-y-2 border-t pt-3">
       <div className="flex items-baseline justify-between gap-2 px-1">
-        <h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+        <h3 className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">
           AI Tools
         </h3>
-        <span className="text-[11px] text-muted-foreground">{toolSummary}</span>
+        <span className="text-muted-foreground text-[11px]">{toolSummary}</span>
       </div>
       <div className="relative">
         <Search
           aria-hidden
-          className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+          className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
         />
         <Input
           aria-label="Search tools"
@@ -211,13 +211,13 @@ const ToolsControlsSection = ({
         />
       </div>
       {toolMenu.isLoading && (
-        <div className="px-2 py-2 text-muted-foreground text-xs">Loading tools…</div>
+        <div className="text-muted-foreground px-2 py-2 text-xs">Loading tools…</div>
       )}
       {!toolMenu.isLoading && groupedTools.length === 0 && (
-        <div className="px-2 py-2 text-muted-foreground text-xs">No tools detected.</div>
+        <div className="text-muted-foreground px-2 py-2 text-xs">No tools detected.</div>
       )}
       {!toolMenu.isLoading && groupedTools.length > 0 && visibleGroups.length === 0 && (
-        <div className="px-2 py-3 text-muted-foreground text-sm">
+        <div className="text-muted-foreground px-2 py-3 text-sm">
           No tools match “{query.trim()}”.
         </div>
       )}
@@ -226,13 +226,13 @@ const ToolsControlsSection = ({
           const enabledCount = group.items.filter((tool) => tool.enabled).length;
           return (
             <details
-              className="group overflow-hidden rounded-lg border border-border/70"
+              className="group border-border/70 overflow-hidden rounded-lg border"
               key={group.id}
               open={Boolean(normalizedQuery) || expandedGroups.has(group.id)}
             >
               {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is a native keyboard-operable disclosure; preserve expansion across search. */}
               <summary
-                className="flex cursor-pointer list-none items-center gap-2 bg-muted/20 px-3 py-2 text-sm hover:bg-accent [&::-webkit-details-marker]:hidden"
+                className="bg-muted/20 hover:bg-accent flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm [&::-webkit-details-marker]:hidden"
                 onClick={(event) => {
                   event.preventDefault();
                   if (normalizedQuery) {
@@ -250,7 +250,7 @@ const ToolsControlsSection = ({
                 }}
               >
                 <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                <span className="text-[11px] text-muted-foreground tabular-nums">
+                <span className="text-muted-foreground text-[11px] tabular-nums">
                   {enabledCount}/{group.items.length}
                 </span>
                 <span
@@ -277,7 +277,7 @@ const ToolsControlsSection = ({
         <div className="flex flex-wrap items-center gap-2 px-1 pt-1">
           {toolMenu.onRefresh && (
             <button
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs"
               onClick={() => void toolMenu.onRefresh?.()}
               type="button"
             >
@@ -287,7 +287,7 @@ const ToolsControlsSection = ({
           )}
           {toolMenu.onOpenSettings && (
             <button
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs"
               onClick={onOpenSettings}
               type="button"
             >
@@ -428,7 +428,7 @@ export const ControlsMenu = ({
           onInteractOutside={(event) => commitDraftsOrStayOpen(drafts, event)}
         >
           <div className="px-1">
-            <h2 className="font-semibold text-sm">Assistant controls</h2>
+            <h2 className="text-sm font-semibold">Assistant controls</h2>
             <p className="text-muted-foreground text-xs">
               Adjust what you see and which tools the assistant can use.
             </p>

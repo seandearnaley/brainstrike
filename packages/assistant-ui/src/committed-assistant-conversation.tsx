@@ -121,14 +121,14 @@ function BoundCommittedAssistantConversation({
           // it is shown whole, styled as the app's other error notices.
           <div
             aria-label="Agent command error"
-            className="mx-3 my-2 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+            className="border-destructive/30 bg-destructive/5 mx-3 my-2 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm"
             role="alert"
           >
             <CircleAlertIcon
               aria-hidden="true"
-              className="mt-0.5 size-4 shrink-0 text-destructive"
+              className="text-destructive mt-0.5 size-4 shrink-0"
             />
-            <p className="min-w-0 flex-1 whitespace-pre-wrap break-words">{commandError}</p>
+            <p className="min-w-0 flex-1 break-words whitespace-pre-wrap">{commandError}</p>
             <Button onClick={dismissCommandError} size="sm" type="button" variant="ghost">
               Dismiss
             </Button>

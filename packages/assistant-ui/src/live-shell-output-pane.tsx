@@ -16,21 +16,21 @@ export function LiveShellOutputPane({
   return (
     <div className="px-2.5 pb-1.5">
       {omittedBytes ? (
-        <p className="pb-0.5 text-[10px] text-muted-foreground italic">
+        <p className="text-muted-foreground pb-0.5 text-[10px] italic">
           Earlier output not shown ({Math.ceil(omittedBytes / 1024)} KB)
         </p>
       ) : null}
       <div
         aria-label="Live command output"
-        className="flex max-h-40 flex-col-reverse overflow-auto rounded bg-muted/50"
+        className="bg-muted/50 flex max-h-40 flex-col-reverse overflow-auto rounded"
         role="log"
       >
-        <pre className="whitespace-pre-wrap break-words p-2 font-mono text-[11px] text-muted-foreground">
+        <pre className="text-muted-foreground p-2 font-mono text-[11px] break-words whitespace-pre-wrap">
           {text}
         </pre>
       </div>
       {truncated ? (
-        <p className="pt-0.5 text-[10px] text-muted-foreground italic">
+        <p className="text-muted-foreground pt-0.5 text-[10px] italic">
           Live output truncated — the full result is kept when the command finishes.
         </p>
       ) : null}

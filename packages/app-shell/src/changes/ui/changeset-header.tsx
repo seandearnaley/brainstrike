@@ -55,7 +55,7 @@ export interface ChangesetHeaderProps {
 function CenteredMessage({ children }: { readonly children: string }): ReactElement {
   return (
     <div
-      className="grid h-full place-items-center p-8 text-center text-muted-foreground text-sm"
+      className="text-muted-foreground grid h-full place-items-center p-8 text-center text-sm"
       data-testid="changeset-header-no-root"
     >
       <div className="max-w-md leading-relaxed">{children}</div>
@@ -117,7 +117,7 @@ function ProvenanceLine({
   return (
     <p className="text-muted-foreground text-xs" data-testid="changeset-provenance">
       All working-tree changes — {describeGitScopeKind(changeset.scope)} in{' '}
-      <span className="font-medium text-foreground">{worktreeName}</span>
+      <span className="text-foreground font-medium">{worktreeName}</span>
     </p>
   );
 }
@@ -131,12 +131,12 @@ function StatValue({
 }): ReactElement {
   if (value === null) {
     return (
-      <span className="font-medium text-foreground tabular-nums" title={nullReason}>
+      <span className="text-foreground font-medium tabular-nums" title={nullReason}>
         —
       </span>
     );
   }
-  return <span className="font-medium text-foreground tabular-nums">{value}</span>;
+  return <span className="text-foreground font-medium tabular-nums">{value}</span>;
 }
 
 function StatsReadout({ view }: { readonly view: ChangesetView | null }): ReactElement {
@@ -325,17 +325,17 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
         {pushing ? 'Pushing…' : 'Push'}
       </Button>
       {commitError ? (
-        <span className="text-[11px] text-destructive" data-testid="changeset-commit-error">
+        <span className="text-destructive text-[11px]" data-testid="changeset-commit-error">
           {commitError}
         </span>
       ) : null}
       {pushError ? (
-        <span className="text-[11px] text-destructive" data-testid="changeset-push-error">
+        <span className="text-destructive text-[11px]" data-testid="changeset-push-error">
           {pushError}
         </span>
       ) : null}
       {pushResult ? (
-        <span className="text-[11px] text-muted-foreground" data-testid="changeset-push-result">
+        <span className="text-muted-foreground text-[11px]" data-testid="changeset-push-result">
           {pushResult}
         </span>
       ) : null}
@@ -431,7 +431,7 @@ function ChangesetActions({
     changeset.worktreePath
   );
   return (
-    <span className="text-[11px] text-muted-foreground" data-testid="changeset-actions-unavailable">
+    <span className="text-muted-foreground text-[11px]" data-testid="changeset-actions-unavailable">
       Commit/push apply to the focused worktree only — switch focus to {worktreeName} to use them.
     </span>
   );
@@ -458,7 +458,7 @@ export function ChangesetHeader({
 
   return (
     <div
-      className="flex flex-col gap-2 border-border border-b bg-card/35 px-3 py-2"
+      className="border-border bg-card/35 flex flex-col gap-2 border-b px-3 py-2"
       data-testid="changeset-header"
     >
       <div className="flex flex-wrap items-center gap-3">
@@ -483,7 +483,7 @@ export function ChangesetHeader({
           className="flex flex-col items-start gap-1.5"
           data-testid="changeset-header-inventory-error"
         >
-          <p className="text-[11px] text-warning">Repository list unavailable: {inventoryError}</p>
+          <p className="text-warning text-[11px]">Repository list unavailable: {inventoryError}</p>
           {onRetryInventory ? (
             <Button onClick={onRetryInventory} size="sm" type="button" variant="outline">
               <RefreshCw aria-hidden="true" className="size-3.5" />
@@ -495,10 +495,10 @@ export function ChangesetHeader({
 
       {error ? (
         <div
-          className="flex flex-col items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
+          className="border-destructive/30 bg-destructive/5 flex flex-col items-start gap-1.5 rounded-md border px-3 py-2"
           data-testid="changeset-header-error"
         >
-          <p className="font-medium text-destructive text-xs">Could not load this changeset.</p>
+          <p className="text-destructive text-xs font-medium">Could not load this changeset.</p>
           <p className="text-muted-foreground text-xs">{error}</p>
           {onRetry ? (
             <Button onClick={onRetry} size="sm" type="button" variant="outline">
@@ -511,7 +511,7 @@ export function ChangesetHeader({
 
       {!error && loading ? (
         <p
-          className="flex items-center gap-1.5 text-muted-foreground text-xs"
+          className="text-muted-foreground flex items-center gap-1.5 text-xs"
           data-testid="changeset-header-loading"
         >
           <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />

@@ -47,7 +47,7 @@ describe('SystemDiagnosticsPanel', () => {
     it('renders refresh all button', () => {
       render(<SystemDiagnosticsPanel />);
 
-      const refreshButton = screen.getByRole('button', { name: /refresh all diagnostics/i });
+      const refreshButton = screen.getByRole('button', { name: /refresh all diagnostics/iu });
       expect(refreshButton).toBeInTheDocument();
     });
 
@@ -414,7 +414,7 @@ describe('SystemDiagnosticsPanel', () => {
       const user = userEvent.setup();
       render(<SystemDiagnosticsPanel />);
 
-      const refreshButton = screen.getByRole('button', { name: /refresh all diagnostics/i });
+      const refreshButton = screen.getByRole('button', { name: /refresh all diagnostics/iu });
       await user.click(refreshButton);
 
       // Button should be disabled briefly during refresh

@@ -116,8 +116,8 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const nameHandle = screen.getByRole('separator', { name: /resize name/i });
-      const sizeHandle = screen.getByRole('separator', { name: /resize size/i });
+      const nameHandle = screen.getByRole('separator', { name: /resize name/iu });
+      const sizeHandle = screen.getByRole('separator', { name: /resize size/iu });
       expect(nameHandle).toHaveAttribute('aria-orientation', 'vertical');
       expect(sizeHandle).toHaveAttribute('aria-orientation', 'vertical');
     });
@@ -132,8 +132,8 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      expect(screen.queryByRole('separator', { name: /resize name/i })).toBeInTheDocument();
-      expect(screen.queryByRole('separator', { name: /resize size/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('separator', { name: /resize name/iu })).toBeInTheDocument();
+      expect(screen.queryByRole('separator', { name: /resize size/iu })).not.toBeInTheDocument();
     });
 
     it('omits the resize handle when a utility column is fixed (width = min = max)', () => {
@@ -156,7 +156,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      expect(screen.queryByRole('separator', { name: /resize status/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('separator', { name: /resize status/iu })).not.toBeInTheDocument();
     });
   });
 
@@ -175,8 +175,8 @@ describe('TreeTable column resize', () => {
       // The resize handle's aria-label ("Resize {name} column") also contains
       // the column label, so use an anchored regex to disambiguate from
       // "Resize Name column" / "Resize Size column".
-      const nameHeader = screen.getByRole('columnheader', { name: /^Name\b/i });
-      const sizeHeader = screen.getByRole('columnheader', { name: /^Size\b/i });
+      const nameHeader = screen.getByRole('columnheader', { name: /^Name\b/iu });
+      const sizeHeader = screen.getByRole('columnheader', { name: /^Size\b/iu });
       expect(nameHeader).toHaveStyle({ width: '240px' });
       expect(sizeHeader).toHaveStyle({ width: '96px' });
     });
@@ -194,7 +194,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       stubHeaderRect(handle, 0, 200);
 
       fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
@@ -218,7 +218,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const nameHeader = screen.getByRole('columnheader', { name: /name/i });
+      const nameHeader = screen.getByRole('columnheader', { name: /name/iu });
       expect(nameHeader).toHaveStyle({ width: '200px' });
     });
 
@@ -232,14 +232,14 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       stubHeaderRect(handle, 0, 200);
 
       fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
       fireEvent.pointerMove(window, { clientX: 260, pointerId: 1 });
       fireEvent.pointerUp(window, { clientX: 260, pointerId: 1 });
 
-      const nameHeader = screen.getByRole('columnheader', { name: /name/i });
+      const nameHeader = screen.getByRole('columnheader', { name: /name/iu });
       expect(nameHeader).toHaveStyle({ width: '260px' });
     });
   });
@@ -258,7 +258,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       stubHeaderRect(handle, 0, 200);
 
       fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
@@ -282,7 +282,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       stubHeaderRect(handle, 0, 200);
 
       fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
@@ -308,7 +308,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       act(() => {
         handle.focus();
       });
@@ -331,7 +331,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       act(() => {
         handle.focus();
       });
@@ -354,7 +354,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       act(() => {
         handle.focus();
       });
@@ -383,7 +383,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       stubHeaderRect(handle, 0, 200);
 
       fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
@@ -426,7 +426,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       fireEvent.doubleClick(handle);
 
       const lastCall = onColumnSizesChange.mock.calls.at(-1);
@@ -449,7 +449,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       fireEvent.doubleClick(handle);
 
       // Resize fired, but sort did not.
@@ -476,7 +476,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       act(() => {
         handle.focus();
       });
@@ -511,7 +511,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       stubHeaderRect(handle, 0, 200);
 
       const initialPointerMoveAdds = addSpy.mock.calls.filter(
@@ -549,7 +549,7 @@ describe('TreeTable column resize', () => {
         />
       );
 
-      const handle = screen.getByRole('separator', { name: /resize name/i });
+      const handle = screen.getByRole('separator', { name: /resize name/iu });
       stubHeaderRect(handle, 0, 200);
 
       // Start drag but do NOT release.

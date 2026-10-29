@@ -17,7 +17,7 @@ const REQUIRED_SECTION_HEADERS = ['Goal', 'State', 'Decisions', 'Next', 'Files t
 export function hasCompactionSummarySchema(text: string): boolean {
   let expectedIndex = 0;
   for (const match of text.matchAll(
-    /(?:^|\n)\s*(?:#{1,6}\s*)?(Goal|State|Decisions|Next|Files touched)\s*(?::[^\n]*|(?=\n|$))/gi
+    /(?:^|\n)\s*(?:#{1,6}\s*)?(Goal|State|Decisions|Next|Files touched)\s*(?::[^\n]*|(?=\n|$))/giu
   )) {
     const header = match[1]?.toLowerCase();
     const headerIndex = REQUIRED_SECTION_HEADERS.findIndex(

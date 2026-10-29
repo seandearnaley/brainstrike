@@ -55,7 +55,7 @@ export function FilterChipsToggleButton({
         <Button
           aria-label={label}
           aria-pressed={isFilterChipsVisible}
-          className="@[300px]:h-9 h-8 @[300px]:w-9 w-8 shrink-0"
+          className="h-8 w-8 shrink-0 @[300px]:h-9 @[300px]:w-9"
           data-testid="toggle-filter-chips-button"
           onClick={() => setFilterChipsVisible(!isFilterChipsVisible)}
           size="icon"
@@ -93,7 +93,7 @@ export function ViewFiltersToggleButton({
           aria-expanded={isFiltersExpanded}
           aria-label={label}
           className={cn(
-            'relative @[236px]/explorer-toolbar:size-7 size-6 shrink-0 p-0',
+            'relative size-6 shrink-0 p-0 @[236px]/explorer-toolbar:size-7',
             isFiltersExpanded && 'bg-muted text-foreground'
           )}
           data-testid="toggle-view-filters-button"
@@ -105,7 +105,7 @@ export function ViewFiltersToggleButton({
           {hasHiddenActiveFilter ? (
             <span
               aria-hidden="true"
-              className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-primary"
+              className="bg-primary absolute top-0.5 right-0.5 size-1.5 rounded-full"
               data-testid="view-filters-active-indicator"
             />
           ) : null}
@@ -150,7 +150,7 @@ export function CompactToolbarActions({
       <DropdownMenuTrigger asChild>
         <Button
           aria-label="More Explorer actions"
-          className="@[236px]/explorer-toolbar:hidden size-6"
+          className="size-6 @[236px]/explorer-toolbar:hidden"
           size="icon"
           variant="ghost"
         >

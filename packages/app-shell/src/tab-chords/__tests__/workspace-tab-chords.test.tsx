@@ -1,5 +1,7 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { getTabChordStrip, resolveTabChordScope } from '../tab-chord-registry';
+import { WorkspaceTabChords } from '../workspace-tab-chords';
 
 const workspace = vi.hoisted(() => ({
   hasClosedTabs: vi.fn(() => true),
@@ -16,9 +18,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>()),
   useWorkspaceTabs: () => workspace,
 }));
-
-import { getTabChordStrip, resolveTabChordScope } from '../tab-chord-registry';
-import { WorkspaceTabChords } from '../workspace-tab-chords';
 
 describe('WorkspaceTabChords', () => {
   it('registers the workspace strip as the scope for focus in no panel', async () => {

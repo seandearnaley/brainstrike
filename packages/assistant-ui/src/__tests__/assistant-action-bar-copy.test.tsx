@@ -20,6 +20,7 @@ import {
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AssistantActionBar } from '../assistant-action-bar';
 
 const clipboardMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
@@ -48,8 +49,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
     </button>
   ),
 }));
-
-import { AssistantActionBar } from '../assistant-action-bar';
 
 const chatModel: ChatModelAdapter = {
   run: vi.fn().mockResolvedValue({

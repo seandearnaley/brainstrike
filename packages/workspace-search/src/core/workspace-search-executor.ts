@@ -10,7 +10,7 @@ export interface TextSearchRequest {
 
 /** Escape JS regex metacharacters so a literal string can be embedded in a pattern. */
 export function escapeRegExpLiteral(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 /**

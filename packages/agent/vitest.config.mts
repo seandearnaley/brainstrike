@@ -38,7 +38,7 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^@brainstrike\/agent\/tool-guard-deadline$/,
+        find: /^@brainstrike\/agent\/tool-guard-deadline$/u,
         replacement: resolve(import.meta.dirname, 'src/tool-guard-deadline.ts'),
       },
       {

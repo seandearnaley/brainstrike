@@ -257,7 +257,7 @@ test.describe('Worktree mode (desktop)', () => {
     // Checkout status can render a read-only chip before branch discovery settles.
     // Wait for the menu trigger; a menu opened while only the PR diagnostic has
     // arrived stays open and gains the branch rows when they load.
-    const chip = page.getByRole('button', { name: /^Branch:/ });
+    const chip = page.getByRole('button', { name: /^Branch:/u });
     await expect(chip).toContainText('main', { timeout: 30_000 });
     await expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
     await chip.click();

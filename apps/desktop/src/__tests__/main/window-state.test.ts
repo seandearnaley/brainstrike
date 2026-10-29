@@ -1,14 +1,5 @@
 import type { BrowserWindow, Rectangle } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const getAllDisplays = vi.hoisted(() => vi.fn());
-
-vi.mock('electron', () => ({
-  screen: {
-    getAllDisplays,
-  },
-}));
-
 import {
   captureWindowState,
   ensureWindowBoundsVisible,
@@ -17,6 +8,14 @@ import {
   registerWindowStatePersistence,
   resolveInitialWindowState,
 } from '../../window-state';
+
+const getAllDisplays = vi.hoisted(() => vi.fn());
+
+vi.mock('electron', () => ({
+  screen: {
+    getAllDisplays,
+  },
+}));
 
 describe('window-state', () => {
   beforeEach(() => {

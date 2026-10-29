@@ -11,7 +11,7 @@ function hasAsciiControlCharacter(value: string): boolean {
 }
 
 function hasCompleteUncAuthority(value: string): boolean {
-  const normalized = value.replace(/\\/g, '/');
+  const normalized = value.replace(/\\/gu, '/');
   const [server, share] = normalized.slice(2).split('/');
   return Boolean(server && share);
 }

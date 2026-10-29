@@ -42,8 +42,8 @@ export function ClearContentPanel({ clearContent, prepare, retireContent }: Clea
   // dismissed while it runs, and a failure stays on screen until the user reloads.
   const failed = error !== null;
   return (
-    <div className="space-y-2 rounded-md border border-destructive/40 p-4">
-      <h4 className="font-medium text-sm">Clear content</h4>
+    <div className="border-destructive/40 space-y-2 rounded-md border p-4">
+      <h4 className="text-sm font-medium">Clear content</h4>
       <p className="text-muted-foreground text-sm">
         Deletes every chat, prompt, memory and folder, and the search index's data.
       </p>

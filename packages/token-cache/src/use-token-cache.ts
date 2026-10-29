@@ -8,12 +8,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { normalizeFilePathForFolder, validateRelativeFilePath } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-const logger = createLogger('TokenCache');
-
-/** Debounce delay for version updates to batch rapid-fire cache changes (ms) */
-const VERSION_DEBOUNCE_MS = 50;
-
 import type { FileHasher } from './file-hasher';
 import type {
   TokenCacheEntry,
@@ -21,6 +15,11 @@ import type {
   TokenCountingMode,
   TokenCountResult,
 } from './types';
+
+const logger = createLogger('TokenCache');
+
+/** Debounce delay for version updates to batch rapid-fire cache changes (ms) */
+const VERSION_DEBOUNCE_MS = 50;
 
 /**
  * Minimal worker interface for token counting.

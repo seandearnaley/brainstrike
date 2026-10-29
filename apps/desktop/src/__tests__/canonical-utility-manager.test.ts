@@ -261,7 +261,7 @@ it('fences an attachment at physical utility exit and rejects its pending contro
   try {
     await flush();
     expect(settled).toBe(false);
-    await expect(manager.start()).rejects.toThrow(/closed/);
+    await expect(manager.start()).rejects.toThrow(/closed/u);
   } finally {
     read.resolve();
     // Typed, so source retirement can settle the exit as its own outcome (BST-2135).

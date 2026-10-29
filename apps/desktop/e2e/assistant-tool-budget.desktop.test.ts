@@ -40,7 +40,7 @@ async function allowExecuteWithoutApproval(
   window: Awaited<ReturnType<ElectronHarness['ensureWindow']>>
 ): Promise<void> {
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   await window
     .getByRole('combobox', { exact: true, name: 'Execute permission' })
     .selectOption('allow');
@@ -171,8 +171,8 @@ async function runBudgetCase(
 
       await expect(root.getByText('finished', { exact: true })).toBeVisible({ timeout: 15_000 });
       await expect(root.getByText('Run failed')).toHaveCount(0);
-      await expect(root.getByText(/did not finish within its/)).toHaveCount(0);
-      await expect(root.getByText(/stalled/)).toHaveCount(0);
+      await expect(root.getByText(/did not finish within its/u)).toHaveCount(0);
+      await expect(root.getByText(/stalled/u)).toHaveCount(0);
       await assertOutcome({ root, toolCard });
 
       await window.screenshot({

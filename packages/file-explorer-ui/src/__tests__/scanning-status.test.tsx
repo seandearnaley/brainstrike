@@ -118,14 +118,14 @@ describe('ScanningStatus', () => {
         />
       );
       // Should contain locale-formatted number (e.g., "10,000" in en-US)
-      expect(screen.getByText(/10.*000.*files/)).toBeInTheDocument();
+      expect(screen.getByText(/10.*000.*files/u)).toBeInTheDocument();
     });
   });
 
   describe('cancellation', () => {
     it('should not show cancel button when cancellable is false', () => {
       render(<ScanningStatus cancellable={false} isScanning={true} />);
-      expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /cancel/iu })).not.toBeInTheDocument();
     });
 
     it('should show cancel button when cancellable is true', () => {

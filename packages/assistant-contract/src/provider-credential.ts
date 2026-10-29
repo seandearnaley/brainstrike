@@ -78,7 +78,7 @@ export class MalformedCredentialError extends Error {
  * Enforced here (stored credentials, both modes) AND at the factory auth
  * input (`assertValidProviderAuthInput`) — never trimmed or coerced.
  */
-export const AWS_REGION_PATTERN = /^[a-z]{2}(-[a-z]+)+-\d+$/;
+export const AWS_REGION_PATTERN = /^[a-z]{2}(-[a-z]+)+-\d+$/u;
 
 export function isValidAwsRegion(region: string): boolean {
   return AWS_REGION_PATTERN.test(region);

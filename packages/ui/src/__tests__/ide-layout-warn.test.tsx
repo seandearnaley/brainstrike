@@ -13,7 +13,7 @@ describe('IdeLayout without a PanelLayoutProvider', () => {
           <div>Content</div>
         </IdeLayout>
       )
-    ).toThrow(/IdeLayout must be rendered inside a PanelLayoutProvider/);
+    ).toThrow(/IdeLayout must be rendered inside a PanelLayoutProvider/u);
 
     errorSpy.mockRestore();
   });

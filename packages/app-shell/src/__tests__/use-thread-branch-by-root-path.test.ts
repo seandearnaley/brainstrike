@@ -1,14 +1,13 @@
 import type { GitInventory } from '@brainstrike/types';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const { useGitInventoryMock } = vi.hoisted(() => ({ useGitInventoryMock: vi.fn() }));
-vi.mock('../changes/use-git-inventory', () => ({ useGitInventory: useGitInventoryMock }));
-
 import {
   projectBranchesForTest,
   useThreadBranchByRootPath,
 } from '../hooks/use-thread-branch-by-root-path';
+
+const { useGitInventoryMock } = vi.hoisted(() => ({ useGitInventoryMock: vi.fn() }));
+vi.mock('../changes/use-git-inventory', () => ({ useGitInventory: useGitInventoryMock }));
 
 type Worktree = GitInventory['repositories'][number]['worktrees'][number];
 

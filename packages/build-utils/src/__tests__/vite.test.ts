@@ -190,7 +190,7 @@ describe('assistant vite helpers', () => {
         appDir,
         (entry) => !entry.includes('/packages/assistant-ui/src/markdown-text.tsx')
       )
-    ).toThrow(/Lazy-surface optimizeDeps entry does not exist/);
+    ).toThrow(/Lazy-surface optimizeDeps entry does not exist/u);
   });
 
   test('classifies context-action system modules for chunk co-location', () => {

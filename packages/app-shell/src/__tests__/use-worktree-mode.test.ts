@@ -4,6 +4,7 @@ import type { WorktreeListEntry } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseWorktreeModeArgs } from '../hooks/use-worktree-mode';
+import { useWorktreeMode } from '../hooks/use-worktree-mode';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
@@ -67,8 +68,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   }),
 }));
 vi.mock('@brainstrike/ui', () => ({ toast: toastSpy }));
-
-import { useWorktreeMode } from '../hooks/use-worktree-mode';
 
 /** Renders the hook under a host that serves the worktrees bridge. */
 function renderWorktreeMode(args: UseWorktreeModeArgs) {

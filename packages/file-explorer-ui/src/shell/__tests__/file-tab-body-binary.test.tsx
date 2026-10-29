@@ -1,9 +1,14 @@
 import { type ActionServices, createTestActionRegistry } from '@brainstrike/context-actions';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { buildInaccessibleContent } from '@brainstrike/file-explorer-hooks';
 import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
+import { fileEntryActions } from '../../context-actions/file-entry-actions';
+import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
+import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
 const { openFileInTab, toastFn } = vi.hoisted(() => ({
   openFileInTab: vi.fn(),
@@ -25,12 +30,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 vi.mock('../file-tab-explorer-pane', () => ({
   FileTabExplorerPane: () => <div data-testid="pane-spy" />,
 }));
-
-import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
-import { fileEntryActions } from '../../context-actions/file-entry-actions';
-import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
-import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
 const BINARY_KEY = encodeFileSelection('folder-1', '/root/assets/logo.png');
 const RELATIVE_BINARY_KEY = encodeFileSelection('folder-1', 'assets/logo.png');
@@ -188,7 +187,7 @@ describe('FileTabBody binary file preview', () => {
     const { services, showItemInFolder } = createPlatformFsServices();
     showItemInFolder.mockResolvedValue({ error: 'Finder unavailable', ok: false });
     renderBinaryBody({ services });
-    fireEvent.click(screen.getByRole('button', { name: /Reveal in/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Reveal in/u }));
     await waitFor(() => {
       expect(toastFn).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -202,7 +201,7 @@ describe('FileTabBody binary file preview', () => {
 
   it('hides desktop-only actions when fs capabilities are absent (web)', () => {
     renderBinaryBody({ capabilities: ['clipboard'] });
-    expect(screen.queryByRole('button', { name: /Reveal in/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Reveal in/u })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open in Default App' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Copy Full Path' })).toBeInTheDocument();
   });
@@ -212,7 +211,7 @@ describe('FileTabBody binary file preview', () => {
       compositeKey: RELATIVE_BINARY_KEY,
       rootPath: null,
     });
-    expect(screen.queryByRole('button', { name: /Reveal in/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Reveal in/u })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open in Default App' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Copy Full Path' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Copy Relative Path' }));

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { blobsOf, verified } from './run-log-format.mjs';
 
 const HEADER = { format: 'brainstrike-run-log', version: 1 };
-const HASH = /^[a-f0-9]{64}$/;
+const HASH = /^[a-f0-9]{64}$/u;
 /** @param {string} content */
 const hashOf = (content) => createHash('sha256').update(content).digest('hex');
 /** @typedef {{ threadId: string; seq: number; payload: string; crc: number; rawCount: number | null; createdAt: number }} Row */

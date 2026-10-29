@@ -192,7 +192,7 @@ async function mountReader(width: number) {
   const surface = conversation();
   await surface.ui.findByText(recordedPrompt);
   // Read the recorded arguments/result: a real keyboard expansion of the shipped card.
-  const details = surface.ui.getByRole('button', { name: /expand details/ });
+  const details = surface.ui.getByRole('button', { name: /expand details/u });
   await press(details);
   await waitFor(() => {
     expect(surface.viewport.scrollHeight - surface.viewport.clientHeight).toBeGreaterThanOrEqual(
@@ -400,7 +400,7 @@ describe('keyboard approval and errors', () => {
     expect(surface.ui.queryByRole('button', { name: APPROVE })).toBeNull();
     await act(async () => source.publishPrefix(committedRows.length));
     const done = await surface.ui.findByRole('button', {
-      name: new RegExp(`^Used ${recordedToolName}`),
+      name: new RegExp(`^Used ${recordedToolName}`, 'u'),
     });
     // The settled row re-enters with the shipped reveal motion.
     await waitFor(() => expect(done).toBeVisible());
@@ -632,7 +632,7 @@ describe('refused dispatch and unavailable capabilities', () => {
       );
       const committed = store.getSnapshot().repository;
       const controls = () =>
-        surface.ui.queryAllByRole('button', { name: /^(Previous|Next) branch$/ });
+        surface.ui.queryAllByRole('button', { name: /^(Previous|Next) branch$/u });
       if (withdrawn) {
         expect(controls()).toHaveLength(2); // Non-vacuous: offered while the port is supplied.
         await act(async () => source.setConnection(false));

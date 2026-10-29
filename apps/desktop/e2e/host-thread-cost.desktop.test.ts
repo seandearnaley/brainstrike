@@ -43,7 +43,7 @@ async function legacyUsageRows(page: Page): Promise<number> {
 
 async function openCostTracking(page: Page) {
   await new HomePage(page).openSettings();
-  return new SettingsPage(page).openCategory(/Cost Tracking/i, 'cost-tracking');
+  return new SettingsPage(page).openCategory(/Cost Tracking/iu, 'cost-tracking');
 }
 
 test('a host run counts toward the daily cap, gates the next send, and lists in the Task Ledger', async ({

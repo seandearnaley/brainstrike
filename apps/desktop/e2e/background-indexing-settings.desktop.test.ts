@@ -43,7 +43,7 @@ test.describe('Search & Indexing settings (desktop)', () => {
     const { window } = await electron.ensureContext();
     const section = await openSearchIndexingSettings(window);
     const text = section.getByRole('group', { name: 'Search mode' }).getByRole('button', {
-      name: /^Text/,
+      name: /^Text/u,
     });
     await expect(text).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
     // The file policy applies at once, apart from the choices Apply re-indexes with.
@@ -75,7 +75,7 @@ test.describe('Search & Indexing settings (desktop)', () => {
       { timeout: 15_000 }
     );
     await expect(
-      reopened.getByRole('group', { name: 'Search mode' }).getByRole('button', { name: /^Text/ })
+      reopened.getByRole('group', { name: 'Search mode' }).getByRole('button', { name: /^Text/u })
     ).toHaveAttribute('aria-pressed', 'true');
     expect(await readIndexConfig(restarted.window)).toMatchObject({
       mode: 'text',

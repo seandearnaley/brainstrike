@@ -27,7 +27,7 @@ describe('desktop vite config alias contract', () => {
     const config = readDesktopViteConfig();
 
     expect(config).toMatch(
-      /find:\s*'@brainstrike\/file-tree-worker'[\s\S]{0,120}replacement:\s*path\.resolve\(\s*__dirname,\s*'\.\.\/\.\.\/packages\/file-tree-worker\/src\/vite\.ts'\s*\)/
+      /find:\s*'@brainstrike\/file-tree-worker'[\s\S]{0,120}replacement:\s*path\.resolve\(\s*__dirname,\s*'\.\.\/\.\.\/packages\/file-tree-worker\/src\/vite\.ts'\s*\)/u
     );
     expect(config).not.toContain('../../packages/file-tree-worker/dist');
   });
@@ -35,7 +35,7 @@ describe('desktop vite config alias contract', () => {
   it('aliases @brainstrike/workers subpaths explicitly (no src/ dir)', () => {
     const config = readDesktopViteConfig();
 
-    expect(config).toMatch(/find:\s*'@brainstrike\/workers'/);
+    expect(config).toMatch(/find:\s*'@brainstrike\/workers'/u);
   });
 
   it('uses a dedicated strict dev-server port for the desktop renderer', () => {

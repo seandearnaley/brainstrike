@@ -5,6 +5,9 @@ import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { ComposerDraftCommand } from '../assistant-ui-panel';
+import { ComposerDraftCommandBridge } from '../composer-draft-command';
+import { LocalConversationPanel } from './local-conversation-panel';
 
 const run = vi.fn(async function* () {
   yield { content: [] };
@@ -16,10 +19,6 @@ vi.mock('../assistant-message-text', () => ({
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
-
-import type { ComposerDraftCommand } from '../assistant-ui-panel';
-import { ComposerDraftCommandBridge } from '../composer-draft-command';
-import { LocalConversationPanel } from './local-conversation-panel';
 
 function renderPanel(
   command: ComposerDraftCommand | undefined,

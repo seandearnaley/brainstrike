@@ -43,7 +43,7 @@ function ProviderTile({ providerId }: { readonly providerId: string }) {
     <span
       aria-hidden="true"
       className={cn(
-        'flex size-6 shrink-0 items-center justify-center rounded-md border bg-background',
+        'bg-background flex size-6 shrink-0 items-center justify-center rounded-md border',
         pair ? 'text-(--provider-light) dark:text-(--provider-dark)' : 'text-muted-foreground'
       )}
       style={style}
@@ -57,8 +57,8 @@ function ProviderTile({ providerId }: { readonly providerId: string }) {
 function EnabledMeter({ enabled, total }: { readonly enabled: number; readonly total: number }) {
   const percent = total === 0 ? 0 : Math.round((enabled / total) * 100);
   return (
-    <span aria-hidden="true" className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-muted">
-      <span className="block h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
+    <span aria-hidden="true" className="bg-muted h-1 w-12 shrink-0 overflow-hidden rounded-full">
+      <span className="bg-primary block h-full rounded-full" style={{ width: `${percent}%` }} />
     </span>
   );
 }
@@ -143,7 +143,7 @@ export function CatalogSection({
       {/* h-11 is SECTION_HEADER_HEIGHT_PX; change both together. */}
       <div
         className={cn(
-          'sticky top-0 flex h-11 items-center gap-3 border-b bg-card px-3',
+          'bg-card sticky top-0 flex h-11 items-center gap-3 border-b px-3',
           STICKY_SECTION_HEADER_LAYER_CLASS
         )}
         data-testid={`model-catalog-section-header-${providerId}`}
@@ -152,7 +152,7 @@ export function CatalogSection({
           <button
             aria-controls={regionId}
             aria-expanded={expanded}
-            className="flex min-w-0 max-w-full items-center gap-2 rounded-md px-1 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="focus-visible:ring-ring/50 flex max-w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left outline-none focus-visible:ring-2"
             data-testid={`model-catalog-section-toggle-${providerId}`}
             onClick={() => onToggleSection(providerId)}
             type="button"
@@ -160,17 +160,17 @@ export function CatalogSection({
             <ChevronRight
               aria-hidden="true"
               className={cn(
-                'size-4 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none',
+                'text-muted-foreground size-4 shrink-0 transition-transform duration-150 motion-reduce:transition-none',
                 expanded && 'rotate-90'
               )}
             />
             <ProviderTile providerId={providerId} />
-            <span className="truncate font-semibold text-sm" title={section.providerName}>
+            <span className="truncate text-sm font-semibold" title={section.providerName}>
               {section.providerName}
             </span>
             {!compact && section.runtimeLabel ? (
               <Badge
-                className="h-5 shrink-0 px-1.5 font-medium text-[10px] uppercase tracking-wide"
+                className="h-5 shrink-0 px-1.5 text-[10px] font-medium tracking-wide uppercase"
                 variant="outline"
               >
                 {section.runtimeLabel}
@@ -182,14 +182,14 @@ export function CatalogSection({
           <EnabledMeter enabled={section.enabledCount} total={section.totalCount} />
         )}
         <span
-          className="shrink-0 text-muted-foreground text-xs tabular-nums"
+          className="text-muted-foreground shrink-0 text-xs tabular-nums"
           data-testid={`model-catalog-section-count-${providerId}`}
         >
-          <span className="font-semibold text-foreground">{section.enabledCount}</span> /{' '}
+          <span className="text-foreground font-semibold">{section.enabledCount}</span> /{' '}
           {section.totalCount} enabled
         </span>
         {filtering ? (
-          <span className="shrink-0 text-muted-foreground text-xs tabular-nums">{shown} shown</span>
+          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{shown} shown</span>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <Button

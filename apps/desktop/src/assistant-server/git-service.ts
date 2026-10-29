@@ -169,7 +169,7 @@ function splitLineRecords(value: string): readonly string[] {
 }
 
 function parseGitVersion(value: string): readonly [number, number, number] | null {
-  const match = /^git version (\d+)\.(\d+)(?:\.(\d+))?/.exec(value);
+  const match = /^git version (\d+)\.(\d+)(?:\.(\d+))?/u.exec(value);
   if (!match) {
     return null;
   }
@@ -194,7 +194,7 @@ export function boundOutput(text: string): { text: string; truncated: boolean } 
 
 /** True when a failed `git` run was a "not a repository" fatal (exit 128). */
 function isNotARepository(run: GitCommandRun): boolean {
-  return /not a git repository/i.test(run.stderr);
+  return /not a git repository/iu.test(run.stderr);
 }
 
 /**
@@ -305,7 +305,7 @@ function applyBranchHeader(line: string, header: BranchHeader): boolean {
   }
   if (line.startsWith('# branch.ab ')) {
     // Format: "+<ahead> -<behind>"
-    const parts = line.slice('# branch.ab '.length).trim().split(/\s+/);
+    const parts = line.slice('# branch.ab '.length).trim().split(/\s+/u);
     const aheadRaw = Number.parseInt((parts[0] ?? '').replace('+', ''), 10);
     const behindRaw = Number.parseInt((parts[1] ?? '').replace('-', ''), 10);
     header.ahead = Number.isNaN(aheadRaw) ? null : aheadRaw;

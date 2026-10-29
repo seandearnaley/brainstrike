@@ -80,7 +80,7 @@ const NOUNS = [
 const NAME_ATTEMPTS = 64;
 
 function normalize(candidate: string): string {
-  return path.normalize(candidate).replaceAll('\\', '/').replace(/\/+$/, '');
+  return path.normalize(candidate).replaceAll('\\', '/').replace(/\/+$/u, '');
 }
 
 /**

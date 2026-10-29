@@ -53,9 +53,9 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
 async function openTerminalPanel(page: Page): Promise<void> {
   // BST-1270: Terminal moved from the nav rail into the workspace '+' menu.
   await page.getByTestId('workspace-add-tab').click({ timeout: 15_000 });
-  await page.getByRole('menuitem', { name: /Terminal/ }).click({ timeout: 15_000 });
+  await page.getByRole('menuitem', { name: /Terminal/u }).click({ timeout: 15_000 });
   await page.getByTestId('terminal-panel').waitFor({ state: 'visible', timeout: 30_000 });
-  await expect(page.getByText(/Loading Terminal/i)).toHaveCount(0, { timeout: 20_000 });
+  await expect(page.getByText(/Loading Terminal/iu)).toHaveCount(0, { timeout: 20_000 });
 }
 
 // Wait for the PTY to be READY before typing — NOT just for xterm to mount. The

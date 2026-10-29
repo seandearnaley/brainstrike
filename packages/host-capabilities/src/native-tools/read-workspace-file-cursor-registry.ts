@@ -3,7 +3,7 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 
 const HANDLE_PREFIX = 'rfh_';
 const HANDLE_RANDOM_BYTES = 16;
-const HANDLE_PATTERN = /^rfh_[A-Za-z0-9_-]{22}$/;
+const HANDLE_PATTERN = /^rfh_[A-Za-z0-9_-]{22}$/u;
 const DEFAULT_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_ENTRIES = 4096;
 const MAX_HANDLE_GENERATION_ATTEMPTS = 3;

@@ -140,10 +140,10 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
       aria-label={ariaLabel}
       className={cn(
         'w-full resize-none transition-[height] duration-150 ease-out',
-        'rounded-md border border-input bg-background px-3 py-2',
-        'text-sm ring-offset-background',
+        'border-input bg-background rounded-md border px-3 py-2',
+        'ring-offset-background text-sm',
         'placeholder:text-muted-foreground',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}

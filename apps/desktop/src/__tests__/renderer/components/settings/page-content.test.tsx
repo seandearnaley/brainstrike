@@ -191,7 +191,7 @@ describe('Desktop SettingsPageContent', () => {
       </ThemeProvider>
     );
 
-    const toolsButton = await screen.findByRole('button', { name: /AI Tools/i });
+    const toolsButton = await screen.findByRole('button', { name: /AI Tools/iu });
     fireEvent.click(toolsButton);
 
     const toolsPane = await screen.findByTestId('settings-category-ai-tools');
@@ -199,7 +199,7 @@ describe('Desktop SettingsPageContent', () => {
     // Should show the unified tools settings with stats (all native tools enabled by default)
     // Use getAllByText since "enabled" appears in both stats bar and group headers
     const enabledElements = await within(toolsPane).findAllByText(
-      new RegExp(`${expectedEnabledCount} enabled`, 'i')
+      new RegExp(`${expectedEnabledCount} enabled`, 'iu')
     );
     expect(enabledElements.length).toBeGreaterThan(0);
     expect(within(toolsPane).queryByTestId('tool-row-skill')).not.toBeInTheDocument();
@@ -216,12 +216,12 @@ describe('Desktop SettingsPageContent', () => {
       </ThemeProvider>
     );
 
-    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
-    fireEvent.click(within(nav).getByRole('button', { name: /^Assistant Memory$/i }));
+    const nav = await screen.findByRole('navigation', { name: /settings categories/iu });
+    fireEvent.click(within(nav).getByRole('button', { name: /^Assistant Memory$/iu }));
     const memoryPane = await screen.findByTestId('settings-category-assistant-memory');
     expect(within(memoryPane).getByTestId('assistant-memory-settings-section')).toBeInTheDocument();
 
-    fireEvent.click(within(nav).getByRole('button', { name: /^Subagents$/i }));
+    fireEvent.click(within(nav).getByRole('button', { name: /^Subagents$/iu }));
     const subagentsPane = await screen.findByTestId('settings-category-subagents');
     expect(within(subagentsPane).getByTestId('subagent-settings-section')).toBeInTheDocument();
   });
@@ -235,13 +235,13 @@ describe('Desktop SettingsPageContent', () => {
       </ThemeProvider>
     );
 
-    const searchbox = await screen.findByRole('searchbox', { name: /Search settings/i });
+    const searchbox = await screen.findByRole('searchbox', { name: /Search settings/iu });
     fireEvent.change(searchbox, { target: { value: 'tools' } });
 
-    expect(await screen.findByRole('button', { name: /AI Tools/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /AI Tools/iu })).toBeInTheDocument();
 
     fireEvent.change(searchbox, { target: { value: 'unknown' } });
-    expect(screen.getByText(/No settings matched "unknown"/i)).toBeInTheDocument();
+    expect(screen.getByText(/No settings matched "unknown"/iu)).toBeInTheDocument();
   });
 
   it('shows Factory Reset category when searching for factory', async () => {
@@ -253,11 +253,11 @@ describe('Desktop SettingsPageContent', () => {
       </ThemeProvider>
     );
 
-    const searchbox = await screen.findByRole('searchbox', { name: /Search settings/i });
+    const searchbox = await screen.findByRole('searchbox', { name: /Search settings/iu });
     fireEvent.change(searchbox, { target: { value: 'factory' } });
 
-    const nav = screen.getByRole('navigation', { name: /settings categories/i });
-    expect(await within(nav).findByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: /settings categories/iu });
+    expect(await within(nav).findByRole('button', { name: /Factory Reset/iu })).toBeInTheDocument();
   });
 
   it('registers Workspace with the live worktree capability status', async () => {
@@ -269,8 +269,8 @@ describe('Desktop SettingsPageContent', () => {
       </ThemeProvider>
     );
 
-    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
-    fireEvent.click(await within(nav).findByRole('button', { name: /^Workspace$/i }));
+    const nav = await screen.findByRole('navigation', { name: /settings categories/iu });
+    fireEvent.click(await within(nav).findByRole('button', { name: /^Workspace$/iu }));
 
     expect(await screen.findByTestId('worktree-settings-unavailable')).toHaveTextContent(
       'Worktrees are a desktop feature'
@@ -287,11 +287,11 @@ describe('Desktop SettingsPageContent', () => {
     );
 
     // BST-1998: nothing has read either control since the assistant server was retired.
-    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
+    const nav = await screen.findByRole('navigation', { name: /settings categories/iu });
     expect(
-      within(nav).queryByRole('button', { name: /^Self-improvement signal$/i })
+      within(nav).queryByRole('button', { name: /^Self-improvement signal$/iu })
     ).not.toBeInTheDocument();
-    const searchbox = screen.getByRole('searchbox', { name: /Search settings/i });
+    const searchbox = screen.getByRole('searchbox', { name: /Search settings/iu });
     for (const query of ['self-improvement', 'enrollment']) {
       fireEvent.change(searchbox, { target: { value: query } });
       expect(screen.getByText(`No settings matched "${query}".`)).toBeInTheDocument();
@@ -307,12 +307,12 @@ describe('Desktop SettingsPageContent', () => {
       </ThemeProvider>
     );
 
-    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
+    const nav = await screen.findByRole('navigation', { name: /settings categories/iu });
     // BST-1358 replaced "API Keys" + "Models & Providers" with one surface.
-    expect(within(nav).queryByRole('button', { name: /^API Keys$/i })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole('button', { name: /^API Keys$/iu })).not.toBeInTheDocument();
 
     // findByRole throws on multiple matches, so this also guards against a duplicate registration.
-    const providersButton = await within(nav).findByRole('button', { name: /^Providers$/i });
+    const providersButton = await within(nav).findByRole('button', { name: /^Providers$/iu });
     fireEvent.click(providersButton);
 
     expect(window.location.hash).toBe('#settings/providers');

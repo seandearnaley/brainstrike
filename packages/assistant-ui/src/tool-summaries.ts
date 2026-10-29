@@ -121,7 +121,7 @@ export function extractPrimaryArg(
 }
 
 function summarizePrimaryArg(value: string, isPathKey: boolean): PrimaryArgSummary {
-  const full = value.replaceAll(/\s+/g, ' ').trim();
+  const full = value.replaceAll(/\s+/gu, ' ').trim();
   // Cut on CODE POINTS, not UTF-16 units — a slice landing inside a
   // surrogate pair would render U+FFFD at the truncation seam. Scans are
   // bounded by the cap so long values never expand into a code-point array.
@@ -133,7 +133,7 @@ function summarizePrimaryArg(value: string, isPathKey: boolean): PrimaryArgSumma
   // users recognize), so path-like values ellipsize in the MIDDLE instead.
   // A path-typed key is authoritative (Windows roots and spaced directories
   // are still paths); the separator heuristic only covers untyped keys.
-  const isPathLike = isPathKey || (!full.includes(' ') && /[/\\]/.test(full));
+  const isPathLike = isPathKey || (!full.includes(' ') && /[/\\]/u.test(full));
   if (isPathLike) {
     const head = full.slice(0, advanceCodePoints(full, PATH_HEAD_LENGTH));
     const tail = full.slice(retreatCodePoints(full, PATH_TAIL_LENGTH));
@@ -154,7 +154,7 @@ const MAX_FAILURE_REASON_LENGTH = 80;
 export function summarizeFailureReason(message: string): PrimaryArgSummary | undefined {
   const line = message
     .split(/\r?\n/u)
-    .map((candidate) => candidate.replaceAll(/\s+/g, ' ').trim())
+    .map((candidate) => candidate.replaceAll(/\s+/gu, ' ').trim())
     .find((candidate) => candidate.length > 0);
   if (!line) {
     return;

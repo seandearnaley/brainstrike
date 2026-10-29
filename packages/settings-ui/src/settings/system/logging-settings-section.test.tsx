@@ -62,14 +62,14 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     render(<LoggingSettingsSection runtime="browser" />);
 
     expect(screen.getByText('Diagnostics Retention')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: /keep events for/i })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: /maximum events/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /purge now/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /keep events for/iu })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /maximum events/iu })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /purge now/iu })).not.toBeInTheDocument();
     expect(
-      screen.getByText(/these limits apply once the local database is available/i)
+      screen.getByText(/these limits apply once the local database is available/iu)
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole('combobox', { name: /keep events for/i }));
+    await user.click(screen.getByRole('combobox', { name: /keep events for/iu }));
     await user.click(screen.getByRole('option', { name: '7 days' }));
 
     await waitFor(() => {
@@ -81,14 +81,14 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     render(<LoggingSettingsSection onPurgeNow={vi.fn(async () => 0)} runtime="browser" />);
 
     expect(screen.getByText('Diagnostics Retention')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /purge now/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /purge now/iu })).toBeInTheDocument();
   });
 
   it('changing the "Keep Events For" select writes maxAgeDays to the store', async () => {
     const user = userEvent.setup();
     render(<LoggingSettingsSection onPurgeNow={vi.fn(async () => 0)} runtime="browser" />);
 
-    await user.click(screen.getByRole('combobox', { name: /keep events for/i }));
+    await user.click(screen.getByRole('combobox', { name: /keep events for/iu }));
     await user.click(screen.getByRole('option', { name: '7 days' }));
 
     await waitFor(() => {
@@ -100,8 +100,8 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const user = userEvent.setup();
     render(<LoggingSettingsSection onPurgeNow={vi.fn(async () => 0)} runtime="browser" />);
 
-    await user.click(screen.getByRole('combobox', { name: /maximum events/i }));
-    await user.click(screen.getByRole('option', { name: /5,?000 events/i }));
+    await user.click(screen.getByRole('combobox', { name: /maximum events/iu }));
+    await user.click(screen.getByRole('option', { name: /5,?000 events/iu }));
 
     await waitFor(() => {
       expect(useDiagnosticsRetentionStore.getState().maxRows).toBe(5000);
@@ -113,7 +113,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const onPurgeNow = vi.fn(async () => 42);
     render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
 
-    await user.click(screen.getByRole('button', { name: /purge now/i }));
+    await user.click(screen.getByRole('button', { name: /purge now/iu }));
 
     await waitFor(() => expect(onPurgeNow).toHaveBeenCalledTimes(1));
     await waitFor(() =>
@@ -133,7 +133,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const onPurgeNow = vi.fn(async () => DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD);
     render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
 
-    await user.click(screen.getByRole('button', { name: /purge now/i }));
+    await user.click(screen.getByRole('button', { name: /purge now/iu }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
@@ -158,7 +158,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const onPurgeNow = vi.fn(async () => belowLimit);
     render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
 
-    await user.click(screen.getByRole('button', { name: /purge now/i }));
+    await user.click(screen.getByRole('button', { name: /purge now/iu }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
@@ -177,7 +177,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     });
     render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
 
-    await user.click(screen.getByRole('button', { name: /purge now/i }));
+    await user.click(screen.getByRole('button', { name: /purge now/iu }));
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
@@ -201,7 +201,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const user = userEvent.setup();
     render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
 
-    const purgeButton = screen.getByRole('button', { name: /purge now/i });
+    const purgeButton = screen.getByRole('button', { name: /purge now/iu });
     expect(purgeButton).not.toBeDisabled();
 
     await user.click(purgeButton);
@@ -225,7 +225,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const user = userEvent.setup();
     render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
 
-    const purgeButton = screen.getByRole('button', { name: /purge now/i });
+    const purgeButton = screen.getByRole('button', { name: /purge now/iu });
     await user.click(purgeButton);
 
     await waitFor(() => expect(purgeButton).toBeDisabled());
@@ -262,8 +262,8 @@ describe('LoggingSettingsSection sink-health banner', () => {
     // The honest-degradation copy (design §4.3): the user must learn that
     // capture STOPPED, not merely that something failed once — an empty
     // Persistent log view otherwise reads as "no errors happened".
-    expect(banner).toHaveTextContent(/stopped/i);
-    expect(banner).toHaveTextContent(/restart/i);
+    expect(banner).toHaveTextContent(/stopped/iu);
+    expect(banner).toHaveTextContent(/restart/iu);
   });
 
   it('renders the banner above the general logging card', () => {

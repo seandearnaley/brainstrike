@@ -78,14 +78,14 @@ describe('NotificationSettingsSection', () => {
       expect(requestPermission).toHaveBeenCalledTimes(1);
     });
     expect(useNotificationPreferencesStore.getState().masterEnabled).toBe(false);
-    expect(screen.getByText(/blocked/i)).not.toBeNull();
+    expect(screen.getByText(/blocked/iu)).not.toBeNull();
   });
 
   it('reflects an already-denied browser permission immediately, without waiting for a toggle', () => {
     stubNotification({ permission: 'denied', requestPermission: vi.fn(async () => 'denied') });
     render(<NotificationSettingsSection />);
 
-    expect(screen.getByText(/blocked/i)).not.toBeNull();
+    expect(screen.getByText(/blocked/iu)).not.toBeNull();
     expect((screen.getByTestId('notifications-master-toggle') as HTMLButtonElement).disabled).toBe(
       true
     );

@@ -67,7 +67,7 @@ export function RewindScopeChoice({
   const filesScopeRefused = filesScope.available === false;
   return (
     <fieldset className="flex flex-col gap-1.5" data-testid="rewind-scope-choice">
-      <legend className="pb-1 font-medium text-xs">What should be restored?</legend>
+      <legend className="pb-1 text-xs font-medium">What should be restored?</legend>
       {SCOPE_OPTIONS.map((option) => {
         const optionRefused = filesScopeRefused && option.mode === 'conversation-and-files';
         return (
@@ -78,7 +78,7 @@ export function RewindScopeChoice({
           >
             <input
               checked={mode === option.mode}
-              className="mt-0.5 accent-primary"
+              className="accent-primary mt-0.5"
               data-testid={option.testId}
               disabled={disabled || optionRefused}
               id={option.testId}
@@ -88,12 +88,12 @@ export function RewindScopeChoice({
               value={option.mode}
             />
             <span className="leading-tight">
-              <span className="font-medium text-foreground">{option.label}</span>
-              <span className="block text-muted-foreground">
+              <span className="text-foreground font-medium">{option.label}</span>
+              <span className="text-muted-foreground block">
                 {option.description[conversation]}
               </span>
               {optionRefused && filesScope.available === false ? (
-                <span className="block text-destructive" data-testid="rewind-files-scope-refusal">
+                <span className="text-destructive block" data-testid="rewind-files-scope-refusal">
                   {filesScope.message}
                 </span>
               ) : null}

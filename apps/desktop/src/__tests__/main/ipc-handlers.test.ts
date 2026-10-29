@@ -65,7 +65,7 @@ describe('IPC Handlers Expected Behavior', () => {
       ];
 
       for (const handler of expectedStorageHandlers) {
-        expect(handler).toMatch(/^storage:/);
+        expect(handler).toMatch(/^storage:/u);
       }
     });
   });
@@ -83,7 +83,7 @@ describe('IPC Handlers Expected Behavior', () => {
       ];
 
       for (const handler of expectedFileSystemHandlers) {
-        expect(handler).toMatch(/^fs:/);
+        expect(handler).toMatch(/^fs:/u);
       }
     });
   });
@@ -139,11 +139,11 @@ describe('IPC Handlers Expected Behavior', () => {
       ];
 
       for (const channel of storageChannels) {
-        expect(channel).toMatch(/^storage:/);
+        expect(channel).toMatch(/^storage:/u);
       }
 
       for (const channel of fileSystemChannels) {
-        expect(channel).toMatch(/^fs:/);
+        expect(channel).toMatch(/^fs:/u);
       }
     });
   });

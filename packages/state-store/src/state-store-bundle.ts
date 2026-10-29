@@ -53,7 +53,7 @@ function checkedBundleSource(bundleRoot: string, path: string): string {
   return source;
 }
 
-const GENERATION_FILE = /^g[0-9]{12}$/;
+const GENERATION_FILE = /^g[0-9]{12}$/u;
 
 /** Per-thread watermarks (max seq) of an exported state DB. */
 function watermarksOf(statePath: string): ExportedThread[] {

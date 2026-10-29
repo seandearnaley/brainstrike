@@ -63,7 +63,7 @@ test('a host run is reviewed in Changes from its turn snapshots, and "Last Turn"
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
   // While the write waits on approval, a change no tool made lands in the workspace.
-  const approve = region.getByRole('button', { name: /^Approve / });
+  const approve = region.getByRole('button', { name: /^Approve /u });
   await expect(approve).toBeVisible({ timeout: 90_000 });
   writeFileSync(path.join(root, 'shell-made.txt'), 'made by a shell\n');
   await approve.click();
@@ -78,7 +78,7 @@ test('a host run is reviewed in Changes from its turn snapshots, and "Last Turn"
 
   // "→ Review" opens the run's changeset: the tool edit and the shell side effect.
   const review = region.getByTestId('changes-review-link');
-  await expect(review).toHaveText(/1 file edit from this turn/, { timeout: 30_000 });
+  await expect(review).toHaveText(/1 file edit from this turn/u, { timeout: 30_000 });
   await review.click();
   const surface = page.getByTestId('changes-surface');
   const tree = surface.getByTestId('changed-files-tree');
@@ -94,7 +94,7 @@ test('a host run is reviewed in Changes from its turn snapshots, and "Last Turn"
   modelProvider.setScript(writeScript('extra.txt', 'extra content\n', SECOND_REPLY));
   await region.getByRole('textbox', { name: 'Message input' }).fill('Add the extra file.');
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
-  const approveSecond = region.getByRole('button', { name: /^Approve / });
+  const approveSecond = region.getByRole('button', { name: /^Approve /u });
   await expect(approveSecond).toBeVisible({ timeout: 90_000 });
   await expect(surface.getByTestId('changed-files-tree-empty')).toBeVisible({ timeout: 30_000 });
   await approveSecond.click();

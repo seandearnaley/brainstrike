@@ -20,7 +20,7 @@ const FRONTMATTER_FENCE = '---';
 /** Parse a SKILL.md file into its YAML frontmatter object and markdown body. */
 export function parseSkillMarkdown(content: string): SkillMarkdownParseResult {
   // Strip a leading UTF-8 BOM so a BOM-prefixed `---` still opens frontmatter.
-  const normalized = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const normalized = content.replace(/^﻿/u, '').replace(/\r\n/gu, '\n');
   const lines = normalized.split('\n');
   if (lines[0] !== FRONTMATTER_FENCE) {
     return {

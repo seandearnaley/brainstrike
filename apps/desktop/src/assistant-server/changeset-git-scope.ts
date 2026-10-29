@@ -155,7 +155,7 @@ async function resolveDefaultBaseRef(invoke: InvokeFn): Promise<GitResult<string
   if (symbolicRun.exitCode === 0) {
     const ref = stripLineEnding(symbolicRun.stdout)
       .trim()
-      .replace(/^refs\/remotes\//, '');
+      .replace(/^refs\/remotes\//u, '');
     if (ref.length > 0) {
       return { ok: true, value: ref };
     }
@@ -223,7 +223,7 @@ async function resolveBranchVsBaseRefs(
 
 function isSafeRevArg(value: unknown): value is string {
   return (
-    typeof value === 'string' && value.length > 0 && !/\s/.test(value) && !value.startsWith('-')
+    typeof value === 'string' && value.length > 0 && !/\s/u.test(value) && !value.startsWith('-')
   );
 }
 

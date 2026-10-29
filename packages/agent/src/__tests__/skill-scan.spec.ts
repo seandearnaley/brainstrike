@@ -239,7 +239,7 @@ describe('scanSkills discovery', () => {
 
       scanSkills(scanInput([ROOT_A, ROOT_B]), deps);
       const warns = records.filter(
-        (record) => record.level === 'warn' && /duplicate skill/i.test(String(record.message))
+        (record) => record.level === 'warn' && /duplicate skill/iu.test(String(record.message))
       );
       expect(warns).toHaveLength(1);
     } finally {
@@ -293,41 +293,43 @@ describe('scanSkills validation (fail closed, visible errors)', () => {
 
   it('rejects a name that does not match the directory name (Agent Skills spec)', () => {
     const entry = invalidEntryFor(skillMd('other-name'), 'my-skill');
-    expect(entry.errors.join('\n')).toMatch(/must match directory name "my-skill"/);
+    expect(entry.errors.join('\n')).toMatch(/must match directory name "my-skill"/u);
   });
 
   it('rejects a missing description', () => {
     const entry = invalidEntryFor('---\nname: my-skill\n---\nBody.');
-    expect(entry.errors.join('\n')).toMatch(/description/i);
+    expect(entry.errors.join('\n')).toMatch(/description/iu);
   });
 
   it('rejects invalid name charset, hyphen placement, and over-long names', () => {
     expect(invalidEntryFor(skillMd('My-Skill'), 'My-Skill').errors.join('\n')).toMatch(
-      /lowercase letters, numbers, and hyphens/
+      /lowercase letters, numbers, and hyphens/u
     );
     expect(invalidEntryFor(skillMd('-my-skill'), '-my-skill').errors.join('\n')).toMatch(
-      /must not start or end with a hyphen/
+      /must not start or end with a hyphen/u
     );
     expect(invalidEntryFor(skillMd('my--skill'), 'my--skill').errors.join('\n')).toMatch(
-      /consecutive hyphens/
+      /consecutive hyphens/u
     );
     const long = 'a'.repeat(65);
-    expect(invalidEntryFor(skillMd(long), long).errors.join('\n')).toMatch(/64 characters or less/);
+    expect(invalidEntryFor(skillMd(long), long).errors.join('\n')).toMatch(
+      /64 characters or less/u
+    );
   });
 
   it('rejects a description over 1024 characters', () => {
     const entry = invalidEntryFor(skillMd('my-skill', 'x'.repeat(1025)));
-    expect(entry.errors.join('\n')).toMatch(/1024 characters or less/);
+    expect(entry.errors.join('\n')).toMatch(/1024 characters or less/u);
   });
 
   it('rejects a non-boolean user-invocable', () => {
     const entry = invalidEntryFor(skillMd('my-skill', 'Fine.', 'user-invocable: nope\n'));
-    expect(entry.errors.join('\n')).toMatch(/user-invocable: Expected boolean/);
+    expect(entry.errors.join('\n')).toMatch(/user-invocable: Expected boolean/u);
   });
 
   it('rejects a SKILL.md without YAML frontmatter', () => {
     const entry = invalidEntryFor('# Just markdown\n\nNo frontmatter here.');
-    expect(entry.errors.join('\n')).toMatch(/frontmatter/i);
+    expect(entry.errors.join('\n')).toMatch(/frontmatter/iu);
   });
 
   it('rejects malformed YAML frontmatter with a visible error', () => {
@@ -337,12 +339,12 @@ describe('scanSkills validation (fail closed, visible errors)', () => {
 
   it('rejects an unterminated frontmatter fence', () => {
     const entry = invalidEntryFor('---\nname: my-skill\ndescription: x\nBody without close.');
-    expect(entry.errors.join('\n')).toMatch(/frontmatter/i);
+    expect(entry.errors.join('\n')).toMatch(/frontmatter/iu);
   });
 
   it('rejects an oversized SKILL.md by character cap with an honest error', () => {
     const entry = invalidEntryFor(skillMd('my-skill', 'Fine.') + 'x'.repeat(MAX_SKILL_FILE_CHARS));
-    expect(entry.errors.join('\n')).toMatch(/exceeds/i);
+    expect(entry.errors.join('\n')).toMatch(/exceeds/iu);
   });
 
   it('reports a reader-rejected oversized file honestly (byte-cap pre-rejection)', () => {
@@ -361,7 +363,7 @@ describe('scanSkills validation (fail closed, visible errors)', () => {
     if (entry?.status !== 'invalid') {
       throw new Error(`expected invalid entry, got ${JSON.stringify(entry)}`);
     }
-    expect(entry.errors.join('\n')).toMatch(/exceeds|oversized/i);
+    expect(entry.errors.join('\n')).toMatch(/exceeds|oversized/iu);
   });
 
   it('reports an unreadable SKILL.md as invalid (never silently absent)', () => {
@@ -392,7 +394,7 @@ describe('scanSkills validation (fail closed, visible errors)', () => {
     if (entry?.status !== 'ok') {
       throw new Error(`expected ok entry, got ${JSON.stringify(entry)}`);
     }
-    expect(entry.skill.warnings.join('\n')).toMatch(/500/);
+    expect(entry.skill.warnings.join('\n')).toMatch(/500/u);
   });
 });
 
@@ -415,7 +417,7 @@ describe('scanSkills bounds', () => {
       const result = scanSkills(scanInput(), makeDeps({ dirs, files }));
       expect(result.skills.length).toBeLessThanOrEqual(MAX_SKILLS);
       const warns = records.filter(
-        (record) => record.level === 'warn' && /cap/i.test(String(record.message))
+        (record) => record.level === 'warn' && /cap/iu.test(String(record.message))
       );
       expect(warns.length).toBe(1);
     } finally {

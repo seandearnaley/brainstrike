@@ -31,19 +31,19 @@ export function ThreadBody({
     >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 bg-radial-[ellipse_70%_55%_at_50%_68%] from-primary/15 to-70% to-transparent dark:from-primary/25 forced-colors:hidden"
+        className="from-primary/15 dark:from-primary/25 pointer-events-none absolute inset-0 -z-10 bg-radial-[ellipse_70%_55%_at_50%_68%] to-transparent to-70% forced-colors:hidden"
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 bg-radial-[ellipse_45%_35%_at_50%_0%] from-[hsl(var(--chart-2)/0.12)] to-70% to-transparent forced-colors:hidden"
+        className="pointer-events-none absolute inset-0 -z-10 bg-radial-[ellipse_45%_35%_at_50%_0%] from-[hsl(var(--chart-2)/0.12)] to-transparent to-70% forced-colors:hidden"
       />
       <div className="flex flex-[1_1_0] flex-col items-center justify-end gap-2 px-6 pt-10 pb-5 text-center motion-safe:animate-[bs-new-thread-rise_320ms_ease-out]">
-        <h2 className="text-balance font-semibold text-2xl tracking-tight">What’s on your mind?</h2>
+        <h2 className="text-2xl font-semibold tracking-tight text-balance">What’s on your mind?</h2>
         <p className="text-muted-foreground text-sm">
           The thread is saved when you send your first message.
         </p>
         {disabledReason ? (
-          <p aria-live="polite" className="max-w-prose text-muted-foreground text-xs">
+          <p aria-live="polite" className="text-muted-foreground max-w-prose text-xs">
             {disabledReason}
           </p>
         ) : null}

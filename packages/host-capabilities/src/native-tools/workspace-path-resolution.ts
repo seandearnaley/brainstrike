@@ -44,7 +44,7 @@ function requestedAbsolutePath(
 ): { normalizedWorkspacePath: string; absolutePath: string } {
   const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
   const relativePath =
-    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
+    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/u, '');
   return { absolutePath: path.resolve(rootPath, relativePath), normalizedWorkspacePath };
 }
 

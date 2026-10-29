@@ -9,7 +9,7 @@ import { installLogViewerDomStubs } from './log-viewer-test-harness';
 
 /** Source, code, time and list limits sit behind the toolbar's Filters toggle. */
 function openFilters(): void {
-  fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Filters/u }));
 }
 
 const clipboardMocks = vi.hoisted(() => ({
@@ -423,7 +423,7 @@ describe('LogViewer', () => {
       expect(screen.getByText('First log')).toBeInTheDocument();
       expect(screen.getByText('Second log')).toBeInTheDocument();
       expect(
-        screen.getByText(/Sources: electron-main 1 .* electron-renderer 1/)
+        screen.getByText(/Sources: electron-main 1 .* electron-renderer 1/u)
       ).toBeInTheDocument();
     });
   });
@@ -542,9 +542,9 @@ describe('LogViewer', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
 
       expect(mockAnchor.download).toMatch(
-        /^brainstrike-logs-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.json$/
+        /^brainstrike-logs-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.json$/u
       );
-      expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/);
+      expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/u);
       expect(anchorClickSpy).toHaveBeenCalledTimes(1);
       // URL-scoped for the same stale-timer reason as the export test above.
       expect(revokeObjectUrlSpy).not.toHaveBeenCalledWith('blob:logs-named');

@@ -125,12 +125,12 @@ describe('settings search for the relocated sections', () => {
     );
 
   const search = (value: string) =>
-    fireEvent.change(screen.getByRole('searchbox', { name: /search settings/i }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: /search settings/iu }), {
       target: { value },
     });
 
   const navButtonNames = (): string[] =>
-    within(screen.getByRole('navigation', { name: /settings categories/i }))
+    within(screen.getByRole('navigation', { name: /settings categories/iu }))
       .getAllByRole('button')
       .map((button) => button.textContent ?? '');
 

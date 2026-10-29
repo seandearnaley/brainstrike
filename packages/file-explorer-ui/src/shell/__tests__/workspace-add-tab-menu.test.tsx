@@ -41,13 +41,13 @@ describe('WorkspaceAddTabMenu', () => {
     const trigger = screen.getByRole('button', { name: 'Add workspace tab' });
     fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, pointerType: 'mouse' });
 
-    const filesItem = screen.getByRole('menuitem', { name: /Files/ });
+    const filesItem = screen.getByRole('menuitem', { name: /Files/u });
     expect(filesItem).toBeInTheDocument();
-    expect(filesItem.textContent).not.toMatch(/⌘P|Ctrl\+P/);
-    const terminalItem = screen.getByRole('menuitem', { name: /Terminal/ });
+    expect(filesItem.textContent).not.toMatch(/⌘P|Ctrl\+P/u);
+    const terminalItem = screen.getByRole('menuitem', { name: /Terminal/u });
     expect(terminalItem).toBeInTheDocument();
     // Shortcut chips render through the shared platform-aware formatter.
-    expect(terminalItem.textContent).toMatch(/⌘T|Ctrl\+T/);
+    expect(terminalItem.textContent).toMatch(/⌘T|Ctrl\+T/u);
   });
 
   it('activates the picked app (open-or-focus singleton contract)', () => {
@@ -66,7 +66,7 @@ describe('WorkspaceAddTabMenu', () => {
       pointerId: 1,
       pointerType: 'mouse',
     });
-    fireEvent.click(screen.getByRole('menuitem', { name: /Terminal/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Terminal/u }));
 
     expect(onOpenApp).toHaveBeenCalledExactlyOnceWith(TERMINAL_APP_ID);
   });

@@ -99,7 +99,7 @@ test('the settled run renders one collapsed group naming every step, then the re
   expect(screen.queryByTestId('local-chain-of-thought')).not.toBeInTheDocument();
   // The gap before each `·` segment is CSS, not text.
   expect(within(group).getByTestId('assistant-activity-summary')).toHaveTextContent(
-    new RegExp(`^Found files, searched, read 12 files\\s*· ${calls} steps$`)
+    new RegExp(`^Found files, searched, read 12 files\\s*· ${calls} steps$`, 'u')
   );
   expect(await screen.findByText('The siphon tour is complete.')).toBeInTheDocument();
 });

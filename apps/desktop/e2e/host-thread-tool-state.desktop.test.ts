@@ -131,7 +131,7 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
     // The task list is a read-risk action; the canvas write pauses under the default `edit: ask`.
-    const approve = region.getByRole('button', { name: /^Approve / });
+    const approve = region.getByRole('button', { name: /^Approve /u });
     await expect(approve).toBeVisible({ timeout: 90_000 });
     await approve.click();
     await expect(region.getByText(REPLY)).toBeVisible({ timeout: 90_000 });
@@ -175,7 +175,7 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     await expect(actions).toHaveCount(1, { timeout: 30_000 });
     await actions.click();
     await page.getByRole('button', { exact: true, name: 'Delete…' }).click();
-    await page.getByRole('button', { name: /^Confirm delete thread / }).click();
+    await page.getByRole('button', { name: /^Confirm delete thread /u }).click();
     await expect(actions).toHaveCount(0, { timeout: 30_000 });
 
     // The deleted thread's committed tool state went with it; the new thread remains.

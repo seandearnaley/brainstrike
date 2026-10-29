@@ -36,7 +36,7 @@ function collectGuardedSourceFiles(): string[] {
 describe('app-state indexing boundary', () => {
   it('uses indexing contracts for chunking settings instead of text splitter implementation', () => {
     const forbiddenImportPattern =
-      /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/text-splitter(?:\/|['"])/;
+      /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/text-splitter(?:\/|['"])/u;
     const sourceFiles = collectGuardedSourceFiles();
 
     expect(sourceFiles.length).toBeGreaterThanOrEqual(90);
@@ -45,7 +45,7 @@ describe('app-state indexing boundary', () => {
 
   it('uses indexing contracts for embedding provider metadata instead of embeddings internals', () => {
     const forbiddenImportPattern =
-      /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/embeddings\/provider-core(?:\/|['"])/;
+      /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/embeddings\/provider-core(?:\/|['"])/u;
     const sourceFiles = collectGuardedSourceFiles();
 
     expect(sourceFiles.length).toBeGreaterThanOrEqual(90);
@@ -72,7 +72,7 @@ describe('app-state indexing boundary', () => {
 
     expect(
       findSyntheticViolations(
-        /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/text-splitter(?:\/|['"])/
+        /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/text-splitter(?:\/|['"])/u
       )
     ).toEqual([path.relative(APP_STATE_SRC_ROOT, controlFile)]);
 
@@ -82,7 +82,7 @@ describe('app-state indexing boundary', () => {
     );
     expect(
       findSyntheticViolations(
-        /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/embeddings\/provider-core(?:\/|['"])/
+        /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/embeddings\/provider-core(?:\/|['"])/u
       )
     ).toEqual([path.relative(APP_STATE_SRC_ROOT, controlFile)]);
   });

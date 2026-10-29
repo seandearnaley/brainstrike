@@ -16,7 +16,7 @@ import {
 const SLASH_CHAR_CODE = 47;
 
 export function toSlashPath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/\/+$/u, '');
+  return value.replace(/\\/gu, '/').replace(/\/+$/u, '');
 }
 
 export function joinRootRelativePath(rootPath: string, relativePath: string): string {
@@ -74,13 +74,13 @@ export function* iterRelativePathSegments(path: string): IterableIterator<string
 }
 
 export function getParentRelativePath(relativePath: string): string | null {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/\/+$/u, '');
+  const normalized = relativePath.replace(/\\/gu, '/').replace(/\/+$/u, '');
   const separatorIndex = normalized.lastIndexOf('/');
   return separatorIndex === -1 ? null : normalized.slice(0, separatorIndex);
 }
 
 export function normalizeScopedChangePath(change: FileSystemChange, rootPath: string): string {
-  const normalizedPath = change.path.replace(/\\/g, '/');
+  const normalizedPath = change.path.replace(/\\/gu, '/');
   const normalizedRoot = toSlashPath(rootPath);
   if (isAbsoluteFileSystemPath(normalizedPath)) {
     const pathLower = normalizedPath.toLowerCase();
@@ -95,7 +95,7 @@ export function normalizeScopedChangePath(change: FileSystemChange, rootPath: st
 }
 
 export function isRootSelfPath(path: string, rootPath: string): boolean {
-  return toSlashPath(path.replace(/\\/g, '/')) === toSlashPath(rootPath);
+  return toSlashPath(path.replace(/\\/gu, '/')) === toSlashPath(rootPath);
 }
 
 export function isUnderRelativePrefix(path: string, prefix: string): boolean {
@@ -121,7 +121,7 @@ export function isUnderRelativePrefix(path: string, prefix: string): boolean {
  */
 export function toRootAnchoredPath(rootPath: string, cacheRelativePath: string): string {
   const normalizedRoot = toSlashPath(rootPath);
-  const normalized = toSlashPath(cacheRelativePath.replace(/\\/g, '/'));
+  const normalized = toSlashPath(cacheRelativePath.replace(/\\/gu, '/'));
   if (normalized === normalizedRoot || normalized.startsWith(`${normalizedRoot}/`)) {
     return normalized;
   }
@@ -135,7 +135,7 @@ export function toRootAnchoredPath(rootPath: string, cacheRelativePath: string):
  */
 export function toRootRelativePath(rootPath: string, nodePath: string): string {
   const normalizedRoot = toSlashPath(rootPath);
-  const normalized = toSlashPath(nodePath.replace(/\\/g, '/'));
+  const normalized = toSlashPath(nodePath.replace(/\\/gu, '/'));
   if (normalized === normalizedRoot) {
     return '';
   }
@@ -155,7 +155,7 @@ export function toTruncatedRelativePrefixes(
 ): string[] {
   const prefixes = new Set<string>();
   for (const path of truncatedDirectoryPaths) {
-    if (toSlashPath(path.replace(/\\/g, '/')) === toSlashPath(rootPath)) {
+    if (toSlashPath(path.replace(/\\/gu, '/')) === toSlashPath(rootPath)) {
       prefixes.add('');
       continue;
     }

@@ -205,7 +205,7 @@ function MultiSelectField(props: FieldProps) {
       data-testid={`mcp-elicitation-field-${name}`}
       disabled={disabled}
     >
-      <legend className="font-medium text-sm">{chrome.label}</legend>
+      <legend className="text-sm font-medium">{chrome.label}</legend>
       {chrome.description}
       <div className="space-y-1">
         {readMcpElicitationFieldOptions(schema).map((option) => {
@@ -412,7 +412,7 @@ export function McpElicitationDialog({
             </DialogTitle>
             <DialogDescription>{describeProvenance(presentation.provenance)}</DialogDescription>
           </DialogHeader>
-          <p className="whitespace-pre-wrap text-sm" id={summaryId}>
+          <p className="text-sm whitespace-pre-wrap" id={summaryId}>
             {presentation.message}
           </p>
           {presentation.mode === 'url' ? (
@@ -422,7 +422,7 @@ export function McpElicitationDialog({
                 accept; declining or cancelling never opens it.
               </p>
               <code
-                className="block break-all rounded-md border bg-muted px-3 py-2 font-mono text-xs"
+                className="bg-muted block rounded-md border px-3 py-2 font-mono text-xs break-all"
                 data-testid="mcp-elicitation-url"
               >
                 {presentation.url}

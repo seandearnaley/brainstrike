@@ -125,7 +125,7 @@ export function ExplorerContextExportAction(): ReactElement {
       </PopoverTrigger>
       <PopoverContent align="end" className="flex w-72 flex-col gap-3" side="top">
         <div className="flex flex-col gap-0.5">
-          <p className="font-medium text-sm">Export the contents of {files}</p>
+          <p className="text-sm font-medium">Export the contents of {files}</p>
           {tokenTotal ? (
             <p className="text-muted-foreground text-xs" data-testid="explorer-export-tokens">
               {tokenTotal.pending > 0
@@ -166,7 +166,7 @@ export function ExplorerContextExportAction(): ReactElement {
                 Tree detail:
               </Label>
               <input
-                className="h-7 w-14 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="border-input bg-background focus-visible:ring-ring h-7 w-14 rounded-md border px-1.5 text-center text-sm tabular-nums focus-visible:ring-2 focus-visible:outline-none"
                 id={treeDetailId}
                 min="0"
                 onChange={(event) => {

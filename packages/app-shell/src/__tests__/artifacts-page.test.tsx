@@ -173,7 +173,7 @@ describe('ArtifactsPage', () => {
     renderPage(createHost({ artifacts: artifacts(async () => LISTED) }));
     await screen.findByRole('list', { name: 'Artifacts' });
 
-    fireEvent.click(screen.getByRole('button', { name: /^Lisbon itinerary/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Lisbon itinerary/u }));
 
     expect(open).toHaveBeenCalledWith(
       WORKSPACE_MEMORY_RESOURCE_ID,
@@ -202,7 +202,7 @@ describe('ArtifactsPage', () => {
         });
       });
       const [file] = saveToDownloads.mock.calls[0] ?? [];
-      expect(file?.filename).toMatch(/^Revenue-chart.*v2\.html$/);
+      expect(file?.filename).toMatch(/^Revenue-chart.*v2\.html$/u);
       expect(new TextDecoder().decode(file?.bytes)).toBe(
         '<!doctype html>\n<meta charset="utf-8">\n<h1>chart in thread-sales</h1>'
       );

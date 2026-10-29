@@ -1,4 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __resetMcpAppSessionPolicyForTests,
+  installMcpAppSessionPolicy,
+  isMcpAppSandboxDownload,
+  isSandboxedFramePermissionRequest,
+  type McpAppSessionFrame,
+} from '../../mcp/apps-session-policy';
 
 vi.mock('electron', () => ({
   protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
@@ -8,14 +15,6 @@ const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('@brainstrike/logging', () => ({
   createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn }),
 }));
-
-import {
-  __resetMcpAppSessionPolicyForTests,
-  installMcpAppSessionPolicy,
-  isMcpAppSandboxDownload,
-  isSandboxedFramePermissionRequest,
-  type McpAppSessionFrame,
-} from '../../mcp/apps-session-policy';
 
 const TOKEN = 'a'.repeat(32);
 const SHELL = `brainstrike-mcp-app://${TOKEN}/`;

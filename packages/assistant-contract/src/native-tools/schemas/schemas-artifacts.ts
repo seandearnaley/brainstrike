@@ -43,6 +43,7 @@ export function requireSearchPatternForFlags(input: {
   }
   // Syntax only; execution retains its separate ReDoS-shape safety guard.
   try {
+    // biome-ignore lint/style/useUnicodeRegex: a user-written pattern keeps the non-unicode syntax people type, such as `\-`.
     new RegExp(input.pattern);
     return [];
   } catch {

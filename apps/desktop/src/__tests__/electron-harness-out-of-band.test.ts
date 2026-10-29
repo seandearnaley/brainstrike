@@ -118,7 +118,7 @@ describe('ElectronHarness.endOutOfBand', () => {
 
     expect(thrown).toBeInstanceOf(AggregateError);
     expect((thrown as AggregateError).errors).toEqual([failure, reapFailure]);
-    expect((thrown as AggregateError).message).toMatch(/could not be reaped/);
+    expect((thrown as AggregateError).message).toMatch(/could not be reaped/u);
     // The process may still be alive, so the harness keeps it: the fixture's teardown then tries
     // the graceful close again, and nothing launches a second app over its userData meanwhile.
     await harness.ensureContext();
@@ -181,7 +181,7 @@ describe('ElectronHarness.endOutOfBand', () => {
     const harness = createHarness();
     const electronProcess = await launchedProcess(harness);
 
-    await expect(harness.endOutOfBand(async () => undefined)).rejects.toThrow(/still running/);
+    await expect(harness.endOutOfBand(async () => undefined)).rejects.toThrow(/still running/u);
 
     expect(electronProcess.kill).toHaveBeenCalledExactlyOnceWith('SIGTERM');
   });

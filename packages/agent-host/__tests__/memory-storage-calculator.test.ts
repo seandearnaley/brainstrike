@@ -138,6 +138,6 @@ test('native runtime capabilities remain out of persisted data and owner crossin
       operation: 'native',
       resourceId: 'resource',
     })
-  ).rejects.toThrow(/resource owner/);
-  expect(() => encodeMemory({ metadata: { runtime: () => undefined } })).toThrow(/data-only/);
+  ).rejects.toThrow(/resource owner/u);
+  expect(() => encodeMemory({ metadata: { runtime: () => undefined } })).toThrow(/data-only/u);
 });

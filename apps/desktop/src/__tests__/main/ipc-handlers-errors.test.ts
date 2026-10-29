@@ -3,19 +3,18 @@ import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electro
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
-
-vi.mock('electron', async () => ({
-  ...(await import('../ipc-domains/file-system-ipc-test-harness')).electronMock,
-  app: { getPath: vi.fn(() => '/Users/test/Documents') },
-}));
-
 import { registerIpcHandlers } from '../../ipc-handlers';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   capabilityHandler,
   getRootsCatalog,
   resetRootsCatalog,
 } from '../ipc-domains/file-system-ipc-test-harness';
+
+vi.mock('electron', async () => ({
+  ...(await import('../ipc-domains/file-system-ipc-test-harness')).electronMock,
+  app: { getPath: vi.fn(() => '/Users/test/Documents') },
+}));
 
 async function expectCorrelatedStorageFault(run: () => unknown, original: Error): Promise<void> {
   const records: LogRecord[] = [];

@@ -85,11 +85,11 @@ function withEditedLines({ insertedText, ...result }: LocatedReplacement): Strin
 
 function removeWhitespace(str: string): string {
   return str
-    .replace(/\t/g, '') // tabs to spaces
-    .replace(/ +/g, '') // collapse multiple spaces
-    .replace(/^ +| +$/gm, '') // trim each line
-    .replace(/\r?\n/g, '\n')
-    .replace(/\s/g, '');
+    .replace(/\t/gu, '') // tabs to spaces
+    .replace(/ +/gu, '') // collapse multiple spaces
+    .replace(/^ +| +$/gmu, '') // trim each line
+    .replace(/\r?\n/gu, '\n')
+    .replace(/\s/gu, '');
 }
 
 function removeVaryingChars(str: string): string {
@@ -107,7 +107,7 @@ function removeVaryingChars(str: string): string {
 function removeLeadingLineNumbers(str: string): string {
   return str
     .split('\n')
-    .map((line) => line.replace(/^\s*\d+\s*/, ''))
+    .map((line) => line.replace(/^\s*\d+\s*/u, ''))
     .join('\n');
 }
 
@@ -214,7 +214,7 @@ function tryWhitespaceNormalizedMatch(
   oldStr: string,
   newStr: string
 ): LocatedReplacement | undefined {
-  const normalizeWhitespace = (str: string): string => str.replace(/\s+/g, ' ').trim();
+  const normalizeWhitespace = (str: string): string => str.replace(/\s+/gu, ' ').trim();
   const normalizedOldStr = normalizeWhitespace(oldStr);
   const normalizedContent = normalizeWhitespace(fileContent);
   if (!normalizedContent.includes(normalizedOldStr)) {

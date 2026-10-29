@@ -1,13 +1,12 @@
 import { render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TabChordHost } from '../tab-chord-host';
+import { registerTabChordStrip } from '../tab-chord-registry';
 
 vi.mock('@brainstrike/ui', () => ({
   isMacPlatform: () => true,
   useToast: () => ({ toast: vi.fn() }),
 }));
-
-import { TabChordHost } from '../tab-chord-host';
-import { registerTabChordStrip } from '../tab-chord-registry';
 
 /** `Reflect` because the window typings already declare a narrower `desktopLifecycle`. */
 function setLifecycleBridge(bridge: unknown): void {

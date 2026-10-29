@@ -77,11 +77,11 @@ function GroupHeaderCell<T>({
         </Button>
 
         {/* Group icon */}
-        <Layers className="ml-1.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <Layers className="text-muted-foreground ml-1.5 h-4 w-4 flex-shrink-0" />
 
         {/* Group label and item count */}
-        <span className="ml-1.5 font-semibold text-sm">{node.data.groupLabel}</span>
-        <span className="ml-1 text-muted-foreground text-xs">({node.data.itemCount})</span>
+        <span className="ml-1.5 text-sm font-semibold">{node.data.groupLabel}</span>
+        <span className="text-muted-foreground ml-1 text-xs">({node.data.itemCount})</span>
       </div>
     </TableCell>
   );
@@ -201,8 +201,8 @@ function TreeTableRowInner<T>({
         isGroupHeader && 'bg-muted/50',
         isSelected && !isGroupHeader && 'bg-accent',
         isHighlighted && !isSelected && !isGroupHeader && 'bg-yellow-50 dark:bg-yellow-950/20',
-        isInContext && !isSelected && !isHighlighted && 'border-l-2 border-l-primary/60',
-        'outline-none focus-visible:outline-2 focus-visible:outline-foreground/50 focus-visible:outline-solid focus-visible:-outline-offset-2',
+        isInContext && !isSelected && !isHighlighted && 'border-l-primary/60 border-l-2',
+        'focus-visible:outline-foreground/50 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid',
         !matchesFilter && 'opacity-50',
         className
       )}
@@ -460,7 +460,7 @@ function TreeTableCellComponent<T>({
           {isInContext && (
             <span
               aria-label="In context"
-              className="ml-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-primary/70"
+              className="bg-primary/70 ml-1.5 h-2 w-2 flex-shrink-0 rounded-full"
               role="img"
               title="In context"
             />

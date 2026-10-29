@@ -66,7 +66,7 @@ it('shows a background child’s answered approval in its delegation card, owner
     'Falcon-a53dd3'
   );
   expect(within(notice).getByTestId('approval-row-status')).toHaveTextContent('Approved');
-  await user.click(within(notice).getByRole('button', { name: /show approval details/i }));
+  await user.click(within(notice).getByRole('button', { name: /show approval details/iu }));
   expect(notice).toHaveTextContent("printf 'started' > started-first.txt");
   expect(
     within(notice).queryByRole('button', { name: 'Approve brainstrike.executeCommand' })

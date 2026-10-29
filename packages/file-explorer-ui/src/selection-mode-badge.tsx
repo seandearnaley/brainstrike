@@ -58,15 +58,15 @@ const SelectionSettingsPanel = ({
 }: SelectionSettingsPanelProps) => (
   <div className="space-y-4">
     <div className="space-y-1">
-      <h4 className="font-medium text-sm">Selection Settings</h4>
+      <h4 className="text-sm font-medium">Selection Settings</h4>
       <p className="text-muted-foreground text-xs">Tune bulk selection limits.</p>
     </div>
 
     {typeof maxSelectionCount === 'number' && (
       <div className="space-y-3 border-t pt-3">
         <div className="space-y-1">
-          <p className="font-medium text-xs">Selection Cap</p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs font-medium">Selection Cap</p>
+          <p className="text-muted-foreground text-[11px]">
             Limit how many files bulk actions can select at once.
           </p>
         </div>
@@ -112,13 +112,13 @@ const SelectionSettingsPanel = ({
         </div>
 
         {error && (
-          <p aria-live="polite" className="text-[11px] text-destructive" role="alert">
+          <p aria-live="polite" className="text-destructive text-[11px]" role="alert">
             {error}
           </p>
         )}
 
         <div className="space-y-1.5">
-          <span className="text-[11px] text-muted-foreground">Quick presets</span>
+          <span className="text-muted-foreground text-[11px]">Quick presets</span>
           <div className="grid grid-cols-4 gap-1.5">
             {SELECTION_PRESETS.map((preset) => (
               <Button
@@ -239,7 +239,7 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
                   size="icon-xs"
                   variant="outline"
                 >
-                  <Settings2 className={cn('size-3.5', compactValue && '@[72px]:block hidden')} />
+                  <Settings2 className={cn('size-3.5', compactValue && 'hidden @[72px]:block')} />
                   {compactValue && (
                     <span className="@[72px]:hidden" data-testid="selection-compact-count">
                       {compactValue.label}
@@ -248,7 +248,7 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
                 </Button>
               ) : (
                 <Badge
-                  className="flex h-7 cursor-pointer items-center gap-1 px-2 transition-colors hover:bg-accent"
+                  className="hover:bg-accent flex h-7 cursor-pointer items-center gap-1 px-2 transition-colors"
                   data-testid="selection-mode-badge"
                   variant="outline"
                 >

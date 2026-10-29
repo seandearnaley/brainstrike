@@ -121,14 +121,14 @@ export function DiagnosticsStatusItem() {
       </span>
       <button
         aria-label={display.ariaLabel}
-        className="flex h-7 shrink-0 cursor-pointer items-center overflow-hidden whitespace-nowrap rounded-sm px-1.5 text-left transition-[background-color,color] duration-150 hover:bg-accent/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+        className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 shrink-0 cursor-pointer items-center overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-none focus-visible:ring-inset"
         data-testid="diagnostics-status-trigger"
         onClick={handleClick}
         type="button"
       >
         <span
           aria-hidden="true"
-          className={`flex items-center gap-1.5 whitespace-nowrap font-medium ${WARNING_TONE_CLASSNAME}`}
+          className={`flex items-center gap-1.5 font-medium whitespace-nowrap ${WARNING_TONE_CLASSNAME}`}
           data-testid="diagnostics-status-item"
         >
           {display.visibleLabel}

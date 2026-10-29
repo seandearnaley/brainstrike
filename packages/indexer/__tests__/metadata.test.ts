@@ -34,7 +34,7 @@ it.each([readIndexIdentity, readIndexSchemaVersion, readScopeEpoch, validateScop
       expect(failure.code).toBe('rebuild-required');
       expect(Object.getOwnPropertyDescriptor(failure, 'cause')?.enumerable).toBe(false);
       expect(fault(failure)).toEqual({ code: 'rebuild-required', message: failure.message });
-      expect(JSON.stringify(fault(failure))).not.toMatch(/PRIVATE|cause|stack/);
+      expect(JSON.stringify(fault(failure))).not.toMatch(/PRIVATE|cause|stack/u);
     } finally {
       db.close();
     }

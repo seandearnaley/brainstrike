@@ -32,13 +32,13 @@ const getNavItemStyles = (isActive: boolean): string =>
     // Active press state
     'kinetic-depress',
     // Focus visible state for keyboard navigation
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
+    'focus-visible:ring-sidebar-ring focus-visible:ring-offset-sidebar focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
     // Active/selected state styling - prominent background for clear indication
     isActive && [
       'bg-accent text-accent-foreground',
       // Left border indicator for vertical tab effect
       'before:absolute before:top-1/2 before:left-0 before:-translate-y-1/2',
-      'before:h-6 before:w-1 before:rounded-r-full before:bg-sidebar-primary',
+      'before:bg-sidebar-primary before:h-6 before:w-1 before:rounded-r-full',
       'shadow-md',
     ]
   );
@@ -56,7 +56,7 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
     <nav
       aria-label={ariaLabel || 'Main navigation'}
       className={cn(
-        'flex h-full w-16 flex-col items-center gap-2 border-sidebar-border border-r bg-sidebar py-4',
+        'border-sidebar-border bg-sidebar flex h-full w-16 flex-col items-center gap-2 border-r py-4',
         className
       )}
       {...props}

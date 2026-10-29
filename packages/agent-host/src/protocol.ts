@@ -372,7 +372,7 @@ const HookRoot = { rootId: Id };
  */
 export const HostHookTrustSchema = Schema.Struct({
   path: Schema.String.check(Schema.isMinCodePoints(1)),
-  sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+  sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
 });
 export type HostHookTrust = (typeof HostHookTrustSchema)['Type'];
 export const HOST_METHOD_SCHEMAS = {
@@ -416,7 +416,7 @@ export const HOST_METHOD_SCHEMAS = {
     protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
     // Only a socket client authenticates with a token; a client bound to a
     // transport its launcher handed over is authorized by holding it.
-    token: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
+    token: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u))),
   }),
   'interaction/respond': Schema.Struct({
     ...Command,
@@ -838,13 +838,13 @@ export function hostEventSchema(json: JsonSchemaFactory) {
             Schema.Union([
               Schema.Struct({
                 kind: Schema.Literal('prune'),
-                markerText: Schema.String.check(Schema.isPattern(/\S/)),
+                markerText: Schema.String.check(Schema.isPattern(/\S/u)),
                 supersededByToolCallId: Schema.Null,
                 toolCallId: Id,
               }),
               Schema.Struct({
                 kind: Schema.Literal('supersession'),
-                markerText: Schema.String.check(Schema.isPattern(/\S/)),
+                markerText: Schema.String.check(Schema.isPattern(/\S/u)),
                 supersededByToolCallId: Id,
                 toolCallId: Id,
               }),

@@ -70,7 +70,7 @@ describe('SystemDiagnosticsPanel token indexer telemetry', () => {
     expect(screen.getByTestId('token-indexer-error-count')).toHaveTextContent('1 error');
     expect(screen.getByText('300 tokens')).toBeInTheDocument();
     expect(container.innerHTML).not.toMatch(
-      /secret-key|private-folder|private\/secret|secret indexing/
+      /secret-key|private-folder|private\/secret|secret indexing/u
     );
   });
 

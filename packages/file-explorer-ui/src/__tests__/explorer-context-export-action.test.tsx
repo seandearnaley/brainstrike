@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ExplorerContextExportAction } from '../shell/explorer-context-export-action';
+import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 
 const state = vi.hoisted(() => ({
   copy: vi.fn(async () => ({ ok: true as const })),
@@ -51,9 +53,6 @@ vi.mock('../shell/use-context-export-actions', () => ({
     return { handleCopyContext: state.copy, handleDownloadContext: state.download };
   },
 }));
-
-import { ExplorerContextExportAction } from '../shell/explorer-context-export-action';
-import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 
 beforeEach(() => {
   // Query mode on the focused root: its own set leaves out the other root's file.

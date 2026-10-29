@@ -19,39 +19,39 @@ const EXPECTED_READ_ERROR_CODES = new Set(['EACCES', 'EISDIR', 'ENOENT', 'ENOTDI
 const SECRET_RULES = [
   {
     id: 'private-key',
-    pattern: /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/g,
+    pattern: /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/gu,
   },
   {
     id: 'openai-api-key',
-    pattern: /\bsk-(?:(?:proj|svcacct)-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,})\b/g,
+    pattern: /\bsk-(?:(?:proj|svcacct)-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,})\b/gu,
   },
   {
     id: 'openrouter-api-key',
-    pattern: /\bsk-or-v1-[A-Fa-f0-9]{64}\b/g,
+    pattern: /\bsk-or-v1-[A-Fa-f0-9]{64}\b/gu,
   },
   {
     id: 'anthropic-api-key',
-    pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g,
+    pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/gu,
   },
   {
     id: 'aws-access-key-id',
-    pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
+    pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/gu,
   },
   {
     id: 'github-token',
-    pattern: /\b(?:github_pat_[A-Za-z0-9_]{82,}|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,})\b/g,
+    pattern: /\b(?:github_pat_[A-Za-z0-9_]{82,}|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,})\b/gu,
   },
   {
     id: 'hugging-face-token',
-    pattern: /\bhf_[A-Za-z0-9]{30,}\b/g,
+    pattern: /\bhf_[A-Za-z0-9]{30,}\b/gu,
   },
   {
     id: 'slack-token',
-    pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
+    pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/gu,
   },
   {
     id: 'google-api-key',
-    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/gu,
   },
 ];
 
@@ -133,11 +133,11 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH) {
 
 function globToRegExp(pattern) {
   const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/[.+^${}()|[\]\\]/gu, '\\$&')
     .replaceAll('**', '::DOUBLE_STAR::')
     .replaceAll('*', '[^/]*')
     .replaceAll('::DOUBLE_STAR::', '.*');
-  return new RegExp(`^${escaped}$`);
+  return new RegExp(`^${escaped}$`, 'u');
 }
 
 function isExcluded(filePath, config) {

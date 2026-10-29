@@ -14,19 +14,6 @@
  */
 import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const loggerErrorSpy = vi.hoisted(() => vi.fn());
-vi.mock('@brainstrike/logging', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
-  return {
-    ...actual,
-    createLogger: (...args: Parameters<typeof actual.createLogger>) => {
-      const real = actual.createLogger(...args);
-      return { ...real, error: loggerErrorSpy };
-    },
-  };
-});
-
 import { GIT_INVENTORY_SNAPSHOT_TTL_MS } from '../../assistant-server/git-inventory-service';
 import {
   GIT_INVENTORY_WATCH_BATCH_MS,
@@ -40,6 +27,18 @@ import {
   makeWorktreeListRunner,
   requireRelease,
 } from './git-inventory-service-test-support';
+
+const loggerErrorSpy = vi.hoisted(() => vi.fn());
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: (...args: Parameters<typeof actual.createLogger>) => {
+      const real = actual.createLogger(...args);
+      return { ...real, error: loggerErrorSpy };
+    },
+  };
+});
 
 afterEach(async () => {
   await cleanupTempDirs();
@@ -271,7 +270,7 @@ describe('createGitInventoryService', () => {
 
       service.start();
       await service.getSnapshot();
-      expect(() => service.start()).toThrow(/already started/);
+      expect(() => service.start()).toThrow(/already started/u);
     });
   });
 
@@ -387,7 +386,7 @@ describe('createGitInventoryService', () => {
       // ADR-0026 R4: stop() joins the build (it ignores its abort here), and
       // restart must first join retirement of that lifecycle's watchers.
       const stopPromise = service.stop();
-      expect(() => service.start()).toThrow(/retirement/i);
+      expect(() => service.start()).toThrow(/retirement/iu);
       requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
       await stopPromise;
       service.start();
@@ -424,7 +423,7 @@ describe('createGitInventoryService', () => {
 
       service.start(); // build A begins, blocked
       const stopPromise = service.stop(); // generation -> 1 synchronously
-      expect(() => service.start()).toThrow(/retirement/i);
+      expect(() => service.start()).toThrow(/retirement/iu);
       // Build A (ONE repo) finishes while stop() joins it. Without a generation
       // check gating the sync() call specifically (not just the cache write),
       // it would call `watchers.sync([commonDir])` on the retained generation-0
@@ -597,7 +596,7 @@ describe('createGitInventoryService', () => {
           watchDirectory: fake.watchDirectory,
         });
 
-        await expect(service.getSnapshot({ maxAgeMs })).rejects.toThrow(/invalid maxAgeMs/);
+        await expect(service.getSnapshot({ maxAgeMs })).rejects.toThrow(/invalid maxAgeMs/u);
       }
     );
 

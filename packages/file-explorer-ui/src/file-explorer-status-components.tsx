@@ -36,22 +36,22 @@ const FilterChip = React.memo(
       <Tooltip>
         <TooltipTrigger
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium text-xs',
+            'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
             'transition-colors duration-150',
             // Include filters: primary style (active)
             variant === 'include' && 'bg-primary text-primary-foreground',
             // Exclude filters: dark outline with ring in dark mode, muted in light
             variant === 'exclude' &&
-              'bg-muted text-muted-foreground ring-1 ring-border ring-inset dark:bg-background dark:ring-muted-foreground/50',
+              'bg-muted text-muted-foreground ring-border dark:bg-background dark:ring-muted-foreground/50 ring-1 ring-inset',
             // Search/quick filter: outline style
             variant === 'search' &&
-              'bg-muted/50 text-muted-foreground ring-1 ring-border ring-inset',
+              'bg-muted/50 text-muted-foreground ring-border ring-1 ring-inset',
             // Regex mode indicator
             variant === 'regex' && 'bg-secondary text-secondary-foreground',
             // Disabled state: reduced opacity and strikethrough
             disabled && 'opacity-50',
             // Interactive state for toggleable chips
-            isToggleable ? 'cursor-pointer hover:ring-2 hover:ring-primary/50' : 'cursor-help'
+            isToggleable ? 'hover:ring-primary/50 cursor-pointer hover:ring-2' : 'cursor-help'
           )}
           onClick={onToggle}
           type="button"

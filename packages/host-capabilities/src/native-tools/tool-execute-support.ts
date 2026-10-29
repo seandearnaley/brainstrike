@@ -79,7 +79,7 @@ export function parseToolExecuteInput<T>(schema: unknown, input: ToolExecuteInpu
         `${issue.path.length > 0 ? issue.path.map(String).join('.') : 'input'}: ${issue.message}`
     )
     .join('; ')
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/gu, ' ');
   const message = `invalid tool input — ${issueText}`;
   throw new ToolInputValidationError(
     message.length > TOOL_INPUT_ERROR_MAX_CHARS

@@ -785,7 +785,7 @@ test('the desktop host runs webExtract with its own Tavily key owner, refusing i
     available: true,
     count: 0,
     failed: [
-      { reason: expect.stringMatching(/private\/loopback/), url: 'http://127.0.0.1:8080/admin' },
+      { reason: expect.stringMatching(/private\/loopback/u), url: 'http://127.0.0.1:8080/admin' },
     ],
   });
   expect(resolveTavilyApiKey).not.toHaveBeenCalled();

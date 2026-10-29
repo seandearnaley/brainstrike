@@ -52,7 +52,7 @@ function StatusGlyphs({ status }: { readonly status: WorktreeCheckoutStatusState
   }
   if (status.kind === 'error') {
     return (
-      <span className="min-w-0 max-w-full break-words text-destructive text-xs">
+      <span className="text-destructive max-w-full min-w-0 text-xs break-words">
         status unavailable: {status.message}
       </span>
     );
@@ -61,14 +61,14 @@ function StatusGlyphs({ status }: { readonly status: WorktreeCheckoutStatusState
   return (
     <span className="flex flex-wrap items-center gap-2 text-xs tabular-nums">
       {clean ? (
-        <span className="inline-flex items-center gap-1 text-muted-foreground">
+        <span className="text-muted-foreground inline-flex items-center gap-1">
           <Check aria-hidden="true" className="size-3.5" />
           Clean
         </span>
       ) : (
         <span
           aria-label="Uncommitted changes"
-          className="inline-flex items-center gap-1.5 text-warning"
+          className="text-warning inline-flex items-center gap-1.5"
           role="img"
           title="Uncommitted changes"
         >
@@ -122,9 +122,9 @@ function WorktreeThreadDetails({
       ) : (
         <span className="text-muted-foreground text-xs">No linked thread</span>
       )}
-      {current ? <span className="text-[10px] text-primary">Current thread</span> : null}
+      {current ? <span className="text-primary text-[10px]">Current thread</span> : null}
       {card.lastActivityLabel ? (
-        <p className="text-[10px] text-muted-foreground">{card.lastActivityLabel}</p>
+        <p className="text-muted-foreground text-[10px]">{card.lastActivityLabel}</p>
       ) : null}
     </div>
   );
@@ -142,7 +142,7 @@ function WorktreeIndexingToggle({
     return (
       <span
         aria-label="Indexed as an open folder"
-        className="flex size-8 shrink-0 items-center justify-center text-primary"
+        className="text-primary flex size-8 shrink-0 items-center justify-center"
         role="img"
         title={reason}
       >
@@ -192,13 +192,13 @@ export function WorktreeMapCard({
   return (
     <article
       aria-label={entry.name}
-      className="grid min-w-0 @min-[600px]/worktrees:grid-cols-2 @min-[760px]/worktrees:grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem] grid-cols-1 items-center gap-3 border-l-2 border-l-transparent bg-card px-3 py-3 transition-colors focus-within:bg-accent/30 hover:bg-accent/30 data-[current=true]:border-l-primary data-[current=true]:bg-primary/5"
+      className="bg-card focus-within:bg-accent/30 hover:bg-accent/30 data-[current=true]:border-l-primary data-[current=true]:bg-primary/5 grid min-w-0 grid-cols-1 items-center gap-3 border-l-2 border-l-transparent px-3 py-3 transition-colors @min-[600px]/worktrees:grid-cols-2 @min-[760px]/worktrees:grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem]"
       data-current={onHandOffToLocal ? 'true' : undefined}
       data-testid="worktree-map-card"
     >
       <div className="min-w-0">
         <header className="flex min-w-0 items-center gap-2">
-          <h3 className="min-w-0 truncate font-medium text-sm" title={entry.name}>
+          <h3 className="min-w-0 truncate text-sm font-medium" title={entry.name}>
             {entry.name}
           </h3>
           <Badge
@@ -209,7 +209,7 @@ export function WorktreeMapCard({
             {card.provenanceLabel}
           </Badge>
         </header>
-        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+        <div className="text-muted-foreground mt-1 flex min-w-0 items-center gap-1.5 text-xs">
           <GitBranch aria-hidden="true" className="size-3.5 shrink-0" />
           <span
             className="truncate font-mono text-[11px]"
@@ -219,19 +219,19 @@ export function WorktreeMapCard({
             {card.branchLabel}
           </span>
         </div>
-        <p className="mt-1 truncate text-[10px] text-muted-foreground" title={entry.path}>
+        <p className="text-muted-foreground mt-1 truncate text-[10px]" title={entry.path}>
           {entry.path}
         </p>
         {card.disabledReason ? (
           <p
-            className="mt-1 break-words text-muted-foreground text-xs"
+            className="text-muted-foreground mt-1 text-xs break-words"
             data-testid="worktree-map-disabled-reason"
           >
             {card.disabledReason}
           </p>
         ) : null}
       </div>
-      <div className="flex min-w-0 @min-[760px]/worktrees:flex-col flex-wrap @min-[760px]/worktrees:items-start items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 @min-[760px]/worktrees:flex-col @min-[760px]/worktrees:items-start">
         {entry.provenance === 'agent-reported' ? (
           <span className="text-muted-foreground text-xs">Not on disk</span>
         ) : (
@@ -246,7 +246,7 @@ export function WorktreeMapCard({
       <footer className="flex min-w-0 items-center justify-end gap-1.5">
         <WorktreeIndexingToggle card={card} onToggleIndexing={onToggleIndexing} />
         <Button
-          className="h-8 min-w-0 @min-[760px]/worktrees:flex-none flex-1 shrink px-2 text-xs"
+          className="h-8 min-w-0 flex-1 shrink px-2 text-xs @min-[760px]/worktrees:flex-none"
           data-testid="worktree-map-new-thread"
           disabled={!entry.usable}
           onClick={() => onNewThread(card)}

@@ -9,7 +9,7 @@ const FolderSummaryThresholdSetting = ({ value, onChange }: FolderSummaryThresho
   <div className="space-y-2">
     <Label htmlFor="folder-summary-threshold">Folder Summary Threshold</Label>
     <input
-      className="w-full rounded-md border bg-background px-3 py-2 text-foreground"
+      className="bg-background text-foreground w-full rounded-md border px-3 py-2"
       id="folder-summary-threshold"
       min="0"
       onChange={(e) => onChange(Number.parseInt(e.target.value, 10))}

@@ -26,8 +26,8 @@ export function WorkspaceLauncher(): ReactElement {
       data-testid="workspace-launcher"
     >
       <div className="text-center">
-        <p className="font-semibold text-foreground text-sm">Open a surface to get started</p>
-        <p className="mt-1 text-muted-foreground text-xs">
+        <p className="text-foreground text-sm font-semibold">Open a surface to get started</p>
+        <p className="text-muted-foreground mt-1 text-xs">
           Workspace tabs you open will appear in the bar above.
         </p>
       </div>
@@ -45,8 +45,8 @@ export function WorkspaceLauncher(): ReactElement {
               onClick={() => onOpenApp(app.id)}
               type="button"
             >
-              <Icon className="size-8 text-primary" />
-              <span className="font-medium text-foreground text-sm">{app.label}</span>
+              <Icon className="text-primary size-8" />
+              <span className="text-foreground text-sm font-medium">{app.label}</span>
               <span className="text-muted-foreground text-xs">
                 {APP_DESCRIPTIONS[app.id] ?? `Open the ${app.label} surface`}
               </span>
@@ -63,8 +63,8 @@ export function WorkspaceLauncher(): ReactElement {
               onClick={action.run}
               type="button"
             >
-              <Icon className="size-8 text-primary" />
-              <span className="font-medium text-foreground text-sm">{action.label}</span>
+              <Icon className="text-primary size-8" />
+              <span className="text-foreground text-sm font-medium">{action.label}</span>
               <span className="text-muted-foreground text-xs">{action.description}</span>
             </button>
           );

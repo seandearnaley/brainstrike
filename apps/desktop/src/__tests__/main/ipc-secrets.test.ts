@@ -142,8 +142,8 @@ describe('registerSecretsIpcHandlers', () => {
     const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-secrets.ts'), 'utf8');
 
     expect(source).toContain('createDesktopIpcRegistry');
-    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
-    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/u);
+    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/u);
   });
 
   it('merges env-configured providers with stored entries when listing', async () => {

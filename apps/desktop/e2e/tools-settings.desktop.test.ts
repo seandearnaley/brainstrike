@@ -28,7 +28,7 @@ async function openToolsSettings(
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();
-  await settingsPage.openCategory(/AI Tools/i, 'ai-tools');
+  await settingsPage.openCategory(/AI Tools/iu, 'ai-tools');
 }
 
 test.describe('AI Tools settings (desktop)', { tag: '@smoke' }, () => {

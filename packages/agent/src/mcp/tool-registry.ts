@@ -48,9 +48,9 @@ function matchToolPattern(toolId: string, pattern: string): boolean {
 
   let regex = TOOL_PATTERN_CACHE.get(pattern);
   if (!regex) {
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    const regexPattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
-    regex = new RegExp(`^${regexPattern}$`);
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/gu, '\\$&');
+    const regexPattern = escaped.replace(/\*/gu, '.*').replace(/\?/gu, '.');
+    regex = new RegExp(`^${regexPattern}$`, 'u');
     if (TOOL_PATTERN_CACHE.size >= TOOL_PATTERN_CACHE_LIMIT) {
       const oldestPattern = TOOL_PATTERN_CACHE.keys().next().value;
       if (oldestPattern !== undefined) {

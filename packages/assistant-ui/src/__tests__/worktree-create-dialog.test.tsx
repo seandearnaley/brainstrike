@@ -59,11 +59,11 @@ describe('WorktreeCreateDialog repository setup consent', () => {
 
     expect(screen.getByText('/work/brainstrike')).toBeVisible();
     expect(screen.getByText('/work/brainstrike/.brainstrike/worktree-setup.sh')).toBeVisible();
-    expect(screen.getByText(/local shell code with BRAINSTRIKE_WORKSPACE_\*/i)).toBeVisible();
+    expect(screen.getByText(/local shell code with BRAINSTRIKE_WORKSPACE_\*/iu)).toBeVisible();
     // .worktreeinclude copies happen UNCONDITIONALLY (copyIncludedFiles runs
     // before the setup command regardless of Allow/Skip) — the copy must not
     // read as a consequence of allowing the script.
-    expect(screen.getByText(/regardless of this choice/i)).toBeVisible();
+    expect(screen.getByText(/regardless of this choice/iu)).toBeVisible();
     expect(screen.getByTestId('worktree-create-submit')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Allow script' })).toHaveAttribute(
       'data-variant',

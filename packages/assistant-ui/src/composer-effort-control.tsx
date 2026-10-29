@@ -67,11 +67,11 @@ const EffortSliderRow = ({
   const maxIndex = slider.stops.length - 1;
   return (
     <div
-      className="flex select-none flex-col gap-1.5 px-2 py-1.5"
+      className="flex flex-col gap-1.5 px-2 py-1.5 select-none"
       data-testid="composer-effort-row"
     >
       <span className="flex items-baseline justify-between gap-3">
-        <span className="font-medium text-sm">Effort</span>
+        <span className="text-sm font-medium">Effort</span>
         <span className="text-muted-foreground text-xs" data-testid="composer-effort-value">
           {slider.valueText}
         </span>
@@ -79,7 +79,7 @@ const EffortSliderRow = ({
       <input
         aria-label="Reasoning effort"
         aria-valuetext={slider.valueText}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+        className="bg-muted accent-primary h-1.5 w-full cursor-pointer appearance-none rounded-full"
         data-testid="composer-effort-slider"
         max={maxIndex}
         min={0}
@@ -88,7 +88,7 @@ const EffortSliderRow = ({
         type="range"
         value={slider.index}
       />
-      <span aria-hidden="true" className="flex justify-between text-[10px] text-muted-foreground">
+      <span aria-hidden="true" className="text-muted-foreground flex justify-between text-[10px]">
         {slider.stops.map((stop) => (
           <span className={stop.isModelDefault ? 'text-foreground' : undefined} key={stop.value}>
             {stop.label}
@@ -108,12 +108,12 @@ const ThinkingToggleRow = ({
   thinkingModel: ThinkingToggleModel;
 }) => (
   <div
-    className="flex select-none items-start justify-between gap-3 px-2 py-1.5 text-sm"
+    className="flex items-start justify-between gap-3 px-2 py-1.5 text-sm select-none"
     data-testid="composer-thinking-row"
   >
     <span className="min-w-0">
-      <span className="block font-medium text-sm">Thinking</span>
-      <span className="block text-muted-foreground text-xs">Can think for more complex tasks</span>
+      <span className="block text-sm font-medium">Thinking</span>
+      <span className="text-muted-foreground block text-xs">Can think for more complex tasks</span>
     </span>
     <Switch
       aria-label="Toggle thinking"

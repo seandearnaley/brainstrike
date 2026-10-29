@@ -116,10 +116,10 @@ export function resolveProviderFromComposite(
 export function formatToolLabel(toolId: string): string {
   const name = toolId.split('.').pop() ?? toolId;
   const spaced = name
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[-_]/g, ' ')
+    .replace(/([a-z])([A-Z])/gu, '$1 $2')
+    .replace(/[-_]/gu, ' ')
     .trim();
-  return spaced.replace(/\b\w/g, (match) => match.toUpperCase());
+  return spaced.replace(/\b\w/gu, (match) => match.toUpperCase());
 }
 
 export function getToolDescription(toolId: string): string {

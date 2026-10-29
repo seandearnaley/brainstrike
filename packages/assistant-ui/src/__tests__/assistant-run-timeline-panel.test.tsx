@@ -115,12 +115,12 @@ describe('AssistantRunTimeline', () => {
     const user = userEvent.setup();
     wrap(<AssistantRunTimeline data={baseEvent} />);
 
-    await user.click(screen.getByRole('button', { name: /expand run activity/i }));
+    await user.click(screen.getByRole('button', { name: /expand run activity/iu }));
 
     expect(screen.getByText('threadId')).toBeInTheDocument();
     expect(screen.getByText('thread-1')).toBeInTheDocument();
     expect(screen.getByText('resourceId')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /collapse run activity/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /collapse run activity/iu })).toBeInTheDocument();
   });
 
   it('shows a committed local failure code without exposing private exception paths when expanded', async () => {
@@ -128,8 +128,8 @@ describe('AssistantRunTimeline', () => {
     // regression separately verifies this envelope and private logger cause.
     const user = userEvent.setup();
     const { container } = wrap(<AssistantRunTimeline data={localFailureEvent} />);
-    await user.click(screen.getByRole('button', { name: /expand run activity/i }));
-    expect(screen.getByText(/mastra_agent_stream_local_error/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /expand run activity/iu }));
+    expect(screen.getByText(/mastra_agent_stream_local_error/u)).toBeInTheDocument();
     expect(container.textContent).not.toContain('/Users/fixture/private/');
     expect(container.textContent).not.toContain('Provider refused continuation');
   });
@@ -152,7 +152,7 @@ describe('AssistantRunTimeline', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /expand run activity/i }));
+    await user.click(screen.getByRole('button', { name: /expand run activity/iu }));
 
     expect(screen.getByText('1.4s')).toBeInTheDocument();
     expect(screen.getByText('Loaded 4 semantic candidates.')).toBeInTheDocument();
@@ -182,7 +182,7 @@ describe('AssistantRunTimeline', () => {
     expect(screen.getByText('not-a-date')).toBeInTheDocument();
 
     // Duration renders inline in the single-line header; expanding must not duplicate it.
-    await user.click(screen.getByRole('button', { name: /expand run activity/i }));
+    await user.click(screen.getByRole('button', { name: /expand run activity/iu }));
     expect(screen.getByText('250ms')).toBeInTheDocument();
   });
 

@@ -29,12 +29,12 @@ const PickerRow = ({
   const optionId = option.worktreeId ?? option.path;
   return (
     <li
-      className="flex items-start gap-3 rounded-md border border-border/60 px-3 py-2"
+      className="border-border/60 flex items-start gap-3 rounded-md border px-3 py-2"
       data-testid={`worktree-picker-row-${optionId}`}
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="truncate font-medium text-sm">{option.name}</span>
+          <span className="truncate text-sm font-medium">{option.name}</span>
           {option.managed ? (
             <Badge data-testid={`worktree-picker-managed-${optionId}`} variant="secondary">
               Managed
@@ -47,13 +47,13 @@ const PickerRow = ({
           ) : null}
           {option.current ? <Badge variant="outline">Current</Badge> : null}
         </div>
-        <p className="truncate font-mono text-[11px] text-muted-foreground">{option.path}</p>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-muted-foreground truncate font-mono text-[11px]">{option.path}</p>
+        <p className="text-muted-foreground text-[11px]">
           {option.repositoryName} · {option.branch ?? 'Detached HEAD'}
         </p>
         {option.disabledReason ? (
           <p
-            className="mt-1 text-[11px] text-warning leading-snug"
+            className="text-warning mt-1 text-[11px] leading-snug"
             data-testid={`worktree-picker-reason-${optionId}`}
           >
             {option.disabledReason}
@@ -93,7 +93,7 @@ function matchesQuery(option: WorkspaceBarWorktreeOption, query: string): boolea
     .toLowerCase();
   return query
     .toLowerCase()
-    .split(/\s+/)
+    .split(/\s+/u)
     .every((word) => haystack.includes(word));
 }
 

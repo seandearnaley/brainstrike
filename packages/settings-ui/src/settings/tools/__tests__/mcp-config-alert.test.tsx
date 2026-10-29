@@ -72,7 +72,7 @@ describe('McpConfigAlert', () => {
     };
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
 
-    expect(screen.getByText(/\/custom\/path\/mcp.config.json/)).toBeInTheDocument();
+    expect(screen.getByText(/\/custom\/path\/mcp.config.json/u)).toBeInTheDocument();
   });
 
   it('calls onSelectConfig when Select Config File button is clicked', async () => {

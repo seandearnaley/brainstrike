@@ -91,7 +91,7 @@ function extractExposedBridgeMethodNames(source: string, bridgeName: string): st
 }
 
 function findRawIpcRendererChannels(source: string): string[] {
-  const pattern = /ipcRenderer\.(?:invoke|send|on|removeListener)\(\s*['"][^'"]+['"]/g;
+  const pattern = /ipcRenderer\.(?:invoke|send|on|removeListener)\(\s*['"][^'"]+['"]/gu;
   return [...source.matchAll(pattern)].map((match) => {
     const lineNumber = source.slice(0, match.index).split('\n').length;
     return `${lineNumber}: ${match[0]}`;
@@ -130,7 +130,7 @@ describe('preload runtime contract', () => {
     expect(preloadSource).toContain("from './platform/desktop-ipc-channels'");
     const duplicatedLiterals = findManifestChannelLiterals(preloadSource);
     expect(duplicatedLiterals).toEqual([]);
-    expect(preloadSource).not.toMatch(/['"]logging:[^'"]+['"]/);
+    expect(preloadSource).not.toMatch(/['"]logging:[^'"]+['"]/u);
   });
 
   it('keeps the E2E seed routing keys sourced from MAIN authority', () => {
@@ -155,7 +155,7 @@ describe('preload runtime contract', () => {
     for (const contract of ['mcpPathSelectionContract', 'mcpAppsContract']) {
       expect(preloadSource).toContain(`createIpcBridge(ipcRenderer, ${contract})`);
     }
-    expect(preloadSource).not.toMatch(/ipcRenderer\.invoke\(DESKTOP_IPC_CHANNELS\.mcp\./);
+    expect(preloadSource).not.toMatch(/ipcRenderer\.invoke\(DESKTOP_IPC_CHANNELS\.mcp\./u);
   });
 
   it('keeps resolver-gated bridge key sets in parity with their required-method contracts', () => {

@@ -253,7 +253,7 @@ test('reopening a hidden running thread shows the live run, which then finishes 
 
     // The held thread's row is the one badged running: its select button's
     // name carries the spinner's "<title> is active" label.
-    await held.threadsPanel.getByRole('button', { name: / is active/ }).click();
+    await held.threadsPanel.getByRole('button', { name: / is active/u }).click();
     await expect(held.strip.getByRole('tab')).toHaveCount(1);
     await expect(held.panel).toBeVisible();
     await expect(held.panel.getByText(HELD_PROMPT, { exact: true })).toBeVisible();

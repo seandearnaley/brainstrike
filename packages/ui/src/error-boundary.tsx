@@ -93,13 +93,13 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     }
 
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-background/95 p-6 backdrop-blur-xs">
-        <div className="w-full max-w-md overflow-hidden rounded-lg border bg-card shadow-lg">
-          <div className="border-b bg-muted/30 p-4">
+      <div className="bg-background/95 flex h-full flex-col items-center justify-center p-6 backdrop-blur-xs">
+        <div className="bg-card w-full max-w-md overflow-hidden rounded-lg border shadow-lg">
+          <div className="bg-muted/30 border-b p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <AlertTriangle className="mr-2 h-6 w-6 text-destructive" />
-                <h2 className="font-bold text-xl">Error</h2>
+                <AlertTriangle className="text-destructive mr-2 h-6 w-6" />
+                <h2 className="text-xl font-bold">Error</h2>
               </div>
               <Button
                 aria-label="Dismiss Error"
@@ -114,7 +114,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           </div>
 
           <div className="p-4">
-            <p className="mb-4 text-destructive">{error?.message ?? 'Something went wrong.'}</p>
+            <p className="text-destructive mb-4">{error?.message ?? 'Something went wrong.'}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button className="flex items-center" onClick={this.handleReload}>
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -138,9 +138,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           </div>
 
           {detailsVisible && details && (
-            <div className="border-t bg-muted/20 p-4">
+            <div className="bg-muted/20 border-t p-4">
               <h3 className="mb-2 font-semibold">Error Details</h3>
-              <ScrollArea className="max-h-60 rounded bg-muted p-2 font-mono text-sm">
+              <ScrollArea className="bg-muted max-h-60 rounded p-2 font-mono text-sm">
                 <p>
                   <strong>Name:</strong> {error?.name}
                 </p>
@@ -150,7 +150,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 {error?.stack && (
                   <div className="mt-2">
                     <strong>Stack:</strong>
-                    <pre className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs">
+                    <pre className="text-muted-foreground mt-1 text-xs whitespace-pre-wrap">
                       {error.stack}
                     </pre>
                   </div>
@@ -158,7 +158,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 {errorInfo?.componentStack && (
                   <div className="mt-2">
                     <strong>Component Stack:</strong>
-                    <pre className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs">
+                    <pre className="text-muted-foreground mt-1 text-xs whitespace-pre-wrap">
                       {errorInfo.componentStack}
                     </pre>
                   </div>

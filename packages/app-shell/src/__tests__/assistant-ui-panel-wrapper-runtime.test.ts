@@ -252,7 +252,7 @@ describe('assistant runtime helpers', () => {
         { reasoningEffort: 'high' },
         partialKimiMetadata
       )
-    ).toThrow(/does not declare support.*high/i);
+    ).toThrow(/does not declare support.*high/iu);
     expect(
       buildProviderOptions(
         'openrouter',
@@ -270,12 +270,12 @@ describe('assistant runtime helpers', () => {
       buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
         reasoningEffort: 'none',
       })
-    ).toThrow(/Muse Spark 1\.1.*does not support.*none/i);
+    ).toThrow(/Muse Spark 1\.1.*does not support.*none/iu);
     expect(() =>
       buildProviderOptions('openrouter', 'moonshotai/kimi-k2.6', {
         reasoningEffort: 'max',
       })
-    ).toThrow(/Kimi K2\.6.*does not declare.*reasoning effort/i);
+    ).toThrow(/Kimi K2\.6.*does not declare.*reasoning effort/iu);
     expect(
       reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
         maxOutputTokens: 2048,
@@ -427,7 +427,7 @@ describe('buildAgentLoopSettings input-token budget', () => {
         { contextWindow: 400_000, maxOutputTokens: 128_000 },
         'openrouter'
       )
-    ).toThrow(/output limit the request sends/);
+    ).toThrow(/output limit the request sends/u);
   });
 
   it('reserves the configured OpenRouter output limit in the input budget', () => {
@@ -480,7 +480,7 @@ describe('buildAgentLoopSettings input-token budget', () => {
 
   it('propagates deriveEffectiveInputBudget throw for a malformed contextWindow', () => {
     expect(() => buildAgentLoopSettings(undefined, { contextWindow: -1 })).toThrow(
-      /contextWindow must be a positive number/
+      /contextWindow must be a positive number/u
     );
   });
 
@@ -883,7 +883,7 @@ describe('resolveComposerAttachmentsAvailability', () => {
       throw new Error('Expected disabled availability');
     }
     expect(availability.reason).toContain('Qwen3 Coder Next (OpenRouter)');
-    expect(availability.reason).toMatch(/image/i);
+    expect(availability.reason).toMatch(/image/iu);
   });
 
   it('falls back to the model id in the reason when no label exists', () => {

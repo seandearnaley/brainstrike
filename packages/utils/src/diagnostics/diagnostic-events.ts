@@ -60,10 +60,10 @@ export function boundWithMarker(value: string, maxChars: number): string {
   return value.slice(0, maxChars) + suffix;
 }
 
-const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const HEX_RE = /\b[0-9a-f]{8,}\b/gi;
-const PATH_RE = /(?:[A-Za-z]:)?(?:[\\/][\w.@-]+){2,}/g;
-const DIGIT_RE = /\d+/g;
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu;
+const HEX_RE = /\b[0-9a-f]{8,}\b/giu;
+const PATH_RE = /(?:[A-Za-z]:)?(?:[\\/][\w.@-]+){2,}/gu;
+const DIGIT_RE = /\d+/gu;
 const CIRCULAR_REFERENCE_MARKER = '[Circular]';
 
 /** FNV-1a 64-bit over the normalized identity (sync, dependency-free — md5 in

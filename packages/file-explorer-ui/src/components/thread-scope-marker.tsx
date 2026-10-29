@@ -16,7 +16,7 @@ export function ThreadScopeMarker({ rootId }: { readonly rootId: string }): Reac
   }
   return (
     <span
-      className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground"
+      className="text-muted-foreground shrink-0 text-[10px] whitespace-nowrap"
       data-testid={`thread-scope-marker-${rootId}`}
       title="The selected thread can't use this folder until it is added to the thread"
     >

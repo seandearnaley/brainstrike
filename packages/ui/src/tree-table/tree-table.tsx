@@ -254,7 +254,7 @@ function renderTableHeader<T>({
   }
 
   return (
-    <TableHeader className="sticky top-0 z-10 bg-background" role="rowgroup">
+    <TableHeader className="bg-background sticky top-0 z-10" role="rowgroup">
       <TableRow role="row">
         {columns.map((column) => {
           const isSortable = Boolean(column.sortable && onSortChange);
@@ -319,7 +319,7 @@ function renderTableHeader<T>({
                       sortState
                     )}
                     className={cn(
-                      'flex cursor-pointer items-center gap-1 rounded-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      'focus-visible:ring-ring flex cursor-pointer items-center gap-1 rounded-xs focus-visible:ring-1 focus-visible:outline-none',
                       column.headerContentClassName
                     )}
                     onClick={(event) => {
@@ -1382,7 +1382,7 @@ export function TreeTable<T>({
         getRowClassName(node),
         keyboardFocusVisible &&
           keyboard.state.focusedId === node.id &&
-          'outline-2 outline-foreground/50 outline-solid -outline-offset-2'
+          'outline-foreground/50 outline-2 -outline-offset-2 outline-solid'
       ),
     [getRowClassName, keyboard.state.focusedId, keyboardFocusVisible]
   );
@@ -1475,7 +1475,7 @@ export function TreeTable<T>({
     return (
       <div
         className={cn(
-          'flex h-32 items-center justify-center text-muted-foreground text-sm',
+          'text-muted-foreground flex h-32 items-center justify-center text-sm',
           className
         )}
       >

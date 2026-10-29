@@ -33,19 +33,19 @@ const STATUS_LABELS: Record<AssistantRunEventDisplayStatus, string> = {
 
 function AssistantRunStatusIcon({ status }: { status: AssistantRunEventDisplayStatus }) {
   if (status === 'completed') {
-    return <CheckCircle className="size-3.5 text-success" />;
+    return <CheckCircle className="text-success size-3.5" />;
   }
   if (status === 'failed') {
-    return <AlertCircle className="size-3.5 text-destructive" />;
+    return <AlertCircle className="text-destructive size-3.5" />;
   }
   if (status === 'cancelled') {
-    return <AlertCircle className="size-3.5 text-muted-foreground" />;
+    return <AlertCircle className="text-muted-foreground size-3.5" />;
   }
   if (status === 'interrupted') {
-    return <CircleSlash className="size-3.5 text-muted-foreground" />;
+    return <CircleSlash className="text-muted-foreground size-3.5" />;
   }
   if (status === 'running') {
-    return <CircleDashed className="size-3.5 text-muted-foreground" />;
+    return <CircleDashed className="text-muted-foreground size-3.5" />;
   }
   // Info events inherit the category accent color from the wrapping rail span.
   return <Radio className="size-3.5" />;
@@ -94,18 +94,18 @@ function AssistantRunTimelineDetails({
 }) {
   return (
     <div
-      className="mx-2 mb-1.5 rounded-md border border-border/50 bg-muted/30 px-3 py-2"
+      className="border-border/50 bg-muted/30 mx-2 mb-1.5 rounded-md border px-3 py-2"
       id={detailsId}
     >
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         <div className="contents">
-          <dt className="font-medium text-muted-foreground">kind</dt>
-          <dd className="min-w-0 break-words text-foreground/90">{kind}</dd>
+          <dt className="text-muted-foreground font-medium">kind</dt>
+          <dd className="text-foreground/90 min-w-0 break-words">{kind}</dd>
         </div>
         {metadataEntries.map(([key, value]) => (
           <div className="contents" key={key}>
-            <dt className="font-medium text-muted-foreground">{key}</dt>
-            <dd className="min-w-0 break-words text-foreground/90">{formatJsonValue(value)}</dd>
+            <dt className="text-muted-foreground font-medium">{key}</dt>
+            <dd className="text-foreground/90 min-w-0 break-words">{formatJsonValue(value)}</dd>
           </div>
         ))}
       </dl>
@@ -172,7 +172,7 @@ export function AssistantRunTimeline({
         </Tooltip>
         <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
           <span
-            className={`truncate font-medium text-xs ${
+            className={`truncate text-xs font-medium ${
               isFailed ? 'text-destructive' : 'text-foreground/85'
             }`}
           >
@@ -180,14 +180,14 @@ export function AssistantRunTimeline({
           </span>
           {repeatCount !== undefined && repeatCount > 1 ? (
             <span
-              className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground tabular-nums"
+              className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 text-[10px] tabular-nums"
               title={`Repeated ${repeatCount} times`}
             >
               ×{repeatCount}
             </span>
           ) : null}
           {event.detail ? (
-            <span className="truncate text-[11px] text-muted-foreground" title={event.detail}>
+            <span className="text-muted-foreground truncate text-[11px]" title={event.detail}>
               {event.detail}
             </span>
           ) : null}
@@ -200,18 +200,18 @@ export function AssistantRunTimeline({
           />
         ) : null}
         {durationLabel ? (
-          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+          <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
             {durationLabel}
           </span>
         ) : null}
-        <span className="shrink-0 text-[11px] text-muted-foreground/70 tabular-nums">
+        <span className="text-muted-foreground/70 shrink-0 text-[11px] tabular-nums">
           {formatTimestamp(event.timestamp)}
         </span>
         <Button
           aria-controls={isExpanded ? detailsId : undefined}
           aria-expanded={isExpanded}
           aria-label={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
-          className="size-6 shrink-0 text-muted-foreground"
+          className="text-muted-foreground size-6 shrink-0"
           onClick={() => setIsExpanded((current) => !current)}
           size="icon"
           title={isExpanded ? 'Collapse run activity' : 'Expand run activity'}

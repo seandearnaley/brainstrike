@@ -86,7 +86,7 @@ describe('ToolCard', () => {
       expect(screen.getByText('brainstrike.hybridSearch')).toBeInTheDocument();
       expect(screen.getByText('Critical')).toBeInTheDocument();
       expect(screen.getByText('Retrieval')).toBeInTheDocument();
-      expect(screen.getByText(/~150 tokens/)).toBeInTheDocument();
+      expect(screen.getByText(/~150 tokens/u)).toBeInTheDocument();
     });
 
     it('renders the tool description', () => {

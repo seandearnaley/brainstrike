@@ -7,7 +7,7 @@ describe('ThreadColorFamilyPreview', () => {
   it('shows a decorative family for the selected root color', () => {
     const { container } = render(<ThreadColorFamilyPreview rootColor="rose" />);
     expect(screen.getByText('New agents get distinct, related colors.')).toBeVisible();
-    expect(screen.getByText(/one root agent branches to three child agents/i)).toBeInTheDocument();
+    expect(screen.getByText(/one root agent branches to three child agents/iu)).toBeInTheDocument();
     expect(
       screen.getByText('Changing this color sets the starting point for new agents.')
     ).toBeVisible();

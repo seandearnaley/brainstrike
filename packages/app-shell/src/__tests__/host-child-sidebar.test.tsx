@@ -269,7 +269,7 @@ it('shows failed child discovery rather than treating failure as an empty leaf',
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Child conversations could not be loaded. Try again.'
   );
-  expect(screen.queryByText(/private\/profile/)).toBeNull();
+  expect(screen.queryByText(/private\/profile/u)).toBeNull();
   expect(screen.getByRole('button', { name: 'Retry loading child conversations' })).toBeEnabled();
 });
 
@@ -311,7 +311,7 @@ it('retries failed discovery for collapsed and expanded parents without exposing
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Child conversations could not be loaded. Try again.'
   );
-  expect(screen.queryByText(/private\/profile/)).toBeNull();
+  expect(screen.queryByText(/private\/profile/u)).toBeNull();
   failure = false;
   await userEvent.click(screen.getByRole('button', { name: 'Retry loading child conversations' }));
   expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Working$/u })).toBeVisible();

@@ -58,7 +58,7 @@ describe('Git inventory service retains physical watcher retirement (BST-2248)',
     const { service, watchDirectory } = await startService(stop);
     try {
       await expect(service.stop()).rejects.toMatchObject({ errors: [failure] });
-      expect(() => service.start()).toThrow(/retirement/i);
+      expect(() => service.start()).toThrow(/retirement/iu);
       await expect(service.stop()).rejects.toMatchObject({ errors: [failure] });
       expect(stop).toHaveBeenCalledTimes(2);
       expect(watchDirectory).toHaveBeenCalledOnce();
@@ -79,7 +79,7 @@ describe('Git inventory service retains physical watcher retirement (BST-2248)',
     const retiring = service.stop();
     try {
       await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
-      expect(() => service.start()).toThrow(/retirement/i);
+      expect(() => service.start()).toThrow(/retirement/iu);
     } finally {
       held.resolve();
       await retiring;

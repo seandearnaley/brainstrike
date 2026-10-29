@@ -245,7 +245,7 @@ describe('runGlobWorkspace — ignore handling', () => {
     const result = await runGlobWorkspace({ pattern: 'coverage/**' }, singleRoot(root));
 
     expect(result.count).toBe(0);
-    expect(result.hint).toMatch(/includeIgnored/);
+    expect(result.hint).toMatch(/includeIgnored/u);
   });
 
   it('does NOT steer to includeIgnored when the glob genuinely matched', async () => {
@@ -254,7 +254,7 @@ describe('runGlobWorkspace — ignore handling', () => {
     const root = await makeWorkspace(['src/main.ts']);
     const result = await runGlobWorkspace({ pattern: '**/*.ts' }, singleRoot(root));
     expect(result.count).toBe(1);
-    expect(result.hint ?? '').not.toMatch(/includeIgnored/);
+    expect(result.hint ?? '').not.toMatch(/includeIgnored/u);
   });
 
   it('does NOT steer to includeIgnored when it is ALREADY set', async () => {
@@ -265,7 +265,7 @@ describe('runGlobWorkspace — ignore handling', () => {
       singleRoot(root)
     );
     expect(result.count).toBe(0);
-    expect(result.hint ?? '').not.toMatch(/includeIgnored/);
+    expect(result.hint ?? '').not.toMatch(/includeIgnored/u);
   });
 
   it('does NOT steer to includeIgnored for an agent-ignored path (BST-1432)', async () => {
@@ -281,7 +281,7 @@ describe('runGlobWorkspace — ignore handling', () => {
     const result = await runGlobWorkspace({ pattern: 'secrets/**' }, singleRoot(root));
 
     expect(result.count).toBe(0);
-    expect(result.hint ?? '').not.toMatch(/includeIgnored/);
+    expect(result.hint ?? '').not.toMatch(/includeIgnored/u);
   });
 
   it('does not surface an in-root SYMLINK to an agent-ignored target (BST-1432)', async () => {
@@ -557,12 +557,12 @@ describe('runGlobWorkspace — multi-root scoping', () => {
         { pattern: '**/*.ts', root: 'nope' },
         multiRoot([{ displayName: 'alpha', path: rootA, rootId: 'id-a' }])
       )
-    ).rejects.toThrow(/No folder "nope"/);
+    ).rejects.toThrow(/No folder "nope"/u);
   });
 
   it('throws when no folder is open', async () => {
     await expect(runGlobWorkspace({ pattern: '**/*.ts' }, {} as RuntimeData)).rejects.toThrow(
-      /No folder is open/
+      /No folder is open/u
     );
   });
 });
@@ -607,12 +607,12 @@ describe('runGlobWorkspace — token budget + paging', () => {
     expect(result.matches.length).toBeLessThan(600);
     expect(result.matches.length).toBeGreaterThan(0);
     expect(result.hint).toBeDefined();
-    expect(result.hint).toMatch(/offset:/);
+    expect(result.hint).toMatch(/offset:/u);
     // The hint's "of N" count MUST report the true total (600), not the
     // limited window size (the default `limit` of 200). Reporting the window
     // size tells the model there are fewer matches than exist → it under-pages.
-    expect(result.hint).toMatch(/of 600\b/);
-    expect(result.hint).not.toMatch(/of 200\b/);
+    expect(result.hint).toMatch(/of 600\b/u);
+    expect(result.hint).not.toMatch(/of 200\b/u);
   });
 
   it('reports the true total in the hint when limit caps the set below the budget', async () => {
@@ -625,9 +625,9 @@ describe('runGlobWorkspace — token budget + paging', () => {
     expect(result.totalMatches).toBe(10);
     expect(result.truncated).toBe(true);
     expect(result.hint).toBeDefined();
-    expect(result.hint).toMatch(/of 10\b/);
+    expect(result.hint).toMatch(/of 10\b/u);
     // Never the window size (4) the limit produced.
-    expect(result.hint).not.toMatch(/of 4\b/);
+    expect(result.hint).not.toMatch(/of 4\b/u);
   });
 
   it('respects an explicit limit and pages via offset', async () => {

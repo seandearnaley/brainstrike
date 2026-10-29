@@ -182,7 +182,7 @@ describe('buildDesktopEnvBootstrapReport', () => {
     // A packaged runtime has no `dev` candidate. Silently dropping the entry
     // would hide a real bootstrap inconsistency.
     expect(() => build(loadResult({ loadedFiles: ['dev'] }), {}, true)).toThrow(
-      /no candidate path/i
+      /no candidate path/iu
     );
   });
 });

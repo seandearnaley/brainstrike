@@ -204,7 +204,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
 
     expect(text).toContain('apps-conventions');
     expect(text).toContain('libs-conventions');
-    const headings = text.match(/### [^\n]*AGENTS\.md/g) ?? [];
+    const headings = text.match(/### [^\n]*AGENTS\.md/gu) ?? [];
     expect(headings).toHaveLength(2);
     // Distinct headings — the ambiguous identical `service/AGENTS.md` is gone.
     expect(new Set(headings).size).toBe(2);
@@ -269,9 +269,9 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     );
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
     // The number of injected instruction blocks must keep the total <= 48,000.
-    const injectedBlocks = (text.match(/### repo-\d\/AGENTS\.md/g) ?? []).length;
+    const injectedBlocks = (text.match(/### repo-\d\/AGENTS\.md/gu) ?? []).length;
     expect(injectedBlocks * nearFull.length).toBeLessThanOrEqual(MAX_CONTEXT_FILES_TOTAL_CHARS);
-    expect(text).toMatch(/omitted to stay within the context budget/);
+    expect(text).toMatch(/omitted to stay within the context budget/u);
   });
 
   it('does NOT split a surrogate pair when truncating an opted-in oversized file', async () => {
@@ -302,7 +302,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
         runtimeWithoutRoots({ workspaceRootPath: '/abs/legacy' }),
         reader
       )
-    ).rejects.toThrow(/authoritative workspace root inventory is unavailable/i);
+    ).rejects.toThrow(/authoritative workspace root inventory is unavailable/iu);
   });
 
   it('omits roots beyond the aggregate budget with an honest note', async () => {
@@ -321,7 +321,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
       reader
     );
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
-    expect(text).toMatch(/omitted to stay within the context budget/);
+    expect(text).toMatch(/omitted to stay within the context budget/u);
   });
 });
 

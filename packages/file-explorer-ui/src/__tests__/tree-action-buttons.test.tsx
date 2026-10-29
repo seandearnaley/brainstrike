@@ -111,7 +111,7 @@ describe('TreeActionButtons', () => {
         />
       );
       const indicator = screen.getByTestId('inline-scanning-indicator');
-      expect(indicator).toHaveTextContent(/stopping/i);
+      expect(indicator).toHaveTextContent(/stopping/iu);
       expect(indicator).not.toHaveTextContent('5/10');
     });
 
@@ -135,7 +135,7 @@ describe('TreeActionButtons', () => {
         'Loading 5/10 directories'
       );
       expect(screen.getByTestId('inline-scanning-indicator')).not.toHaveAttribute('title');
-      expect(screen.getByRole('button', { name: /cancel operation/i })).not.toHaveAttribute(
+      expect(screen.getByRole('button', { name: /cancel operation/iu })).not.toHaveAttribute(
         'title'
       );
     });
@@ -174,7 +174,7 @@ describe('TreeActionButtons', () => {
       // No second spinner crowding the filter row.
       expect(screen.queryByTestId('inline-scanning-spinner')).not.toBeInTheDocument();
       // ...but a slow/stuck refresh stays cancellable.
-      expect(screen.getByRole('button', { name: /cancel operation/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /cancel operation/iu })).toBeInTheDocument();
       expect(screen.getByTestId('refresh-button-small')).toBeInTheDocument();
     });
 
@@ -227,7 +227,7 @@ describe('TreeActionButtons', () => {
         />
       );
 
-      expect(screen.getByRole('button', { name: /cancel operation/i })).not.toHaveClass('hidden');
+      expect(screen.getByRole('button', { name: /cancel operation/iu })).not.toHaveClass('hidden');
       expect(screen.getByTestId('inline-scanning-count')).toHaveClass(
         'hidden',
         '@[236px]/explorer-toolbar:inline'
@@ -244,7 +244,7 @@ describe('TreeActionButtons', () => {
         'hidden',
         '@[236px]/explorer-toolbar:block'
       );
-      expect(screen.getByRole('button', { name: /cancel operation/i })).not.toHaveClass('hidden');
+      expect(screen.getByRole('button', { name: /cancel operation/iu })).not.toHaveClass('hidden');
     });
   });
 });

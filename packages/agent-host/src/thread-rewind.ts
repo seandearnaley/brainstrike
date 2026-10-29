@@ -46,7 +46,7 @@ type Rewound = Extract<RewindResult, { status: 'rewound' }>;
 type RedoResult = HostResults['thread/rewind/redo'];
 
 /** A root's null object ID records a capture that failed for it. */
-const FAILED_CAPTURE_OID = /^0+$/;
+const FAILED_CAPTURE_OID = /^0+$/u;
 
 interface ThreadRewind {
   /** False once a run starts after this rewind. */

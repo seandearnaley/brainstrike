@@ -136,7 +136,7 @@ describe('TaskLedgerPanelView', () => {
 
     const row = screen.getByTestId('task-ledger-run-row');
     expect(row).toHaveTextContent('$0.42');
-    expect(row).not.toHaveTextContent(/est\./i);
+    expect(row).not.toHaveTextContent(/est\./iu);
   });
 
   it('opens a run into its token classes and cost', () => {
@@ -158,11 +158,11 @@ describe('TaskLedgerPanelView', () => {
 
     // A sub-cent cost keeps two significant digits, never a wall of decimals or $0.00.
     expect(screen.getByTestId('task-ledger-run-cost')).toHaveTextContent('$0.0031');
-    fireEvent.click(screen.getByRole('button', { name: /GPT-5\.2/ }));
+    fireEvent.click(screen.getByRole('button', { name: /GPT-5\.2/u }));
     const breakdown = screen.getByTestId('task-ledger-run-breakdown');
-    expect(breakdown).toHaveTextContent(/Input\s*400/);
-    expect(breakdown).toHaveTextContent(/Cache read\s*600/);
-    expect(breakdown).toHaveTextContent(/Output\s*200/);
+    expect(breakdown).toHaveTextContent(/Input\s*400/u);
+    expect(breakdown).toHaveTextContent(/Cache read\s*600/u);
+    expect(breakdown).toHaveTextContent(/Output\s*200/u);
     expect(breakdown).toHaveTextContent('$0.0031');
   });
 
@@ -242,7 +242,7 @@ describe('TaskLedgerPanelView', () => {
   it('claims no edit count, not 0, for a run with no edit record', () => {
     renderPanel({ ledger: { rows: [makeRun({ runId: 'run-1' })] } });
 
-    expect(screen.getByTestId('task-ledger-run-row')).not.toHaveTextContent(/edit/);
+    expect(screen.getByTestId('task-ledger-run-row')).not.toHaveTextContent(/edit/u);
     expect(screen.queryByTestId('task-ledger-reverted-edits')).not.toBeInTheDocument();
   });
 

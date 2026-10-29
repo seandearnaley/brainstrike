@@ -70,7 +70,7 @@ describe('logging-preferences', () => {
     });
 
     expect(() => applyLoggingPreferences(preferences, 'electron-main')).toThrow(
-      /explicit rotating fileTransport/
+      /explicit rotating fileTransport/u
     );
     expect(configureLoggerSpy).not.toHaveBeenCalled();
   });

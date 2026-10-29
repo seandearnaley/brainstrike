@@ -62,8 +62,8 @@ describe('runtime host boundary', () => {
   it('keeps main process startup free of ad hoc IPC registration', () => {
     const source = readDesktopSource('main.ts');
 
-    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
-    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/u);
+    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/u);
   });
 
   it('keeps desktop file explorer selection E2E executable specs split by purpose', () => {
@@ -73,7 +73,7 @@ describe('runtime host boundary', () => {
 
     expect(interactiveSpec.split('\n').length).toBeLessThanOrEqual(2000);
     expect(restoreSpec.split('\n').length).toBeLessThanOrEqual(2000);
-    expect(sharedHarness).toMatch(/file-explorer-selection\.shared\.ts/);
-    expect(sharedHarness).toMatch(/test fixture\s+exception/);
+    expect(sharedHarness).toMatch(/file-explorer-selection\.shared\.ts/u);
+    expect(sharedHarness).toMatch(/test fixture\s+exception/u);
   });
 });

@@ -443,7 +443,7 @@ export const ContextUsageMeter = ({
               </span>
             )}
             {trigger.badge && (
-              <span className="bs-composer-context-badge rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+              <span className="bs-composer-context-badge bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px] tracking-wide uppercase">
                 {trigger.badge}
               </span>
             )}

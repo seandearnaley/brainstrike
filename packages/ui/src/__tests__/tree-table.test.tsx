@@ -890,7 +890,7 @@ describe('TreeTable', () => {
         />
       );
 
-      const expandButton = screen.getByRole('button', { name: /expand/i });
+      const expandButton = screen.getByRole('button', { name: /expand/iu });
       expect(expandButton).toBeInTheDocument();
     });
 
@@ -906,7 +906,7 @@ describe('TreeTable', () => {
         />
       );
 
-      const collapseButton = screen.getByRole('button', { name: /collapse/i });
+      const collapseButton = screen.getByRole('button', { name: /collapse/iu });
       expect(collapseButton).toBeInTheDocument();
     });
 
@@ -924,7 +924,7 @@ describe('TreeTable', () => {
         />
       );
 
-      const collapsedButton = screen.getByRole('button', { name: /expand/i });
+      const collapsedButton = screen.getByRole('button', { name: /expand/iu });
       expect(collapsedButton).toHaveAttribute('aria-expanded', 'false');
       expect(collapsedButton).toHaveAttribute('data-size', 'icon-xs');
       // Geometry contract: the merged class list must resolve the icon-xs/size-6
@@ -950,7 +950,7 @@ describe('TreeTable', () => {
         />
       );
 
-      expect(screen.getByRole('button', { name: /collapse/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: /collapse/iu })).toHaveAttribute(
         'aria-expanded',
         'true'
       );
@@ -995,7 +995,7 @@ describe('TreeTable', () => {
         />
       );
 
-      const expandButton = screen.getByRole('button', { name: /expand/i });
+      const expandButton = screen.getByRole('button', { name: /expand/iu });
       expect(expandButton.parentElement).not.toHaveClass('pl-1');
     });
 
@@ -1012,7 +1012,7 @@ describe('TreeTable', () => {
         />
       );
 
-      const expandButton = screen.getByRole('button', { name: /expand/i });
+      const expandButton = screen.getByRole('button', { name: /expand/iu });
       expect(expandButton.parentElement).toHaveClass('pl-1');
     });
 
@@ -1029,7 +1029,7 @@ describe('TreeTable', () => {
         />
       );
 
-      const expandButton = screen.getByRole('button', { name: /expand/i });
+      const expandButton = screen.getByRole('button', { name: /expand/iu });
       fireEvent.click(expandButton);
 
       expect(handleToggle).toHaveBeenCalledWith('1');
@@ -1053,7 +1053,7 @@ describe('TreeTable', () => {
         />
       );
 
-      const expandButton = screen.getByRole('button', { name: /expand/i });
+      const expandButton = screen.getByRole('button', { name: /expand/iu });
       expect(expandButton).toBeDisabled();
 
       fireEvent.click(expandButton);
@@ -1080,8 +1080,8 @@ describe('TreeTable', () => {
         />
       );
 
-      const loadingRow = screen.getByRole('row', { name: /Loading folder/i });
-      const staleRow = screen.getByRole('row', { name: /Stale folder/i });
+      const loadingRow = screen.getByRole('row', { name: /Loading folder/iu });
+      const staleRow = screen.getByRole('row', { name: /Stale folder/iu });
       expect(within(loadingRow).getByRole('button', { name: 'Expand' })).toBeDisabled();
       expect(within(staleRow).getByRole('button', { name: 'Expand' })).not.toBeDisabled();
     });
@@ -1784,7 +1784,7 @@ describe('TreeTable', () => {
       );
 
       expect(screen.getByText('↓')).toBeInTheDocument();
-      expect(screen.getByRole('columnheader', { name: /name/i })).toHaveAttribute(
+      expect(screen.getByRole('columnheader', { name: /name/iu })).toHaveAttribute(
         'aria-sort',
         'descending'
       );
@@ -1801,7 +1801,7 @@ describe('TreeTable', () => {
       );
 
       expect(screen.queryByText('↓')).not.toBeInTheDocument();
-      expect(screen.getByRole('columnheader', { name: /name/i })).toHaveAttribute(
+      expect(screen.getByRole('columnheader', { name: /name/iu })).toHaveAttribute(
         'aria-sort',
         'none'
       );

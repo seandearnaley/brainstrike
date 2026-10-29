@@ -10,7 +10,7 @@ import { chunkContent as chunkWithRuntime } from '../portable-chunking';
 
 /** Code parses with oxc; Python has no adapter in this non-strict runtime. */
 const runtime: CanonicalChunkingRuntime = {
-  selectAdapter: (fileName) => (/\.pyi?$/i.test(fileName ?? '') ? null : oxcNativeAdapter),
+  selectAdapter: (fileName) => (/\.pyi?$/iu.test(fileName ?? '') ? null : oxcNativeAdapter),
   strict: false,
 };
 const chunkContent = (content: string, options: Parameters<typeof chunkWithRuntime>[1]) =>
@@ -161,7 +161,7 @@ describe('portable-chunking', () => {
         expect(result.chunks[0]).toMatchObject({
           chunkIndex: 0,
           chunkSize: expect.any(Number),
-          chunkType: expect.stringMatching(/^(text|sentence|recursive)$/),
+          chunkType: expect.stringMatching(/^(text|sentence|recursive)$/u),
           content: expect.any(String),
           contentHash: expect.any(String),
           tokenCount: expect.any(Number),
@@ -292,7 +292,7 @@ describe('portable-chunking', () => {
           startOffset,
         });
         expect(warnSpy).not.toHaveBeenCalled();
-        expect(text.slice(startOffset, endOffset).replace(/\r\n/g, '\n')).toBe(
+        expect(text.slice(startOffset, endOffset).replace(/\r\n/gu, '\n')).toBe(
           'Alpha target line\ncontinues with mixed newlines.'
         );
         // The splitter's LF copy only locates the chunk; the chunk is the source span.
@@ -340,7 +340,7 @@ describe('portable-chunking', () => {
           endOffset,
           startOffset,
         });
-        expect(text.slice(startOffset, endOffset).replace(/\r\n/g, '\n')).toBe(
+        expect(text.slice(startOffset, endOffset).replace(/\r\n/gu, '\n')).toBe(
           'x\nNeedle anchor phrase spans after a normalized newline.'
         );
         expect(warnSpy).not.toHaveBeenCalled();

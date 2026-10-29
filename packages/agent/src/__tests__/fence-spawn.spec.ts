@@ -366,7 +366,7 @@ describe('spawnFenced teardown', () => {
     const { child, deps } = harness();
     const pending = run(deps);
     child.emitError(new Error('ENOENT'));
-    await expect(pending).rejects.toThrowError(/ENOENT/);
+    await expect(pending).rejects.toThrowError(/ENOENT/u);
   });
 
   it('rejects an empty command vector rather than spawning something implicit', async () => {
@@ -381,7 +381,7 @@ describe('spawnFenced teardown', () => {
         signal: new AbortController().signal,
         timeoutMs: 1000,
       })
-    ).rejects.toThrowError(/empty command/i);
+    ).rejects.toThrowError(/empty command/iu);
   });
 });
 

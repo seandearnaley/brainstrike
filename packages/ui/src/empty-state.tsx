@@ -36,15 +36,15 @@ export function EmptyState({
         {icon && (
           <div className="relative">
             {/* Soft ambient glow */}
-            <div className="absolute inset-0 rounded-full bg-primary/10 blur-2xl" />
+            <div className="bg-primary/10 absolute inset-0 rounded-full blur-2xl" />
             {/* Minimalist circular background with alt shade */}
-            <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-muted/40 transition-colors duration-500">
+            <div className="bg-muted/40 relative flex h-20 w-20 items-center justify-center rounded-full transition-colors duration-500">
               {React.isValidElement(icon)
                 ? React.cloneElement(
                     icon as React.ReactElement<React.HTMLAttributes<HTMLElement>>,
                     {
                       className: cn(
-                        'h-9 w-9 text-muted-foreground/80',
+                        'text-muted-foreground/80 h-9 w-9',
                         (icon.props as React.HTMLAttributes<HTMLElement>).className
                       ),
                     }
@@ -55,7 +55,7 @@ export function EmptyState({
         )}
 
         <div className="space-y-3">
-          <h3 className="font-semibold text-foreground text-lg tracking-tight">{title}</h3>
+          <h3 className="text-foreground text-lg font-semibold tracking-tight">{title}</h3>
           {description && (
             <p className="text-muted-foreground text-sm leading-relaxed">{description}</p>
           )}
@@ -65,15 +65,15 @@ export function EmptyState({
 
         {/* Minimalist 2026 Grid Identity Element */}
         <div className="grid grid-cols-3 gap-1.5 pt-4 opacity-15">
-          <div className="h-1 w-1 rounded-full bg-foreground" />
-          <div className="h-1 w-1 rounded-full bg-foreground" />
-          <div className="h-1 w-1 rounded-full bg-foreground" />
-          <div className="h-1 w-1 rounded-full bg-foreground" />
-          <div className="h-1 w-1 rounded-full bg-foreground" />
-          <div className="h-1 w-1 rounded-full bg-foreground" />
-          <div className="h-1 w-1 rounded-full bg-foreground" />
-          <div className="h-1 w-1 rounded-full bg-foreground" />
-          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
+          <div className="bg-foreground h-1 w-1 rounded-full" />
         </div>
       </div>
     </div>

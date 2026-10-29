@@ -76,7 +76,7 @@ test('a canvas a host run commits opens in its own tab and is saved to Artifacts
   await input.fill('Draw it.');
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   // The canvas write pauses under the default `edit: ask`.
-  const approve = region.getByRole('button', { name: /^Approve / });
+  const approve = region.getByRole('button', { name: /^Approve /u });
   await expect(approve).toBeVisible({ timeout: 90_000 });
   await approve.click();
   await expect(region.getByText(SECOND_REPLY)).toBeVisible({ timeout: 90_000 });

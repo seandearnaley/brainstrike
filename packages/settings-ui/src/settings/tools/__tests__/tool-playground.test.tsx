@@ -98,7 +98,7 @@ describe('ToolPlayground', () => {
     it('removes aria-controls when the parameters panel is collapsed', () => {
       render(<ToolPlayground onExecute={mockOnExecute} toolId="brainstrike.readWorkspaceFile" />);
 
-      const parametersButton = screen.getByRole('button', { name: /Parameters/ });
+      const parametersButton = screen.getByRole('button', { name: /Parameters/u });
       expect(parametersButton).toHaveAttribute('aria-expanded', 'true');
       const expandedContentId = parametersButton.getAttribute('aria-controls');
       expect(expandedContentId).not.toBeNull();
@@ -241,7 +241,7 @@ describe('ToolPlayground', () => {
         expect(screen.getByTestId('execution-result')).toBeInTheDocument();
         expect(screen.getByText('Success')).toBeInTheDocument();
         expect(screen.getByText('150ms')).toBeInTheDocument();
-        expect(screen.getByText(/"message": "Hello World"/)).toBeInTheDocument();
+        expect(screen.getByText(/"message": "Hello World"/u)).toBeInTheDocument();
       });
     });
 
@@ -296,15 +296,15 @@ describe('ToolPlayground', () => {
       fireEvent.click(screen.getByTestId('execute-button'));
 
       await waitFor(() => {
-        expect(screen.getByText(/"first": true/)).toBeInTheDocument();
+        expect(screen.getByText(/"first": true/u)).toBeInTheDocument();
       });
 
       // Second execution
       fireEvent.click(screen.getByTestId('execute-button'));
 
       await waitFor(() => {
-        expect(screen.queryByText(/"first": true/)).not.toBeInTheDocument();
-        expect(screen.getByText(/"second": true/)).toBeInTheDocument();
+        expect(screen.queryByText(/"first": true/u)).not.toBeInTheDocument();
+        expect(screen.getByText(/"second": true/u)).toBeInTheDocument();
       });
     });
   });

@@ -1,13 +1,12 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { AssistantReasoningPart } from '../assistant-reasoning-part';
 
 const useMessagePartReasoningMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@assistant-ui/react', () => ({
   useMessagePartReasoning: useMessagePartReasoningMock,
 }));
-
-import { AssistantReasoningPart } from '../assistant-reasoning-part';
 
 describe('AssistantReasoningPart', () => {
   it('strips provider citation markers from reasoning text', () => {

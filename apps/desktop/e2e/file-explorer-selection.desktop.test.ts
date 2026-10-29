@@ -32,7 +32,7 @@ test.describe('Desktop file explorer selection', () => {
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
 
-    const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
+    const selectAllButton = window.getByRole('button', { name: /^Select All$/iu }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
     await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 

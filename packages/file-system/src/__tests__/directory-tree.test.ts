@@ -11,13 +11,12 @@ import {
   readFullTree,
   readFullTreeWithOptions,
 } from '../directory-tree.js';
+import { walkDirectoryParallel } from '../directory-tree-walker.js';
 
 // Mock the parallel directory walker
 vi.mock('../directory-tree-walker.js', () => ({
   walkDirectoryParallel: vi.fn().mockResolvedValue([]),
 }));
-
-import { walkDirectoryParallel } from '../directory-tree-walker.js';
 
 const mockWalkDirectoryParallel = vi.mocked(walkDirectoryParallel);
 

@@ -30,7 +30,7 @@ describe('AssistantThreadTabsWorkspace run state', () => {
     dbMocks.activeRunRows = [{ threadId: 'thread-a' }];
     dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b', 'thread-c', 'thread-d', 'thread-a');
 
     // The mark owns the badge (the same glyph as the Threads-panel row); the
@@ -53,14 +53,14 @@ describe('AssistantThreadTabsWorkspace run state', () => {
     // assistant-thread-tabs-workspace-seen.test.tsx for the off-screen cases.
     focusWindow();
     renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     // Activating the tab shows the thread: the strip, not only the Threads
     // panel, must advance its viewed watermark.
     openThreadTabs('thread-d');
     await waitFor(() => expect(activeThreadId()).toBe('thread-d'));
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('tab', { name: /Purchasing app search log/ }));
+    await user.click(screen.getByRole('tab', { name: /Purchasing app search log/u }));
     await waitFor(() => expect(activeThreadId()).toBe('thread-a'));
 
     expect(screen.getByRole('tab', { name: 'Nightly triage' })).toBeInTheDocument();
@@ -70,7 +70,7 @@ describe('AssistantThreadTabsWorkspace run state', () => {
   it('re-renders only the marks whose thread status changed when the selection moves', async () => {
     addThreadRow('thread-c', 'Release checklist');
     const workspace = renderWorkspace();
-    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
     openThreadTabs('thread-b', 'thread-c', 'thread-a');
     await waitFor(() => expect(markRenders.get('thread-c')).toBeGreaterThan(0));
     const before = new Map(markRenders);

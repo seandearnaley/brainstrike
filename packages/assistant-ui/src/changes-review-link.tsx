@@ -71,7 +71,7 @@ export function ChangesReviewLink({
   return (
     <div className="mt-1 flex" data-testid="changes-review-footer">
       <Button
-        className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
+        className="text-muted-foreground h-5 gap-1 px-1.5 text-[11px]"
         data-testid="changes-review-link"
         onClick={() => context.openChangesForRun(runId, threadId)}
         size="sm"

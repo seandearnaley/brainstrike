@@ -131,7 +131,7 @@ export function ToolApprovalDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {isHighRisk && <AlertTriangle className="h-5 w-5 text-destructive" />}
+            {isHighRisk && <AlertTriangle className="text-destructive h-5 w-5" />}
             {title ?? 'Confirm Tool Action'}
           </DialogTitle>
           <DialogDescription>
@@ -141,16 +141,16 @@ export function ToolApprovalDialog({
 
         <div className="space-y-4">
           {/* Tool Info */}
-          <div className="rounded-lg border bg-muted/30 p-3">
+          <div className="bg-muted/30 rounded-lg border p-3">
             <div className="flex items-center justify-between">
               <code className="font-mono text-sm">{tool.id}</code>
               {tool.category && (
-                <span className="rounded bg-muted px-2 py-0.5 text-muted-foreground text-xs">
+                <span className="bg-muted text-muted-foreground rounded px-2 py-0.5 text-xs">
                   {tool.category}
                 </span>
               )}
             </div>
-            <p className="mt-1 text-muted-foreground text-sm">{tool.description}</p>
+            <p className="text-muted-foreground mt-1 text-sm">{tool.description}</p>
             {tool.riskLevel && (
               <p className={cn('mt-1 text-xs', getRiskLevelStyle(tool.riskLevel))}>
                 Risk level: {tool.riskLevel}
@@ -161,13 +161,13 @@ export function ToolApprovalDialog({
           {/* Input Parameters */}
           {hasInput && (
             <div className="space-y-2">
-              <Label className="font-medium text-sm">Parameters</Label>
+              <p className="text-sm leading-none font-medium">Parameters</p>
               <ScrollArea className="h-[150px] rounded-md border">
                 <div className="space-y-2 p-3">
                   {inputEntries.map(([key, value]) => (
                     <div className="space-y-1" key={key}>
-                      <div className="font-mono text-muted-foreground text-xs">{key}</div>
-                      <pre className="whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-xs">
+                      <div className="text-muted-foreground font-mono text-xs">{key}</div>
+                      <pre className="bg-muted/50 rounded p-2 font-mono text-xs break-words whitespace-pre-wrap">
                         {formatValue(value)}
                       </pre>
                     </div>

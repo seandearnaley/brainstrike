@@ -22,7 +22,7 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src/crypto.ts'),
       },
       {
-        find: /^@brainstrike\/utils\/(.*)$/,
+        find: /^@brainstrike\/utils\/(.*)$/u,
         replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
       },
       {
@@ -60,7 +60,7 @@ export default defineConfig({
       {
         // Anchored: a bare-string find would also capture the
         // './commands' subpath export, which the registry spread resolves.
-        find: /^@brainstrike\/context-actions$/,
+        find: /^@brainstrike\/context-actions$/u,
         replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       // @brainstrike/workers has no src/ dir (worker files at the package root),

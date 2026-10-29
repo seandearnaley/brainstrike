@@ -15,7 +15,7 @@ function windowsGitRoots(environment: NodeJS.ProcessEnv): Set<string> {
     roots.add(path.join(local, 'Programs', 'Git'));
   }
   for (const entry of (environment['PATH'] ?? environment['Path'] ?? '').split(';')) {
-    const directory = entry.replace(/^"|"$/g, '');
+    const directory = entry.replace(/^"|"$/gu, '');
     if (!path.isAbsolute(directory)) {
       continue;
     }

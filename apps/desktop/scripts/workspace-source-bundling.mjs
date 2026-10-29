@@ -103,6 +103,7 @@ export function workspaceSourceBundling({ packagesRoot, thirdParty }) {
     name: 'workspace-source-bundling',
     setup(build) {
       const packages = readWorkspacePackages(packagesRoot);
+      // biome-ignore lint/style/useUnicodeRegex: esbuild runs plugin filters as Go regular expressions, which reject the u flag.
       build.onResolve({ filter: /^[^./#]/ }, (args) => {
         if (path.isAbsolute(args.path)) {
           return;

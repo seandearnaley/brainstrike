@@ -152,10 +152,10 @@ describe('CatalogToolbar', () => {
     const trigger = screen.getByTestId('model-catalog-providers-trigger');
     expect(trigger).toHaveTextContent('Providers:All');
     await userEvent.click(trigger);
-    await userEvent.click(await screen.findByRole('checkbox', { name: /OpenAI/ }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: /OpenAI/u }));
     const last = onChange.mock.lastCall?.[0] as CatalogFilters | undefined;
     expect([...(last?.providerIds ?? [])]).toEqual(['openai']);
-    await userEvent.click(screen.getByRole('checkbox', { name: /OpenAI/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: /OpenAI/u }));
     const cleared = onChange.mock.lastCall?.[0] as CatalogFilters | undefined;
     expect([...(cleared?.providerIds ?? ['unchanged'])]).toEqual([]);
   });
@@ -210,7 +210,7 @@ describe('CatalogToolbar', () => {
       'aria-pressed',
       'true'
     );
-    expect(screen.getByRole('checkbox', { name: /Anthropic/ })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Anthropic/u })).toBeInTheDocument();
   });
 
   it('hands the search input to searchInputRef (Task 9 focuses it on "/")', () => {

@@ -82,13 +82,13 @@ describe('state DB migrations', () => {
       );
       worktree.run('ok', '/wt/ok', 'agent', 'none', ISO, 'snapshot');
       expect(() => worktree.run('creator', '/wt/creator', 'bot', 'none', null, null)).toThrow(
-        /CHECK constraint failed/
+        /CHECK constraint failed/u
       );
       expect(() => worktree.run('setup', '/wt/setup', 'user', 'bogus', null, null)).toThrow(
-        /CHECK constraint failed/
+        /CHECK constraint failed/u
       );
       expect(() => worktree.run('archive', '/wt/archive', 'user', 'none', ISO, null)).toThrow(
-        /CHECK constraint failed/
+        /CHECK constraint failed/u
       );
       expect(db.prepare('SELECT id FROM brainstrike_worktrees').pluck().all()).toEqual(['ok']);
     } finally {
@@ -107,7 +107,7 @@ describe('state DB migrations', () => {
       );
       task.run('t1', ISO, ISO, 'e1');
       expect(() => task.run('t2', ISO, ISO, 'missing-epoch')).toThrow(
-        /FOREIGN KEY constraint failed/
+        /FOREIGN KEY constraint failed/u
       );
       db.prepare("DELETE FROM brainstrike_mcp_task_authorities WHERE authority_epoch = 'e1'").run();
       expect(db.prepare('SELECT count(*) FROM brainstrike_mcp_tasks').pluck().get()).toBe(0);
@@ -145,7 +145,7 @@ describe('state DB migrations', () => {
       migrate(db);
       expect(db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
       db.pragma(`user_version = ${SCHEMA_VERSION + 1}`);
-      expect(() => migrate(db)).toThrow(/newer than this build supports/);
+      expect(() => migrate(db)).toThrow(/newer than this build supports/u);
     } finally {
       db.close();
     }

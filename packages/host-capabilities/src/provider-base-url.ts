@@ -43,7 +43,7 @@ export function resolveProviderBaseUrl(
   ) {
     throw invalid;
   }
-  const base = url.href.replace(/\/$/, '');
+  const base = url.href.replace(/\/$/u, '');
   // @ai-sdk/anthropic's normalizeBaseURL versions exactly its bare API origin.
   return provider === 'anthropic' && base === ANTHROPIC_BARE_ORIGIN ? defaultUrl : base;
 }

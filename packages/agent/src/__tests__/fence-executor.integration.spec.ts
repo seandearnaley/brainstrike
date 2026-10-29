@@ -167,7 +167,7 @@ describe.skipIf(skipReason !== undefined)('FenceExecutor against the real OS fen
     const result = await run(`open(${JSON.stringify(target)}, "w").write("pwned")`);
     expect(existsSync(target)).toBe(false);
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toMatch(/PermissionError|Operation not permitted|Read-only|denied/i);
+    expect(result.stderr).toMatch(/PermissionError|Operation not permitted|Read-only|denied/iu);
   });
 
   it('DENIES network access when allowedDomains is empty', async () => {
@@ -229,7 +229,7 @@ describe.skipIf(skipReason !== undefined)('FenceExecutor against the real OS fen
     // one has to keep proving the write was REFUSED rather than failing for
     // some unrelated reason.
     expect(result.stdout).toMatch(
-      /PermissionError|Operation not permitted|Read-only file system|denied/i
+      /PermissionError|Operation not permitted|Read-only file system|denied/iu
     );
   });
 

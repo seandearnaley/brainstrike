@@ -141,11 +141,11 @@ function statusIcon(status: McpTaskPresentation['status']): ReactElement {
     case 'cancelled':
       return <XCircle aria-hidden="true" className="size-3.5" />;
     case 'completed':
-      return <CircleCheck aria-hidden="true" className="size-3.5 text-success" />;
+      return <CircleCheck aria-hidden="true" className="text-success size-3.5" />;
     case 'failed':
-      return <AlertCircle aria-hidden="true" className="size-3.5 text-destructive" />;
+      return <AlertCircle aria-hidden="true" className="text-destructive size-3.5" />;
     case 'input_required':
-      return <CirclePause aria-hidden="true" className="size-3.5 text-warning" />;
+      return <CirclePause aria-hidden="true" className="text-warning size-3.5" />;
     case 'working':
       return <CircleDashed aria-hidden="true" className="size-3.5" />;
   }
@@ -279,17 +279,17 @@ export function McpTaskStatusCard({
   return (
     <section
       aria-labelledby={titleId}
-      className="rounded-lg border border-border bg-card p-3 text-card-foreground shadow-sm"
+      className="border-border bg-card text-card-foreground rounded-lg border p-3 shadow-sm"
       data-testid="mcp-task-status-card"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-medium text-sm" id={titleId}>
+          <h3 className="text-sm font-medium" id={titleId}>
             Background task
           </h3>
           <div
             aria-live="polite"
-            className="mt-1 flex items-center gap-1.5 text-muted-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="text-muted-foreground focus-visible:ring-ring mt-1 flex items-center gap-1.5 text-xs outline-none focus-visible:ring-2"
             data-testid="mcp-task-status-summary"
             ref={summaryRef}
             role="status"
@@ -306,10 +306,10 @@ export function McpTaskStatusCard({
       {task.statusMessage ? <p className="mt-2 text-sm">{task.statusMessage}</p> : null}
 
       <details className="mt-3 text-xs">
-        <summary className="cursor-pointer select-none text-muted-foreground">
+        <summary className="text-muted-foreground cursor-pointer select-none">
           Status history ({task.history.length})
         </summary>
-        <ol className="mt-2 space-y-1 border-border border-l pl-3">
+        <ol className="border-border mt-2 space-y-1 border-l pl-3">
           {historyRows(task.history).map(({ entry, key }) => (
             <li key={key}>
               <span className="font-medium">{statusLabel(entry.status)}</span>{' '}
@@ -320,7 +320,7 @@ export function McpTaskStatusCard({
           ))}
         </ol>
         {task.omittedHistoryEntries > 0 ? (
-          <p className="mt-2 text-muted-foreground">
+          <p className="text-muted-foreground mt-2">
             {task.omittedHistoryEntries} earlier updates omitted
           </p>
         ) : null}
@@ -328,7 +328,7 @@ export function McpTaskStatusCard({
 
       {visibleActionState.diagnostic ? (
         <div
-          className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-destructive text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="border-destructive/30 bg-destructive/5 text-destructive focus-visible:ring-ring mt-3 flex items-start gap-2 rounded-md border p-2 text-sm outline-none focus-visible:ring-2"
           ref={alertRef}
           role="alert"
           tabIndex={-1}

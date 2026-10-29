@@ -79,7 +79,7 @@ describe('createCommandRegistry', () => {
   it('throws on a duplicate command id rather than silently keeping the last', () => {
     const a: Command = { id: 'dup', label: 'A', run: () => Promise.resolve({ ok: true }) };
     const b: Command = { id: 'dup', label: 'B', run: () => Promise.resolve({ ok: true }) };
-    expect(() => createCommandRegistry([a, b])).toThrow(/dup/);
+    expect(() => createCommandRegistry([a, b])).toThrow(/dup/u);
   });
 
   it('byId resolves a registered command and undefined otherwise', () => {

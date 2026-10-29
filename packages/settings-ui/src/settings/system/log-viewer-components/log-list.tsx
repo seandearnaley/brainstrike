@@ -93,19 +93,19 @@ export function LogList({
   // shrink to it, so no ancestor has to scroll (BST-1791).
   return (
     <div
-      className="min-h-0 w-full flex-1 overflow-auto bg-muted/5"
+      className="bg-muted/5 min-h-0 w-full flex-1 overflow-auto"
       data-testid="log-list-scroll-container"
       ref={parentRef}
     >
       {logsLoading && rows.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+        <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
           <div className="flex flex-col items-center gap-2">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
             Loading logs...
           </div>
         </div>
       ) : rows.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+        <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
           {emptyStateText}
         </div>
       ) : (
@@ -120,7 +120,7 @@ export function LogList({
               />
             ))}
           </colgroup>
-          <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
+          <TableHeader className="bg-background sticky top-0 z-10 shadow-sm">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow
                 className="border-border/60 border-b hover:bg-transparent"
@@ -128,12 +128,12 @@ export function LogList({
               >
                 {headerGroup.headers.map((header) => (
                   <TableHead
-                    className="h-9 truncate py-2 font-semibold text-foreground/80"
+                    className="text-foreground/80 h-9 truncate py-2 font-semibold"
                     key={header.id}
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
                       <button
-                        className="flex w-full items-center justify-between gap-2 text-left text-xs uppercase tracking-wider transition-colors hover:text-primary"
+                        className="hover:text-primary flex w-full items-center justify-between gap-2 text-left text-xs tracking-wider uppercase transition-colors"
                         onClick={header.column.getToggleSortingHandler()}
                         type="button"
                       >
@@ -148,7 +148,7 @@ export function LogList({
                         )}
                       </button>
                     ) : (
-                      <div className="text-xs uppercase tracking-wider">
+                      <div className="text-xs tracking-wider uppercase">
                         {flexRender(header.column.columnDef.header, header.getContext())}
                       </div>
                     )}

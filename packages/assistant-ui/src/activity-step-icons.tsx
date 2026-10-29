@@ -31,21 +31,21 @@ function renderStateIcon(state: StepGlyphState): ReactNode {
     case 'running':
       return <BrainstrikeThinkingMark className="size-4" testId="step-running-mark" />;
     case 'done':
-      return <CheckCircle aria-hidden="true" className="size-4 text-success" />;
+      return <CheckCircle aria-hidden="true" className="text-success size-4" />;
     case 'failed':
-      return <AlertCircle aria-hidden="true" className="size-4 text-destructive" />;
+      return <AlertCircle aria-hidden="true" className="text-destructive size-4" />;
     case 'cancelled':
-      return <CircleSlash aria-hidden="true" className="size-4 text-muted-foreground" />;
+      return <CircleSlash aria-hidden="true" className="text-muted-foreground size-4" />;
     case 'waiting':
-      return <CircleDashed aria-hidden="true" className="size-4 text-muted-foreground" />;
+      return <CircleDashed aria-hidden="true" className="text-muted-foreground size-4" />;
     case 'truncated':
       // Warning check: the delegation completed and its findings are real, but
       // the summary was cut at the synthesis budget — expect gaps.
-      return <CheckCircle aria-hidden="true" className="size-4 text-warning" />;
+      return <CheckCircle aria-hidden="true" className="text-warning size-4" />;
     case 'no-answer':
     case 'rejected':
       // Warning like no-answer: nothing broke, the delegation never ran.
-      return <AlertCircle aria-hidden="true" className="size-4 text-warning" />;
+      return <AlertCircle aria-hidden="true" className="text-warning size-4" />;
     default:
       // Compile-time exhaustiveness as its OWN statement, so the runtime
       // answer for an unmapped state is rendering nothing — returning the

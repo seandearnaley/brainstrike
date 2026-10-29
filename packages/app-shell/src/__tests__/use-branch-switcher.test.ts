@@ -1,6 +1,7 @@
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useBranchSwitcher } from '../hooks/use-branch-switcher';
 import { stubGitBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const {
@@ -56,8 +57,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
   createLogger: () => loggerMock,
 }));
 vi.mock('@brainstrike/ui', () => ({ toast: toastSpy }));
-
-import { useBranchSwitcher } from '../hooks/use-branch-switcher';
 
 const REPOSITORY = {
   branches: [

@@ -1,6 +1,7 @@
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { type ModelBulkToggleOutcome, useModelToggle } from '../use-model-toggle';
 
 const toast = vi.fn();
 const toggleModel = vi.fn<(db: unknown, modelId: string, enabled: boolean) => Promise<void>>();
@@ -23,8 +24,6 @@ vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
     }) => unknown
   ) => selector({ setModelsEnabled, toggleModel }),
 }));
-
-import { type ModelBulkToggleOutcome, useModelToggle } from '../use-model-toggle';
 
 describe('useModelToggle', () => {
   beforeEach(() => {

@@ -1,7 +1,9 @@
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract/run-events';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
+import type { AssistantThreadIconId } from '@brainstrike/types';
 import type { DelegatedReplayProofInput } from './assistant-delegated-replay-proof.ts';
+import type { AssistantThreadColorId } from './assistant-thread-palette.ts';
 
 export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 
@@ -41,14 +43,9 @@ export interface AssistantMemoryThread {
   readonly updatedAt: Date;
 }
 
-import type { AssistantThreadIconId } from '@brainstrike/types';
-
 export { ASSISTANT_THREAD_ICON_IDS, type AssistantThreadIconId } from '@brainstrike/types';
-export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.ts';
-
-import type { AssistantThreadColorId } from './assistant-thread-palette.ts';
-
 export type { AssistantThreadColorId } from './assistant-thread-palette.ts';
+export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.ts';
 
 export interface AssistantThreadMetadata {
   /** Last observed branch of the thread's checkout. Display only — live from git. */

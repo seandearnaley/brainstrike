@@ -55,7 +55,7 @@ async function withRipgrepHidden<T>(fn: () => Promise<T>): Promise<T> {
   const statSpy = vi
     .spyOn(fsPromises, 'stat')
     .mockImplementation(async (target: Parameters<typeof realStat>[0]) => {
-      if (/[/\\]rg(\.exe)?$/.test(String(target))) {
+      if (/[/\\]rg(\.exe)?$/u.test(String(target))) {
         throw new Error('ENOENT');
       }
       return await realStat(target);
@@ -212,7 +212,7 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
       '.env.example',
       'src/enrich.ts',
     ]);
-    expect(JSON.stringify(result)).not.toMatch(/SECRET/);
+    expect(JSON.stringify(result)).not.toMatch(/SECRET/u);
   });
 
   it('keeps credential files out of ripgrep itself, so they never read or spend its cap', async () => {
@@ -273,7 +273,7 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
       '.env.example',
       'src/enrich.ts',
     ]);
-    expect(JSON.stringify(result)).not.toMatch(/SECRET/);
+    expect(JSON.stringify(result)).not.toMatch(/SECRET/u);
   });
 
   it('excludes .llmignore paths on the JS-walk engine', async () => {

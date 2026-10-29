@@ -1,4 +1,4 @@
-import { Button, Label } from '@brainstrike/ui';
+import { Button } from '@brainstrike/ui';
 
 export interface ClearStoredFoldersPanelProps {
   hasStoredFolders: boolean;
@@ -16,9 +16,9 @@ export function ClearStoredFoldersPanel({
   }
 
   return (
-    <div className="space-y-1 rounded-md border bg-muted/20 p-3">
-      <Label className="text-xs">Stored Folders</Label>
-      <p className="text-[11px] text-muted-foreground">
+    <div className="bg-muted/20 space-y-1 rounded-md border p-3">
+      <p className="text-xs leading-none font-medium">Stored Folders</p>
+      <p className="text-muted-foreground text-[11px]">
         Clear all remembered folders for File System access. This will require you to re-select
         folders next time you use the file explorer.
       </p>

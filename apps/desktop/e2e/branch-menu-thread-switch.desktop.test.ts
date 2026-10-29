@@ -46,7 +46,7 @@ test('selecting another thread closes the open branch menu', async ({
 
   // Until a thread's branch list loads, its chip is a read-only label that
   // ignores a click; the switcher is the button it becomes.
-  const chip = region.getByRole('button', { name: /^Branch: / });
+  const chip = region.getByRole('button', { name: /^Branch: /u });
   const menu = page.getByTestId('workspace-bar-branch-menu');
   const rows = page
     .getByRole('treegrid', { name: 'Workspace threads' })
@@ -100,7 +100,7 @@ test('selecting another thread closes the open branch menu', async ({
     'First reply.'
   );
   await closesInPlace(
-    () => tabs.getByRole('tab', { name: /Second reply\./ }).click(),
+    () => tabs.getByRole('tab', { name: /Second reply\./u }).click(),
     'Second reply.'
   );
 });

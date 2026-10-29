@@ -225,8 +225,8 @@ describe('EnvironmentSection', () => {
       );
       expect(banner).toHaveTextContent('.env.local');
       // The loader's file IDS must never surface as user-facing text.
-      expect(banner.textContent).not.toMatch(/\bdev-local\b/);
-      expect(banner.textContent).not.toMatch(/"dev"/);
+      expect(banner.textContent).not.toMatch(/\bdev-local\b/u);
+      expect(banner.textContent).not.toMatch(/"dev"/u);
     });
 
     it('states the all-or-nothing consequence, not merely a per-file one', async () => {

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CHUNK_RELOAD_STORAGE_KEY } from '../chunk-reload-guard';
+import { startAppReloadRecovery } from '../start-app-reload-recovery';
 
 const { installChunkLoadErrorListener, markReloadAlreadyAttempted, uninstall } = vi.hoisted(() => ({
   installChunkLoadErrorListener: vi.fn(),
@@ -10,9 +12,6 @@ vi.mock('@brainstrike/ui', () => ({
   appReloadStore: { markReloadAlreadyAttempted },
   installChunkLoadErrorListener,
 }));
-
-import { CHUNK_RELOAD_STORAGE_KEY } from '../chunk-reload-guard';
-import { startAppReloadRecovery } from '../start-app-reload-recovery';
 
 beforeEach(() => {
   vi.clearAllMocks();

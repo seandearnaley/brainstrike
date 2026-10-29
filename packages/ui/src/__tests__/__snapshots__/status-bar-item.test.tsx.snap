@@ -2,7 +2,7 @@
 
 exports[`StatusBarItem > Snapshots > renders connected status 1`] = `
 <span
-  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none text-success"
+  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden px-1.5 leading-none whitespace-nowrap text-success"
   data-testid="db-status"
 >
   <svg
@@ -41,7 +41,7 @@ exports[`StatusBarItem > Snapshots > renders connected status 1`] = `
 
 exports[`StatusBarItem > Snapshots > renders disconnected status 1`] = `
 <span
-  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none text-destructive"
+  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden px-1.5 leading-none whitespace-nowrap text-destructive"
   data-testid="db-status"
 >
   <svg
@@ -80,7 +80,7 @@ exports[`StatusBarItem > Snapshots > renders disconnected status 1`] = `
 
 exports[`StatusBarItem > Snapshots > renders loading status 1`] = `
 <span
-  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none text-muted-foreground"
+  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden px-1.5 leading-none whitespace-nowrap text-muted-foreground"
   data-testid="db-status"
 >
   <svg

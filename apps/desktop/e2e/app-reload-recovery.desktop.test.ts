@@ -35,7 +35,7 @@ test('Reload app on a failed Terminal chunk reloads once at once, with no run di
   }, TERMINAL_CHUNK_PREFIX);
 
   await page.getByTestId('workspace-add-tab').click();
-  await page.getByRole('menuitem', { name: /Terminal/ }).click();
+  await page.getByRole('menuitem', { name: /Terminal/u }).click();
   const panel = page.getByRole('alert').filter({ hasText: "Terminal couldn't load" });
   await expect(panel).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Reload app' })).toBeVisible();

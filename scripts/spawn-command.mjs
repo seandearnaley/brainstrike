@@ -1,4 +1,4 @@
-const WINDOWS_SHELL_META_RE = /[\s"&|<>^()%!]/;
+const WINDOWS_SHELL_META_RE = /[\s"&|<>^()%!]/u;
 
 export function quoteWindowsShellArg(arg) {
   if (arg.length === 0) {
@@ -9,7 +9,7 @@ export function quoteWindowsShellArg(arg) {
     return arg;
   }
 
-  const escaped = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1');
+  const escaped = arg.replace(/(\\*)"/gu, '$1$1\\"').replace(/(\\+)$/gu, '$1$1');
   return `"${escaped}"`;
 }
 

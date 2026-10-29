@@ -71,7 +71,7 @@ const DEFAULT_FAILURE_TTL_MS = 3 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CACHE_ENTRIES = 32;
 const MAX_VISIBLE_ERROR_CHARS = 200;
-const AWS_REGION_PATTERN = /^[a-z0-9-]{1,32}$/;
+const AWS_REGION_PATTERN = /^[a-z0-9-]{1,32}$/u;
 
 class ProviderProbeRequestError extends Error {
   constructor(error: unknown) {

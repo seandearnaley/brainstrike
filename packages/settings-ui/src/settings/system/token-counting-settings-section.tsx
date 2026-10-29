@@ -13,6 +13,7 @@ import {
   Switch,
 } from '@brainstrike/ui';
 import { AlertTriangle, CheckCircle2, Loader2, MinusCircle } from 'lucide-react';
+import { useId } from 'react';
 
 type TokenRuntimeStatus = 'checking' | 'accurate' | 'unavailable' | 'disabled';
 
@@ -73,6 +74,7 @@ export function TokenCountingSettingsSection({
   const status = STATUS_METADATA[runtimeStatus];
 
   const Icon = status.icon;
+  const accurateToggleId = useId();
 
   return (
     <Card>
@@ -86,7 +88,9 @@ export function TokenCountingSettingsSection({
       <CardContent className="space-y-5">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="font-medium text-sm">Use WASM tokenizer (recommended)</Label>
+            <Label className="text-sm font-medium" htmlFor={accurateToggleId}>
+              Use WASM tokenizer (recommended)
+            </Label>
             <p className="text-muted-foreground text-sm">
               When enabled, BrainStrike loads tiktoken in WebAssembly for accurate token counting.
             </p>
@@ -94,6 +98,7 @@ export function TokenCountingSettingsSection({
           <Switch
             checked={accurateCounting}
             data-testid="token-counting-accurate-toggle"
+            id={accurateToggleId}
             onCheckedChange={(value) => setAccurateCounting(value === true)}
           />
         </div>
@@ -107,7 +112,7 @@ export function TokenCountingSettingsSection({
             <Icon className={runtimeStatus === 'checking' ? 'size-3.5 animate-spin' : 'size-3.5'} />
             {status.label}
           </Badge>
-          <p className="flex-1 text-muted-foreground text-sm">{status.description}</p>
+          <p className="text-muted-foreground flex-1 text-sm">{status.description}</p>
         </div>
       </CardContent>
     </Card>

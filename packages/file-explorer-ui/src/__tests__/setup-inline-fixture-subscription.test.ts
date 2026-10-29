@@ -316,7 +316,7 @@ describe('setup-inline-fixture-subscription', () => {
 
     await expect(
       window.__BRAINSTRIKE_ADD_FIXTURE_ROOT__?.({ name: 'second-root', tree: { 'b.txt': 'b' } })
-    ).rejects.toThrow(/load or clear is in flight/);
+    ).rejects.toThrow(/load or clear is in flight/u);
     expect(addInlineFixtureRoot).not.toHaveBeenCalled();
 
     resolveLoad?.({ path: '/fixture' } as unknown as FileSystemDirectoryHandle);

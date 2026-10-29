@@ -81,7 +81,7 @@ export function ToolRow({ tool, expanded = false, onToggle, onExpand }: ToolRowP
     /* biome-ignore lint/a11y/useSemanticElements: role="row" used for accessible table-like structure in non-table context */
     <div
       className={cn(
-        'flex cursor-pointer items-center gap-3 border-border/50 border-b px-3 py-2 transition-colors hover:bg-muted/50',
+        'border-border/50 hover:bg-muted/50 flex cursor-pointer items-center gap-3 border-b px-3 py-2 transition-colors',
         !tool.enabled && 'opacity-70'
       )}
       data-testid={`tool-row-${tool.id}`}
@@ -93,9 +93,9 @@ export function ToolRow({ tool, expanded = false, onToggle, onExpand }: ToolRowP
       {/* Expand/Collapse Chevron */}
       <span className="w-4 flex-shrink-0" data-testid={expanded ? 'chevron-down' : 'chevron-right'}>
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          <ChevronDown className="text-muted-foreground h-4 w-4" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          <ChevronRight className="text-muted-foreground h-4 w-4" />
         )}
       </span>
 
@@ -107,12 +107,12 @@ export function ToolRow({ tool, expanded = false, onToggle, onExpand }: ToolRowP
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              className="flex-shrink-0 rounded p-0.5 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="hover:bg-muted/50 focus-visible:ring-ring flex-shrink-0 rounded p-0.5 focus-visible:ring-1 focus-visible:outline-none"
               data-testid="requires-approval-icon"
               onClick={(e) => e.stopPropagation()}
               type="button"
             >
-              <AlertTriangle className="h-4 w-4 text-warning" />
+              <AlertTriangle className="text-warning h-4 w-4" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">Requires user approval before execution</TooltipContent>
@@ -130,7 +130,7 @@ export function ToolRow({ tool, expanded = false, onToggle, onExpand }: ToolRowP
       </Badge>
 
       {/* Token Count */}
-      <span className="w-12 flex-shrink-0 text-right text-muted-foreground text-xs">
+      <span className="text-muted-foreground w-12 flex-shrink-0 text-right text-xs">
         ~{tool.estimatedTokens}
       </span>
 

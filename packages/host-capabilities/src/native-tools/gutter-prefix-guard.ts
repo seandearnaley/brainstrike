@@ -1,4 +1,4 @@
-const GUTTER_PREFIX_PATTERN = /^(\d+): /;
+const GUTTER_PREFIX_PATTERN = /^(\d+): /u;
 const MINIMUM_MATCHING_LINES = 3;
 
 /**
@@ -78,8 +78,8 @@ export function looksLikeReadWorkspaceFileGutterOutput(candidate: string): boole
     if (previous === undefined || current === undefined || current < previous) {
       return false;
     }
-    min = current < min ? current : min;
-    max = current > max ? current : max;
+    min = Math.min(current, min);
+    max = Math.max(current, max);
   }
 
   return max - min < 2 * matchingLineNumbers.length;

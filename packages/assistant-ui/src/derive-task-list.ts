@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/assistant-contract';
 
 /** Matches the manageTaskList tool name as `brainstrike.manageTaskList` or the Mastra-sanitized `brainstrike_manageTaskList`. */
-const MANAGE_TASK_LIST_NAME = /^brainstrike[._]manageTaskList$/i;
+const MANAGE_TASK_LIST_NAME = /^brainstrike[._]manageTaskList$/iu;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;

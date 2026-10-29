@@ -3,6 +3,14 @@ import type { ViewFilterPreset } from '@brainstrike/types';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useViewFilterPresets } from '../hooks/use-view-filter-presets';
+import {
+  createExplorerThreadStatusStore,
+  ExplorerThreadStatusContext,
+  type ExplorerThreadStatusStore,
+} from '../shell/explorer-thread-status';
+import { ToolbarPresetSelector } from '../toolbar-preset-selector';
+import { THREAD_KIND_APPEARANCE } from './thread-kind-appearance.fixture';
 
 // Mock the hooks and dependencies
 const mockPresets: ViewFilterPreset[] = [
@@ -184,16 +192,6 @@ vi.mock('@brainstrike/logging', () => ({
   })),
 }));
 
-// Import after mocks are set up
-import { useViewFilterPresets } from '../hooks/use-view-filter-presets';
-import {
-  createExplorerThreadStatusStore,
-  ExplorerThreadStatusContext,
-  type ExplorerThreadStatusStore,
-} from '../shell/explorer-thread-status';
-import { ToolbarPresetSelector } from '../toolbar-preset-selector';
-import { THREAD_KIND_APPEARANCE } from './thread-kind-appearance.fixture';
-
 function threadStore(touchedPaths: string[], files: string[]): ExplorerThreadStatusStore {
   const store = createExplorerThreadStatusStore(THREAD_KIND_APPEARANCE);
   store.publish({
@@ -236,7 +234,7 @@ describe('ToolbarPresetSelector', () => {
         <ToolbarPresetSelector onFilterChange={mockOnFilterChange} />
       </ExplorerThreadStatusContext.Provider>
     );
-    await user.click(screen.getByRole('button', { name: /Source Files/i }));
+    await user.click(screen.getByRole('button', { name: /Source Files/iu }));
     const entry = await screen.findByTestId('thread-touched-preset');
     expect(entry).toHaveTextContent("2 files the thread's model received");
 
@@ -252,7 +250,7 @@ describe('ToolbarPresetSelector', () => {
   it('offers no thread preset without a thread context, or before the thread touched a file', async () => {
     const user = userEvent.setup();
     const { unmount } = render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
-    await user.click(screen.getByRole('button', { name: /Source Files/i }));
+    await user.click(screen.getByRole('button', { name: /Source Files/iu }));
     await screen.findByText('Documentation');
     expect(screen.queryByTestId('thread-touched-preset')).toBeNull();
     unmount();
@@ -262,7 +260,7 @@ describe('ToolbarPresetSelector', () => {
         <ToolbarPresetSelector onFilterChange={mockOnFilterChange} />
       </ExplorerThreadStatusContext.Provider>
     );
-    await user.click(screen.getByRole('button', { name: /Source Files/i }));
+    await user.click(screen.getByRole('button', { name: /Source Files/iu }));
     await screen.findByText('Documentation');
     expect(screen.queryByTestId('thread-touched-preset')).toBeNull();
   });
@@ -271,7 +269,7 @@ describe('ToolbarPresetSelector', () => {
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
     // The dropdown trigger button should be rendered
-    expect(screen.getByRole('button', { name: /Source Files/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Source Files/iu })).toBeInTheDocument();
   });
 
   it('shows selected preset name', async () => {
@@ -286,7 +284,7 @@ describe('ToolbarPresetSelector', () => {
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
     // Open the dropdown
-    const triggerButton = screen.getByRole('button', { name: /Source Files/i });
+    const triggerButton = screen.getByRole('button', { name: /Source Files/iu });
     await user.click(triggerButton);
 
     // Wait for dropdown to open and select Documentation preset
@@ -317,7 +315,7 @@ describe('ToolbarPresetSelector', () => {
     const user = userEvent.setup();
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    const triggerButton = screen.getByRole('button', { name: /Source Files/i });
+    const triggerButton = screen.getByRole('button', { name: /Source Files/iu });
     await user.click(triggerButton);
 
     await waitFor(() => {
@@ -327,16 +325,16 @@ describe('ToolbarPresetSelector', () => {
     await user.click(screen.getByText('Documentation'));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Documentation/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Documentation/iu })).toBeInTheDocument();
     });
-    expect(screen.queryByRole('button', { name: /Source Files/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Source Files/iu })).not.toBeInTheDocument();
   });
 
   it('persists the CANONICAL store snapshot immediately on preset selection', async () => {
     const user = userEvent.setup();
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    const triggerButton = screen.getByRole('button', { name: /Source Files/i });
+    const triggerButton = screen.getByRole('button', { name: /Source Files/iu });
     await user.click(triggerButton);
     await waitFor(() => {
       expect(screen.getByText('Documentation')).toBeInTheDocument();
@@ -392,7 +390,7 @@ describe('ToolbarPresetSelector', () => {
     render(<ToolbarPresetSelector className="custom-class" onFilterChange={mockOnFilterChange} />);
 
     // Verify the dropdown receives the className - check the button element
-    const triggerButton = screen.getByRole('button', { name: /Source Files/i });
+    const triggerButton = screen.getByRole('button', { name: /Source Files/iu });
     expect(triggerButton).toBeInTheDocument();
   });
 
@@ -442,7 +440,7 @@ describe('ToolbarPresetSelector', () => {
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
     // Component should render without selected preset - shows placeholder text
-    expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Custom filters/iu })).toBeInTheDocument();
   });
 
   it('shows the matching preset when active filters match exactly and preset id is missing', () => {
@@ -450,7 +448,7 @@ describe('ToolbarPresetSelector', () => {
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    expect(screen.getByRole('button', { name: /Source Files/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Source Files/iu })).toBeInTheDocument();
   });
 
   it('matches a preset when filter order differs but values are identical', () => {
@@ -459,7 +457,7 @@ describe('ToolbarPresetSelector', () => {
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    expect(screen.getByRole('button', { name: /Source Files/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Source Files/iu })).toBeInTheDocument();
     expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('preset-1');
   });
 
@@ -482,7 +480,7 @@ describe('ToolbarPresetSelector', () => {
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Custom filters/iu })).toBeInTheDocument();
     await waitFor(() => {
       expect(mockSetViewFilterPresetId).toHaveBeenCalledWith(null);
     });
@@ -494,7 +492,7 @@ describe('ToolbarPresetSelector', () => {
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Custom filters/iu })).toBeInTheDocument();
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
   });
 
@@ -511,7 +509,7 @@ describe('ToolbarPresetSelector', () => {
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Custom filters/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Custom filters/iu })).toBeInTheDocument();
     });
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
     expect(mockAdapterStorage.setItem).not.toHaveBeenCalled();

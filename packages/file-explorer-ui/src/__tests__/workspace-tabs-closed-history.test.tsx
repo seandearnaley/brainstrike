@@ -183,7 +183,7 @@ describe('workspace strip — closed-tab history (BST-1842)', () => {
     const user = userEvent.setup();
     renderHarness();
 
-    fireEvent.contextMenu(screen.getByRole('tab', { name: /a\.ts/ }));
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /a\.ts/u }));
     await user.click(await screen.findByRole('menuitem', { name: 'Close to the Right' }));
     expect(fileTabIds()).toEqual([key('a.ts')]);
 
@@ -196,7 +196,7 @@ describe('workspace strip — closed-tab history (BST-1842)', () => {
     const user = userEvent.setup();
     renderHarness();
 
-    fireEvent.contextMenu(screen.getByRole('tab', { name: /b\.ts/ }));
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /b\.ts/u }));
     await user.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
     fireEvent.contextMenu(screen.getByRole('tablist', { name: 'Workspace tabs' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Close All Files' }));
@@ -212,7 +212,7 @@ describe('workspace strip — closed-tab history (BST-1842)', () => {
     const user = userEvent.setup();
     renderHarness();
 
-    fireEvent.contextMenu(screen.getByRole('tab', { name: /Files/ }));
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /Files/u }));
     await user.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
     expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([
       FILES_APP.id,

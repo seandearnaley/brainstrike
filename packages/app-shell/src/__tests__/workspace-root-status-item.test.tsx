@@ -3,6 +3,7 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { WorkspaceRootStatusItem } from '../status-items/workspace-root-status-item';
 
 // Controllable file-explorer store snapshot: the status item reads through
 // useFileExplorerStoreSelector, which we back with this mutable state.
@@ -17,8 +18,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (s: FileExplorerState) => T): T =>
     selector(mockState as unknown as FileExplorerState),
 }));
-
-import { WorkspaceRootStatusItem } from '../status-items/workspace-root-status-item';
 
 const ROOT_A = { displayName: 'ProjectA', path: '/Users/me/ProjectA', rootId: 'root-a' };
 const ROOT_B = { displayName: 'ProjectB', path: '/Users/me/ProjectB', rootId: 'root-b' };
@@ -101,7 +100,7 @@ describe('WorkspaceRootStatusItem', () => {
 
     await userEvent.click(screen.getByTestId('workspace-root-status-trigger'));
 
-    const setAsMainButtons = screen.getAllByRole('button', { name: /set as main/i });
+    const setAsMainButtons = screen.getAllByRole('button', { name: /set as main/iu });
     expect(setAsMainButtons).toHaveLength(1);
 
     await userEvent.click(setAsMainButtons[0] as HTMLElement);

@@ -1,4 +1,5 @@
 import { expect, test, vi } from 'vitest';
+import { registerViewFilterPresetsIpc } from '../ipc-view-filter-presets';
 import {
   createAllowlistedSenderFrame,
   invokeDesktopIpc,
@@ -7,8 +8,6 @@ import {
 
 const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
 vi.mock('electron', () => ({ ipcMain }));
-
-import { registerViewFilterPresetsIpc } from '../ipc-view-filter-presets';
 
 const METHOD = 'view-filter-presets:request';
 function invoke(input: unknown) {

@@ -17,11 +17,11 @@ import {
  * rather than against string equality.
  */
 function zIndexOf(className: string): number {
-  const arbitrary = /^z-\[(\d+)\]$/.exec(className);
+  const arbitrary = /^z-\[(\d+)\]$/u.exec(className);
   if (arbitrary?.[1]) {
     return Number(arbitrary[1]);
   }
-  const bare = /^z-(\d+)$/.exec(className);
+  const bare = /^z-(\d+)$/u.exec(className);
   if (bare?.[1]) {
     return Number(bare[1]);
   }
@@ -113,7 +113,7 @@ describe('dialogLayerClasses', () => {
   // NO SILENT FALLBACKS: clamping a too-deep stack would silently reintroduce
   // the exact "scrim under the parent panel" defect this scale exists to stop.
   it('throws instead of clamping outside the reserved range', () => {
-    expect(() => dialogLayerClasses(0)).toThrow(/nesting depth/i);
-    expect(() => dialogLayerClasses(MAX_DIALOG_NESTING_DEPTH + 1)).toThrow(/nesting depth/i);
+    expect(() => dialogLayerClasses(0)).toThrow(/nesting depth/iu);
+    expect(() => dialogLayerClasses(MAX_DIALOG_NESTING_DEPTH + 1)).toThrow(/nesting depth/iu);
   });
 });

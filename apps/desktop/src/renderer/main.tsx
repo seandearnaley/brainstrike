@@ -239,15 +239,15 @@ function DesktopStartupFailure({
       data-testid="desktop-startup-failure"
     >
       <div className="w-full max-w-3xl rounded-xl border border-red-400/30 bg-[#111827] p-6 shadow-2xl">
-        <h1 className="font-semibold text-2xl">Desktop startup failed</h1>
-        <p className="mt-3 text-slate-200 text-sm">{validation.message}</p>
-        <p className="mt-3 text-slate-300 text-sm">
+        <h1 className="text-2xl font-semibold">Desktop startup failed</h1>
+        <p className="mt-3 text-sm text-slate-200">{validation.message}</p>
+        <p className="mt-3 text-sm text-slate-300">
           Check the Electron startup logs. If this happens in development, the preload script or a
           required preload dependency failed before the renderer mounted.
         </p>
         <div className="mt-4">
-          <h2 className="font-medium text-slate-200 text-sm">Missing bridges</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-red-200 text-sm">
+          <h2 className="text-sm font-medium text-slate-200">Missing bridges</h2>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-red-200">
             {validation.missing.map((entry) => (
               <li key={entry}>{entry}</li>
             ))}
@@ -265,12 +265,12 @@ function DesktopRendererOutsideElectron() {
       data-testid="desktop-renderer-outside-electron"
     >
       <div className="w-full max-w-3xl rounded-xl border border-amber-400/30 bg-[#111827] p-6 shadow-2xl">
-        <h1 className="font-semibold text-2xl">Desktop renderer opened outside Electron</h1>
-        <p className="mt-3 text-slate-200 text-sm">
+        <h1 className="text-2xl font-semibold">Desktop renderer opened outside Electron</h1>
+        <p className="mt-3 text-sm text-slate-200">
           This page is the BrainStrike desktop renderer. It relies on Electron preload bridges that
           do not exist in a regular browser, so it cannot run here.
         </p>
-        <p className="mt-3 text-slate-300 text-sm">
+        <p className="mt-3 text-sm text-slate-300">
           This is not a desktop app failure — the Electron windows attached to this dev server are
           unaffected. Close this tab and use the Electron app window.
         </p>
@@ -279,7 +279,7 @@ function DesktopRendererOutsideElectron() {
   );
 }
 
-const rootElement = document.getElementById('root');
+const rootElement = document.querySelector('#root');
 if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
 }

@@ -115,22 +115,22 @@ export function BinaryFilePreview({ rootPath, tab }: BinaryFilePreviewProps) {
         Binary file {fileName}. No text preview is available.
       </div>
       <div className="flex w-full max-w-md flex-col items-center">
-        <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-2xl border bg-muted/40">
-          <FileBox aria-hidden="true" className="h-10 w-10 text-muted-foreground" />
+        <div className="bg-muted/40 mb-5 flex h-20 w-20 items-center justify-center rounded-2xl border">
+          <FileBox aria-hidden="true" className="text-muted-foreground h-10 w-10" />
         </div>
         <div className="flex max-w-full items-center gap-2">
-          <p className="truncate font-semibold text-lg" title={fileName}>
+          <p className="truncate text-lg font-semibold" title={fileName}>
             {fileName}
           </p>
           {extension ? <Badge variant="secondary">{extension}</Badge> : null}
         </div>
         <p
-          className="mt-1 max-w-full truncate font-mono text-muted-foreground text-xs"
+          className="text-muted-foreground mt-1 max-w-full truncate font-mono text-xs"
           title={displayPath}
         >
           {displayPath}
         </p>
-        <p className="mt-4 text-muted-foreground text-sm">
+        <p className="text-muted-foreground mt-4 text-sm">
           This file is stored in a binary format, so there is no text preview.
         </p>
         {target && actions.length > 0 ? (

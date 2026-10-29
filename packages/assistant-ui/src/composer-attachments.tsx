@@ -21,7 +21,7 @@ const ComposerAttachmentChip = () => {
   const failed =
     preview.status === 'error' || (previewUrl !== undefined && previewUrl === failedUrl);
   return (
-    <AttachmentPrimitive.Root className="bs-composer-attachment relative inline-flex overflow-hidden rounded-lg border border-border">
+    <AttachmentPrimitive.Root className="bs-composer-attachment border-border relative inline-flex overflow-hidden rounded-lg border">
       {previewUrl && !failed ? (
         // biome-ignore lint/a11y/noNoninteractiveElementInteractions: onError is a media-load event on img, not a user interaction
         <img
@@ -38,7 +38,7 @@ const ComposerAttachmentChip = () => {
         // a visible named fallback, never the browser's broken-image glyph
         // (no-silent-fallbacks). Failure is distinguishable via the title.
         <span
-          className="flex size-14 items-center justify-center overflow-hidden px-1 text-center text-[10px] text-muted-foreground"
+          className="text-muted-foreground flex size-14 items-center justify-center overflow-hidden px-1 text-center text-[10px]"
           data-testid="assistant-composer-attachment-fallback"
           title={failed ? `Preview unavailable for ${attachment.name}` : attachment.name}
         >
@@ -47,7 +47,7 @@ const ComposerAttachmentChip = () => {
       )}
       <AttachmentPrimitive.Remove
         aria-label={`Remove attachment ${attachment.name}`}
-        className="absolute top-0.5 right-0.5 rounded-full bg-background/80 p-0.5 hover:bg-background"
+        className="bg-background/80 hover:bg-background absolute top-0.5 right-0.5 rounded-full p-0.5"
         title="Remove attachment"
       >
         <XIcon className="size-3" />
@@ -89,7 +89,7 @@ const ComposerAttachmentErrorNote = () => {
   }
   return (
     <p
-      className="bs-composer-attachment-error px-1 pb-1 text-destructive text-xs"
+      className="bs-composer-attachment-error text-destructive px-1 pb-1 text-xs"
       data-testid="assistant-composer-attachment-error"
       role="alert"
     >
@@ -128,7 +128,7 @@ const UserMessageAttachmentImage = () => {
     return (
       <span
         aria-label={`Image unavailable: ${attachment.name}`}
-        className="inline-block rounded border border-muted-foreground/40 border-dashed px-2 py-1 text-muted-foreground text-xs"
+        className="border-muted-foreground/40 text-muted-foreground inline-block rounded border border-dashed px-2 py-1 text-xs"
         data-testid="assistant-user-message-attachment-error"
         role="img"
       >

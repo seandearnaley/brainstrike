@@ -317,8 +317,9 @@ async function launchPackagedHarness(
         if (recentLogs.length > 40) {
           recentLogs.shift();
         }
-        browserEndpoint = line.match(/^DevTools listening on (ws:\/\/.*)$/)?.[1] ?? browserEndpoint;
-        mainEndpoint = line.match(/^Debugger listening on (ws:\/\/.*)$/)?.[1] ?? mainEndpoint;
+        browserEndpoint =
+          line.match(/^DevTools listening on (ws:\/\/.*)$/u)?.[1] ?? browserEndpoint;
+        mainEndpoint = line.match(/^Debugger listening on (ws:\/\/.*)$/u)?.[1] ?? mainEndpoint;
         if (browserEndpoint && mainEndpoint) {
           const matched = { browser: browserEndpoint, main: mainEndpoint };
           finish(() => resolve(matched));

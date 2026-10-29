@@ -312,7 +312,7 @@ describe('createRunPythonTool', () => {
         Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })
       );
     try {
-      await expect(runTool(hostWith(stub), { code: 'pass' })).rejects.toThrow(/ENOSPC/);
+      await expect(runTool(hostWith(stub), { code: 'pass' })).rejects.toThrow(/ENOSPC/u);
     } finally {
       mkdtemp.mockRestore();
     }
@@ -455,7 +455,7 @@ describe('projectRunPythonStreams', () => {
     });
     expect(stdout.length).toBeLessThan(emoji.length);
     expect(
-      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(stdout)
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(stdout)
     ).toBe(false);
     expect(Buffer.from(stdout, 'utf8').toString('utf8')).toBe(stdout);
   });

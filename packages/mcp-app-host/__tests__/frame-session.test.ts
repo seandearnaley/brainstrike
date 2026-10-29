@@ -173,7 +173,7 @@ describe('origin-bound MCP Apps frame session', () => {
     });
     expect(teardownReasons).toEqual(['MCP Apps frame was replaced']);
     expect(() => session.replace({ generation: 2, origin: 'null', source: first })).toThrow(
-      /must increase/
+      /must increase/u
     );
 
     session.disconnect();
@@ -183,7 +183,7 @@ describe('origin-bound MCP Apps frame session', () => {
     expect(session.snapshot).toEqual({ listenerCount: 0, phase: 'closed' });
     expect(target.listeners.size).toBe(0);
     expect(() => session.connect({ generation: 4, origin: 'null', source: second })).toThrow(
-      /closed/
+      /closed/u
     );
   });
 
@@ -207,7 +207,7 @@ describe('origin-bound MCP Apps frame session', () => {
     expect(frame.sent).toEqual([{ message: { ready: true }, targetOrigin: '*' }]);
 
     live = false;
-    expect(() => session.post(9, { stale: true })).toThrow(/no longer live/);
+    expect(() => session.post(9, { stale: true })).toThrow(/no longer live/u);
     expect(session.snapshot.phase).toBe('disconnected');
     expect(errors.at(-1)?.message).toBe('MCP Apps frame generation is no longer live');
   });
@@ -245,10 +245,10 @@ describe('origin-bound MCP Apps frame session', () => {
     });
 
     expect(() => session.connect({ generation: 0, origin: 'null', source: frame })).toThrow(
-      /positive safe integer/
+      /positive safe integer/u
     );
     expect(() => session.connect({ generation: 1, origin: 'null', source: frame })).toThrow(
-      /not live/
+      /not live/u
     );
     expect(target.listeners.size).toBe(0);
   });

@@ -178,8 +178,8 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
     <div
       className={
         compact
-          ? 'bs-tool-timeline bs-tool-compact outline-none focus-visible:ring-2 focus-visible:ring-ring'
-          : `bs-tool-timeline my-1 rounded-lg border outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+          ? 'bs-tool-timeline bs-tool-compact focus-visible:ring-ring outline-none focus-visible:ring-2'
+          : `bs-tool-timeline focus-visible:ring-ring my-1 rounded-lg border outline-none focus-visible:ring-2 ${
               isError ? 'border-destructive/50 bg-destructive/5' : tint.card
             }`
       }

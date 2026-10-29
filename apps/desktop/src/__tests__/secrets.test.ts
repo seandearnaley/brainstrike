@@ -1,7 +1,19 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import {
+  matchSecretReadError,
+  type ProviderCredential,
+  SECRET_READ_ERROR_CODES,
+} from '@brainstrike/assistant-contract';
+import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
+import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
+import {
+  createSecretsMcpBearerCredentialAuthority,
+  mcpBearerCredentialStorageKey,
+} from '@brainstrike/host-capabilities/mcp/bearer-credential';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { desktopCredentialStoreSelection, SecretReadError } from '../secrets';
 
 const userData = vi.hoisted(() => ({ path: '/unused-in-these-tests' }));
 
@@ -14,19 +26,6 @@ vi.mock('../desktop-bootstrap-runtime', () => ({
     credentialStore: { kind: 'file', path: join(userData.path, 'brainstrike-credentials.json') },
   }),
 }));
-
-import {
-  matchSecretReadError,
-  type ProviderCredential,
-  SECRET_READ_ERROR_CODES,
-} from '@brainstrike/assistant-contract';
-import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
-import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
-import {
-  createSecretsMcpBearerCredentialAuthority,
-  mcpBearerCredentialStorageKey,
-} from '@brainstrike/host-capabilities/mcp/bearer-credential';
-import { desktopCredentialStoreSelection, SecretReadError } from '../secrets';
 
 const profiles: string[] = [];
 
@@ -101,7 +100,7 @@ describe('typed provider credentials (BST-1348)', () => {
 
     it('saveKey rejects an empty key through the same validator as setCredential', async () => {
       const { credentials, svc } = await desktopSecrets();
-      await expect(svc.saveKey('openai', '')).rejects.toThrow(/malformed|invalid/i);
+      await expect(svc.saveKey('openai', '')).rejects.toThrow(/malformed|invalid/iu);
       await credentials.close();
     });
   });
@@ -133,7 +132,7 @@ describe('typed provider credentials (BST-1348)', () => {
       const { credentials, svc } = await desktopSecrets();
       const invalid = { type: 'aws' } as unknown as ProviderCredential;
 
-      await expect(svc.setCredential('anthropic', invalid)).rejects.toThrow(/malformed|invalid/i);
+      await expect(svc.setCredential('anthropic', invalid)).rejects.toThrow(/malformed|invalid/iu);
       await expect(svc.getCredential('anthropic')).resolves.toBeNull();
       await credentials.close();
     });

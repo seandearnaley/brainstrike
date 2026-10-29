@@ -8,7 +8,7 @@ async function openTokenCountingSettings(
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();
-  await settingsPage.openCategory(/Token Counting/i, 'token-counting');
+  await settingsPage.openCategory(/Token Counting/iu, 'token-counting');
 }
 
 test.describe('Token Counting settings (desktop)', () => {

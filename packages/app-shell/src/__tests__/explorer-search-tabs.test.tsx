@@ -3,6 +3,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ExplorerSearchTabs } from '../explorer-search-tabs';
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   ExplorerContextExportAction: () => null,
@@ -35,8 +36,6 @@ vi.mock('../use-workspace-search-controller', () => ({
     workspaceDbRootIds: [],
   }),
 }));
-
-import { ExplorerSearchTabs } from '../explorer-search-tabs';
 
 describe('ExplorerSearchTabs', () => {
   beforeEach(() => {

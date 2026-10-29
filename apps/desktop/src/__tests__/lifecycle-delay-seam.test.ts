@@ -2,11 +2,10 @@
 
 import { LIFECYCLE_DELAYS_ENV } from '@brainstrike/host-lease/lifecycle-delays';
 import { afterEach, expect, it, vi } from 'vitest';
+import { createLifecycleDelaySeam } from '../lifecycle-delay-seam';
 
 const electron = vi.hoisted(() => ({ app: { isPackaged: false } }));
 vi.mock('electron', () => electron);
-
-import { createLifecycleDelaySeam } from '../lifecycle-delay-seam';
 
 afterEach(() => {
   electron.app.isPackaged = false;

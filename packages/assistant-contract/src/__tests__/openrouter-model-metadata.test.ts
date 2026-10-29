@@ -187,7 +187,7 @@ describe('parseOpenRouterModelMetadata', () => {
         'example/bad-reasoning',
         42
       )
-    ).toThrow(/default_effort.*supported_efforts/i);
+    ).toThrow(/default_effort.*supported_efforts/iu);
   });
 
   it('preserves a partial reasoning object without inventing missing capabilities', () => {
@@ -334,6 +334,6 @@ describe('parseOpenRouterModelMetadataSnapshot', () => {
         },
         warning: '',
       })
-    ).toThrow(/warning/);
+    ).toThrow(/warning/u);
   });
 });

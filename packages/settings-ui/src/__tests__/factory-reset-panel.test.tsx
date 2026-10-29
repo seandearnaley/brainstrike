@@ -160,7 +160,7 @@ describe('FactoryResetPanel', () => {
       expect(screen.getByText('Factory Reset')).toBeInTheDocument();
       expect(
         screen.getByText(
-          /Irreversibly deletes local data, stored folders, API keys, tool settings, runtime caches, and UI state from this device\. Diagnostic logs may be preserved\./
+          /Irreversibly deletes local data, stored folders, API keys, tool settings, runtime caches, and UI state from this device\. Diagnostic logs may be preserved\./u
         )
       ).toBeInTheDocument();
       expect(screen.getByTestId('factory-reset-button')).toBeInTheDocument();
@@ -172,7 +172,7 @@ describe('FactoryResetPanel', () => {
 
       expect(
         screen.getByText(
-          /Factory reset is unavailable until the database is ready\. Restart the app if this does not clear\./
+          /Factory reset is unavailable until the database is ready\. Restart the app if this does not clear\./u
         )
       ).toBeInTheDocument();
       expect(screen.getByTestId('factory-reset-button')).toBeDisabled();
@@ -185,7 +185,7 @@ describe('FactoryResetPanel', () => {
 
       expect(
         screen.queryByText(
-          /Factory reset is unavailable until the database is ready\. Restart the app if this does not clear\./
+          /Factory reset is unavailable until the database is ready\. Restart the app if this does not clear\./u
         )
       ).not.toBeInTheDocument();
     });

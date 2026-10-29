@@ -267,7 +267,7 @@ describe('production external store binding', () => {
     );
     fireEvent.click(await screen.findByTestId('context-usage-trigger'));
     expect(await screen.findByTestId('context-usage-om-note')).toHaveTextContent(
-      /paused.*branches/i
+      /paused.*branches/iu
     );
   });
 

@@ -96,7 +96,7 @@ describe('logRecordToDiagnosticEvent', () => {
     );
     expect(event).toMatchObject({
       code: 'stream_inactivity_timeout',
-      fingerprint: expect.stringMatching(/^[0-9a-f]{16}$/),
+      fingerprint: expect.stringMatching(/^[0-9a-f]{16}$/u),
       id: 'id-1',
       message: 'boom',
       occurredAt: 1234,

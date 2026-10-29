@@ -23,7 +23,7 @@ export const MAX_EXEC_CODE_LENGTH = 1_000_000;
 export const MAX_EXEC_TIMEOUT_MS = 600_000;
 
 const DOMAIN_PATTERN =
-  /^(\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
+  /^(\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/iu;
 
 /**
  * A hostname or a `*.example.com` wildcard. A BARE `*` is rejected: an empty

@@ -22,7 +22,7 @@ describe('PermissionSettingsSection', () => {
     expect(screen.getByTestId('permission-yolo-toggle')).not.toBeNull();
 
     for (const category of ['read', 'edit', 'execute', 'mcp'] as const) {
-      expect(screen.getByLabelText(new RegExp(`${category} permission`, 'i'))).not.toBeNull();
+      expect(screen.getByLabelText(new RegExp(`${category} permission`, 'iu'))).not.toBeNull();
     }
   });
 

@@ -73,7 +73,7 @@ export function BudgetGuardrailControl(): ReactElement | null {
       ) : null}
       {blocked ? (
         <span
-          className="inline-flex items-center gap-2 text-destructive"
+          className="text-destructive inline-flex items-center gap-2"
           data-testid="budget-guardrail-blocked"
           role="status"
         >

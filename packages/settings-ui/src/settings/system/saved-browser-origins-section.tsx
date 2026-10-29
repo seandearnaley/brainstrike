@@ -114,7 +114,7 @@ export function SavedBrowserOriginsSection({
                 data-testid={`saved-browser-origin-${origin}`}
                 key={origin}
               >
-                <p className="min-w-0 break-all font-mono text-xs">{origin}</p>
+                <p className="min-w-0 font-mono text-xs break-all">{origin}</p>
                 <div className="flex items-center gap-2">
                   <Badge variant={answer === 'allow' ? 'default' : 'secondary'}>
                     {answer === 'allow' ? 'Always allowed' : 'Not allowed'}

@@ -4,13 +4,12 @@ import {
   INTERNAL_FAULT,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createDesktopStateHealth } from '../../renderer/desktop-state-health';
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock('../../renderer/desktop-host-connection', () => ({
   windowHostConnection: () => ({ current: async () => ({ request }) }),
 }));
-
-import { createDesktopStateHealth } from '../../renderer/desktop-state-health';
 
 // BST-1880: a host left running by an older build lacks `state/health/read`.
 // It cannot report health, which is neither damage nor a claim of health.

@@ -153,8 +153,8 @@ function ThreadStateCard({
   return (
     <div className="w-full min-w-0 px-3">
       <div className={className} data-testid={testId}>
-        <div className="font-medium text-sm">{title}</div>
-        <p className="pt-2 text-muted-foreground text-xs leading-5">{description}</p>
+        <div className="text-sm font-medium">{title}</div>
+        <p className="text-muted-foreground pt-2 text-xs leading-5">{description}</p>
       </div>
     </div>
   );
@@ -184,7 +184,7 @@ function ThreadGroupRenameForm({
       <input
         aria-label="Group name"
         autoFocus
-        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13px] leading-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-[13px] leading-4 outline-none focus-visible:ring-2"
         onChange={(event) => {
           onDraftNameChange(event.target.value);
         }}
@@ -296,14 +296,14 @@ function ThreadGroupHeader({
                         <ArrowLeft className="size-3.5" />
                       </Button>
                       <div>
-                        <div className="font-medium text-xs">Group appearance</div>
-                        <p className="text-[10px] text-muted-foreground">
+                        <div className="text-xs font-medium">Group appearance</div>
+                        <p className="text-muted-foreground text-[10px]">
                           Choose an icon and color.
                         </p>
                       </div>
                     </div>
                     <div>
-                      <div className="mb-1 text-[11px] text-muted-foreground">Icon</div>
+                      <div className="text-muted-foreground mb-1 text-[11px]">Icon</div>
                       <div className="grid grid-cols-6 gap-1" data-testid="thread-group-icon-grid">
                         {ASSISTANT_THREAD_ICON_IDS.map((iconId) => {
                           const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
@@ -314,7 +314,7 @@ function ThreadGroupHeader({
                               aria-pressed={group.icon === iconId}
                               className={
                                 group.icon === iconId
-                                  ? 'bg-accent shadow-inner ring-1 ring-border'
+                                  ? 'bg-accent ring-border shadow-inner ring-1'
                                   : 'text-muted-foreground'
                               }
                               key={iconId}
@@ -333,7 +333,7 @@ function ThreadGroupHeader({
                         <Button
                           aria-label={`Restore folder icon for ${group.name}`}
                           aria-pressed={group.icon === null}
-                          className="col-span-6 h-7 justify-start gap-2 px-2 text-[11px] text-muted-foreground"
+                          className="text-muted-foreground col-span-6 h-7 justify-start gap-2 px-2 text-[11px]"
                           onClick={(event) => {
                             event.stopPropagation();
                             onIconChange(null);
@@ -347,11 +347,11 @@ function ThreadGroupHeader({
                         </Button>
                       </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground">Color palette</div>
+                    <div className="text-muted-foreground text-[11px]">Color palette</div>
                     <div className="grid gap-2" data-testid="thread-group-color-grid">
                       {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
                         <div key={palette.label}>
-                          <div className="mb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                          <div className="text-muted-foreground mb-1 text-[10px] font-medium tracking-wide uppercase">
                             {palette.label}
                           </div>
                           <fieldset
@@ -364,7 +364,7 @@ function ThreadGroupHeader({
                                 aria-pressed={group.color === colorId}
                                 className={
                                   group.color === colorId
-                                    ? 'bg-accent shadow-inner ring-1 ring-border'
+                                    ? 'bg-accent ring-border shadow-inner ring-1'
                                     : undefined
                                 }
                                 key={colorId}
@@ -389,7 +389,7 @@ function ThreadGroupHeader({
                         aria-label={`Clear color for ${group.name}`}
                         aria-pressed={group.color === null}
                         className={`h-7 justify-start gap-2 px-2 text-[11px] ${
-                          group.color === null ? 'bg-accent shadow-inner ring-1 ring-border' : ''
+                          group.color === null ? 'bg-accent ring-border shadow-inner ring-1' : ''
                         }`}
                         onClick={(event) => {
                           event.stopPropagation();
@@ -401,7 +401,7 @@ function ThreadGroupHeader({
                       >
                         <span
                           aria-hidden="true"
-                          className="size-4 rounded-full border border-border bg-muted"
+                          className="border-border bg-muted size-4 rounded-full border"
                         />
                         No color
                       </Button>
@@ -437,7 +437,7 @@ function ThreadGroupHeader({
                       Rename
                     </Button>
                     <Button
-                      className="h-8 justify-start gap-2 px-2 text-destructive text-xs hover:text-destructive"
+                      className="text-destructive hover:text-destructive h-8 justify-start gap-2 px-2 text-xs"
                       onClick={(event) => {
                         event.stopPropagation();
                         setActionsOpen(false);
@@ -463,9 +463,9 @@ function ThreadGroupHeader({
         />
       )}
       {confirmingDelete ? (
-        <div className="mx-1 mb-1 rounded-lg border border-destructive/30 bg-destructive/5 p-2">
-          <p className="text-[11px] text-destructive">Delete folder {group.name}?</p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
+        <div className="border-destructive/30 bg-destructive/5 mx-1 mb-1 rounded-lg border p-2">
+          <p className="text-destructive text-[11px]">Delete folder {group.name}?</p>
+          <p className="text-muted-foreground mt-0.5 text-[10px]">
             Its threads return to Ungrouped.
           </p>
           <div className="mt-2 flex justify-end gap-1.5">
@@ -642,7 +642,7 @@ function ThreadPanelShowMoreCell({
     <div className="my-0.5 flex min-h-7 items-center justify-between gap-3 pr-1">
       <Button
         aria-label={`Show ${disclosureCount} more threads`}
-        className="h-7 px-1 text-muted-foreground text-xs hover:text-foreground"
+        className="text-muted-foreground hover:text-foreground h-7 px-1 text-xs"
         onClick={(event) => {
           event.stopPropagation();
           onShowMore(row.sectionKey);
@@ -653,7 +653,7 @@ function ThreadPanelShowMoreCell({
       >
         Show {disclosureCount} more
       </Button>
-      <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+      <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
         {row.remainingCount} remaining
       </span>
     </div>
@@ -668,7 +668,7 @@ function ThreadPanelEmptyCell({
   const hint = row.groupId ? 'Drop threads here' : 'Drop threads here to ungroup them';
   const content = (
     <div
-      className="my-0.5 flex min-h-9 items-center rounded-md border border-border/45 border-dashed px-2 text-[11px] text-muted-foreground/80"
+      className="border-border/45 text-muted-foreground/80 my-0.5 flex min-h-9 items-center rounded-md border border-dashed px-2 text-[11px]"
       data-testid="thread-panel-drop-zone"
     >
       {hint}
@@ -930,15 +930,15 @@ function ThreadBulkSelectionOverlay({
     <SelectionActionBarOverlay className="inset-x-3 grid gap-2">
       {controller.error ? (
         <p
-          className="rounded-lg border border-destructive/30 bg-popover px-3 py-2 text-[11px] text-destructive shadow-md"
+          className="border-destructive/30 bg-popover text-destructive rounded-lg border px-3 py-2 text-[11px] shadow-md"
           role="alert"
         >
           {controller.error}
         </p>
       ) : null}
       {controller.panel === 'move' ? (
-        <div className="pointer-events-auto ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
-          <div className="px-2 pb-1 text-[11px] text-muted-foreground">Move selected to</div>
+        <div className="border-border/80 bg-popover/95 pointer-events-auto ml-auto w-56 rounded-xl border p-2 shadow-lg backdrop-blur-sm">
+          <div className="text-muted-foreground px-2 pb-1 text-[11px]">Move selected to</div>
           <div className="grid gap-0.5">
             {moveTargets.map((target) => (
               <Button
@@ -969,12 +969,12 @@ function ThreadBulkSelectionOverlay({
         </div>
       ) : null}
       {controller.panel === 'color' ? (
-        <div className="pointer-events-auto ml-auto w-60 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
-          <div className="px-2 pb-1 text-[11px] text-muted-foreground">Color selected</div>
+        <div className="border-border/80 bg-popover/95 pointer-events-auto ml-auto w-60 rounded-xl border p-2 shadow-lg backdrop-blur-sm">
+          <div className="text-muted-foreground px-2 pb-1 text-[11px]">Color selected</div>
           <div className="grid gap-2" data-testid="thread-bulk-color-grid">
             {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
               <div key={palette.label}>
-                <div className="px-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                <div className="text-muted-foreground px-1 text-[10px] font-medium tracking-wide uppercase">
                   {palette.label}
                 </div>
                 <fieldset aria-label={`${palette.label} colors`} className="grid grid-cols-6 gap-1">
@@ -1519,10 +1519,10 @@ function ThreadsPanelToolbar({
       className="@container/threads-toolbar flex min-w-0 flex-1 items-center gap-2 pr-1 pl-5"
       data-testid="threads-panel-toolbar"
     >
-      <h2 className="min-w-0 truncate font-medium text-sm leading-none">Threads</h2>
+      <h2 className="min-w-0 truncate text-sm leading-none font-medium">Threads</h2>
       {treeOnScreen ? (
         <span
-          className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 font-medium text-[11px] text-muted-foreground tabular-nums leading-none"
+          className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums"
           data-testid="threads-visible-count"
           title={`${visibleThreadCount} ${visibleThreadCount === 1 ? 'thread' : 'threads'} visible`}
         >
@@ -1593,7 +1593,7 @@ function ThreadsPanelToolbar({
           // Icon-only, this is a 28px square exactly like its ghost
           // neighbours; it only grows into a labelled pill once the panel is
           // wide enough to show the label.
-          className="ml-1 size-7 @[360px]/threads-toolbar:w-auto @[360px]/threads-toolbar:gap-1 @[360px]/threads-toolbar:px-2 px-0 hover:bg-accent hover:text-accent-foreground"
+          className="hover:bg-accent hover:text-accent-foreground ml-1 size-7 px-0 @[360px]/threads-toolbar:w-auto @[360px]/threads-toolbar:gap-1 @[360px]/threads-toolbar:px-2"
           data-testid="new-agent-button"
           disabled={newThreadDisabled}
           onClick={onCreateThread}
@@ -1603,7 +1603,7 @@ function ThreadsPanelToolbar({
           variant="secondary"
         >
           <Plus className="size-3.5" />
-          <span className="@[360px]/threads-toolbar:inline hidden">New Thread</span>
+          <span className="hidden @[360px]/threads-toolbar:inline">New Thread</span>
         </Button>
       </div>
     </div>
@@ -2077,7 +2077,7 @@ export function ThreadsPanelCore({
   return (
     <section
       aria-label="Threads"
-      className="@container/threads flex h-full min-h-0 flex-col overflow-hidden border-border border-b bg-muted/20"
+      className="border-border bg-muted/20 @container/threads flex h-full min-h-0 flex-col overflow-hidden border-b"
       data-testid="threads-panel"
     >
       {sidebarHeader
@@ -2114,7 +2114,7 @@ export function ThreadsPanelCore({
 
       {groupActionError ? (
         <p
-          className="px-3 pb-2 text-[11px] text-destructive"
+          className="text-destructive px-3 pb-2 text-[11px]"
           data-testid="thread-groups-action-error"
         >
           {groupActionError}
@@ -2122,19 +2122,19 @@ export function ThreadsPanelCore({
       ) : null}
       {groupsLoadState.status === 'error' ? (
         <p
-          className="px-3 pb-2 text-[11px] text-destructive"
+          className="text-destructive px-3 pb-2 text-[11px]"
           data-testid="thread-groups-error-card"
         >
           Failed to load thread groups: {groupsLoadState.error}
         </p>
       ) : null}
       {activeThreads.error ? (
-        <p className="px-3 pb-2 text-[11px] text-destructive" data-testid="thread-activity-error">
+        <p className="text-destructive px-3 pb-2 text-[11px]" data-testid="thread-activity-error">
           Active thread status unavailable: {activeThreads.error.message}
         </p>
       ) : null}
       {threadsAwaitingApproval.error ? (
-        <p className="px-3 pb-2 text-[11px] text-destructive" data-testid="thread-approvals-error">
+        <p className="text-destructive px-3 pb-2 text-[11px]" data-testid="thread-approvals-error">
           Approval status unavailable: {threadsAwaitingApproval.error.message}
         </p>
       ) : null}

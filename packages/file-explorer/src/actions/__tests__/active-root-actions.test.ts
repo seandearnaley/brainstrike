@@ -1,5 +1,6 @@
 import type { FileExplorerState, StoredRootDescriptor } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createActiveRootActions } from '../active-root-actions';
 
 const loggerWarn = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/logging', () => ({
@@ -11,8 +12,6 @@ vi.mock('@brainstrike/logging', () => ({
     warn: loggerWarn,
   }),
 }));
-
-import { createActiveRootActions } from '../active-root-actions';
 
 const ROOT_A: StoredRootDescriptor = {
   displayName: 'ProjectA',

@@ -9,6 +9,7 @@ function compileRegexPatterns(
   const regexes: RegExp[] = [];
   for (const pattern of patterns) {
     try {
+      // biome-ignore lint/style/useUnicodeRegex: a user-written pattern keeps the non-unicode syntax people type, such as `\-`.
       regexes.push(new RegExp(pattern));
     } catch {
       setError(`Invalid regex pattern: ${pattern}`);

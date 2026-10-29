@@ -37,7 +37,7 @@ const HOST_THREAD_TITLE_TIMEOUT_MS = 15_000;
 function normalizeTitle(text: string): string | undefined {
   const line = text.trim().split('\n')[0] ?? '';
   const title = line
-    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/^["'`]+|["'`]+$/gu, '')
     .trim()
     .slice(0, 120);
   return title || undefined;

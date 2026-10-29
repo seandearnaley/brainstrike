@@ -262,7 +262,7 @@ export function ModelCatalog({
         title="No models are catalogued yet"
       />
     ) : (
-      <p className="p-6 text-muted-foreground text-sm" role="status">
+      <p className="text-muted-foreground p-6 text-sm" role="status">
         Loading models…
       </p>
     );
@@ -320,7 +320,7 @@ export function ModelCatalog({
         searchInputRef={searchInputRef}
         summary={view.summary}
       />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+      <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         <CatalogColumnHeader
           layout={getCatalogColumnLayout(tier)}
           onSortChange={setSort}

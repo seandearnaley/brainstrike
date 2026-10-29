@@ -39,7 +39,7 @@ const ts = '2026-07-09T10:00:00.000Z';
 function countedParts(parts: unknown[], reads: { count: number }): unknown[] {
   return new Proxy(parts, {
     get(target, property, receiver) {
-      if (typeof property === 'string' && /^\d+$/.test(property)) {
+      if (typeof property === 'string' && /^\d+$/u.test(property)) {
         reads.count += 1;
       }
       return Reflect.get(target, property, receiver);

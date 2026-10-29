@@ -53,7 +53,7 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  'inline-flex items-center justify-center rounded-md bg-muted p-0.5 text-muted-foreground',
+  'bg-muted text-muted-foreground inline-flex items-center justify-center rounded-md p-0.5',
   {
     defaultVariants: { size: 'md' },
     variants: {
@@ -97,7 +97,7 @@ function TabsList({
  * repaint over the focus ring on the active trigger.
  */
 const tabsTriggerVariants = cva(
-  'inline-flex min-w-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-[calc(var(--radius-md)-2px)] font-medium text-muted-foreground outline-hidden transition-[color,background-color,box-shadow,opacity] duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-pending:bg-background/50 data-[state=active]:text-foreground data-pending:text-foreground data-[state=active]:shadow-xs data-[state=active]:ring-1 data-[state=active]:ring-border/70 focus-visible:data-[state=active]:ring-2 focus-visible:data-[state=active]:ring-ring motion-reduce:transition-none [&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+  'text-muted-foreground hover:text-foreground focus-visible:ring-ring data-[state=active]:bg-background data-pending:bg-background/50 data-[state=active]:text-foreground data-pending:text-foreground data-[state=active]:ring-border/70 focus-visible:data-[state=active]:ring-ring inline-flex min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-[calc(var(--radius-md)-2px)] font-medium whitespace-nowrap outline-hidden transition-[color,background-color,box-shadow,opacity] duration-150 focus-visible:ring-2 focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs data-[state=active]:ring-1 focus-visible:data-[state=active]:ring-2 motion-reduce:transition-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
   {
     defaultVariants: { size: 'md' },
     variants: {
@@ -167,7 +167,7 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       className={cn(
-        'flex-1 outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        'focus-visible:ring-ring/50 flex-1 outline-hidden focus-visible:ring-[3px]',
         className
       )}
       data-slot="tabs-content"

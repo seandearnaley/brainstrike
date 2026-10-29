@@ -74,7 +74,7 @@ export function storedBlobRefs(raw) {
   try {
     return blobsOf(raw);
   } catch {
-    return [...new Set(raw.match(/[a-f0-9]{64}/g) ?? [])];
+    return [...new Set(raw.match(/[a-f0-9]{64}/gu) ?? [])];
   }
 }
 
@@ -83,7 +83,7 @@ export const TOMBSTONE_BODY = '{"type":"purged"}';
 
 /** @param {unknown} hash @returns {string} */
 function blobHash(hash) {
-  if (typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)) {
+  if (typeof hash !== 'string' || !/^[a-f0-9]{64}$/u.test(hash)) {
     throw new Error('event has an invalid blob hash');
   }
   return hash;

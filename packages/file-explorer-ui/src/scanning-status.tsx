@@ -82,21 +82,21 @@ export const ScanningStatus = React.memo(
     return (
       <div
         className={cn(
-          'flex items-center gap-3 border-b bg-muted/30 px-4 py-2',
+          'bg-muted/30 flex items-center gap-3 border-b px-4 py-2',
           isCancelling && 'opacity-60',
           className
         )}
         data-testid="scanning-status"
       >
         {/* Spinner */}
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+        <Loader2 className="text-muted-foreground h-4 w-4 shrink-0 animate-spin" />
 
         {/* Progress bar and text */}
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-sm">{statusText}</span>
             {percentage > 0 && (
-              <span className="shrink-0 text-muted-foreground text-xs">{percentage}%</span>
+              <span className="text-muted-foreground shrink-0 text-xs">{percentage}%</span>
             )}
           </div>
           <Progress
@@ -105,7 +105,7 @@ export const ScanningStatus = React.memo(
             value={isCancelling ? 0 : percentage}
           />
           {displayPath && (
-            <span className="truncate text-muted-foreground text-xs" title={currentPath}>
+            <span className="text-muted-foreground truncate text-xs" title={currentPath}>
               {displayPath}
             </span>
           )}

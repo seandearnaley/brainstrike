@@ -143,33 +143,33 @@ describe('AssistantMemorySettingsSection', () => {
   it('lists only enabled LLM models for observational memory', () => {
     renderMemorySettings();
 
-    const select = screen.getByRole('combobox', { name: /observational memory model/i });
-    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
-    expect(within(select).getByRole('option', { name: /Claude Haiku 4.5/i })).toBeInTheDocument();
-    expect(within(select).queryByRole('option', { name: /OpenRouter/i })).toBeNull();
+    const select = screen.getByRole('combobox', { name: /observational memory model/iu });
+    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/iu })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: /Claude Haiku 4.5/iu })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /OpenRouter/iu })).toBeNull();
   });
 
   it('filters observer models by key presence', () => {
     renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
 
-    const select = screen.getByRole('combobox', { name: /observational memory model/i });
-    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
-    expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/i })).toBeNull();
+    const select = screen.getByRole('combobox', { name: /observational memory model/iu });
+    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/iu })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/iu })).toBeNull();
   });
 
   it('does not filter memory models when credential provenance is unavailable', () => {
     render(<AssistantMemorySettingsSection assistantMemoryBackendAvailable={true} />);
 
     expect(
-      within(screen.getByRole('combobox', { name: /observational memory model/i })).getByRole(
+      within(screen.getByRole('combobox', { name: /observational memory model/iu })).getByRole(
         'option',
-        { name: /GPT-5.4 Mini/i }
+        { name: /GPT-5.4 Mini/iu }
       )
     ).toBeInTheDocument();
     expect(
-      within(screen.getByRole('combobox', { name: /semantic recall embedding model/i })).getByRole(
+      within(screen.getByRole('combobox', { name: /semantic recall embedding model/iu })).getByRole(
         'option',
-        { name: /Text Embedding 3 Small/i }
+        { name: /Text Embedding 3 Small/iu }
       )
     ).toBeInTheDocument();
   });
@@ -179,12 +179,12 @@ describe('AssistantMemorySettingsSection', () => {
   it('offers no observer model when the memory backend is unavailable', () => {
     renderMemorySettings(hostedProviderKeySources, false);
 
-    const select = screen.getByRole('combobox', { name: /observational memory model/i });
-    expect(within(select).queryByRole('option', { name: /GPT-5.4 Mini/i })).toBeNull();
-    expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/i })).toBeNull();
+    const select = screen.getByRole('combobox', { name: /observational memory model/iu });
+    expect(within(select).queryByRole('option', { name: /GPT-5.4 Mini/iu })).toBeNull();
+    expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/iu })).toBeNull();
     // The 'auto' sentinel still renders, and the section's own unresolved
     // notice explains the wait: OM is never silently off.
-    expect(within(select).getByRole('option', { name: /Auto —/i })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: /Auto —/iu })).toBeInTheDocument();
   });
 
   it('does not claim credentials are missing before the model registry loads', () => {
@@ -222,13 +222,13 @@ describe('AssistantMemorySettingsSection', () => {
     const toggle = screen.getByRole('switch', { name: 'Enable observational memory' });
     expect(toggle).toBeEnabled();
     expect(toggle).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('combobox', { name: /observational memory model/i })).toHaveValue(
+    expect(screen.getByRole('combobox', { name: /observational memory model/iu })).toHaveValue(
       'auto'
     );
     const note = screen.getByTestId('assistant-memory-auto-observer-note');
     // The privacy ruling: auto observes with the ACTIVE CHAT PROVIDER only,
     // never a different keyed provider.
-    expect(note).toHaveTextContent(/active chat provider only/i);
+    expect(note).toHaveTextContent(/active chat provider only/iu);
   });
 
   it('keeps the auto note and toggle stable for a profile with no keys (waiting, not broken)', () => {
@@ -236,7 +236,7 @@ describe('AssistantMemorySettingsSection', () => {
 
     expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeEnabled();
     expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
-      /active chat provider only/i
+      /active chat provider only/iu
     );
   });
 
@@ -245,11 +245,11 @@ describe('AssistantMemorySettingsSection', () => {
     renderMemorySettings();
 
     await user.selectOptions(
-      screen.getByRole('combobox', { name: /observational memory model/i }),
+      screen.getByRole('combobox', { name: /observational memory model/iu }),
       'anthropic/claude-haiku-4-5'
     );
-    await user.clear(screen.getByRole('spinbutton', { name: /observe messages after/i }));
-    await user.type(screen.getByRole('spinbutton', { name: /observe messages after/i }), '18000');
+    await user.clear(screen.getByRole('spinbutton', { name: /observe messages after/iu }));
+    await user.type(screen.getByRole('spinbutton', { name: /observe messages after/iu }), '18000');
     await user.tab();
 
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory).toMatchObject({
@@ -262,8 +262,8 @@ describe('AssistantMemorySettingsSection', () => {
     const user = userEvent.setup();
     renderMemorySettings();
 
-    expect(screen.getByText(/Semantic recall is off/i)).toBeInTheDocument();
-    await user.click(screen.getByRole('switch', { name: /enable semantic recall/i }));
+    expect(screen.getByText(/Semantic recall is off/iu)).toBeInTheDocument();
+    await user.click(screen.getByRole('switch', { name: /enable semantic recall/iu }));
 
     expect(useAssistantMemoryPreferencesStore.getState().semanticRecall).toMatchObject({
       embeddingModelTarget: 'openai/text-embedding-3-small',
@@ -271,8 +271,8 @@ describe('AssistantMemorySettingsSection', () => {
     });
     expect(
       within(
-        screen.getByRole('combobox', { name: /semantic recall embedding model/i })
-      ).queryByRole('option', { name: /Cohere Embed English/i })
+        screen.getByRole('combobox', { name: /semantic recall embedding model/iu })
+      ).queryByRole('option', { name: /Cohere Embed English/iu })
     ).toBeNull();
   });
 
@@ -280,18 +280,20 @@ describe('AssistantMemorySettingsSection', () => {
     renderMemorySettings([{ provider: 'google', source: 'stored' }]);
 
     const select = screen.getByRole('combobox', {
-      name: /semantic recall embedding model/i,
+      name: /semantic recall embedding model/iu,
     });
-    expect(within(select).queryByRole('option', { name: /Text Embedding 3 Small/i })).toBeNull();
-    expect(within(select).getByRole('option', { name: /Gemini Embedding 2/i })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /Text Embedding 3 Small/iu })).toBeNull();
+    expect(
+      within(select).getByRole('option', { name: /Gemini Embedding 2/iu })
+    ).toBeInTheDocument();
   });
 
   it('disables semantic recall activation when its selected embedder has no key', () => {
     renderMemorySettings([]);
 
-    expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeDisabled();
+    expect(screen.getByRole('switch', { name: /enable semantic recall/iu })).toBeDisabled();
     // Nothing uses the embedder while recall and vector observation retrieval are off.
-    expect(screen.queryByText(/Configured semantic recall embedder/)).toBeNull();
+    expect(screen.queryByText(/Configured semantic recall embedder/u)).toBeNull();
   });
 
   it('alerts about an unavailable embedder only while recall or vector observation retrieval uses it', () => {
@@ -308,7 +310,7 @@ describe('AssistantMemorySettingsSection', () => {
       observationalMemory: { ...state.observationalMemory, enabled: false },
     }));
     renderMemorySettings([]);
-    expect(screen.queryByText(/Configured semantic recall embedder/)).toBeNull();
+    expect(screen.queryByText(/Configured semantic recall embedder/u)).toBeNull();
   });
 
   it('describes what a send does without an embedder', () => {
@@ -322,7 +324,7 @@ describe('AssistantMemorySettingsSection', () => {
     renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
 
     const section = screen.getByTestId('assistant-memory-settings-section');
-    expect(section).not.toHaveTextContent(/assistant startup fails/i);
+    expect(section).not.toHaveTextContent(/assistant startup fails/iu);
     expect(screen.getByTestId('assistant-memory-retrieval-note')).toHaveTextContent(
       'Semantic observation recall embeds observations with the semantic recall embedding model, even with semantic recall turned off. Until that model is available, the composer stays disabled and says why.'
     );
@@ -399,9 +401,9 @@ describe('AssistantMemorySettingsSection', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Configured semantic recall embedder cohere/embed-english-v3.0 is not available'
     );
-    expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeEnabled();
+    expect(screen.getByRole('switch', { name: /enable semantic recall/iu })).toBeEnabled();
 
-    await user.click(screen.getByRole('switch', { name: /enable semantic recall/i }));
+    await user.click(screen.getByRole('switch', { name: /enable semantic recall/iu }));
 
     expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.enabled).toBe(false);
   });
@@ -424,8 +426,8 @@ describe('AssistantMemorySettingsSection', () => {
       renderMemorySettings();
 
       const note = screen.getByTestId('assistant-memory-manual-observer-note');
-      expect(note).toHaveTextContent(/not tied to your chat provider/i);
-      expect(note).toHaveTextContent(/reaches the observer's provider/i);
+      expect(note).toHaveTextContent(/not tied to your chat provider/iu);
+      expect(note).toHaveTextContent(/reaches the observer's provider/iu);
     });
 
     it('does NOT claim it on Auto, which cannot cross by construction', () => {
@@ -434,7 +436,7 @@ describe('AssistantMemorySettingsSection', () => {
 
       expect(screen.queryByTestId('assistant-memory-manual-observer-note')).toBeNull();
       expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
-        /never reaches a provider that is not already receiving it/i
+        /never reaches a provider that is not already receiving it/iu
       );
     });
 
@@ -449,7 +451,7 @@ describe('AssistantMemorySettingsSection', () => {
       renderMemorySettings();
 
       expect(screen.getByTestId('assistant-memory-manual-observer-note')).toHaveTextContent(
-        /not tied to your chat provider/i
+        /not tied to your chat provider/iu
       );
     });
   });
@@ -522,7 +524,7 @@ describe('AssistantMemorySettingsSection', () => {
       expect(await screen.findByTestId('assistant-memory-embedder-test-failure')).toHaveTextContent(
         'Something went wrong. The details were recorded in the diagnostic log.'
       );
-      expect(screen.queryByText(/raw transport detail/)).toBeNull();
+      expect(screen.queryByText(/raw transport detail/u)).toBeNull();
     });
 
     it('hides a result once another embedder is selected', async () => {
@@ -535,7 +537,7 @@ describe('AssistantMemorySettingsSection', () => {
       await screen.findByTestId('assistant-memory-embedder-test-result');
 
       await user.selectOptions(
-        screen.getByRole('combobox', { name: /semantic recall embedding model/i }),
+        screen.getByRole('combobox', { name: /semantic recall embedding model/iu }),
         'google/gemini-embedding-2'
       );
 
@@ -559,7 +561,7 @@ describe('AssistantMemorySettingsSection', () => {
       ]);
       await user.click(screen.getByRole('button', { name: 'Test embedder' }));
       await user.selectOptions(
-        screen.getByRole('combobox', { name: /semantic recall embedding model/i }),
+        screen.getByRole('combobox', { name: /semantic recall embedding model/iu }),
         'google/gemini-embedding-2'
       );
       await user.click(screen.getByRole('button', { name: 'Test embedder' }));

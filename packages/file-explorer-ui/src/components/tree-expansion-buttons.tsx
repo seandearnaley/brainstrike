@@ -52,7 +52,7 @@ export const TreeExpansionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label={expandLabel}
-              className="@[236px]/explorer-toolbar:size-7 size-6"
+              className="size-6 @[236px]/explorer-toolbar:size-7"
               data-testid="expand-all-button-small"
               disabled={disabled.expand}
               onClick={onExpandAll}
@@ -74,7 +74,7 @@ export const TreeExpansionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Collapse All"
-              className="@[236px]/explorer-toolbar:size-7 size-6"
+              className="size-6 @[236px]/explorer-toolbar:size-7"
               data-testid="collapse-all-button-small"
               disabled={disabled.collapse}
               onClick={onCollapseAll}

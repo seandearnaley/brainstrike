@@ -1,6 +1,7 @@
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 
 const { connectPathMock, getDroppedPathMock, resolveBridgeMock, toastMock, useConnectFolderMock } =
   vi.hoisted(() => ({
@@ -24,8 +25,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   toast: toastMock,
 }));
-
-import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 
 function directoryItem(path: string): DataTransferItem {
   return {

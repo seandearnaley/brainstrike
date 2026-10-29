@@ -36,7 +36,7 @@ describe('tree-sitter grammar loader', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [grammarUrl] = fetchMock.mock.calls[0] ?? [];
     expect(new URL(String(grammarUrl)).pathname).toMatch(
-      /\/packages\/chunking-worker\/grammars\/python\.wasm$/
+      /\/packages\/chunking-worker\/grammars\/python\.wasm$/u
     );
     expect(languageLoadMock).toHaveBeenCalledWith(new Uint8Array([0, 97, 115, 109]));
   });

@@ -39,10 +39,10 @@ describe('thread debug pack', () => {
     fireEvent.click(screen.getByText('Debug pack'));
     // The expanded control names the new evidence before anything is saved.
     expect(
-      screen.getByText(/prompts each leg and specialist received, parent wakeups/)
+      screen.getByText(/prompts each leg and specialist received, parent wakeups/u)
     ).toBeTruthy();
     expect(
-      screen.getByText(/main-process log for the run window and process counters/)
+      screen.getByText(/main-process log for the run window and process counters/u)
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Download debug pack' }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));

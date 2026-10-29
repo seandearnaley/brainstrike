@@ -15,11 +15,6 @@ import {
   type NativeToolDefinition,
 } from '../native-tools/define';
 import { DESKTOP_NATIVE_TOOLS, NATIVE_TOOL_REGISTRIES, NATIVE_TOOLS } from '../native-tools/index';
-
-/** The catalog seen through its declared (non-literal) definition types. */
-const CATALOG: readonly NativeToolDefinition[] = NATIVE_TOOLS;
-const DESKTOP_CATALOG: readonly DesktopNativeToolDefinition[] = DESKTOP_NATIVE_TOOLS;
-
 import { deriveNativeToolRegistries } from '../native-tools/registries';
 import {
   effectToolInputSchema,
@@ -29,6 +24,10 @@ import { NATIVE_TOOL_DEFAULTS } from '../tool-categories';
 import { TOOL_DESCRIPTIONS } from '../tool-descriptions';
 import { NATIVE_TOOL_DISCOVERY_NAMESPACES } from '../tool-discovery';
 import { UndeterminableToolRiskError } from '../tool-risk';
+
+/** The catalog seen through its declared (non-literal) definition types. */
+const CATALOG: readonly NativeToolDefinition[] = NATIVE_TOOLS;
+const DESKTOP_CATALOG: readonly DesktopNativeToolDefinition[] = DESKTOP_NATIVE_TOOLS;
 
 /**
  * The ONE inline snapshot of the catalog. This replaces the two hand-copied
@@ -227,7 +226,7 @@ describe('deriveNativeToolRegistries', () => {
 
   it('refuses a duplicate id', () => {
     expect(() => deriveNativeToolRegistries([...NATIVE_TOOLS, NATIVE_TOOLS[0]])).toThrow(
-      /declares brainstrike\.askUser twice/
+      /declares brainstrike\.askUser twice/u
     );
   });
 });

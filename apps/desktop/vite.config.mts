@@ -42,7 +42,7 @@ const ReactCompilerConfig = { compilationMode: 'infer' } as const;
  * dependency chunks. This restores the exclusions the removed `@rolldown/plugin-babel` pass
  * carried.
  */
-const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
+const reactTransformExclude = [/[\\/]node_modules[\\/]/u, /[\\/]\.vite[\\/]/u];
 
 export default defineConfig({
   base: './', // Use relative paths for Electron
@@ -55,7 +55,7 @@ export default defineConfig({
     emptyOutDir: true,
     outDir: 'dist/renderer',
     rolldownOptions: {
-      external: ['electron', '@mastra/core', /^@mastra\//],
+      external: ['electron', '@mastra/core', /^@mastra\//u],
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },

@@ -42,7 +42,7 @@ export async function derivePythonRuntimeArchive(sourcePath, outputPath, target)
             return false;
           }
           const name = path.posix.basename(entryPath);
-          if (name.startsWith('_dbm.') || /^libdb[.-]/.test(name)) {
+          if (name.startsWith('_dbm.') || /^libdb[.-]/u.test(name)) {
             unexpected.push(entryPath);
             return false;
           }

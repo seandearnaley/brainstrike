@@ -177,7 +177,7 @@ describe('BedrockMessageHygiene', () => {
     const second = assistant.content[1]?.toolCallId;
     expect(first).toBe('call_1');
     expect(second).not.toBe(first);
-    expect(second).toMatch(/^[a-zA-Z0-9_-]+$/);
+    expect(second).toMatch(/^[a-zA-Z0-9_-]+$/u);
     // Results still bind to their own call, in whichever order they appear.
     expect(tool.content[0]?.toolCallId).toBe(second);
     expect(tool.content[1]?.toolCallId).toBe(first);
@@ -194,7 +194,7 @@ describe('BedrockMessageHygiene', () => {
     const assistant = prompt?.[0] as { content: { toolCallId: string }[] };
     const id = assistant.content[0]?.toolCallId ?? '';
     expect(id.length).toBe(64);
-    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
+    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/u);
   });
 
   it('keeps clamped ids injective when two long originals share a prefix', () => {

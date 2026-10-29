@@ -26,7 +26,7 @@ test.use({ electronEnv: { BRAINSTRIKE_OPENAI_API_KEY: 'offline-reset-fixture' } 
 test.describe('@destructive', () => {
   async function openSubagents(page: Page): Promise<void> {
     await new HomePage(page).openSettings();
-    await new SettingsPage(page).openCategory(/Subagents/i, 'subagents');
+    await new SettingsPage(page).openCategory(/Subagents/iu, 'subagents');
   }
 
   async function send(page: Page, prompt: string, response: string): Promise<void> {
@@ -138,7 +138,7 @@ test.describe('@destructive', () => {
       expect(catalogs.get(DISABLED)?.filter((name) => name.startsWith('agent-'))).toEqual([]);
       expect(catalogs.get(DISABLED)).toContain('search_tools');
       await new HomePage(page).openSettings();
-      await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
+      await new SettingsPage(page).openCategory(/Factory Reset/iu, 'factory-reset');
       if (process.platform === 'win32') {
         // Windows Factory Reset is disabled for M3 by owner decision; the delegation above still runs.
         await expect(page.getByTestId('factory-reset-button')).toBeDisabled();
@@ -177,7 +177,7 @@ test.describe('@destructive', () => {
         'aria-checked',
         'false'
       );
-      await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
+      await new SettingsPage(page).openCategory(/Factory Reset/iu, 'factory-reset');
       const reloaded = page.waitForEvent('load');
       await confirmReset(page, true);
       await reloaded;

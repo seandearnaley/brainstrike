@@ -328,7 +328,7 @@ test('failed Windows replacement retains the previous file and joins temp cleanu
       root.writePrivateFileAsync('credential.json', Buffer.from('fake replacement')),
       {
         code: 'ERR_PRIVATE_FILE_OPERATION',
-        message: /^Private file replacement failed \(Windows error \d+\)$/,
+        message: /^Private file replacement failed \(Windows error \d+\)$/u,
       }
     );
     assert.equal(readFileSync(join(directory, 'credential.json'), 'utf8'), 'fake retained');

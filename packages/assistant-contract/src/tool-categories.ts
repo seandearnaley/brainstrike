@@ -151,7 +151,7 @@ export function buildNativeToolRiskMap(): Record<string, ToolRiskCategory> {
  */
 const SANITIZED_TO_DOTTED_NATIVE_TOOL: Record<string, string> = Object.fromEntries(
   Object.keys(NATIVE_TOOL_DEFAULTS).map((toolId) => [
-    toolId.replace(/[^a-zA-Z0-9_-]/g, '_'),
+    toolId.replace(/[^a-zA-Z0-9_-]/gu, '_'),
     toolId,
   ])
 );

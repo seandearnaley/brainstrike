@@ -140,7 +140,7 @@ export function WorktreeCreateDialog({
             ) : null}
           </div>
           <div className="flex items-center justify-between gap-3">
-            <Label className="font-normal text-sm" htmlFor="worktree-detached">
+            <Label className="text-sm font-normal" htmlFor="worktree-detached">
               Detached — name the branch later
             </Label>
             <Switch
@@ -166,9 +166,9 @@ export function WorktreeCreateDialog({
             </div>
           )}
           <div className="space-y-1">
-            <p className="font-medium text-xs">Location</p>
+            <p className="text-xs font-medium">Location</p>
             <p
-              className="break-all font-mono text-muted-foreground text-xs"
+              className="text-muted-foreground font-mono text-xs break-all"
               data-testid="worktree-create-location"
             >
               {`${mode.managedParentPath}${pathSeparator}${locationName}`}
@@ -178,7 +178,7 @@ export function WorktreeCreateDialog({
             </p>
           </div>
           <div className="space-y-1">
-            <p className="font-medium text-xs">Setup</p>
+            <p className="text-xs font-medium">Setup</p>
             <p
               className="text-muted-foreground text-xs"
               data-testid="worktree-create-setup-summary"
@@ -195,17 +195,17 @@ export function WorktreeCreateDialog({
               className="space-y-2 rounded-md border p-3"
               data-testid="worktree-repository-setup-consent"
             >
-              <p className="font-medium text-sm">Run repository setup script?</p>
-              <div className="space-y-1 text-muted-foreground text-xs">
+              <p className="text-sm font-medium">Run repository setup script?</p>
+              <div className="text-muted-foreground space-y-1 text-xs">
                 <p>
                   Repository:{' '}
-                  <span className="break-all font-mono text-foreground">
+                  <span className="text-foreground font-mono break-all">
                     {repositorySetupConsent.repositoryPath}
                   </span>
                 </p>
                 <p>
                   Script:{' '}
-                  <span className="break-all font-mono text-foreground">
+                  <span className="text-foreground font-mono break-all">
                     {repositorySetupConsent.scriptPath}
                   </span>
                 </p>

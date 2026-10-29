@@ -183,7 +183,7 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
         ownerThreadId: threadId,
         resourceId,
       })
-    ).rejects.toThrow(/retired/);
+    ).rejects.toThrow(/retired/u);
     expect((await store.memory({ operation: 'read', resourceId })).entities).toEqual(kept);
     await store.reset();
     expect(existsSync(join(root, STATE_DB))).toBe(false);

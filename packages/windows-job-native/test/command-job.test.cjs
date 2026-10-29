@@ -381,7 +381,7 @@ process.on('message',async(message)=>{
     );
     assert.deepEqual((await check(outside)).waits, [258, 258, 258]);
     assert.deepEqual(retained.parent, ready.parent);
-    assert.match(retained.message, /Windows error 5/);
+    assert.match(retained.message, /Windows error 5/u);
     assert.deepEqual((await check(observer)).waits, [258]);
   }
 );
@@ -412,6 +412,6 @@ test('private Job containment survives the owning parent exiting abruptly', wind
 test('private Job primitives explicitly refuse unsupported platforms', {
   skip: process.platform === 'win32',
 }, () => {
-  assert.throws(() => job.createCommandJob(), /only available on Windows/);
-  assert.throws(() => job.getCurrentProcessIdentity(), /only available on Windows/);
+  assert.throws(() => job.createCommandJob(), /only available on Windows/u);
+  assert.throws(() => job.getCurrentProcessIdentity(), /only available on Windows/u);
 });

@@ -87,7 +87,7 @@ export function NativeSearchCoverage({
           : 'Verifying index coverage…'
     : 'Native index capability is unavailable.';
   return text ? (
-    <div className="rounded-md bg-muted/40 px-2 py-1 text-muted-foreground text-xs" role="status">
+    <div className="bg-muted/40 text-muted-foreground rounded-md px-2 py-1 text-xs" role="status">
       {text}
     </div>
   ) : null;

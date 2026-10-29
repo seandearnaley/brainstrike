@@ -159,7 +159,7 @@ jobs:
       unit-matrix: ${{ steps.unit-shards.outputs.matrix }}
       unit-shard-count: ${{ steps.unit-shards.outputs.count }}
     if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission]
+    needs: [ admission ]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
@@ -332,14 +332,13 @@ jobs:
           TURBO_ENTRY: ${{ steps.turbo.outputs.entry }}
         run: node scripts/select-unit-shards.mjs
 
-
   # Lint and type-check run as two jobs so the queue waits for the longer of
   # them, not both in turn (run 40084219035: lint 1m33s, then type-check
   # 2m20s, made Static the last job to finish).
   static:
     name: Static
     if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission]
+    needs: [ admission ]
     # Series C R9b: arm64 runners became available for private repos on
     # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
     # Probe P1 measured this job's full step suite (install, secret scan,
@@ -378,7 +377,7 @@ jobs:
   type-check:
     name: Type check
     if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission]
+    needs: [ admission ]
     # Same arm64 runner class as Static; see the note there.
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
@@ -395,7 +394,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       - name: Type check
         env:
@@ -405,7 +404,7 @@ jobs:
   unit-shard:
     name: Unit (${{ matrix.shard }})
     if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0'
-    needs: [admission, unit-plan]
+    needs: [ admission, unit-plan ]
     # The Unit matrix runs on the same explicit 4-vCPU/16-GB Ubicloud class as
     # the other Linux x64 jobs. GitHub's hosted ARM pool terminated the `rest`
     # shard without a test assertion on five consecutive attempts across two
@@ -447,7 +446,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       # BST-2127: the host Nightly Coverage also runs on
       # (.github/actions/linux-desktop-test-host): the real OS-fence
@@ -645,7 +644,7 @@ jobs:
   unit:
     name: Unit
     if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission, unit-plan, unit-shard]
+    needs: [ admission, unit-plan, unit-shard ]
     # This fan-in only checks one dependency result and completes in ~3s. Use
     # GitHub's 1-core slim runner so per-job minute rounding does not charge the
     # ARM compute rate for a job that performs no build or test work.
@@ -694,7 +693,7 @@ jobs:
   windows-shard:
     name: Windows (${{ matrix.shard }})
     if: needs.admission.outputs.admitted == 'true' && !inputs.merge-queue && needs.unit-plan.outputs.unit-shard-count != '0'
-    needs: [admission, unit-plan]
+    needs: [ admission, unit-plan ]
     runs-on: windows-latest
     timeout-minutes: 40
     strategy:
@@ -727,7 +726,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       - name: Provision the Electron binary
         uses: ./.github/actions/provision-electron
@@ -762,7 +761,7 @@ jobs:
   windows:
     name: Windows
     if: github.repository == 'seandearnaley/brainstrike' && !inputs.merge-queue && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission, unit-plan, windows-shard]
+    needs: [ admission, unit-plan, windows-shard ]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
@@ -809,7 +808,7 @@ jobs:
   build:
     name: Build
     if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission]
+    needs: [ admission ]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
     steps:
@@ -825,7 +824,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       - name: Build
         # Invoked as `pnpm turbo` DIRECTLY rather than through the root
@@ -847,13 +846,13 @@ jobs:
         # `...[origin/$BASE_REF]` filter here can skip at most ONE package
         # (@brainstrike/tsconfig) while turbo's cache already replays the rest.
         env:
-          TAILWIND_DEBUG: '1'
+          TAILWIND_DEBUG: "1"
         run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful
 
   native-electron:
     name: Native Electron Package
     if: needs.admission.outputs.admitted == 'true' && !inputs.nightly
-    needs: [admission]
+    needs: [ admission ]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
     steps:
@@ -964,7 +963,7 @@ jobs:
     # existed, `test:browser` ran NOWHERE in CI — only in the local `pnpm
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
     if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission]
+    needs: [ admission ]
     # Cost-first runner migration (2026-08-28): this lane used 1,928 rounded
     # GitHub Linux minutes in the 7.76-day audit. The same pinned Playwright
     # container contract is already green in the Ubicloud Web E2E job, and the
@@ -1066,7 +1065,7 @@ jobs:
   # one `nightly-alert` issue per red workflow and comments on later nights.
   notify-linear:
     name: Notify Linear
-    needs: [admission, unit-plan, unit-shard, unit, windows-shard, windows]
+    needs: [ admission, unit-plan, unit-shard, unit, windows-shard, windows ]
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:

@@ -110,14 +110,14 @@ export function NotificationSettingsSection() {
       <CardContent className="space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="font-medium text-sm" htmlFor="notifications-master-toggle">
+            <Label className="text-sm font-medium" htmlFor="notifications-master-toggle">
               Enable notifications
             </Label>
             <p className="text-muted-foreground text-sm">
               Requests browser notification permission the first time you turn this on.
             </p>
             {blockedMessage ? (
-              <p className="mt-1 text-destructive text-xs">{blockedMessage}</p>
+              <p className="text-destructive mt-1 text-xs">{blockedMessage}</p>
             ) : null}
           </div>
           <Switch
@@ -130,7 +130,7 @@ export function NotificationSettingsSection() {
         </div>
 
         <fieldset className="space-y-3 border-0 p-0" disabled={!masterEnabled}>
-          <legend className="font-medium text-sm">Notify me when</legend>
+          <legend className="text-sm font-medium">Notify me when</legend>
           {NOTIFICATION_EVENT_KINDS.map((kind) => {
             const meta = EVENT_TOGGLE_META.find((entry) => entry.kind === kind);
             if (!meta) {
@@ -142,7 +142,7 @@ export function NotificationSettingsSection() {
                 key={kind}
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-sm">{meta.label}</p>
+                  <p className="text-sm font-medium">{meta.label}</p>
                   <p className="text-muted-foreground text-sm">{meta.description}</p>
                 </div>
                 <Switch

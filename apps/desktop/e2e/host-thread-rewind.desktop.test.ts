@@ -75,7 +75,7 @@ test('a host thread restores to before a message, undoes it, and branches from t
     await send('Say hello.', HELLO);
     await input.fill(REWRITE_PROMPT);
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
-    const approve = region.getByRole('button', { name: /^Approve / });
+    const approve = region.getByRole('button', { name: /^Approve /u });
     await expect(approve).toBeVisible({ timeout: 90_000 });
     await approve.click();
     await expect(region.getByText(REWRITE_REPLY)).toBeVisible({ timeout: 90_000 });

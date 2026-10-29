@@ -36,6 +36,7 @@ export async function prepareOrdinaryDevApp(application: string): Promise<string
     name: 'ordinary-dev-disposable-credentials',
     setup(builder) {
       builder.onLoad(
+        // biome-ignore lint/style/useUnicodeRegex: esbuild runs plugin filters as Go regular expressions, which reject the u flag.
         { filter: /[/\\]desktop-credential-selection\.ts$/ },
         ({ path: modulePath }) => {
           if (modulePath !== credentialModule || matched.has(modulePath)) {

@@ -86,7 +86,7 @@ describe('SubagentExecutionCard', () => {
     const card = container.querySelector('.bs-subagent-card');
     expect(card).toHaveAttribute('data-agent-color', 'family:1375:540');
     expect((card as HTMLElement).style.getPropertyValue('--agent-accent-light')).toMatch(
-      /^oklch\(/
+      /^oklch\(/u
     );
   });
 
@@ -118,7 +118,7 @@ describe('SubagentExecutionCard', () => {
     expect(screen.getByText('Explorer is working')).toBeTruthy();
     expect(screen.queryByText('Explorer finished')).toBeNull();
     // An unread count is unknown, not zero.
-    expect(screen.queryByText(/tool calls?$/)).toBeNull();
+    expect(screen.queryByText(/tool calls?$/u)).toBeNull();
   });
 
   it.each([
@@ -199,7 +199,7 @@ describe('SubagentExecutionCard', () => {
     });
     expect(screen.getByText('Explorer delegation rejected')).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Rejected' })).toBeTruthy();
-    expect(screen.queryByText(/tool calls?$/)).toBeNull();
+    expect(screen.queryByText(/tool calls?$/u)).toBeNull();
   });
 
   it('renders a completed delegation summary with the persona label and tool-call count', () => {
@@ -229,7 +229,7 @@ describe('SubagentExecutionCard', () => {
     expect(screen.getByText('Analyst is working')).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Running' })).toBeTruthy();
     // No child yet, so no count: never "Running · 0 tool calls".
-    expect(screen.queryByText(/tool calls?$/)).toBeNull();
+    expect(screen.queryByText(/tool calls?$/u)).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -333,7 +333,7 @@ describe('SubagentExecutionCard detail level', () => {
   it('hides the tool-call-count chip at compact', () => {
     renderCardAtDetailLevel(finished, 'compact');
     expect(screen.getByText('Explorer finished')).toBeInTheDocument();
-    expect(screen.queryByText(/tool calls?$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/tool calls?$/u)).not.toBeInTheDocument();
   });
 
   it('shows the tool-call-count chip at standard', () => {
@@ -362,7 +362,7 @@ describe('SubagentExecutionCard non-interactive row name', () => {
       },
       'standard'
     );
-    const row = screen.getByRole('group', { name: /^Analyst is working$/ });
+    const row = screen.getByRole('group', { name: /^Analyst is working$/u });
     expect(row).toBeInTheDocument();
     expect(row).toHaveTextContent('12 tool calls');
   });
@@ -391,7 +391,7 @@ it('keeps a conflicting conversation address visible as a card-local error', () 
     toolName: 'agent-explore',
   });
   expect(screen.getByRole('alert')).toHaveTextContent('Conflicting child conversation addresses.');
-  expect(screen.queryByRole('button', { name: /Open .* conversation/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Open .* conversation/u })).not.toBeInTheDocument();
   expect(screen.getByText('Explorer finished')).toBeInTheDocument();
 });
 

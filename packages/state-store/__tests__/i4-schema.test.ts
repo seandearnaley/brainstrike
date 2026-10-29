@@ -87,7 +87,7 @@ describe('item 4 · schema evolution', () => {
       await appendRaw(store, [V2_TEXT, UNKNOWN_TYPE]);
       await expect(store.readEvents('t1', SCHEMA, 'dev')).rejects.toThrow(UnknownEventError);
       await expect(store.readEvents('t1', SCHEMA, 'dev')).rejects.toThrow(
-        /unknown event type "hologram"/
+        /unknown event type "hologram"/u
       );
     } finally {
       await store.close();

@@ -133,7 +133,7 @@ test('a host thread’s write and delete reach the native index through its watc
       await region.getByRole('textbox', { name: 'Message input' }).fill(prompt);
       await region.getByRole('button', { exact: true, name: 'Send' }).click();
       // The default `edit: ask` policy pauses each file mutation.
-      const approve = region.getByRole('button', { name: /^Approve / });
+      const approve = region.getByRole('button', { name: /^Approve /u });
       await expect(approve).toBeVisible({ timeout: 90_000 });
       await approve.click();
       await expect(region.getByText(reply)).toBeVisible({ timeout: 90_000 });

@@ -32,6 +32,7 @@ export async function preloadMarkdownText(): Promise<void> {
  * `<LoadedComponent />` as a component created during render.
  */
 function createLazyMarkdownText(displayName: string): MemoExoticComponent<() => ReactElement> {
+  // biome-ignore lint/correctness/noComponentHookFactories: called once per variant at module scope, never during render.
   const LazyMarkdownText = memo(function LazyMarkdownText() {
     const [LoadedComponent, setLoadedComponent] = useState<MarkdownTextComponent | null>(
       markdownModule?.MarkdownText ?? null
@@ -58,7 +59,7 @@ function createLazyMarkdownText(displayName: string): MemoExoticComponent<() => 
       return <LoadedComponent />;
     }
 
-    return <div className="aui-md animate-pulse text-muted-foreground/70">Loading message…</div>;
+    return <div className="aui-md text-muted-foreground/70 animate-pulse">Loading message…</div>;
   });
   LazyMarkdownText.displayName = displayName;
 

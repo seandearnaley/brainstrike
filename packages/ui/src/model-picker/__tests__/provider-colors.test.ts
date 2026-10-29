@@ -18,7 +18,7 @@ describe('provider colors', () => {
 
   it('keeps the hash fallback for dynamically discovered ids only', () => {
     const fallback = getProviderColor('some-unknown-runtime', 'light');
-    expect(fallback).toMatch(/^hsl\(/);
+    expect(fallback).toMatch(/^hsl\(/u);
     expect(PROVIDER_COLOR_MAP['some-unknown-runtime']).toBeUndefined();
   });
 });

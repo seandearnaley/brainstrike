@@ -3,8 +3,8 @@ import { slashSeparatedPath } from './path-ancestors.ts';
 
 const MAX_REGEX_PATTERN_LENGTH = 256;
 const DANGEROUS_REGEX_PATTERNS = [
-  /\((?:[^()\\]|\\.)*[+*{][^)]*\)[+*{]/,
-  /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)[+*{]/,
+  /\((?:[^()\\]|\\.)*[+*{][^)]*\)[+*{]/u,
+  /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)[+*{]/u,
 ] as const;
 
 export function processFilter(filter: string): string {
@@ -73,6 +73,7 @@ function createSafeRegex(pattern: string): RegExp {
   assertSafeRegexSource(pattern);
 
   try {
+    // biome-ignore lint/style/useUnicodeRegex: a user-written pattern keeps the non-unicode syntax people type, such as `\-`.
     return new RegExp(pattern);
   } catch (error) {
     throw new Error(

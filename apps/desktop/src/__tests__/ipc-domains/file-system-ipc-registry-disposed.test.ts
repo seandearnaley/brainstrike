@@ -1,5 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  markDesktopShuttingDown,
+  resetDesktopShutdownStateForTests,
+} from '../../desktop-shutdown-state';
+import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
+import {
+  createFileSystem,
+  createStorage,
+  getRootsCatalog,
+  ipcMethod,
+  resetRootsCatalog,
+} from './file-system-ipc-test-harness';
+import { loggerMock } from './workspace-root-registry-logger-test-helper';
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -11,20 +24,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     createLogger: () => sharedLoggerMock,
   };
 });
-
-import {
-  markDesktopShuttingDown,
-  resetDesktopShutdownStateForTests,
-} from '../../desktop-shutdown-state';
-import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
-import {
-  createFileSystem,
-  createStorage,
-  getRootsCatalog,
-  ipcMethod,
-  resetRootsCatalog,
-} from './file-system-ipc-test-harness';
-import { loggerMock } from './workspace-root-registry-logger-test-helper';
 
 /**
  * BST-2118: the app closing during startup disposes the workspace root registry

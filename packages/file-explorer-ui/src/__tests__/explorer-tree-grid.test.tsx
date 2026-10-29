@@ -158,7 +158,7 @@ async function renderGrid(
 }
 
 function rowFor(name: string): HTMLElement {
-  const row = screen.getByRole('row', { name: new RegExp(`Select ${name}\\b`) });
+  const row = screen.getByRole('row', { name: new RegExp(`Select ${name}\\b`, 'u') });
   return row;
 }
 
@@ -177,7 +177,7 @@ describe('Explorer tree grid', () => {
 
   it('routes the single-root header through TreeTable sorting state', async () => {
     await renderGrid(LOADED_TREE);
-    const tokensHeader = screen.getByRole('columnheader', { name: /^Tokens/ });
+    const tokensHeader = screen.getByRole('columnheader', { name: /^Tokens/u });
 
     fireEvent.click(tokensHeader);
     expect(useExplorerSortStateStore.getState().sortState).toEqual({
@@ -214,7 +214,7 @@ describe('Explorer tree grid', () => {
     const pending = within(row).getByTitle('Token count pending');
     expect(pending).toBeInTheDocument();
     // The placeholder carries no digits at all: a "0" here would be a count.
-    expect(pending.textContent).not.toMatch(/\d/);
+    expect(pending.textContent).not.toMatch(/\d/u);
   });
 
   it('renders a binary file as excluded with the binary tooltip', async () => {

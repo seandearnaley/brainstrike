@@ -208,7 +208,7 @@ test(
       server.releaseTerminalObservation();
       await expect.poll(async () => (await readTasks())[0]?.status).toBe('cancelled');
       await expect(card.getByTestId('mcp-task-status-summary')).toContainText('Cancelled');
-      await expect(card.getByRole('button', { name: /cancel task|recover task/i })).toHaveCount(0);
+      await expect(card.getByRole('button', { name: /cancel task|recover task/iu })).toHaveCount(0);
       expect(
         server
           .snapshot()

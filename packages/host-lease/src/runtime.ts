@@ -60,10 +60,10 @@ const StartOptionsSchema = Schema.Struct({
   parent: Schema.optional(
     Schema.Struct({
       pid: Schema.Int.check(Schema.isBetween({ maximum: Number.MAX_SAFE_INTEGER, minimum: 1 })),
-      start: Schema.String.check(Schema.isPattern(/^.{1,256}$/)),
+      start: Schema.String.check(Schema.isPattern(/^.{1,256}$/u)),
     })
   ),
-  root: Schema.String.check(Schema.isPattern(/^[^\r\n\0]{1,4096}$/)),
+  root: Schema.String.check(Schema.isPattern(/^[^\r\n\0]{1,4096}$/u)),
   startupGraceMs: Schema.optional(
     Schema.Int.check(Schema.isBetween({ maximum: 2_147_483_647, minimum: 1 }))
   ),

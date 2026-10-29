@@ -37,7 +37,7 @@ function WorkspaceSearchTabContent(): ReactElement {
   const attachFiles = useAttachFilesToThread();
   const onAttachFile = useCallback((fileKey: string) => attachFiles([fileKey], 1), [attachFiles]);
   return (
-    <Suspense fallback={<div className="p-3 text-muted-foreground text-sm">Loading search…</div>}>
+    <Suspense fallback={<div className="text-muted-foreground p-3 text-sm">Loading search…</div>}>
       <LazyWorkspaceSearchPanel
         allowTextPaging={controller.allowTextPaging}
         // A result file attaches like the selection bar's Attach: desktop host threads read mentions.
@@ -100,7 +100,7 @@ export function ExplorerSearchTabs(): ReactElement {
       value={activeTab}
     >
       <div
-        className="flex h-9 min-w-0 shrink-0 items-center border-border border-b px-2"
+        className="border-border flex h-9 min-w-0 shrink-0 items-center border-b px-2"
         data-testid="explorer-search-tab-strip"
       >
         <TabsList aria-label="Explorer and search" className="grid w-full grid-cols-2" size="sm">

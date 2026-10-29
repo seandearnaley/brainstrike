@@ -345,7 +345,7 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByText(/No tools registered/)).toBeInTheDocument();
+        expect(screen.getByText(/No tools registered/u)).toBeInTheDocument();
       });
     });
   });
@@ -377,7 +377,7 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByText(/tool-preferences\.json/)).toBeInTheDocument();
+        expect(screen.getByText(/tool-preferences\.json/u)).toBeInTheDocument();
       });
     });
 
@@ -394,7 +394,7 @@ describe('UnifiedToolsSettings', () => {
       });
 
       ToolGroupAccordionMock.mockImplementation(renderToolGroupAccordion);
-      fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+      fireEvent.click(screen.getByRole('button', { name: /retry/iu }));
 
       await waitFor(() => {
         expect(operations.getTools).toHaveBeenCalledTimes(2);
@@ -2154,7 +2154,7 @@ describe('UnifiedToolsSettings', () => {
       } finally {
         ToolGroupAccordionMock.mockImplementation(renderToolGroupAccordion);
       }
-      fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+      fireEvent.click(screen.getByRole('button', { name: /retry/iu }));
 
       expect(screen.getByTestId('mcp-config-alert')).toBeInTheDocument();
       await act(async () => {
@@ -2285,7 +2285,7 @@ describe('UnifiedToolsSettings', () => {
       } finally {
         ToolGroupAccordionMock.mockImplementation(renderToolGroupAccordion);
       }
-      fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+      fireEvent.click(screen.getByRole('button', { name: /retry/iu }));
 
       await act(async () => {
         initial.resolve({

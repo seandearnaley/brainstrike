@@ -29,8 +29,8 @@ describe('host-owned askUser declaration', () => {
     expect(formatAskUserAnswer('yes')).toBe('yes');
     expect(formatAskUserAnswer(['a', 'b'])).toBe('a, b');
     expect(readAskUserResumeAnswer({ answer: 'yes' })).toBe('yes');
-    expect(() => readAskUserResumeAnswer({ approved: true })).toThrow(/matched neither/);
-    expect(() => readAskUserResumeAnswer(42)).toThrow(/matched neither/);
-    expect(() => readAskUserResumeAnswer(['a', 7])).toThrow(/matched neither/);
+    expect(() => readAskUserResumeAnswer({ approved: true })).toThrow(/matched neither/u);
+    expect(() => readAskUserResumeAnswer(42)).toThrow(/matched neither/u);
+    expect(() => readAskUserResumeAnswer(['a', 7])).toThrow(/matched neither/u);
   });
 });

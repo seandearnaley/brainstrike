@@ -52,7 +52,7 @@ export function isOpenAIStoredItemExpiredError(error: unknown): boolean {
     const message = value['message'];
     if (
       typeof message === 'string' &&
-      /(?:item|response).*\bexpired\b|item with id.*not found/i.test(message)
+      /(?:item|response).*\bexpired\b|item with id.*not found/iu.test(message)
     ) {
       return true;
     }

@@ -38,12 +38,12 @@ describe('makeThrowingDecoder', () => {
   it('reports only the first failing field, in declaration order', () => {
     const thrown = thrownBy(() => decodeRow({ history: [], task_id: 7 }));
 
-    expect((thrown as TypeError).message).toMatch(/^MCP task history must contain/);
-    expect((thrown as TypeError).message).not.toMatch(/taskId/);
+    expect((thrown as TypeError).message).toMatch(/^MCP task history must contain/u);
+    expect((thrown as TypeError).message).not.toMatch(/taskId/u);
   });
 
   it('uses the struct message for a value that is not an object', () => {
-    expect(() => decodeRow('row')).toThrow(/^MCP task row must be an object\.$/);
+    expect(() => decodeRow('row')).toThrow(/^MCP task row must be an object\.$/u);
   });
 
   it('ignores an unknown key by default, and rejects it, naming the key, when asked to', () => {

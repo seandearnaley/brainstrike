@@ -4,7 +4,13 @@ import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electro
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ManagedWorktreeAuthorizer } from '../../ipc-domains/workspace-recent-roots';
+import { registerIpcHandlers } from '../../ipc-handlers';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
+import {
+  capabilityHandler,
+  getRootsCatalog,
+  resetRootsCatalog,
+} from '../ipc-domains/file-system-ipc-test-harness';
 
 const DOCS = path.resolve('/users/test/docs');
 const MANAGED = path.resolve('/managed/app/bright-fox');
@@ -13,13 +19,6 @@ vi.mock('electron', async () => ({
   ...(await import('../ipc-domains/file-system-ipc-test-harness')).electronMock,
   app: { getPath: vi.fn(() => '/Users/test/Documents') },
 }));
-
-import { registerIpcHandlers } from '../../ipc-handlers';
-import {
-  capabilityHandler,
-  getRootsCatalog,
-  resetRootsCatalog,
-} from '../ipc-domains/file-system-ipc-test-harness';
 
 describe('ipc-handlers filesystem composition', () => {
   let fileSystem: ElectronFileSystemAdapter;

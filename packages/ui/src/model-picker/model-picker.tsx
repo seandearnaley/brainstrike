@@ -85,7 +85,7 @@ export function ModelPicker({
       <PopoverContent
         align="start"
         aria-describedby="model-picker-description"
-        className="pointer-events-auto flex max-h-(--radix-popover-content-available-height) w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border-border/70 bg-popover/98 p-0 shadow-black/10 shadow-xl"
+        className="border-border/70 bg-popover/98 pointer-events-auto flex max-h-(--radix-popover-content-available-height) w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl p-0 shadow-xl shadow-black/10"
         portal={false}
         sideOffset={6}
       >

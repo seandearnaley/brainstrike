@@ -112,7 +112,7 @@ describe('scanUserPersonas', () => {
     expect(result.personas.map((persona) => persona.id)).toEqual(['good']);
     const invalid = result.entries.find((entry) => entry.status === 'invalid');
     expect(invalid).toBeDefined();
-    expect(invalid?.status === 'invalid' && invalid.error).toMatch(/read/i);
+    expect(invalid?.status === 'invalid' && invalid.error).toMatch(/read/iu);
     expect(invalid?.fileName).toBe('bad.md');
   });
 
@@ -123,7 +123,7 @@ describe('scanUserPersonas', () => {
     const result = scanUserPersonas({ homeDir: HOME, roots: [ROOT_A] }, deps);
     expect(result.personas).toHaveLength(0);
     const invalid = result.entries.find((entry) => entry.status === 'invalid');
-    expect(invalid?.status === 'invalid' && invalid.error).toMatch(/built-in/i);
+    expect(invalid?.status === 'invalid' && invalid.error).toMatch(/built-in/iu);
   });
 
   it('ignores non-markdown files and subdirectories (flat scan)', () => {
@@ -214,7 +214,7 @@ describe('scanUserPersonas', () => {
     expect(result.entries).toHaveLength(2);
     for (const entry of result.entries) {
       expect(entry.status).toBe('invalid');
-      expect(entry.status === 'invalid' && entry.error).toMatch(/built-in/i);
+      expect(entry.status === 'invalid' && entry.error).toMatch(/built-in/iu);
     }
   });
 
@@ -303,6 +303,6 @@ describe('scanUserPersonas', () => {
     const result = scanUserPersonas({ homeDir: HOME, roots: [] }, deps);
     expect(result.personas).toHaveLength(0);
     const invalid = result.entries[0];
-    expect(invalid?.status === 'invalid' && invalid.error).toMatch(/read/i);
+    expect(invalid?.status === 'invalid' && invalid.error).toMatch(/read/iu);
   });
 });

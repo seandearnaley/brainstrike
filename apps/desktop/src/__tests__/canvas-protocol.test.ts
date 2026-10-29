@@ -3,16 +3,15 @@ import {
   renderCanvasFrameShellHtml,
 } from '@brainstrike/platform-utils';
 import { describe, expect, it, vi } from 'vitest';
-
-vi.mock('electron', () => ({
-  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
-}));
-
 import {
   CANVAS_PROTOCOL_SCHEME,
   CANVAS_SHELL_URL,
   createCanvasProtocolHandler,
 } from '../canvas-protocol';
+
+vi.mock('electron', () => ({
+  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
+}));
 
 /**
  * The brainstrike-canvas:// protocol serves EXACTLY ONE document: the static

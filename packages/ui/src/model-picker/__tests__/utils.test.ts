@@ -11,7 +11,7 @@ describe('getProviderColor', () => {
 
   it('returns hash color for unknown provider', () => {
     const color = getProviderColor('unknown-provider', 'light');
-    expect(color).toMatch(/^hsl\(\d+, \d+%+, \d+%\)$/);
+    expect(color).toMatch(/^hsl\(\d+, \d+%+, \d+%\)$/u);
   });
 });
 

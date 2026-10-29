@@ -24,7 +24,7 @@ function node(
   return {
     depth: 0,
     handle: {} as unknown as IFileNode['handle'],
-    name: path.split(/[/\\]/).pop() ?? path,
+    name: path.split(/[/\\]/u).pop() ?? path,
     path,
     type,
     ...(children ? { children } : {}),

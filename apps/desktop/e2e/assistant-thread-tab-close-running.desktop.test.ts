@@ -118,7 +118,7 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     expect(await readCommittedRunStatus(electron.getUserDataDir(), threadId)).toBe('completed');
     await expect(threadsPanel.getByTestId('thread-unseen-glyph')).toHaveCount(1);
 
-    await threadsPanel.getByRole('button', { name: / has unseen activity/ }).click();
+    await threadsPanel.getByRole('button', { name: / has unseen activity/u }).click();
     await expect(strip.getByRole('tab')).toHaveCount(1);
     await expect(panel).toBeVisible();
     await expect(panel.getByText(FINAL_TEXT, { exact: true })).toBeVisible();

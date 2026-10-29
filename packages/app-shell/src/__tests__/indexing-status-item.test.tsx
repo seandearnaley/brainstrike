@@ -425,7 +425,7 @@ describe('IndexingStatusItem', () => {
     expect(within(popover).getByText('7 done · 4 pending · 1 failed')).toBeInTheDocument();
     expect(within(popover).getByText('Manual · 4/10')).toBeInTheDocument();
     expect(within(popover).getByText('Embedding chunk')).toBeInTheDocument();
-    expect(within(popover).getByTitle(/a-very-long-current-embedding/)).toBeInTheDocument();
+    expect(within(popover).getByTitle(/a-very-long-current-embedding/u)).toBeInTheDocument();
     expect(within(popover).getByText('Policy: Full root')).toBeInTheDocument();
     expect(within(popover).getAllByRole('button', { name: 'Pause workspace index' })).toHaveLength(
       1
@@ -672,7 +672,7 @@ describe('IndexingStatusItem', () => {
     const popover = await screen.findByTestId('indexing-status-popover');
     expect(within(popover).getByText('Policy: —')).toBeInTheDocument();
     expect(
-      within(popover).queryByRole('button', { name: /workspace index$/ })
+      within(popover).queryByRole('button', { name: /workspace index$/u })
     ).not.toBeInTheDocument();
   });
 

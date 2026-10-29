@@ -12,6 +12,7 @@ export function compilePatterns(patterns: string[], useRegex: boolean): (RegExp 
     try {
       // dot:true keeps this matcher in lockstep with filter-utils and
       // hooks/filter-engine — view filters must see dotfiles.
+      // biome-ignore lint/style/useUnicodeRegex: a user-written pattern keeps the non-unicode syntax people type, such as `\-`.
       compiled.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern, { dot: true }));
     } catch (error) {
       throw new InvalidProjectTreePatternError(

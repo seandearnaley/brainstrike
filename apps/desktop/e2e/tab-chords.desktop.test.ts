@@ -83,7 +83,7 @@ test.describe('Tab keyboard chords (desktop)', () => {
     expect(menu.length).toBeGreaterThan(0);
     expect(
       menu.filter((item) =>
-        /^(CmdOrCtrl|CommandOrControl|Cmd|Ctrl)\+K$/i.test(item.accelerator ?? '')
+        /^(CmdOrCtrl|CommandOrControl|Cmd|Ctrl)\+K$/iu.test(item.accelerator ?? '')
       )
     ).toHaveLength(1);
 
@@ -95,7 +95,7 @@ test.describe('Tab keyboard chords (desktop)', () => {
     }
     expect(
       menu.filter((item) =>
-        /^(CmdOrCtrl|CommandOrControl|Cmd|Ctrl)\+W$/i.test(item.accelerator ?? '')
+        /^(CmdOrCtrl|CommandOrControl|Cmd|Ctrl)\+W$/iu.test(item.accelerator ?? '')
       )
     ).toEqual([]);
 

@@ -395,7 +395,7 @@ export function validateMcpElicitationRequest(
 
 function isSensitiveFormIdentifier(value: string): boolean {
   const normalized = value
-    .replaceAll(/([a-z\d])([A-Z])/g, '$1 $2')
+    .replaceAll(/([a-z\d])([A-Z])/gu, '$1 $2')
     .toLowerCase()
     .replaceAll(/[^a-z\d]+/gu, ' ')
     .trim();

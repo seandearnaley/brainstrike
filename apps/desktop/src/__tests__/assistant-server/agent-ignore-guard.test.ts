@@ -140,7 +140,7 @@ describe('createAgentIgnoreGuard — failure modes', () => {
     });
     try {
       const guard = createAgentIgnoreGuard(root);
-      await expect(guard.ignoresFile('secrets/a.ts')).rejects.toThrow(/agent ignore file/i);
+      await expect(guard.ignoresFile('secrets/a.ts')).rejects.toThrow(/agent ignore file/iu);
     } finally {
       denied.mockRestore();
     }
@@ -152,7 +152,7 @@ describe('assertNotAgentIgnored', () => {
     const root = await makeWorkspace({ '.llmignore': 'secrets/\n', 'secrets/a.ts': '' });
     await expect(
       assertNotAgentIgnored({ canonicalRootPath: root, relativePath: '/secrets/a.ts' })
-    ).rejects.toThrow(/\.llmignore/);
+    ).rejects.toThrow(/\.llmignore/u);
   });
 
   it('resolves for a permitted path', async () => {
@@ -166,7 +166,7 @@ describe('assertNotAgentIgnored', () => {
     const root = await makeWorkspace({ '.env.example': '', '.env.local': 'API_KEY=secret\n' });
     await expect(
       assertNotAgentIgnored({ canonicalRootPath: root, relativePath: '/.env.local' })
-    ).rejects.toThrow(/credential file/);
+    ).rejects.toThrow(/credential file/u);
     await expect(
       assertNotAgentIgnored({ canonicalRootPath: root, relativePath: '.env.example' })
     ).resolves.toBeUndefined();
@@ -181,6 +181,6 @@ describe('assertNotAgentIgnored', () => {
         canonicalRootPath: root,
         relativePath: 'docs/env.md',
       })
-    ).rejects.toThrow(/credential file/);
+    ).rejects.toThrow(/credential file/u);
   });
 });

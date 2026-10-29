@@ -33,7 +33,7 @@ test('Clear Database removes native files and a waiting host run while retaining
     });
     await enableAssistantCatalogModel(page, 'openrouter::anthropic/claude-sonnet-4.6');
     await new HomePage(page).openSettings();
-    await new SettingsPage(page).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(page).openCategory(/Permissions/iu, 'permissions');
     await page.getByRole('combobox', { exact: true, name: 'Read permission' }).selectOption('ask');
     await ensureAssistantShellVisible(page);
     const assistant = page.getByRole('region', { exact: true, name: 'Assistant' });
@@ -49,7 +49,7 @@ test('Clear Database removes native files and a waiting host run while retaining
       before.some((thread) => thread.rows.some((row) => row.event.type === 'interaction.requested'))
     ).toBe(true);
     await new HomePage(page).openSettings();
-    await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+    await new SettingsPage(page).openCategory(/AI Tools/iu, 'ai-tools');
     await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
     const appsToggle = page.getByTestId('mcp-extension-toggle-apps');
     await expect(appsToggle).toHaveAttribute('data-state', 'checked');
@@ -107,7 +107,7 @@ test('Clear Database removes native files and a waiting host run while retaining
         false
       );
       await new HomePage(current).openSettings();
-      await new SettingsPage(current).openCategory(/AI Tools/i, 'ai-tools');
+      await new SettingsPage(current).openCategory(/AI Tools/iu, 'ai-tools');
       await current.getByRole('tab', { exact: true, name: 'Tools' }).click();
       await expect(current.getByTestId('mcp-extension-toggle-apps')).toBeEnabled();
       await expect(current.getByTestId('mcp-extension-toggle-apps')).toHaveAttribute(

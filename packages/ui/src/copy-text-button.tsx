@@ -40,9 +40,9 @@ export function CopyTextButton({
 
   let icon: React.ReactNode;
   if (isFailed) {
-    icon = <X aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />;
+    icon = <X aria-hidden="true" className="text-destructive h-3.5 w-3.5" />;
   } else if (isCopied) {
-    icon = <Check aria-hidden="true" className="h-3.5 w-3.5 text-success" />;
+    icon = <Check aria-hidden="true" className="text-success h-3.5 w-3.5" />;
   } else {
     icon = <Copy aria-hidden="true" className="h-3.5 w-3.5" />;
   }

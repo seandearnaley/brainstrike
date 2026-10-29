@@ -46,7 +46,7 @@ async function refusedUrl(): Promise<string> {
 async function configureServers(page: Page, reachable: string, down: string): Promise<void> {
   await new HomePage(page).openSettings();
   const settings = new SettingsPage(page);
-  await settings.openCategory(/AI Tools/i, 'ai-tools');
+  await settings.openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   const editor = page.getByTestId('mcp-config-editor');
   await expect(editor).toBeVisible();
@@ -61,7 +61,7 @@ async function configureServers(page: Page, reachable: string, down: string): Pr
   await page.getByTestId('mcp-config-save').click();
   await expect(page.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
   await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
-  await expect(page.getByTestId(`mcp-server-row-${REACHABLE}`)).toContainText(/Connected/i, {
+  await expect(page.getByTestId(`mcp-server-row-${REACHABLE}`)).toContainText(/Connected/iu, {
     timeout: 60_000,
   });
   await page.keyboard.press('Escape');

@@ -351,9 +351,11 @@ describe('FileExplorerPanel', () => {
 
     const toolbar = await screen.findByTestId('toolbar');
     expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
-    expect(within(toolbar).getByRole('button', { name: /select all/i })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: /select all/iu })).toBeInTheDocument();
     expect(within(toolbar).getByTestId('selection-count')).toBeInTheDocument();
-    expect(within(toolbar).getByRole('button', { name: /Selection settings/ })).toBeInTheDocument();
+    expect(
+      within(toolbar).getByRole('button', { name: /Selection settings/u })
+    ).toBeInTheDocument();
     expect(within(toolbar).getByTestId('selection-status-controls')).toHaveClass(
       'gap-0.5',
       '@[128px]:gap-1.5'
@@ -1307,7 +1309,7 @@ describe('FileExplorerPanel', () => {
       expect(screen.getByTestId('inline-scanning-count')).toHaveTextContent('3/9');
 
       // ...and the cancel X must stop the forest run, not the focused provider.
-      await user.click(screen.getByRole('button', { name: /cancel operation/i }));
+      await user.click(screen.getByRole('button', { name: /cancel operation/iu }));
       expect(forestActions.cancelExpandAll).toHaveBeenCalled();
     });
 
@@ -1684,13 +1686,13 @@ describe('FileExplorerPanel', () => {
     it('renders View Filters toggle button when root directory is selected', async () => {
       renderWithProviders(<FileExplorerPanel />);
 
-      expect(await screen.findByRole('button', { name: /view filters/i })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: /view filters/iu })).toBeInTheDocument();
     });
 
     it('hosts the view-filters toggle on the toolbar next to the bulk selection control', async () => {
       renderWithProviders(<FileExplorerPanel />);
 
-      const toggle = await screen.findByRole('button', { name: /view filters/i });
+      const toggle = await screen.findByRole('button', { name: /view filters/iu });
       expect(screen.getByTestId('file-explorer-toolbar')).toContainElement(toggle);
       expect(toggle).toHaveAttribute('aria-controls', 'view-filters-content');
       expect(toggle).toHaveClass('size-6', '@[236px]/explorer-toolbar:size-7');
@@ -1715,8 +1717,8 @@ describe('FileExplorerPanel', () => {
     it('keeps the quick filter row inside the toggled view-filters block', async () => {
       renderWithProviders(<FileExplorerPanel />);
 
-      await screen.findByRole('button', { name: /view filters/i });
-      const collapsible = document.getElementById('view-filters-content');
+      await screen.findByRole('button', { name: /view filters/iu });
+      const collapsible = document.querySelector('#view-filters-content');
       expect(collapsible).not.toBeNull();
       expect(collapsible).toContainElement(screen.getByTestId('file-filter-input'));
     });
@@ -1725,7 +1727,7 @@ describe('FileExplorerPanel', () => {
       renderWithProviders(<FileExplorerPanel />);
 
       const toolbar = await screen.findByTestId('file-explorer-toolbar');
-      const collapsible = document.getElementById('view-filters-content');
+      const collapsible = document.querySelector('#view-filters-content');
       // Refresh stays on the toolbar (its disabled/spin state pairs with the
       // inline scanning indicator), outside the collapsible filter block.
       const refresh = screen.getByTestId('refresh-button-small');
@@ -1796,7 +1798,7 @@ describe('FileExplorerPanel', () => {
     it('shows no active-filter indicator while the filter block is expanded', async () => {
       renderWithProviders(<FileExplorerPanel />);
 
-      await screen.findByRole('button', { name: /view filters/i });
+      await screen.findByRole('button', { name: /view filters/iu });
       expect(screen.queryByTestId('view-filters-active-indicator')).not.toBeInTheDocument();
     });
 
@@ -1808,7 +1810,7 @@ describe('FileExplorerPanel', () => {
 
       renderWithProviders(<FileExplorerPanel />);
 
-      expect(screen.queryByRole('button', { name: /view filters/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /view filters/iu })).not.toBeInTheDocument();
     });
 
     it('calls setFiltersExpanded when toggle button is clicked', async () => {
@@ -1857,7 +1859,7 @@ describe('FileExplorerPanel', () => {
       const user = userEvent.setup();
       renderWithProviders(<FileExplorerPanel />);
 
-      await user.click(screen.getByRole('button', { name: /view filters/i }));
+      await user.click(screen.getByRole('button', { name: /view filters/iu }));
 
       expect(setFiltersExpandedMock).toHaveBeenCalledWith(false);
     });
@@ -1907,7 +1909,7 @@ describe('FileExplorerPanel', () => {
       renderWithProviders(<FileExplorerPanel />);
 
       // Content should be visible (not hidden with max-h-0)
-      const collapsibleContent = screen.getByRole('button', { name: /view filters/i });
+      const collapsibleContent = screen.getByRole('button', { name: /view filters/iu });
       expect(collapsibleContent).toHaveAttribute('aria-expanded', 'true');
     });
 
@@ -1956,7 +1958,7 @@ describe('FileExplorerPanel', () => {
       renderWithProviders(<FileExplorerPanel />);
 
       // Toggle button should indicate collapsed state
-      const toggleButton = screen.getByRole('button', { name: /view filters/i });
+      const toggleButton = screen.getByRole('button', { name: /view filters/iu });
       expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
     });
 

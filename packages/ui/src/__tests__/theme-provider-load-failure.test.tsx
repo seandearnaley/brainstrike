@@ -84,7 +84,7 @@ describe('ThemeProvider storage failures (BST-1731)', () => {
     expect(
       screen.getByRole('button', { name: 'Continue with the light theme' })
     ).toBeInTheDocument();
-    expect(screen.queryByText(/App theme:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/App theme:/u)).not.toBeInTheDocument();
 
     expect(logRecords).toHaveLength(1);
     expect(logRecords[0]?.args).toEqual([

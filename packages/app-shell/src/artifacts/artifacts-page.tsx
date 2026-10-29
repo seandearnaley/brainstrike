@@ -123,7 +123,7 @@ function ArtifactsGallery({
   } else if (list.status === 'error') {
     body = (
       <GalleryNotice>
-        <p className="max-w-md text-destructive text-sm" data-testid="artifacts-error" role="alert">
+        <p className="text-destructive max-w-md text-sm" data-testid="artifacts-error" role="alert">
           Artifacts could not be listed: {list.error}
         </p>
       </GalleryNotice>
@@ -131,9 +131,9 @@ function ArtifactsGallery({
   } else if (list.artifacts.length === 0) {
     body = (
       <GalleryNotice>
-        <Shapes aria-hidden="true" className="size-10 text-muted-foreground/60" />
-        <p className="font-medium text-foreground text-sm">No artifacts yet</p>
-        <p className="max-w-sm text-muted-foreground text-sm">
+        <Shapes aria-hidden="true" className="text-muted-foreground/60 size-10" />
+        <p className="text-foreground text-sm font-medium">No artifacts yet</p>
+        <p className="text-muted-foreground max-w-sm text-sm">
           When the assistant makes a canvas in any thread, it is saved here so you can find it
           again.
         </p>
@@ -173,10 +173,10 @@ function ArtifactsGallery({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background" data-testid="artifacts-page">
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-border border-b px-6 py-4">
+    <div className="bg-background flex h-full min-h-0 flex-col" data-testid="artifacts-page">
+      <header className="border-border flex shrink-0 flex-wrap items-center gap-3 border-b px-6 py-4">
         <div className="min-w-0 flex-1">
-          <h1 className="font-semibold text-base text-foreground">Artifacts</h1>
+          <h1 className="text-foreground text-base font-semibold">Artifacts</h1>
           <p className="text-muted-foreground text-xs">
             {list.status === 'ready'
               ? `${list.artifacts.length} ${list.artifacts.length === 1 ? 'canvas' : 'canvases'} from your threads`
@@ -186,7 +186,7 @@ function ArtifactsGallery({
         <div className="relative w-64 max-w-full">
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2"
           />
           <Input
             aria-label="Search artifacts"
