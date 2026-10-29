@@ -112,4 +112,32 @@ test.describe('AI Tools settings (desktop)', { tag: '@smoke' }, () => {
       'true'
     );
   });
+
+  test('the page scroll reaches the last tool and the window never scrolls', async ({
+    window,
+    homePage,
+  }) => {
+    const settingsPage = new SettingsPage(window);
+    await openToolsSettings(homePage, settingsPage);
+    const rows = window.locator('[data-testid^="tool-row-"]');
+    await expect(rows.first()).toBeVisible();
+
+    // Scroll the settings page itself to its end, as a wheel would. The tool
+    // list must flow with the page: a nested capped scroller would leave the
+    // last tools (and any MCP server's group below them) out of reach.
+    await window.getByTestId('settings-category-ai-tools').evaluate((category) => {
+      const page = category.parentElement;
+      if (page) {
+        page.scrollTop = page.scrollHeight;
+      }
+    });
+    await expect(rows.last()).toBeInViewport();
+
+    // Nothing inside the shell may stretch the document past the window, or
+    // the whole app scrolls up over blank space below the status bar.
+    const documentOverflow = await window.evaluate(
+      () => document.documentElement.scrollHeight - window.innerHeight
+    );
+    expect(documentOverflow).toBe(0);
+  });
 });
