@@ -42,13 +42,13 @@ catalog:
   # instance/container roles) behind Bedrock's `credentialProvider` seam.
   # Node-only — imported ONLY beside the provider factory, never from the
   # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
-  '@aws-sdk/credential-providers': 3.1152.0
-  '@assistant-ui/react': '~0.15.29'
-  '@assistant-ui/react-streamdown': 0.3.20
+  '@aws-sdk/credential-providers': 3.1159.0
+  '@assistant-ui/react': '~0.15.32'
+  '@assistant-ui/react-streamdown': 0.3.21
   # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
   # implementation (eslint/prettier/lint-staged/globby all use it); already
   # present transitively, promoted to a direct dep so the walk can rely on it.
-  '@babel/core': ^8.0.7
+  '@babel/core': ^8.0.9
   '@codemirror/state': ^6.7.6
   # ADR-0004: the Effect language service on TypeScript 7. Run in dedicated
   # `effect-tsgo diagnostics` mode from each Effect package's type-check, never
@@ -77,10 +77,10 @@ catalog:
   # `core` at an EXACT version, so a split bump resolves two copies of the
   # protocol schema. `node` has no 2.3.x release; 2.1.1 is its head and
   # peer-depends on `server` at ^2.3.0, so it moves with them.
-  '@modelcontextprotocol/client': 2.3.1
-  '@modelcontextprotocol/core': 2.3.1
-  '@modelcontextprotocol/node': 2.1.1
-  '@modelcontextprotocol/server': 2.3.1
+  '@modelcontextprotocol/client': 2.4.0
+  '@modelcontextprotocol/core': 2.4.0
+  '@modelcontextprotocol/node': 2.1.2
+  '@modelcontextprotocol/server': 2.4.0
   '@openrouter/ai-sdk-provider': 3.1.0
   # BST-2067: OTLP trace export for host runs (packages/agent-host/src/telemetry).
   # Node-only. `@ai-sdk/otel` depends on `@opentelemetry/api` at 1.9.1 exactly and
@@ -104,7 +104,7 @@ catalog:
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
   '@tanstack/react-table': ^9.3.1
-  '@tanstack/react-virtual': 3.14.20
+  '@tanstack/react-virtual': 3.14.23
   '@testing-library/dom': ^10.4.2
   '@testing-library/jest-dom': ^7.0.1
   '@testing-library/react': ^16.3.3
@@ -123,7 +123,7 @@ catalog:
   '@vitejs/plugin-react': ^6.1.2
   '@vitest/browser-playwright': ^5.0.5
   '@vitest/coverage-v8': ^5.0.5
-  assistant-stream: 0.3.52
+  assistant-stream: 0.3.55
   # BST-1920: the SQLite state/index engine. Exact pin. It ships a PREBUILT
   # `prebuilds/<platform>-<arch>.node` for every release target and must never
   # be compiled: `allowBuilds` DENIES it (see below) and electron-builder runs
@@ -146,9 +146,9 @@ catalog:
   esbuild: ^0.28.2
   eslint-plugin-react-refresh: ^0.5.7
   happy-dom: ^21.0.4
-  ignore: 7.0.12
+  ignore: 7.0.14
   jsdom: 30.1.3
-  lucide-react: ^1.58.0
+  lucide-react: ^1.64.0
   minimatch: ^10.2.6
   node-addon-api: 8.9.2
   node-gyp: 13.1.0
@@ -162,8 +162,8 @@ catalog:
   pino: ^10.4.0
   playwright: 1.64.1
   react-hotkeys-hook: ^5.3.3
-  react-resizable-panels: ^4.14.5
-  react-router-dom: ^7.18.4
+  react-resizable-panels: ^4.15.1
+  react-router-dom: ^7.18.5
   react-shiki: ^0.11.2
   remark-gfm: ^4.0.1
   shiki: ^4.5.0
@@ -172,32 +172,32 @@ catalog:
   sqlite-vec: 0.1.9
   # BST-2031: shared with react-streamdown; the direct dependency lets Tailwind
   # @source scan the exact renderer version for its utility classes.
-  streamdown: 2.7.0
+  streamdown: 2.7.1
   tailwindcss: ^4.3.3
   tiktoken: ^1.0.22
   tw-animate-css: ^1.4.0
   typescript: 'npm:@typescript/typescript6@6.0.2'
   # 8.3.3 fixes three dev-server advisories (GHSA-rq7h-c2jc-7f22,
-  # GHSA-vfpm-58rq-9qcg, GHSA-9jrq-w75r-8gcw); 8.3.4 is the current patch.
-  vite: ^8.3.4
+  # GHSA-vfpm-58rq-9qcg, GHSA-9jrq-w75r-8gcw).
+  vite: ^8.3.5
   vite-plugin-static-copy: ^4.1.1
   vite-plugin-wasm: ^3.6.0
   vitest: ^5.0.5
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.1
   zod: ^4.6.7
-  zustand: ^5.0.15
+  zustand: ^5.0.16
   '@codemirror/language': ^6.13.1
-  '@codemirror/view': ^6.43.14
+  '@codemirror/view': ^6.43.15
   '@ai-sdk/anthropic': 4.0.81
-  '@ai-sdk/google': ^4.0.98
+  '@ai-sdk/google': 4.0.98
   '@ai-sdk/openai': 4.0.96
   '@atlaskit/pragmatic-drag-and-drop': ^4.0.0
   '@atlaskit/pragmatic-drag-and-drop-hitbox': ^3.0.0
   '@mastra/core': 1.78.0
   '@mastra/memory': 1.38.0
-  '@modelcontextprotocol/ext-apps': 2.0.3
-  '@napi-rs/keyring': 2.1.1
+  '@modelcontextprotocol/ext-apps': 2.0.4
+  '@napi-rs/keyring': 2.1.2
   cmdk: ^1.1.1
   fastest-levenshtein: ^1.0.16
   jsonc-parser: ^3.3.1
@@ -210,7 +210,7 @@ overrides:
   # Tailwind scans the direct Streamdown install; its adapter must use the same
   # catalog release on future resolutions too. Retarget on adapter upgrades;
   # retain while packages/assistant-ui/styles.css scans that direct dependency.
-  '@assistant-ui/react-streamdown@0.3.20>streamdown': 'catalog:'
+  '@assistant-ui/react-streamdown@0.3.21>streamdown': 'catalog:'
   # BST-874: compatible patches for all installed brace-expansion majors.
   # Remove when every minimatch owner resolves these advisory floors unaided.
   'brace-expansion@1.0.0 - 1.1.20': 1.1.21
@@ -240,8 +240,8 @@ overrides:
   # parent ranges with real browser/CLI rendering and security regressions.
   # Retire each exception when the owner admits the matched patched release.
   # https://github.com/KaTeX/KaTeX/releases/tag/v0.19.0
-  'rehype-katex@7.0.1>katex': 0.19.0
-  'micromark-extension-math@3.1.0>katex': 0.19.0
+  'rehype-katex@7.0.1>katex': 0.19.1
+  'micromark-extension-math@3.1.0>katex': 0.19.1
   # Retire sprintf-js (GHSA-hp3w-g68c-fv3c) through its actual owners.
   # Migrate only YAML 3's CLI to argparse 3's documented API (patch below);
   # retain safeLoad/safeDump for Mastra and nyc without sprintf-js or v1 aliases.
@@ -258,6 +258,11 @@ overrides:
   # BST-886: retain the tar 7.x safety floor, including container 19.1.2.
   # fun 1.3.6 now pins 7.5.22 unaided; its old exception is retired.
   'tar@': 7.5.22
+  # GHSA-rmxm-3fg6-px4f: @hono/node-server's serveStatic decodes the path twice
+  # before 2.1.3, and the 1.x line has no fix. MCP node 2.1.2 already admits
+  # `^1.19.9 || ^2.1.3`, so this picks the patched major inside the owner's own
+  # range. Retire when the owner drops the 1.x alternative.
+  '@modelcontextprotocol/node@2.1.2>@hono/node-server': ^2.1.5
   # BST-881: converge Express/body-parser edges on a patched qs. 6.16.1 also
   # fixes the comma-stringify TypeError in 6.16.0 (GHSA-6pq8-jhm2-2vcw).
   'qs@': 6.16.1
@@ -296,20 +301,11 @@ patchedDependencies:
   # which Memory's internal observer/reflector streams now pass through. The 1.71
   # SemanticRecall and BackgroundTaskManager hunks are retired: nothing reaches them.
   '@mastra/core@1.78.0': patches/@mastra__core@1.78.0.patch
-  '@assistant-ui/core@0.3.29': patches/@assistant-ui__core@0.3.29.patch
-  app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
+  '@assistant-ui/core@0.3.32': patches/@assistant-ui__core@0.3.32.patch
   vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
   # CLI-only vendor API migration paired with the argparse 3 override above.
   # Retire both when the legacy YAML owner publishes this migration.
   js-yaml@3.15.2: patches/js-yaml@3.15.2.patch
-  # BST-2169: 2.7.0's caret hook flips a mount useState/useEffect flag, so every
-  # <Streamdown> mount renders twice (vercel/streamdown#673) and a text part's
-  # first token costs two message commits. The patch is upstream's merged fix,
-  # vercel/streamdown#677 (useSyncExternalStore), unreleased as of 2026-10-18.
-  # Paired test: packages/assistant-ui/src/__tests__/streamdown-mount-commit.browser.test.tsx.
-  # Drop it at the first streamdown release containing #677, and bump
-  # @assistant-ui/react-streamdown (and its override) to match.
-  streamdown@2.7.0: patches/streamdown@2.7.0.patch
   # Playwright 1.64 launches Electron through cmd.exe on every Windows path, so it holds the
   # shell, not Main, and force-closes with `taskkill /T` from the shell's pid. /T walks parent
   # pids, which Windows never checks against creation time, so a reused pid takes in processes
