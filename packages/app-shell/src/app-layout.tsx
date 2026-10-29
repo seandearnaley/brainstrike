@@ -62,7 +62,12 @@ export function AppLayout({
                   <ThemeToggle />
                   {onOpenSettings ? <AccountMenu onOpenSettings={onOpenSettings} /> : null}
                 </NavigationSidebar>
-                <main className="h-full flex-1 overflow-hidden">{children}</main>
+                {/* `relative overflow-clip` makes main the containing block, and the clip,
+                    for every absolutely positioned descendant without a closer
+                    positioned ancestor (an `sr-only` label in a long list).
+                    Otherwise those resolve against the window and stretch the
+                    document, which then scrolls past the status bar. */}
+                <main className="relative h-full flex-1 overflow-clip">{children}</main>
               </div>
               {/* Status bar at bottom */}
               <StatusBar

@@ -213,7 +213,6 @@ vi.mock('@brainstrike/ui', async () => {
     },
     CardContent: ({ children, ...rest }: CardContentMockProps) => <div {...rest}>{children}</div>,
     Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
-    ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     Tabs: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="tabs-container">{children}</div>
     ),
