@@ -8,14 +8,18 @@ import { app, safeStorage } from 'electron';
  * without a prompt; Windows wraps the key with DPAPI. Both read values the
  * synchronous API sealed.
  *
- * Linux: the Secret Service provider seals when it answers, and `basic_text`
- * (no recognised store) refuses here. The async encryptor also registers
- * Chromium's fixed-key PosixKeyProvider as a fallback, so a Secret Service that
- * fails at runtime seals with a key that protects nothing, and Electron exposes
- * no way to tell which provider sealed. A later open reports
- * `shouldReEncrypt` once the Secret Service is back; nothing reseals yet.
+ * Linux: `basic_text` (no recognised store) refuses. The async encryptor also
+ * registers Chromium's fixed-key PosixKeyProvider as a fallback, so a Secret
+ * Service that fails at runtime would seal with a key that protects nothing.
+ * Chromium tags each ciphertext with its provider: on Linux `v10` is that fixed
+ * key (the Secret Service seals `v11`, the portal `v12`), so a `v10` seal is
+ * refused rather than saved. Electron offers no provider choice beyond this.
  */
-export function createSafeStorageCredentialCipher(): CredentialCipher {
+const LINUX_FIXED_KEY_TAG = 'v10';
+
+export function createSafeStorageCredentialCipher(
+  platform: NodeJS.Platform = process.platform
+): CredentialCipher {
   const available = async (): Promise<void> => {
     await app.whenReady();
     if (
@@ -33,7 +37,14 @@ export function createSafeStorageCredentialCipher(): CredentialCipher {
     },
     async seal(plaintext) {
       await available();
-      return (await safeStorage.encryptStringAsync(plaintext)).toString('base64');
+      const sealed = await safeStorage.encryptStringAsync(plaintext);
+      if (
+        platform === 'linux' &&
+        sealed.subarray(0, 3).toString('latin1') === LINUX_FIXED_KEY_TAG
+      ) {
+        throw new Error('The OS keyring is unavailable, so the credential was not saved.');
+      }
+      return sealed.toString('base64');
     },
   };
 }
