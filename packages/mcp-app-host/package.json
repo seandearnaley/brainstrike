@@ -5,7 +5,7 @@
   "dependencies": {
     "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/core": "catalog:",
-    "@modelcontextprotocol/ext-apps": "2.0.3",
+    "@modelcontextprotocol/ext-apps": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

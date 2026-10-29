@@ -189,6 +189,23 @@ catalog:
   zustand: ^5.0.15
   '@codemirror/language': ^6.13.1
   '@codemirror/view': ^6.43.14
+  '@ai-sdk/anthropic': 4.0.81
+  '@ai-sdk/google': ^4.0.98
+  '@ai-sdk/openai': 4.0.96
+  '@atlaskit/pragmatic-drag-and-drop': ^4.0.0
+  '@atlaskit/pragmatic-drag-and-drop-hitbox': ^3.0.0
+  '@mastra/core': 1.78.0
+  '@mastra/memory': 1.38.0
+  '@modelcontextprotocol/ext-apps': 2.0.3
+  '@napi-rs/keyring': 2.1.1
+  cmdk: ^1.1.1
+  fastest-levenshtein: ^1.0.16
+  jsonc-parser: ^3.3.1
+  react-markdown: ^10.1.0
+  strip-ansi: 7.2.0
+  tree-kill: 1.2.2
+  tsx: ^4.23.15
+  web-tree-sitter: 0.27.1
 overrides:
   # Tailwind scans the direct Streamdown install; its adapter must use the same
   # catalog release on future resolutions too. Retarget on adapter upgrades;
