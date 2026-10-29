@@ -98,7 +98,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     isSignedBy,
     platform: process.platform,
     resolveElectronExecutable: () => require('electron'),
-    signApp: async (options) => (await import('@electron/osx-sign')).signAsync(options),
+    signApp: async (options) => (await import('@electron/osx-sign')).sign(options),
   }).then(
     (status) => {
       if (status === 'signed' || status === 'already-signed') {

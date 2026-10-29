@@ -55,9 +55,9 @@ catalog:
   # `effect-tsgo patch`: patch rewrites the shared `tsc`, and the `typescript`
   # entry below is TypeScript 6, which this tool does not support. That is why
   # the second type-check stands; see docs/agents/effect-boundary.md.
-  # Exact pin: its supported TypeScript list moves with every release (0.52.0
-  # supports 7.0.2 and 7.1.0-dev, matching the `@typescript/native` alias).
-  "@effect/tsgo": 0.53.3
+  # Exact pin: its supported TypeScript list moves with every release (0.63.0
+  # supports 7.0.2, 7.1.0-beta and 7.1.0-dev, matching the `@typescript/native` alias).
+  "@effect/tsgo": 0.63.0
   # BST-1939: the native grep trigram planner parses the JS regex AST. Already
   # resolved through eslint; promoted to a direct dependency of @brainstrike/utils.
   "@eslint-community/regexpp": 4.12.2
