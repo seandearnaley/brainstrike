@@ -136,7 +136,7 @@ test.describe('AI Tools settings (desktop)', { tag: '@smoke' }, () => {
     // Nothing inside the shell may stretch the document past the window, or
     // the whole app scrolls up over blank space below the status bar.
     const documentOverflow = await window.evaluate(
-      () => document.documentElement.scrollHeight - window.innerHeight
+      () => document.documentElement.scrollHeight - globalThis.innerHeight
     );
     expect(documentOverflow).toBe(0);
   });
