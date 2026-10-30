@@ -125,6 +125,30 @@ jobs:
       - name: Provision Electron binary
         uses: ./.github/actions/provision-electron
 
+      # BST-2309: remove once the Electron 45 launch SIGTRAP is diagnosed.
+      # Release Electron traps with no message, and Chromium's stack dumper does
+      # not catch SIGTRAP, so only a core can name the failed CHECK. The kernel
+      # pipes every crashing process's core to this handler. It keeps the first
+      # three cores of this job's Electron ending on SIGTRAP, gzipped, and drops
+      # every other core. A Main core is about 1.9 GB: about 250 MB of data, plus
+      # address-space reservations that the pipe sends as zeros.
+      - name: Keep Electron SIGTRAP cores (BST-2309)
+        run: |
+          set -euo pipefail
+          cores="$RUNNER_TEMP/cores"
+          mkdir -p "$cores"
+          handler="$RUNNER_TEMP/keep-electron-sigtrap-core.sh"
+          cat > "$handler" <<EOF
+          #!/bin/sh
+          # core_pattern pipe: \$1 signal, \$2 executable path with / as !, \$3 pid.
+          [ "\$1" = 5 ] || exit 0
+          case "\$2" in *'!electron!dist!electron') ;; *) exit 0 ;; esac
+          [ "\$(ls "$cores" | wc -l)" -lt 3 ] || exit 0
+          exec gzip -1 > "$cores/core.\$3.gz"
+          EOF
+          chmod +x "$handler"
+          sudo sysctl -q -w kernel.core_pattern="|$handler %s %E %p"
+
       # dbus-run-session provides an ephemeral D-Bus session bus so
       # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
       # Failed to connect to the bus` for every process. dbus-run-session
@@ -171,6 +195,17 @@ jobs:
           path: ${{ runner.temp }}/xvfb.log
           retention-days: 1
           if-no-files-found: warn
+
+      # BST-2309: remove with the step that keeps the cores.
+      - name: Upload Electron SIGTRAP cores
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-full-regression-shard-${{ matrix.shard }}-cores
+          path: ${{ runner.temp }}/cores/
+          retention-days: 1
+          if-no-files-found: ignore
+          compression-level: 0
 
   # The `Desktop Full Regression` check the ruleset will require (it names this job's
   # `name`, so keep it exact). Fan-in over the shard matrix, like `unit` over
