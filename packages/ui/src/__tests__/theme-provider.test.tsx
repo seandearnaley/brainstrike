@@ -284,6 +284,61 @@ describe('ThemeProvider', () => {
     expect(mockClassList.add).not.toHaveBeenCalled();
   });
 
+  it('restores the saved fonts and code theme from keys beside the mode key', async () => {
+    vi.mocked(mockStorageAdapter.getItem).mockImplementation((key) =>
+      Promise.resolve(
+        (
+          {
+            'ui-theme-code-font': 'jetbrains-mono',
+            'ui-theme-code-theme': 'one',
+            'ui-theme-font': 'inter',
+          } as const
+        )[key] ?? null
+      )
+    );
+    const { result } = renderHook(() => useTheme(), { wrapper });
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+
+    const root = document.documentElement;
+    expect(result.current.font).toBe('inter');
+    expect(result.current.codeFont).toBe('jetbrains-mono');
+    expect(result.current.codeTheme).toBe('one');
+    expect(root.style.getPropertyValue('--font-sans')).toContain('"Inter Variable"');
+    expect(root.style.getPropertyValue('--font-mono')).toContain('"JetBrains Mono Variable"');
+    expect(root.dataset['codeTheme']).toBe('one');
+  });
+
+  it('applies and saves each font and code theme choice under its own key', async () => {
+    const { result } = renderHook(() => useTheme(), { wrapper });
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+    vi.clearAllMocks();
+
+    act(() => {
+      result.current.setFont('system');
+      result.current.setCodeFont('fira-code');
+      result.current.setCodeTheme('solarized');
+    });
+
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue('--font-sans')).toMatch(/^system-ui/u);
+    expect(root.style.getPropertyValue('--font-mono')).toContain('"Fira Code Variable"');
+    expect(root.dataset['codeTheme']).toBe('solarized');
+    expect(result.current.theme).toBe('brainstrike');
+    expect(vi.mocked(mockStorageAdapter.setItem).mock.calls).toEqual([
+      ['ui-theme-font', 'system'],
+      ['ui-theme-code-font', 'fira-code'],
+      ['ui-theme-code-theme', 'solarized'],
+    ]);
+  });
+
   it('keeps the defaults when the saved values are unknown to this build', async () => {
     vi.mocked(mockStorageAdapter.getItem).mockImplementation((key) =>
       Promise.resolve(
@@ -309,7 +364,7 @@ describe('ThemeProvider', () => {
     expect(mockStorageAdapter.setItem).not.toHaveBeenCalled();
     expect(records.map((record) => record.args[0])).toEqual([
       'Ignoring an unknown saved theme mode',
-      'Ignoring an unknown saved theme',
+      'Ignoring an unknown saved appearance choice',
     ]);
   });
 });

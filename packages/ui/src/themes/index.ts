@@ -3,6 +3,9 @@
  * with scripts/import-shadcn-theme.mjs, then import it in index.css and append
  * its entry here.
  */
+export * from './code-themes';
+export * from './fonts';
+
 export type ThemeId = 'brainstrike' | 'ember' | 'tide' | 'orchid';
 
 export interface ThemeSwatch {

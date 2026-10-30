@@ -3,11 +3,19 @@
 // note in error-boundary.tsx (BST-890).
 
 import { Monitor, Moon, Sun } from 'lucide-react';
-import { type ComponentType, useId } from 'react';
+import { type ComponentType, type ReactNode, useId } from 'react';
 import { Button } from './button';
 import { cn } from './lib/utils';
 import { type ThemeMode, useTheme } from './theme-provider';
-import { THEMES, type ThemeDefinition } from './themes';
+import {
+  CODE_FONTS,
+  CODE_THEMES,
+  type CodeThemeDefinition,
+  FONTS,
+  type FontDefinition,
+  THEMES,
+  type ThemeDefinition,
+} from './themes';
 
 const MODE_OPTIONS: ReadonlyArray<{
   icon: ComponentType<{ className?: string; 'data-testid'?: string }>;
@@ -32,23 +40,27 @@ function Swatch({ color, testId }: { color: string; testId: string }) {
 }
 
 /**
- * One palette card: a NATIVE radio, visually hidden, inside a label that paints
- * the swatches. The browser then supplies the whole radio-group keyboard model
+ * One choice card: a NATIVE radio, visually hidden, inside a label that paints
+ * the preview. The browser then supplies the whole radio-group keyboard model
  * (one tab stop on the checked card, arrows move AND select with wrap-around,
  * Space selects) — a hand-rolled keydown handler would only re-implement it,
  * worse. Same pattern as `threads-panel-view-options.tsx`; the shared `name`
  * is what makes the browser treat the cards as ONE group.
  */
-function ThemeCard({
+function ChoiceCard({
   active,
+  children,
   groupName,
   onSelect,
-  theme,
+  testId,
+  value,
 }: {
   active: boolean;
+  children: ReactNode;
   groupName: string;
   onSelect: () => void;
-  theme: ThemeDefinition;
+  testId: string;
+  value: string;
 }) {
   return (
     <label
@@ -58,7 +70,7 @@ function ThemeCard({
           ? 'border-primary ring-ring/50 ring-2'
           : 'border-border hover:bg-accent hover:text-accent-foreground'
       )}
-      data-testid={`theme-card-${theme.id}`}
+      data-testid={testId}
     >
       <input
         checked={active}
@@ -66,8 +78,64 @@ function ThemeCard({
         name={groupName}
         onChange={onSelect}
         type="radio"
-        value={theme.id}
+        value={value}
       />
+      {children}
+    </label>
+  );
+}
+
+/** A labelled radio group of {@link ChoiceCard}s. */
+function ChoiceGroup<Id extends string>({
+  description,
+  label,
+  onChange,
+  options,
+  renderOption,
+  testIdPrefix,
+  value,
+}: {
+  description: string;
+  label: string;
+  onChange: (id: Id) => void;
+  options: readonly { readonly id: Id }[];
+  renderOption: (id: Id) => ReactNode;
+  testIdPrefix: string;
+  value: Id;
+}) {
+  const groupName = useId();
+  const labelId = useId();
+  return (
+    <div className="space-y-2">
+      <p className="text-sm leading-none font-medium" id={labelId}>
+        {label}
+      </p>
+      <div
+        aria-labelledby={labelId}
+        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+        role="radiogroup"
+      >
+        {options.map(({ id }) => (
+          <ChoiceCard
+            active={value === id}
+            groupName={groupName}
+            key={id}
+            onSelect={() => onChange(id)}
+            testId={`${testIdPrefix}-${id}`}
+            value={id}
+          >
+            {renderOption(id)}
+          </ChoiceCard>
+        ))}
+      </div>
+      <p className="text-muted-foreground text-sm">{description}</p>
+    </div>
+  );
+}
+
+function ThemePreview({ theme }: { theme: ThemeDefinition }) {
+  return (
+    <>
       <span className="flex gap-1">
         <Swatch
           color={theme.swatch.light.background}
@@ -87,14 +155,72 @@ function ThemeCard({
         />
       </span>
       <span className="text-sm font-medium">{theme.label}</span>
-    </label>
+    </>
   );
 }
 
+function FontPreview({ font, sample }: { font: FontDefinition<string>; sample: string }) {
+  return (
+    <span className="flex flex-col gap-1" style={{ fontFamily: font.family }}>
+      <span aria-hidden="true" className="text-muted-foreground text-lg leading-none">
+        {sample}
+      </span>
+      <span className="text-sm font-medium">{font.label}</span>
+    </span>
+  );
+}
+
+/**
+ * A few tokens painted with the `--syntax-*` colours. `data-code-theme` on the
+ * preview scopes code-themes.css to this card, so each card shows its own
+ * scheme in the current light or dark mode.
+ */
+function CodeThemePreview({ codeTheme }: { codeTheme: CodeThemeDefinition }) {
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className="bg-background border-border block rounded-sm border px-2 py-1 font-mono text-xs leading-snug"
+        data-code-theme={codeTheme.id}
+      >
+        <span style={{ color: 'var(--syntax-keyword)' }}>const</span>{' '}
+        <span style={{ color: 'var(--syntax-function)' }}>greet</span> ={' '}
+        <span style={{ color: 'var(--syntax-string)' }}>&quot;hi&quot;</span>
+        <br />
+        <span style={{ color: 'var(--syntax-comment)', fontStyle: 'italic' }}>
+          {'// '}
+          <span style={{ color: 'var(--syntax-number)', fontStyle: 'normal' }}>42</span>
+        </span>
+      </span>
+      <span className="text-sm font-medium">{codeTheme.label}</span>
+    </>
+  );
+}
+
+function byId<Definition extends { readonly id: string }>(
+  definitions: readonly Definition[],
+  id: Definition['id']
+): Definition {
+  const definition = definitions.find((candidate) => candidate.id === id);
+  if (!definition) {
+    throw new Error(`Unknown appearance option: ${id}`);
+  }
+  return definition;
+}
+
 export function ThemeSettings() {
-  const { mode, setMode, setTheme, theme } = useTheme();
-  const paletteGroupName = useId();
-  const paletteLabelId = useId();
+  const {
+    codeFont,
+    codeTheme,
+    font,
+    mode,
+    setCodeFont,
+    setCodeTheme,
+    setFont,
+    setMode,
+    setTheme,
+    theme,
+  } = useTheme();
 
   return (
     <div className="grid gap-6">
@@ -119,29 +245,42 @@ export function ThemeSettings() {
           look.
         </p>
       </div>
-      <div className="space-y-2">
-        <p className="text-sm leading-none font-medium" id={paletteLabelId}>
-          Theme
-        </p>
-        <div
-          aria-labelledby={paletteLabelId}
-          className="grid grid-cols-2 gap-3 sm:grid-cols-4"
-          role="radiogroup"
-        >
-          {THEMES.map((definition) => (
-            <ThemeCard
-              active={theme === definition.id}
-              groupName={paletteGroupName}
-              key={definition.id}
-              onSelect={() => setTheme(definition.id)}
-              theme={definition}
-            />
-          ))}
-        </div>
-        <p className="text-muted-foreground text-sm">
-          Pick a colour palette. Fonts and icons stay the same.
-        </p>
-      </div>
+      <ChoiceGroup
+        description="Pick a colour palette for the interface."
+        label="Theme"
+        onChange={setTheme}
+        options={THEMES}
+        renderOption={(id) => <ThemePreview theme={byId(THEMES, id)} />}
+        testIdPrefix="theme-card"
+        value={theme}
+      />
+      <ChoiceGroup
+        description="The typeface for menus, panels and chat."
+        label="Interface font"
+        onChange={setFont}
+        options={FONTS}
+        renderOption={(id) => <FontPreview font={byId(FONTS, id)} sample="Aa" />}
+        testIdPrefix="font-card"
+        value={font}
+      />
+      <ChoiceGroup
+        description="The typeface for the editor, diffs and code in chat."
+        label="Code font"
+        onChange={setCodeFont}
+        options={CODE_FONTS}
+        renderOption={(id) => <FontPreview font={byId(CODE_FONTS, id)} sample="{0O1l}" />}
+        testIdPrefix="code-font-card"
+        value={codeFont}
+      />
+      <ChoiceGroup
+        description="Syntax colours for the editor, diffs and code in chat. Each follows the light or dark mode."
+        label="Code theme"
+        onChange={setCodeTheme}
+        options={CODE_THEMES}
+        renderOption={(id) => <CodeThemePreview codeTheme={byId(CODE_THEMES, id)} />}
+        testIdPrefix="code-theme-card"
+        value={codeTheme}
+      />
     </div>
   );
 }
