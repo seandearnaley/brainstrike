@@ -3,7 +3,7 @@
 // `globalThis.window` carries the bridge) are covered here. The web anchor
 // route's DOM contract (anchor click, deferred vs immediate revoke) is
 // covered in a DOM environment by
-// packages/ui/src/__tests__/debug-bundle-download.test.ts.
+// packages/ui/src/__tests__/save-download.test.tsx.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileExportsBridge, FileExportsSaveOutcome } from '../browser-download.js';
 import {

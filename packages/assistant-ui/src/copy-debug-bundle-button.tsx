@@ -1,10 +1,10 @@
 import { useAuiState } from '@assistant-ui/react';
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
-import { Button } from '@brainstrike/ui';
+import { Button, saveDownload } from '@brainstrike/ui';
 import { ClipboardCopy, Download } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { useDebugBundleContext } from './debug-bundle-context';
-import { downloadDebugBundleFile, formatDebugBundleFilename } from './debug-bundle-download';
+import { formatDebugBundleFilename } from './debug-bundle-download';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -64,11 +64,6 @@ type ButtonPhase =
 
 const COPIED_RESET_MS = 3000;
 
-const ACTION_ERROR_LABEL: Record<BundleAction, string> = {
-  copy: 'Copy failed',
-  download: 'Download failed',
-};
-
 /**
  * Debug-bundle delivery footer (Flight Recorder capstone, Task 9; download
  * added in BST-946). Renders null without a `DebugBundleProvider` binding
@@ -79,8 +74,9 @@ const ACTION_ERROR_LABEL: Record<BundleAction, string> = {
  * Two peers, one bundle build each: **Copy** for a quick paste, **Download**
  * for the realistic case — bundles run up to `DEBUG_BUNDLE_DEFAULT_MAX_BYTES`
  * (200 KB), well past what a chat box or issue comment takes, so a
- * timestamped `.md` on disk is the transport that actually survives. Build,
- * clipboard, and download failures are all shown inline; never a silent drop.
+ * timestamped `.md` on disk is the transport that actually survives. Copy
+ * shows its result and any failure inline; Download confirms in a toast, as
+ * every download does. Never a silent drop.
  */
 export function CopyDebugBundleButton(): ReactElement | null {
   const parts = useAuiState((state) => state.message.parts);
@@ -115,16 +111,23 @@ export function CopyDebugBundleButton(): ReactElement | null {
       resetTimeoutRef.current = null;
     }
     setPhase({ action, kind: 'building' });
+    if (action === 'download') {
+      // The toast says where it went, or why it did not save.
+      await saveDownload({
+        build: async () => ({
+          blob: new Blob([await context.buildBundle({ runId })], {
+            type: 'text/markdown;charset=utf-8',
+          }),
+          filename: formatDebugBundleFilename({ generatedAt: new Date(), runId }),
+        }),
+        what: 'debug bundle',
+      });
+      setPhase({ kind: 'idle' });
+      return;
+    }
     try {
       const bundle = await context.buildBundle({ runId });
-      if (action === 'copy') {
-        await navigator.clipboard.writeText(bundle);
-      } else {
-        await downloadDebugBundleFile({
-          contents: bundle,
-          filename: formatDebugBundleFilename({ generatedAt: new Date(), runId }),
-        });
-      }
+      await navigator.clipboard.writeText(bundle);
       setPhase({ action, kb: formatKb(new TextEncoder().encode(bundle).length), kind: 'done' });
       resetTimeoutRef.current = setTimeout(() => {
         resetTimeoutRef.current = null;
@@ -147,7 +150,7 @@ export function CopyDebugBundleButton(): ReactElement | null {
       return 'Building…';
     }
     if (phase.kind === 'done') {
-      return `${action === 'copy' ? 'Copied' : 'Saved'} · ${phase.kb} KB`;
+      return `Copied · ${phase.kb} KB`;
     }
     return idleLabel;
   };
@@ -182,7 +185,7 @@ export function CopyDebugBundleButton(): ReactElement | null {
       {/* Live region: the result lands in the button label, but a failure is
           the only place the reason appears at all. */}
       <span aria-live="polite" className="text-destructive text-[11px]" role="status">
-        {phase.kind === 'error' ? `${ACTION_ERROR_LABEL[phase.action]}: ${phase.message}` : ''}
+        {phase.kind === 'error' ? `Copy failed: ${phase.message}` : ''}
       </span>
     </div>
   );

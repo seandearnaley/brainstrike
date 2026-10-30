@@ -1,9 +1,8 @@
-import { Button, CanvasFrame, toast, useResolvedTheme } from '@brainstrike/ui';
-import { getErrorMessage } from '@brainstrike/utils/error-utils';
+import { Button, CanvasFrame, saveDownload, useResolvedTheme } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
 import type { CanvasWorkspaceTab } from './canvas-workspace-tab';
-import { downloadCanvasHtml } from './download-canvas-html';
+import { canvasHtmlFile } from './download-canvas-html';
 import type { ThreadCanvasRead } from './use-thread-canvas-reads';
 
 /** 'latest' follows new versions as runs commit them; a number pins the stepper. */
@@ -20,21 +19,12 @@ export interface CanvasDocumentViewProps {
   readonly tab: CanvasWorkspaceTab;
 }
 
-async function saveVersion(version: {
+function saveVersion(version: {
   readonly html: string;
   readonly title: string;
   readonly version: number;
-}): Promise<void> {
-  try {
-    const { path } = await downloadCanvasHtml(version);
-    toast({ description: path ?? 'Saved to your downloads.', title: 'Canvas saved' });
-  } catch (error) {
-    toast({
-      description: getErrorMessage(error),
-      title: 'Could not save the canvas',
-      variant: 'destructive',
-    });
-  }
+}): void {
+  void saveDownload({ build: () => canvasHtmlFile(version), what: 'canvas' });
 }
 
 function CanvasNotice({
@@ -135,7 +125,7 @@ export function CanvasDocumentView({ read, shellSrc, tab }: CanvasDocumentViewPr
             disabled={!shown}
             onClick={() => {
               if (shown) {
-                void saveVersion(shown);
+                saveVersion(shown);
               }
             }}
             size="icon-xs"

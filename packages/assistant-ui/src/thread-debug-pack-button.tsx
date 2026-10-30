@@ -1,38 +1,31 @@
-import { Button } from '@brainstrike/ui';
-import {
-  downloadBlobFile,
-  formatTimestampedDownloadFilename,
-} from '@brainstrike/utils/browser-download';
+import { Button, saveDownload } from '@brainstrike/ui';
+import { formatTimestampedDownloadFilename } from '@brainstrike/utils/browser-download';
 import { Download } from 'lucide-react';
 import { useState } from 'react';
 import { useDebugBundleContext } from './debug-bundle-context';
 
-type Phase = { kind: 'idle' | 'building' | 'saved' } | { kind: 'error'; message: string };
-
 /** Thread-scoped: deliberately usable without a message or failure runtime. */
 export function ThreadDebugPackButton() {
   const context = useDebugBundleContext();
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
+  const [building, setBuilding] = useState(false);
   if (!context?.buildThreadPack) {
     return null;
   }
   const buildThreadPack = context.buildThreadPack;
   const download = async (): Promise<void> => {
-    setPhase({ kind: 'building' });
-    try {
-      const contents = await buildThreadPack();
-      await downloadBlobFile({
-        blob: new Blob([contents], { type: 'application/json;charset=utf-8' }),
+    setBuilding(true);
+    await saveDownload({
+      build: async () => ({
+        blob: new Blob([await buildThreadPack()], { type: 'application/json;charset=utf-8' }),
         filename: formatTimestampedDownloadFilename({
           extension: 'json',
           generatedAt: new Date(),
           name: 'brainstrike-thread-debug',
         }),
-      });
-      setPhase({ kind: 'saved' });
-    } catch (error) {
-      setPhase({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
-    }
+      }),
+      what: 'debug pack',
+    });
+    setBuilding(false);
   };
   return (
     <details className="text-muted-foreground shrink-0 px-3 py-1 text-xs">
@@ -46,19 +39,15 @@ export function ThreadDebugPackButton() {
       </p>
       <Button
         className="text-muted-foreground h-7 gap-1 text-xs"
-        disabled={phase.kind === 'building'}
+        disabled={building}
         onClick={() => void download()}
         size="sm"
         title="Save this thread and its subagents: messages, tool inputs/results, approvals and live decisions, leg and specialist prompts, parent wakeups, run settings, per-leg model identity and diagnostics; on desktop also the main-process log for the run window and process counters. May contain private conversation and file content. Review locally before sharing."
         variant="ghost"
       >
         <Download aria-hidden="true" className="size-3" />
-        {phase.kind === 'building' ? 'Building debug pack…' : 'Download debug pack'}
+        {building ? 'Building debug pack…' : 'Download debug pack'}
       </Button>
-      <span aria-live="polite" className="text-xs" role="status">
-        {phase.kind === 'error' ? `Download failed: ${phase.message}` : null}
-        {phase.kind === 'saved' ? 'Debug pack saved. Review before sharing.' : null}
-      </span>
     </details>
   );
 }

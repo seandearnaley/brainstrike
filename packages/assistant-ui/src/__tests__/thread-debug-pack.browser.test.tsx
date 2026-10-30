@@ -1,6 +1,6 @@
 import { type ThreadMessageLike, useExternalStoreRuntime } from '@assistant-ui/react';
 import '@testing-library/jest-dom/vitest';
-import { TooltipProvider } from '@brainstrike/ui';
+import { resetToastStore, Toaster, TooltipProvider } from '@brainstrike/ui';
 import type { FileExportsBridge } from '@brainstrike/utils/browser-download';
 import { render, screen, waitFor } from '@testing-library/react';
 import { expect, onTestFinished, test, vi } from 'vitest';
@@ -43,6 +43,7 @@ function Conversation({
           />
         </div>
       </DebugBundleProvider>
+      <Toaster />
     </TooltipProvider>
   );
 }
@@ -60,6 +61,7 @@ test.each([390, 900])(
       value: { saveToDownloads: save },
     });
     onTestFinished(() => {
+      resetToastStore();
       if (original) {
         Object.defineProperty(window, 'fileExports', original);
       } else {
@@ -96,7 +98,9 @@ test.each([390, 900])(
     expect(JSON.parse(new TextDecoder().decode(payload?.bytes)).sections.messages).toEqual([
       'successful',
     ]);
-    expect(screen.getByText('Debug pack saved. Review before sharing.')).toBeVisible();
+    // The toast says where the pack went.
+    expect(await screen.findByText('Debug pack saved')).toBeVisible();
+    expect(screen.getByText('/Downloads/debug.json')).toBeVisible();
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
     await page.getByRole('button', { exact: true, name: 'Download debug pack' }).click();
     await waitFor(() => expect(buildThreadPack).toHaveBeenCalledTimes(2));

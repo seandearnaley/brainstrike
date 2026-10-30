@@ -1,9 +1,6 @@
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
-import type { useToast } from '@brainstrike/ui';
-import {
-  downloadBlobFile,
-  formatTimestampedDownloadFilename,
-} from '@brainstrike/utils/browser-download';
+import { saveDownload, type useToast } from '@brainstrike/ui';
+import { formatTimestampedDownloadFilename } from '@brainstrike/utils/browser-download';
 import { useCallback, useState } from 'react';
 import type { DurableNdjsonExportResult } from './logging-settings-types';
 
@@ -37,16 +34,19 @@ export function useDurableNdjsonExport({
           title: 'No diagnostics to export',
         });
       } else {
-        await downloadBlobFile({
-          blob: new Blob([ndjson], { type: 'application/x-ndjson' }),
-          filename: formatTimestampedDownloadFilename({
-            extension: 'ndjson',
-            generatedAt: new Date(),
-            name: 'brainstrike-errors',
-            suffix: truncated ? `recent${exportedCount}` : null,
+        const saved = await saveDownload({
+          build: () => ({
+            blob: new Blob([ndjson], { type: 'application/x-ndjson' }),
+            filename: formatTimestampedDownloadFilename({
+              extension: 'ndjson',
+              generatedAt: new Date(),
+              name: 'brainstrike-errors',
+              suffix: truncated ? `recent${exportedCount}` : null,
+            }),
           }),
+          what: 'diagnostics',
         });
-        if (truncated) {
+        if (saved && truncated) {
           toast({
             description: `Exported the most recent ${exportedCount} of ${totalCount} warn+ events. Older events were not included.`,
             title: 'Export truncated',

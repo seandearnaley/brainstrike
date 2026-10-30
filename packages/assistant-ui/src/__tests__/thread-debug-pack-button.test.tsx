@@ -1,5 +1,6 @@
+import { resetToastStore, Toaster } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DebugBundleProvider } from '../debug-bundle-context';
 import { ThreadDebugPackButton } from '../thread-debug-pack-button';
 
@@ -11,22 +12,30 @@ vi.mock('@brainstrike/utils/browser-download', () => ({
 
 describe('thread debug pack', () => {
   beforeEach(() => {
-    save.mockReset();
+    save.mockReset().mockResolvedValue({});
   });
-  it('shows save errors without reporting success and permits retry', async () => {
-    save.mockRejectedValueOnce(new Error('Disk full')).mockResolvedValueOnce(undefined);
+  afterEach(() => {
+    resetToastStore();
+  });
+  it('says where the pack was saved, shows save errors, and permits retry', async () => {
+    save
+      .mockRejectedValueOnce(new Error('Disk full'))
+      .mockResolvedValueOnce({ path: '/home/me/Downloads/thread-debug.json' });
     const buildThreadPack = vi.fn().mockResolvedValue('{}');
     render(
       <DebugBundleProvider value={{ buildBundle: vi.fn(), buildThreadPack }}>
         <ThreadDebugPackButton />
+        <Toaster />
       </DebugBundleProvider>
     );
     fireEvent.click(screen.getByText('Debug pack'));
     fireEvent.click(screen.getByRole('button', { name: 'Download debug pack' }));
-    expect(await screen.findByText('Download failed: Disk full')).toBeTruthy();
-    expect(screen.queryByText('Debug pack saved. Review before sharing.')).toBeNull();
+    expect(await screen.findByText('Could not save the debug pack')).toBeTruthy();
+    expect(screen.getByText('Disk full')).toBeTruthy();
+    expect(screen.queryByText('Debug pack saved')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Download debug pack' }));
-    expect(await screen.findByText('Debug pack saved. Review before sharing.')).toBeTruthy();
+    expect(await screen.findByText('Debug pack saved')).toBeTruthy();
+    expect(screen.getByText('/home/me/Downloads/thread-debug.json')).toBeTruthy();
     expect(buildThreadPack).toHaveBeenCalledTimes(2);
   });
   it('downloads a fresh pack without a failed message or message runtime', async () => {
@@ -59,11 +68,13 @@ describe('thread debug pack', () => {
         }}
       >
         <ThreadDebugPackButton />
+        <Toaster />
       </DebugBundleProvider>
     );
     fireEvent.click(screen.getByText('Debug pack'));
     fireEvent.click(screen.getByRole('button', { name: 'Download debug pack' }));
-    expect(await screen.findByText('Download failed: Database unavailable')).toBeTruthy();
+    expect(await screen.findByText('Could not save the debug pack')).toBeTruthy();
+    expect(screen.getByText('Database unavailable')).toBeTruthy();
     expect(save).not.toHaveBeenCalled();
   });
 
