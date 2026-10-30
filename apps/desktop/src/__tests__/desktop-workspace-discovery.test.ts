@@ -1,18 +1,29 @@
 /**
  * The host's skills discovery (`workspace/skills`): entry → serializable
  * summary mapping (ok / invalid / shadowed, with durable preference keys and
- * exact validation errors) and explicit root-read failure propagation.
+ * exact validation errors) and explicit root-read failure propagation. ADR-0032:
+ * the "/" menu and Settings list a folder's project skills and commands only
+ * once the person trusts it, and `workspace/trust/list` says what each folder
+ * would load.
  */
 
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { SkillContentDeps } from '@brainstrike/agent';
 import { __resetSkillScanWarningsForTests } from '@brainstrike/agent';
+import {
+  type HostWorkspaceTrustStore,
+  writeHostWorkspaceTrust,
+} from '@brainstrike/agent-host/workspace-trust';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/assistant-contract';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type DesktopDiscoveryRoots,
+  desktopWorkspaceDiscovery,
   discoverDesktopCommands,
   discoverDesktopSkills,
+  discoverDesktopWorkspaceTrust,
 } from '../agent-host-platform/desktop-workspace-discovery';
 
 interface MemoryFs {
@@ -182,5 +193,162 @@ describe('discoverDesktopCommands', () => {
       )
     ).rejects.toBe(failure);
     expect(disposed.count).toBe(0);
+  });
+});
+
+describe('workspace trust (ADR-0032)', () => {
+  /** Commands and personas share one bounded reader: `dir -> { file -> content }`. */
+  const MARKDOWN: Record<string, Record<string, string>> = {
+    [`${PROJECT}/.brainstrike/agents`]: {
+      'auditor.md': '---\ndescription: Audits security\n---\nAudit.',
+    },
+    [`${PROJECT}/.brainstrike/commands`]: { 'review.md': 'Review $ARGUMENTS' },
+  };
+  const markdownFsOf = (tree: Record<string, Record<string, string>>) => () => ({
+    dispose: () => undefined,
+    listDir: (absDir: string) => {
+      const files = tree[absDir];
+      return files
+        ? {
+            entries: Object.keys(files).map((name) => ({ isDirectory: false, isFile: true, name })),
+            inspected: Object.keys(files).length,
+            truncated: false,
+          }
+        : null;
+    },
+    readFile: (absFile: string) => {
+      const content = tree[path.posix.dirname(absFile)]?.[path.posix.basename(absFile)];
+      return content === undefined
+        ? { ok: false as const, reason: 'unreadable' as const }
+        : { content, ok: true as const };
+    },
+  });
+  const markdownFs = markdownFsOf(MARKDOWN);
+  function memoryTrust(): HostWorkspaceTrustStore {
+    const values = new Map<string, string>();
+    return {
+      getSetting: async (key) => values.get(key),
+      setSetting: async (key, value) => {
+        values.set(key, value);
+      },
+    };
+  }
+
+  it('says what each live folder would load and the answer the person gave', async () => {
+    // Trust is kept for folders that exist; B is a real, empty one.
+    const folder = await realpath(await mkdtemp(path.join(tmpdir(), 'bs-trust-list-')));
+    const rootB: RuntimeWorkspaceRoot = { displayName: 'B', path: folder, rootId: 'root-b' };
+    const trust = memoryTrust();
+    try {
+      await writeHostWorkspaceTrust(trust, rootB.path, 'restricted');
+
+      const result = await discoverDesktopWorkspaceTrust(
+        {
+          commands: markdownFs,
+          homedir: () => HOME,
+          readFile: async ({ rootPath, requestedPath }) => {
+            if (rootPath === PROJECT && requestedPath === 'AGENTS.md') {
+              return { content: 'Conventions', path: 'AGENTS.md', size: 11 };
+            }
+            throw Object.assign(new Error(`ENOENT: ${requestedPath}`), { code: 'ENOENT' });
+          },
+          roots: async () => [ROOT_A, rootB],
+          skills: () => makeFs(FS),
+          trust,
+        },
+        new AbortController().signal
+      );
+
+      // The home directory's skills and personas are nobody's folder.
+      expect(result.roots).toEqual([
+        {
+          agentConfiguration: { commands: 1, instructions: 'AGENTS.md', personas: 1, skills: 1 },
+          displayName: 'A',
+          path: PROJECT,
+          rootId: 'root-a',
+          trust: 'undecided',
+        },
+        {
+          agentConfiguration: { commands: 0, instructions: null, personas: 0, skills: 0 },
+          displayName: 'B',
+          path: folder,
+          rootId: 'root-b',
+          trust: 'restricted',
+        },
+      ]);
+    } finally {
+      await rm(folder, { force: true, recursive: true });
+    }
+  });
+
+  it("asks about a folder whose only command shares its name with an earlier folder's", async () => {
+    // The "/" menu keeps the first folder's copy, but trusting the second loads its own.
+    const clone: RuntimeWorkspaceRoot = {
+      displayName: 'Clone',
+      path: `${PROJECT}-clone`,
+      rootId: 'root-clone',
+    };
+    const result = await discoverDesktopWorkspaceTrust(
+      {
+        commands: markdownFsOf({
+          [`${PROJECT}/.brainstrike/commands`]: { 'review.md': 'Review $ARGUMENTS' },
+          [`${clone.path}/.brainstrike/commands`]: { 'review.md': 'Review the clone' },
+        }),
+        homedir: () => HOME,
+        readFile: async ({ requestedPath }) => {
+          throw Object.assign(new Error(`ENOENT: ${requestedPath}`), { code: 'ENOENT' });
+        },
+        roots: async () => [ROOT_A, clone],
+        skills: () => makeFs({ dirs: {}, files: {} }),
+        trust: memoryTrust(),
+      },
+      new AbortController().signal
+    );
+
+    expect(
+      result.roots.map(({ agentConfiguration, rootId }) => [rootId, agentConfiguration.commands])
+    ).toEqual([
+      ['root-a', 1],
+      ['root-clone', 1],
+    ]);
+  });
+
+  it("lists a folder's project skills and commands only once the person trusts it", async () => {
+    const project = await realpath(await mkdtemp(path.join(tmpdir(), 'bs-trust-discovery-')));
+    // The production discovery reads the home directory too; give it an empty one.
+    const home = path.join(project, 'home');
+    await mkdir(home);
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('USERPROFILE', home);
+    try {
+      await mkdir(path.join(project, '.brainstrike', 'skills', 'demo'), { recursive: true });
+      await writeFile(
+        path.join(project, '.brainstrike', 'skills', 'demo', 'SKILL.md'),
+        '---\nname: demo\ndescription: A cloned skill.\n---\nDemo.'
+      );
+      await mkdir(path.join(project, '.brainstrike', 'commands'), { recursive: true });
+      await writeFile(path.join(project, '.brainstrike', 'commands', 'ship.md'), 'Ship it');
+      const root: RuntimeWorkspaceRoot = { displayName: 'cloned', path: project, rootId: 'root-c' };
+      const trust = memoryTrust();
+      const discovery = desktopWorkspaceDiscovery(async () => [root], trust);
+      const signal = new AbortController().signal;
+      const fromProject = async () => ({
+        commands: (await discovery.commands(signal)).commands
+          .filter((command) => command.sourceRootId === 'root-c')
+          .map((command) => command.id),
+        skills: (await discovery.skills(signal)).entries
+          .filter((entry) => entry.sourceRootId === 'root-c')
+          .map((entry) => entry.name),
+      });
+
+      await expect(fromProject()).resolves.toEqual({ commands: [], skills: [] });
+      await writeHostWorkspaceTrust(trust, project, 'restricted');
+      await expect(fromProject()).resolves.toEqual({ commands: [], skills: [] });
+      await writeHostWorkspaceTrust(trust, project, 'trusted');
+      await expect(fromProject()).resolves.toEqual({ commands: ['ship'], skills: ['demo'] });
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(project, { force: true, recursive: true });
+    }
   });
 });

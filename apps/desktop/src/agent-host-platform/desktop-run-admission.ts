@@ -65,6 +65,8 @@ import {
 
 const logger = createLogger('DesktopRunAdmission');
 type RuntimeWorkspaceRoots = NonNullable<RuntimeData['workspaceRoots']>;
+/** ADR-0032: the given roots the person trusted, in their order. */
+export type DesktopTrustedRoots = (roots: RuntimeWorkspaceRoots) => Promise<RuntimeWorkspaceRoots>;
 /**
  * What a desktop run's admission reads from the facts Main owns (BST-1930
  * stage e): the model catalog, live roots and their binding leases, the
@@ -212,6 +214,7 @@ function desktopContextReader(
 }
 async function readDesktopNativeAdmission(
   reads: DesktopAdmissionReads,
+  trustedRoots: DesktopTrustedRoots,
   configuration: (typeof PlatformModelConfigurationSchema)['Type'],
   intent: (typeof PlatformClientConfigurationSchema)['Type'],
   request: HostRunAdmissionRequest,
@@ -221,6 +224,8 @@ async function readDesktopNativeAdmission(
   readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
   /** BST-2018: live folders outside the thread whose mentioned files this run's prompt attaches. */
   readonly attachedMentions?: AttachedMentionFolders;
+  /** ADR-0032: the run's roots the person trusted, the only ones whose agent configuration loads. */
+  readonly configurationRoots: RuntimeWorkspaceRoots;
   /** The admission's tools, described from the catalog; the host executes every one. */
   readonly descriptors: Record<string, DesktopToolDescriptor>;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
@@ -259,6 +264,8 @@ async function readDesktopNativeAdmission(
   };
   const retrievalRootsOnly = selection !== undefined || workspace !== undefined;
   const readWorkspaceFile = desktopContextReader(request, freshRoots, retrievalRootsOnly);
+  const configurationRoots = await trustedRoots(roots);
+  request.signal.throwIfAborted();
   // The thread's binding owns the roots a run executes in; the explorer's focus
   // names a folder only when it is one of the thread's.
   const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
@@ -305,7 +312,7 @@ async function readDesktopNativeAdmission(
     selection !== undefined,
     intent,
     runtime,
-    roots
+    configurationRoots
   );
   const descriptors = await desktopToolDescriptors({
     enabledNativeToolIds: intent.enabledNativeToolIds,
@@ -315,6 +322,7 @@ async function readDesktopNativeAdmission(
   return {
     admittedSkills,
     ...(attachedMentions ? { attachedMentions } : {}),
+    configurationRoots,
     descriptors,
     freshRoots,
     readWorkspaceFile,
@@ -349,19 +357,21 @@ async function desktopRetrievalAdmitted(
     roots.map((root) => root.rootId)
   );
 }
-/** A CLI selection runs without skills; otherwise one scan feeds the prompt and the host's skill tools. */
+/**
+ * A CLI selection runs without skills; otherwise one scan of the trusted roots
+ * and the home directory feeds the prompt and the host's skill tools.
+ */
 function desktopRunSkills(
   cliSelection: boolean,
   intent: (typeof PlatformClientConfigurationSchema)['Type'],
   runtime: RuntimeData,
-  roots: readonly {
-    readonly path: string;
-  }[]
+  roots: RuntimeWorkspaceRoots
 ): PreparedAdmittedSkills {
   if (!cliSelection) {
     return prepareAdmittedSkills({
       fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
       homedir,
+      roots,
       runtimeData: runtime,
     });
   }
@@ -432,7 +442,9 @@ function desktopNativeRuntime(
 export function createDesktopRunAdmission(
   reads: DesktopAdmissionReads,
   /** The policy the user saved, which the host keeps; undefined when none is saved. */
-  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>
+  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>,
+  /** ADR-0032: the host's workspace trust, which decides whose agent configuration loads. */
+  trustedRoots: DesktopTrustedRoots
 ): DesktopRunAdmission {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -501,6 +513,7 @@ export function createDesktopRunAdmission(
     const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     const native = await readDesktopNativeAdmission(
       reads,
+      trustedRoots,
       configuration,
       intent,
       request,
@@ -517,15 +530,17 @@ export function createDesktopRunAdmission(
     };
     try {
       policies.set(request.threadId, permissionPolicy);
+      // ADR-0032: personas come from the trusted roots and the home directory.
       const delegation = resolveDesktopHostDelegation(
         intent,
-        native.runtime.workspaceRoots ?? [],
+        native.configurationRoots,
         request.planMode === true
       );
       // The host never offers what the saved policy denies; the instructions never name it.
       const policy = await readHostPermissionPolicy(request.threadId);
       const { childSystem, system, referencedFileFailures } = await readDesktopHostSystemContext({
         ...(native.attachedMentions ? { attachedMentions: native.attachedMentions } : {}),
+        configurationRoots: native.configurationRoots,
         inputTokenLimit,
         ...desktopPersonaFields(delegation),
         ...desktopContextReaderFields(

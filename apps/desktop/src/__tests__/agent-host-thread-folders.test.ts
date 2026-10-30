@@ -18,7 +18,7 @@ import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import { createDesktopRunAdmission } from '../agent-host-platform/desktop-run-admission';
-import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
+import { capturedIntent, everyRootTrusted, mainReads } from './fixtures/desktop-admission-reads';
 import recorded from './fixtures/thread-folder-tool-calls.json';
 
 interface Root {
@@ -74,7 +74,8 @@ async function admit(flow: Flow) {
       }),
       liveWorkspaceRoots: async () => live,
     }),
-    async () => undefined
+    async () => undefined,
+    everyRootTrusted
   );
   const request: HostRunAdmissionRequest = {
     configuration: {

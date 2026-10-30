@@ -7,7 +7,7 @@ import {
   createDesktopRunAdmission,
   type DesktopAdmissionReads,
 } from '../agent-host-platform/desktop-run-admission';
-import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
+import { capturedIntent, everyRootTrusted, mainReads } from './fixtures/desktop-admission-reads';
 
 /** Errors the admission logs, by logger scope. */
 const logged = vi.hoisted(() => vi.fn());
@@ -85,7 +85,8 @@ async function offered(
 ): Promise<{ readonly ids: readonly string[]; readonly system: string | undefined }> {
   const selected = await createDesktopRunAdmission(
     mainReads({ liveWorkspaceRoots: async () => [alpha], ...reads }),
-    async () => undefined
+    async () => undefined,
+    everyRootTrusted
   ).readConfiguration(request);
   try {
     return {

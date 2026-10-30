@@ -17,6 +17,7 @@ import {
   assembledMarkers,
   createAssembledSubagentFixture,
 } from './utils/subagent-integration-fixture';
+import { trustWorkspaceFromComposer } from './utils/workspace-trust';
 
 /** Each child as the agent host commits it: its call sign, delegated task and latest run status. */
 async function readHostChildren(userDataDir: string) {
@@ -71,6 +72,8 @@ test('switches among running child tabs and retains the child draft', async ({
       await ensureAssistantShellVisible(window);
       // The host thread's conversation is the Assistant region; it has no legacy panel test id.
       const root = window.getByRole('region', { exact: true, name: 'Assistant' });
+      // The workspace's personas load once the person trusts the folder (ADR-0032).
+      await trustWorkspaceFromComposer(root);
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill(assembledMarkers.parentPrompt);

@@ -4,6 +4,7 @@ import {
   type DesktopRunAdmission,
 } from '../../agent-host-platform/desktop-run-admission';
 import { productionDesktopCapabilities } from '../../agent-host-platform/production-desktop-capabilities';
+import { everyRootTrusted } from './desktop-admission-reads';
 
 type MainArgs = Parameters<typeof productionDesktopCapabilities>;
 
@@ -11,7 +12,7 @@ type MainArgs = Parameters<typeof productionDesktopCapabilities>;
  * Main's production capabilities with the agent host's run admission composed
  * from their reads, in one process (BST-1930 stage e): what the host admits
  * over the private connection, without the wire. The saved policy is the
- * host's; a scenario supplies it here.
+ * host's; a scenario supplies it here. Every folder is trusted (ADR-0032).
  */
 export function desktopAdmission(
   dependencies: MainArgs[0],
@@ -21,6 +22,10 @@ export function desktopAdmission(
   const capabilities = productionDesktopCapabilities(dependencies, ...rest);
   return {
     ...capabilities,
-    ...createDesktopRunAdmission(capabilities.admission, async () => await savedPolicy?.()),
+    ...createDesktopRunAdmission(
+      capabilities.admission,
+      async () => await savedPolicy?.(),
+      everyRootTrusted
+    ),
   };
 }

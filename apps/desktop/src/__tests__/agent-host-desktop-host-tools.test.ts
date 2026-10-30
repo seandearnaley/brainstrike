@@ -645,6 +645,7 @@ function admitSkills(root: string, home: string, masterEnabled = true) {
   return prepareAdmittedSkills({
     fs: createSecureSkillsFs([root, home]),
     homedir: () => home,
+    roots: [{ displayName: 'A', path: root, rootId: 'root-a' }],
     runtimeData: {
       provider: 'openai',
       skillsPreference: { disabledSkillKeys: [], masterEnabled },

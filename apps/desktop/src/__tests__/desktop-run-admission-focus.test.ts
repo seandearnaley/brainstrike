@@ -8,7 +8,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { createDesktopRunAdmission } from '../agent-host-platform/desktop-run-admission';
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-client-configuration';
-import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
+import { capturedIntent, everyRootTrusted, mainReads } from './fixtures/desktop-admission-reads';
 
 interface Root {
   readonly displayName: string;
@@ -37,7 +37,8 @@ function admission(mounted: readonly Root[]) {
       }),
       liveWorkspaceRoots: async () => [...mounted],
     }),
-    async () => undefined
+    async () => undefined,
+    everyRootTrusted
   );
 }
 /** A send from a thread bound to folder A while the explorer focuses `focusedRootId`. */
@@ -90,7 +91,8 @@ test('an unbound new chat with no mounted folders admits an empty workspace', as
   const request = send('root-gone');
   const selected = await createDesktopRunAdmission(
     mainReads(),
-    async () => undefined
+    async () => undefined,
+    everyRootTrusted
   ).readConfiguration({
     configuration: capturedIntent({ model: 'gpt-6-sol', provider: 'openai' }),
     modelId: request.modelId,
@@ -109,7 +111,11 @@ test('an unbound new chat with no mounted folders admits an empty workspace', as
 test('an explicit selection from an unavailable folder is refused even for an unbound chat', async () => {
   const request = send('root-gone');
   await expect(
-    createDesktopRunAdmission(mainReads(), async () => undefined).readConfiguration({
+    createDesktopRunAdmission(
+      mainReads(),
+      async () => undefined,
+      everyRootTrusted
+    ).readConfiguration({
       configuration: z.record(z.string(), z.json()).parse(
         Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
           errors: 'all',

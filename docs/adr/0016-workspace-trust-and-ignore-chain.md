@@ -1,6 +1,6 @@
 # ADR-0016: Workspace inputs: trusted by default, filtered by one ignore chain
 
-- **Status:** Accepted
+- **Status:** Accepted; the **Trust** bullet is superseded by [ADR-0032](0032-workspace-trust.md)
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914
 
@@ -15,7 +15,9 @@ development database were copies under `.claude/worktrees`.
 
 ## Decision
 
-- **Trust.** Workspace instructions and Agent Skills are on by default, with no
+- **Trust.** *(Superseded by ADR-0032: a folder's instructions, skills, slash
+  commands and personas load only once the person trusts the folder.)*
+  Workspace instructions and Agent Skills are on by default, with no
   per-root or per-skill trust gate. This is an accepted risk: referenced-file
   injection is already ungated, skill content is instructions only, reads are
   SecureRoot-contained and bounded, and the permission engine's `edit` and `execute`

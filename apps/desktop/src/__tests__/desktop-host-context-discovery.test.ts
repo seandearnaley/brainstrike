@@ -25,6 +25,7 @@ async function hostSystem(
   tools: Readonly<Record<string, HostTool>>
 ): Promise<string> {
   const { system } = await readDesktopHostSystemContext({
+    configurationRoots: [],
     inputTokenLimit: 100_000,
     planMode: false,
     readWorkspaceFile: async () => {
