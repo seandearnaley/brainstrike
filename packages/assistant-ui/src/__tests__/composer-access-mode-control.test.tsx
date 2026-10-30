@@ -28,4 +28,26 @@ describe('ComposerAccessModeControl', () => {
       'full'
     );
   });
+
+  it('says access is unavailable when the policy cannot be loaded, and leads to Settings', async () => {
+    const user = userEvent.setup();
+    const onOpenSettings = vi.fn();
+    render(
+      <ComposerAccessModeControl
+        access={{
+          onOpenSettings,
+          unavailable: 'The saved permission settings are from an older version.',
+        }}
+      />
+    );
+
+    const chip = screen.getByRole('button', { name: /access: unavailable/iu });
+    expect(chip).toHaveAccessibleDescription(
+      /from an older version\. open settings → permissions\./iu
+    );
+    await user.click(chip);
+
+    expect(onOpenSettings).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
 });
