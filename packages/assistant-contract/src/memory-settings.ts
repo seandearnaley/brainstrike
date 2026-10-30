@@ -92,7 +92,9 @@ export const DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY = {
 export const OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET = 'auto';
 
 /**
- * Ordered per-provider auto-observer candidates, grounded in Mastra's
+ * Each chat provider's quick models, in preference order: the cheap, fast
+ * models Brainstrike hands background work (the auto observer and auto
+ * access mode's reviewer). Grounded in Mastra's
  * observational-memory docs: `google/gemini-2.5-flash` is Mastra's default OM
  * model; Haiku, the fast OpenAI mini, Gemini Flash variants, and DeepSeek V4
  * Flash are on their tested list. OpenRouter needs FALLBACKS because its
@@ -100,9 +102,7 @@ export const OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET = 'auto';
  * candidate needs a credential, so a user with no chat key gets a VISIBLY
  * unresolved observer rather than a silently broken one.
  */
-const AUTO_OBSERVATIONAL_MEMORY_CANDIDATES_BY_CHAT_PROVIDER: Readonly<
-  Record<string, readonly string[]>
-> = {
+const QUICK_MODEL_CANDIDATES_BY_CHAT_PROVIDER: Readonly<Record<string, readonly string[]>> = {
   anthropic: ['anthropic/claude-haiku-4-5'],
   google: ['google/gemini-2.5-flash'],
   openai: ['openai/gpt-5.4-mini'],
@@ -134,11 +134,20 @@ export function listAutoObservationalMemoryCandidates(args: {
   if (!args.chatProvider) {
     return [];
   }
-  const candidates = AUTO_OBSERVATIONAL_MEMORY_CANDIDATES_BY_CHAT_PROVIDER[args.chatProvider];
+  const candidates = QUICK_MODEL_CANDIDATES_BY_CHAT_PROVIDER[args.chatProvider];
   if (candidates === undefined || !args.providersWithKeys.includes(args.chatProvider)) {
     return [];
   }
   return candidates;
+}
+
+/**
+ * The chat provider's preferred quick model as a `provider/model` target, or
+ * undefined when it has none. Same privacy invariant as the auto observer: it
+ * never names another provider.
+ */
+export function resolveQuickModelTarget(chatProvider: string): string | undefined {
+  return QUICK_MODEL_CANDIDATES_BY_CHAT_PROVIDER[chatProvider]?.[0];
 }
 
 /** First auto-observer candidate for the chat provider, or null. */

@@ -4,6 +4,10 @@ import { type ClipboardEvent, type KeyboardEvent, type ReactNode, useId } from '
 import { useActiveConversationInput } from './active-conversation-input-context';
 import { collectImageFilesFromClipboard } from './attachment-adapter';
 import { useBudgetSendGate } from './budget-guardrail-control';
+import {
+  type AccessModeComposerControls,
+  ComposerAccessModeControl,
+} from './composer-access-mode-control';
 import { type ComposerRunActions, useComposerRunActions } from './composer-run-actions';
 import { ComposerRunControls } from './follow-up-queue';
 
@@ -33,6 +37,8 @@ export type ComposerAttachmentsAvailability =
   | { readonly reason: string; readonly state: 'disabled' };
 
 interface ComposerInputRowProps {
+  /** The access mode control; absent where no permission policy owner is wired. */
+  accessMode?: AccessModeComposerControls | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   /** Trailing footer controls, before Send (e.g. the Controls menu). */
   footerEnd?: ReactNode;
@@ -60,6 +66,7 @@ interface ComposerInputRowProps {
  * `ComposerInputWithTriggers` below).
  */
 const ComposerInputRow = ({
+  accessMode,
   attachmentsAvailability,
   footerEnd,
   footerStart,
@@ -111,6 +118,7 @@ const ComposerInputRow = ({
         <div className="bs-composer-footer-start">
           <AttachImageButton availability={attachmentsAvailability} disabled={sendDisabled} />
           {planMode ? <PlanModeToggle planMode={planMode} /> : null}
+          {accessMode ? <ComposerAccessModeControl access={accessMode} /> : null}
           {footerStart}
         </div>
         <div className="bs-composer-footer-end">

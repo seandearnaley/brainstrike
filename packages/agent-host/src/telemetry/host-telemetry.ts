@@ -2,6 +2,7 @@ import type { TelemetryOptions } from 'ai';
 
 /** The host's AI SDK calls, as `gen_ai.agent.name` on their `invoke_agent` spans. */
 export type HostTelemetryFunction =
+  | 'brainstrike.auto-review'
   | 'brainstrike.context-compaction'
   | 'brainstrike.host-run'
   | 'brainstrike.thread-title';

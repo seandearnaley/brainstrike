@@ -408,7 +408,7 @@ export const ControlsMenu = ({
       <PopoverTrigger asChild>
         <button aria-label="Open assistant controls" className="bs-composer-chip" type="button">
           <SlidersHorizontal aria-hidden />
-          <span>Controls</span>
+          <span className="bs-composer-collapsible">Controls</span>
         </button>
       </PopoverTrigger>
       {/* A closed draft scope must retire in this commit. Keeping the content

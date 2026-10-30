@@ -425,6 +425,12 @@ export interface HostRunAdmission {
    * question an already-committed output settled.
    */
   readonly resolvedToolResultBudget?: ScaledToolResultBudget;
+  /**
+   * Auto access mode's reviewer: the model for a `provider/model` target, or
+   * for `auto` the chat provider's quick model, built with that provider's
+   * auth. A target it cannot build rejects, and the call asks the user.
+   */
+  readonly reviewModel?: (target: string) => Promise<LanguageModel>;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */

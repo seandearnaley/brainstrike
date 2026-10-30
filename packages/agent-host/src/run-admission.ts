@@ -17,6 +17,11 @@ import { Schema } from 'effect';
 import { leaseHostAdmission } from './admission-lease.ts';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.ts';
 import {
+  type HostAutoReviewOutcome,
+  hostAutoReviewTurns,
+  reviewHostToolCall,
+} from './auto-review.ts';
+import {
   browserOriginDeniedReason,
   type HostBrowserOriginStore,
   readHostBrowserOrigins,
@@ -578,6 +583,8 @@ function hostStepInteractions(
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
         ...hostInteractionKind(registered, consent),
+        // Auto access mode's note on why this call still asks.
+        ...(part.reason ? { reason: part.reason } : {}),
         runId: run.id,
         ...(targetRoot ? { targetRoot: { ...targetRoot } } : {}),
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
@@ -649,12 +656,12 @@ function isHostDiscoveryTool(run: HostRunState, toolId: string): boolean {
   return run.admission?.discovery?.toolIds.has(toolId) === true;
 }
 /** Keep revocation live while taking risk and executor identity from admission. */
-export function hostRunToolDecision(
+export async function hostRunToolDecision(
   platform: HostPlatform,
   run: HostRunState,
   toolId: string
 ): Promise<'allow' | 'ask' | 'deny'> {
-  return hostToolDecision(platform, run, hostRunTools(run), toolId);
+  return (await hostToolPolicy(platform, run, hostRunTools(run), toolId)).decision;
 }
 /** `tools` is passed because admission decides before it retains the run's tools. */
 async function hostToolDecision(
@@ -663,16 +670,28 @@ async function hostToolDecision(
   tools: HostRunAdmission['tools'],
   toolId: string
 ): Promise<'allow' | 'ask' | 'deny'> {
+  return (await hostToolPolicy(platform, run, tools, toolId)).decision;
+}
+/** One tool's decision, and the live access mode's reviewer when one is on. */
+async function hostToolPolicy(
+  platform: HostPlatform,
+  run: HostRunState,
+  tools: HostRunAdmission['tools'],
+  toolId: string
+): Promise<{
+  readonly autoReview?: PermissionToolGateSnapshot['autoReview'];
+  readonly decision: 'allow' | 'ask' | 'deny';
+}> {
   const registered = tools[toolId];
   if (!registered) {
     throw new Error('Tool is not registered');
   }
   if (isHostDiscoveryTool(run, toolId)) {
-    return 'allow';
+    return { decision: 'allow' };
   }
   // BST-1932: spawning never asks; every effect inside the child passes this gate itself.
   if (registered.delegation) {
-    return 'allow';
+    return { decision: 'allow' };
   }
   // A descendant follows its root's live policy and grants (it shares the root
   // thread's); only its admitted denies stay frozen (ADR-0010).
@@ -680,12 +699,15 @@ async function hostToolDecision(
   const snapshot = run.admittedPolicy
     ? (intersectChildPermissionCeilings(run.admittedPolicy, live) ?? live)
     : live;
-  return hostPolicyDecision(
-    snapshot,
-    run.grants,
-    registered.risk,
-    registered.permissionToolId ?? toolId
-  );
+  return {
+    ...(snapshot.autoReview ? { autoReview: snapshot.autoReview } : {}),
+    decision: hostPolicyDecision(
+      snapshot,
+      run.grants,
+      registered.risk,
+      registered.permissionToolId ?? toolId
+    ),
+  };
 }
 /**
  * One tool's decision under the saved policy and its thread's grants: a deny
@@ -751,7 +773,52 @@ export function createAdmittedHostSdkTools(
   const native = run.nativeWebSearch;
   return native ? { ...tools, [native.toolId]: native.tool } : tools;
 }
-/** Uses the existing Core-owned run; permission calculation has no log writer. */
+/**
+ * A call the policy asks about. Auto access mode's quick model answers first:
+ * its approval permits the call, and whatever it does not approve asks the
+ * user with its reason.
+ */
+async function hostAskDecision(
+  run: HostRunState,
+  registered: HostTool,
+  call: { readonly input: unknown; readonly toolCallId: string; readonly toolName: string },
+  action: Extract<HostEvent, { type: 'effect.started' }>,
+  autoReview: PermissionToolGateSnapshot['autoReview'],
+  /** A call already asked about is never reviewed again. */
+  step: { readonly prior: unknown; readonly runs: ReadonlyMap<string, HostRunState> }
+): Promise<'user-approval' | HostAutoReviewOutcome> {
+  const reviewModel = run.admission?.reviewModel;
+  let reviewed: HostAutoReviewOutcome | undefined;
+  if (autoReview && step.prior === undefined) {
+    reviewed = reviewModel
+      ? await reviewHostToolCall({
+          action: {
+            input: call.input,
+            risk: registered.risk,
+            toolId: registered.permissionToolId ?? call.toolName,
+          },
+          model: () => reviewModel(autoReview.model),
+          run,
+          signal: run.controller.signal,
+          turns: hostAutoReviewTurns(step.runs, run),
+        })
+      : {
+          reason: 'Auto-review is not available for this run, so it needs your approval.',
+          type: 'user-approval',
+        };
+    run.controller.signal.throwIfAborted();
+  }
+  if (reviewed?.type === 'approved') {
+    run.permits.set(call.toolCallId, action);
+    return reviewed;
+  }
+  run.liveInputs.set(call.toolCallId, { value: call.input });
+  return reviewed ?? 'user-approval';
+}
+/**
+ * Uses the existing Core-owned run; permission calculation has no log writer.
+ * `runs` are Core's committed runs, whose branches auto access mode reviews.
+ */
 export async function decideHostSdkApproval(
   run: HostRunState,
   platform: HostPlatform,
@@ -761,14 +828,15 @@ export async function decideHostSdkApproval(
     toolCallId: string;
     input: unknown;
     providerExecuted?: boolean;
-  }
+  },
+  runs: ReadonlyMap<string, HostRunState>
 ): Promise<
   | 'approved'
   | 'denied'
   | 'not-applicable'
   | 'user-approval'
   | {
-      type: 'denied';
+      type: 'approved' | 'denied' | 'user-approval';
       reason: string;
     }
 > {
@@ -803,7 +871,12 @@ export async function decideHostSdkApproval(
     run.permits.set(call.toolCallId, action);
     return 'approved';
   }
-  const decision = await hostRunToolDecision(platform, run, call.toolName);
+  const { autoReview, decision } = await hostToolPolicy(
+    platform,
+    run,
+    hostRunTools(run),
+    call.toolName
+  );
   run.controller.signal.throwIfAborted();
   const prior = [...run.approvals.values()].find(
     (approval) => approval.event.toolCallId === call.toolCallId
@@ -841,8 +914,7 @@ export async function decideHostSdkApproval(
     return consented;
   }
   if (decision === 'ask' && prior?.decision !== 'approve') {
-    run.liveInputs.set(call.toolCallId, { value: call.input });
-    return 'user-approval';
+    return await hostAskDecision(run, registered, call, action, autoReview, { prior, runs });
   }
   run.permits.set(call.toolCallId, action);
   return 'approved';

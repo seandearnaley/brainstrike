@@ -6,7 +6,8 @@
  * logic lives here:
  * - the master `enforce` toggle (ON by default; users can opt out),
  * - a per-`ToolRiskCategory` policy control (allow | ask | deny),
- * - the master `yolo` "allow everything this session" toggle.
+ * - the access mode the composer also sets (ask | auto | full) and auto
+ *   mode's quick model.
  *
  * Honest-surface caveats (no over-claiming): enforcement currently applies to
  * the desktop assistant runtime, where an `'ask'` policy now PROMPTS for per-call
@@ -14,6 +15,8 @@
  * inline rather than implied away.
  */
 
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   permissionPolicySelectors,
   rehydratePermissionPolicy,
@@ -22,6 +25,10 @@ import {
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
+  ACCESS_MODES,
+  type AccessMode,
+  AUTO_REVIEW_MODEL_AUTO,
+  isAccessMode,
   PERMISSION_DECISIONS,
   type PermissionDecision,
   TOOL_RISK_CATEGORIES,
@@ -40,6 +47,8 @@ import {
   Switch,
 } from '@brainstrike/ui';
 import { AlertTriangle, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
+import { listObservationalMemoryModelOptions } from '../models/assistant-memory-models';
 
 interface RiskCategoryMeta {
   category: ToolRiskCategory;
@@ -273,14 +282,125 @@ function SessionGrantsBlock() {
   );
 }
 
+const ACCESS_MODE_META: Record<AccessMode, { description: string; label: string }> = {
+  ask: {
+    description: 'Every call the policy above asks about waits for you.',
+    label: 'Ask for approval',
+  },
+  auto: {
+    description:
+      'A quick model reviews each of those calls first. It runs the ones it judges routine and covered by your request, and asks you about the rest, or whenever the review fails.',
+    label: 'Auto',
+  },
+  full: {
+    description:
+      'Every tool runs without asking, ignoring the category policies above. Explicit denies still apply.',
+    label: 'Full access',
+  },
+};
+
+/**
+ * The composer's access mode, and auto mode's quick model. The model list is
+ * the enabled hosted LLMs; Auto picks the chat provider's own quick model, so
+ * the review never reaches a provider that is not already in the conversation.
+ */
+function AccessModeBlock({ disabled }: { disabled: boolean }) {
+  useEnsureModelRegistry();
+  const access = usePermissionPolicyStore(permissionPolicySelectors.access);
+  const autoReviewModel = usePermissionPolicyStore(permissionPolicySelectors.autoReviewModel);
+  const setAccess = usePermissionPolicyStore((state) => state.setAccess);
+  const setAutoReviewModel = usePermissionPolicyStore((state) => state.setAutoReviewModel);
+  const { models, providers } = useModelRegistryStore(
+    useShallow((state) => ({ models: state.models, providers: state.providers }))
+  );
+  const options = listObservationalMemoryModelOptions({
+    assistantMemoryBackendAvailable: true,
+    models,
+    providers,
+  });
+  const known =
+    autoReviewModel === AUTO_REVIEW_MODEL_AUTO ||
+    options.some((option) => option.target === autoReviewModel);
+
+  return (
+    <fieldset
+      className={cn(
+        'space-y-3 rounded-md border p-3',
+        access === 'full' ? 'border-destructive/60 bg-destructive/5' : 'border-border'
+      )}
+      disabled={disabled}
+    >
+      <legend className="sr-only">Access mode</legend>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Label className="text-sm font-medium" htmlFor="permission-access-mode">
+              Access mode
+            </Label>
+            {access === 'full' ? (
+              <Badge className="flex items-center gap-1" variant="destructive">
+                <AlertTriangle className="size-3.5" />
+                All tools allowed
+              </Badge>
+            ) : null}
+          </div>
+          <p className="text-muted-foreground text-sm">{ACCESS_MODE_META[access].description}</p>
+        </div>
+        <select
+          className="border-input bg-background h-9 shrink-0 rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid="permission-access-mode"
+          id="permission-access-mode"
+          onChange={(event) => {
+            const next = event.target.value;
+            if (isAccessMode(next)) {
+              void setAccess(next);
+            }
+          }}
+          value={access}
+        >
+          {ACCESS_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {ACCESS_MODE_META[mode].label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <Label className="text-sm font-medium" htmlFor="permission-auto-review-model">
+            Auto-review model
+          </Label>
+          <p className="text-muted-foreground text-sm">
+            The quick model Auto asks. Auto uses a fast model from your chat provider, such as Haiku
+            for Anthropic chats; another model also sends each reviewed call to its provider.
+          </p>
+        </div>
+        <select
+          className="border-input bg-background h-9 max-w-56 shrink-0 rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid="permission-auto-review-model"
+          id="permission-auto-review-model"
+          onChange={(event) => void setAutoReviewModel(event.target.value)}
+          value={autoReviewModel}
+        >
+          <option value={AUTO_REVIEW_MODEL_AUTO}>Auto — chat provider’s quick model</option>
+          {known ? null : <option value={autoReviewModel}>{autoReviewModel}</option>}
+          {options.map((option) => (
+            <option key={option.target} value={option.target}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </fieldset>
+  );
+}
+
 export function PermissionSettingsSection() {
   const hydration = usePermissionPolicyHydration();
   const enforce = usePermissionPolicyStore(permissionPolicySelectors.enforce);
   const policies = usePermissionPolicyStore(permissionPolicySelectors.policies);
-  const yolo = usePermissionPolicyStore(permissionPolicySelectors.yolo);
   const setEnforce = usePermissionPolicyStore((state) => state.setEnforce);
   const setCategoryPolicy = usePermissionPolicyStore((state) => state.setCategoryPolicy);
-  const setYolo = usePermissionPolicyStore((state) => state.setYolo);
   const saveError = usePermissionPolicySave((state) => state.error);
 
   // BST-1930: editing defaults while the host is still opening can overwrite
@@ -369,36 +489,7 @@ export function PermissionSettingsSection() {
 
         <SessionGrantsBlock />
 
-        <div
-          className={cn(
-            'flex items-start justify-between gap-4 rounded-md border p-3',
-            yolo ? 'border-destructive/60 bg-destructive/5' : 'border-border'
-          )}
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Label className="text-sm font-medium" htmlFor="permission-yolo-toggle">
-                YOLO mode
-              </Label>
-              {yolo ? (
-                <Badge className="flex items-center gap-1" variant="destructive">
-                  <AlertTriangle className="size-3.5" />
-                  All tools allowed
-                </Badge>
-              ) : null}
-            </div>
-            <p className="text-muted-foreground text-sm">
-              Allow every tool for this session, ignoring the category policies above. Use with
-              caution — this lets the assistant edit files and run commands without prompting.
-            </p>
-          </div>
-          <Switch
-            checked={yolo}
-            data-testid="permission-yolo-toggle"
-            id="permission-yolo-toggle"
-            onCheckedChange={(value) => void setYolo(value === true)}
-          />
-        </div>
+        <AccessModeBlock disabled={!enforce} />
 
         <p className="text-muted-foreground text-xs">
           Enforcement currently applies to the desktop assistant runtime. An{' '}

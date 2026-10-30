@@ -186,7 +186,7 @@ export const ComposerEffortControl = ({
         >
           <Brain aria-hidden />
           {readout.label === 'Effort' ? <span className="sr-only">Reasoning</span> : null}
-          <span className="font-normal">{readout.label}</span>
+          <span className="bs-composer-collapsible font-normal">{readout.label}</span>
           <span className="bs-composer-chip-label text-foreground">{readout.value}</span>
           <ChevronDown aria-hidden />
         </button>

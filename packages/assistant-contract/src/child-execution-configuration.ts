@@ -103,6 +103,7 @@ export type ChildNextRun = (typeof childNextRunSchema)['Type'];
 const decision = Schema.Literals(['allow', 'ask', 'deny']);
 const risk = Schema.Literals(['read', 'edit', 'execute', 'mcp']);
 const permissionSchema = Schema.Struct({
+  autoReview: Schema.optional(Schema.Struct({ model: id })),
   defaultRisk: Schema.optional(risk),
   perToolOverrides: Schema.optional(Schema.Record(Schema.String, decision)),
   policies: Schema.Struct({ edit: decision, execute: decision, mcp: decision, read: decision }),

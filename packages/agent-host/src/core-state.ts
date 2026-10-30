@@ -241,6 +241,8 @@ export function foldHostRunEffect(
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
   readonly attachments?: readonly HostImageAttachment[];
+  /** BST-1932: the user message is a delegation's task, which the parent's model wrote. */
+  readonly delegated?: true;
   /** BST-1932: background child results delivered with this run's user message. */
   readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */

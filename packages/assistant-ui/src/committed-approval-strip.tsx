@@ -28,6 +28,8 @@ export interface CommittedPendingApproval {
     readonly approved: boolean;
     readonly optionId?: string;
   }) => Promise<void>;
+  /** Auto access mode's note on why this call still asks. */
+  readonly reviewNote?: string;
   /** The permission category its session grant names; absent: no category grant. */
   readonly risk?: ToolRiskCategory;
   readonly runId: string;
@@ -93,6 +95,11 @@ function ReviewedApproval({ approval }: { readonly approval: CommittedPendingApp
         ) : null}
         <span className="font-medium">{approval.toolName}</span>
       </div>
+      {approval.reviewNote ? (
+        <p className="text-muted-foreground text-xs" data-testid="approval-review-note">
+          {approval.reviewNote}
+        </p>
+      ) : null}
       <ApprovalPreview approval={previewSubject(approval)} />
       <div className="flex flex-wrap gap-2">
         {approvalDecisions(
