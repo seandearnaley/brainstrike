@@ -1,3 +1,4 @@
+import { toBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import type { ProviderCredential } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
@@ -95,6 +96,37 @@ describe('host provider services', () => {
       { authorization: 'Bearer stored-key', url: 'https://openrouter.ai/api/v1/key' },
     ]);
     expect(JSON.stringify(snapshot)).not.toContain('stored-key');
+  });
+});
+
+describe('host provider services: a profile without an OpenRouter key (BST-2346)', () => {
+  it('answers a metadata read with the reason and its remedy, and the boundary logs no error', async () => {
+    const fetchImpl = vi.fn();
+    const { credentials } = credentialsWith({});
+    const services = createHostProviderServices({
+      auth: { secrets: credentials.secrets },
+      env: {},
+      envFileFailures: [],
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    const cause = await services.openRouterModel('anthropic/claude-sonnet-4.6', open).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    const log = vi.fn();
+    const response = toBoundaryResponseError(cause, log);
+
+    expect(response.data).toEqual({
+      category: 'configuration',
+      code: 'provider.credential-missing',
+      kind: 'refusal',
+      message: 'No API key configured for provider "openrouter".',
+      remedy: 'Add an OpenRouter API key in Providers.',
+    });
+    // Each logged boundary failure is one more error on the status bar.
+    expect(log).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 
