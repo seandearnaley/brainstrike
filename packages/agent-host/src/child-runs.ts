@@ -200,7 +200,9 @@ export function deriveHostChildAdmission(
   depth: number
 ): HostRunAdmission {
   const { settings } = delegation;
-  const narrowed = narrowHostChildTools(parent.tools, persona);
+  // A descendant narrows from its parent's tools before they were queued, so
+  // each execution holds one permit, not one per ancestor level (BST-2318).
+  const narrowed = narrowHostChildTools(parent.childTools ?? parent.tools, persona);
   // AT-21: only workers delegate onward, and only while above the depth limit.
   const delegates = personaMode(persona) === 'worker' && depth < settings.maxDepth;
   const tools = {
@@ -222,6 +224,7 @@ export function deriveHostChildAdmission(
   return {
     childProvider: provider,
     childSystem: parent.childSystem,
+    childTools: narrowed,
     configuration: parent.configuration,
     ...(delegates ? { delegation } : {}),
     model: parent.model,

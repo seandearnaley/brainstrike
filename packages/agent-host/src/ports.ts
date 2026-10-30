@@ -389,6 +389,12 @@ export interface HostRunAdmission {
    * root's supervisor instructions.
    */
   readonly childSystem?: string | undefined;
+  /**
+   * BST-2318: set on a delegated child to its narrowed tools before they hold
+   * work permits. Its own children narrow from these, never from the queued
+   * ones, so a descendant's tool execution holds one permit, not one per level.
+   */
+  readonly childTools?: Readonly<Record<string, HostTool>> | undefined;
   /** Join resources selected before the run is committed, including failed admission. */
   close?(): Promise<void>;
   readonly configuration: Readonly<RuntimeData>;
