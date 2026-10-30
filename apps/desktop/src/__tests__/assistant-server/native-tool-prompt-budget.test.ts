@@ -382,6 +382,7 @@ async function readDesktopHostSystemContextForBudget(args: {
   );
   vi.useFakeTimers({ now: PROMPT_BUDGET_CLOCK, toFake: ['Date'] });
   const assembled = await readDesktopHostSystemContext({
+    configurationRoots: [],
     inputTokenLimit: PROMPT_BUDGET_INPUT_TOKEN_LIMIT,
     planMode: false,
     // The budget surface reads no workspace file: a mention or an instructions

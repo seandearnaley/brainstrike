@@ -14,6 +14,7 @@ import {
   ensureMockWorkspaceOpen,
 } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
+import { trustWorkspaceFromComposer } from './utils/workspace-trust';
 
 // Script only the external model provider. Assistant HTTP, native permission,
 // delegation, workspace reads, persistence and shared child controls are real.
@@ -407,6 +408,8 @@ test('sends human input to the active child and reloads its rich conversation', 
       .selectOption('allow');
     await ensureAssistantShellVisible(window);
     const root = window.getByRole('region', { exact: true, name: 'Assistant' });
+    // The workspace's slash command loads once the person trusts the folder (ADR-0032).
+    await trustWorkspaceFromComposer(root);
     await root
       .getByRole('textbox', { name: 'Message input' })
       .fill('ROOT_ACTIVE_INPUT_TASK: delegate to Explorer to read evidence.txt.');

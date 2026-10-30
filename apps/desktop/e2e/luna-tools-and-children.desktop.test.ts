@@ -9,6 +9,7 @@ import { launchElectronAppWithOptions, reloadRenderer } from './utils/electron-h
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import { seedRoot } from './utils/seed-root';
+import { trustWorkspaceFromComposer } from './utils/workspace-trust';
 
 // Same tool shapes as the October 12 debug pack. The exact recall race is
 // deterministic in child-pending-recall.integration; here all app owners run.
@@ -92,6 +93,8 @@ test('Luna loads eager tools, runs an extensionless skill and completes three Ex
       });
       await ensureAssistantShellVisible(page);
       const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+      // The workspace's skill loads once the person trusts the folder (ADR-0032).
+      await trustWorkspaceFromComposer(region);
       await region
         .getByRole('textbox', { name: 'Message input' })
         .fill('Run the skill and delegate three Explorers.');

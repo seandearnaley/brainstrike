@@ -58,6 +58,8 @@ function joinedSections(sections: readonly (string | null | undefined)[]): strin
 export async function readDesktopHostSystemContext(options: {
   /** BST-2018: mentioned files in live folders outside the thread, attached for this run. */
   readonly attachedMentions?: AttachedMentionFolders;
+  /** ADR-0032: the run's roots the person trusted, the only ones whose instructions load. */
+  readonly configurationRoots: NonNullable<RuntimeData['workspaceRoots']>;
   readonly inputTokenLimit: number;
   /** BST-1932: the personas the run may delegate to, named in the supervisor instructions. */
   readonly personas?: readonly DelegationPersonaSummary[];
@@ -152,7 +154,12 @@ export async function readDesktopHostSystemContext(options: {
     messages = [referenced.message, ...messages];
   }
   messages = await injectActivatedSkillsContext(messages, skills);
-  messages = await injectWorkspaceInstructionsContext(messages, options.runtime, readFile);
+  messages = await injectWorkspaceInstructionsContext(
+    messages,
+    options.runtime,
+    readFile,
+    options.configurationRoots
+  );
   // The legacy per-turn workspace topology: root selectors, main root and focused root.
   messages = injectWorkspaceRootManifestContext(messages, options.runtime);
   const injected = messages

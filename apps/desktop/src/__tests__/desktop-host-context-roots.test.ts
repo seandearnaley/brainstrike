@@ -12,6 +12,7 @@ const workspaceRoots = [
 /** The host run's composed instructions under `runtime`. */
 async function hostSystem(runtime: RuntimeData): Promise<string> {
   const { system } = await readDesktopHostSystemContext({
+    configurationRoots: [],
     inputTokenLimit: 100_000,
     planMode: false,
     readWorkspaceFile: async () => {

@@ -45,6 +45,7 @@ import { bindHostProviderMethods } from './provider-connection.ts';
 import { storeRefusal } from './store-refusals.ts';
 import { bindHostTerminalMethods } from './terminal-connection.ts';
 import { searchHostThreads } from './thread-search.ts';
+import { bindHostWorkspaceTrustMethods } from './workspace-trust.ts';
 
 interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -305,6 +306,7 @@ export function bindHostConnection(
   disposables.push(bindHostGitWorkspaceMethods(handle, connection, gitWorkspace, origin));
   disposables.push(bindHostTerminalMethods(handle, connection, terminals, origin));
   bindHostHookTrustMethods(handle, core.store);
+  bindHostWorkspaceTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
   bindHostBrowserOriginMethods(handle, core.store, origin);
   handle('thread/start', (params) => core.startThread(params));
@@ -362,6 +364,7 @@ export function bindHostConnection(
   };
   handle('workspace/skills', (_params, signal) => discovery().skills(signal));
   handle('workspace/commands', (_params, signal) => discovery().commands(signal));
+  handle('workspace/trust/list', (_params, signal) => discovery().trust(signal));
   handle('thread/search', (params) => searchHostThreads(core, searchState, params));
   handle('thread/selection/read', (params) => core.selections.read(params.threadId));
   handle('thread/selection/set', (params) => core.selections.set(params));

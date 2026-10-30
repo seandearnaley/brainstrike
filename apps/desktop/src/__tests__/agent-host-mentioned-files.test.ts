@@ -21,7 +21,7 @@ import {
   placeMentionedFiles,
 } from '../agent-host-platform/desktop-mentioned-files';
 import { createDesktopRunAdmission } from '../agent-host-platform/desktop-run-admission';
-import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
+import { capturedIntent, everyRootTrusted, mainReads } from './fixtures/desktop-admission-reads';
 
 interface Root {
   readonly displayName: string;
@@ -75,7 +75,8 @@ async function admit(options: {
       }),
       liveWorkspaceRoots: async () => [...options.live],
     }),
-    async () => undefined
+    async () => undefined,
+    everyRootTrusted
   );
   const request: HostRunAdmissionRequest = {
     configuration: {

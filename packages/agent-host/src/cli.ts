@@ -13,6 +13,7 @@ import { Schema } from 'effect';
 import { trustCliProjectHooks } from './cli-hooks-trust.ts';
 import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.ts';
 import { HostCliExitError, runHostCliSession } from './cli-session.ts';
+import { trustCliWorkspace } from './cli-workspace-trust.ts';
 import { attachAgentHost, type HostClient, type SocketHostClient } from './client.ts';
 import { createAgentHostSpawner } from './launcher.ts';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
@@ -66,7 +67,7 @@ type CliStringOption =
   | 'skills'
   | 'workspace-instructions'
   | 'thread';
-type CliBooleanOption = 'help' | 'interactive' | 'json' | 'non-interactive';
+type CliBooleanOption = 'help' | 'interactive' | 'json' | 'non-interactive' | 'yes';
 interface HostCliArguments {
   readonly command: string;
   readonly interactive: boolean;
@@ -80,7 +81,10 @@ interface HostCliArguments {
   >;
   readonly workspaceInput?: CliWorkspaceRunInput;
 }
-/** The command the positionals name; `run "prompt"` and `hooks trust [dir]` carry an argument. */
+/**
+ * The command the positionals name; `run "prompt"`, `hooks trust [dir]` and
+ * `workspace trust [dir]` carry an argument.
+ */
 function cliCommand(positionals: readonly string[], help: boolean | undefined): string {
   if (help) {
     return 'help';
@@ -91,6 +95,9 @@ function cliCommand(positionals: readonly string[], help: boolean | undefined): 
   // `hooks trust [dir]` names the root to trust, never a launch selection.
   if (positionals[0] === 'hooks' && positionals[1] === 'trust' && positionals.length <= 3) {
     return 'hooks trust';
+  }
+  if (positionals[0] === 'workspace' && positionals[1] === 'trust' && positionals.length <= 3) {
+    return 'workspace trust';
   }
   return positionals.join(' ');
 }
@@ -135,6 +142,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       workspace: { multiple: true, type: 'string' },
       'workspace-instructions': { type: 'string' },
       'workspace-root': { multiple: true, type: 'string' },
+      yes: { type: 'boolean' },
     },
     strict: true,
   });
@@ -155,6 +163,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'threads show',
       'threads search',
       'workspace search',
+      'workspace trust',
       'run',
       'attach',
       'run start',
@@ -435,12 +444,16 @@ mcp input read --thread <id> --run <id> --interaction <id>
 mcp input settle --thread <id> --run <id> --interaction <id> --action accept|decline|cancel [--content <json>]
 auth login --provider <id> [--region <aws region> [--aws-profile <name>]]
 hooks trust [<root dir>] [--sha256 <hash>]
+workspace trust [<root dir>] [--yes]
 
 auth login reads the API key or AWS bearer key from stdin, never from arguments.
 --aws-profile stores a named AWS profile chain and reads no secret.
 hooks trust shows a standalone root's .brainstrike/hooks.json (default: the current directory)
 and its SHA-256 for review; the host runs its project hooks only at that hash. --sha256
 confirms without a prompt. Desktop roots are approved in Settings > Hooks.
+workspace trust lets a standalone root's agent configuration (its .brainstrike/agents personas)
+load; until then the root runs restricted. --yes confirms without a prompt. Desktop folders
+are trusted from the composer or Settings > Workspace trust.
 
 threads search is lexical: words in committed messages and thread titles, fused into one
 ranked list; with no thread holding every word, it matches any word and says so. --scope-root
@@ -520,6 +533,11 @@ Run signals stop and join its execution; attach signals detach.
             root: positionals[2],
             sha256: values.sha256,
           })
+        );
+        break;
+      case 'workspace trust':
+        print(
+          await trustCliWorkspace(client, { interactive, root: positionals[2], yes: values.yes })
         );
         break;
       case 'auth login': {

@@ -16,6 +16,7 @@ import {
 } from '../agent-host-platform/desktop-host-context';
 
 const NOTES = 'NOTES_BODY_FOR_THE_TREE';
+const ROOTS = [{ displayName: 'repo', path: '/work/repo', rootId: 'root-1' }];
 const mention = serializeFileMentionDirective({
   id: encodeFileMentionId('root-1', 'notes.md'),
   label: 'notes.md',
@@ -26,6 +27,7 @@ function read(
   snapshot?: HostRunAdmissionRequest['snapshot']
 ): Promise<DesktopHostSystemContext> {
   return readDesktopHostSystemContext({
+    configurationRoots: ROOTS,
     inputTokenLimit: 5000,
     ...(personas ? { personas } : {}),
     planMode: false,
@@ -44,7 +46,7 @@ function read(
     runtime: {
       model: 'model',
       provider: 'openrouter',
-      workspaceRoots: [{ displayName: 'repo', path: '/work/repo', rootId: 'root-1' }],
+      workspaceRoots: ROOTS,
     },
     tools: {},
   });
