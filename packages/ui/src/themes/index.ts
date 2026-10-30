@@ -38,7 +38,7 @@ export const THEMES: readonly ThemeDefinition[] = [
     label: 'Ember',
     presetCode: 'buKEvLs',
     swatch: {
-      dark: { background: 'oklch(0.145 0 0)', primary: 'oklch(0.444 0.177 26.899)' },
+      dark: { background: 'oklch(0.145 0 0)', primary: 'oklch(0.599 0.177 26.899)' },
       light: { background: 'oklch(1 0 0)', primary: 'oklch(0.505 0.213 27.518)' },
     },
   },
@@ -47,7 +47,7 @@ export const THEMES: readonly ThemeDefinition[] = [
     label: 'Tide',
     presetCode: 'bNRM0gzE1',
     swatch: {
-      dark: { background: 'oklch(0.148 0.004 228.8)', primary: 'oklch(0.45 0.085 224.283)' },
+      dark: { background: 'oklch(0.148 0.004 228.8)', primary: 'oklch(0.57 0.085 224.283)' },
       light: { background: 'oklch(1 0 0)', primary: 'oklch(0.52 0.105 223.128)' },
     },
   },
@@ -56,7 +56,7 @@ export const THEMES: readonly ThemeDefinition[] = [
     label: 'Orchid',
     presetCode: 'b4aRK71bRz',
     swatch: {
-      dark: { background: 'oklch(0.145 0.008 326)', primary: 'oklch(0.459 0.187 3.815)' },
+      dark: { background: 'oklch(0.145 0.008 326)', primary: 'oklch(0.599 0.187 3.815)' },
       light: { background: 'oklch(1 0 0)', primary: 'oklch(0.525 0.223 3.958)' },
     },
   },
