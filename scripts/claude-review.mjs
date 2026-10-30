@@ -25,6 +25,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   buildPrompt,
+  changeFingerprint,
   deserializeFiles,
   findingTitle,
   isOwnFinding,
@@ -34,7 +35,7 @@ import {
   renderPrDiff,
   resultSchema,
   reviewBody,
-  reviewedHead,
+  reviewState,
   selectFindings,
   serializeFiles,
   stateMarker,
@@ -85,7 +86,7 @@ const runUrl = () =>
 
 function statusComment(repository, number) {
   return ghPages(`repos/${repository}/issues/${number}/comments`).findLast(
-    (comment) => comment.user?.login === REST_BOT && reviewedHead(comment.body)
+    (comment) => comment.user?.login === REST_BOT && reviewState(comment.body)
   );
 }
 
@@ -164,7 +165,8 @@ export function prepare() {
       throw new Error(`The checkout is not the PR head ${head}.`);
     }
     const status = statusComment(repository, number);
-    const lastHead = status ? reviewedHead(status.body) : null;
+    const last = status ? reviewState(status.body) : null;
+    const lastHead = last?.head ?? null;
     Object.assign(state, { lastHead, statusCommentId: status?.id ?? null });
     if (lastHead === head) {
       state.reason = `\`${short(head)}\` is already reviewed.`;
@@ -178,7 +180,21 @@ export function prepare() {
         prFiles.set(filePath, entry);
       }
     }
+    state.change = changeFingerprint(files);
+    if (lastHead && state.change === last.change) {
+      // The PR adds and removes the same lines it did: an empty commit, a clean
+      // rebase or a base merge. Record the new head so the next follow-up
+      // starts here.
+      Object.assign(state, {
+        advance: true,
+        reason: `No new changes since \`${short(lastHead)}\`.`,
+      });
+      return;
+    }
 
+    // A full review normally has none, but one after the status comment was
+    // deleted (the way to ask for a fresh full pass) must not re-post them.
+    const prior = priorFindings(repository, number);
     let diff;
     let omitted = [];
     let touched = null;
@@ -202,12 +218,12 @@ export function prepare() {
         ...files.map((file) => file.filename),
       ]);
       touched = newWork(parseDiff(incremental), prFiles);
-      if (touched.size === 0) {
-        // An empty commit, a clean rebase or a base merge: the PR adds the same
-        // lines it did. Record the new head so the next follow-up starts here.
+      // A push that only removes lines can still be the fix for an open
+      // finding, so it gets a follow-up that may resolve but not post.
+      if (touched.size === 0 && !prior.some((finding) => !finding.resolved)) {
         Object.assign(state, {
           advance: true,
-          reason: `No new changes since \`${short(lastHead)}\`.`,
+          reason: `No new lines since \`${short(lastHead)}\` and no open findings to recheck.`,
         });
         return;
       }
@@ -218,9 +234,6 @@ export function prepare() {
       state.mode = 'full';
     }
 
-    // A full review normally has none, but one after the status comment was
-    // deleted (the way to ask for a fresh full pass) must not re-post them.
-    const prior = priorFindings(repository, number);
     const prompt = buildPrompt({
       diff,
       fence: `UNTRUSTED-${randomUUID()}`,
@@ -371,7 +384,7 @@ function recordHead(state, line) {
     0,
     HISTORY_LIMIT
   );
-  const body = `### Claude review\n\nThe first ready push gets one full review; each later push gets a follow-up on its new commits only.\n\n${history.join('\n')}\n\n${stateMarker(state.head)}`;
+  const body = `### Claude review\n\nThe first ready push gets one full review; each later push gets a follow-up on its new commits only.\n\n${history.join('\n')}\n\n${stateMarker(state.head, state.change)}`;
   const route = state.statusCommentId
     ? [
         'api',

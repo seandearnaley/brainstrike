@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildPrompt,
+  changeFingerprint,
   describeLines,
   deserializeFiles,
   findingBody,
@@ -13,7 +14,7 @@ import {
   placeFinding,
   renderPrDiff,
   reviewBody,
-  reviewedHead,
+  reviewState,
   selectFindings,
   serializeFiles,
   stateMarker,
@@ -157,6 +158,40 @@ describe('placeFinding', () => {
   });
 });
 
+describe('changeFingerprint', () => {
+  const patch = '@@ -10,3 +10,3 @@ fn\n context\n-guard(x);\n+guard(x, y);\n context';
+  const files = [
+    { filename: 'src/a.ts', patch, status: 'modified' },
+    { filename: 'logo.png', sha: 'f00d', status: 'added' },
+  ];
+
+  it('stays the same when a rebase or base merge only moves the PR’s hunks', () => {
+    const shifted = patch
+      .replace('@@ -10,3 +10,3 @@', '@@ -42,3 +45,3 @@')
+      .replace(' context\n-', ' other\n-');
+    assert.equal(
+      changeFingerprint([files[1], { ...files[0], patch: shifted }]),
+      changeFingerprint(files)
+    );
+  });
+
+  it('changes when a push only deletes lines', () => {
+    const deletionOnly =
+      '@@ -10,4 +10,3 @@ fn\n context\n-guard(x);\n-retry(x);\n+guard(x, y);\n context';
+    assert.notEqual(
+      changeFingerprint([{ ...files[0], patch: deletionOnly }, files[1]]),
+      changeFingerprint(files)
+    );
+  });
+
+  it('changes when a file without a patch changes', () => {
+    assert.notEqual(
+      changeFingerprint([files[0], { ...files[1], sha: 'beef' }]),
+      changeFingerprint(files)
+    );
+  });
+});
+
 describe('selectFindings', () => {
   const of = (severity, confidence) => ({ ...finding, confidence, severity });
 
@@ -208,8 +243,16 @@ describe('renderPrDiff', () => {
 
 describe('markers', () => {
   it('round-trips the reviewed head through the status comment', () => {
-    assert.equal(reviewedHead(`### Claude review\n\n${stateMarker(head)}`), head);
-    assert.equal(reviewedHead('A comment someone else wrote'), null);
+    assert.deepEqual(reviewState(`### Claude review\n\n${stateMarker(head, 'abc123')}`), {
+      change: 'abc123',
+      head,
+    });
+    assert.equal(reviewState('A comment someone else wrote'), null);
+    // A marker written before the fingerprint existed still names its head.
+    assert.deepEqual(reviewState(`<!-- claude-review-state head=${head} -->`), {
+      change: null,
+      head,
+    });
   });
 
   it('recognises only this workflow’s own findings, and reads their titles back', () => {
@@ -285,6 +328,39 @@ describe('buildPrompt', () => {
       prompt,
       /- F1 \[open\] src\/one\.ts:12 — Off by one\n {4}reply from owner: intended/u
     );
+  });
+});
+
+describe('buildPrompt for a deletion-only push', () => {
+  it('asks only whether the removals fix an open finding', () => {
+    const prompt = buildPrompt({
+      diff: '@@ -3,2 +3 @@\n-bad();\n ok();',
+      fence: 'UNTRUSTED-1234',
+      head,
+      lastHead,
+      mode: 'followup',
+      number: 7,
+      omitted: [],
+      pr: { body: '', title: 'Fix one' },
+      prior: [
+        {
+          id: 'F1',
+          line: 3,
+          path: 'src/one.ts',
+          replies: [],
+          resolved: false,
+          title: 'Calls bad()',
+        },
+      ],
+      repository: 'o/r',
+      reviewMd: null,
+      touched: new Map(),
+    });
+    assert.match(
+      prompt,
+      /add no lines of their own; they only remove code\. Report no findings\./u
+    );
+    assert.doesNotMatch(prompt, /these are the lines in that diff/u);
   });
 });
 

@@ -4,8 +4,9 @@
 # - The first non-draft run posts one PR review with every finding inline.
 # - A later push gets a follow-up limited to the lines its commits changed. It
 #   posts a review only when it has something new, and resolves the threads of
-#   earlier findings the push fixed. An empty commit, a clean rebase or a base
-#   merge reviews nothing.
+#   earlier findings the push fixed. A push that leaves the PR adding and
+#   removing the same lines (an empty commit, a clean rebase or a base merge)
+#   reviews nothing; one that only deletes lines rechecks the open findings.
 # - The reviewed head is kept in a "Claude review" status comment on the PR.
 #   Delete that comment and re-run the job for a fresh full review.
 # - What to report lives in REVIEW.md, read from the base branch, never from the
