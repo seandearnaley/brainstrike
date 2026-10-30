@@ -5,14 +5,18 @@ import type { ThreadDebugHostProbe } from './thread-debug-host-probe';
 const REPEATED_VALUE_MARKER = '[REPEATED OR CIRCULAR]';
 /** The desktop main-log IPC refuses a wider window. */
 const HOST_WINDOW_MAX_MS = 24 * 60 * 60 * 1000;
+/** The newest retained diagnostic events a pack carries (BST-2347). */
+const DIAGNOSTIC_EVENTS_LIMIT = 50;
 const NO_BRIDGE_REASON =
-  'no desktop diagnostics bridge exposing readMainLogWindow and readProcessCounters (web build or older preload)';
+  'no desktop diagnostics bridge exposing queryEvents, readMainLogWindow and readProcessCounters (web build or older preload)';
 /** One piece of desktop host evidence, fetched when the pack is built, never persisted. */
 export type ThreadDebugHostItem =
   | { readonly status: 'included'; readonly value: Readonly<Record<string, unknown>> }
   | { readonly reason: string; readonly status: 'unavailable' };
 
 export interface ThreadDebugHostEvidence {
+  /** The status bar's records: whatever any process logged at warn or above, not only this run. */
+  readonly diagnosticEvents: ThreadDebugHostItem;
   readonly hostLog: ThreadDebugHostItem;
   readonly processCounters: ThreadDebugHostItem;
   readonly window: { readonly since: string; readonly until: string } | null;
@@ -47,7 +51,7 @@ export function boundedHostWindow(
 
 async function readHostItem(
   read: () => Promise<unknown>,
-  arrayKey: 'lines' | 'samples',
+  arrayKey: 'events' | 'lines' | 'samples',
   label: string
 ): Promise<ThreadDebugHostItem> {
   let value: unknown;
@@ -72,7 +76,7 @@ export async function collectHostEvidence(
 ): Promise<ThreadDebugHostEvidence> {
   if (probe === null) {
     const missing = { reason: NO_BRIDGE_REASON, status: 'unavailable' } as const;
-    return { hostLog: missing, processCounters: missing, window: null };
+    return { diagnosticEvents: missing, hostLog: missing, processCounters: missing, window: null };
   }
   const window = resolveWindow();
   const hostLog: ThreadDebugHostItem =
@@ -84,7 +88,14 @@ export async function collectHostEvidence(
     'samples',
     'process counter'
   );
-  return { hostLog, processCounters, window };
+  // Not bounded by the run window: an error the status bar counts may come
+  // from startup or another thread, and the pack is where it gets explained.
+  const diagnosticEvents = await readHostItem(
+    async () => ({ events: await probe.queryEvents({ limit: DIAGNOSTIC_EVENTS_LIMIT }) }),
+    'events',
+    'diagnostic events'
+  );
+  return { diagnosticEvents, hostLog, processCounters, window };
 }
 
 /** Host evidence as a pack section: the value, or null with its reason in the manifest. */
@@ -164,6 +175,7 @@ export function redactDebugPack(
   // An unavailable reason is a raw IPC error message outside sections: it takes
   // the same value scrub and count. Paths stay (documented export content).
   const hostManifest = {
+    diagnosticEvents: scrub(describeHostItem(host.diagnosticEvents)),
     hostLog: scrub(describeHostItem(host.hostLog)),
     processCounters: scrub(describeHostItem(host.processCounters)),
     window: host.window,
