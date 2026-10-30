@@ -8,6 +8,8 @@ import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-cap
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import { usePermissionPolicyHydration } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   getProviderModelDefinitions,
@@ -510,5 +512,32 @@ describe("the host composer's Tools menu", () => {
     expect(result.current.readConfiguration(null)['enabledNativeToolIds']).toEqual(
       DESKTOP_NATIVE_TOOL_IDS.filter((id) => id !== nativeTool)
     );
+  });
+});
+
+describe("the host composer's access chip", () => {
+  const hydration = usePermissionPolicyHydration.getState();
+  const layout = usePanelLayoutStore.getState();
+  afterEach(() => {
+    cleanup();
+    usePermissionPolicyHydration.setState(hydration, true);
+    usePanelLayoutStore.setState(layout, true);
+    window.location.hash = '';
+  });
+
+  test('a saved policy that cannot be loaded shows as unavailable and opens Settings → Permissions', () => {
+    const error = 'The saved permission settings are from an older version of BrainStrike.';
+    usePermissionPolicyHydration.setState({ error, status: 'failed', unreadable: true }, true);
+    const { result } = renderHook(() => present());
+    const access = result.current.accessMode;
+    if (!(access && 'unavailable' in access)) {
+      throw new Error('The composer offers no pointer to the unreadable policy');
+    }
+    expect(access.unavailable).toBe(error);
+
+    access.onOpenSettings();
+
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
+    expect(window.location.hash).toBe('#settings/permissions');
   });
 });

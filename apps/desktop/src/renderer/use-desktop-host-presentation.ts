@@ -17,6 +17,7 @@ import {
 } from '@brainstrike/app-shell';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   permissionPolicySelectors,
   usePermissionPolicyHydration,
@@ -230,25 +231,34 @@ function noticeProps(
  * The composer's access mode, read from and saved to the permission policy
  * owner. Offered once the saved policy has loaded (BST-1930: an edit before
  * then could overwrite it) and only while enforcement is on: with it off,
- * every tool already runs and Settings says so.
+ * every tool already runs and Settings says so. A policy that failed to load
+ * shows as unavailable and leads to Settings → Permissions, which offers the fix.
  */
 function useComposerAccessMode(): CommittedAssistantConversationProps['accessMode'] {
-  const ready = usePermissionPolicyHydration((state) => state.status === 'ready');
+  const hydration = usePermissionPolicyHydration();
   const enforce = usePermissionPolicyStore(permissionPolicySelectors.enforce);
   const mode = usePermissionPolicyStore(permissionPolicySelectors.access);
   const setAccess = usePermissionPolicyStore((state) => state.setAccess);
-  return useMemo(
-    () =>
-      ready && enforce
-        ? {
-            mode,
-            onChange: (next) => {
-              void setAccess(next);
-            },
-          }
-        : undefined,
-    [enforce, mode, ready, setAccess]
-  );
+  const openSettings = usePanelLayoutStore((state) => state.openSettings);
+  return useMemo(() => {
+    if (hydration.status === 'failed') {
+      return {
+        onOpenSettings: () => {
+          openSettings();
+          window.location.hash = '#settings/permissions';
+        },
+        unavailable: hydration.error,
+      };
+    }
+    return hydration.status === 'ready' && enforce
+      ? {
+          mode,
+          onChange: (next) => {
+            void setAccess(next);
+          },
+        }
+      : undefined;
+  }, [enforce, hydration, mode, openSettings, setAccess]);
 }
 /** Existing picker/settings owners project controls; they own no assistant execution. */
 export function useDesktopHostPresentation(
