@@ -1,32 +1,27 @@
-import { Button, toast } from '@brainstrike/ui';
-import { getErrorMessage } from '@brainstrike/utils/error-utils';
+import { Button, saveDownload } from '@brainstrike/ui';
 import { Download } from 'lucide-react';
 import type { ReactElement } from 'react';
 import type {
   AssistantThreadHostArtifact,
   AssistantThreadHostArtifacts,
 } from '../assistant-thread-host-context';
-import { downloadCanvasHtml } from '../canvas/download-canvas-html';
+import { canvasHtmlFile } from '../canvas/download-canvas-html';
 import { ArtifactThumbnail } from './artifact-thumbnail';
 
-async function download(
+function download(
   artifacts: AssistantThreadHostArtifacts,
   artifact: AssistantThreadHostArtifact
-): Promise<void> {
-  try {
-    const canvas = await artifacts.read(artifact.threadId, artifact.canvasId);
-    if (!canvas) {
-      throw new Error('This artifact is no longer in its thread.');
-    }
-    const { path } = await downloadCanvasHtml(canvas);
-    toast({ description: path ?? 'Saved to your downloads.', title: 'Artifact saved' });
-  } catch (error) {
-    toast({
-      description: getErrorMessage(error),
-      title: 'Could not save the artifact',
-      variant: 'destructive',
-    });
-  }
+): void {
+  void saveDownload({
+    build: async () => {
+      const canvas = await artifacts.read(artifact.threadId, artifact.canvasId);
+      if (!canvas) {
+        throw new Error('This artifact is no longer in its thread.');
+      }
+      return canvasHtmlFile(canvas);
+    },
+    what: 'artifact',
+  });
 }
 
 /**
@@ -79,7 +74,7 @@ export function ArtifactCard({
         className="bg-background/90 absolute top-2 right-2 opacity-0 shadow-sm group-hover:opacity-100 focus-visible:opacity-100"
         data-testid="artifact-download"
         onClick={() => {
-          void download(artifacts, artifact);
+          download(artifacts, artifact);
         }}
         size="icon-xs"
         title="Download HTML"

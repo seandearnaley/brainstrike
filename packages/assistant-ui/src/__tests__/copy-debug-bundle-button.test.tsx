@@ -1,4 +1,5 @@
 import { act } from '@brainstrike/test-utils/react-act';
+import { resetToastStore, Toaster } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactNode } from 'react';
@@ -57,6 +58,7 @@ describe('CopyDebugBundleButton', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    act(() => resetToastStore());
   });
 
   it('renders nothing without a provider, even with a run.failed part', () => {
@@ -114,13 +116,17 @@ describe('CopyDebugBundleButton', () => {
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:bundle');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
 
+    render(<Toaster />);
     wrap({ buildBundle }, <CopyDebugBundleButton />);
     const button = screen.getByTestId('download-debug-bundle');
 
-    // Mocked only AFTER render so React's own element creation is untouched.
-    const anchor = document.createElement('a');
+    // Only anchors are captured, so React keeps creating the toast's own
+    // elements.
+    const create = document.createElement.bind(document);
+    const anchor = create('a');
     const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);
-    vi.spyOn(document, 'createElement').mockReturnValue(anchor);
+    vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) =>
+      tagName === 'a' ? anchor : create(tagName)) as typeof document.createElement);
 
     await act(async () => {
       fireEvent.click(button);
@@ -131,22 +137,29 @@ describe('CopyDebugBundleButton', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
     expect(anchor.download).toBe('brainstrike-debug-bundle-2026-07-27T14-32-05Z-run-1a2b3c4d.md');
-    expect(button).toHaveTextContent(/^Saved · \d+ KB$/u);
+    // The toast confirms it, as for every download; the button is ready again.
+    expect(screen.getByText('Debug bundle saved')).toBeInTheDocument();
+    expect(
+      screen.getByText('brainstrike-debug-bundle-2026-07-27T14-32-05Z-run-1a2b3c4d.md')
+    ).toBeInTheDocument();
+    expect(button).toHaveTextContent('Download .md');
     // The copy action stays untouched by the download cycle.
     expect(screen.getByTestId('copy-debug-bundle')).toHaveTextContent('Copy debug bundle');
     expect(clipboardWriteText).not.toHaveBeenCalled();
   });
 
-  it('shows a visible error naming the download action when the binding rejects', async () => {
+  it('says why a download failed when the binding rejects', async () => {
     messagePartsMock.push(
       runEventPart({ id: 'e1', kind: 'run.failed', runId: 'run-1', status: 'failed' })
     );
     const buildBundle = vi.fn().mockRejectedValue(new Error('db unavailable'));
+    render(<Toaster />);
     wrap({ buildBundle }, <CopyDebugBundleButton />);
 
     await userEvent.click(screen.getByTestId('download-debug-bundle'));
 
-    expect(await screen.findByText('Download failed: db unavailable')).toBeInTheDocument();
+    expect(await screen.findByText('Could not save the debug bundle')).toBeInTheDocument();
+    expect(screen.getByText('db unavailable')).toBeInTheDocument();
   });
 
   it('shows a visible error when the binding rejects', async () => {

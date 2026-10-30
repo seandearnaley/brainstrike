@@ -15,10 +15,18 @@
  * BST-2342: at a page zoom other than 100% the page still covers exactly its
  * tab's viewport, read from main's `View.getBounds()` in window DIPs.
  *
+ * BST-2343: a toast stacks bottom-right, over the workspace pane, so a shown
+ * page steps aside while one is up. Downloading the debug pack with a page
+ * open, as in the smoke test that found it, is the trigger; Downloads points
+ * at a temporary folder so the run never writes to the real one.
+ *
  * BST-1843: closing the window with a page open must tear the pane down
  * without a main-process error — `dispose()` runs from the window's `closed`
  * event, when the BrowserWindow is already destroyed.
  */
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
@@ -253,6 +261,47 @@ test.describe('Browser tabs (desktop)', () => {
     await expect
       .poll(() => drawnPageOffset(page, app, 1.25), { timeout: 10_000 })
       .toBeLessThanOrEqual(1);
+  });
+
+  test('a toast is never drawn under a page: the page steps aside until it closes (BST-2343)', async ({
+    electronApp,
+    modelProvider,
+    window: page,
+  }) => {
+    test.setTimeout(120_000);
+    const app = electronApp.app;
+    const downloads = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-e2e-downloads-'));
+    try {
+      await app.evaluate(({ app: electronApp }, folder) => {
+        electronApp.setPath('downloads', folder);
+      }, downloads);
+      await ensureAssistantShellVisible(page);
+      await configureAssistantProvider(page);
+      await startConversation(page, modelProvider, 'A conversation to debug');
+      await openBrowserPage(page, titledPage('Alpha'), 'Alpha');
+      await expectDrawnPages(app, [titledPage('Alpha')]);
+
+      const assistant = page.getByRole('region', { exact: true, name: 'Assistant' });
+      await assistant.getByText('Debug pack', { exact: true }).click();
+      await assistant.getByRole('button', { name: 'Download debug pack' }).click();
+
+      const saved = page
+        .getByRole('region', { name: /^Notifications/u })
+        .getByRole('listitem')
+        .filter({ hasText: 'Debug pack saved' });
+      await expect(saved).toBeVisible({ timeout: 30_000 });
+      await expect(saved).toContainText(downloads);
+      await expectDrawnPages(app, []);
+      expect(readdirSync(downloads)).toEqual([
+        expect.stringMatching(/^brainstrike-thread-debug-.*\.json$/u),
+      ]);
+
+      await saved.locator('[toast-close]').click();
+      await expect(saved).toHaveCount(0);
+      await expectDrawnPages(app, [titledPage('Alpha')]);
+    } finally {
+      rmSync(downloads, { force: true, recursive: true });
+    }
   });
 
   test('closing the window with a page open releases the pane without a main-process error (BST-1843)', async ({

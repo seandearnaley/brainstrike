@@ -1,8 +1,5 @@
 import { type ActionOutcome, createClipboardService } from '@brainstrike/context-actions';
-import {
-  downloadBlobFile,
-  formatTimestampedDownloadFilename,
-} from '@brainstrike/utils/browser-download';
+import { formatTimestampedDownloadFilename } from '@brainstrike/utils/browser-download';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ParseError, render as renderTex } from 'katex';
 import {
@@ -30,6 +27,7 @@ import {
 } from '../dropdown-menu';
 import { DIALOG_LAYER_CLASSES } from '../layers';
 import { cn } from '../lib/utils';
+import { type DownloadFile, saveDownload } from '../save-download';
 import { TooltipProvider } from '../tooltip';
 import { TooltipIconButton } from '../tooltip-icon-button';
 import { toast } from '../use-toast';
@@ -164,11 +162,11 @@ function reportFailure(title: string, error: unknown) {
   });
 }
 
-async function downloadDiagram(
+async function diagramFile(
   read: ReadDrawn,
   format: 'png' | 'svg',
   { background, scale }: ExportOptions
-) {
+): Promise<DownloadFile> {
   const { live, result } = readOrThrow(read);
   const diagram = await standaloneDiagram(live, result, background);
   const blob =
@@ -181,8 +179,7 @@ async function downloadDiagram(
     name: `${result.type}-diagram`,
     suffix: format === 'png' ? `${scale}x` : null,
   });
-  const { path } = await downloadBlobFile({ blob, filename });
-  toast({ description: path ?? filename, title: 'Diagram saved' });
+  return { blob, filename };
 }
 
 /**
@@ -238,9 +235,7 @@ function DiagramToolbar({
   };
 
   const download = (format: 'png' | 'svg') => {
-    downloadDiagram(read, format, options).catch((error: unknown) =>
-      reportFailure('Could not save the diagram', error)
-    );
+    void saveDownload({ build: () => diagramFile(read, format, options), what: 'diagram' });
   };
 
   // Choosing an option keeps the menu open, so the download is one more click.

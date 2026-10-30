@@ -29,14 +29,12 @@ import {
   CopyTextButton,
   cn,
   EmptyState,
+  saveDownload,
   Tabs,
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import {
-  downloadBlobFile,
-  formatTimestampedDownloadFilename,
-} from '@brainstrike/utils/browser-download';
+import { formatTimestampedDownloadFilename } from '@brainstrike/utils/browser-download';
 import { Download } from 'lucide-react';
 import { type ReactElement, useCallback, useMemo, useState } from 'react';
 import { getDelegatedColorPresentation } from '../agent-color-presentation';
@@ -155,45 +153,32 @@ function ContextRingBar({
   );
 }
 
-type DownloadPhase =
-  | { readonly kind: 'idle' | 'saved' }
-  | { readonly kind: 'error'; readonly message: string };
-
-/** Saves the in-window bundle as Markdown through the shared download path. */
+/** Saves the in-window bundle as Markdown; the toast says where it went. */
 function BundleDownloadButton({ build }: { readonly build: () => string }): ReactElement {
-  const [phase, setPhase] = useState<DownloadPhase>({ kind: 'idle' });
-  const download = async (): Promise<void> => {
-    try {
-      await downloadBlobFile({
+  const download = (): void => {
+    void saveDownload({
+      build: () => ({
         blob: new Blob([build()], { type: 'text/markdown;charset=utf-8' }),
         filename: formatTimestampedDownloadFilename({
           extension: 'md',
           generatedAt: new Date(),
           name: 'brainstrike-thread-context',
         }),
-      });
-      setPhase({ kind: 'saved' });
-    } catch (error) {
-      setPhase({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
-    }
+      }),
+      what: 'context bundle',
+    });
   };
   return (
-    <span className="flex items-center gap-2">
-      <Button
-        className="h-7 gap-1 text-xs"
-        data-testid="context-map-download-bundle"
-        onClick={() => void download()}
-        size="sm"
-        variant="ghost"
-      >
-        <Download aria-hidden="true" className="size-3" />
-        Download bundle
-      </Button>
-      <span aria-live="polite" className="text-muted-foreground text-xs" role="status">
-        {phase.kind === 'error' ? `Download failed: ${phase.message}` : null}
-        {phase.kind === 'saved' ? 'Bundle saved' : null}
-      </span>
-    </span>
+    <Button
+      className="h-7 gap-1 text-xs"
+      data-testid="context-map-download-bundle"
+      onClick={download}
+      size="sm"
+      variant="ghost"
+    >
+      <Download aria-hidden="true" className="size-3" />
+      Download bundle
+    </Button>
   );
 }
 

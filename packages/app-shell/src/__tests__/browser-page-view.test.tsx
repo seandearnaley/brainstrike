@@ -10,6 +10,7 @@ import {
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act } from '@brainstrike/test-utils/react-act';
+import { resetToastStore, toast } from '@brainstrike/ui';
 import { cleanup, render, renderHook, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -98,6 +99,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  act(() => resetToastStore());
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   useBrowserTabsStore.getState().reset();
@@ -128,6 +130,33 @@ describe('browser page tab', () => {
 
     act(() => useCommandPaletteStore.setState({ isOpen: true }));
     expect(bridge.setOccluded).toHaveBeenLastCalledWith(true);
+  });
+
+  it('steps aside while a toast is up, so the toast is not drawn under the page', async () => {
+    render(<PageTabs isMenuOpen={false} />);
+    await nextFrame();
+    expect(bridge.setOccluded).toHaveBeenLastCalledWith(false);
+
+    let saved: ReturnType<typeof toast> | undefined;
+    act(() => {
+      saved = toast({ description: '/Downloads/thread-debug.json', title: 'Debug pack saved' });
+    });
+    expect(bridge.setOccluded).toHaveBeenLastCalledWith(true);
+
+    act(() => saved?.dismiss());
+    await nextFrame();
+    expect(bridge.setOccluded).toHaveBeenLastCalledWith(false);
+  });
+
+  it('stays shown while a persistent toast is up, which would otherwise blank the page until someone closes it', async () => {
+    render(<PageTabs isMenuOpen={false} />);
+    await nextFrame();
+
+    act(() => {
+      toast({ persistent: true, title: 'Conversation rewound' });
+    });
+    await nextFrame();
+    expect(bridge.setOccluded).not.toHaveBeenCalledWith(true);
   });
 
   it('keeps the page hidden away from the Explorer route', async () => {
