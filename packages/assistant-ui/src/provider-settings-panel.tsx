@@ -119,7 +119,7 @@ function resolveOpenRouterStatus(
   if (lookup?.state === 'error') {
     return {
       kind: 'error',
-      message: `Live metadata unavailable: ${lookup.message}. Using the built-in catalog.`,
+      message: `Live metadata unavailable, so the built-in catalog is in use. ${lookup.message}`,
     };
   }
   return;

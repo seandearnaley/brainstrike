@@ -1198,7 +1198,7 @@ describe('assistant thread surface', () => {
         modelName="anthropic/claude-sonnet-4.6"
         onSettingsChange={vi.fn()}
         openRouterModelMetadataLookup={{
-          message: 'OpenRouter request failed',
+          message: 'OpenRouter request failed. Check your connection.',
           state: 'error',
         }}
         providerId="openrouter"
@@ -1209,7 +1209,7 @@ describe('assistant thread surface', () => {
     expect(screen.getByText(/1,000,000 context.*128,000 max output/u)).toBeInTheDocument();
     expect(screen.getByText('Source: built-in model catalog')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(
-      /Live metadata unavailable.*OpenRouter request failed/u
+      'Live metadata unavailable, so the built-in catalog is in use. OpenRouter request failed. Check your connection.'
     );
     expect(screen.getByRole('status')).toHaveClass('text-destructive');
   });
