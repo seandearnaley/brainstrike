@@ -14,6 +14,15 @@ carry their durable root ID, not a selection/cache folder ID.
 
 ## Instructions, prompts and skills
 
+A folder's agent configuration (its AGENTS.md/AGENT.md/CLAUDE.md, project
+skills, slash commands and subagent personas) loads only once the person trusts
+the folder. The host records each answer by the folder's canonical path
+(`packages/agent-host/src/workspace-trust.ts`) and is its only writer. Pass a
+run's or listing's roots through `trustedHostWorkspaceRoots` before scanning
+project tiers. An untrusted folder still mounts and stays readable and editable.
+Home tiers load regardless, and hooks keep their own hash pins. Add any new
+repo-supplied input that steers the agent behind the same filter.
+
 Use the shared contained, size-bounded readers for workspace instructions,
 references, commands and skills. Respect scoped precedence and hard ignore rules;
 report omissions and preserve Unicode boundaries when limiting context. Never
@@ -43,6 +52,7 @@ remain visibly unavailable. Renames and multi-run undo preserve ordered, idempot
 restoration. Whole-turn shadow Git and per-edit baselines are distinct owners.
 Thread deletion/reset retire the associated content through those owners.
 
-Decision: [ADR-0016](../adr/0016-workspace-trust-and-ignore-chain.md).
+Decisions: [ADR-0016](../adr/0016-workspace-trust-and-ignore-chain.md),
+[ADR-0032](../adr/0032-workspace-trust.md).
 Implementation: desktop workspace readers/tools, `packages/agent-host` and
 `packages/file-explorer`.

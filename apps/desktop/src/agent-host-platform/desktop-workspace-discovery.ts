@@ -10,18 +10,30 @@
  *
  * A root read failure rejects discovery. An empty root list still scans the
  * home directory's global skills and commands.
+ *
+ * ADR-0032: the project tiers come only from roots the person trusted, and
+ * `workspace/trust/list` counts what each live root would contribute once
+ * trusted, with the same scans.
  */
 
 import { homedir } from 'node:os';
 import type { SkillContentDeps, SkillScanEntry } from '@brainstrike/agent';
 import { MAX_SKILL_FILE_BYTES, scanSkills } from '@brainstrike/agent';
-import type { HostWorkspaceDiscovery } from '@brainstrike/agent-host';
+import type { HostWorkspaceDiscovery, HostWorkspaceTrustRoot } from '@brainstrike/agent-host';
+import {
+  type HostWorkspaceTrustStore,
+  readHostWorkspaceTrust,
+  trustedHostWorkspaceRoots,
+} from '@brainstrike/agent-host/workspace-trust';
 import type {
   RuntimeWorkspaceRoot,
   SkillScanEntrySummary,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
+import { scanUserPersonas } from '@brainstrike/assistant-service/node-workspace-services';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { createNodeFsScanDeps } from '../assistant-server/node-fs-scan-deps';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import {
@@ -29,6 +41,7 @@ import {
   type UserSlashCommandScanDeps,
   type UserSlashCommandScanRoot,
 } from '../assistant-server/user-slash-commands-loader';
+import { findRootContextFile } from '../assistant-server/workspace-instructions-context';
 
 /** The live roots, read as a run's admission reads them. */
 export type DesktopDiscoveryRoots = (
@@ -123,10 +136,108 @@ export async function discoverDesktopCommands(
   }
 }
 
-export function desktopWorkspaceDiscovery(roots: DesktopDiscoveryRoots): HostWorkspaceDiscovery {
+export interface DesktopWorkspaceTrustDeps {
+  readonly commands: DesktopCommandsDiscoveryDeps['fs'];
+  readonly homedir: () => string;
+  readonly readFile: WorkspaceFileReader;
+  readonly roots: DesktopDiscoveryRoots;
+  readonly skills: DesktopSkillsDiscoveryDeps['fs'];
+  readonly trust: HostWorkspaceTrustStore;
+}
+
+/** How many of `entries` a root contributes, by the owning root each scan records. */
+function countByRoot(
+  entries: readonly { readonly sourceRootId?: string | undefined }[]
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const { sourceRootId } of entries) {
+    if (sourceRootId !== undefined) {
+      counts.set(sourceRootId, (counts.get(sourceRootId) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Each live root's trust and what trusting it would load. Counting reads a
+ * restricted root's files with the scans' own bounded readers, but nothing
+ * read here reaches a prompt or a tool.
+ */
+export async function discoverDesktopWorkspaceTrust(
+  deps: DesktopWorkspaceTrustDeps,
+  signal: AbortSignal
+): Promise<{ readonly roots: HostWorkspaceTrustRoot[] }> {
+  const live = await deps.roots(signal);
+  const roots = async (): Promise<readonly RuntimeWorkspaceRoot[]> => live;
+  const skills = await discoverDesktopSkills(
+    { fs: deps.skills, homedir: deps.homedir, roots },
+    signal
+  );
+  const { commands } = await discoverDesktopCommands(
+    { fs: deps.commands, homedir: deps.homedir, roots },
+    signal
+  );
+  const filesystem = deps.commands();
+  let personas: ReturnType<typeof scanUserPersonas>;
+  try {
+    personas = scanUserPersonas({ homeDir: deps.homedir(), roots: scanRoots(live) }, filesystem);
+  } finally {
+    filesystem.dispose();
+  }
+  const skillCounts = countByRoot(skills.entries.filter((entry) => entry.status !== 'invalid'));
+  const commandCounts = countByRoot(commands);
+  const personaCounts = countByRoot(personas.entries.filter((entry) => entry.status !== 'invalid'));
+  return {
+    roots: await Promise.all(
+      live.map(async (root): Promise<HostWorkspaceTrustRoot> => {
+        const instructions = await findRootContextFile(root, deps.readFile);
+        signal.throwIfAborted();
+        return {
+          agentConfiguration: {
+            commands: commandCounts.get(root.rootId) ?? 0,
+            // A present but unreadable file is still the folder's, and is named.
+            instructions:
+              instructions.kind === 'found'
+                ? instructions.file.path
+                : instructions.kind === 'error'
+                  ? instructions.fileName
+                  : null,
+            personas: personaCounts.get(root.rootId) ?? 0,
+            skills: skillCounts.get(root.rootId) ?? 0,
+          },
+          displayName: root.displayName,
+          path: root.path,
+          rootId: root.rootId,
+          trust: await readHostWorkspaceTrust(deps.trust, root.path),
+        };
+      })
+    ),
+  };
+}
+
+export function desktopWorkspaceDiscovery(
+  roots: DesktopDiscoveryRoots,
+  trust: HostWorkspaceTrustStore
+): HostWorkspaceDiscovery {
+  // ADR-0032: the home tiers always; a root's project tiers once the person trusts it.
+  const trusted: DesktopDiscoveryRoots = async (signal) =>
+    await trustedHostWorkspaceRoots(trust, await roots(signal));
   return {
     commands: (signal) =>
-      discoverDesktopCommands({ fs: createNodeFsScanDeps, homedir, roots }, signal),
-    skills: (signal) => discoverDesktopSkills({ fs: createSecureSkillsFs, homedir, roots }, signal),
+      discoverDesktopCommands({ fs: createNodeFsScanDeps, homedir, roots: trusted }, signal),
+    skills: (signal) =>
+      discoverDesktopSkills({ fs: createSecureSkillsFs, homedir, roots: trusted }, signal),
+    trust: (signal) =>
+      discoverDesktopWorkspaceTrust(
+        {
+          commands: createNodeFsScanDeps,
+          homedir,
+          readFile: readWorkspaceTextFile,
+          roots,
+          skills: createSecureSkillsFs,
+          trust,
+        },
+        signal
+      ),
   };
 }

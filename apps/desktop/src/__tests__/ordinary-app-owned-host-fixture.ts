@@ -31,6 +31,7 @@ import {
   type ModelProviderScript,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import { trustWorkspaceFromComposer } from '../../e2e/utils/workspace-trust';
 import { addWorkspaceFolder } from './helpers/add-workspace-folder';
 import { createAppOutput } from './helpers/app-output';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
@@ -378,6 +379,8 @@ setInterval(() => {}, 1000);
       await ensureAssistantShellVisible(page);
       const panel = page.getByTestId(`assistant-thread-panel-${threadId}`);
       const input = panel.getByRole('textbox', { name: 'Message input' });
+      // The workspace's AGENTS.md and skill load once the person trusts the folder (ADR-0032).
+      await trustWorkspaceFromComposer(panel);
       if (fault === 'normal') {
         await input.fill('Keep this draft while correcting the output limit.');
         await panel.getByRole('button', { name: 'Open assistant controls' }).click();

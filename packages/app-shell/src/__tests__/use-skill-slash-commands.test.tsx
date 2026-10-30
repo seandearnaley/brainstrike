@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import type { AssistantHostWorkspaceDiscovery } from '../assistant-thread-host-context';
 import { useSkillSlashCommands } from '../use-skill-slash-commands';
+import { notifyWorkspaceTrustChanged } from '../workspace-trust/workspace-trust-revision';
 
 // The hook subscribes to activeRootIds purely as a refresh trigger.
 const storeState = { activeRootIds: ['root-1'] as string[] };
@@ -42,7 +43,9 @@ function setBridge(result: SkillsScanResultSummary | null): void {
     ? {
         workspaceDiscovery: {
           listCommands: () => Promise.reject(new Error('Commands are not under test')),
+          listTrust: () => Promise.reject(new Error('Trust is not under test')),
           scanSkills: () => Promise.resolve(result),
+          setTrust: () => Promise.reject(new Error('Trust is not under test')),
         },
       }
     : undefined;
@@ -178,6 +181,31 @@ describe('useSkillSlashCommands', () => {
     const queued = useAssistantComposerCommandStore.getState().commandsByThreadId[THREAD]?.[0];
     expect(queued?.text).toContain(':skill[pdf-processing]');
     expect(queued?.text).not.toContain('/skill:pd');
+  });
+
+  it("reloads the skills once the person answers a folder's trust (ADR-0032)", async () => {
+    // The host lists a folder's skills only once the person trusts it.
+    let entries: SkillsScanResultSummary['entries'] = [];
+    const scanSkills = vi.fn(() => Promise.resolve({ entries }));
+    hostState.host = {
+      workspaceDiscovery: {
+        listCommands: () => Promise.reject(new Error('Commands are not under test')),
+        listTrust: () => Promise.reject(new Error('Trust is not under test')),
+        scanSkills,
+        setTrust: () => Promise.reject(new Error('Trust is not under test')),
+      },
+    };
+    const { result } = renderHook(() => useSkillSlashCommands(THREAD));
+    await waitFor(() => expect(scanSkills).toHaveBeenCalledTimes(1));
+    expect(result.current).toEqual([]);
+
+    entries = [okEntry('pdf-processing')];
+    act(() => {
+      notifyWorkspaceTrustChanged();
+    });
+
+    await waitFor(() => expect(result.current).toHaveLength(1));
+    expect(result.current[0]?.id).toBe('skill:pdf-processing');
   });
 
   it('surfaces a visible toast when there is no active thread', async () => {

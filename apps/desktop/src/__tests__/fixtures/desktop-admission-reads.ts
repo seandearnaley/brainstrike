@@ -5,7 +5,10 @@ import {
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
 } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
-import type { DesktopAdmissionReads } from '../../agent-host-platform/desktop-run-admission';
+import type {
+  DesktopAdmissionReads,
+  DesktopTrustedRoots,
+} from '../../agent-host-platform/desktop-run-admission';
 
 type MemorySettings = typeof DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
 const CapturedIntentSchema = z.record(z.string(), z.json());
@@ -69,3 +72,6 @@ export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): Deskt
     ...overrides,
   };
 }
+
+/** ADR-0032: a scenario's person trusts every folder it mounts, unless it says otherwise. */
+export const everyRootTrusted: DesktopTrustedRoots = async (roots) => roots;

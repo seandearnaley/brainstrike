@@ -5,13 +5,14 @@
  * the skill set — mirrors `subagentPersonasRequest`; malformed shapes are
  * dropped with a warn and the fail-safe default applies: master ON, nothing
  * disabled), then builds the TRUSTED `workspaceSkills` engine over the four
- * skills tiers (mounted roots + home dir). The caller strips any
+ * skills tiers (the roots the person trusted, ADR-0032, + home dir). The caller strips any
  * client-supplied `workspaceSkills` before this runs — the engine is always
  * server-built, like `hookRunner`.
  */
 
 import type {
   RuntimeData,
+  RuntimeWorkspaceRoot,
   ScannedSkill,
   ScannedWorkspaceSkills,
   SkillContentDeps,
@@ -62,6 +63,8 @@ export interface PrepareRequestSkillsParams {
   readonly fs: SkillContentDeps;
   /** The user's home directory (for `~/.brainstrike` / `~/.claude`). */
   readonly homedir: () => string;
+  /** ADR-0032: the roots whose project skills may load, the ones the person trusted. */
+  readonly roots: readonly RuntimeWorkspaceRoot[];
   readonly runtimeData: RuntimeData | undefined;
 }
 
@@ -83,7 +86,7 @@ function requestSkillSet(params: PrepareRequestSkillsParams): RequestSkillSet | 
     return;
   }
   const disabledKeys = new Set(preference.disabledSkillKeys);
-  const roots: SkillScanRoot[] = (runtimeData?.workspaceRoots ?? [])
+  const roots: SkillScanRoot[] = params.roots
     .filter((root) => Boolean(root.path))
     .map((root) => ({ absPath: root.path, displayName: root.displayName, id: root.rootId }));
   const homeDir = homedir();

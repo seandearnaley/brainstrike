@@ -149,7 +149,8 @@ export * from './workspace-wire.ts';
 // are gone, and a login credential is an API key or an AWS credential. Additions since:
 // `workspace/skills` and `workspace/commands` (ADR-0029 stage 2), new methods.
 // v14 (2026-10-26): `forge/*` and the git history, staging, pull and diff methods are gone.
-// Additions since: `canvas/list` and `canvas/read` (the Artifacts gallery), new methods.
+// Additions since: `canvas/list` and `canvas/read` (the Artifacts gallery), and workspace trust
+// (`workspace/trust`, `workspace/trust/read`, `workspace/trust/list`; ADR-0032), new methods.
 export const AGENT_HOST_PROTOCOL_VERSION = 14;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
