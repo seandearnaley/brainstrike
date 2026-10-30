@@ -40,6 +40,8 @@ const TargetFactsSchema = Schema.Union([
         /** The form holds a CAPTCHA widget. */
         captcha: Schema.Boolean,
         fields: Schema.Array(ActionFieldFactsSchema),
+        /** Its default button's label: what Enter in one of its fields presses. */
+        submitText: Schema.String,
       })
     ),
     /** Clicking it submits its form. */
@@ -133,13 +135,25 @@ export function blockedActionCategory(
   if (action.kind === 'select' && isPaymentField(target)) {
     return 'payment';
   }
-  if (action.kind === 'click' && PURCHASE_TEXT.test(target.text)) {
+  // Sending a login form signs in, whoever filled it.
+  if (submitsForm && formFields.some(isCredentialField)) {
+    return 'credential';
+  }
+  if (PURCHASE_TEXT.test(pressedText(target, action))) {
     return 'purchase';
   }
   if (submitsForm && formFields.some(isPaymentField)) {
     return 'purchase';
   }
   return undefined;
+}
+
+/** The label of what the action presses: the clicked control, or the form's default button on Enter. */
+function pressedText(target: ActionTargetFacts, action: BrowserAction): string {
+  if (action.kind === 'click') {
+    return target.text;
+  }
+  return action.kind === 'type' && action.submit ? (target.form?.submitText ?? '') : '';
 }
 
 const BLOCKED_ACTION_REASON: Readonly<Record<BlockedActionCategory, string>> = {
