@@ -1,7 +1,6 @@
 import type { AgentMessage, RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { createLogger } from '@brainstrike/logging';
-import { getWorkspaceRoots } from './workspace-roots';
 
 const logger = createLogger('AssistantWorkspaceInstructions');
 
@@ -247,7 +246,7 @@ export async function findRootContextFile(
 }
 
 /**
- * Build a single `system`-role context message carrying each mounted root's
+ * Build a single `system`-role context message carrying each trusted root's
  * workspace instructions file (`AGENTS.md`/`AGENT.md`/`CLAUDE.md`, first match
  * per root), or `null` when nothing is injected.
  *
@@ -266,14 +265,15 @@ export async function findRootContextFile(
  */
 export async function buildWorkspaceInstructionsContextMessage(
   runtimeData: RuntimeData | undefined,
-  readFile: WorkspaceFileReader
+  readFile: WorkspaceFileReader,
+  /** ADR-0032: the roots whose instructions may load, the ones the person trusted. */
+  roots: readonly RuntimeWorkspaceRoot[]
 ): Promise<AgentMessage | null> {
   const preference = readWorkspaceInstructionsPreference(runtimeData);
   if (!preference.masterEnabled) {
     return null;
   }
 
-  const roots = getWorkspaceRoots(runtimeData);
   if (roots.length === 0) {
     return null;
   }
@@ -368,7 +368,7 @@ export async function buildWorkspaceInstructionsContextMessage(
 }
 
 /**
- * PREPEND a `system` context message carrying the mounted roots' workspace
+ * PREPEND a `system` context message carrying the trusted roots' workspace
  * instructions files, when the feature is enabled and at least one file is
  * injectable. Returns the original array (same identity) when nothing is
  * injected, so the caller can pass it through with zero overhead.
@@ -376,9 +376,15 @@ export async function buildWorkspaceInstructionsContextMessage(
 export async function injectWorkspaceInstructionsContext(
   messages: AgentMessage[],
   runtimeData: RuntimeData | undefined,
-  readFile: WorkspaceFileReader
+  readFile: WorkspaceFileReader,
+  /** ADR-0032: the roots whose instructions may load, the ones the person trusted. */
+  roots: readonly RuntimeWorkspaceRoot[]
 ): Promise<AgentMessage[]> {
-  const contextMessage = await buildWorkspaceInstructionsContextMessage(runtimeData, readFile);
+  const contextMessage = await buildWorkspaceInstructionsContextMessage(
+    runtimeData,
+    readFile,
+    roots
+  );
   if (!contextMessage) {
     return messages;
   }

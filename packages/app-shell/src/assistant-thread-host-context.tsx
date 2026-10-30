@@ -18,6 +18,7 @@ import type {
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
 import type { ThreadContextRecord } from '@brainstrike/assistant-ui/thread-context-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import type { WorkspaceTrustCapability } from '@brainstrike/settings-ui/settings/system/workspace-trust';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
 import { closeBrowserPagesOf } from './browser-pane/browser-pages';
 import type { RewindPort } from './changes/rewind-port';
@@ -79,9 +80,10 @@ export interface AssistantHostProviders {
 /**
  * ADR-0029 stage 2: the skills and user slash commands on the host's live roots
  * and home directory, scanned as its runs scan them, for the Settings → Skills
- * panel and the composer's "/" menu.
+ * panel and the composer's "/" menu. ADR-0032: project tiers come only from
+ * the folders the person trusted, and each folder's trust is read and set here.
  */
-export interface AssistantHostWorkspaceDiscovery {
+export interface AssistantHostWorkspaceDiscovery extends WorkspaceTrustCapability {
   listCommands(): Promise<UserSlashCommandsListResult>;
   scanSkills(): Promise<SkillsScanResultSummary>;
 }

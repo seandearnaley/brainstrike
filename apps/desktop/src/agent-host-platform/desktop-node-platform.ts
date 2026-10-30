@@ -12,6 +12,7 @@ import {
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
   readHostPermissionPolicy,
+  trustedHostWorkspaceRoots,
 } from '@brainstrike/agent-host';
 import { fromBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
@@ -277,10 +278,15 @@ export async function createDesktopHostConfiguration(
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
   const admissionReads = mainAdmissionReads(request);
-  const runAdmission = createDesktopRunAdmission(admissionReads, async () => {
-    const saved = await readHostPermissionPolicy(startup.store);
-    return saved ? hostPermissionGate(saved) : undefined;
-  });
+  const runAdmission = createDesktopRunAdmission(
+    admissionReads,
+    async () => {
+      const saved = await readHostPermissionPolicy(startup.store);
+      return saved ? hostPermissionGate(saved) : undefined;
+    },
+    // ADR-0032: the roots whose instructions, skills and personas a run may load.
+    (roots) => trustedHostWorkspaceRoots(startup.store, roots)
+  );
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
     credentials: {
@@ -525,8 +531,9 @@ export async function createDesktopHostConfiguration(
       })(await request('platform/workspace/validate', { binding, threadId }, signal));
     },
     // ADR-0029 stage 2: Settings and the "/" menu read these here, not from Main.
-    workspaceDiscovery: desktopWorkspaceDiscovery((signal) =>
-      admissionReads.liveWorkspaceRoots(signal)
+    workspaceDiscovery: desktopWorkspaceDiscovery(
+      (signal) => admissionReads.liveWorkspaceRoots(signal),
+      startup.store
     ),
   };
 }

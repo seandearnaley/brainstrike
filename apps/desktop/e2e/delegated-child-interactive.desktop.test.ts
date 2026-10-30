@@ -25,6 +25,7 @@ import {
   createAssembledSubagentFixture,
 } from './utils/subagent-integration-fixture';
 import { E2E_TIMEOUTS } from './utils/timeouts';
+import { trustWorkspaceFromComposer } from './utils/workspace-trust';
 
 type ChildDecisionScenario =
   | { decision: 'answer'; tool: 'askUser' }
@@ -150,6 +151,8 @@ async function assertAssembledChildControl(
       await settings.setSubagentLimit('Subagent work at once', 'maxConcurrentWork', 2);
       await ensureAssistantShellVisible(window);
       const root = window.getByRole('region', { exact: true, name: 'Assistant' });
+      // The workspace's personas load once the person trusts the folder (ADR-0032).
+      await trustWorkspaceFromComposer(root);
       const composer = root.getByRole('textbox', { name: 'Message input' });
       await composer.fill(assembledMarkers.parentPrompt);
       await root.getByRole('button', { exact: true, name: 'Send' }).click();
@@ -682,6 +685,8 @@ async function assertChildDecision(
         .selectOption('allow');
       await ensureAssistantShellVisible(window);
       const root = window.getByRole('region', { exact: true, name: 'Assistant' });
+      // The workspace's persona loads once the person trusts the folder (ADR-0032).
+      await trustWorkspaceFromComposer(root);
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill('Delegate to Decision Probe to request my decision.');

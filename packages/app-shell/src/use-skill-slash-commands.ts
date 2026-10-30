@@ -29,6 +29,7 @@ import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
+import { useWorkspaceTrustRevision } from './workspace-trust/workspace-trust-revision';
 
 const logger = createLogger('SkillSlashCommands');
 
@@ -104,6 +105,7 @@ function applySkillCommand(
 export function useSkillSlashCommands(threadId: string | undefined): readonly SlashCommand[] {
   const discovery = useAssistantThreadHost()?.workspaceDiscovery;
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
+  const trustRevision = useWorkspaceTrustRevision();
   const [scan, setScan] = useState<SkillsScanResultSummary>(EMPTY_RESULT);
   const { toast } = useToast();
   const masterEnabled = useSkillsPreferencesStore((state) => state.masterEnabled);
@@ -144,7 +146,7 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
     };
   }, [discovery]);
 
-  useEffect(() => reload(), [reload, activeRootIds]);
+  useEffect(() => reload(), [reload, activeRootIds, trustRevision]);
 
   useEffect(() => {
     if (!discovery || typeof document === 'undefined') {
