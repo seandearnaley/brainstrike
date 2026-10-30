@@ -116,6 +116,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 const mockConfig: AppShellConfig = {
   description: 'A test application',
   navigationItems: [{ icon: () => null, name: 'Home', path: '/' }],
+  themePaletteStorageKey: 'test-theme-palette',
   themeStorageKey: 'test-theme',
   title: 'Test App',
 };

@@ -140,8 +140,17 @@
  * Status text and filled status pairs meet WCAG AA (4.5:1), including tints.
  * Activated when user has prefers-contrast: more set in their OS.
  */
+/*
+ * Selector shape matters: palettes declare their tokens under
+ * :root[data-theme="<id>"] (specificity 0,2,0), which would beat a bare :root.
+ * :root[data-theme] ties and this block sits after the theme imports, so high
+ * contrast wins for every palette. The :root:not([data-theme]) twin covers the
+ * moment before ThemeProvider writes the attribute. The .dark pair is 0,3,0
+ * for the same reason.
+ */
 @media (prefers-contrast: more) {
-  :root {
+  :root[data-theme],
+  :root:not([data-theme]) {
     --bs-background: hsl(0 0% 100%); /* Pure white */
     --bs-foreground: hsl(0 0% 0%); /* Pure black */
     --bs-card: hsl(0 0% 100%);
@@ -174,7 +183,8 @@
     --bs-sidebar-ring: hsl(0 0% 0%);
   }
 
-  .dark {
+  :root[data-theme].dark,
+  :root:not([data-theme]).dark {
     --bs-background: hsl(0 0% 0%); /* Pure black */
     --bs-foreground: hsl(0 0% 100%); /* Pure white */
     --bs-card: hsl(0 0% 5%);

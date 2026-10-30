@@ -14,7 +14,7 @@ vi.mock('../workspace-connect/use-connect-folder', () => ({
 }));
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
-  useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
+  useTheme: () => ({ mode: 'light', setMode: vi.fn(), setTheme: vi.fn(), theme: 'brainstrike' }),
 }));
 
 function thread(id: string) {
