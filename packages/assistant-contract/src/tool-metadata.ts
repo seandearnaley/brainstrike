@@ -57,6 +57,7 @@ export {
   isPermissionDecision,
   isPermissionDenied,
   PERMISSION_DECISIONS,
+  PERMISSION_POLICY_UNREADABLE_CODE,
   type PermissionDecision,
   type PermissionDecisionInput,
   type PermissionPolicies,

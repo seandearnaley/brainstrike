@@ -36,6 +36,9 @@ export function isAccessMode(value: unknown): value is AccessMode {
 /** The auto-review model target that resolves to the chat provider's quick model. */
 export const AUTO_REVIEW_MODEL_AUTO = 'auto';
 
+/** The host's refusal of a saved policy in a shape it cannot read, such as an older build's. */
+export const PERMISSION_POLICY_UNREADABLE_CODE = 'permissions.policy-unreadable';
+
 /**
  * Auto access mode's reviewer: `model` is {@link AUTO_REVIEW_MODEL_AUTO} or a
  * `provider/model` target, as the observational-memory model target is written.
