@@ -40,13 +40,6 @@ export interface CommittedAssistantLogSource {
 export interface CommittedAssistantLogStoreOptions extends CommittedAssistantLogProjectionOptions {
   /** Running commands' live output, fed by the owner from uncommitted host telemetry. */
   readonly liveShellOutputs?: LiveShellOutputs;
-  /**
-   * Coalesce live text and reasoning into one view update per this many
-   * milliseconds, as AI SDK `useChat`'s `experimental_throttle` does. Each
-   * update re-renders the conversation, and providers stream far faster than
-   * a person reads (BST-2311). Omitted, every chunk applies at once.
-   */
-  readonly liveTelemetryThrottleMs?: number;
   readonly source: CommittedAssistantLogSource;
 }
 
@@ -67,10 +60,6 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
    */
   private failure: string | undefined;
   private readonly listeners = new Set<() => void>();
-  private readonly liveTelemetryThrottleMs: number | undefined;
-  /** Live chunks waiting for the next throttled update, in arrival order. */
-  private readonly pendingTelemetry: [runId: string, chunk: unknown][] = [];
-  private telemetryTimer: ReturnType<typeof setTimeout> | undefined;
   /** This store's last record in the thread context store, if any. */
   private recordedContext: ThreadContextRecord | undefined;
   private readonly release: () => void;
@@ -79,7 +68,6 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
   constructor(options: CommittedAssistantLogStoreOptions) {
     this.threadId = options.threadId;
     this.liveShellOutputs = options.liveShellOutputs;
-    this.liveTelemetryThrottleMs = options.liveTelemetryThrottleMs;
     this.projection = new CommittedAssistantLogProjection(options);
     const contextFold = new ThreadContextFold();
     let displayedContext: ThreadTokenUsage | undefined;
@@ -119,8 +107,6 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
     };
     this.snapshot = read();
     this.release = options.source.subscribe(() => {
-      // Live chunks that arrived before this committed row apply first.
-      this.applyPendingTelemetry();
       const next = read();
       const previous = this.snapshot;
       if (
@@ -151,27 +137,7 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
    * and reasoning show in the open step until its committed parts replace them.
    */
   acceptTelemetry(runId: string, chunk: unknown): void {
-    this.pendingTelemetry.push([runId, chunk]);
-    if (this.liveTelemetryThrottleMs === undefined) {
-      this.publishTelemetry();
-      return;
-    }
-    this.telemetryTimer ??= setTimeout(() => this.publishTelemetry(), this.liveTelemetryThrottleMs);
-  }
-
-  /** Fold every pending live chunk into the projection, without notifying. */
-  private applyPendingTelemetry(): CommittedAssistantLogView {
-    clearTimeout(this.telemetryTimer);
-    this.telemetryTimer = undefined;
-    let view = this.projection.getSnapshot();
-    for (const [runId, chunk] of this.pendingTelemetry.splice(0)) {
-      view = this.fold(() => this.projection.acceptLive(runId, chunk));
-    }
-    return view;
-  }
-
-  private publishTelemetry(): void {
-    const view = this.applyPendingTelemetry();
+    const view = this.fold(() => this.projection.acceptLive(runId, chunk));
     const error = this.failure ?? this.snapshot.error;
     if (view.repository === this.snapshot.repository && error === this.snapshot.error) {
       return;
@@ -214,8 +180,6 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
   };
 
   dispose(): void {
-    clearTimeout(this.telemetryTimer);
-    this.pendingTelemetry.length = 0;
     this.release();
     this.listeners.clear();
     // Delivered file text leaves with its view; another live view's record stays.
