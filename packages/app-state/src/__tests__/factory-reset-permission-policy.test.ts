@@ -41,7 +41,7 @@ describe('factory reset wires the permission policy store', () => {
     // Customize AWAY from defaults (enforce now defaults ON, so flip it off).
     await Promise.all([
       store.setEnforce(false),
-      store.setYolo(true),
+      store.setAccess('full'),
       store.setCategoryPolicy('edit', 'deny'),
       store.setToolOverride('brainstrike.tool', 'allow'),
     ]);
@@ -52,7 +52,7 @@ describe('factory reset wires the permission policy store', () => {
     const state = usePermissionPolicyStore.getState();
     // Reset restores defaultData() → enforce ON (the secure default).
     expect(state.enforce).toBe(true);
-    expect(state.yolo).toBe(false);
+    expect(state.access).toBe('ask');
     expect(state.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
     expect(state.sessionGrants.size).toBe(0);
     expect(state.perToolOverrides).toEqual({});

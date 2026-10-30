@@ -766,6 +766,8 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         interactionId: Id,
         kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
         origin: Schema.optional(HostBrowserOriginSchema),
+        /** Auto access mode's note on why this call still needs the user. */
+        reason: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
         risk: Schema.optional(RiskCategory),
         targetRoot: Schema.optional(HostApprovalTargetRootSchema),
       }),

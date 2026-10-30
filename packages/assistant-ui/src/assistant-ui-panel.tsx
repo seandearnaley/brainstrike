@@ -49,6 +49,7 @@ import {
   isCompactionSummaryMessage,
   readCompactionSummaryPayload,
 } from './compaction-summary-message';
+import type { AccessModeComposerControls } from './composer-access-mode-control';
 import { ComposerAttachmentsBar } from './composer-attachments';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerEffortControl } from './composer-effort-control';
@@ -77,6 +78,7 @@ import { ThreadDebugPackButton } from './thread-debug-pack-button';
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
 import { UserMessage } from './user-message';
 
+export type { AccessModeComposerControls } from './composer-access-mode-control';
 export type { ComposerAttachmentsAvailability } from './composer-input';
 // Re-exported for the suites that mount these against a real runtime
 // (user-action-bar-copy, assistant-chat-polish.browser) — extraction moved the
@@ -203,6 +205,7 @@ const CapabilityNotice = ({ text }: { text: string | undefined }) =>
 
 /** Shared UI component for the chat thread. */
 export const ChatThreadUI = ({
+  accessMode,
   approvalStrip,
   isVisible = true,
   composerDraftCommand,
@@ -241,6 +244,8 @@ export const ChatThreadUI = ({
   toolMenu,
   welcome = false,
 }: {
+  /** The composer's access mode control; absent where no policy owner is wired. */
+  accessMode?: AccessModeComposerControls | undefined;
   /**
    * BST-1932: a committed host thread's approvals strip, which counts its
    * delegated children's approvals too; absent → the thread's own strip only.
@@ -442,6 +447,7 @@ export const ChatThreadUI = ({
                           onSteerActiveRun={onSteerActiveRun}
                           {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                           {...(planMode ? { planMode } : {})}
+                          {...(accessMode ? { accessMode } : {})}
                           {...(hasSlashCommands
                             ? {
                                 slashPopover: (

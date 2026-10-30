@@ -12,7 +12,11 @@ import {
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
-import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
+import {
+  AUTO_REVIEW_MODEL_AUTO,
+  type PermissionToolGateSnapshot,
+  resolveQuickModelTarget,
+} from '@brainstrike/assistant-contract';
 import type { VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { Schema } from 'effect';
@@ -207,6 +211,37 @@ async function admittedModel(
   return options.resolveModel
     ? await options.resolveModel(configuration, auth)
     : rootModel(configuration, auth);
+}
+/**
+ * Auto access mode's review model: `auto` is the chat provider's quick model
+ * (never another provider), else a `provider/model` target, each built with
+ * its provider's auth as the run's own model is.
+ */
+function admittedReviewModel(
+  options: Pick<ProductionHostPlatformOptions, 'resolveModel' | 'resolveProviderAuth'>,
+  selected: Pick<ProductionHostRunConfiguration, 'resolveProviderAuth'>,
+  chatProvider: string
+): (target: string) => Promise<LanguageModel> {
+  return async (target) => {
+    const resolved =
+      target === AUTO_REVIEW_MODEL_AUTO ? resolveQuickModelTarget(chatProvider) : target;
+    const separator = resolved?.indexOf('/') ?? -1;
+    if (resolved === undefined || separator <= 0 || separator === resolved.length - 1) {
+      throw new Error(
+        resolved === undefined
+          ? `No quick model is known for ${chatProvider}; choose an auto-review model`
+          : 'An auto-review model must use provider/model format'
+      );
+    }
+    const configuration = {
+      model: resolved.slice(separator + 1),
+      provider: resolved.slice(0, separator),
+    };
+    const auth = await admittedProviderAuth(options, selected, configuration.provider);
+    return options.resolveModel
+      ? await options.resolveModel(configuration, auth)
+      : rootModel(configuration, auth);
+  };
 }
 function unavailableMcpServers(
   borrowed: HostMcpToolSelection | undefined
@@ -592,6 +627,7 @@ export async function createProductionHostPlatform<Configuration extends Product
             ? { referencedFileFailures: selected.referencedFileFailures }
             : {}),
           resolvedToolResultBudget: selected.resolvedToolResultBudget,
+          reviewModel: admittedReviewModel(options, selected, provider),
           ...admittedNativeWebSearch(provider, auth),
           openRun: (context) => {
             const bridge = runVectorBridge(selected, context.threadId, context.signal);

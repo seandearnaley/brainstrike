@@ -241,13 +241,16 @@ function interactionFacts(
   kind: CommittedInteractionKind,
   executionContext: unknown,
   targetRoot: unknown,
-  origin: unknown
+  origin: unknown,
+  reason: unknown
 ): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
+  const reviewNote = typeof reason === 'string' ? { reviewNote: reason } : {}; // Auto access
   if (kind === 'network') {
     const facts: Readonly<Record<string, unknown>> = {
       interactionKind: kind,
       ...(isCodeExecutionApprovalContext(executionContext) ? { executionContext } : {}),
       ...(typeof origin === 'string' ? { origin } : {}),
+      ...reviewNote,
     };
     return facts as NonNullable<ToolPart['providerMetadata']>[string];
   }
@@ -259,12 +262,13 @@ function interactionFacts(
   // The owner has already validated JSON at the public HostLogRow boundary.
   const context = isCodeExecutionApprovalContext(executionContext);
   const target = isApprovalTargetRoot(targetRoot);
-  if (!(context || target)) {
+  if (!(context || target || 'reviewNote' in reviewNote)) {
     return;
   }
   const facts: Readonly<Record<string, unknown>> = {
     ...(context ? { executionContext } : {}),
     ...(target ? { targetRoot } : {}),
+    ...reviewNote,
   };
   return facts as NonNullable<ToolPart['providerMetadata']>[string];
 }
@@ -907,7 +911,8 @@ export class CommittedAssistantLogProjection {
       kind,
       event['executionContext'],
       event['targetRoot'],
-      event['origin']
+      event['origin'],
+      event['reason']
     );
     this.updateTool(run, id, (part) => ({
       ...part,

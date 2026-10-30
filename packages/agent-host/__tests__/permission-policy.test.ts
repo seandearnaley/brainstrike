@@ -11,10 +11,11 @@ import type { HostClientOrigin } from '../src/ports.js';
 import { HOST_METHOD_SCHEMAS, type HostMethod } from '../src/protocol.js';
 
 const SAVED = {
+  access: 'ask',
+  autoReviewModel: 'auto',
   enforce: true,
   perToolOverrides: { 'brainstrike.shell': 'allow' },
   policies: { edit: 'ask', execute: 'deny', mcp: 'allow', read: 'allow' },
-  yolo: false,
 } as const;
 /** The StateStore's settings, in memory. */
 function settings(): HostPermissionPolicyStore & {
@@ -93,5 +94,27 @@ describe('host permission policy', () => {
       policies: SAVED.policies,
       yolo: true,
     });
+  });
+  it('gates the access mode: full allows everything, auto names its reviewer', () => {
+    expect(hostPermissionGate({ ...SAVED, access: 'full', perToolOverrides: {} })).toEqual({
+      policies: SAVED.policies,
+      yolo: true,
+    });
+    expect(
+      hostPermissionGate({
+        ...SAVED,
+        access: 'auto',
+        autoReviewModel: 'anthropic/claude-haiku-4-5',
+        perToolOverrides: {},
+      })
+    ).toEqual({
+      autoReview: { model: 'anthropic/claude-haiku-4-5' },
+      policies: SAVED.policies,
+      yolo: false,
+    });
+    // With enforcement off nothing asks, so nothing is reviewed.
+    expect(
+      hostPermissionGate({ ...SAVED, access: 'auto', enforce: false, perToolOverrides: {} })
+    ).toEqual({ policies: SAVED.policies, yolo: true });
   });
 });

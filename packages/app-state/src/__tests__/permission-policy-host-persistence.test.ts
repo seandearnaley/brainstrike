@@ -2,10 +2,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const SAVED = {
+  access: 'ask',
+  autoReviewModel: 'auto',
   enforce: true,
   perToolOverrides: {},
   policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
-  yolo: false,
 };
 
 afterEach(() => {
@@ -109,7 +110,7 @@ describe('the permission policy store with an agent host client', () => {
     );
 
     const inFlight = store.usePermissionPolicyStore.getState().setCategoryPolicy('edit', 'deny');
-    const queued = store.usePermissionPolicyStore.getState().setYolo(true);
+    const queued = store.usePermissionPolicyStore.getState().setAccess('full');
     await vi.waitFor(() => expect(host.setItem).toHaveBeenCalledOnce());
     store.resetPermissionPolicyStoreToDefaults();
     commit.resolve();
@@ -117,8 +118,8 @@ describe('the permission policy store with an agent host client', () => {
     await vi.waitFor(() => expect(host.removeItem).toHaveBeenCalledOnce());
 
     expect(store.usePermissionPolicyStore.getState()).toMatchObject({
+      access: 'ask',
       policies: { edit: 'ask' },
-      yolo: false,
     });
     expect(host.setItem).toHaveBeenCalledOnce();
     expect(values.has('permission-policy.v1')).toBe(false);

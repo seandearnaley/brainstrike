@@ -18,6 +18,11 @@ import {
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import {
+  permissionPolicySelectors,
+  usePermissionPolicyHydration,
+  usePermissionPolicyStore,
+} from '@brainstrike/app-state/stores/permission-policy-store';
+import {
   isSupportedProvider,
   type OpenRouterModelMetadataLookup,
   type SupportedProvider,
@@ -43,6 +48,7 @@ import type { HostThreadSelectionBinding } from './use-host-thread-selection';
 
 type Presentation = Pick<
   CommittedAssistantConversationProps,
+  | 'accessMode'
   | 'attachmentsAvailability'
   | 'onEnableModel'
   | 'onModelChange'
@@ -220,6 +226,30 @@ function noticeProps(
   return advisory ? { disabledReason: advisory } : {};
 }
 
+/**
+ * The composer's access mode, read from and saved to the permission policy
+ * owner. Offered once the saved policy has loaded (BST-1930: an edit before
+ * then could overwrite it) and only while enforcement is on: with it off,
+ * every tool already runs and Settings says so.
+ */
+function useComposerAccessMode(): CommittedAssistantConversationProps['accessMode'] {
+  const ready = usePermissionPolicyHydration((state) => state.status === 'ready');
+  const enforce = usePermissionPolicyStore(permissionPolicySelectors.enforce);
+  const mode = usePermissionPolicyStore(permissionPolicySelectors.access);
+  const setAccess = usePermissionPolicyStore((state) => state.setAccess);
+  return useMemo(
+    () =>
+      ready && enforce
+        ? {
+            mode,
+            onChange: (next) => {
+              void setAccess(next);
+            },
+          }
+        : undefined,
+    [enforce, mode, ready, setAccess]
+  );
+}
 /** Existing picker/settings owners project controls; they own no assistant execution. */
 export function useDesktopHostPresentation(
   threadId: string,
@@ -239,6 +269,7 @@ export function useDesktopHostPresentation(
   const planModeEnabled = useAssistantPreferencesStore((state) => state.planModeEnabled);
   const togglePlanMode = useAssistantPreferencesStore((state) => state.togglePlanMode);
   const setPlanModeEnabled = useAssistantPreferencesStore((state) => state.setPlanModeEnabled);
+  const accessMode = useComposerAccessMode();
   const drafts = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
   const draft = drafts[threadId];
@@ -446,6 +477,7 @@ export function useDesktopHostPresentation(
     openRouterModelMetadataLookup: metadata.lookup,
     providerSettings: effective,
     ...(planMode ? { planMode } : {}),
+    ...(accessMode ? { accessMode } : {}),
     readConfiguration,
     readModelId,
     readPlanMode,

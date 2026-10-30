@@ -35,7 +35,7 @@ export interface DesktopHostIntentCapture {
 }
 /** Keep the existing Send capture's precedence and strict non-secret wire shape. */
 export function captureDesktopHostIntent(input: DesktopHostIntentCapture): DesktopHostIntent {
-  const { enforce, ...policy } = input.permission;
+  const { autoReview, enforce, ...policy } = input.permission;
   const { projection, threadDraft } = input;
   return Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
     errors: 'all',
@@ -53,7 +53,12 @@ export function captureDesktopHostIntent(input: DesktopHostIntentCapture): Deskt
       ...(projection?.modelSettings ? { modelSettings: projection.modelSettings } : {}),
       ...(projection?.providerOptions ? { providerOptions: projection.providerOptions } : {}),
     },
-    permissionPolicy: { ...policy, yolo: policy.yolo || !enforce },
+    // Enforcement off allows everything, so nothing is left for a reviewer.
+    permissionPolicy: {
+      ...policy,
+      ...(enforce && autoReview ? { autoReview } : {}),
+      yolo: policy.yolo || !enforce,
+    },
     ...(input.selectionFolderId ? { selectionFolderId: input.selectionFolderId } : {}),
     skillsPreference: input.skillsPreference,
     ...(input.subagents ? { subagents: input.subagents } : {}),

@@ -11,9 +11,10 @@ import {
 const STORE_KEY = 'permission-policy.v1';
 
 function readPersistedState(): {
+  access?: unknown;
+  autoReviewModel?: unknown;
   enforce?: unknown;
   policies?: unknown;
-  yolo?: unknown;
   perToolOverrides?: unknown;
 } {
   const raw = window.localStorage.getItem(STORE_KEY);
@@ -29,12 +30,13 @@ describe('permission-policy-store', () => {
     __resetPermissionPolicyStoreForTests();
   });
 
-  it('defaults to enforce ON, read:allow, edit/execute:ask, mcp:allow, yolo off, no grants or overrides', () => {
+  it('defaults to enforce ON, read:allow, edit/execute:ask, mcp:allow, ask access, no grants or overrides', () => {
     const state = usePermissionPolicyStore.getState();
     // enforce-on-by-default (P1 fix): read/mcp run free; edit/execute prompt.
     expect(state.enforce).toBe(true);
     expect(state.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
-    expect(state.yolo).toBe(false);
+    expect(state.access).toBe('ask');
+    expect(state.autoReviewModel).toBe('auto');
     expect(state.sessionGrants.size).toBe(0);
     expect(state.perToolOverrides).toEqual({});
   });
@@ -54,9 +56,11 @@ describe('permission-policy-store', () => {
     expect(policies.read).toBe('allow');
   });
 
-  it('setYolo toggles the master override', async () => {
-    await usePermissionPolicyStore.getState().setYolo(true);
-    expect(usePermissionPolicyStore.getState().yolo).toBe(true);
+  it('setAccess chooses the access mode', async () => {
+    await usePermissionPolicyStore.getState().setAccess('full');
+    expect(usePermissionPolicyStore.getState().access).toBe('full');
+    await usePermissionPolicyStore.getState().setAccess('auto');
+    expect(usePermissionPolicyStore.getState().access).toBe('auto');
   });
 
   it('grantSessionCategory promotes a category and feeds the resolver to allow', () => {
@@ -68,7 +72,7 @@ describe('permission-policy-store', () => {
         policies: state.policies,
         riskCategory: 'edit',
         sessionGrants: state.sessionGrants,
-        yolo: state.yolo,
+        yolo: false,
       })
     ).toBe('allow');
   });
@@ -158,27 +162,29 @@ describe('permission-policy-store', () => {
     expect('sessionGrants' in state).toBe(false);
   });
 
-  it('persists enforce, policies, yolo, and perToolOverrides', async () => {
+  it('persists enforce, policies, access, auto-review model and perToolOverrides', async () => {
     const store = usePermissionPolicyStore.getState();
     await Promise.all([
       store.setEnforce(true),
-      store.setYolo(true),
+      store.setAccess('auto'),
+      store.setAutoReviewModel('anthropic/claude-haiku-4-5'),
       store.setToolOverride('brainstrike.tool', 'allow'),
     ]);
 
     const state = readPersistedState();
     expect(state.enforce).toBe(true);
-    expect(state.yolo).toBe(true);
+    expect(state.access).toBe('auto');
+    expect(state.autoReviewModel).toBe('anthropic/claude-haiku-4-5');
     expect(state.perToolOverrides).toEqual({ 'brainstrike.tool': 'allow' });
   });
 
   it('restoring self-heals malformed persisted policies and drops unknown categories', () => {
     const restored = restorePersistedPermissionPolicy(
       {
+        access: 'yolo',
         perToolOverrides: { 'brainstrike.bad': 'maybe', 'brainstrike.ok': 'deny' },
         policies: { bogus: 'allow', edit: 'prompt', read: 'allow' },
         sessionGrants: ['execute'],
-        yolo: 'yes',
       },
       0
     );
@@ -187,8 +193,8 @@ describe('permission-policy-store', () => {
     expect(restored.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
     // enforce absent from the legacy slice -> adopts the new secure default (ON).
     expect(restored.enforce).toBe(true);
-    // yolo:'yes' is not a boolean -> false.
-    expect(restored.yolo).toBe(false);
+    // An unknown access mode -> ask.
+    expect(restored.access).toBe('ask');
     // invalid override dropped, valid kept.
     expect(restored.perToolOverrides).toEqual({ 'brainstrike.ok': 'deny' });
     // session grants are never restored.
@@ -197,7 +203,7 @@ describe('permission-policy-store', () => {
 
   it('reset clears both in-memory state and persisted storage', async () => {
     const store = usePermissionPolicyStore.getState();
-    await Promise.all([store.setEnforce(false), store.setYolo(true)]);
+    await Promise.all([store.setEnforce(false), store.setAccess('full')]);
     store.grantSessionCategory('edit');
     expect(window.localStorage.getItem(STORE_KEY)).not.toBeNull();
 
@@ -206,7 +212,7 @@ describe('permission-policy-store', () => {
     const state = usePermissionPolicyStore.getState();
     // Reset re-applies defaultData() → enforce ON (the secure default).
     expect(state.enforce).toBe(true);
-    expect(state.yolo).toBe(false);
+    expect(state.access).toBe('ask');
     expect(state.sessionGrants.size).toBe(0);
     expect(state.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
     await vi.waitFor(() => expect(window.localStorage.getItem(STORE_KEY)).toBeNull());
@@ -261,6 +267,19 @@ describe('buildPermissionToolGateSnapshotInput / getPermissionToolGateSnapshotIn
     expect(Array.isArray(input.sessionGrants)).toBe(true);
     expect(input.sessionGrants).toEqual(['execute']);
     expect(input.perToolOverrides).toEqual({ 'brainstrike.tool': 'allow' });
+  });
+
+  it('maps the access mode onto the gate: full allows everything, auto names its reviewer', async () => {
+    const store = usePermissionPolicyStore.getState();
+    await store.setAccess('full');
+    expect(getPermissionToolGateSnapshotInput()).toMatchObject({ yolo: true });
+    expect('autoReview' in getPermissionToolGateSnapshotInput()).toBe(false);
+
+    await Promise.all([store.setAccess('auto'), store.setAutoReviewModel('openai/gpt-5.4-mini')]);
+    expect(getPermissionToolGateSnapshotInput()).toMatchObject({
+      autoReview: { model: 'openai/gpt-5.4-mini' },
+      yolo: false,
+    });
   });
 
   it('defaults to enforce:true with empty grants (the enforce-on-by-default posture)', () => {
