@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ThemeProvider } from '../../theme-provider';
 import { CodeBlockBody } from '../code-block-body';
 
 interface CapturedShikiProps {
@@ -126,6 +127,27 @@ describe('CodeBlockBody', () => {
     expect(props?.theme).toEqual({ dark: 'monokai', light: 'github-light' });
     expect(props?.defaultColor).toBe(false);
     expect(props?.highlighter).toEqual({ highlighter: 'core' });
+  });
+
+  it('highlights with the Shiki pair of the code theme chosen in Appearance', async () => {
+    mocks.useShikiHighlighter.mockReturnValue({ highlighter: 'core' });
+    const storageAdapter = {
+      getItem: async (key: string) => (key === 'ui-theme-code-theme' ? 'catppuccin' : null),
+      setItem: async () => undefined,
+    };
+
+    render(
+      <ThemeProvider storageAdapter={storageAdapter}>
+        <CodeBlockBody code="echo hi" language="bash" />
+      </ThemeProvider>
+    );
+    await screen.findByText('echo hi');
+    enterViewport();
+
+    expect(mocks.capturedShikiProps.at(-1)?.theme).toEqual({
+      dark: 'catppuccin-mocha',
+      light: 'catppuccin-latte',
+    });
   });
 
   it('keeps the wrapper element constant across the fallback → highlighted swap', () => {

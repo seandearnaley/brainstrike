@@ -3,6 +3,8 @@ import { type RefObject, useEffect, useRef, useState } from 'react';
 import ShikiHighlighter from 'react-shiki/core';
 import { cn } from '../lib/utils';
 import { normalizeShikiLanguage, useShikiHighlighter } from '../shiki/highlighter-core';
+import { useCodeTheme } from '../theme-provider';
+import { codeThemeShikiPair } from '../themes/code-themes';
 
 export interface CodeBlockBodyProps {
   readonly className?: string;
@@ -86,6 +88,7 @@ export function CodeBlockBody({
   language,
 }: CodeBlockBodyProps): React.ReactNode {
   const highlighter = useShikiHighlighter();
+  const codeTheme = useCodeTheme();
   const bodyRef = useRef<HTMLDivElement>(null);
   const near = useNearViewport(bodyRef);
 
@@ -104,7 +107,7 @@ export function CodeBlockBody({
           highlighter={highlighter}
           language={normalizeShikiLanguage(language)}
           showLanguage={false}
-          theme={{ dark: 'monokai', light: 'github-light' }}
+          theme={codeThemeShikiPair(codeTheme)}
           {...(delay === undefined ? {} : { delay })}
         >
           {code}

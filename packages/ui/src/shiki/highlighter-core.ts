@@ -7,7 +7,7 @@ const logger = createLogger('SyntaxHighlighter');
 
 /**
  * Modern, performant syntax highlighting with Shiki. Provides dual theme support
- * (github-light / monokai) and builds the core bundle from a curated language set —
+ * (a light/dark pair per code theme in themes/code-themes.ts) and builds the core bundle from a curated language set —
  * the allowlist below avoids pulling invalid or unnecessary grammars into production —
  * with async loading tuned for delayed/streamed code responses.
  */
@@ -72,7 +72,18 @@ const getHighlighter = (): Promise<HighlighterCore> => {
       import('@shikijs/langs/typescript'),
       import('@shikijs/langs/yaml'),
     ],
-    themes: [import('@shikijs/themes/github-light'), import('@shikijs/themes/monokai')],
+    // Every Shiki theme a code theme names (themes/code-themes.ts).
+    themes: [
+      import('@shikijs/themes/catppuccin-latte'),
+      import('@shikijs/themes/catppuccin-mocha'),
+      import('@shikijs/themes/github-dark'),
+      import('@shikijs/themes/github-light'),
+      import('@shikijs/themes/monokai'),
+      import('@shikijs/themes/one-dark-pro'),
+      import('@shikijs/themes/one-light'),
+      import('@shikijs/themes/solarized-dark'),
+      import('@shikijs/themes/solarized-light'),
+    ],
   })
     .then((instance) => {
       highlighterCache = instance;

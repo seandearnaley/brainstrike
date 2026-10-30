@@ -75,8 +75,9 @@ interface CodeSurfaceCallbacks {
   readonly onSelectionChange: ((selection: CodeSurfaceSelection) => void) | undefined;
 }
 
+// The code font chosen in Settings > Appearance (ThemeProvider sets `--font-mono`).
 const MONO_FONT_FAMILY =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+  'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace)';
 const logger = createLogger('CodeSurface');
 const externalValueSyncAnnotation = Annotation.define<boolean>();
 

@@ -28,8 +28,13 @@ light/dark class. Generated palettes come from `scripts/import-shadcn-theme.mjs`
 re-run it rather than editing their values. They override only the shadcn colour
 set and radius, so status, delegation and syntax tokens stay the baseline's, and
 the high-contrast block in `globals.css` wins over every palette. Syntax colours
-are the `--syntax-*` tokens for CodeMirror and the matching Shiki themes (GitHub
-Light, Monokai) for code blocks; the code box owns its background. Scrollbars
+follow the code theme (`data-code-theme`, registry in `themes/code-themes.ts`): the
+`--syntax-*` tokens in `themes/code-themes.css` for CodeMirror and the theme's Shiki
+pair for code blocks; the code box owns its background. Generate a new code theme's
+tokens with `scripts/import-code-theme.mjs` from the same Shiki pair. Fonts are the
+`--font-sans` and `--font-mono` stacks `ThemeProvider` writes on `<html>`
+(`themes/fonts.ts`); use `font-sans`/`font-mono` or those variables, never a
+literal font stack, so the Appearance choice reaches every surface. Scrollbars
 inherit one translucent thumb from `body`.
 
 ## Context actions and layers

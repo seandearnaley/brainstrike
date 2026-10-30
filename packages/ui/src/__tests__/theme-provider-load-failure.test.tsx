@@ -98,7 +98,12 @@ describe('ThemeProvider storage failures (BST-1731)', () => {
         attempt: 0,
         error: expect.objectContaining({ message: 'storage bridge unavailable' }),
         storageKey: 'app-theme',
-        themeStorageKey: 'ui-theme-palette',
+        storageKeys: {
+          codeFont: 'app-theme-code-font',
+          codeTheme: 'app-theme-code-theme',
+          font: 'app-theme-font',
+          theme: 'ui-theme-palette',
+        },
       },
     ]);
     expect(adapter.setItem).not.toHaveBeenCalled();
@@ -116,8 +121,8 @@ describe('ThemeProvider storage failures (BST-1731)', () => {
 
     expect(await screen.findByText('App theme: dark')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    // Each read covers both keys: the mode and the palette.
-    expect(adapter.getItem).toHaveBeenCalledTimes(4);
+    // Each read covers every key: the mode, palette, font, code font and code theme.
+    expect(adapter.getItem).toHaveBeenCalledTimes(10);
     expect(adapter.setItem).not.toHaveBeenCalled();
   });
 

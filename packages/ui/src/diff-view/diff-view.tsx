@@ -28,8 +28,9 @@ import {
 
 const logger = createLogger('DiffView');
 
+// The code font chosen in Settings > Appearance (ThemeProvider sets `--font-mono`).
 const MONO_FONT_FAMILY =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+  'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace)';
 
 /**
  * Shared theme mirroring {@link CodeSurface} so the diff viewer is visually
