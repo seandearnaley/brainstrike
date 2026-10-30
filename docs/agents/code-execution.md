@@ -29,8 +29,10 @@ private or confined. Treat every file read and returned output as sensitive.
 
 Where the desktop agent host supplies the fence (macOS and Linux),
 `executeCommand` runs inside it: writes only in the command's open folder and
-sandbox-runtime's own `TMPDIR`, reads everything but the always-denied credential
-stores, and no network. The fence only wraps the command; executeCommand's own
+its own temp folder (`TMPDIR`, removed with the command), reads everything but the
+always-denied credential stores, and no network. sandbox-runtime's own `TMPDIR`
+(`/tmp/claude`) is writable only where that folder already exists, so it is
+not relied on. The fence only wraps the command; executeCommand's own
 process owner spawns it, so streaming, output bounds, group teardown and the
 workspace lease are unchanged. A readiness failure refuses the command with its
 reason and never falls back. `dangerouslyDisableSandbox` runs one command

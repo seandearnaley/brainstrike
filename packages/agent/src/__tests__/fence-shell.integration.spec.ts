@@ -88,6 +88,13 @@ describe.skipIf(skipReason !== undefined)('shell commands inside the real OS fen
     expect(readFileSync(join(root, 'inside.txt'), 'utf8')).toBe('ok');
   });
 
+  it('gives each command its own temp folder, gone once the command is', async () => {
+    const first = (await run('printf %s "$TMPDIR"')).stdout;
+    const second = (await run('printf %s "$TMPDIR"')).stdout;
+    expect(first).not.toBe(second);
+    await expect.poll(() => existsSync(first) || existsSync(second)).toBe(false);
+  });
+
   it('refuses a write outside its open folder', async () => {
     const target = join(outside, 'escaped.txt');
     const result = await run(`printf no > '${target}'`);
