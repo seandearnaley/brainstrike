@@ -80,8 +80,10 @@ function fileEntry(files, path) {
 }
 
 // git quotes a path holding a tab, newline, quote or backslash; the workflow
-// runs git with core.quotePath=false, so other bytes arrive unescaped.
-function diffPath(target) {
+// runs git with core.quotePath=false, so other bytes arrive unescaped. A path
+// holding a space gets a trailing tab instead, as GNU patch expects.
+function diffPath(header) {
+  const target = header.replace(/\t$/u, '');
   const unquoted = target.startsWith('"') ? JSON.parse(target) : target;
   return unquoted.replace(/^b\//u, '');
 }

@@ -82,6 +82,13 @@ describe('parseDiff', () => {
     assert.deepEqual([...patch.added], [2, 3]);
   });
 
+  it('drops the tab git appends to a path that holds a space', () => {
+    const files = parseDiff(
+      'diff --git a/my file.ts b/my file.ts\n--- a/my file.ts\t\n+++ b/my file.ts\t\n@@ -1 +1 @@\n-a\n+b\n'
+    );
+    assert.deepEqual([...files.keys()], ['my file.ts']);
+  });
+
   it('reads a single file patch from the PR files API', () => {
     const files = parseDiff('@@ -0,0 +1,2 @@\n+first\n+second', 'new.ts');
     assert.deepEqual(files.get('new.ts').ranges, [[1, 2]]);
