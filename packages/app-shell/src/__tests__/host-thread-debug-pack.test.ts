@@ -8,6 +8,7 @@ import type { ThreadDebugHostEvidence } from '../diagnostics/thread-debug-pack';
 
 // Host evidence is a required, explicit input; these format cases are not about it.
 const HOST_NOT_UNDER_TEST: ThreadDebugHostEvidence = {
+  diagnosticEvents: { reason: 'not under test', status: 'unavailable' },
   hostLog: { reason: 'not under test', status: 'unavailable' },
   processCounters: { reason: 'not under test', status: 'unavailable' },
   window: null,
@@ -29,6 +30,7 @@ describe('host thread debug pack', () => {
     const noBridge = JSON.parse(await buildHostThreadDebugPack(snapshot(), null));
     expect(noBridge.sections.hostLog).toBeNull();
     expect(noBridge.sections.processCounters).toBeNull();
+    expect(noBridge.sections.diagnosticEvents).toBeNull();
     expect(noBridge.manifest.host.hostLog).toMatch(/^unavailable: no desktop diagnostics bridge/u);
     expect(noBridge.manifest.host.processCounters).toMatch(
       /^unavailable: no desktop diagnostics bridge/u
@@ -37,6 +39,7 @@ describe('host thread debug pack', () => {
 
     const failed = JSON.parse(
       await buildHostThreadDebugPack(snapshot(), {
+        queryEvents: vi.fn().mockRejectedValue(new Error('Malformed diagnostic record')),
         readMainLogWindow: vi
           .fn()
           .mockRejectedValue(new Error('Main log file logging is disabled')),
@@ -44,6 +47,7 @@ describe('host thread debug pack', () => {
       })
     );
     expect(failed.manifest.host).toEqual({
+      diagnosticEvents: 'unavailable: Malformed diagnostic record',
       hostLog: 'unavailable: Main log file logging is disabled',
       processCounters: 'unavailable: malformed process counter result (no samples array)',
       window: { since: '2026-09-15T03:00:00.000Z', until: '2026-09-16T03:00:00.000Z' },
@@ -55,6 +59,7 @@ describe('host thread debug pack', () => {
     const readMainLogWindow = vi.fn();
     const pack = JSON.parse(
       await buildHostThreadDebugPack(snapshot({ earliestRunStartMs: null }), {
+        queryEvents: vi.fn().mockResolvedValue([]),
         readMainLogWindow,
         readProcessCounters: vi.fn().mockResolvedValue({ samples: [] }),
       })
@@ -64,6 +69,40 @@ describe('host thread debug pack', () => {
       'unavailable: no run start in the snapshot to bound the log window'
     );
     expect(pack.sections.processCounters).toEqual({ samples: [] });
+  });
+
+  it('carries the records the status bar counts, though they came before the run (BST-2347)', async () => {
+    const apiKey = ['sk', 'abcdefghijklmnopqrstuv'].join('-');
+    // Logged at startup, an hour before the snapshot's only run.
+    const startup = {
+      context: { error: { message: 'No API key configured for provider "openrouter".' } },
+      fingerprint: 'c93eb69d4c265574',
+      message: `Untyped failure crossed a process boundary ${apiKey}`,
+      occurredAt: Date.parse('2026-09-16T01:00:00.000Z'),
+      scope: 'AgentHostConnection',
+      severity: 'error',
+      source: 'electron-main',
+    };
+    const queryEvents = vi.fn().mockResolvedValue([startup]);
+    const pack = JSON.parse(
+      await buildHostThreadDebugPack(
+        snapshot({ earliestRunStartMs: Date.parse('2026-09-16T02:00:00.000Z') }),
+        {
+          queryEvents,
+          readMainLogWindow: vi.fn().mockResolvedValue({ lines: [] }),
+          readProcessCounters: vi.fn().mockResolvedValue({ samples: [] }),
+        }
+      )
+    );
+
+    expect(queryEvents).toHaveBeenCalledExactlyOnceWith({ limit: 50 });
+    expect(pack.manifest.host.diagnosticEvents).toBe('included');
+    expect(pack.sections.diagnosticEvents.events).toEqual([
+      {
+        ...startup,
+        message: 'Untyped failure crossed a process boundary [redacted-secret:api-key]',
+      },
+    ]);
   });
 
   it('redacts secrets inside thread rows and host log lines', () => {
@@ -79,6 +118,7 @@ describe('host thread debug pack', () => {
         ],
       }),
       {
+        diagnosticEvents: HOST_NOT_UNDER_TEST.diagnosticEvents,
         hostLog: { status: 'included', value: { lines: [`{"msg":"${apiKey}"}`] } },
         processCounters: HOST_NOT_UNDER_TEST.processCounters,
         window: null,
@@ -91,6 +131,7 @@ describe('host thread debug pack', () => {
   it('scrubs and counts a secret shape inside each unavailable host evidence reason', () => {
     const apiKey = ['sk', 'abcdefghijklmnopqrstuv'].join('-');
     const pack = formatHostThreadDebugPack(snapshot(), {
+      diagnosticEvents: HOST_NOT_UNDER_TEST.diagnosticEvents,
       hostLog: {
         reason: `not readable at /tmp/${apiKey}/brainstrike.log`,
         status: 'unavailable',
