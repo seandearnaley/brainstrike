@@ -43,11 +43,17 @@ export async function writeHostPermissionPolicy(
     )
   );
 }
-/** The gate a saved policy enforces: with enforcement off, everything is allowed. */
+/**
+ * The gate a saved policy enforces: with enforcement off or full access,
+ * everything is allowed; auto access reviews what the policy asks about.
+ */
 export function hostPermissionGate(policy: HostPermissionPolicy): PermissionToolGateSnapshot {
   return {
+    ...(policy.enforce && policy.access === 'auto'
+      ? { autoReview: { model: policy.autoReviewModel } }
+      : {}),
     policies: policy.policies,
-    yolo: policy.yolo || !policy.enforce,
+    yolo: policy.access === 'full' || !policy.enforce,
     ...(Object.keys(policy.perToolOverrides).length > 0
       ? { perToolOverrides: policy.perToolOverrides }
       : {}),

@@ -49,12 +49,18 @@ export function ToolApprovalDecision({
   }
   const subject = previewSubject(tool);
   const options = describableApprovalOptions(approval.options, subject);
+  const reviewNote: unknown = tool.providerMetadata?.['brainstrike']?.['reviewNote'];
   return (
     <fieldset
       aria-label={`Tool approval ${tool.toolName}`}
       className="flex flex-col gap-2 px-3 pb-3"
       ref={decisionRef}
     >
+      {typeof reviewNote === 'string' ? (
+        <p className="text-muted-foreground text-xs" data-testid="approval-review-note">
+          {reviewNote}
+        </p>
+      ) : null}
       <ApprovalPreview approval={subject} />
       <div className="flex flex-wrap gap-2">
         {approvalDecisions(options).map(({ approved, label, optionId }) => (

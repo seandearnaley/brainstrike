@@ -5,7 +5,9 @@
  * taxonomy from `@brainstrike/assistant-contract`:
  *
  * - `policies` — per-category decision (allow | ask | deny). PERSISTED.
- * - `yolo` — master "allow everything" toggle. PERSISTED.
+ * - `access` — the composer's access mode (ask | auto | full). PERSISTED.
+ * - `autoReviewModel` — auto mode's quick model (`auto` or `provider/model`).
+ *   PERSISTED.
  * - `perToolOverrides` — per-tool-id decision that beats the category policy.
  *   PERSISTED.
  * - `sessionGrants` — categories the user granted "always allow for this
@@ -27,7 +29,11 @@
  */
 
 import {
+  type AccessMode,
+  AUTO_REVIEW_MODEL_AUTO,
+  type AutoReviewSettings,
   DEFAULT_PERMISSION_POLICIES,
+  isAccessMode,
   isPermissionDecision,
   type PermissionDecision,
   type PermissionPolicies,
@@ -39,6 +45,14 @@ import type { StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 interface PermissionPolicyData {
+  /**
+   * How gated tool calls are answered (the composer's access control):
+   * `ask` waits for the user, `auto` lets the quick model approve what it
+   * judges safe and asks about the rest, `full` runs everything. PERSISTED.
+   */
+  access: AccessMode;
+  /** Auto mode's quick model: `auto` (the chat provider's) or `provider/model`. PERSISTED. */
+  autoReviewModel: string;
   /**
    * Master switch for permission enforcement. PERSISTED. Defaults to `true`
    * (enforce-on-by-default, the P1 security fix): with the default policy
@@ -59,8 +73,6 @@ interface PermissionPolicyData {
    * persisted; excluded from `partialize`, lost on reload by design.
    */
   sessionGrants: Set<ToolRiskCategory>;
-  /** Master "allow everything" toggle. PERSISTED. */
-  yolo: boolean;
 }
 
 /**
@@ -70,11 +82,14 @@ interface PermissionPolicyData {
  * runtime/IPC boundary as plain JSON, matching `PermissionToolGateSnapshot`.
  */
 export interface PermissionToolGateSnapshotInput {
+  /** Present in auto access mode. */
+  autoReview?: AutoReviewSettings;
   /** Master OPT-IN switch — the caller sends the snapshot only when this is true. */
   enforce: boolean;
   perToolOverrides: PerToolPermissionOverrides;
   policies: PermissionPolicies;
   sessionGrants: ToolRiskCategory[];
+  /** Full access mode. */
   yolo: boolean;
 }
 
@@ -93,6 +108,10 @@ interface PermissionPolicyActions {
   grantSessionCategory: (category: ToolRiskCategory) => void;
   /** Revoke a single session grant; the category falls back to its policy. */
   revokeSessionCategory: (category: ToolRiskCategory) => void;
+  /** Choose the access mode (saved). */
+  setAccess: (access: AccessMode) => Promise<void>;
+  /** Choose auto mode's quick model, `auto` or `provider/model` (saved). */
+  setAutoReviewModel: (model: string) => Promise<void>;
   /**
    * Set the decision for a single risk category. Like every saved setting, it
    * changes once storage commits it; the returned promise settles then, or on
@@ -106,14 +125,12 @@ interface PermissionPolicyActions {
    * `toolId` and fall back to the category policy.
    */
   setToolOverride: (toolId: string, decision: PermissionDecision | null) => Promise<void>;
-  /** Toggle the master YOLO override (saved). */
-  setYolo: (yolo: boolean) => Promise<void>;
 }
 
 export type PermissionPolicyStore = PermissionPolicyData & PermissionPolicyActions;
 type PersistedPermissionPolicyData = Pick<
   PermissionPolicyData,
-  'enforce' | 'perToolOverrides' | 'policies' | 'yolo'
+  'access' | 'autoReviewModel' | 'enforce' | 'perToolOverrides' | 'policies'
 >;
 
 const STORE_NAME = 'permission-policy.v1' as const;
@@ -220,13 +237,14 @@ function defaultPolicies(): PermissionPolicies {
 
 function defaultData(): PermissionPolicyData {
   return {
+    access: 'ask',
+    autoReviewModel: AUTO_REVIEW_MODEL_AUTO,
     // enforce-on-by-default (P1 fix): with the default policies below, read/mcp
     // run free and edit/execute PROMPT for per-call approval.
     enforce: true,
     perToolOverrides: {},
     policies: defaultPolicies(),
     sessionGrants: new Set<ToolRiskCategory>(),
-    yolo: false,
   };
 }
 
@@ -271,10 +289,14 @@ function sanitizePersistedData(persistedState: unknown): PersistedPermissionPoli
       ? (persistedState as Partial<PermissionPolicyData>)
       : {};
   return {
+    access: isAccessMode(candidate.access) ? candidate.access : 'ask',
+    autoReviewModel:
+      typeof candidate.autoReviewModel === 'string' && candidate.autoReviewModel.trim()
+        ? candidate.autoReviewModel.trim()
+        : AUTO_REVIEW_MODEL_AUTO,
     enforce: typeof candidate.enforce === 'boolean' ? candidate.enforce : true,
     perToolOverrides: sanitizeOverrides(candidate.perToolOverrides),
     policies: sanitizePolicies(candidate.policies),
-    yolo: typeof candidate.yolo === 'boolean' ? candidate.yolo : false,
   };
 }
 
@@ -301,10 +323,11 @@ export function restorePersistedPermissionPolicy(
 
 function persistedSlice(state: PermissionPolicyData): PersistedPermissionPolicyData {
   return {
+    access: state.access,
+    autoReviewModel: state.autoReviewModel,
     enforce: state.enforce,
     perToolOverrides: state.perToolOverrides,
     policies: state.policies,
-    yolo: state.yolo,
   };
 }
 
@@ -382,6 +405,8 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()((set, ge
         next.delete(category);
         return { sessionGrants: next };
       }),
+    setAccess: (access) => save((saved) => ({ ...saved, access })),
+    setAutoReviewModel: (autoReviewModel) => save((saved) => ({ ...saved, autoReviewModel })),
     setCategoryPolicy: (category, decision) =>
       save((saved) => ({ ...saved, policies: { ...saved.policies, [category]: decision } })),
     setEnforce: (enforce) => save((saved) => ({ ...saved, enforce })),
@@ -395,7 +420,6 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()((set, ge
         }
         return { ...saved, perToolOverrides };
       }),
-    setYolo: (yolo) => save((saved) => ({ ...saved, yolo })),
   };
 });
 
@@ -449,13 +473,14 @@ export function resetPermissionPolicyStoreToDefaults(): void {
 }
 
 export const permissionPolicySelectors = {
+  access: (store: PermissionPolicyStore): AccessMode => store.access,
+  autoReviewModel: (store: PermissionPolicyStore): string => store.autoReviewModel,
   enforce: (store: PermissionPolicyStore): boolean => store.enforce,
   perToolOverrides: (store: PermissionPolicyStore): PerToolPermissionOverrides =>
     store.perToolOverrides,
   policies: (store: PermissionPolicyStore): PermissionPolicies => store.policies,
   sessionGrants: (store: PermissionPolicyStore): ReadonlySet<ToolRiskCategory> =>
     store.sessionGrants,
-  yolo: (store: PermissionPolicyStore): boolean => store.yolo,
 };
 
 /**
@@ -473,11 +498,12 @@ export function buildPermissionToolGateSnapshotInput(
   store: PermissionPolicyData
 ): PermissionToolGateSnapshotInput {
   return {
+    ...(store.access === 'auto' ? { autoReview: { model: store.autoReviewModel } } : {}),
     enforce: store.enforce,
     perToolOverrides: { ...store.perToolOverrides },
     policies: { ...store.policies },
     sessionGrants: Array.from(store.sessionGrants),
-    yolo: store.yolo,
+    yolo: store.access === 'full',
   };
 }
 

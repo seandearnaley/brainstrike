@@ -97,7 +97,12 @@ function foldHostRunBranch(
     if (event.parentMessageId !== null || prior.length > 0) {
       throw new Error('A delegated child run must start its child thread');
     }
-    return { parentMessageId: null, prompt: event.prompt, userMessageId: admission.commandId };
+    return {
+      delegated: true,
+      parentMessageId: null,
+      prompt: event.prompt,
+      userMessageId: admission.commandId,
+    };
   }
   if (admission.method !== 'run/start') {
     throw new Error('A new user message requires its committed run/start command');

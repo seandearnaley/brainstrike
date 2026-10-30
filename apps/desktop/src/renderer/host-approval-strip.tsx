@@ -42,6 +42,7 @@ export function HostApprovalStrip({
               },
               response
             ),
+          ...(approval.reason ? { reviewNote: approval.reason } : {}),
           ...(approval.risk ? { risk: approval.risk } : {}),
           runId: approval.runId,
           ...(approval.targetRoot ? { targetRoot: approval.targetRoot } : {}),

@@ -12,6 +12,7 @@ import { Schema } from 'effect';
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Decision = Schema.Literals(PERMISSION_DECISIONS);
 const PlatformPolicySchema = Schema.Struct({
+  autoReview: Schema.optional(Schema.Struct({ model: Id })),
   perToolOverrides: Schema.optional(Schema.Record(Schema.String, Decision)),
   policies: Schema.Struct({ edit: Decision, execute: Decision, mcp: Decision, read: Decision }),
   sessionGrants: Schema.optional(
@@ -25,6 +26,7 @@ export function platformPermissionPolicy(input: unknown): PermissionToolGateSnap
     onExcessProperty: 'error',
   })(input);
   return {
+    ...(policy.autoReview ? { autoReview: policy.autoReview } : {}),
     policies: policy.policies,
     yolo: policy.yolo,
     ...(policy.perToolOverrides ? { perToolOverrides: policy.perToolOverrides } : {}),

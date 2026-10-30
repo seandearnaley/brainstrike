@@ -15,11 +15,12 @@ describe('PermissionSettingsSection', () => {
     __resetPermissionPolicyStoreForTests();
   });
 
-  it('renders the enforce toggle, four category controls, and the YOLO toggle', () => {
+  it('renders the enforce toggle, four category controls, and the access mode', () => {
     render(<PermissionSettingsSection />);
 
     expect(screen.getByTestId('permission-enforce-toggle')).not.toBeNull();
-    expect(screen.getByTestId('permission-yolo-toggle')).not.toBeNull();
+    expect(screen.getByLabelText('Access mode')).not.toBeNull();
+    expect(screen.getByLabelText('Auto-review model')).not.toBeNull();
 
     for (const category of ['read', 'edit', 'execute', 'mcp'] as const) {
       expect(screen.getByLabelText(new RegExp(`${category} permission`, 'iu'))).not.toBeNull();
@@ -33,7 +34,10 @@ describe('PermissionSettingsSection', () => {
     expect(screen.getByTestId('permission-enforce-toggle').getAttribute('aria-checked')).toBe(
       'true'
     );
-    expect(screen.getByTestId('permission-yolo-toggle').getAttribute('aria-checked')).toBe('false');
+    expect((screen.getByTestId('permission-access-mode') as HTMLSelectElement).value).toBe('ask');
+    expect((screen.getByTestId('permission-auto-review-model') as HTMLSelectElement).value).toBe(
+      'auto'
+    );
 
     expect((screen.getByTestId('permission-policy-read') as HTMLSelectElement).value).toBe('allow');
     expect((screen.getByTestId('permission-policy-edit') as HTMLSelectElement).value).toBe('ask');
@@ -75,14 +79,17 @@ describe('PermissionSettingsSection', () => {
     expect((screen.getByTestId('permission-policy-edit') as HTMLSelectElement).value).toBe('deny');
   });
 
-  it('toggling YOLO updates the store', async () => {
+  it('choosing an access mode updates the store and warns about full access', async () => {
     render(<PermissionSettingsSection />);
 
-    fireEvent.click(screen.getByTestId('permission-yolo-toggle'));
+    fireEvent.change(screen.getByTestId('permission-access-mode'), {
+      target: { value: 'full' },
+    });
 
     await waitFor(() => {
-      expect(usePermissionPolicyStore.getState().yolo).toBe(true);
+      expect(usePermissionPolicyStore.getState().access).toBe('full');
     });
+    expect(screen.getByText('All tools allowed')).not.toBeNull();
   });
 
   it('disables category controls while enforcement is off', async () => {

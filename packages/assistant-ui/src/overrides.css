@@ -761,22 +761,18 @@ span.bs-composer-chip {
   text-align: right;
 }
 
-/* Below the textarea: attach, plan, model and effort on the left; Controls
-   and the send/stop cluster on the right. */
+/* Below the textarea: attach, plan, access, model and effort on the left;
+   Controls and the send/stop cluster on the right. ONE line at every width:
+   as the composer narrows, chips shed their secondary words, then their
+   chevrons, then shrink to icons, and the model label truncates last. The
+   send cluster never shrinks. Collapsed words stay in the accessible name. */
 .bs-composer-input-frame {
   container: bs-composer / inline-size;
-}
-
-@container bs-composer (max-width: 34rem) {
-  .bs-composer-kbd {
-    display: none;
-  }
 }
 
 .bs-composer-footer {
   align-items: center;
   display: flex;
-  flex-wrap: wrap;
   gap: 0.375rem;
   min-width: 0;
 }
@@ -784,8 +780,7 @@ span.bs-composer-chip {
 .bs-composer-footer-start {
   align-items: center;
   display: flex;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
+  flex: 1 1 0;
   gap: 0.125rem;
   min-width: 0;
 }
@@ -793,8 +788,72 @@ span.bs-composer-chip {
 .bs-composer-footer-end {
   align-items: center;
   display: flex;
+  flex-shrink: 0;
   gap: 0.375rem;
   margin-left: auto;
+}
+
+/* The model picker's slot shrinks before any icon-only control does. */
+.bs-composer-model-slot {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 2rem;
+}
+
+.bs-composer-model-slot > .bs-composer-chip {
+  max-width: 100%;
+}
+
+.bs-composer-footer .bs-composer-chip {
+  position: relative;
+}
+
+/* Only the model label gives up width; every other control keeps its icon. */
+:is(.bs-composer-footer-start, .bs-composer-footer-end) > :is(.bs-composer-chip, .bs-composer-icon-button) {
+  flex-shrink: 0;
+}
+
+/* Visually hidden, still read: the WCAG 2.5.3 name keeps the visible words. */
+@container bs-composer (max-width: 34rem) {
+  .bs-composer-kbd {
+    display: none;
+  }
+
+  .bs-composer-footer .bs-composer-collapsible {
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+}
+
+@container bs-composer (max-width: 28rem) {
+  .bs-composer-footer .bs-composer-chip > svg.lucide-chevron-down {
+    display: none;
+  }
+}
+
+@container bs-composer (max-width: 22rem) {
+  :is(.bs-composer-footer-start, .bs-composer-footer-end) > .bs-composer-chip .bs-composer-chip-label {
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+}
+
+/* Full access reads as a warning in the composer, as Codex and Claude show it. */
+.bs-composer-access[data-access-mode="full"] {
+  color: hsl(var(--warning));
+}
+
+.bs-composer-access[data-access-mode="full"]:is(:hover, [data-state="open"]) {
+  background: hsl(var(--warning) / 0.12);
+  color: hsl(var(--warning));
 }
 
 .bs-composer-status {
