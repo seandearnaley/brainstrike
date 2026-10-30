@@ -1,3 +1,8 @@
+import {
+  BoundaryFailureError,
+  INTERNAL_FAULT,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -127,6 +132,63 @@ describe('useOpenRouterModelMetadata', () => {
     );
     expect(result.current.agentLoopSettings).toBeUndefined();
     expect(result.current.modelSettings).toBeUndefined();
+  });
+
+  it("shows a host refusal's remedy beside its reason, so a missing key says where to add one", async () => {
+    readOpenRouterModel.mockRejectedValue(
+      refusalError(
+        'configuration',
+        'provider.credential-missing',
+        'No API key configured for provider "openrouter".',
+        'Add an OpenRouter API key in Providers.'
+      )
+    );
+
+    const { result } = renderHook(
+      () =>
+        useOpenRouterModelMetadata({
+          modelId: 'anthropic/claude-sonnet-4.6',
+          modelSettings: undefined,
+          providerId: 'openrouter',
+          selectedModelDef: { contextWindow: 1_000_000, id: 'anthropic/claude-sonnet-4.6' },
+          settings: undefined,
+        }),
+      { wrapper }
+    );
+
+    await waitFor(() => {
+      expect(result.current.lookup).toEqual({
+        message:
+          'No API key configured for provider "openrouter". Add an OpenRouter API key in Providers.',
+        state: 'error',
+      });
+    });
+  });
+
+  it('names the reference a host fault was logged under, so the user can find it in the log', async () => {
+    const reference = '3f2b8c1e-5d4a-4b7e-9c2d-1a2b3c4d5e6f';
+    readOpenRouterModel.mockRejectedValue(
+      new BoundaryFailureError({ ...INTERNAL_FAULT, correlationId: reference })
+    );
+
+    const { result } = renderHook(
+      () =>
+        useOpenRouterModelMetadata({
+          modelId: 'anthropic/claude-sonnet-4.6',
+          modelSettings: undefined,
+          providerId: 'openrouter',
+          selectedModelDef: { contextWindow: 1_000_000, id: 'anthropic/claude-sonnet-4.6' },
+          settings: undefined,
+        }),
+      { wrapper }
+    );
+
+    await waitFor(() => {
+      expect(result.current.lookup).toEqual({
+        message: `${INTERNAL_FAULT.message} Reference: ${reference}`,
+        state: 'error',
+      });
+    });
   });
 
   it('names a persisted output limit the catalog window cannot fit when the details fail to load (BST-1810)', async () => {
