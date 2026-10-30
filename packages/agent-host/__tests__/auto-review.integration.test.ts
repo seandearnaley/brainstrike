@@ -7,13 +7,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import type { LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import { createAgentHostToolBindings } from '../src/adapters/canonical-tool-bindings.js';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform, HostTool } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
@@ -58,11 +59,33 @@ function reviewer(answer: Record<string, string>, prompts: string[]): MockLangua
   });
 }
 
+/** The person-only rule the shipped executeCommand binding carries (BST-2329). */
+function shippedPersonApproval(): HostTool['personApproval'] {
+  const { tools } = createAgentHostToolBindings({
+    bindings: { [NATIVE_TOOL_ID.executeCommand]: { identity: 'command', risk: 'execute' } },
+    resolvedToolResultBudget: {
+      domainModelResultCharBudget: 20_000,
+      transportResultTokens: 10_000,
+    } as unknown as Parameters<typeof createAgentHostToolBindings>[0]['resolvedToolResultBudget'],
+    tools: {
+      [NATIVE_TOOL_ID.executeCommand]: {
+        description: 'command',
+        execute: async () => ({}),
+        id: NATIVE_TOOL_ID.executeCommand,
+        inputSchema: z.object({}),
+      },
+    } as unknown as Parameters<typeof createAgentHostToolBindings>[0]['tools'],
+  });
+  return Object.values(tools)[0]?.personApproval;
+}
+
 async function runCommand(
-  reviewModel: (target: string) => Promise<LanguageModel>
+  reviewModel: (target: string) => Promise<LanguageModel>,
+  input: Readonly<Record<string, unknown>> = { command: 'pnpm test' }
 ): Promise<{ events: HostEvent[]; executed: unknown[]; targets: string[] }> {
   const executed: unknown[] = [];
   const targets: string[] = [];
+  const personApproval = shippedPersonApproval();
   const commandTool: HostTool = {
     description: 'command fixture',
     execute: async (input) => {
@@ -70,7 +93,10 @@ async function runCommand(
       return { ok: true };
     },
     identity: 'command-generation-1',
-    inputSchema: z.object({ command: z.string() }).strict(),
+    inputSchema: z
+      .object({ command: z.string(), dangerouslyDisableSandbox: z.boolean().optional() })
+      .strict(),
+    ...(personApproval ? { personApproval } : {}),
     permissionToolId: 'brainstrike.executeCommand',
     risk: 'execute',
   };
@@ -80,7 +106,7 @@ async function runCommand(
   const platform: HostPlatform = {
     admitRun: async () => ({
       configuration: {},
-      model: scriptedToolSequence([{ input: { command: 'pnpm test' }, toolId: 'execute_command' }]),
+      model: scriptedToolSequence([{ input, toolId: 'execute_command' }]),
       reviewModel: async (target) => {
         targets.push(target);
         return await reviewModel(target);
@@ -181,6 +207,25 @@ test('an approve the quick model itself calls high risk still asks the user', as
 
   expect(executed).toEqual([]);
   expect(requested(events)?.reason).toBe('Auto-review flagged this: Probably fine.');
+});
+
+test('a command run outside the sandbox asks the user, and the quick model is never asked', async () => {
+  const prompts: string[] = [];
+  const { events, executed, targets } = await runCommand(
+    async () =>
+      reviewer(
+        { decision: 'approve', rationale: 'Fine.', risk: 'low', userAuthorization: 'high' },
+        prompts
+      ),
+    { command: 'curl https://example.com', dangerouslyDisableSandbox: true }
+  );
+
+  expect(executed).toEqual([]);
+  expect(targets).toEqual([]);
+  expect(prompts).toEqual([]);
+  expect(requested(events)?.reason).toBe(
+    'This command runs outside the sandbox, so only you can approve it.'
+  );
 });
 
 test('a review that fails asks the user instead of approving', async () => {

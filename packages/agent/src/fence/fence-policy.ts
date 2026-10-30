@@ -289,7 +289,16 @@ export async function buildSandboxRuntimeConfig(
     }
   }
 
-  for (const [index, writable] of allowWrite.entries()) {
+  // scratchDir is written too, so it meets the same rule: a shell command's
+  // scratchDir is the user's open folder, not one the app made.
+  const written: readonly (readonly [field: string, path: string, resolved: string])[] = [
+    ['scratchDir', scratchDir, resolvedScratchDir],
+    ...allowWrite.map(
+      (resolved, index) =>
+        ['allowWrite entry', parsed.allowWrite[index] ?? resolved, resolved] as const
+    ),
+  ];
+  for (const [field, path, writable] of written) {
     // A WRITE grant on a credential store re-opens it for READING on Linux.
     // bubblewrap masks a denied directory with `--tmpfs`, then re-binds every
     // allowed write path that is at or under that directory with a read-write
@@ -304,7 +313,7 @@ export async function buildSandboxRuntimeConfig(
     const reopened = alwaysDenyRead.find((denied) => isAtOrUnder(writable, denied));
     if (reopened) {
       throw new FencePolicyError(
-        `allowWrite entry ${JSON.stringify(parsed.allowWrite[index] ?? writable)} resolves to ${writable}, which sits inside the always-denied credential store ${reopened}; a write grant there re-opens the store for reading on Linux. Remove it or narrow the policy.`
+        `${field} ${JSON.stringify(path)} resolves to ${writable}, which sits inside the always-denied credential store ${reopened}; a write grant there re-opens the store for reading on Linux. Remove it or narrow the policy.`
       );
     }
   }
@@ -319,6 +328,9 @@ export async function buildSandboxRuntimeConfig(
     // An empty allowedDomains list IS the no-network state: srt still routes
     // through its proxy and denies every connection matching no allowed
     // domain. There is deliberately no separate network on/off flag to drift.
-    network: { allowedDomains: [...parsed.allowedDomains], deniedDomains: [] },
+    // A run's own domains never go here: the proxy reads this list for every
+    // sandboxed process at once, so the executor grants them to that one
+    // command through srt's per-command list instead (BST-2327).
+    network: { allowedDomains: [], deniedDomains: [] },
   };
 }

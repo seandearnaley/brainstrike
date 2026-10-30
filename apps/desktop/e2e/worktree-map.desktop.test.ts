@@ -591,6 +591,8 @@ test.describe('Worktree Map (desktop)', () => {
       // freshRepoWithManagedExternalWorktree above). `git worktree add ../x`
       // lands as a sibling of repo, outside both, so reconcile correctly
       // finds nothing to adopt there; place it under managedDirectory instead.
+      // That is outside the open root too, so the command escapes the OS
+      // sandbox, which only the person can approve.
       const shellWorktreePath = tempDirs.track(path.join(managedDirectory, shellWorktreeName));
       const shim = requireModelProviderShim();
       shim.setScript({
@@ -598,6 +600,7 @@ test.describe('Worktree Map (desktop)', () => {
         toolCall: {
           arguments: {
             command: `git worktree add ${shellWorktreePath} -b bs/shell-created`,
+            dangerouslyDisableSandbox: true,
           },
           name: 'brainstrike_executeCommand',
         },

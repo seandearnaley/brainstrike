@@ -1,8 +1,10 @@
 import { homedir } from 'node:os';
+import type { FencedShell } from '@brainstrike/agent/fence-executor';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID, scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
+  type CommandSandbox,
   executeCommandExecutor,
   isSharedNativeToolId,
   type NativeToolExecutor,
@@ -209,6 +211,29 @@ function hostCodeExecution(appPaths: HostAppPaths): CodeExecutionHost {
 }
 
 /**
+ * The OS sandbox this host's commands run in (BST-2328): one per process,
+ * since the fence's session is process-global and holds itself for the
+ * process's life. Imported lazily, as run_python's fence is, so building the
+ * tool map never loads sandbox-runtime.
+ */
+let commandSandbox: Promise<FencedShell | undefined> | undefined;
+function hostCommandSandbox(appPaths: HostAppPaths | undefined): CommandSandbox {
+  return () => {
+    commandSandbox ??= import('@brainstrike/agent/fence-executor').then(({ createFencedShell }) => {
+      // Without launch facts there is no packaged helper to name, and
+      // sandbox-runtime finds its own: a dev checkout, as run_python's fence.
+      const linuxSeccompApplyPath = appPaths
+        ? hostCodeExecution(appPaths).resolveSeccompApplyPath()
+        : undefined;
+      return createFencedShell(
+        linuxSeccompApplyPath === undefined ? {} : { linuxSeccompApplyPath }
+      );
+    });
+    return commandSandbox;
+  };
+}
+
+/**
  * The skills Main admitted for this run, never rescanned here: their
  * references, scripts and assets are read through this host's own secure fs.
  */
@@ -291,6 +316,7 @@ export function desktopHostToolExecutors(
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
       correlation: ({ ports, runtimeData }) =>
         hostShellCorrelation(worktrees, threadId, runtimeData?.memory?.runId, ports.shellWorktrees),
+      sandbox: hostCommandSandbox(appPaths),
       // Desktop's own bundled wrapper, emitted beside this host bundle.
       windowsCommandEntry: () =>
         resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs'),

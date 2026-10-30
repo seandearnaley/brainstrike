@@ -15,7 +15,7 @@ import {
   type ShellCorrelationDependencies,
 } from './execute-command-correlation.ts';
 import { projectExecuteCommandModelOutput } from './execute-command-model-projection.ts';
-import type { WindowsCommandEntry } from './execute-command-tool.ts';
+import type { CommandSandbox, WindowsCommandEntry } from './execute-command-tool.ts';
 import type { NativeToolBuildContext } from './executors.ts';
 import type { NativeToolExecutor } from './host-tools.ts';
 import {
@@ -30,6 +30,8 @@ import {
 export interface ExecuteCommandShell {
   /** The call's worktree correlation; absent where the shell has no worktree ledger. */
   readonly correlation?: (context: NativeToolBuildContext) => ShellCorrelationDependencies;
+  /** The OS sandbox commands run in; absent where the shell supplies none. */
+  readonly sandbox?: CommandSandbox;
   readonly windowsCommandEntry: WindowsCommandEntry;
 }
 
@@ -68,6 +70,7 @@ export function executeCommandExecutor(shell: ExecuteCommandShell): NativeToolEx
           resolvedInput,
           runtimeData,
           {
+            ...(shell.sandbox ? { sandbox: shell.sandbox } : {}),
             signal: resolveGuardedToolSignal(options),
             ...(stream ? { stream } : {}),
             windowsCommandEntry: shell.windowsCommandEntry,

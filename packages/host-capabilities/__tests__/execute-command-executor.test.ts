@@ -122,6 +122,27 @@ test('a start directory outside the root is refused before any process starts', 
   expect(nativeChildren.spawnNativeChild).not.toHaveBeenCalled();
 });
 
+test('a sandbox that cannot take the command refuses it with its reason, never running it unsandboxed', async () => {
+  const tool = shellTool({
+    sandbox: async () => ({
+      wrap: async () => {
+        throw new Error('This Linux host blocked creation of the sandbox namespace.');
+      },
+    }),
+    windowsCommandEntry: vi.fn(),
+  });
+  expect(await tool.execute({ command: 'echo hi' }, call())).toMatchObject({
+    error: {
+      code: 'tool_input_invalid',
+      message: expect.stringMatching(
+        /nothing ran: This Linux host blocked creation of the sandbox namespace\..*dangerouslyDisableSandbox: true/u
+      ),
+    },
+    ok: false,
+  });
+  expect(nativeChildren.spawnNativeChild).not.toHaveBeenCalled();
+});
+
 test('input the Effect Schema owner rejects never reaches a process', async () => {
   const tool = shellTool({ windowsCommandEntry: vi.fn() });
   expect(await tool.execute({ command: 42 }, call())).toMatchObject({ ok: false });
