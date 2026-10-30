@@ -586,6 +586,12 @@ export interface HostTool {
   readonly mcpBinding?: { readonly configuredServerId: string; readonly generation: number };
   /** Existing catalog ID used by Settings policy, before provider-name sanitization. */
   readonly permissionToolId?: string;
+  /**
+   * BST-2329: why this call's own input is the person's to approve, never auto
+   * access mode's reviewer (an executeCommand run outside the OS sandbox), or
+   * undefined. The policy still decides whether the call asks at all.
+   */
+  readonly personApproval?: (input: unknown) => string | undefined;
   /** Tool-owned recovery of runtime meaning that JSON cannot retain. */
   reconstructApprovalInput?(rawInput: unknown): Promise<unknown>;
   readonly risk: ToolRiskCategory;

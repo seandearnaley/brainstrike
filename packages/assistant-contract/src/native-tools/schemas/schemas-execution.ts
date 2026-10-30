@@ -38,11 +38,17 @@ const positiveIntUpTo = (maximum: number) =>
 
 export const ExecuteCommandInputSchema = Schema.Struct({
   command: bounded(1, 10_000).annotate({
-    description: 'Shell command passed verbatim to `-c`; NO sandbox',
+    description: 'Shell command passed verbatim to `-c`',
   }),
   cwd: Schema.optionalKey(
     Schema.String.annotate({
       description: 'Start directory, absolute or root-relative; must resolve inside an open folder',
+    })
+  ),
+  // Claude Code's name for the same escape, so models already know it (BST-2329).
+  dangerouslyDisableSandbox: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description: "Run outside the OS sandbox; needs the user's approval",
     })
   ),
   root: Schema.optionalKey(

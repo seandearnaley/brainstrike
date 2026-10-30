@@ -37,6 +37,7 @@ import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { GitResult } from '@brainstrike/types';
 import {
+  type CommandSandbox,
   type ExecuteCommandToolResult,
   runExecuteCommand,
   type WindowsCommandEntry,
@@ -92,6 +93,7 @@ export async function runExecuteCommandWithShellCorrelation(
   input: ExecuteCommandInput,
   runtimeData: RuntimeData | undefined,
   options: {
+    readonly sandbox?: CommandSandbox | undefined;
     readonly signal?: AbortSignal | undefined;
     readonly stream?: ShellOutputStreamer | undefined;
     readonly windowsCommandEntry: WindowsCommandEntry;

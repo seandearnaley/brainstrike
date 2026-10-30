@@ -776,7 +776,8 @@ export function createAdmittedHostSdkTools(
 /**
  * A call the policy asks about. Auto access mode's quick model answers first:
  * its approval permits the call, and whatever it does not approve asks the
- * user with its reason.
+ * user with its reason. A call that is the person's own to approve skips the
+ * reviewer, as ADR-0031 has network consents do.
  */
 async function hostAskDecision(
   run: HostRunState,
@@ -788,8 +789,11 @@ async function hostAskDecision(
   step: { readonly prior: unknown; readonly runs: ReadonlyMap<string, HostRunState> }
 ): Promise<'user-approval' | HostAutoReviewOutcome> {
   const reviewModel = run.admission?.reviewModel;
+  const personOnly = registered.personApproval?.(call.input);
   let reviewed: HostAutoReviewOutcome | undefined;
-  if (autoReview && step.prior === undefined) {
+  if (autoReview && step.prior === undefined && personOnly !== undefined) {
+    reviewed = { reason: personOnly, type: 'user-approval' };
+  } else if (autoReview && step.prior === undefined) {
     reviewed = reviewModel
       ? await reviewHostToolCall({
           action: {

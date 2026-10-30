@@ -31,7 +31,13 @@ const RUN_PYTHON_TOOL_ID = NATIVE_TOOL_ID.runPython;
 const RUN_SKILL_SCRIPT_TOOL_ID = NATIVE_TOOL_ID.runSkillScript;
 const STRING_REPLACE_TOOL_ID = NATIVE_TOOL_ID.stringReplaceWorkspaceFile;
 const WRITE_FILE_TOOL_ID = NATIVE_TOOL_ID.writeWorkspaceFile;
-const EXECUTE_COMMAND_ARG_KEYS = new Set(['command', 'cwd', 'root', 'timeoutMs']);
+const EXECUTE_COMMAND_ARG_KEYS = new Set([
+  'command',
+  'cwd',
+  'dangerouslyDisableSandbox',
+  'root',
+  'timeoutMs',
+]);
 const RUN_SKILL_SCRIPT_ARG_KEYS = new Set([
   'args',
   'cwd',
@@ -62,6 +68,8 @@ interface WriteFileApprovalArgs {
 interface ExecuteCommandApprovalArgs {
   command: string;
   cwd?: string;
+  /** BST-2329: the command asked to run outside the OS sandbox. */
+  outsideSandbox: boolean;
   root?: string;
   timeoutMs?: number;
 }
@@ -148,8 +156,11 @@ function narrowExecuteCommandArgs(value: unknown): ExecuteCommandApprovalArgs | 
     return null;
   }
 
-  const { command, cwd, root, timeoutMs } = value;
+  const { command, cwd, dangerouslyDisableSandbox, root, timeoutMs } = value;
   if (typeof command !== 'string' || command.length === 0 || command.length > 10_000) {
+    return null;
+  }
+  if (dangerouslyDisableSandbox !== undefined && typeof dangerouslyDisableSandbox !== 'boolean') {
     return null;
   }
   if (cwd !== undefined && typeof cwd !== 'string') {
@@ -171,6 +182,7 @@ function narrowExecuteCommandArgs(value: unknown): ExecuteCommandApprovalArgs | 
   return {
     command,
     ...(typeof cwd === 'string' ? { cwd } : {}),
+    outsideSandbox: dangerouslyDisableSandbox === true,
     ...(typeof root === 'string' ? { root } : {}),
     ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}),
   };
@@ -475,6 +487,11 @@ function ExecuteCommandPreview({ args }: { args: unknown }) {
 
   return (
     <div className="mt-3">
+      {parsed.outsideSandbox ? (
+        <p className="text-warning mb-2 text-xs" data-testid="approval-command-outside-sandbox">
+          Runs outside the sandbox, with full access to your files and network.
+        </p>
+      ) : null}
       <p className="text-foreground/90 text-xs font-medium">Command</p>
       <pre
         className="border-border bg-muted/60 mt-1.5 max-w-full overflow-x-hidden rounded-md border p-3 font-mono text-xs leading-5 [overflow-wrap:anywhere] whitespace-pre-wrap select-text"

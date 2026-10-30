@@ -20,6 +20,7 @@ const COMMAND_RESULT: ExecuteCommandToolResult = {
   exitCode: 0,
   rootId: 'root-1',
   rootName: 'repo',
+  sandboxed: false,
   signal: null,
   stderr: '',
   stdout: '',

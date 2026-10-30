@@ -12,16 +12,17 @@
  * 1. `SandboxManager` is a PROCESS-GLOBAL singleton. `initialize()` is a
  *    no-op once an initialization promise exists, and the network proxy reads
  *    the module-level config at request time. So the session is initialized
- *    once per process and every execution pushes its own policy through
- *    `updateConfig()` (proxy) plus `wrapWithSandbox*`'s per-command config
- *    override (filesystem). Both are needed: the wrap-time override alone
- *    would leave the proxy filtering on a stale allow-list.
- * 2. Because that state is global, executions are SERIALIZED process-wide.
- *    Two concurrent runs with different policies would otherwise interleave
- *    `updateConfig()` calls and one would silently run under the other's
- *    network allow-list.
+ *    once per process. Every execution passes its filesystem policy as
+ *    `wrapWithSandbox*`'s per-command config override, and its domains as
+ *    srt's per-command network list, keyed by an unguessable id the wrap
+ *    gives that one process (BST-2327). The process-wide `allowedDomains`
+ *    stays empty, because every sandboxed process the proxy serves reads it,
+ *    shell commands running beside this executor included (fence-shell.ts).
+ * 2. `updateConfig()` still runs per execution, since srt reads the seccomp
+ *    helper from the process-wide config, and executions stay SERIALIZED
+ *    process-wide so two installs never interleave.
  */
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { platform } from 'node:process';
@@ -353,6 +354,27 @@ async function acquireReadySession(
     clearTimeout(timer);
     signal.removeEventListener('abort', onAbort);
   }
+}
+
+/**
+ * Holds the process-global session for a caller that wraps commands itself
+ * (fence-shell.ts), after the same readiness probe an executor runs. It is
+ * never released: such a caller lasts as long as the process.
+ */
+export function acquireFenceSession(
+  linuxSeccompApplyPath: string | undefined,
+  signal: AbortSignal
+): Promise<void> {
+  return acquireReadySession(linuxSeccompApplyPath, signal);
+}
+
+/**
+ * 128 random bits, as srt requires: the proxy binds a connection to a
+ * per-command network list by this id alone, and the sandboxed process is
+ * what presents it. It also keys the violations srt attributes to the command.
+ */
+export function newFenceCommandId(): string {
+  return randomBytes(16).toString('base64url');
 }
 
 // ---------------------------------------------------------------------------
@@ -980,6 +1002,8 @@ export async function createFenceExecutor(
       // group-writable one would otherwise leave a window where another local
       // user can read or replace the script that is about to run.
       await writeFile(scriptPath, input.code, { encoding: 'utf8', mode: 0o600 });
+      const commandId = newFenceCommandId();
+      let wrapped = false;
       try {
         await applySessionConfig(executionConfig);
         const command = [interpreter.command, ...(interpreter.args ?? []), scriptPath]
@@ -990,8 +1014,16 @@ export async function createFenceExecutor(
           undefined,
           executionConfig,
           undefined,
-          input.scratchDir
+          input.scratchDir,
+          { commandId }
         );
+        wrapped = true;
+        // Just before spawn, and gone once spawnFenced settles, which is after
+        // the whole process group is: an id is worth presenting only while
+        // its list is registered.
+        SandboxManager.registerCommandNetworkLists(commandId, {
+          allowedDomains: [...input.policy.allowedDomains],
+        });
         return await spawnFenced({
           argv,
           cwd: input.scratchDir,
@@ -1001,9 +1033,13 @@ export async function createFenceExecutor(
           timeoutMs: Math.max(1, deadline - Date.now()),
         });
       } finally {
-        // Linux-only in effect (it clears bwrap mount points), but calling it
-        // unconditionally keeps one code path and is a no-op elsewhere.
-        SandboxManager.cleanupAfterCommand();
+        SandboxManager.unregisterCommandNetworkLists(commandId);
+        // One per wrap that handed out a command: srt undoes a wrap that threw
+        // itself, and a second release would clear the bwrap mount points of a
+        // shell command still running beside this one.
+        if (wrapped) {
+          SandboxManager.cleanupAfterCommand();
+        }
         await rm(scriptPath, { force: true });
       }
     });

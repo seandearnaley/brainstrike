@@ -22,6 +22,7 @@ function resultFixture(
     exitCode: 0,
     rootId: 'root-a',
     rootName: 'workspace',
+    sandboxed: false,
     signal: null,
     stderr: '',
     stdout: 'hello',
@@ -55,6 +56,14 @@ describe('projectExecuteCommandModelOutput', () => {
         })
       ).value
     ).toBe('exec exit=null 0.0s timed_out killed=SIGTERM\n(no output)');
+  });
+
+  it('tells the model a command ran in the OS sandbox', () => {
+    expect(
+      projectExecuteCommandModelOutput(
+        resultFixture({ command: 'true', sandboxed: true, stdout: '' })
+      ).value
+    ).toBe('exec exit=0 0.0s sandboxed\n(no output)');
   });
 
   it('renders the producer truncation hint verbatim as the final line', () => {

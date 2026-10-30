@@ -15,12 +15,21 @@ const sandbox = vi.hoisted(() => ({
   cleanupAfterCommand: vi.fn(),
   initialize: vi.fn(async (_config: SandboxRuntimeConfig) => {}),
   isSupportedPlatform: vi.fn(() => true),
+  registerCommandNetworkLists: vi.fn(),
   reset: vi.fn(async () => {}),
+  unregisterCommandNetworkLists: vi.fn(),
   updateConfig: vi.fn((config: SandboxRuntimeConfig) => {
     runtime.config = config;
   }),
   wrapWithSandboxArgv: vi.fn(
-    async (command: string, _shell?: string, _config?: SandboxRuntimeConfig) => ({
+    async (
+      command: string,
+      _shell?: string,
+      _config?: SandboxRuntimeConfig,
+      _signal?: AbortSignal,
+      _cwd?: string,
+      _options?: { readonly commandId?: string }
+    ) => ({
       argv: ['/bin/sh', '-c', command],
       env: {},
     })
@@ -360,7 +369,13 @@ describe('trusted Linux seccomp helper injection', () => {
       expect(runtime.config).toEqual(firstConfig);
       expect(sandbox.wrapWithSandboxArgv.mock.lastCall?.[2]).toEqual(firstConfig);
       expect(runtime.config?.seccomp).toEqual({ applyPath: firstPath });
-      expect(runtime.config?.network.allowedDomains).toEqual(['example.com']);
+      // Every sandboxed process reads the process-wide list, so the run's
+      // domain goes only to its own command's list (BST-2327).
+      expect(runtime.config?.network.allowedDomains).toEqual([]);
+      expect(sandbox.registerCommandNetworkLists).toHaveBeenLastCalledWith(
+        sandbox.wrapWithSandboxArgv.mock.lastCall?.[5]?.commandId,
+        { allowedDomains: ['example.com'] }
+      );
       expect(spawnProbe).toHaveBeenCalledTimes(spawns + 1);
       expect(sandbox.initialize).toHaveBeenCalledTimes(1);
       expect(sandbox.reset).not.toHaveBeenCalled();

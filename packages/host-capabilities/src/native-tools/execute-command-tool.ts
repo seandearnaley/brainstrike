@@ -7,6 +7,7 @@ import {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
 } from '@brainstrike/agent';
+import type { FencedShell, FencedShellCommand } from '@brainstrike/agent/fence-executor';
 import {
   NATIVE_TOOL_ID,
   requireNativeToolExecutionBudget,
@@ -36,6 +37,13 @@ export const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
  * entry); it is read only on Windows.
  */
 export type WindowsCommandEntry = () => string;
+
+/**
+ * The OS sandbox commands run in (BST-2328), resolved on first use so a host
+ * loads sandbox-runtime only when a command needs it. Undefined on a host
+ * without one (Windows today); the result then says `sandboxed: false`.
+ */
+export type CommandSandbox = () => Promise<FencedShell | undefined>;
 
 const logger = createLogger('ExecuteCommandTool');
 const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
@@ -112,6 +120,8 @@ export interface ExecuteCommandToolResult {
   rootId: string;
   /** Display name of the workspace root the command was resolved against. */
   rootName: string;
+  /** True when the command ran inside the OS sandbox. */
+  sandboxed: boolean;
   /** Terminating signal name when the process was killed (else null). */
   signal: string | null;
   /** Budget-fitted head and tail of captured stderr (early + recent context). */
@@ -226,9 +236,9 @@ export async function disposeLiveChildProcesses(): Promise<number> {
 /**
  * Resolve and containment-check the directory the command will start in.
  *
- * The command body is unrestricted (it can `cd` anywhere — there is NO sandbox),
- * but the START directory is pinned inside a workspace root, mirroring the fs
- * tools. `cwd` is an absolute path (or a workspace-relative path) that, after
+ * The command body can `cd` anywhere (the OS sandbox, where there is one,
+ * bounds what it may write), but the START directory is pinned inside a
+ * workspace root, mirroring the fs tools. `cwd` is an absolute path (or a workspace-relative path) that, after
  * symlink resolution, MUST live within the resolved root, or we throw.
  */
 async function resolveCommandCwd(
@@ -634,28 +644,57 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
   });
 }
 
-function runShellCommand(args: {
+async function runShellCommand(args: {
   command: string;
   cwd: string;
+  /** The command wrapped for the OS sandbox; its release joins the lease's. */
+  fenced: FencedShellCommand | undefined;
   timeoutMs: number;
   signal: AbortSignal | undefined;
   streamer: ShellOutputStreamer | undefined;
   releaseWorkspaceLease: () => void;
   windowsCommandEntry: WindowsCommandEntry;
 }): Promise<SpawnOutcome> {
-  const { command, cwd, timeoutMs, signal, streamer } = args;
+  const { command, cwd, fenced, timeoutMs, signal, streamer } = args;
   const invocation = resolveShellInvocation(command);
-  return runDetachedProcess({
-    argv: invocation.args,
+  const outcome = await runDetachedProcess({
+    argv: fenced?.args ?? invocation.args,
     cwd,
-    executable: invocation.shell,
-    releaseWorkspaceLease: args.releaseWorkspaceLease,
+    ...(fenced ? { env: { ...fenced.env } } : {}),
+    executable: fenced?.executable ?? invocation.shell,
+    // Settlement is after the process group's close, so the sandbox's mount
+    // points go with the lease and never before the command is done.
+    releaseWorkspaceLease: fenced
+      ? () => {
+          fenced.release();
+          args.releaseWorkspaceLease();
+        }
+      : args.releaseWorkspaceLease,
     signal,
     streamer,
     timeoutMs,
     windowsCommandEntry: args.windowsCommandEntry,
     windowsVerbatimArguments: process.platform === 'win32',
   });
+  return fenced ? { ...outcome, stderr: fenced.annotate(outcome.stderr) } : outcome;
+}
+
+/**
+ * A sandboxed command that failed may have failed BECAUSE of the sandbox: on
+ * Linux a refused write is only `Read-only file system`, with no note from
+ * sandbox-runtime. So every non-zero exit names what the sandbox refuses and
+ * the escape, which only the user can approve.
+ */
+export const SANDBOX_HINT =
+  'This command ran in the OS sandbox: it may write only inside its open folder and the sandbox temp folder (TMPDIR), and has no network. If the sandbox caused the failure, tell the user, or call again with dangerouslyDisableSandbox: true, which asks them.';
+
+/** The sandbox could not take the command, so nothing ran; the escape is the model's next step. */
+function sandboxUnavailable(error: unknown): ToolInputError {
+  const reason = error instanceof Error ? error.message : String(error);
+  return new ToolInputError(
+    `The OS sandbox could not run this command, so nothing ran: ${reason} To run it outside the sandbox, call again with dangerouslyDisableSandbox: true, which asks the user.`,
+    { cause: error }
+  );
 }
 
 /**
@@ -762,9 +801,10 @@ function buildResult(args: {
   outcome: SpawnOutcome;
   rootId: string;
   rootName: string;
+  sandboxed: boolean;
   topology: OpenRootTopology;
 }): ExecuteCommandToolResult {
-  const { command, cwd, durationMs, outcome, rootId, rootName, topology } = args;
+  const { command, cwd, durationMs, outcome, rootId, rootName, sandboxed, topology } = args;
   // Strip ANSI before budgeting so escape codes never reach the model or
   // consume the token budget.
   const stdoutText = stripAnsi(outcome.stdout);
@@ -809,6 +849,10 @@ function buildResult(args: {
       ? fitHeadAndTailToCharBudget(stderrText, stderrBudget)
       : { text: '', truncated: false };
     const truncated = fittedStdout.truncated || fittedStderr.truncated;
+    const hints = [
+      ...(sandboxed && outcome.exitCode !== 0 ? [SANDBOX_HINT] : []),
+      ...(truncated ? [TRUNCATION_HINT] : []),
+    ];
     return {
       ...topology,
       command: echoedCommand,
@@ -817,12 +861,13 @@ function buildResult(args: {
       exitCode: outcome.exitCode,
       rootId,
       rootName,
+      sandboxed,
       signal: outcome.signal,
       stderr: fittedStderr.text,
       stdout: fittedStdout.text,
       timedOut: outcome.timedOut,
       truncated,
-      ...(truncated ? { hint: TRUNCATION_HINT } : {}),
+      ...(hints.length > 0 ? { hint: hints.join(' ') } : {}),
     };
   };
 
@@ -860,10 +905,13 @@ function buildResult(args: {
 }
 
 /**
- * Execute an arbitrary shell command in the workspace. THE highest-risk tool:
- * there is NO sandbox. Containment that actually exists here: the cwd is pinned
- * inside a workspace root, output is bounded, and the detached process-group
- * teardown guarantees no orphaned subprocess. The tool is registered like every
+ * Execute an arbitrary shell command in the workspace. THE highest-risk tool.
+ * Where the host supplies {@link CommandSandbox}, the command runs in the OS
+ * sandbox: writes only inside its root, no network (BST-2328), unless the call
+ * sets `dangerouslyDisableSandbox`, which run admission puts to the person.
+ * Containment that exists everywhere: the cwd is pinned inside a workspace
+ * root, output is bounded, and the detached process-group teardown guarantees
+ * no orphaned subprocess. The tool is registered like every
  * native tool and gated by the permission engine: with enforce-on-by-default,
  * 'execute' resolves to 'ask', so the run SUSPENDS for per-call approval before
  * this function is invoked (approve → run, decline → skip); allow/yolo runs it
@@ -874,6 +922,7 @@ export async function runExecuteCommand(
   input: ExecuteCommandInput,
   runtimeData: RuntimeData | undefined,
   options: {
+    readonly sandbox?: CommandSandbox | undefined;
     readonly signal?: AbortSignal | undefined;
     readonly stream?: ShellOutputStreamer | undefined;
     readonly windowsCommandEntry: WindowsCommandEntry;
@@ -892,11 +941,35 @@ export async function runExecuteCommand(
   const deadline = AbortSignal.timeout(timeoutMs);
   const admissionSignal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
   let spawned = false;
+  // Resolved before the lease: the first command loads the sandbox's module.
+  const sandbox =
+    input.dangerouslyDisableSandbox === true
+      ? undefined
+      : await options.sandbox?.().catch((error: unknown) => {
+          throw sandboxUnavailable(error);
+        });
   const outcome = await (async () => {
     const release = await acquireWorkspaceMutationLease(rootPath, 'opaque', admissionSignal);
     let transferred = false;
+    let fenced: FencedShellCommand | undefined;
     try {
       admissionSignal.throwIfAborted();
+      // A sandbox that cannot take the command refuses it with its reason; it
+      // never falls back to running the command unsandboxed on its own.
+      fenced = await sandbox
+        ?.wrap({
+          command: input.command,
+          cwd,
+          root: rootPath,
+          shell: resolveShellInvocation(input.command).shell,
+          signal: admissionSignal,
+        })
+        .catch((error: unknown) => {
+          if (admissionSignal.aborted) {
+            throw error;
+          }
+          throw sandboxUnavailable(error);
+        });
       const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
       if (remainingTimeoutMs <= 0) {
         throw new ToolInputError(
@@ -908,6 +981,7 @@ export async function runExecuteCommand(
       return await runShellCommand({
         command: input.command,
         cwd,
+        fenced,
         releaseWorkspaceLease: release,
         signal: options.signal,
         streamer: options.stream,
@@ -916,6 +990,7 @@ export async function runExecuteCommand(
       });
     } finally {
       if (!transferred) {
+        fenced?.release();
         release();
       }
     }
@@ -954,6 +1029,7 @@ export async function runExecuteCommand(
     outcome,
     rootId,
     rootName,
+    sandboxed: sandbox !== undefined,
     topology,
   });
 }

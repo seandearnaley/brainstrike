@@ -28,9 +28,14 @@ export {
   FencePolicyError,
   isFencePolicyError,
 } from './fence/fence-policy.ts';
-
 export {
   FenceReadinessError,
   type FenceReadinessReason,
   isFenceReadinessError,
 } from './fence/fence-readiness-error.ts';
+export {
+  createFencedShell,
+  type FencedShell,
+  type FencedShellCommand,
+  type FencedShellRequest,
+} from './fence/fence-shell.ts';
