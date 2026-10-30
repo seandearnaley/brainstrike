@@ -377,6 +377,13 @@ export interface HostRunAdmission {
     request: HostTurnBoundaryRequest
   ) => Promise<readonly HostTurnSnapshot[]>;
   /**
+   * BST-2310: set on a delegated child to the provider its own children
+   * prepare through, the root's (`null` when the root has none). A descendant
+   * derives its step from the root's, never from its parent child's, so each
+   * step holds one work permit and follows only its own persona's step rules.
+   */
+  readonly childProvider?: HostProviderPort | null | undefined;
+  /**
    * BST-1932: the host-supplied context (date, skills, workspace instructions)
    * a delegated child receives beside its persona instructions; never the
    * root's supervisor instructions.
