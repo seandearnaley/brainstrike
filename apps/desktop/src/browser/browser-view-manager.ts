@@ -349,7 +349,10 @@ export class BrowserViewManager {
     return false;
   }
 
-  /** Renderer reports the pane's on-screen rect (ResizeObserver → IPC). */
+  /**
+   * Renderer reports the pane's on-screen rect (ResizeObserver → IPC), in its
+   * own CSS pixels; the view factory converts it to window DIPs.
+   */
   setBounds(rect: PaneRect): void {
     this.bounds = rect;
     this.applyActiveVisibility();
