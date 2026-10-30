@@ -39,10 +39,19 @@ import type { SettingsCategory } from './settings-page-content';
 export function createAppearanceSettingsCategory(): SettingsCategory {
   return {
     content: <ThemeSettings />,
-    description: 'Choose your theme and personalize the interface for your workflow.',
+    description: 'Choose your theme, fonts and code colours.',
     icon: Palette,
     id: 'appearance',
-    keywords: ['theme', 'color', 'display', 'dark mode'],
+    keywords: [
+      'theme',
+      'color',
+      'display',
+      'dark mode',
+      'font',
+      'typeface',
+      'code theme',
+      'syntax',
+    ],
     title: 'Appearance',
   };
 }

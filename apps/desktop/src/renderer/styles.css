@@ -1,9 +1,14 @@
 /* stylelint-disable */
 /* CSS with PostCSS syntax */
 
-/* Geist fonts via @fontsource-variable */
+/* Bundled fonts via @fontsource-variable: Geist is the default; the rest are
+   the choices in Settings > Appearance (packages/ui/src/themes/fonts.ts). */
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/ibm-plex-sans";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/fira-code";
 
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
@@ -33,9 +38,8 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
-    /* Primary: Geist Variable via @fontsource, then system fonts */
-    font-family:
-      "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    /* The interface font: Geist by default, or the Appearance choice. */
+    font-family: var(--font-sans);
     /* Enhanced OpenType features for premium typography */
     font-feature-settings:
       "kern" 1, /* Kerning - proper letter spacing */
@@ -49,14 +53,13 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Monospace elements use Geist Mono Variable */
+  /* Monospace elements use the code font: Geist Mono by default. */
   code,
   pre,
   kbd,
   samp,
   .font-mono {
-    font-family:
-      "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
   }
 }
 
