@@ -2,15 +2,17 @@ import {
   type BoundaryTransport,
   callBoundary,
 } from '@brainstrike/assistant-contract/boundary-result';
-/** The two desktop host readers the thread debug pack consumes at build time. */
+/** The desktop host readers the thread debug pack consumes at build time. */
 export interface ThreadDebugHostProbe {
+  /** Main's retained diagnostic log, the records the status bar counts; newest first. */
+  queryEvents(filter: { readonly limit: number }): Promise<unknown>;
   readMainLogWindow(request: { readonly since: string; readonly until: string }): Promise<unknown>;
   readProcessCounters(): Promise<unknown>;
 }
 
 /**
  * Capability probe (never `isElectron()`): a web build, or a preload that lacks
- * either reader, yields null, and the pack names that as the reason host
+ * any of the readers, yields null, and the pack names that as the reason host
  * evidence is absent.
  */
 export function readThreadDebugHostProbe(): ThreadDebugHostProbe | null {
@@ -21,13 +23,20 @@ export function readThreadDebugHostProbe(): ThreadDebugHostProbe | null {
   if (
     typeof candidate === 'object' &&
     candidate !== null &&
+    'queryEvents' in candidate &&
+    typeof candidate.queryEvents === 'function' &&
     'readMainLogWindow' in candidate &&
     typeof candidate.readMainLogWindow === 'function' &&
     'readProcessCounters' in candidate &&
     typeof candidate.readProcessCounters === 'function'
   ) {
-    const transport = candidate as BoundaryTransport<ThreadDebugHostProbe>;
+    const transport = candidate as BoundaryTransport<
+      Pick<ThreadDebugHostProbe, 'readMainLogWindow' | 'readProcessCounters'>
+    > &
+      Pick<ThreadDebugHostProbe, 'queryEvents'>;
     return {
+      // Answers its events, or rejects, as the failed-run debug bundle reads it.
+      queryEvents: (filter) => transport.queryEvents(filter),
       readMainLogWindow: (request) => callBoundary(() => transport.readMainLogWindow(request)),
       readProcessCounters: () => callBoundary(() => transport.readProcessCounters()),
     };
