@@ -1,11 +1,14 @@
 /**
- * Input schemas for the embedded-browser-pane agent tools (BST-1176 PR2).
+ * Input schemas for the embedded-browser-pane agent tools (BST-1176 PR2,
+ * BST-2324).
  *
- * Read-only seeing set: navigate the pane, read the live page as an
- * accessibility tree ([ref=eN] handles for PR3's act-by-ref), or as plain
- * text. Desktop-only — the pane exists only where a `WebContentsView` host
- * runs. Flat strict objects: there is no action union here, so an unknown key
- * is a hallucinated parameter and fails with an actionable one-line error.
+ * Seeing set: navigate the pane, read the live page as an accessibility tree
+ * ([ref=eN] handles), or as plain text. Acting set: click, type into and pick
+ * options of an element by its ref, shaped like Playwright MCP's
+ * `browser_click` / `browser_type` / `browser_select_option`. Desktop-only —
+ * the pane exists only where a `WebContentsView` host runs. Flat strict
+ * objects: there is no action union here, so an unknown key is a hallucinated
+ * parameter and fails with an actionable one-line error.
  *
  * Authored in Effect Schema: ADR-0004 (amended 2026-10-15) makes Effect the
  * single boundary owner, and `effectToolInputSchema` derives the provider JSON
@@ -83,3 +86,38 @@ export const BrowserGetPageTextInputSchema = Schema.Struct({
 });
 
 export type BrowserGetPageTextInput = typeof BrowserGetPageTextInputSchema.Type;
+
+/**
+ * The two fields every acting tool takes, as Playwright MCP names them: the
+ * person reads `element` on the approval card; `ref` is the handle from the
+ * last `browserReadPage`.
+ */
+const actionTarget = {
+  element: Schema.String.check(Schema.isMinCodePoints(1), Schema.isMaxLength(200)).annotate({
+    description: 'Short element description the user approves',
+  }),
+  ref: Schema.String.annotate({ description: '[ref=eN] from your last browserReadPage' }),
+};
+
+export const BrowserClickInputSchema = Schema.Struct(actionTarget);
+
+export type BrowserClickInput = typeof BrowserClickInputSchema.Type;
+
+export const BrowserTypeInputSchema = Schema.Struct({
+  ...actionTarget,
+  submit: withDefault(Schema.Boolean.annotate({ description: 'Press Enter after typing' }), false),
+  text: Schema.String.check(Schema.isMaxLength(10_000)).annotate({
+    description: "Text that replaces the field's value",
+  }),
+});
+
+export type BrowserTypeInput = typeof BrowserTypeInputSchema.Type;
+
+export const BrowserSelectOptionInputSchema = Schema.Struct({
+  ...actionTarget,
+  values: Schema.Array(Schema.String.check(Schema.isMinCodePoints(1), Schema.isMaxLength(500)))
+    .check(Schema.isMinLength(1), Schema.isMaxLength(50))
+    .annotate({ description: 'Option values or labels to select' }),
+});
+
+export type BrowserSelectOptionInput = typeof BrowserSelectOptionInputSchema.Type;

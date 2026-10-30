@@ -124,6 +124,10 @@ const fileVerb = (
  */
 export const TOOL_VERBS: Readonly<Record<NativeToolId, ActivityVerb>> = Object.freeze({
   [NATIVE_TOOL_ID.askUser]: verb('Asking', 'Asked', 'Ask', 'ask'),
+  // The page's acting tools name the element the person approves (BST-2324).
+  [NATIVE_TOOL_ID.browserClick]: verb('Clicking', 'Clicked', 'Click', 'web', {
+    targetArg: 'element',
+  }),
   [NATIVE_TOOL_ID.browserGetPageText]: verb(
     'Reading page text',
     'Read page text',
@@ -132,6 +136,12 @@ export const TOOL_VERBS: Readonly<Record<NativeToolId, ActivityVerb>> = Object.f
   ),
   [NATIVE_TOOL_ID.browserNavigate]: verb('Opening', 'Opened', 'Open', 'web'),
   [NATIVE_TOOL_ID.browserReadPage]: verb('Reading page', 'Read page', 'Read page', 'web'),
+  [NATIVE_TOOL_ID.browserSelectOption]: verb('Selecting', 'Selected', 'Select', 'web', {
+    targetArg: 'element',
+  }),
+  [NATIVE_TOOL_ID.browserType]: verb('Typing into', 'Typed into', 'Type into', 'web', {
+    targetArg: 'element',
+  }),
   [NATIVE_TOOL_ID.deleteWorkspaceFile]: fileVerb('Deleting', 'Deleted', 'Delete', 'edit', 'always'),
   [NATIVE_TOOL_ID.executeCommand]: verb('Running', 'Ran', 'Run', 'run'),
   [NATIVE_TOOL_ID.findWorkspaceSymbol]: verb('Inspecting', 'Inspected', 'Inspect', 'search'),

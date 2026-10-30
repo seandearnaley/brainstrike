@@ -48,9 +48,11 @@ import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
 import { hostIndexSearch, hostQueryEmbedding, hostRetrievalStore } from './host-retrieval-clients';
 import { hostCommandSessionManager } from './host-tool-process';
 import {
+  BrowserActionResultSchema,
   BrowserNavigateResultSchema,
   BrowserPageTextResultSchema,
   BrowserReadPageResultSchema,
+  BrowserSelectOptionResultSchema,
   DiagnosticEventItemsSchema,
   DiagnosticFingerprintItemsSchema,
 } from './host-tool-wire';
@@ -68,9 +70,12 @@ const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   NATIVE_TOOL_ID.queryEmbeddingSpace,
   NATIVE_TOOL_ID.listWorktrees,
   NATIVE_TOOL_ID.manageWorktree,
+  NATIVE_TOOL_ID.browserClick,
   NATIVE_TOOL_ID.browserGetPageText,
   NATIVE_TOOL_ID.browserNavigate,
   NATIVE_TOOL_ID.browserReadPage,
+  NATIVE_TOOL_ID.browserSelectOption,
+  NATIVE_TOOL_ID.browserType,
   NATIVE_TOOL_ID.runPython,
   NATIVE_TOOL_ID.inspectCommandSessions,
   NATIVE_TOOL_ID.manageCommandSession,
@@ -130,6 +135,10 @@ function hostShellCorrelation(
 /** The browser pane is window-bound: Main drives it for the host's call. */
 function hostBrowserTools(request: MainRequest, threadId: string): BrowserToolRunner {
   return {
+    click: async (input, signal) =>
+      wireDecoder(BrowserActionResultSchema, { errors: 'all' })(
+        await request('platform/browser/click', { input, threadId }, signal)
+      ),
     getPageText: async (input, signal) =>
       wireDecoder(BrowserPageTextResultSchema, { errors: 'all' })(
         await request('platform/browser/page-text', { input, threadId }, signal)
@@ -141,6 +150,14 @@ function hostBrowserTools(request: MainRequest, threadId: string): BrowserToolRu
     readPage: async (input, signal) =>
       wireDecoder(BrowserReadPageResultSchema, { errors: 'all' })(
         await request('platform/browser/read-page', { input, threadId }, signal)
+      ),
+    selectOption: async (input, signal) =>
+      wireDecoder(BrowserSelectOptionResultSchema, { errors: 'all' })(
+        await request('platform/browser/select-option', { input, threadId }, signal)
+      ),
+    type: async (input, signal) =>
+      wireDecoder(BrowserActionResultSchema, { errors: 'all' })(
+        await request('platform/browser/type', { input, threadId }, signal)
       ),
   };
 }

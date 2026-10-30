@@ -8,9 +8,12 @@
  * add it to the list in order, and add its executor entry on the desktop side.
  */
 import { askUser } from './definitions/ask-user.ts';
+import { browserClick } from './definitions/browser-click.ts';
 import { browserGetPageText } from './definitions/browser-get-page-text.ts';
 import { browserNavigate } from './definitions/browser-navigate.ts';
 import { browserReadPage } from './definitions/browser-read-page.ts';
+import { browserSelectOption } from './definitions/browser-select-option.ts';
+import { browserType } from './definitions/browser-type.ts';
 import { deleteWorkspaceFile } from './definitions/delete-workspace-file.ts';
 import { executeCommand } from './definitions/execute-command.ts';
 import { findWorkspaceSymbol } from './definitions/find-workspace-symbol.ts';
@@ -51,9 +54,12 @@ import { deriveNativeToolRegistries } from './registries.ts';
 
 export const NATIVE_TOOLS = [
   askUser,
+  browserClick,
   browserGetPageText,
   browserNavigate,
   browserReadPage,
+  browserSelectOption,
+  browserType,
   deleteWorkspaceFile,
   executeCommand,
   findWorkspaceSymbol,

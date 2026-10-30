@@ -480,6 +480,7 @@ it('serves the workspace index, retrieval catalog and query embedding to the hos
 
 it('drives the browser pane, re-parsing the tool input', async () => {
   const browser = {
+    click: vi.fn(),
     getPageText: vi.fn(),
     navigate: vi.fn(async () => ({
       ok: true as const,
@@ -487,6 +488,8 @@ it('drives the browser pane, re-parsing the tool input', async () => {
       url: 'https://example.com/',
     })),
     readPage: vi.fn(),
+    selectOption: vi.fn(),
+    type: vi.fn(),
   };
   const h = harness(mainReads(), undefined, { browser });
   const navigate = {
