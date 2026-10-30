@@ -1,0 +1,96 @@
+# Claude reviews a ready pull request once in full, then reviews only what each
+# later push adds. It comments; it never approves, blocks or gates the queue.
+#
+# - The first non-draft run posts one PR review with every finding inline.
+# - A later push gets a follow-up limited to the lines its commits changed. It
+#   posts a review only when it has something new, and resolves the threads of
+#   earlier findings the push fixed. A push that leaves the PR adding and
+#   removing the same lines (an empty commit, a clean rebase or a base merge)
+#   reviews nothing; one that only deletes lines rechecks the open findings.
+# - The reviewed head is kept in a "Claude review" status comment on the PR.
+#   Delete that comment and re-run the job for a fresh full review.
+# - What to report lives in REVIEW.md, read from the base branch, never from the
+#   PR. scripts/claude-review.mjs has the rest.
+#
+# Owner decision 2026-10-30: per-PR, on the owner's Claude Max subscription
+# (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`). Under pull_request this
+# file and the script run from the PR with that secret in scope, as the earlier
+# Claude review did; PRs here are the owner's and their agents', and fork PRs get
+# no secrets.
+
+name: Claude Review
+
+on:
+  pull_request:
+    types: [ opened, ready_for_review, reopened, synchronize ]
+
+# A newer push supersedes a review still running; that push's run takes over.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Claude Review
+    # Drafts wait for ready_for_review. Forks and bot PRs (Mergify's queue
+    # batches) are not reviewed.
+    if: >-
+      ${{ github.event.pull_request.draft == false
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.type != 'Bot' }}
+    # Not ubuntu-slim: its 15-minute job cap is shorter than a large review.
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      CLAUDE_REVIEW_MODEL: claude-opus-5-5
+      # Opus 5.5 defaults to medium, and only the flag sets it for that model.
+      CLAUDE_REVIEW_EFFORT: high
+    steps:
+      # The PR head, not the merge ref, so line numbers the reviewer reads are
+      # the ones GitHub anchors comments to. No credentials stay in .git/config:
+      # the reviewer can read the checkout.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      # The GitHub token goes only to the two steps that call GitHub, never to
+      # the CLI install or the model's process.
+      - name: Prepare the review
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/claude-review.mjs prepare
+
+      # Pinned to the CLI's stable channel. Opus 5.5 needs 2.1.280 or later.
+      - name: Install Claude Code
+        if: ${{ steps.prepare.outputs.mode != 'skip' }}
+        run: npm install --global @anthropic-ai/claude-code@2.1.308
+
+      - name: Review
+        if: ${{ steps.prepare.outputs.mode != 'skip' }}
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Retry 429 and 529 capacity errors instead of failing the review;
+          # the job timeout still bounds it.
+          CLAUDE_CODE_RETRY_WATCHDOG: "1"
+        run: node scripts/claude-review.mjs run
+
+      # Also runs on a skip, to move the recorded head past a push with no new
+      # changes. GH_TOKEN is the only credential here.
+      - name: Publish
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/claude-review.mjs publish
