@@ -12,6 +12,9 @@
  * profile opens on the new-thread screen, so each test starts a conversation
  * with a scripted reply first.
  *
+ * BST-2342: at a page zoom other than 100% the page still covers exactly its
+ * tab's viewport, read from main's `View.getBounds()` in window DIPs.
+ *
  * BST-2343: a toast stacks bottom-right, over the workspace pane, so a shown
  * page steps aside while one is up. Downloading the debug pack with a page
  * open, as in the smoke test that found it, is the trigger; Downloads points
@@ -24,7 +27,7 @@
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ElectronApplication } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import {
@@ -41,6 +44,7 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 const PANE_PARTITION = 'persist:browser-pane';
 
 interface PaneViewState {
+  readonly bounds: Electron.Rectangle;
   readonly url: string;
   readonly visible: boolean;
 }
@@ -55,9 +59,56 @@ function readPaneViews(app: ElectronApplication): Promise<readonly PaneViewState
           (view): view is Electron.WebContentsView =>
             view instanceof WebContentsView && view.webContents.session === paneSession
         )
-        .map((view) => ({ url: view.webContents.getURL(), visible: view.getVisible() }))
+        .map((view) => ({
+          bounds: view.getBounds(),
+          url: view.webContents.getURL(),
+          visible: view.getVisible(),
+        }))
     );
   }, PANE_PARTITION);
+}
+
+/** Set the page zoom of every window that hosts a pane view. */
+async function setHostZoomFactor(app: ElectronApplication, zoomFactor: number): Promise<void> {
+  await app.evaluate(
+    ({ BrowserWindow, session, WebContentsView }, { factor, partition }) => {
+      const paneSession = session.fromPartition(partition);
+      for (const window of BrowserWindow.getAllWindows()) {
+        const hostsPane = window.contentView.children.some(
+          (view) => view instanceof WebContentsView && view.webContents.session === paneSession
+        );
+        if (hostsPane) {
+          window.webContents.setZoomFactor(factor);
+        }
+      }
+    },
+    { factor: zoomFactor, partition: PANE_PARTITION }
+  );
+}
+
+/**
+ * How far, in window DIPs, the drawn page sits from its tab's viewport at
+ * `zoomFactor`: the largest gap on any edge, or Infinity while none is drawn.
+ */
+async function drawnPageOffset(
+  page: Page,
+  app: ElectronApplication,
+  zoomFactor: number
+): Promise<number> {
+  const css = await page
+    .getByTestId('browser-page-viewport')
+    .filter({ visible: true })
+    .evaluate((element) => element.getBoundingClientRect().toJSON() as Electron.Rectangle);
+  const drawn = (await readPaneViews(app)).find((view) => view.visible)?.bounds;
+  if (!drawn) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.max(
+    Math.abs(drawn.x - css.x * zoomFactor),
+    Math.abs(drawn.y - css.y * zoomFactor),
+    Math.abs(drawn.width - css.width * zoomFactor),
+    Math.abs(drawn.height - css.height * zoomFactor)
+  );
 }
 
 /** Pane-session `webContents` still alive in main (a closed tab's page is gone). */
@@ -190,6 +241,26 @@ test.describe('Browser tabs (desktop)', () => {
     await expect(tabs.getByRole('tab', { name: 'Beta' })).toBeVisible({ timeout: 15_000 });
     await tabs.getByRole('tab', { name: 'Beta' }).click();
     await expectDrawnPages(app, [titledPage('Beta')]);
+  });
+
+  test('a page stays over its tab when the app is zoomed (BST-2342)', async ({
+    electronApp,
+    modelProvider,
+    window: page,
+  }) => {
+    test.setTimeout(120_000);
+    const app = electronApp.app;
+    await ensureAssistantShellVisible(page);
+    await configureAssistantProvider(page);
+    await startConversation(page, modelProvider, 'A zoomed conversation');
+    await openBrowserPage(page, titledPage('Alpha'), 'Alpha');
+    await expectDrawnPages(app, [titledPage('Alpha')]);
+
+    // View › Zoom In, as a person would: the window's own page zoom.
+    await setHostZoomFactor(app, 1.25);
+    await expect
+      .poll(() => drawnPageOffset(page, app, 1.25), { timeout: 10_000 })
+      .toBeLessThanOrEqual(1);
   });
 
   test('a toast is never drawn under a page: the page steps aside until it closes (BST-2343)', async ({

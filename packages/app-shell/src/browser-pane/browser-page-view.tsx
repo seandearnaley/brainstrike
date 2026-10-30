@@ -47,16 +47,13 @@ function usePageOnScreen(
           return;
         }
         // Choose and position BEFORE revealing, so the view only ever appears
-        // at the freshly measured rect.
+        // at the freshly measured rect. The rect is in CSS pixels: main scales
+        // it by this page's zoom and rounds it, and a zoom change resizes the
+        // window, which measures again.
         void bridge.showTab(tabId).catch((error: unknown) => {
           logger.error('Showing the browser page failed', { error, tabId });
         });
-        void bridge.setBounds({
-          height: Math.round(rect.height),
-          width: Math.round(rect.width),
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-        });
+        void bridge.setBounds({ height: rect.height, width: rect.width, x: rect.x, y: rect.y });
         void bridge.setOccluded(false);
       });
     };

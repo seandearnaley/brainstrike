@@ -29,6 +29,7 @@ import {
   type BrowserPaneView,
   type BrowserTabState,
   BrowserViewManager,
+  type PaneRect,
   type PaneWebContents,
 } from './browser-view-manager';
 import { DebuggerBrowserDriver } from './debugger-browser-driver';
@@ -55,7 +56,25 @@ interface BuiltPaneView {
   readonly webContents: WebContents;
 }
 
-function createPaneView(partition: string): BuiltPaneView {
+/**
+ * The renderer measures the page's viewport in its own CSS pixels;
+ * `setBounds` places a view in window DIPs. The two differ by the host page's
+ * zoom (View › Zoom In): at 120% a CSS rect read as DIPs puts the page at
+ * 1/1.2 of its place and size, over the chat. Each edge is rounded once, so
+ * the page meets the DOM around it with no gap.
+ */
+export function toWindowRect(rect: PaneRect, zoomFactor: number): PaneRect {
+  const x = Math.round(rect.x * zoomFactor);
+  const y = Math.round(rect.y * zoomFactor);
+  return {
+    height: Math.round((rect.y + rect.height) * zoomFactor) - y,
+    width: Math.round((rect.x + rect.width) * zoomFactor) - x,
+    x,
+    y,
+  };
+}
+
+function createPaneView(partition: string, hostZoomFactor: () => number): BuiltPaneView {
   const view = new WebContentsView({
     webPreferences: {
       allowRunningInsecureContent: false,
@@ -92,7 +111,7 @@ function createPaneView(partition: string): BuiltPaneView {
   return {
     nativeView: view,
     view: {
-      setBounds: (rect) => view.setBounds(rect),
+      setBounds: (rect) => view.setBounds(toWindowRect(rect, hostZoomFactor())),
       setVisible: (visible) => view.setVisible(visible),
       webContents: paneWebContents,
     },
@@ -215,7 +234,7 @@ export function createBrowserPaneHost(
   };
 
   const createView = (partition: string): BrowserPaneView => {
-    const built = createPaneView(partition);
+    const built = createPaneView(partition, () => hostWindow.webContents.getZoomFactor());
     const { id } = built.webContents;
     webContentsById.set(id, built.webContents);
     nativeViewByWrapper.set(built.view, built.nativeView);
