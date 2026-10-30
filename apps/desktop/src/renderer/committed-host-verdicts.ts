@@ -28,8 +28,18 @@ export class CommittedHostVerdicts {
 
   readonly getSnapshot = (): RunVerdictContextValue => {
     const rows = this.source.getSnapshot().rows;
-    if (!this.value || rows !== this.rows) {
-      this.rows = rows;
+    if (this.value && rows === this.rows) {
+      return this.value;
+    }
+    const previous = this.rows;
+    this.rows = rows;
+    // The log only appends: rows that add no verdict keep the value, so a long
+    // thread's verdict consumers do not re-render per committed row (BST-2311).
+    const appended =
+      previous && previous.length <= rows.length && rows[previous.length - 1] === previous.at(-1)
+        ? rows.slice(previous.length)
+        : undefined;
+    if (!(this.value && appended?.every((row) => row.event.type !== 'run.verdict'))) {
       this.value = { committed: projectRunVerdicts(rows), recordVerdict: this.record };
     }
     return this.value;

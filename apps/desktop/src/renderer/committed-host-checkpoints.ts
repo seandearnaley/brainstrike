@@ -30,6 +30,18 @@ function revertResult(
   };
 }
 
+/** The same checkpoints, availability and refusal: what a consumer reads, not its actions. */
+function sameCheckpoints(
+  previous: EditCheckpointContextValue,
+  next: EditCheckpointContextValue
+): boolean {
+  return (
+    previous.revertRefusal === next.revertRefusal &&
+    JSON.stringify(previous.entries) === JSON.stringify(next.entries) &&
+    JSON.stringify([...previous.availabilityById]) === JSON.stringify([...next.availabilityById])
+  );
+}
+
 /**
  * The committed thread's edit checkpoints as the conversation's undo context:
  * a fold of committed rows, with every revert performed by Core through
@@ -59,7 +71,12 @@ export class CommittedHostCheckpoints {
     const rows = this.source.getSnapshot().rows;
     if (!this.value || rows !== this.rows) {
       this.rows = rows;
-      this.value = this.project(rows);
+      const next = this.project(rows);
+      // Most committed rows change no checkpoint. Keeping the value then keeps
+      // every consumer in a long thread from re-rendering per row (BST-2311).
+      if (!(this.value && sameCheckpoints(this.value, next))) {
+        this.value = next;
+      }
     }
     return this.value;
   };
