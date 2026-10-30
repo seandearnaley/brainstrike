@@ -6,7 +6,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { act } from '@brainstrike/test-utils/react-act';
-import { ThemeProvider } from '@brainstrike/ui';
+import { resetToastStore, ThemeProvider, Toaster } from '@brainstrike/ui';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPage } from '../artifacts/artifacts-page';
@@ -19,13 +19,6 @@ import {
 } from '../assistant-thread-host-context';
 import { canvasWorkspaceTabId } from '../canvas/canvas-workspace-tab';
 import { threadWorkspaceNavigation } from '../thread-workspace/live-thread-workspace-navigation';
-
-const toastMock = vi.hoisted(() => vi.fn());
-
-vi.mock('@brainstrike/ui', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/ui')>()),
-  toast: toastMock,
-}));
 
 const SHELL = 'https://shell.invalid/canvas-frame.html';
 
@@ -133,7 +126,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  toastMock.mockClear();
+  resetToastStore();
   vi.restoreAllMocks();
   usePanelLayoutStore.getState().setActiveTab('explorer');
 });
@@ -191,16 +184,13 @@ describe('ArtifactsPage', () => {
     vi.stubGlobal('fileExports', { saveToDownloads });
     try {
       renderPage(createHost({ artifacts: artifacts(async () => LISTED) }));
+      render(<Toaster />);
       await screen.findByRole('list', { name: 'Artifacts' });
 
       fireEvent.click(screen.getByRole('button', { name: 'Download Revenue chart as HTML' }));
 
-      await waitFor(() => {
-        expect(toastMock).toHaveBeenCalledWith({
-          description: '/downloads/revenue-chart.html',
-          title: 'Artifact saved',
-        });
-      });
+      expect(await screen.findByText('Artifact saved')).toBeInTheDocument();
+      expect(screen.getByText('/downloads/revenue-chart.html')).toBeInTheDocument();
       const [file] = saveToDownloads.mock.calls[0] ?? [];
       expect(file?.filename).toMatch(/^Revenue-chart.*v2\.html$/u);
       expect(new TextDecoder().decode(file?.bytes)).toBe(

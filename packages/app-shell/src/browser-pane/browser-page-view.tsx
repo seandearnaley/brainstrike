@@ -2,7 +2,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { useWorkspaceTabs } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createLogger } from '@brainstrike/logging';
-import { Button, Input } from '@brainstrike/ui';
+import { Button, Input, useToast } from '@brainstrike/ui';
 import { ArrowLeft, ArrowRight, Bot, RotateCw } from 'lucide-react';
 import {
   type FormEvent,
@@ -81,9 +81,10 @@ function usePageOnScreen(
  * `WebContentsView` overlays.
  *
  * The page is on screen only while its tab is selected on the Explorer route
- * and nothing drops over it: the ⌘K palette or a workspace strip menu.
- * (Other transient overlays — toasts, popovers, dialogs, page context
- * menus — are a documented follow-up.)
+ * and nothing drops over it: the ⌘K palette, a workspace strip menu, or a
+ * toast (they stack bottom-right, where the workspace pane sits). Other
+ * transient overlays — popovers, dialogs, page context menus — are a
+ * documented follow-up.
  */
 export function BrowserPageView({
   bridge,
@@ -103,11 +104,12 @@ export function BrowserPageView({
   const onExplorer = usePanelLayoutStore((state) => state.activeTab === 'explorer');
   const paletteOpen = useCommandPaletteStore((state) => state.isOpen);
   const { isMenuOpen } = useWorkspaceTabs();
+  const toastOpen = useToast().toasts.some((toast) => toast.open);
   const viewport = useRef<HTMLDivElement | null>(null);
   usePageOnScreen(
     bridge,
     tab.tabId,
-    page !== undefined && selected && onExplorer && !paletteOpen && !isMenuOpen,
+    page !== undefined && selected && onExplorer && !paletteOpen && !isMenuOpen && !toastOpen,
     viewport
   );
 
