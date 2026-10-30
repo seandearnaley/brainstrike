@@ -20,8 +20,10 @@ snapshot; unknown/loading/error is not an empty selection.
 Neutral fills come from the surface tokens (`bg-muted`, `bg-accent`,
 `border-border`; `var(--color-muted)` in stylesheets). A coloured thread re-keys
 those tokens to its colour on its conversation panel and its Threads row, so an
-overlay inside stays in the thread's hue; do not hardcode a grey or `hsl(var(--muted))`
-there. Syntax colours are the `--syntax-*` tokens for CodeMirror and the matching
+overlay inside stays in the thread's hue; do not hardcode a grey or `var(--muted)`
+there. Palette tokens (`--bs-*` in `packages/ui/src/themes/`) hold complete colours:
+use a token as `var(--x)`, and `color-mix(in oklab, var(--x) N%, transparent)` for
+an alpha. Syntax colours are the `--syntax-*` tokens for CodeMirror and the matching
 Shiki themes (GitHub Light, Monokai) for code blocks; the code box owns its
 background. Scrollbars inherit one translucent thumb from `body`.
 
