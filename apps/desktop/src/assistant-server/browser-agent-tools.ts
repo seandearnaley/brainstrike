@@ -1,8 +1,9 @@
 /**
- * Executors for the embedded-browser agent tools (BST-1176 PR2): navigate /
- * read a11y tree / read page text, over the calling thread's current page
- * (BST-1271). A run's tools carry its admitting thread, so a subagent browses
- * among its top-level conversation's pages.
+ * Executors for the embedded-browser agent tools (BST-1176 PR2, BST-2324):
+ * navigate / read a11y tree / read page text, and click / type / select by a
+ * ref from the last read, over the calling thread's current page (BST-1271).
+ * A run's tools carry its admitting thread, so a subagent browses among its
+ * top-level conversation's pages.
  *
  * Every executor returns a STRUCTURED result ({ok:true,…} | {ok:false,error,
  * hint}) — a missing pane, an unsettled load, or a driver failure is model-
@@ -10,18 +11,27 @@
  *
  * The a11y snapshot's `eN → backendDOMNodeId` ref map is deliberately NOT
  * returned to the model (the `[ref=eN]` handles are already in the tree text
- * and the raw ids are token waste); it is cached per webContents id so PR3's
- * click/type-by-ref can resolve handles from the agent's last look.
+ * and the raw ids are token waste); it is cached per webContents id, with the
+ * document it was read from, so the acting tools resolve handles from the
+ * agent's last look and refuse them once the page has changed.
  */
 
 import type {
+  BrowserClickInput,
   BrowserGetPageTextInput,
   BrowserNavigateInput,
   BrowserReadPageInput,
+  BrowserSelectOptionInput,
+  BrowserTypeInput,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
 import type { AccessibilitySnapshot } from '../browser/accessibility-snapshot';
-import type { BrowserDriver } from '../browser/browser-driver';
+import {
+  type BrowserAction,
+  blockedActionCategory,
+  blockedActionHint,
+} from '../browser/browser-action-guard';
+import { BrowserActionError, type BrowserDriver } from '../browser/browser-driver';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import { agentNavigationTarget, type LoopbackAdmission } from '../browser/browser-url';
 import type { BrowserTabOwner, BrowserTabState } from '../browser/browser-view-manager';
@@ -30,7 +40,12 @@ const logger = createLogger('BrowserAgentTools');
 
 /** The slice of {@link BrowserPaneHost} the executors drive (fake-able). */
 export interface BrowserPaneHostLike {
-  driverFor(tabId: string): Pick<BrowserDriver, 'getPageText' | 'snapshot'>;
+  driverFor(
+    tabId: string
+  ): Pick<
+    BrowserDriver,
+    'click' | 'documentId' | 'getPageText' | 'selectOptions' | 'snapshot' | 'targetFacts' | 'type'
+  >;
   readonly manager: {
     createTab(threadId: string, url?: string, owner?: BrowserTabOwner): string;
     currentTab(threadId: string, owner?: BrowserTabOwner): string | null;
@@ -44,13 +59,18 @@ export interface BrowserPaneHostLike {
 
 interface BrowserToolFailure {
   readonly error:
+    | 'blocked_action'
     | 'blocked_destination'
     | 'blocked_url'
     | 'browser_unavailable'
     | 'driver_failed'
+    | 'element_not_actionable'
     | 'load_failed'
     | 'load_timeout'
-    | 'navigate_failed';
+    | 'navigate_failed'
+    | 'not_agent_page'
+    | 'origin_not_approved'
+    | 'stale_ref';
   readonly hint: string;
   readonly ok: false;
 }
@@ -65,6 +85,20 @@ export type BrowserReadPageResult =
 
 export type BrowserGetPageTextResult =
   | { readonly ok: true; readonly text: string; readonly truncated: boolean }
+  | BrowserToolFailure;
+
+/** Where the page is once an action's own navigation, if any, settled. */
+export type BrowserActionResult =
+  | { readonly ok: true; readonly title: string; readonly url: string }
+  | BrowserToolFailure;
+
+export type BrowserSelectOptionResult =
+  | {
+      readonly ok: true;
+      readonly selected: readonly string[];
+      readonly title: string;
+      readonly url: string;
+    }
   | BrowserToolFailure;
 
 export interface BrowserNavigateOptions {
@@ -185,8 +219,9 @@ function settledNavigation(
 }
 
 /**
- * BST-1178: one agent navigation at a time per pane. A navigation's loopback
- * admission holds until it settles; a parallel call would replace it first.
+ * BST-1178: one agent navigation (or action, BST-2324) at a time per pane. A
+ * navigation's loopback admission holds until it settles; a parallel call
+ * would replace it first.
  */
 const navigations = new WeakMap<BrowserPaneHostLike, Promise<unknown>>();
 
@@ -199,14 +234,7 @@ export function runBrowserNavigate(
   if (!host) {
     return Promise.resolve(UNAVAILABLE);
   }
-  const navigation = (navigations.get(host) ?? Promise.resolve()).then(() =>
-    navigateOnce(input, threadId, host, options)
-  );
-  navigations.set(
-    host,
-    navigation.catch(() => undefined)
-  );
-  return navigation;
+  return queued(host, () => navigateOnce(input, threadId, host, options));
 }
 
 async function navigateOnce(
@@ -249,6 +277,7 @@ async function navigateOnce(
     return started;
   }
   const { preNavUrl, tabId: targetTabId } = started;
+  rememberApprovedOrigin(host, targetTabId, target.origin);
 
   // Settle discipline: accept a stable not-loading state only once we have
   // EVIDENCE the navigation ran — a loading transition was observed, or the
@@ -286,25 +315,63 @@ async function navigateOnce(
 }
 
 /**
- * Last a11y snapshot's ref map per webContents id. Bounded (closed tabs never
- * unregister here), keyed by the page the snapshot was read from. PR3's
- * act-by-ref MUST
- * additionally validate the document is unchanged before resolving a handle
- * (backendDOMNodeIds are per-document; navigation silently invalidates them).
+ * BST-2325: per agent tab, the origins its navigations opened. Main runs a
+ * navigation only after the host's per-origin consent admitted it (BST-1178),
+ * so these are the origins a person approved for this page. The acting tools
+ * refuse any other: a link, redirect or typed URL that took the tab elsewhere
+ * needs its own browserNavigate, which asks. The saved answers stay the
+ * host's; this only remembers which this tab was opened at, for its life.
  */
+const approvedOrigins = new WeakMap<BrowserPaneHostLike, Map<string, Set<string>>>();
+
+function rememberApprovedOrigin(host: BrowserPaneHostLike, tabId: string, origin: string): void {
+  let byTab = approvedOrigins.get(host);
+  if (byTab === undefined) {
+    byTab = new Map();
+    approvedOrigins.set(host, byTab);
+  }
+  byTab.set(tabId, new Set([...(byTab.get(tabId) ?? []), origin]));
+}
+
+/** The approved origins of the live tabs; a closed tab's entry is dropped. */
+function approvedOriginsOf(
+  host: BrowserPaneHostLike,
+  tabs: readonly BrowserTabState[],
+  tabId: string
+): ReadonlySet<string> {
+  const byTab = approvedOrigins.get(host);
+  const live = new Set(tabs.map((tab) => tab.tabId));
+  for (const id of byTab?.keys() ?? []) {
+    if (!live.has(id)) {
+      byTab?.delete(id);
+    }
+  }
+  return byTab?.get(tabId) ?? new Set();
+}
+
+/**
+ * Last a11y snapshot's ref map per webContents id, with the document it was
+ * read from. Bounded (closed tabs never unregister here). backendDOMNodeIds
+ * are per-document and navigation silently invalidates them, so an action
+ * resolves a ref only while the page still shows that document.
+ */
+interface CachedSnapshotRefs {
+  readonly documentId: string;
+  readonly refs: AccessibilitySnapshot['refs'];
+}
 const SNAPSHOT_REF_CACHE_MAX_ENTRIES = 8;
-const snapshotRefsByWebContentsId = new Map<number, AccessibilitySnapshot['refs']>();
+const snapshotRefsByWebContentsId = new Map<number, CachedSnapshotRefs>();
 
 /** @internal Browser tool regressions inspect the current snapshot reference cache. */
 export function getCachedSnapshotRefs(
   webContentsId: number
 ): AccessibilitySnapshot['refs'] | undefined {
-  return snapshotRefsByWebContentsId.get(webContentsId);
+  return snapshotRefsByWebContentsId.get(webContentsId)?.refs;
 }
 
-function cacheSnapshotRefs(webContentsId: number, refs: AccessibilitySnapshot['refs']): void {
+function cacheSnapshotRefs(webContentsId: number, cached: CachedSnapshotRefs): void {
   snapshotRefsByWebContentsId.delete(webContentsId); // refresh insertion order
-  snapshotRefsByWebContentsId.set(webContentsId, refs);
+  snapshotRefsByWebContentsId.set(webContentsId, cached);
   for (const key of snapshotRefsByWebContentsId.keys()) {
     if (snapshotRefsByWebContentsId.size <= SNAPSHOT_REF_CACHE_MAX_ENTRIES) {
       break;
@@ -341,12 +408,20 @@ export async function runBrowserReadPage(
   }
   const webContentsId = host.manager.getWebContentsId(tabId);
   try {
-    const snapshot = await host.driverFor(tabId).snapshot({
+    const driver = host.driverFor(tabId);
+    const documentId = await driver.documentId();
+    const snapshot = await driver.snapshot({
       filter: input.filter,
       maxChars: input.maxChars,
     });
     if (webContentsId !== null) {
-      cacheSnapshotRefs(webContentsId, snapshot.refs);
+      // A load during the read leaves refs of no one document: keep none,
+      // so an action asks for a fresh read instead of guessing.
+      if ((await driver.documentId()) === documentId) {
+        cacheSnapshotRefs(webContentsId, { documentId, refs: snapshot.refs });
+      } else {
+        snapshotRefsByWebContentsId.delete(webContentsId);
+      }
     }
     return { ok: true, tree: snapshot.text, truncated: snapshot.truncated };
   } catch (error) {
@@ -385,11 +460,240 @@ function driverFailure(error: unknown): BrowserToolFailure {
   };
 }
 
+export interface BrowserActionOptions {
+  /** How long to wait for a navigation the action started to begin. */
+  readonly graceMs?: number;
+  readonly pollMs?: number;
+  /** Stop waiting for that navigation after this long; the action still ran. */
+  readonly timeoutMs?: number;
+}
+
+/** A click or Enter that starts a load flips `isLoading` within this window. */
+const ACTION_GRACE_MS = 300;
+
+function failure(error: BrowserToolFailure['error'], hint: string): BrowserToolFailure {
+  return { error, hint, ok: false };
+}
+
+/**
+ * Everything an action needs before it may touch the page (BST-2324): the
+ * thread's current page is the agent's own, at an origin a person approved
+ * (BST-2325), and the ref belongs to the document the agent last read.
+ */
+async function resolveActionTarget(
+  ref: string,
+  threadId: string,
+  host: BrowserPaneHostLike
+): Promise<
+  | {
+      readonly backendNodeId: number;
+      readonly driver: ReturnType<BrowserPaneHostLike['driverFor']>;
+      readonly tabId: string;
+    }
+  | BrowserToolFailure
+> {
+  const tabId = readTarget(host, threadId);
+  if (typeof tabId !== 'string') {
+    return tabId;
+  }
+  const tabs = host.manager.listTabs();
+  const tab = tabs.find((candidate) => candidate.tabId === tabId);
+  if (tab === undefined) {
+    return failure('navigate_failed', `Tab ${tabId} vanished mid-call; read the page again.`);
+  }
+  if (tab.owner !== 'agent') {
+    return failure(
+      'not_agent_page',
+      "This conversation's current page is one the user opened; you act only on pages you opened with browserNavigate."
+    );
+  }
+  const origin = URL.canParse(tab.url) ? new URL(tab.url).origin : tab.url;
+  if (!approvedOriginsOf(host, tabs, tabId).has(origin)) {
+    return failure(
+      'origin_not_approved',
+      `This page is now at ${origin}, which you did not open with browserNavigate, so the user has not approved acting there. Open it with browserNavigate first; the user approves each new site.`
+    );
+  }
+  const webContentsId = host.manager.getWebContentsId(tabId);
+  const cached =
+    webContentsId === null ? undefined : snapshotRefsByWebContentsId.get(webContentsId);
+  const backendNodeId = cached?.refs[ref];
+  if (cached === undefined || backendNodeId === undefined) {
+    return failure(
+      'stale_ref',
+      `Your last browserReadPage of this page has no [ref=${ref}]. Read the page again and use a ref from that read.`
+    );
+  }
+  const driver = host.driverFor(tabId);
+  if ((await driver.documentId()) !== cached.documentId) {
+    return failure(
+      'stale_ref',
+      'The page changed since your last browserReadPage, so its refs no longer apply. Read the page again.'
+    );
+  }
+  return { backendNodeId, driver, tabId };
+}
+
+/** Wait for any load the action started, then report where the page is. */
+async function settleAfterAction(
+  host: BrowserPaneHostLike,
+  tabId: string,
+  options: BrowserActionOptions | undefined
+): Promise<BrowserTabState | undefined> {
+  const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
+  const deadline = Date.now() + (options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  await delay(options?.graceMs ?? ACTION_GRACE_MS);
+  for (;;) {
+    const tab = host.manager.listTabs().find((candidate) => candidate.tabId === tabId);
+    if (tab === undefined || !tab.isLoading || Date.now() >= deadline) {
+      return tab;
+    }
+    await delay(pollMs);
+  }
+}
+
+async function actOnce<Value>(
+  input: { readonly ref: string },
+  action: BrowserAction,
+  threadId: string,
+  host: BrowserPaneHostLike,
+  act: (
+    driver: ReturnType<BrowserPaneHostLike['driverFor']>,
+    backendNodeId: number
+  ) => Promise<Value>,
+  options: BrowserActionOptions | undefined
+): Promise<
+  | { readonly ok: true; readonly title: string; readonly url: string; readonly value: Value }
+  | BrowserToolFailure
+> {
+  const target = await resolveActionTarget(input.ref, threadId, host);
+  if ('ok' in target) {
+    return target;
+  }
+  let value: Value;
+  try {
+    const facts = await target.driver.targetFacts(target.backendNodeId);
+    if (facts.disabled) {
+      return failure('element_not_actionable', `[ref=${input.ref}] is disabled.`);
+    }
+    // BST-2209: decided before any input reaches the page.
+    const blocked = blockedActionCategory(facts, action);
+    if (blocked !== undefined) {
+      return failure('blocked_action', blockedActionHint(blocked));
+    }
+    value = await act(target.driver, target.backendNodeId);
+  } catch (error) {
+    if (error instanceof BrowserActionError) {
+      return failure(
+        error.code,
+        error.code === 'stale_ref'
+          ? `${error.message}. Read the page again for fresh refs.`
+          : `${error.message}. Read the page again to see its current state.`
+      );
+    }
+    logger.warn('browser action driver call failed', { error });
+    return failure('driver_failed', error instanceof Error ? error.message : String(error));
+  }
+  const settled = await settleAfterAction(host, target.tabId, options);
+  if (settled === undefined) {
+    return failure('navigate_failed', 'The action ran, then its page closed.');
+  }
+  return { ok: true, title: settled.title, url: settled.url, value };
+}
+
+/**
+ * Actions run one at a time with the pane's navigations: a navigation's
+ * loopback admission holds until it settles (BST-1178), and an action's
+ * own navigation settles before the next call reads the page.
+ */
+function queued<Result>(host: BrowserPaneHostLike, run: () => Promise<Result>): Promise<Result> {
+  const next = (navigations.get(host) ?? Promise.resolve()).then(run);
+  navigations.set(
+    host,
+    next.catch(() => undefined)
+  );
+  return next;
+}
+
+export function runBrowserClick(
+  input: BrowserClickInput,
+  threadId: string,
+  host: BrowserPaneHostLike | null,
+  options?: BrowserActionOptions
+): Promise<BrowserActionResult> {
+  if (!host) {
+    return Promise.resolve(UNAVAILABLE);
+  }
+  return queued(host, async () => {
+    const result = await actOnce(
+      input,
+      { kind: 'click' },
+      threadId,
+      host,
+      (driver, node) => driver.click(node),
+      options
+    );
+    return result.ok ? { ok: true, title: result.title, url: result.url } : result;
+  });
+}
+
+export function runBrowserType(
+  input: BrowserTypeInput,
+  threadId: string,
+  host: BrowserPaneHostLike | null,
+  options?: BrowserActionOptions
+): Promise<BrowserActionResult> {
+  if (!host) {
+    return Promise.resolve(UNAVAILABLE);
+  }
+  return queued(host, async () => {
+    const result = await actOnce(
+      input,
+      { kind: 'type', submit: input.submit, text: input.text },
+      threadId,
+      host,
+      (driver, node) => driver.type(node, input.text, input.submit),
+      options
+    );
+    return result.ok ? { ok: true, title: result.title, url: result.url } : result;
+  });
+}
+
+export function runBrowserSelectOption(
+  input: BrowserSelectOptionInput,
+  threadId: string,
+  host: BrowserPaneHostLike | null,
+  options?: BrowserActionOptions
+): Promise<BrowserSelectOptionResult> {
+  if (!host) {
+    return Promise.resolve(UNAVAILABLE);
+  }
+  return queued(host, async () => {
+    const result = await actOnce(
+      input,
+      { kind: 'select', values: input.values },
+      threadId,
+      host,
+      (driver, node) => driver.selectOptions(node, input.values),
+      options
+    );
+    return result.ok
+      ? { ok: true, selected: result.value, title: result.title, url: result.url }
+      : result;
+  });
+}
+
 /** The browser tools as Main runs them for a host run: each call names its thread. */
 export interface MainBrowserToolRunner {
+  click(input: BrowserClickInput, threadId: string): Promise<BrowserActionResult>;
   getPageText(input: BrowserGetPageTextInput, threadId: string): Promise<BrowserGetPageTextResult>;
   navigate(input: BrowserNavigateInput, threadId: string): Promise<BrowserNavigateResult>;
   readPage(input: BrowserReadPageInput, threadId: string): Promise<BrowserReadPageResult>;
+  selectOption(
+    input: BrowserSelectOptionInput,
+    threadId: string
+  ): Promise<BrowserSelectOptionResult>;
+  type(input: BrowserTypeInput, threadId: string): Promise<BrowserActionResult>;
 }
 
 /**
@@ -399,8 +703,12 @@ export interface MainBrowserToolRunner {
  * stale handle.
  */
 export const mainBrowserToolRunner: MainBrowserToolRunner = {
+  click: (input, threadId) => runBrowserClick(input, threadId, getActiveBrowserPaneHost()),
   getPageText: (input, threadId) =>
     runBrowserGetPageText(input, threadId, getActiveBrowserPaneHost()),
   navigate: (input, threadId) => runBrowserNavigate(input, threadId, getActiveBrowserPaneHost()),
   readPage: (input, threadId) => runBrowserReadPage(input, threadId, getActiveBrowserPaneHost()),
+  selectOption: (input, threadId) =>
+    runBrowserSelectOption(input, threadId, getActiveBrowserPaneHost()),
+  type: (input, threadId) => runBrowserType(input, threadId, getActiveBrowserPaneHost()),
 };

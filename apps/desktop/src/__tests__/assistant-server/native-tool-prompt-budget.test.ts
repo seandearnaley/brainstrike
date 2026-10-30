@@ -226,10 +226,26 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // the user approves each new site and that a localhost dev server loads, so the
 // model neither retries a refused site nor avoids a dev server it was asked to
 // open. Trim-first kept it to one sentence and one clause. Measured 9953 → 9962.
-/** The same 36 the eager-baseline gate above counts: the tool half is unchanged. */
-const AUTHORED_PROVIDER_TOOL_COUNT = 36;
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_100;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9800;
+//
+// BST-2324 RAISE (+503/+503 band move, width 300 preserved). The agent can now
+// act on its own browser page: `browserClick`, `browserType` and
+// `browserSelectOption` are a NEW capability (deferred, approval on each call),
+// and the browser-pane instruction gained one sentence naming them. Measured
+// 10018 → 10521 on this change alone: schemas +329, descriptions +88,
+// instructions +34. The 56 between the recorded 9962 and main's 10018 predates
+// this change and is not attributed one by one.
+//
+// Trim-first was applied: the three share one `{ element, ref }` target (the
+// Playwright MCP shape: `element` is the text the user approves), the ref
+// pattern was dropped from the schema (the runner already refuses an unknown
+// ref and says to read the page again), and the descriptions keep only what the model acts on.
+// Merging the three into one action-union tool was REJECTED: the union costs
+// more tokens than it saves and diverges from the vendor's own tool shapes.
+// Both bounds move to centre 10521 (10,100 → 10,671 and 9,800 → 10,371).
+/** The same 39 the eager-baseline gate above counts: the tool half is unchanged. */
+const AUTHORED_PROVIDER_TOOL_COUNT = 39;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_671;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_371;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const PROMPT_BUDGET_SKILL = {
   containmentRoot: '/workspace',
@@ -670,12 +686,16 @@ describe('desktop native tool provider prompt budget', () => {
     // BST-2019: the two selection tools retired and the context reads slimmed;
     // measured 8223, so both bounds move to centre it (8802 → 8073,
     // 9102 → 8373), width 300 unchanged.
+    // BST-2324: +469 for the three acting browser tools (trim-first recorded at
+    // the authored band above); main measured 8351, so the 128 above the
+    // recorded 8223 predates it. Measured 8820, so both bounds move to centre
+    // it (8073 → 8670, 8373 → 8970), width 300 unchanged.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8073);
+    ).toBeGreaterThanOrEqual(8670);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      8373
+      8970
     );
     expect(
       criticalDefinitionTokens,
@@ -730,7 +750,8 @@ describe('desktop native tool provider prompt budget', () => {
       // deliberate raise, per the trade-record practice).
       // −1 for the removed `querySelf` (BST-1995), with its +358/+44/+105 above.
       // −2 for the retired context selection tools (BST-2019).
-      eagerToolCount: 36,
+      // +3 for browserClick, browserType and browserSelectOption (BST-2324).
+      eagerToolCount: 39,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns

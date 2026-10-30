@@ -1,13 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   getCachedSnapshotRefs,
+  runBrowserClick,
   runBrowserGetPageText,
   runBrowserNavigate,
   runBrowserReadPage,
+  runBrowserSelectOption,
+  runBrowserType,
 } from '../../assistant-server/browser-agent-tools';
+import type { ActionTargetFacts } from '../../browser/browser-action-guard';
+import { BrowserActionError } from '../../browser/browser-driver';
 import type { BrowserTabOwner, BrowserTabState } from '../../browser/browser-view-manager';
 
 const THREAD = 'thread-1';
+
+const plainButton: ActionTargetFacts = {
+  autocomplete: [],
+  captcha: false,
+  connected: true,
+  disabled: false,
+  form: null,
+  hints: '',
+  submits: false,
+  tag: 'button',
+  text: 'Go',
+  type: '',
+};
 
 function tab(overrides: Partial<BrowserTabState>): BrowserTabState {
   return {
@@ -32,6 +50,7 @@ function fakeHost(options?: {
   tabsSequence?: BrowserTabState[][];
   snapshot?: { refs: Record<string, number>; text: string; truncated: boolean };
   pageText?: { text: string; truncated: boolean };
+  facts?: ActionTargetFacts;
 }) {
   const sequence = options?.tabsSequence ?? [[tab({})]];
   let call = 0;
@@ -54,15 +73,20 @@ function fakeHost(options?: {
     navigate: vi.fn((_tabId: string, _url: string) => true),
   };
   const driver = {
+    click: vi.fn((_node: number) => Promise.resolve()),
+    documentId: vi.fn(() => Promise.resolve('doc-1')),
     getPageText: vi.fn(() =>
       Promise.resolve(options?.pageText ?? { text: 'body', truncated: false })
     ),
     screenshot: vi.fn(),
+    selectOptions: vi.fn((_node: number, values: readonly string[]) => Promise.resolve(values)),
     snapshot: vi.fn(() =>
       Promise.resolve(
         options?.snapshot ?? { refs: { e1: 42 }, text: 'button "Go" [ref=e1]', truncated: false }
       )
     ),
+    targetFacts: vi.fn((_node: number) => Promise.resolve(options?.facts ?? plainButton)),
+    type: vi.fn((_node: number, _text: string, _submit: boolean) => Promise.resolve()),
   };
   const prepareAgentBrowsing = vi.fn((_loopback?: unknown) => Promise.resolve());
   return { driver, driverFor: vi.fn((_tabId: string) => driver), manager, prepareAgentBrowsing };
@@ -332,7 +356,7 @@ describe('runBrowserReadPage', () => {
     );
     expect(result).toEqual({ ok: true, tree: 'tree', truncated: false });
     // Refs never go to the model (token cost, and eN handles are already in
-    // the text) — they are cached for PR3's click/type-by-ref.
+    // the text) — they are cached for the acting tools (BST-2324).
     expect(getCachedSnapshotRefs(7)).toEqual({ e1: 42, e2: 43 });
   });
 
@@ -388,5 +412,111 @@ describe('runBrowserGetPageText', () => {
   it('returns browser_unavailable without a host', async () => {
     const result = await runBrowserGetPageText({ maxChars: 100 }, THREAD, null);
     expect(result).toMatchObject({ error: 'browser_unavailable', ok: false });
+  });
+});
+
+describe('the acting tools (BST-2324)', () => {
+  const FAST = { graceMs: 0, pollMs: 1 } as const;
+
+  /** The agent opened https://x/ (a person approved it) and read the page. */
+  async function readyHost(
+    options: { facts?: ActionTargetFacts; landed?: BrowserTabState } = {}
+  ): Promise<ReturnType<typeof fakeHost>> {
+    const host = fakeHost({
+      ...(options.facts ? { facts: options.facts } : {}),
+      tabsSequence: [
+        [tab({ url: 'about:blank' })],
+        [tab({ isLoading: true, url: 'https://x/' })],
+        [options.landed ?? tab({ title: 'X', url: 'https://x/' })],
+      ],
+    });
+    await runBrowserNavigate({ url: 'https://x' }, THREAD, host, { pollMs: 1 });
+    await runBrowserReadPage({ filter: 'interactive', maxChars: 1000 }, THREAD, host);
+    return host;
+  }
+
+  it('clicks a ref from its last read and reports where the page is', async () => {
+    const host = await readyHost();
+    const result = await runBrowserClick({ element: 'Go button', ref: 'e1' }, THREAD, host, FAST);
+    expect(host.driver.click).toHaveBeenCalledExactlyOnceWith(42);
+    expect(result).toEqual({ ok: true, title: 'X', url: 'https://x/' });
+  });
+
+  it('fills a field and picks options', async () => {
+    const host = await readyHost();
+    await expect(
+      runBrowserType(
+        { element: 'Search', ref: 'e1', submit: true, text: 'shoes' },
+        THREAD,
+        host,
+        FAST
+      )
+    ).resolves.toMatchObject({ ok: true });
+    expect(host.driver.type).toHaveBeenCalledExactlyOnceWith(42, 'shoes', true);
+    await expect(
+      runBrowserSelectOption({ element: 'Size', ref: 'e1', values: ['L'] }, THREAD, host, FAST)
+    ).resolves.toEqual({ ok: true, selected: ['L'], title: 'X', url: 'https://x/' });
+  });
+
+  it('never acts on a page the person opened', async () => {
+    const host = fakeHost({ tabsSequence: [[tab({ owner: 'user' })]] });
+    await runBrowserReadPage({ filter: 'interactive', maxChars: 1000 }, THREAD, host);
+    const result = await runBrowserClick({ element: 'Go', ref: 'e1' }, THREAD, host, FAST);
+    expect(result).toMatchObject({ error: 'not_agent_page', ok: false });
+    expect(host.driver.click).not.toHaveBeenCalled();
+  });
+
+  it('refuses a page that moved to an origin it never opened (BST-2325)', async () => {
+    const host = await readyHost({ landed: tab({ url: 'https://elsewhere.test/next' }) });
+    const result = await runBrowserClick({ element: 'Go', ref: 'e1' }, THREAD, host, FAST);
+    expect(result).toMatchObject({
+      error: 'origin_not_approved',
+      hint: expect.stringContaining('https://elsewhere.test'),
+      ok: false,
+    });
+    expect(host.driver.click).not.toHaveBeenCalled();
+  });
+
+  it('refuses a ref once the page shows another document', async () => {
+    const host = await readyHost();
+    host.driver.documentId.mockResolvedValue('doc-2');
+    const result = await runBrowserClick({ element: 'Go', ref: 'e1' }, THREAD, host, FAST);
+    expect(result).toMatchObject({ error: 'stale_ref', ok: false });
+    expect(host.driver.click).not.toHaveBeenCalled();
+  });
+
+  it('refuses a ref its last read did not have', async () => {
+    const host = await readyHost();
+    const result = await runBrowserClick({ element: 'Go', ref: 'e9' }, THREAD, host, FAST);
+    expect(result).toMatchObject({ error: 'stale_ref', ok: false });
+  });
+
+  it('refuses a password field before anything is typed (BST-2209)', async () => {
+    const host = await readyHost({ facts: { ...plainButton, tag: 'input', type: 'password' } });
+    const result = await runBrowserType(
+      { element: 'Password', ref: 'e1', submit: false, text: 'hunter2' },
+      THREAD,
+      host,
+      FAST
+    );
+    expect(result).toMatchObject({
+      error: 'blocked_action',
+      hint: expect.stringContaining('credential'),
+      ok: false,
+    });
+    expect(host.driver.type).not.toHaveBeenCalled();
+  });
+
+  it("reads the page's own refusal as a typed failure", async () => {
+    const host = await readyHost();
+    host.driver.click.mockRejectedValueOnce(
+      new BrowserActionError('element_not_actionable', 'Another element covers it: <div>')
+    );
+    const result = await runBrowserClick({ element: 'Go', ref: 'e1' }, THREAD, host, FAST);
+    expect(result).toMatchObject({
+      error: 'element_not_actionable',
+      hint: expect.stringContaining('Another element covers it'),
+      ok: false,
+    });
   });
 });
