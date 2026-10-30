@@ -217,8 +217,10 @@ export function deriveHostChildAdmission(
           .join(', ')}.`;
   // The shipped child context: its persona, then only host-supplied context.
   const system = [instructions, parent.childSystem].filter(Boolean).join('\n\n');
-  const provider = parent.provider;
+  const provider =
+    parent.childProvider === undefined ? (parent.provider ?? null) : parent.childProvider;
   return {
+    childProvider: provider,
     childSystem: parent.childSystem,
     configuration: parent.configuration,
     ...(delegates ? { delegation } : {}),
