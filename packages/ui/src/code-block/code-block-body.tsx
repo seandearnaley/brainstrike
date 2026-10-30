@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import ShikiHighlighter from 'react-shiki/core';
 import { cn } from '../lib/utils';
 import { normalizeShikiLanguage, useShikiHighlighter } from '../shiki/highlighter-core';
@@ -12,7 +13,9 @@ export interface CodeBlockBodyProps {
 }
 
 /**
- * Bottom half of the shared code-block box. The wrapper div is CONSTANT across
+ * Bottom half of the shared code-block box. A block is highlighted once it
+ * comes near the visible area; until then it shows the plain fallback, which
+ * keeps its text searchable and copyable. The wrapper div is CONSTANT across
  * the plain-fallback → Shiki swap so the box chrome never flashes and there is
  * no layout shift when highlighting resolves (padding/font metrics for both
  * states live on `.bs-code-block-body pre/.shiki` in globals.css @layer base).
@@ -43,6 +46,38 @@ export interface CodeBlockBodyProps {
  * `addDefaultStyles` later would therefore silently override our padding and
  * rounding rather than lose to them.
  */
+/**
+ * Room around the visible area in which a block is highlighted ahead of being
+ * scrolled to. A thread keeps every turn mounted, and highlighting all of its
+ * blocks at once blocked opening a long thread (BST-2314).
+ */
+const HIGHLIGHT_AHEAD_MARGIN = '1200px 0px';
+
+/** Whether the element has come within the highlight margin; it never turns back. */
+function useNearViewport(ref: RefObject<HTMLElement | null>): boolean {
+  const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    const element = ref.current;
+    if (near || !element) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setNear(true);
+          observer.disconnect();
+        }
+      },
+      // `scrollMargin` extends the margin into the thread's own scroller, which
+      // clips intersections before `rootMargin` applies.
+      { rootMargin: HIGHLIGHT_AHEAD_MARGIN, scrollMargin: HIGHLIGHT_AHEAD_MARGIN }
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [near, ref]);
+  return near;
+}
+
 export function CodeBlockBody({
   className,
   code,
@@ -51,6 +86,8 @@ export function CodeBlockBody({
   language,
 }: CodeBlockBodyProps): React.ReactNode {
   const highlighter = useShikiHighlighter();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const near = useNearViewport(bodyRef);
 
   return (
     <div
@@ -58,8 +95,9 @@ export function CodeBlockBody({
         'bs-code-block-body border-border bg-muted/40 overflow-x-auto rounded-b-md border border-t-0',
         className
       )}
+      ref={bodyRef}
     >
-      {code && highlighter ? (
+      {code && highlighter && near ? (
         <ShikiHighlighter
           addDefaultStyles={false}
           defaultColor={false}
