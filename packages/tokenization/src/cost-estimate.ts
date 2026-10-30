@@ -208,18 +208,25 @@ export function computeCost(
  * genuine 0 renders as $0.00). Non-finite amounts THROW — a NaN price must
  * never reach the UI.
  */
+// Standard 2-decimal currency for amounts ≥ $0.01 (or exactly 0); finer
+// precision (up to 6 fraction digits) below a cent so a real cost stays visible.
+// Built once: the meter formats on every streamed update.
+const USD_CENTS = new Intl.NumberFormat('en-US', {
+  currency: 'USD',
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
+  style: 'currency',
+});
+const USD_SUB_CENT = new Intl.NumberFormat('en-US', {
+  currency: 'USD',
+  maximumFractionDigits: 6,
+  minimumFractionDigits: 2,
+  style: 'currency',
+});
+
 export function formatUsdCost(amount: number): string {
   if (!Number.isFinite(amount)) {
     throw new Error(`USD cost amount must be a finite number (received ${amount}).`);
   }
-  // Standard 2-decimal currency for amounts ≥ $0.01 (or exactly 0); finer
-  // precision (up to 6 fraction digits) below a cent so a real cost stays visible.
-  const minimumFractionDigits = 2;
-  const maximumFractionDigits = amount !== 0 && Math.abs(amount) < 0.01 ? 6 : 2;
-  return new Intl.NumberFormat('en-US', {
-    currency: 'USD',
-    maximumFractionDigits,
-    minimumFractionDigits,
-    style: 'currency',
-  }).format(amount);
+  return (amount !== 0 && Math.abs(amount) < 0.01 ? USD_SUB_CENT : USD_CENTS).format(amount);
 }

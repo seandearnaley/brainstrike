@@ -29,6 +29,8 @@ import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 
 const logger = createLogger('CommittedHostConversation');
+/** The live reply's update interval: AI SDK's documented `useChat` throttle example. */
+const LIVE_TELEMETRY_THROTTLE_MS = 50;
 /** A committed run.started the host admitted to deliver child results (a wake). */
 const HostWakeStartSchema = Schema.Struct({
   delivery: Schema.Struct({ via: Schema.Literal('wake') }),
@@ -200,6 +202,7 @@ export function createCommittedHostThread(
   const store = new CommittedAssistantLogStore({
     identifyRun: (row) => committedConversationIdentity(source.getSnapshot().rows, row),
     liveShellOutputs,
+    liveTelemetryThrottleMs: LIVE_TELEMETRY_THROTTLE_MS,
     source,
     threadId,
   });
