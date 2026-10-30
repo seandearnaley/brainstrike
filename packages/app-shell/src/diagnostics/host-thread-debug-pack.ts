@@ -56,7 +56,7 @@ export function formatHostThreadDebugPack(
       'interaction.requested and interaction.responded are approvals, questions and plans; permission.granted is a grant answered with an approval. tool.state.updated is per-thread tool state such as the task list and canvases.',
       'workspace.edit.recorded and workspace.edit.reverted are workspace edits and their reverts. command.accepted records each client command the host accepted.',
       'hostLog is the desktop main-process log (warn and above, redacted before write) for manifest.host.window, with failure-marker counts over every level; processCounters are 30 s samples of heap, WebAssembly instantiations and failures, and native background task counts. manifest.host says whether each was included and why not.',
-      'diagnosticEvents.events are the newest records in the retained diagnostic log, newest first: what any process (source) logged at warn or above, from any thread or none and from earlier launches too. The status bar’s error and warning count is this launch’s share of them; sessionId and occurredAt tell launches and times apart.',
+      'diagnosticEvents.events are the newest records in the retained diagnostic log, newest first: what any process (source) logged at warn or above, from any thread or none and from earlier launches too. The status bar’s error and warning count covers this launch’s records logged since the user last clicked it; sessionId and occurredAt tell launches and times apart.',
       'Report evidence using thread, run, seq and tool-call IDs. Distinguish observed facts from hypotheses and missing evidence.',
     ],
     manifest: {
