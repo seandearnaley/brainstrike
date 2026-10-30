@@ -34,7 +34,9 @@ Tree limits come from admitted subagent settings. Invocation admission is atomic
 across parallel calls. All descendants share the turn's work queue; model streams
 and tool execution hold permits, while delegation and approval waits hold none.
 Each child has its own execution watchdog, and its last model step is reserved
-for a tool-free summary.
+for a tool-free summary. A descendant at any depth prepares each step from
+the root's provider, never by wrapping its parent child's, so one step holds
+one permit and follows only its own persona's step rules.
 
 Root delegation defaults to background unless explicitly requested inline;
 nested delegation runs inline. The parent's model receives the bounded child
