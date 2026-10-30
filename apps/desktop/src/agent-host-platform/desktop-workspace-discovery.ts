@@ -173,9 +173,18 @@ export async function discoverDesktopWorkspaceTrust(
     { fs: deps.skills, homedir: deps.homedir, roots },
     signal
   );
-  const { commands } = await discoverDesktopCommands(
-    { fs: deps.commands, homedir: deps.homedir, roots },
-    signal
+  // The command scan keeps only the first root's copy of an id, so each root is
+  // scanned alone: another folder's command must not hide this one's.
+  const commandCounts = new Map(
+    await Promise.all(
+      live.map(async (root) => {
+        const { commands } = await discoverDesktopCommands(
+          { fs: deps.commands, homedir: deps.homedir, roots: async () => [root] },
+          signal
+        );
+        return [root.rootId, countByRoot(commands).get(root.rootId) ?? 0] as const;
+      })
+    )
   );
   const filesystem = deps.commands();
   let personas: ReturnType<typeof scanUserPersonas>;
@@ -185,7 +194,6 @@ export async function discoverDesktopWorkspaceTrust(
     filesystem.dispose();
   }
   const skillCounts = countByRoot(skills.entries.filter((entry) => entry.status !== 'invalid'));
-  const commandCounts = countByRoot(commands);
   const personaCounts = countByRoot(personas.entries.filter((entry) => entry.status !== 'invalid'));
   return {
     roots: await Promise.all(

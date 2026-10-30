@@ -204,10 +204,10 @@ describe('workspace trust (ADR-0032)', () => {
     },
     [`${PROJECT}/.brainstrike/commands`]: { 'review.md': 'Review $ARGUMENTS' },
   };
-  const markdownFs = () => ({
+  const markdownFsOf = (tree: Record<string, Record<string, string>>) => () => ({
     dispose: () => undefined,
     listDir: (absDir: string) => {
-      const files = MARKDOWN[absDir];
+      const files = tree[absDir];
       return files
         ? {
             entries: Object.keys(files).map((name) => ({ isDirectory: false, isFile: true, name })),
@@ -217,12 +217,13 @@ describe('workspace trust (ADR-0032)', () => {
         : null;
     },
     readFile: (absFile: string) => {
-      const content = MARKDOWN[path.posix.dirname(absFile)]?.[path.posix.basename(absFile)];
+      const content = tree[path.posix.dirname(absFile)]?.[path.posix.basename(absFile)];
       return content === undefined
         ? { ok: false as const, reason: 'unreadable' as const }
         : { content, ok: true as const };
     },
   });
+  const markdownFs = markdownFsOf(MARKDOWN);
   function memoryTrust(): HostWorkspaceTrustStore {
     const values = new Map<string, string>();
     return {
@@ -278,6 +279,38 @@ describe('workspace trust (ADR-0032)', () => {
     } finally {
       await rm(folder, { force: true, recursive: true });
     }
+  });
+
+  it("asks about a folder whose only command shares its name with an earlier folder's", async () => {
+    // The "/" menu keeps the first folder's copy, but trusting the second loads its own.
+    const clone: RuntimeWorkspaceRoot = {
+      displayName: 'Clone',
+      path: `${PROJECT}-clone`,
+      rootId: 'root-clone',
+    };
+    const result = await discoverDesktopWorkspaceTrust(
+      {
+        commands: markdownFsOf({
+          [`${PROJECT}/.brainstrike/commands`]: { 'review.md': 'Review $ARGUMENTS' },
+          [`${clone.path}/.brainstrike/commands`]: { 'review.md': 'Review the clone' },
+        }),
+        homedir: () => HOME,
+        readFile: async ({ requestedPath }) => {
+          throw Object.assign(new Error(`ENOENT: ${requestedPath}`), { code: 'ENOENT' });
+        },
+        roots: async () => [ROOT_A, clone],
+        skills: () => makeFs({ dirs: {}, files: {} }),
+        trust: memoryTrust(),
+      },
+      new AbortController().signal
+    );
+
+    expect(
+      result.roots.map(({ agentConfiguration, rootId }) => [rootId, agentConfiguration.commands])
+    ).toEqual([
+      ['root-a', 1],
+      ['root-clone', 1],
+    ]);
   });
 
   it("lists a folder's project skills and commands only once the person trusts it", async () => {
