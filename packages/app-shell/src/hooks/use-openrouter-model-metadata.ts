@@ -1,4 +1,8 @@
 import type { OpenRouterModelMetadataLookup, RuntimeData } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { useEffect, useMemo, useState } from 'react';
 import { useAssistantThreadHost } from '../assistant-thread-host-context';
@@ -18,7 +22,11 @@ const MAX_VISIBLE_ERROR_CHARS = 300;
  */
 const LOADING_LOOKUP: OpenRouterModelMetadataLookup = { state: 'loading' };
 
+/** A host refusal reads with its remedy, as the host sent it. */
 function toVisibleError(error: unknown): string {
+  if (error instanceof BoundaryFailureError) {
+    return describeBoundaryFailure(error.failure).slice(0, MAX_VISIBLE_ERROR_CHARS);
+  }
   const message = error instanceof Error ? error.message : 'OpenRouter metadata request failed';
   return message.slice(0, MAX_VISIBLE_ERROR_CHARS);
 }
