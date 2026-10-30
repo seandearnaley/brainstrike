@@ -62,6 +62,7 @@ import type { GIT_WORKSPACE_METHOD_SCHEMAS, GitWorkspaceEvent } from './protocol
 import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
 import type { TERMINAL_METHOD_SCHEMAS, TerminalEvent } from './protocol-terminals.ts';
+import type { HostWorkspaceTrustRoot } from './protocol-workspace-discovery.ts';
 import type { HostStateSearch } from './thread-search.ts';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
@@ -625,10 +626,13 @@ export interface HostProviderService {
 /**
  * ADR-0029 stage 2: the skills and user slash commands on the platform's live
  * roots and home directory, for the Settings panel and the composer's "/" menu.
+ * ADR-0032: project tiers come only from trusted roots.
  */
 export interface HostWorkspaceDiscovery {
   commands(signal: AbortSignal): Promise<UserSlashCommandsListResult>;
   skills(signal: AbortSignal): Promise<SkillsScanResultSummary>;
+  /** Each live root's trust and what trusting it would load, for the composer and Settings. */
+  trust(signal: AbortSignal): Promise<{ readonly roots: HostWorkspaceTrustRoot[] }>;
 }
 
 /** The git cluster's request methods; `workspace/git/subscribe` is the connection's own. */

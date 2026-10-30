@@ -1,5 +1,6 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
+import { notifyWorkspaceTrustChanged } from '@brainstrike/app-shell/workspace-trust-revision';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   type ThreadWorkspaceBinding,
@@ -406,7 +407,14 @@ export function createWindowThreadCapability(
     // ADR-0029 stage 2: the host scans skills and commands as its runs do.
     workspaceDiscovery: {
       listCommands: async () => await (await client()).request('workspace/commands', {}),
+      // ADR-0032: each folder's trust and what trusting it loads; the host records each answer.
+      listTrust: async () => (await (await client()).request('workspace/trust/list', {})).roots,
       scanSkills: async () => await (await client()).request('workspace/skills', {}),
+      setTrust: async (path, trust) => {
+        await (await client()).request('workspace/trust', { path, trust });
+        // The composer's prompt and the "/" menu read the lists this answer changed.
+        notifyWorkspaceTrustChanged();
+      },
     },
     workspaceRepository: () => hostThreadWorkspaceRepository(threadClient),
   };
