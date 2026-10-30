@@ -1396,7 +1396,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-trace-tail-target {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   min-width: 0;
   overflow: hidden;
@@ -1584,7 +1584,7 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .bs-step-row-target {
   color: var(--muted-foreground);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   min-width: 0;
   overflow: hidden;
@@ -2025,7 +2025,7 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .bs-approval-row-target {
   color: var(--muted-foreground);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   min-width: 0;
   overflow: hidden;
@@ -2679,7 +2679,7 @@ span.bs-composer-chip {
   padding: 0.1rem 0.3rem;
   border-radius: 0.3rem;
   background: color-mix(in oklab, var(--color-muted) 70%, transparent);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.86em;
 }
 
@@ -2705,7 +2705,7 @@ span.bs-composer-chip {
 .assistant-ui-panel .aui-md pre:not(.shiki) code {
   padding: 0;
   background: none;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: inherit;
 }
 

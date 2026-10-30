@@ -5,7 +5,22 @@ import * as React from 'react';
 // Relative imports, never the `@brainstrike/ui` barrel: the barrel re-exports
 // this module, so importing it here would close a source cycle (BST-890).
 import { Button } from './button';
-import { DEFAULT_THEME, isThemeId, type ThemeId } from './themes';
+import {
+  type CodeFontId,
+  type CodeThemeId,
+  codeFontFamily,
+  DEFAULT_CODE_FONT,
+  DEFAULT_CODE_THEME,
+  DEFAULT_FONT,
+  DEFAULT_THEME,
+  type FontId,
+  fontFamily,
+  isCodeFontId,
+  isCodeThemeId,
+  isFontId,
+  isThemeId,
+  type ThemeId,
+} from './themes';
 import { toast } from './use-toast';
 
 const logger = createLogger('ThemeProvider');
@@ -30,15 +45,64 @@ interface ThemeProviderProps {
   /** Palette id. Persisted under `themeStorageKey`. */
   defaultTheme?: ThemeId;
   storageAdapter: ThemeStorageAdapter;
+  /**
+   * Key of the saved mode. The font, code font and code theme are saved beside
+   * it under `<storageKey>-font`, `<storageKey>-code-font` and
+   * `<storageKey>-code-theme`.
+   */
   storageKey?: string;
   themeStorageKey?: string;
 }
 
-interface ThemeProviderState {
+/** The choices beside the mode, each saved under its own key. */
+export interface Appearance {
+  readonly codeFont: CodeFontId;
+  readonly codeTheme: CodeThemeId;
+  readonly font: FontId;
+  readonly theme: ThemeId;
+}
+
+type AppearanceKey = keyof Appearance;
+
+const APPEARANCE_VALIDATORS: {
+  readonly [Key in AppearanceKey]: (value: unknown) => value is Appearance[Key];
+} = {
+  codeFont: isCodeFontId,
+  codeTheme: isCodeThemeId,
+  font: isFontId,
+  theme: isThemeId,
+};
+
+const APPEARANCE_KEYS = Object.keys(APPEARANCE_VALIDATORS) as AppearanceKey[];
+
+/**
+ * Copies one saved choice into `restored`. A value this build does not know (a
+ * palette removed in a later release, say) keeps the default and says so; it is
+ * not a failed read.
+ */
+function restoreChoice<Key extends AppearanceKey>(
+  restored: Partial<Appearance>,
+  key: Key,
+  saved: string | null | undefined,
+  storageKey: string
+): void {
+  if (!saved) {
+    return;
+  }
+  if (APPEARANCE_VALIDATORS[key](saved)) {
+    restored[key] = saved;
+    return;
+  }
+  logger.warn('Ignoring an unknown saved appearance choice', { storageKey, value: saved });
+}
+
+interface ThemeProviderState extends Appearance {
   mode: ThemeMode;
+  setCodeFont: (codeFont: CodeFontId) => void;
+  setCodeTheme: (codeTheme: CodeThemeId) => void;
+  setFont: (font: FontId) => void;
   setMode: (mode: ThemeMode) => void;
   setTheme: (theme: ThemeId) => void;
-  theme: ThemeId;
 }
 
 type ThemeLoad =
@@ -60,7 +124,21 @@ export function ThemeProvider({
   storageAdapter,
 }: ThemeProviderProps) {
   const [mode, setModeState] = React.useState<ThemeMode>(defaultMode);
-  const [theme, setThemeState] = React.useState<ThemeId>(defaultTheme);
+  const [appearance, setAppearanceState] = React.useState<Appearance>(() => ({
+    codeFont: DEFAULT_CODE_FONT,
+    codeTheme: DEFAULT_CODE_THEME,
+    font: DEFAULT_FONT,
+    theme: defaultTheme,
+  }));
+  const appearanceStorageKeys = React.useMemo<Readonly<Record<AppearanceKey, string>>>(
+    () => ({
+      codeFont: `${storageKey}-code-font`,
+      codeTheme: `${storageKey}-code-theme`,
+      font: `${storageKey}-font`,
+      theme: themeStorageKey,
+    }),
+    [storageKey, themeStorageKey]
+  );
   const [load, setLoad] = React.useState<ThemeLoad>(LOADING);
   const [attempt, setAttempt] = React.useState(0);
 
@@ -71,8 +149,11 @@ export function ThemeProvider({
   // release, say) keeps the default and says so; it is not a failed read.
   React.useEffect(() => {
     let current = true;
-    Promise.all([storageAdapter.getItem(storageKey), storageAdapter.getItem(themeStorageKey)]).then(
-      ([savedMode, savedTheme]) => {
+    Promise.all([
+      storageAdapter.getItem(storageKey),
+      Promise.all(APPEARANCE_KEYS.map((key) => storageAdapter.getItem(appearanceStorageKeys[key]))),
+    ]).then(
+      ([savedMode, savedAppearance]) => {
         if (!current) {
           return;
         }
@@ -83,16 +164,11 @@ export function ThemeProvider({
             logger.warn('Ignoring an unknown saved theme mode', { storageKey, value: savedMode });
           }
         }
-        if (savedTheme) {
-          if (isThemeId(savedTheme)) {
-            setThemeState(savedTheme);
-          } else {
-            logger.warn('Ignoring an unknown saved theme', {
-              storageKey: themeStorageKey,
-              value: savedTheme,
-            });
-          }
-        }
+        const restored: Partial<Appearance> = {};
+        APPEARANCE_KEYS.forEach((key, index) => {
+          restoreChoice(restored, key, savedAppearance[index], appearanceStorageKeys[key]);
+        });
+        setAppearanceState((previous) => ({ ...previous, ...restored }));
         setLoad(READY);
       },
       (error: unknown) => {
@@ -103,7 +179,7 @@ export function ThemeProvider({
           attempt,
           error,
           storageKey,
-          themeStorageKey,
+          storageKeys: appearanceStorageKeys,
         });
         setLoad({ error, status: 'failed' });
       }
@@ -111,7 +187,7 @@ export function ThemeProvider({
     return () => {
       current = false;
     };
-  }, [attempt, storageAdapter, storageKey, themeStorageKey]);
+  }, [appearanceStorageKeys, attempt, storageAdapter, storageKey]);
 
   React.useEffect(() => {
     const root = window.document.documentElement;
@@ -130,10 +206,26 @@ export function ThemeProvider({
     root.classList.add(mode);
   }, [mode]);
 
-  // The palette is a `data-theme` attribute, orthogonal to the light/dark class.
+  // The palette is a `data-theme` attribute and the code theme a
+  // `data-code-theme` attribute, both orthogonal to the light/dark class.
+  const { codeFont, codeTheme, font, theme } = appearance;
   React.useEffect(() => {
     window.document.documentElement.dataset['theme'] = theme;
   }, [theme]);
+
+  React.useEffect(() => {
+    window.document.documentElement.dataset['codeTheme'] = codeTheme;
+  }, [codeTheme]);
+
+  // Fonts replace the stacks Tailwind's `font-sans`/`font-mono` read, so every
+  // surface that uses them (and CodeMirror, which reads `--font-mono`) follows.
+  React.useEffect(() => {
+    window.document.documentElement.style.setProperty('--font-sans', fontFamily(font));
+  }, [font]);
+
+  React.useEffect(() => {
+    window.document.documentElement.style.setProperty('--font-mono', codeFontFamily(codeFont));
+  }, [codeFont]);
 
   const store = React.useCallback(
     (key: string, value: string, detail: Record<string, string>) => {
@@ -157,17 +249,25 @@ export function ThemeProvider({
     [store, storageKey]
   );
 
-  const setTheme = React.useCallback(
-    (next: ThemeId) => {
-      store(themeStorageKey, next, { theme: next });
-      setThemeState(next);
+  const setAppearance = React.useCallback(
+    <Key extends AppearanceKey>(key: Key, next: Appearance[Key]) => {
+      store(appearanceStorageKeys[key], next, { [key]: next });
+      setAppearanceState((previous) => ({ ...previous, [key]: next }));
     },
-    [store, themeStorageKey]
+    [appearanceStorageKeys, store]
   );
 
   const value = React.useMemo(
-    () => ({ mode, setMode, setTheme, theme }),
-    [mode, setMode, setTheme, theme]
+    () => ({
+      ...appearance,
+      mode,
+      setCodeFont: (next: CodeFontId) => setAppearance('codeFont', next),
+      setCodeTheme: (next: CodeThemeId) => setAppearance('codeTheme', next),
+      setFont: (next: FontId) => setAppearance('font', next),
+      setMode,
+      setTheme: (next: ThemeId) => setAppearance('theme', next),
+    }),
+    [appearance, mode, setAppearance, setMode]
   );
 
   const retryLoad = React.useCallback(() => {
@@ -243,6 +343,15 @@ function ThemeLoadFailure({
       </p>
     </div>
   );
+}
+
+/**
+ * The current code theme, for code blocks. A code block can render outside
+ * the app's provider (an isolated surface or a component test); there it uses
+ * the default code theme, as the CodeMirror tokens do with no `data-code-theme`.
+ */
+export function useCodeTheme(): CodeThemeId {
+  return React.useContext(ThemeProviderContext)?.codeTheme ?? DEFAULT_CODE_THEME;
 }
 
 export const useTheme = () => {

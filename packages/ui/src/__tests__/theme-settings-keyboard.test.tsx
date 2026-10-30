@@ -70,7 +70,9 @@ describe('ThemeSettings palette keyboard model', () => {
     expect(cardFor(2)).toHaveFocus();
 
     await user.tab();
-    expect(screen.getAllByRole('radio')).not.toContain(document.activeElement);
+    expect(screen.getByRole('radiogroup', { name: 'Theme' })).not.toContainElement(
+      document.activeElement as HTMLElement | null
+    );
   });
 
   it('ArrowRight and ArrowDown move focus to the next card and select it', async () => {
