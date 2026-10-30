@@ -1,4 +1,5 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
+import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import {
   HostChildConversations,
   HostChildToolbar,
@@ -98,15 +99,35 @@ function CommittedVerdicts({
   return <RunVerdictProvider value={value}>{children}</RunVerdictProvider>;
 }
 
+/**
+ * Each source's last effect count and the rows it counted. The log only
+ * appends, so a read counts just the rows added since; a recount on every
+ * read was quadratic over a long run.
+ */
+const effectCounts = new WeakMap<object, { count: number; rows: readonly HostLogRow[] }>();
+
+function countCommittedEffects(source: CommittedHostConversation['source']): number {
+  const rows = source.getSnapshot().rows;
+  const last = effectCounts.get(source) ?? { count: 0, rows: [] };
+  if (rows === last.rows) {
+    return last.count;
+  }
+  const appended =
+    rows.length >= last.rows.length && rows[last.rows.length - 1] === last.rows.at(-1);
+  let count = appended ? last.count : 0;
+  for (const { event } of appended ? rows.slice(last.rows.length) : rows) {
+    if (event.type === 'effect.started' || event.type === 'effect.finished') {
+      count += 1;
+    }
+  }
+  effectCounts.set(source, { count, rows });
+  return count;
+}
+
 /** Committed effects are where a delegation starts or settles a child thread. */
 function useCommittedEffectCount(conversation: CommittedHostConversation | undefined): number {
   const source = conversation?.source;
-  const read = (): number =>
-    source
-      ?.getSnapshot()
-      .rows.filter(
-        ({ event }) => event.type === 'effect.started' || event.type === 'effect.finished'
-      ).length ?? 0;
+  const read = (): number => (source ? countCommittedEffects(source) : 0);
   return useSyncExternalStore(source?.subscribe ?? NO_SUBSCRIPTION, read, read);
 }
 const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
@@ -128,11 +149,17 @@ function HostChildDetails({
     return fold.apply(source.getSnapshot().rows);
   }, [source]);
   const details = useSyncExternalStore(source.subscribe, read, read);
-  return details ? (
+  // The bar keeps its height while the child's log replays, so the
+  // conversation below it does not jump down when the details arrive.
+  return (
     <div className="shrink-0 border-b px-2 py-1">
-      <HostChildToolbar details={details} />
+      {details ? (
+        <HostChildToolbar details={details} />
+      ) : (
+        <div aria-hidden="true" className="h-7" />
+      )}
     </div>
-  ) : null;
+  );
 }
 
 interface HostThreadProps {
