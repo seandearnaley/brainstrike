@@ -295,6 +295,20 @@ class ViewTelemetry {
   }
 }
 
+/**
+ * Run `slot.listener` once the client closes. A reaction on the client's
+ * long-lived `closed` promise can never be removed, so it holds only this
+ * slot: a disposed session clears it rather than staying reachable, with its
+ * whole log, for as long as the client lives (BST-2323).
+ */
+function whenClientCloses(
+  closed: Promise<void>,
+  slot: { listener: (() => void) | undefined }
+): void {
+  const notify = (): void => slot.listener?.();
+  closed.then(notify, notify);
+}
+
 /** Connection status and replay are external state, observed through one snapshot. */
 export class CommittedThreadSession {
   private readonly view: CommittedThreadView;
@@ -430,17 +444,21 @@ export class CommittedThreadSession {
         }
       }
     );
-    const closed = (): void => {
-      connectionClosed = true;
-      if (active) {
-        this.update({ connected: false });
-      }
+    const closed: { listener: (() => void) | undefined } = {
+      listener: (): void => {
+        connectionClosed = true;
+        if (active) {
+          this.update({ connected: false });
+        }
+      },
     };
-    this.client.closed.then(closed, closed);
+    whenClientCloses(this.client.closed, closed);
     let disposed: Promise<void> | undefined;
     return () => {
       disposed ??= (async (): Promise<void> => {
         active = false;
+        // Let a disposed session, and every row it read, be collected.
+        closed.listener = undefined;
         clearTimeout(timer);
         queued.length = 0;
         release();
