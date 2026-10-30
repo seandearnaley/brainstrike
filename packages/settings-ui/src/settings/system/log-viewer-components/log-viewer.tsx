@@ -568,7 +568,6 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
   const handleExportLogs = useLogExport({
     getExportRecords,
     sourceCoverage: buildSourceCoverage,
-    toast,
   });
 
   const handleSortNewestFirstChange = useCallback((value: boolean) => {
