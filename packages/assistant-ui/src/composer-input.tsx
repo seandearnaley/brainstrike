@@ -40,7 +40,10 @@ interface ComposerInputRowProps {
   /** The access mode control; absent where no permission policy owner is wired. */
   accessMode?: AccessModeComposerControls | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
-  /** Trailing footer controls, before Send (e.g. the Controls menu). */
+  /**
+   * Fixed footer controls (e.g. the Controls menu), placed after the access
+   * mode and ahead of `footerStart`, never beside the run-state controls.
+   */
   footerEnd?: ReactNode;
   /** Leading footer controls, after attach and plan (e.g. model and effort). */
   footerStart?: ReactNode;
@@ -119,10 +122,13 @@ const ComposerInputRow = ({
           <AttachImageButton availability={attachmentsAvailability} disabled={sendDisabled} />
           {planMode ? <PlanModeToggle planMode={planMode} /> : null}
           {accessMode ? <ComposerAccessModeControl access={accessMode} /> : null}
+          {footerEnd}
           {footerStart}
         </div>
+        {/* Only the run-state controls live at the end: they change with every
+            run, so anything beside them would slide each time a run starts or
+            ends (BST-2322). */}
         <div className="bs-composer-footer-end">
-          {footerEnd}
           <ThreadPrimitive.If running={false}>
             {activeInput ? (
               <button
