@@ -19,7 +19,9 @@ const sandbox = vi.hoisted(() => ({
   cleanupAfterCommand: vi.fn(),
   initialize: vi.fn(async () => {}),
   isSupportedPlatform: vi.fn(() => true),
+  registerCommandNetworkLists: vi.fn(),
   reset: vi.fn(async () => {}),
+  unregisterCommandNetworkLists: vi.fn(),
   updateConfig: vi.fn(),
   wrapWithSandboxArgv: vi.fn(async (command: string) => ({
     argv: ['/bin/sh', '-c', command],

@@ -143,15 +143,23 @@ function linuxStartTime(pid: number): string | null {
   try {
     stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
   } catch (e) {
-    if (e !== null && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
+    // ESRCH: the process exited between the open and the read.
+    if (
+      e !== null &&
+      typeof e === 'object' &&
+      'code' in e &&
+      (e.code === 'ENOENT' || e.code === 'ESRCH')
+    ) {
       return null; // /proc is readable, and it has no such process
     }
     throw e;
   }
   // `comm` (field 2) is parenthesized and may hold spaces or parentheses; fields 3+ follow the last ')'.
   const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-  // A zombie has exited and holds nothing (BST-2106), as in posixStartTime.
-  if (fields[0] === 'Z') {
+  // A zombie has exited and holds nothing (BST-2106), as in posixStartTime. A killed
+  // process's leader turns zombie before its other threads finish exiting, and until
+  // then they hold its files and locks; its thread count (field 20) counts them.
+  if (fields[0] === 'Z' && fields[17] === '1') {
     return null;
   }
   const startTicks = Number(fields[19]);

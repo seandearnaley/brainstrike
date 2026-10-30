@@ -64,7 +64,7 @@ describe('ALWAYS_DENY_READ_PATHS', () => {
 });
 
 describe('buildSandboxRuntimeConfig', () => {
-  it('maps allowWrite, allowedDomains, allowRead and denyRead onto SandboxRuntimeConfig', async () => {
+  it('maps allowWrite, allowRead and denyRead onto SandboxRuntimeConfig, and no domain into the shared list', async () => {
     const config = await build({
       allowedDomains: ['api.github.com'],
       allowRead: [opt('data')],
@@ -72,7 +72,9 @@ describe('buildSandboxRuntimeConfig', () => {
       denyRead: [opt('data', 'secret')],
     });
 
-    expect(config.network.allowedDomains).toEqual(['api.github.com']);
+    // The proxy reads this list for every sandboxed process at once; a run's
+    // domains are granted to its own command instead (BST-2327).
+    expect(config.network.allowedDomains).toEqual([]);
     expect(config.network.deniedDomains).toEqual([]);
     expect(config.filesystem.allowWrite).toEqual([scratchDir, opt('out')]);
     expect(config.filesystem.denyWrite).toEqual([]);
@@ -159,6 +161,14 @@ describe('buildSandboxRuntimeConfig', () => {
     await expect(
       build({ allowedDomains: [], allowWrite: [join(homedir(), '.aws', 'nested')] })
     ).rejects.toThrow(/always-denied credential store/u);
+  });
+
+  it('REJECTS a scratchDir inside an always-denied store, since it is written too', async () => {
+    // A shell command's scratchDir is the folder the user opened, so it can be
+    // anywhere: opening ~/.ssh must not hand the store to the command.
+    await expect(
+      build({ allowedDomains: [], allowWrite: [] }, join(homedir(), '.ssh', 'keys'))
+    ).rejects.toThrow(/scratchDir .* always-denied credential store/u);
   });
 
   it('REJECTS a policy that allows and denies EXACTLY the same path', async () => {

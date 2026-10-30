@@ -10,7 +10,9 @@ const sandbox = vi.hoisted(() => ({
   cleanupAfterCommand: vi.fn(),
   initialize: vi.fn(async () => {}),
   isSupportedPlatform: vi.fn(() => true),
+  registerCommandNetworkLists: vi.fn(),
   reset: vi.fn(async () => {}),
+  unregisterCommandNetworkLists: vi.fn(),
   updateConfig: vi.fn(),
   wrapWithSandboxArgv: vi.fn(async (command: string) => ({
     argv: ['/bin/sh', '-c', command],
@@ -179,7 +181,6 @@ describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
         const probeError = new Error(
           'bwrap: Creating new namespace failed: Operation not permitted'
         );
-        const commandError = new Error('late command cleanup failed');
         const scratchError = new Error('late scratch cleanup failed');
         const resetError = new Error('late reset failed');
         let rejectInitialization: (error: unknown) => void = () => {};
@@ -189,9 +190,6 @@ describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
               rejectInitialization = reject;
             })
         );
-        sandbox.cleanupAfterCommand.mockImplementationOnce(() => {
-          throw commandError;
-        });
         mocks.rm.mockImplementationOnce(async (...args: Parameters<typeof actualFs.rm>) => {
           await actualFs.rm(...args);
           throw scratchError;
@@ -222,7 +220,9 @@ describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
           const failure = records.find((record) => record.message === 'Sandbox readiness failed');
           expect(failure).toMatchObject({ scope: 'FenceExecutor' });
           const diagnostic = JSON.stringify(records);
-          for (const error of [probeError, commandError, scratchError, resetError]) {
+          // initialize() failed before any wrap, so there was no command to
+          // clean up after: srt undoes a wrap that never handed one out.
+          for (const error of [probeError, scratchError, resetError]) {
             expect(diagnostic).toContain(error.message);
           }
         } finally {

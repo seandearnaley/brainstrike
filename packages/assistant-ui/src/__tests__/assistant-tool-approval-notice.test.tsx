@@ -291,6 +291,32 @@ describe('AssistantToolApprovalNotice execute command preview', () => {
     expect(screen.queryByText('Selected workspace root (default)')).toBeNull();
   });
 
+  it('says a command asking to leave the sandbox runs with full access', () => {
+    renderNotice({
+      ...baseRequest,
+      args: { command: 'curl https://example.com', dangerouslyDisableSandbox: true },
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByTestId('approval-command-outside-sandbox')).toHaveTextContent(
+      'Runs outside the sandbox, with full access to your files and network.'
+    );
+    expect(screen.getByTestId('approval-command-code').textContent).toBe(
+      'curl https://example.com'
+    );
+  });
+
+  it('shows no sandbox warning for a command that stays in it', () => {
+    renderNotice({
+      ...baseRequest,
+      args: { command: 'pnpm test', dangerouslyDisableSandbox: false },
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByTestId('approval-command-code').textContent).toBe('pnpm test');
+    expect(screen.queryByTestId('approval-command-outside-sandbox')).toBeNull();
+  });
+
   it('names the specified workspace root as the default cwd when root is supplied', () => {
     renderNotice({
       ...baseRequest,

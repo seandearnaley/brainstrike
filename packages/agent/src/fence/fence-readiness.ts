@@ -116,6 +116,7 @@ export async function probeFenceReadiness(options: FenceReadinessProbeOptions): 
 
   const scratch = await mkdtemp(join(tmpdir(), 'brainstrike-fence-readiness-'));
   let failure: { error: unknown } | undefined;
+  let wrapped = false;
   try {
     signal.throwIfAborted();
     const cwd = await realpathNative(scratch);
@@ -163,6 +164,7 @@ export async function probeFenceReadiness(options: FenceReadinessProbeOptions): 
       signal,
       cwd
     );
+    wrapped = true;
     signal.throwIfAborted();
     const result = await options.spawn({
       argv,
@@ -185,10 +187,13 @@ export async function probeFenceReadiness(options: FenceReadinessProbeOptions): 
     failure = { error };
   }
   const cleanupErrors: unknown[] = [];
-  try {
-    SandboxManager.cleanupAfterCommand();
-  } catch (error) {
-    cleanupErrors.push(error);
+  // Only for a wrap that handed out a command: srt undoes one that threw.
+  if (wrapped) {
+    try {
+      SandboxManager.cleanupAfterCommand();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
   }
   try {
     await rm(scratch, { force: true, recursive: true });

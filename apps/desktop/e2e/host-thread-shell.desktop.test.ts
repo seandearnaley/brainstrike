@@ -7,7 +7,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { readAgentHostLog } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
-import { nodeCommand } from './utils/node-command';
+import { nodeCommand, nodeText } from './utils/node-command';
 import { seedRoot } from './utils/seed-root';
 
 const API_KEY = 'test-key-host-shell';
@@ -17,6 +17,7 @@ const COMMAND = nodeCommand(
   "require('node:fs').writeFileSync('shell-out.txt', 'host-shell-ok'); process.stdout.write('streamed-from-host')"
 );
 const REPLY = 'The command ran.';
+const ESCAPED = 'The escaped command ran.';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -69,5 +70,70 @@ test('a host run’s approved shell command runs in the agent host over the work
   } finally {
     await electron.dispose();
     rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('a write the sandbox refused runs once the person approves the escape', async ({
+  electron,
+  modelProvider,
+  window: page,
+}) => {
+  test.skip(process.platform === 'win32', 'Windows runs commands without the OS sandbox.');
+  test.setTimeout(300_000);
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-host-shell-sandbox-')));
+  const outside = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-host-shell-outside-')));
+  const target = path.join(outside, 'escaped.txt');
+  const command = nodeCommand(
+    `require('node:fs').writeFileSync(${nodeText(target)}, 'escaped-ok')`
+  );
+  try {
+    await seedRoot(page, root, {
+      disableBackgroundIndexing: true,
+      reloadReason: 'host-shell-sandbox-root',
+      rootId: randomUUID(),
+    });
+    await enableModel(page);
+    modelProvider.setScript((request) => {
+      const name = request.toolNames.find((tool) => tool.endsWith('executeCommand'));
+      return name
+        ? {
+            finalText: ESCAPED,
+            toolCallStages: [
+              [{ arguments: { command }, name }],
+              [{ arguments: { command, dangerouslyDisableSandbox: true }, name }],
+            ],
+          }
+        : { finalText: `No shell tool offered: ${request.toolNames.join(', ')}` };
+    });
+    await ensureAssistantShellVisible(page);
+    const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+    await region.getByRole('textbox', { name: 'Message input' }).fill('Write the file.');
+    await region.getByRole('button', { exact: true, name: 'Send' }).click();
+
+    // The sandboxed call asks like any command, then the sandbox refuses its write.
+    const approve = region.getByRole('button', { name: /^Approve /u });
+    const outsideSandbox = region.getByTestId('approval-command-outside-sandbox');
+    await expect(approve).toBeVisible({ timeout: 90_000 });
+    await expect(outsideSandbox).toHaveCount(0);
+    await approve.click();
+
+    // The model hears why, and its escape asks again, saying what it gives up.
+    await expect(outsideSandbox).toBeVisible({ timeout: 90_000 });
+    expect(
+      modelProvider
+        .requests()
+        .some((request) =>
+          JSON.stringify(request.messages).includes('This command ran in the OS sandbox')
+        )
+    ).toBe(true);
+    expect(() => readFileSync(target, 'utf8')).toThrow();
+    await approve.click();
+    await expect(region.getByText(ESCAPED)).toBeVisible({ timeout: 90_000 });
+    expect(readFileSync(target, 'utf8')).toBe('escaped-ok');
+    expect(modelProvider.refusals()).toEqual([]);
+  } finally {
+    await electron.dispose();
+    rmSync(root, { force: true, recursive: true });
+    rmSync(outside, { force: true, recursive: true });
   }
 });

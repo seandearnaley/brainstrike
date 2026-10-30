@@ -25,6 +25,31 @@ deny-first; requested domains grant nothing until the per-call decision allows t
 exact validated list. Scratch-write confinement is not a claim that reads are
 private or confined. Treat every file read and returned output as sensitive.
 
+## Shell commands
+
+Where the desktop agent host supplies the fence (macOS and Linux),
+`executeCommand` runs inside it: writes only in the command's open folder and
+its own temp folder (`TMPDIR`, removed with the command), reads everything but the
+always-denied credential stores, and no network. sandbox-runtime's own `TMPDIR`
+(`/tmp/claude`) is writable only where that folder already exists, so it is
+not relied on. The fence only wraps the command; executeCommand's own
+process owner spawns it, so streaming, output bounds, group teardown and the
+workspace lease are unchanged. A readiness failure refuses the command with its
+reason and never falls back. `dangerouslyDisableSandbox` runs one command
+outside: run admission gives that call to the person in Ask and Auto (the auto
+reviewer never approves it), and Full runs it. The standalone host, Windows and
+command sessions run unsandboxed, and a result says `sandboxed: false`.
+
+Every sandboxed process reads sandbox-runtime's process-wide
+`network.allowedDomains`, so it stays empty. A run_python call's approved domains
+go to that one command through `registerCommandNetworkLists`, keyed by a 128-bit
+id the wrap gives it. The vendor calls the id attribution, not a boundary: a
+process presenting another live command's id gets that list. Each Linux sandbox's
+PID namespace, and the macOS profile's same-sandbox `process-info` rule, keep one
+sandbox from reading another's environment, where the id lives. Release
+sandbox-runtime's per-command cleanup only for a wrap that handed out a command;
+it undoes a wrap that threw itself.
+
 ## Process lifecycle
 
 Use structured argv and the existing bounded command/process-tree owner. The

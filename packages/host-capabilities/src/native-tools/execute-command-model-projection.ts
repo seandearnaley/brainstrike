@@ -32,6 +32,7 @@ interface ExecuteCommandProjectionResult {
   openRoots?: number;
   rootId?: string;
   rootName: string;
+  sandboxed?: boolean;
   signal: string | null;
   stderr: string;
   stdout: string;
@@ -55,6 +56,7 @@ function parseExecuteCommandResult(output: unknown): ExecuteCommandProjectionRes
       (output['openRoots'] === undefined || isPositiveInteger(output['openRoots'])) &&
       (output['rootId'] === undefined || typeof output['rootId'] === 'string') &&
       typeof output['rootName'] === 'string' &&
+      (output['sandboxed'] === undefined || typeof output['sandboxed'] === 'boolean') &&
       (output['signal'] === null || typeof output['signal'] === 'string') &&
       typeof output['stderr'] === 'string' &&
       typeof output['stdout'] === 'string' &&
@@ -145,6 +147,7 @@ function buildExecuteCommandProjection(
     ...(result.timedOut ? ['timed_out'] : []),
     ...(result.signal === null ? [] : [`killed=${result.signal}`]),
     ...(result.truncated ? ['truncated'] : []),
+    ...(result.sandboxed ? ['sandboxed'] : []),
     ...(rootLabel ? [`root=${rootLabel}`] : []),
   ];
   const lines = [headerParts.join(' ')];

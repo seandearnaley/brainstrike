@@ -97,6 +97,20 @@ function canonicalConsent(canonicalId: string): HostTool['consent'] {
   return (input) => (resolveRunPythonExecutionContext(input)?.allowedDomains.length ?? 0) > 0;
 }
 
+/** A command run outside the OS sandbox is the person's to approve (BST-2329). */
+function canonicalPersonApproval(canonicalId: string): HostTool['personApproval'] {
+  if (canonicalId !== NATIVE_TOOL_ID.executeCommand) {
+    return undefined;
+  }
+  return (input) =>
+    typeof input === 'object' &&
+    input !== null &&
+    'dangerouslyDisableSandbox' in input &&
+    input.dangerouslyDisableSandbox === true
+      ? 'This command runs outside the sandbox, so only you can approve it.'
+      : undefined;
+}
+
 /**
  * Borrow the shipped executable schemas, executors and model-output pipeline.
  * Names use the existing provider sanitizer; decisions remain in HostCore.
@@ -139,6 +153,7 @@ export function createAgentHostToolBindings(options: {
     const strict = source.strict;
     const interaction = canonicalInteraction(source, canonicalId, binding.risk);
     const consent = canonicalConsent(canonicalId);
+    const personApproval = canonicalPersonApproval(canonicalId);
     tools[name] = {
       ...(consent ? { consent } : {}),
       description: source.description,
@@ -147,6 +162,7 @@ export function createAgentHostToolBindings(options: {
       identity: binding.identity,
       inputSchema: source.inputSchema,
       ...(interaction ? { interaction } : {}),
+      ...(personApproval ? { personApproval } : {}),
       permissionToolId: canonicalId,
       risk: binding.risk,
       ...(strict === undefined ? {} : { strict }),

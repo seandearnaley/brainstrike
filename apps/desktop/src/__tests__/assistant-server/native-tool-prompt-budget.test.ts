@@ -690,21 +690,29 @@ describe('desktop native tool provider prompt budget', () => {
     // the authored band above); main measured 8351, so the 128 above the
     // recorded 8223 predates it. Measured 8820, so both bounds move to centre
     // it (8073 → 8670, 8373 → 8970), width 300 unchanged.
+    // BST-2328: +40 for executeCommand's OS sandbox (description +19, the new
+    // dangerouslyDisableSandbox field +23, the command field -2). Trim-first
+    // took the description from +40 to +19 and the field from +25 to +23.
+    // Main measured 8820 and this 8860, so both bounds move to centre it
+    // (8670 → 8710, 8970 → 9010), width 300 unchanged.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8670);
+    ).toBeGreaterThanOrEqual(8710);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      8970
+      9010
     );
+    // BST-2328: executeCommand is critical tier, so the same +40 lands here;
+    // main measured 2292 and this 2332, so both bounds move to centre it
+    // (2016 → 2182, 2316 → 2482), width 300 unchanged.
     expect(
       criticalDefinitionTokens,
       'critical aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(2016);
+    ).toBeGreaterThanOrEqual(2182);
     expect(
       criticalDefinitionTokens,
       'critical aggregate outside its recorded band'
-    ).toBeLessThanOrEqual(2316);
+    ).toBeLessThanOrEqual(2482);
     expect({
       criticalToolCount: criticalProviderTools.length,
       eagerToolCount: eagerProviderTools.length,

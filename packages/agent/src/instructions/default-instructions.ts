@@ -342,9 +342,10 @@ function buildParallelCallInstruction(
 /**
  * Guidance for the shell execution tool. Emitted only when the tool is
  * available (the permission policy did not deny it), so an unavailable verb is
- * never advertised. The wording is honest: there is NO sandbox, and by default
- * (execute resolves to 'ask') the call suspends for the user's per-call approval
- * before the command runs.
+ * never advertised. The wording is honest on every host: only some hosts have
+ * the OS sandbox, so a command counts as unsandboxed unless its result says
+ * otherwise, and by default (execute resolves to 'ask') the call suspends for
+ * the user's per-call approval before the command runs.
  */
 function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   if (!names.executeCommand) {
@@ -358,7 +359,7 @@ function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   ].filter((name): name is string => Boolean(name));
   const routingClause =
     boundedRoutes.length > 0 ? ` Prefer ${boundedRoutes.join(', ')} instead.` : '';
-  return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.${routingClause}`;
+  return `${names.executeCommand} runs arbitrary shell commands, sandboxed only where its result says so. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.${routingClause}`;
 }
 
 /**

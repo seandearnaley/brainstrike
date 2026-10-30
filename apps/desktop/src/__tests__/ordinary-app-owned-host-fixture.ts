@@ -1,7 +1,7 @@
 // The ordinary app-owned host proof, one test per fault. Each fault has its own
 // ordinary-app-owned-host-<fault>.integration.test.ts so Vitest can run them on
 // different workers and native shards instead of one 90 s file.
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createSanitizedToolNameMap } from '@brainstrike/agent';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
@@ -56,6 +56,36 @@ const desktop = resolve(import.meta.dirname, '../..');
 const RUN_PROGRESS_POLL = { timeout: 30_000 } as const;
 // The meter leads with the thread's committed total; context occupancy moves to the ring.
 const THREAD_USAGE_LABEL = /^Thread usage: [1-9][\d.]*[KM]? tokens; context 0% of input budget$/u;
+
+/**
+ * The host pids of the command started in `workspace`. On Linux the OS sandbox
+ * (bubblewrap) gives a command its own PID namespace, so the pids it records
+ * name other processes here; every process of its tree, the sandbox's own
+ * included, has the workspace as its working directory. Elsewhere the recorded
+ * pids are the host's.
+ */
+async function commandHostPids(
+  workspace: string,
+  recorded: { readonly pid: number; readonly ppid: number }
+): Promise<number[]> {
+  if (process.platform !== 'linux') {
+    return [recorded.pid, recorded.ppid];
+  }
+  const directory = await realpath(workspace);
+  const pids: number[] = [];
+  for (const entry of await readdir('/proc')) {
+    if (
+      /^\d+$/u.test(entry) &&
+      (await readlink(`/proc/${entry}/cwd`).catch(() => null)) === directory
+    ) {
+      pids.push(Number(entry));
+    }
+  }
+  if (pids.length === 0) {
+    throw new Error('The owned command has no process in its workspace');
+  }
+  return pids;
+}
 
 export type OrdinaryAppOwnedHostFault =
   | 'human-interactions'
@@ -657,7 +687,7 @@ setInterval(() => {}, 1000);
       checkpoint('ordinary-command-live-output-streamed');
       // Neither long-lived owner is the command's to stop: the app, nor the
       // host that spawns the command directly and outlives the stop.
-      const commandPids = [commandOwner.pid, commandOwner.ppid].filter(
+      const commandPids = (await commandHostPids(workspace, commandOwner)).filter(
         (pid) => pid !== application?.process().pid && pid !== record.pid
       );
       const commandIdentities = commandPids.map((pid) => {
@@ -676,6 +706,11 @@ setInterval(() => {}, 1000);
         process.kill(record.pid, 'SIGKILL');
         // A kill only starts the exit (TerminateProcess returns before the process ends); join it.
         await joinProcessExit(record.pid, record.start);
+        if (process.platform === 'linux') {
+          // The sandbox's bubblewrap dies with its parent (--die-with-parent), and the
+          // command's PID namespace with it, so nothing the command started holds the Root.
+          await Promise.all(commandIdentities.map(({ pid, start }) => joinProcessExit(pid, start)));
+        }
         const before = commandIdentities.filter(
           ({ pid, start }) => processStartTime(pid) === start
         );
@@ -703,14 +738,14 @@ setInterval(() => {}, 1000);
           )
         );
         contender?.release();
-        if (process.platform === 'win32') {
-          // ADR-0017: the utility's kill-on-close Job ends its commands with it, and nothing they
-          // hold keeps the Root, so the next owner takes it at once.
+        if (process.platform !== 'darwin') {
+          // ADR-0017: the utility's kill-on-close Job (Windows) or the sandbox (Linux) ends its
+          // commands with it, and nothing they hold keeps the Root, so the next owner takes it.
           expect(refusal).toBeUndefined();
           await Promise.all(commandIdentities.map(({ pid, start }) => joinProcessExit(pid, start)));
           return;
         }
-        // POSIX: a command that outlives its utility inherited the Root's flock and keeps it refused.
+        // macOS: a command that outlives its utility inherited the Root's flock and keeps it refused.
         expect(before.length).toBeGreaterThan(0);
         expect(after.length).toBeGreaterThan(0);
         expect(refusal).toBeInstanceOf(RootLockedError);

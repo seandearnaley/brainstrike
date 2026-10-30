@@ -130,3 +130,53 @@ test('L-zombie: an exited child its parent has not collected yet has no start ti
     lines.close();
   }
 }, 60_000);
+
+/** Runs `check` while this Linux process reads `stat` (a value, or a thrown error) as pid 99999999's /proc stat. */
+function withFakeProcStat(stat: string | Error, check: () => void): void {
+  const fs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs');
+  const original = fs.readFileSync;
+  (fs as { readFileSync: unknown }).readFileSync = (path: string, ...rest: unknown[]): unknown => {
+    if (path === '/proc/99999999/stat') {
+      if (stat instanceof Error) {
+        throw stat;
+      }
+      return stat;
+    }
+    return (original as (...args: unknown[]) => unknown)(path, ...rest);
+  };
+  syncBuiltinESMExports();
+  try {
+    check();
+  } finally {
+    (fs as { readFileSync: unknown }).readFileSync = original;
+    syncBuiltinESMExports();
+  }
+}
+
+/** A /proc stat line for a process in `state` with `threads` threads, started 100 s after boot. */
+const procStat = (state: string, threads: number): string =>
+  `99999999 (electron) ${state} 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 ${threads} 0 10000 0 0\n`;
+
+// A process that exits while its /proc entry is read fails the read with ESRCH; it is gone, not an unavailable source.
+test.runIf(process.platform === 'linux')(
+  'L-exiting: a pid that exits during the read has no start time',
+  () => {
+    withFakeProcStat(Object.assign(new Error('no such process, read'), { code: 'ESRCH' }), () => {
+      expect(processStartTime(99_999_999)).toBeNull();
+    });
+  }
+);
+
+// A killed multi-threaded process (an Electron utility) turns zombie at its leader while another thread is still
+// exiting, and that thread still holds the process's files, the Root's flock among them.
+test.runIf(process.platform === 'linux')(
+  'L-zombie-threads: a zombie whose other threads are still exiting keeps its start time',
+  () => {
+    withFakeProcStat(procStat('Z', 2), () => {
+      expect(processStartTime(99_999_999)).not.toBeNull();
+    });
+    withFakeProcStat(procStat('Z', 1), () => {
+      expect(processStartTime(99_999_999)).toBeNull();
+    });
+  }
+);

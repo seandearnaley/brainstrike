@@ -411,7 +411,7 @@ describe('cross-tool safety guidance', () => {
       ])
     );
 
-    expect(instructions).toContain('NO sandbox');
+    expect(instructions).toContain('sandboxed only where its result says so');
     expect(instructions).toContain('destructive commands only when the user explicitly requested');
     expect(instructions).toContain('EXTERNAL service');
     expect(instructions).toContain('never include secrets or private workspace content');
@@ -438,7 +438,7 @@ describe('cross-tool safety guidance', () => {
       new Map<string, string>([['cmd', 'brainstrike.executeCommand']])
     );
     expect(shellOnly).toContain(
-      'cmd runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.'
+      'cmd runs arbitrary shell commands, sandboxed only where its result says so. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.'
     );
     expect(shellOnly).not.toContain('instead.');
   });
