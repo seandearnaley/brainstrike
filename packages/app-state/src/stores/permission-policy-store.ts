@@ -28,6 +28,7 @@
  * never survive a reset (FACTORY RESET CONTRACT).
  */
 
+import { isBoundaryRefusal } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AccessMode,
   AUTO_REVIEW_MODEL_AUTO,
@@ -35,6 +36,7 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   isAccessMode,
   isPermissionDecision,
+  PERMISSION_POLICY_UNREADABLE_CODE,
   type PermissionDecision,
   type PermissionPolicies,
   type PerToolPermissionOverrides,
@@ -224,7 +226,8 @@ function readSavedEnvelope(raw: string): { state: unknown; version: number } {
 
 type PermissionPolicyHydration =
   | { status: 'loading' | 'ready' }
-  | { status: 'failed'; error: string };
+  /** `unreadable`: the saved policy is in a shape the host cannot read; only a reset clears it. */
+  | { status: 'failed'; error: string; unreadable?: true };
 
 /** Transient read status; only the policy store persists data. */
 export const usePermissionPolicyHydration = create<PermissionPolicyHydration>(() => ({
@@ -441,7 +444,13 @@ export function rehydratePermissionPolicy(): Promise<void> {
       usePermissionPolicyHydration.setState({ status: 'ready' }, true);
     } catch (error) {
       usePermissionPolicyHydration.setState(
-        { error: failureMessage(error), status: 'failed' },
+        {
+          error: failureMessage(error),
+          status: 'failed',
+          ...(isBoundaryRefusal(error) && error.code === PERMISSION_POLICY_UNREADABLE_CODE
+            ? { unreadable: true }
+            : {}),
+        },
         true
       );
       throw error;
@@ -449,6 +458,16 @@ export function rehydratePermissionPolicy(): Promise<void> {
   })();
   hydrated = load;
   return load.catch(() => undefined);
+}
+
+/**
+ * Settings' way out of a saved policy the host cannot read: the person
+ * discards it and the shipped default loads. Never done for them (ADR-0020).
+ */
+export async function discardSavedPermissionPolicy(): Promise<void> {
+  resetPermissionPolicyStoreToDefaults();
+  await latestSave;
+  await rehydratePermissionPolicy();
 }
 
 void rehydratePermissionPolicy();

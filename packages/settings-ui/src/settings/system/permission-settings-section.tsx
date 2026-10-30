@@ -18,6 +18,7 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
+  discardSavedPermissionPolicy,
   permissionPolicySelectors,
   rehydratePermissionPolicy,
   usePermissionPolicyHydration,
@@ -415,7 +416,13 @@ export function PermissionSettingsSection() {
           {hydration.status === 'failed' ? (
             <>
               <p role="alert">Unable to load permission settings: {hydration.error}</p>
-              <Button onClick={() => void rehydratePermissionPolicy()}>Retry</Button>
+              {hydration.unreadable ? (
+                <Button onClick={() => void discardSavedPermissionPolicy()}>
+                  Reset to defaults
+                </Button>
+              ) : (
+                <Button onClick={() => void rehydratePermissionPolicy()}>Retry</Button>
+              )}
             </>
           ) : (
             <p role="status">Loading permission settings…</p>

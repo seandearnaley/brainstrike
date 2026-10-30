@@ -1,3 +1,7 @@
+import {
+  isBoundaryRefusal,
+  PERMISSION_POLICY_UNREADABLE_CODE,
+} from '@brainstrike/assistant-contract';
 import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import type { HostMethodHandler } from '../src/auth-connection.js';
@@ -83,6 +87,29 @@ describe('host permission policy', () => {
       );
     }
     expect(store.values.size).toBe(0);
+  });
+  it('refuses a saved policy in an older shape by name, and keeps it until the user clears it', async () => {
+    const store = settings();
+    const older = JSON.stringify({
+      enforce: true,
+      perToolOverrides: {},
+      policies: SAVED.policies,
+      yolo: false,
+    });
+    store.values.set('permissions/policy', older);
+    const handlers = bound(store, 'desktop-ui');
+
+    const refused = await handlers
+      .get('permissions/policy/read')?.({})
+      .then(
+        () => undefined,
+        (cause: unknown) => cause
+      );
+    expect(isBoundaryRefusal(refused) && refused.code).toBe(PERMISSION_POLICY_UNREADABLE_CODE);
+    expect(store.values.get('permissions/policy')).toBe(older);
+
+    await handlers.get('permissions/policy/write')?.({ policy: null });
+    await expect(handlers.get('permissions/policy/read')?.({})).resolves.toEqual({ policy: null });
   });
   it('gates as the user saved it: enforcement off allows everything', () => {
     expect(hostPermissionGate(SAVED)).toEqual({
