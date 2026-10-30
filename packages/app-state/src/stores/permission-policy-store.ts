@@ -465,8 +465,16 @@ export function rehydratePermissionPolicy(): Promise<void> {
  * discards it and the shipped default loads. Never done for them (ADR-0020).
  */
 export async function discardSavedPermissionPolicy(): Promise<void> {
-  resetPermissionPolicyStoreToDefaults();
-  await latestSave;
+  try {
+    await clearSavedPermissionPolicy();
+  } catch (error) {
+    // A refused removal (a read-only store) says so; the reset stays on offer.
+    usePermissionPolicyHydration.setState(
+      { error: failureMessage(error), status: 'failed', unreadable: true },
+      true
+    );
+    return;
+  }
   await rehydratePermissionPolicy();
 }
 
@@ -478,17 +486,22 @@ void rehydratePermissionPolicy();
  * never survive a reset (FACTORY RESET CONTRACT).
  */
 export function resetPermissionPolicyStoreToDefaults(): void {
+  clearSavedPermissionPolicy().catch(() => {
+    // Best effort: storage errors must not block the reset of in-memory state.
+  });
+}
+
+/** Defaults in memory, and the saved slice removed; settles with that removal. */
+function clearSavedPermissionPolicy(): Promise<void> {
   resets += 1;
   // The removal runs after any save already writing, so none can outlive it.
-  latestSave = latestSave
-    .then(async () => {
-      await storage.removeItem(STORE_NAME);
-    })
-    .catch(() => {
-      // Best effort: storage errors must not block the reset of in-memory state.
-    });
+  const removal = latestSave.then(async () => {
+    await storage.removeItem(STORE_NAME);
+  });
+  latestSave = removal.catch(() => undefined);
   usePermissionPolicyStore.setState(defaultData());
   usePermissionPolicySave.setState({ error: null });
+  return removal;
 }
 
 export const permissionPolicySelectors = {

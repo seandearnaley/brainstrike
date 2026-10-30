@@ -329,6 +329,26 @@ describe('PermissionSettingsSection with a host-kept policy', () => {
     expect(saved).toBeNull();
   });
 
+  it('says why a reset failed and keeps offering it', async () => {
+    const { section } = await withHostStorage({
+      getItem: async () => {
+        const { refusalError } = await import('@brainstrike/assistant-contract/boundary-failure');
+        throw refusalError('configuration', PERMISSION_POLICY_UNREADABLE_CODE, 'Older settings.');
+      },
+      removeItem: async () => {
+        throw new Error('The state store is read-only.');
+      },
+      setItem: async () => undefined,
+    });
+    render(<section.PermissionSettingsSection />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reset to defaults' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('The state store is read-only.')
+    );
+    expect(screen.getByRole('button', { name: 'Reset to defaults' })).not.toBeNull();
+  });
+
   it('shows a choice once the host saved it, and why when it did not', async () => {
     const commit = Promise.withResolvers<void>();
     let refuse = false;
