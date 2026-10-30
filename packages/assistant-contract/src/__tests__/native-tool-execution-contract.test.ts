@@ -21,9 +21,12 @@ const cursor = encodeToolOutputArtifactCursor(
 // test. A new catalog entry needs an executable example before this can pass.
 const examples: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   'brainstrike.askUser': { options: [{ label: 'Continue' }], question: 'Continue?' },
+  'brainstrike.browserClick': { element: 'Save button', ref: 'e1' },
   'brainstrike.browserGetPageText': {},
   'brainstrike.browserNavigate': { url: 'https://example.com' },
   'brainstrike.browserReadPage': {},
+  'brainstrike.browserSelectOption': { element: 'Size', ref: 'e2', values: ['Large'] },
+  'brainstrike.browserType': { element: 'Search box', ref: 'e3', text: 'fixture' },
   'brainstrike.deleteWorkspaceFile': { path: 'src/a.ts' },
   'brainstrike.executeCommand': { command: 'echo fixture' },
   'brainstrike.findWorkspaceSymbol': { path: 'src/a.ts', query: 'symbol' },

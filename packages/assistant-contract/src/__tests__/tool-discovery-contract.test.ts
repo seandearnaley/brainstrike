@@ -38,9 +38,12 @@ const EXPECTED_DEFERRED_NAMESPACES = {
   sessions: ['brainstrike.inspectCommandSessions', 'brainstrike.manageCommandSession'],
   skills: ['brainstrike.runSkillScript', 'skill', 'skill_read', 'skill_search'],
   web: [
+    'brainstrike.browserClick',
     'brainstrike.browserGetPageText',
     'brainstrike.browserNavigate',
     'brainstrike.browserReadPage',
+    'brainstrike.browserSelectOption',
+    'brainstrike.browserType',
     'brainstrike.webExtract',
     'brainstrike.webSearch',
   ],

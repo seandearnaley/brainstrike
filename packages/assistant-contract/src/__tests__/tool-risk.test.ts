@@ -112,6 +112,10 @@ describe('resolveToolRiskCategory', () => {
         'brainstrike.renameWorkspaceFile',
         // Canvas mutations persist durable state → 'edit' (PR #2294 review).
         'brainstrike.manageCanvas',
+        // The browser pane's acting tools change the page → 'edit' (BST-2324).
+        'brainstrike.browserClick',
+        'brainstrike.browserSelectOption',
+        'brainstrike.browserType',
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
         'brainstrike.manageCommandSession',
@@ -140,6 +144,10 @@ describe('buildNativeToolRiskMap', () => {
     'brainstrike.renameWorkspaceFile',
     // Canvas mutations persist durable state → 'edit' (PR #2294 review).
     'brainstrike.manageCanvas',
+    // The browser pane's acting tools change the page → 'edit' (BST-2324).
+    'brainstrike.browserClick',
+    'brainstrike.browserSelectOption',
+    'brainstrike.browserType',
   ];
 
   it('maps every native tool id to its resolved risk category', () => {

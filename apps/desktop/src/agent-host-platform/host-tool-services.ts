@@ -18,9 +18,12 @@ import { isActionableHostedEmbeddingError } from '../hosted-embedding-error';
 import { attachHostRootCleanup } from './host-root-cleanup-client';
 import {
   DiagnosticsReadRequestSchema,
+  parseBrowserClickRequest,
   parseBrowserNavigateRequest,
   parseBrowserPageTextRequest,
   parseBrowserReadPageRequest,
+  parseBrowserSelectOptionRequest,
+  parseBrowserTypeRequest,
 } from './host-tool-wire';
 import {
   IndexCoverageRequestSchema,
@@ -126,6 +129,37 @@ function serveBrowserCalls(
         request.threadId
       );
     })
+  );
+  // BST-2324: the acting tools. The host admitted each call (access mode and
+  // approval) before it got here; Main still re-parses the input.
+  connection.onRequest('platform/browser/click', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const request = parseBrowserClickRequest(input);
+      return await required(services?.browser, 'browser pane').click(
+        request.input,
+        request.threadId
+      );
+    })
+  );
+  connection.onRequest('platform/browser/type', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const request = parseBrowserTypeRequest(input);
+      return await required(services?.browser, 'browser pane').type(
+        request.input,
+        request.threadId
+      );
+    })
+  );
+  connection.onRequest(
+    'platform/browser/select-option',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const request = parseBrowserSelectOptionRequest(input);
+        return await required(services?.browser, 'browser pane').selectOption(
+          request.input,
+          request.threadId
+        );
+      })
   );
 }
 

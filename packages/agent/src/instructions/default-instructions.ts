@@ -406,7 +406,13 @@ function buildBrowserPaneInstruction(names: ModelFacingToolNames): string {
   if (!(names.browserNavigate && names.browserReadPage && names.browserGetPageText)) {
     return '';
   }
-  return `The app has an embedded browser pane the user can see. ${names.browserNavigate} opens a URL in your own tab there (never a tab the user opened) and waits for the load; it reaches only public addresses, so a blocked_url or blocked_destination result is final, not a reason to retry. Then SEE the live page with ${names.browserReadPage} (compact accessibility tree, [ref=eN] handles on interactive elements — prefer this) or ${names.browserGetPageText} (plain text). These read the pane's ACTIVE tab.`;
+  const see = `The app has an embedded browser pane the user can see. ${names.browserNavigate} opens a URL in your own tab there (never a tab the user opened) and waits for the load; it reaches only public addresses, so a blocked_url or blocked_destination result is final, not a reason to retry. Then SEE the live page with ${names.browserReadPage} (compact accessibility tree, [ref=eN] handles on interactive elements — prefer this) or ${names.browserGetPageText} (plain text). These read the pane's ACTIVE tab.`;
+  if (!(names.browserClick && names.browserType && names.browserSelectOption)) {
+    return see;
+  }
+  // BST-2324: the acting tools take refs from the latest read, which go stale
+  // as the page changes.
+  return `${see} ${names.browserClick}, ${names.browserType} and ${names.browserSelectOption} act on a ref from your latest read; read again after acting. blocked_action is final.`;
 }
 
 /** The persona shape the delegation guidance needs. */

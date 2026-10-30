@@ -6,9 +6,12 @@
  * `exactOptionalPropertyTypes`.
  */
 import {
+  type BrowserClickInput,
   type BrowserGetPageTextInput,
   type BrowserNavigateInput,
   type BrowserReadPageInput,
+  type BrowserSelectOptionInput,
+  type BrowserTypeInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
@@ -20,13 +23,18 @@ const Id = Schema.String.check(Schema.isMinCodePoints(1));
 
 const BrowserFailure = Schema.Struct({
   error: Schema.Literals([
+    'blocked_action',
     'blocked_destination',
     'blocked_url',
     'browser_unavailable',
     'driver_failed',
+    'element_not_actionable',
     'load_failed',
     'load_timeout',
     'navigate_failed',
+    'not_agent_page',
+    'origin_not_approved',
+    'stale_ref',
   ]),
   hint: Schema.String,
   ok: Schema.Literal(false),
@@ -48,6 +56,16 @@ export const BrowserReadPageResultSchema = browserResult({
 export const BrowserPageTextResultSchema = browserResult({
   text: Schema.String,
   truncated: Schema.Boolean,
+});
+/** A click or typed input: where the page is once it settled (BST-2324). */
+export const BrowserActionResultSchema = browserResult({
+  title: Schema.String,
+  url: Schema.String,
+});
+export const BrowserSelectOptionResultSchema = browserResult({
+  selected: Schema.Array(Schema.String),
+  title: Schema.String,
+  url: Schema.String,
 });
 
 /**
@@ -91,6 +109,15 @@ export const parseBrowserReadPageRequest = browserRequestParser<BrowserReadPageI
 );
 export const parseBrowserPageTextRequest = browserRequestParser<BrowserGetPageTextInput>(
   NATIVE_TOOL_ID.browserGetPageText
+);
+export const parseBrowserClickRequest = browserRequestParser<BrowserClickInput>(
+  NATIVE_TOOL_ID.browserClick
+);
+export const parseBrowserTypeRequest = browserRequestParser<BrowserTypeInput>(
+  NATIVE_TOOL_ID.browserType
+);
+export const parseBrowserSelectOptionRequest = browserRequestParser<BrowserSelectOptionInput>(
+  NATIVE_TOOL_ID.browserSelectOption
 );
 
 const Severity = Schema.Literals(['warn', 'error', 'fatal']);
