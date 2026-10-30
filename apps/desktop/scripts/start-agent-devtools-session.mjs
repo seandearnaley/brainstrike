@@ -297,10 +297,7 @@ export async function markWindowsPnpmShimManaged(directory, platform = process.p
 }
 
 export function getAgentDebugPnpmPreflightCommands() {
-  return [
-    ['run', 'predev'],
-    ['exec', 'install-electron'],
-  ];
+  return [['exec', 'install-electron']];
 }
 
 function spawnPnpm(args, env, platform = process.platform, invocation = resolvePnpmInvocation()) {

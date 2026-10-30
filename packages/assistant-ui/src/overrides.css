@@ -846,12 +846,16 @@ span.bs-composer-chip {
   }
 }
 
-/* Full access reads as a warning in the composer, as Codex and Claude show it. */
-.bs-composer-access[data-access-mode="full"] {
+/* Full access reads as a warning in the composer, as Codex and Claude show it,
+   and so does a policy that could not be loaded. */
+.bs-composer-access:is([data-access-mode="full"], [data-access-mode="unavailable"]) {
   color: hsl(var(--warning));
 }
 
-.bs-composer-access[data-access-mode="full"]:is(:hover, [data-state="open"]) {
+.bs-composer-access:is([data-access-mode="full"], [data-access-mode="unavailable"]):is(
+    :hover,
+    [data-state="open"]
+  ) {
   background: hsl(var(--warning) / 0.12);
   color: hsl(var(--warning));
 }

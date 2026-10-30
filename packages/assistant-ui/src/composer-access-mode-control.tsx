@@ -3,6 +3,8 @@
  * answered. Ask waits for you, Auto lets a quick model approve what it judges
  * routine and asks about the rest, Full access runs everything. The saved
  * choice belongs to the permission policy owner; this only reads and sets it.
+ * When that owner cannot load the saved policy, the chip says so and leads to
+ * Settings → Permissions, which explains the failure and offers the fix.
  */
 import {
   ACCESS_MODES,
@@ -17,12 +19,25 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@brainstrike/ui';
-import { ChevronDown, Hand, type LucideIcon, ShieldAlert, ShieldCheck } from 'lucide-react';
+import {
+  ChevronDown,
+  Hand,
+  type LucideIcon,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldX,
+} from 'lucide-react';
 
-export interface AccessModeComposerControls {
-  readonly mode: AccessMode;
-  readonly onChange: (mode: AccessMode) => void;
-}
+export type AccessModeComposerControls =
+  | {
+      readonly mode: AccessMode;
+      readonly onChange: (mode: AccessMode) => void;
+    }
+  | {
+      /** Why the saved policy could not be loaded. */
+      readonly unavailable: string;
+      readonly onOpenSettings: () => void;
+    };
 
 const ACCESS_MODE_OPTIONS: Record<
   AccessMode,
@@ -46,6 +61,22 @@ const ACCESS_MODE_OPTIONS: Record<
 };
 
 export function ComposerAccessModeControl({ access }: { access: AccessModeComposerControls }) {
+  if ('unavailable' in access) {
+    return (
+      <button
+        className="bs-composer-chip bs-composer-access"
+        data-access-mode="unavailable"
+        data-testid="composer-access-mode-trigger"
+        onClick={access.onOpenSettings}
+        title={`Unable to load permission settings: ${access.unavailable} Open Settings → Permissions.`}
+        type="button"
+      >
+        <ShieldX aria-hidden />
+        <span className="sr-only">Access:</span>
+        <span className="bs-composer-chip-label bs-composer-collapsible">Unavailable</span>
+      </button>
+    );
+  }
   const current = ACCESS_MODE_OPTIONS[access.mode];
   const Icon = current.icon;
   return (
