@@ -31,7 +31,9 @@ function setListCommands(listCommands: () => Promise<UserSlashCommandsListResult
   hostState.host = {
     workspaceDiscovery: {
       listCommands,
+      listTrust: () => Promise.reject(new Error('Trust is not under test')),
       scanSkills: () => Promise.reject(new Error('Skills are not under test')),
+      setTrust: () => Promise.reject(new Error('Trust is not under test')),
     },
   };
 }

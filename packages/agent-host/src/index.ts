@@ -95,3 +95,9 @@ export {
 } from './runtime.ts';
 export { pendingRewindSnapshotTargets } from './thread-rewind.ts';
 export { nodePortConnection, stdioConnection } from './transports.ts';
+export {
+  type HostWorkspaceTrustStore,
+  readHostWorkspaceTrust,
+  trustedHostWorkspaceRoots,
+  writeHostWorkspaceTrust,
+} from './workspace-trust.ts';

@@ -42,6 +42,8 @@
     "./settings/system/notification-settings-category": "./src/settings/system/notification-settings-category.tsx",
     "./settings/system/skills-settings-category": "./src/settings/system/skills-settings-category.tsx",
     "./settings/system/workspace-instructions-settings-category": "./src/settings/system/workspace-instructions-settings-category.tsx",
+    "./settings/system/workspace-trust": "./src/settings/system/workspace-trust.ts",
+    "./settings/system/workspace-trust-settings-category": "./src/settings/system/workspace-trust-settings-category.tsx",
     "./settings/system/worktree-settings-section": "./src/settings/system/worktree-settings-section.tsx",
     "./settings/tools/index": "./src/settings/tools/index.tsx",
     "./settings/tools/mcp-elicitation-capability": "./src/settings/tools/mcp-elicitation-capability.tsx",

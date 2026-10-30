@@ -33,6 +33,7 @@ import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settin
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
 import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/system/skills-settings-category';
 import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settings-ui/settings/system/workspace-instructions-settings-category';
+import { createWorkspaceTrustSettingsCategory } from '@brainstrike/settings-ui/settings/system/workspace-trust-settings-category';
 import {
   createToolsSettingsCategory,
   type McpCompleteRequest,
@@ -532,6 +533,7 @@ export default function SettingsPageContent() {
       createSkillsSettingsCategory(
         hostDiscovery ? { scanSkills: () => hostDiscovery.scanSkills() } : {}
       ),
+      createWorkspaceTrustSettingsCategory(hostDiscovery ? { trust: hostDiscovery } : {}),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
       createWorkspaceInstructionsSettingsCategory(),
       createWorkspaceSettingsCategory({

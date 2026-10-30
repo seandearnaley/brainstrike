@@ -19,6 +19,7 @@ import {
   hostToolDiscoveryEnabled,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
+  trustedHostWorkspaceRoots,
 } from '@brainstrike/agent-host';
 import {
   readCliWorkspaceRunInput,
@@ -398,7 +399,12 @@ export async function createHostPlatform(
       });
       return {
         configuration,
-        delegation: resolveHostDelegation({ subagents }, workspaceRoots, false),
+        // ADR-0032: a launch root's personas load once the person trusts it (`workspace trust`).
+        delegation: resolveHostDelegation(
+          { subagents },
+          await trustedHostWorkspaceRoots(startup.store, workspaceRoots),
+          false
+        ),
         durableConfiguration: {
           capabilities,
           intent,

@@ -10,7 +10,7 @@
  * engine (its context budget cannot afford skill payloads).
  */
 
-import type { RuntimeData, SkillScanDeps } from '@brainstrike/agent';
+import type { RuntimeData, RuntimeWorkspaceRoot, SkillScanDeps } from '@brainstrike/agent';
 import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import { prepareRequestSkills } from '../../assistant-server/request-skills';
@@ -61,7 +61,9 @@ const FS: MemoryFs = {
 
 /** Renderer runtime data, which a test may hand over malformed. */
 function makeParams(
-  runtimeData: Partial<RuntimeData> | Readonly<Record<string, unknown>> | undefined
+  runtimeData: Partial<RuntimeData> | Readonly<Record<string, unknown>> | undefined,
+  /** The roots the person trusted (ADR-0032); none unless a test says so. */
+  roots: readonly RuntimeWorkspaceRoot[] = []
 ) {
   const scanDeps = makeScanDeps(FS);
   return {
@@ -71,6 +73,7 @@ function makeParams(
       readFileText: scanDeps.readFile,
     },
     homedir: () => '/home/user',
+    roots,
     runtimeData: runtimeData as RuntimeData | undefined,
   };
 }
@@ -87,7 +90,7 @@ function captureLogs(): { records: LogRecord[]; stop: () => void } {
 describe('prepareRequestSkills', () => {
   it('builds an engine over roots + home tiers with the fail-safe default preference', async () => {
     const { workspaceSkills } = prepareRequestSkills(
-      makeParams({ provider: 'openai', workspaceRoots: ROOTS })
+      makeParams({ provider: 'openai', workspaceRoots: ROOTS }, ROOTS)
     );
     expect(workspaceSkills).toBeDefined();
     const names = (await workspaceSkills?.list())?.map((skill) => skill.name).sort();
@@ -96,25 +99,31 @@ describe('prepareRequestSkills', () => {
 
   it('returns no engine when the master toggle is off', () => {
     const { workspaceSkills } = prepareRequestSkills(
-      makeParams({
-        provider: 'openai',
-        skillsPreference: { disabledSkillKeys: [], masterEnabled: false },
-        workspaceRoots: ROOTS,
-      })
+      makeParams(
+        {
+          provider: 'openai',
+          skillsPreference: { disabledSkillKeys: [], masterEnabled: false },
+          workspaceRoots: ROOTS,
+        },
+        ROOTS
+      )
     );
     expect(workspaceSkills).toBeUndefined();
   });
 
   it('filters skills disabled by their durable preference key', async () => {
     const { workspaceSkills } = prepareRequestSkills(
-      makeParams({
-        provider: 'openai',
-        skillsPreference: {
-          disabledSkillKeys: ['root:root-a:root-skill'],
-          masterEnabled: true,
+      makeParams(
+        {
+          provider: 'openai',
+          skillsPreference: {
+            disabledSkillKeys: ['root:root-a:root-skill'],
+            masterEnabled: true,
+          },
+          workspaceRoots: ROOTS,
         },
-        workspaceRoots: ROOTS,
-      })
+        ROOTS
+      )
     );
     const names = (await workspaceSkills?.list())?.map((skill) => skill.name);
     expect(names).toEqual(['global-skill']);
@@ -124,14 +133,17 @@ describe('prepareRequestSkills', () => {
     const { records, stop } = captureLogs();
     try {
       const { workspaceSkills } = prepareRequestSkills(
-        makeParams({
-          provider: 'openai',
-          skillsPreference: {
-            disabledSkillKeys: 'nope',
-            masterEnabled: 'yes',
+        makeParams(
+          {
+            provider: 'openai',
+            skillsPreference: {
+              disabledSkillKeys: 'nope',
+              masterEnabled: 'yes',
+            },
+            workspaceRoots: ROOTS,
           },
-          workspaceRoots: ROOTS,
-        })
+          ROOTS
+        )
       );
       expect(workspaceSkills).toBeDefined();
       const names = (await workspaceSkills?.list())?.map((skill) => skill.name).sort();
@@ -144,6 +156,14 @@ describe('prepareRequestSkills', () => {
     } finally {
       stop();
     }
+  });
+
+  it('loads no project skills from a mounted root the person has not trusted (ADR-0032)', async () => {
+    const { workspaceSkills } = prepareRequestSkills(
+      makeParams({ provider: 'openai', workspaceRoots: ROOTS }, [])
+    );
+    const names = (await workspaceSkills?.list())?.map((skill) => skill.name);
+    expect(names).toEqual(['global-skill']);
   });
 
   it('scans global tiers even when no workspace roots are mounted', async () => {

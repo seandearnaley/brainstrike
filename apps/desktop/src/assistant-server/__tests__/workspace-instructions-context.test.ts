@@ -41,17 +41,11 @@ function runtime(overrides: Partial<RuntimeData> = {}): RuntimeData {
   return { provider: 'openai', workspaceRoots: [ROOT_A], ...overrides };
 }
 
-/** A renderer runtime that names no workspace root inventory at all. */
-function runtimeWithoutRoots(overrides: Partial<RuntimeData> = {}): RuntimeData {
-  const { workspaceRoots: _roots, ...rest } = runtime(overrides);
-  return rest;
-}
-
 describe('buildWorkspaceInstructionsContextMessage', () => {
   it('injects a fits-the-budget context file whole, with no truncation note', async () => {
     const reader = makeReader({ '/abs/repo-a': { 'AGENTS.md': '# Conventions\nBe precise.' } });
 
-    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader);
+    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader, [ROOT_A]);
 
     expect(message).not.toBeNull();
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
@@ -71,7 +65,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
       },
     });
 
-    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader);
+    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader, [ROOT_A]);
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
     expect(text).toContain('plural');
     expect(text).not.toContain('singular');
@@ -80,7 +74,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
 
   it('falls back to CLAUDE.md when AGENTS.md/AGENT.md are absent', async () => {
     const reader = makeReader({ '/abs/repo-a': { 'CLAUDE.md': 'claude conventions' } });
-    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader);
+    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader, [ROOT_A]);
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
     expect(text).toContain('claude conventions');
     expect(text).toContain('CLAUDE.md');
@@ -88,7 +82,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
 
   it('returns null when no root has a context file', async () => {
     const reader = makeReader({ '/abs/repo-a': { 'README.md': 'nope' } });
-    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader);
+    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader, [ROOT_A]);
     expect(message).toBeNull();
   });
 
@@ -96,7 +90,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     const oversized = 'x'.repeat(MAX_CONTEXT_FILE_CHARS + 5000);
     const reader = makeReader({ '/abs/repo-a': { 'AGENTS.md': oversized } });
 
-    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader);
+    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader, [ROOT_A]);
 
     // Oversized + not opted in => nothing injected, and no skip-note in the prompt.
     expect(message).toBeNull();
@@ -110,7 +104,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
       runtime({
         workspaceInstructionsPreference: { oversizedOptInByRootId: { 'root-a': true } },
       }),
-      reader
+      reader,
+      [ROOT_A]
     );
 
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
@@ -132,7 +127,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
             masterEnabled: 'false' as unknown as boolean,
           },
         }),
-        reader
+        reader,
+        [ROOT_A]
       );
       // Fail-safe: a malformed master flag does not disable the feature...
       const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
@@ -154,7 +150,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     const reader = makeReader({ '/abs/repo-a': { 'AGENTS.md': 'conventions' } });
     const message = await buildWorkspaceInstructionsContextMessage(
       runtime({ workspaceInstructionsPreference: { masterEnabled: false } }),
-      reader
+      reader,
+      [ROOT_A]
     );
     expect(message).toBeNull();
     expect(reader).not.toHaveBeenCalled();
@@ -167,7 +164,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     });
     const message = await buildWorkspaceInstructionsContextMessage(
       runtime({ workspaceRoots: [ROOT_A, ROOT_B] }),
-      reader
+      reader,
+      [ROOT_A, ROOT_B]
     );
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
     expect(text).toContain('repo-a/AGENTS.md');
@@ -198,7 +196,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
 
     const message = await buildWorkspaceInstructionsContextMessage(
       runtime({ workspaceRoots: [rootApps, rootLibs] }),
-      reader
+      reader,
+      [rootApps, rootLibs]
     );
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
 
@@ -220,7 +219,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
 
     const message = await buildWorkspaceInstructionsContextMessage(
       runtime({ workspaceRoots: [ROOT_A, ROOT_B] }),
-      reader
+      reader,
+      [ROOT_A, ROOT_B]
     );
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
 
@@ -242,7 +242,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
       });
     });
 
-    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader);
+    const message = await buildWorkspaceInstructionsContextMessage(runtime(), reader, [ROOT_A]);
     // A present-but-unreadable file is not injected and does not fabricate a
     // fits/oversized note. With a single root that is the only candidate, the
     // whole message is null.
@@ -265,7 +265,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
 
     const message = await buildWorkspaceInstructionsContextMessage(
       runtime({ workspaceRoots: roots }),
-      reader
+      reader,
+      roots
     );
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
     // The number of injected instruction blocks must keep the total <= 48,000.
@@ -284,7 +285,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
       runtime({
         workspaceInstructionsPreference: { oversizedOptInByRootId: { 'root-a': true } },
       }),
-      reader
+      reader,
+      [ROOT_A]
     );
 
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
@@ -293,16 +295,23 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     expect(text).toContain('Truncated');
   });
 
-  it('rejects a DB-less renderer path instead of reading workspace instructions', async () => {
-    const oversized = 'x'.repeat(MAX_CONTEXT_FILE_CHARS + 5000);
-    const reader = makeReader({ '/abs/legacy': { 'AGENTS.md': oversized } });
+  it('loads no instructions from a mounted root it is not given (ADR-0032)', async () => {
+    const reader = makeReader({
+      '/abs/repo-a': { 'AGENTS.md': 'a-conventions' },
+      '/abs/repo-b': { 'AGENTS.md': 'b-conventions' },
+    });
 
-    await expect(
-      buildWorkspaceInstructionsContextMessage(
-        runtimeWithoutRoots({ workspaceRootPath: '/abs/legacy' }),
-        reader
-      )
-    ).rejects.toThrow(/authoritative workspace root inventory is unavailable/iu);
+    // Both folders are mounted; only repo-a is trusted.
+    const message = await buildWorkspaceInstructionsContextMessage(
+      runtime({ workspaceRoots: [ROOT_A, ROOT_B] }),
+      reader,
+      [ROOT_A]
+    );
+    const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
+
+    expect(text).toContain('a-conventions');
+    expect(text).not.toContain('b-conventions');
+    expect(reader).not.toHaveBeenCalledWith(expect.objectContaining({ rootPath: ROOT_B.path }));
   });
 
   it('omits roots beyond the aggregate budget with an honest note', async () => {
@@ -318,7 +327,8 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
 
     const message = await buildWorkspaceInstructionsContextMessage(
       runtime({ workspaceRoots: roots }),
-      reader
+      reader,
+      roots
     );
     const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
     expect(text).toMatch(/omitted to stay within the context budget/u);
@@ -332,7 +342,7 @@ describe('injectWorkspaceInstructionsContext', () => {
       { id: 'u1', parts: [{ text: 'hi', type: 'text' as const }], role: 'user' as const },
     ];
 
-    const result = await injectWorkspaceInstructionsContext(messages, runtime(), reader);
+    const result = await injectWorkspaceInstructionsContext(messages, runtime(), reader, [ROOT_A]);
 
     expect(result).toHaveLength(2);
     expect(result[0]?.role).toBe('system');
@@ -345,7 +355,7 @@ describe('injectWorkspaceInstructionsContext', () => {
       { id: 'u1', parts: [{ text: 'hi', type: 'text' as const }], role: 'user' as const },
     ];
 
-    const result = await injectWorkspaceInstructionsContext(messages, runtime(), reader);
+    const result = await injectWorkspaceInstructionsContext(messages, runtime(), reader, [ROOT_A]);
 
     expect(result).toBe(messages);
   });

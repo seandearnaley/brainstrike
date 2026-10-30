@@ -78,7 +78,8 @@
     "./thread-workspace-navigation": "./src/thread-workspace/live-thread-workspace-navigation.ts",
     "./styles.css": "./styles.css",
     "./roots/root-identity-context": "./src/roots/root-identity-context.tsx",
-    "./use-workspace-search-controller": "./src/use-workspace-search-controller.ts"
+    "./use-workspace-search-controller": "./src/use-workspace-search-controller.ts",
+    "./workspace-trust-revision": "./src/workspace-trust/workspace-trust-revision.ts"
   },
   "license": "ISC",
   "peerDependencies": {
