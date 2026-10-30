@@ -94,7 +94,7 @@ vi.mock('electron', async (importOriginal) => {
  * `TypeError('Object has been destroyed')`, exactly as a destroyed
  * `BrowserWindow` does.
  */
-function fakeHostWindow() {
+function fakeHostWindow(zoomFactor = 1) {
   const navListeners: Listener[] = [];
   const attached: unknown[] = [];
   let destroyed = false;
@@ -108,6 +108,7 @@ function fakeHostWindow() {
     },
   };
   const webContents = {
+    getZoomFactor: () => zoomFactor,
     off: vi.fn(),
     on: (event: string, listener: Listener) => {
       if (event === 'did-start-navigation') {
@@ -280,6 +281,26 @@ describe('createBrowserPaneHost — native view identity', () => {
 
     host.manager.closeTab(tabId);
     expect(attached).toHaveLength(0); // removeChildView matched the same instance
+  });
+
+  it('places the page over its tab when the app is zoomed (BST-2342)', async () => {
+    // At 120% the renderer measures its viewport at 1/1.2 of the window's
+    // DIPs; read as DIPs, the page landed small and up-left, over the chat.
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { window } = fakeHostWindow(1.2);
+    const host = createBrowserPaneHost(window as never);
+    const tabId = host.manager.createTab('thread-1', 'https://example.com');
+    host.manager.showTab(tabId);
+
+    host.manager.setBounds({ height: 777.5, width: 873.33, x: 793.33, y: 79.17 });
+    host.manager.setOccluded(false);
+
+    expect(createdViews.at(-1)?.setBounds).toHaveBeenLastCalledWith({
+      height: 933,
+      width: 1048,
+      x: 952,
+      y: 95,
+    });
   });
 });
 
