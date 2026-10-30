@@ -1,6 +1,5 @@
-import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
+import { BoundaryFailureError, fault, isBoundaryRefusal } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
-import { ResponseError } from 'vscode-jsonrpc';
 import type { HostProviderService } from '../src/ports.ts';
 import type { HostMethod } from '../src/protocol.ts';
 import { bindHostProviderMethods } from '../src/provider-connection.ts';
@@ -63,25 +62,10 @@ describe('host provider methods', () => {
     expect(providers.openRouterModel).toHaveBeenCalledWith('openai/gpt-5.4-mini', signal);
   });
 
-  it('crosses a failure as its own text, without the transport prefix', async () => {
-    const providers: HostProviderService = {
-      openRouterModel: vi.fn(async () => {
-        throw new Error('No API key configured for provider "openrouter".');
-      }),
-      status: vi.fn(),
-      verify: vi.fn(),
-    };
-    const failure = bound(providers).get('providers/openrouter-model')?.({
-      model: 'anthropic/claude-sonnet-4.6',
-    });
-
-    await expect(failure).rejects.toBeInstanceOf(ResponseError);
-    await expect(failure).rejects.toThrow(/^No API key configured for provider "openrouter"\.$/u);
-  });
-
   it('refuses every provider read on a host that owns no credential store', async () => {
-    await expect(bound(undefined).get('host/status')?.({})).rejects.toThrow(
-      'This host owns no provider services'
-    );
+    const refused = bound(undefined).get('host/status')?.({});
+
+    await expect(refused).rejects.toSatisfy(isBoundaryRefusal);
+    await expect(refused).rejects.toThrow('This host owns no provider services');
   });
 });

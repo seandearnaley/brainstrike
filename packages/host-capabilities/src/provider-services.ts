@@ -4,6 +4,7 @@ import {
   isSupportedProvider,
   listProviders,
   providerEnvKeys,
+  refusalError,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { createTavilyKeyResolver } from './native-tools/web-search-tool.ts';
@@ -65,11 +66,23 @@ export function createHostProviderServices(
     openRouterModel: async (modelId, signal) => {
       requireOpenRouterModelId(modelId);
       const credential = await leaveOnAbort(() => readCredential('openrouter'), signal);
+      // A profile without a usable key is a setting, not a failure: refused
+      // with its remedy, never logged as an error (BST-2346).
       if (!credential) {
-        throw new Error('No API key configured for provider "openrouter".');
+        throw refusalError(
+          'configuration',
+          'provider.credential-missing',
+          'No API key configured for provider "openrouter".',
+          'Add an OpenRouter API key in Providers.'
+        );
       }
       if (credential.type !== 'api_key') {
-        throw new Error('The stored OpenRouter credential is not an API key.');
+        throw refusalError(
+          'configuration',
+          'provider.credential-unsupported',
+          'The stored OpenRouter credential is not an API key.',
+          'Replace it with an OpenRouter API key in Providers.'
+        );
       }
       return await metadata.get(modelId, credential.key, signal);
     },
