@@ -1,4 +1,8 @@
-import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
+import {
+  PERMISSION_POLICY_UNREADABLE_CODE,
+  type PermissionToolGateSnapshot,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import type { HostMethodHandler } from './auth-connection.ts';
@@ -13,16 +17,31 @@ export type HostPermissionPolicyStore = Pick<
   'deleteSetting' | 'getSetting' | 'setSetting'
 >;
 const POLICY_KEY = 'permissions/policy';
+/**
+ * The saved policy, or null when none is saved. One saved in another shape
+ * (an older build's) is refused by name and never converted or dropped
+ * (ADR-0020): Settings offers the person a reset.
+ */
 export async function readHostPermissionPolicy(
   store: HostPermissionPolicyStore
 ): Promise<HostPermissionPolicy | null> {
   const value = await store.getSetting(POLICY_KEY);
-  return value === undefined
-    ? null
-    : Schema.decodeUnknownSync(HostPermissionPolicySchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(JSON.parse(value));
+  if (value === undefined) {
+    return null;
+  }
+  try {
+    return Schema.decodeUnknownSync(HostPermissionPolicySchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse(value));
+  } catch {
+    throw refusalError(
+      'configuration',
+      PERMISSION_POLICY_UNREADABLE_CODE,
+      'The saved permission settings are from an older version of BrainStrike and cannot be read.',
+      'Reset them to the defaults in Settings → Permissions.'
+    );
+  }
 }
 /** Saves the policy, or with null clears it so the shipped default applies. */
 export async function writeHostPermissionPolicy(
