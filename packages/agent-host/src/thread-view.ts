@@ -309,13 +309,25 @@ export class CommittedThreadSession {
   };
   private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>;
   private readonly threadId: string;
+  private readonly deliveryThrottleMs: number | undefined;
 
   constructor(
     client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
-    threadId: string
+    threadId: string,
+    options: {
+      /**
+       * Deliver live rows and telemetry in arrival order, at most once per this
+       * many milliseconds. A run commits a row per stream part and streams a
+       * chunk per token, and every delivery re-renders a view; batching them
+       * lets each view update once per batch (BST-2311). Omitted, each one is
+       * delivered as it arrives.
+       */
+      readonly deliveryThrottleMs?: number;
+    } = {}
   ) {
     this.client = client;
     this.threadId = threadId;
+    this.deliveryThrottleMs = options.deliveryThrottleMs;
     this.view = new CommittedThreadView(threadId);
     this.view.subscribe(() => this.update({ rows: this.view.getSnapshot() }));
   }
@@ -351,19 +363,43 @@ export class CommittedThreadSession {
   connect(): () => Promise<void> {
     let active = true;
     let connectionClosed = false;
-    const release = this.client.onEvent((row) => {
-      if (active) {
-        this.view.accept([row]);
-      }
-    });
     const telemetry = new ViewTelemetry((received) => {
       for (const listener of this.telemetryListeners) {
         listener(received);
       }
     });
+    // Live deliveries in arrival order: consecutive rows are accepted as one batch.
+    const queued: ({ row: HostLogRow } | { telemetry: HostRunTelemetry })[] = [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = (): void => {
+      timer = undefined;
+      const rows: HostLogRow[] = [];
+      for (const item of queued.splice(0)) {
+        if ('row' in item) {
+          rows.push(item.row);
+          continue;
+        }
+        this.view.accept(rows.splice(0));
+        telemetry.live(item.telemetry);
+      }
+      this.view.accept(rows);
+    };
+    const deliver = (item: (typeof queued)[number]): void => {
+      queued.push(item);
+      if (this.deliveryThrottleMs === undefined) {
+        flush();
+      } else {
+        timer ??= setTimeout(flush, this.deliveryThrottleMs);
+      }
+    };
+    const release = this.client.onEvent((row) => {
+      if (active) {
+        deliver({ row });
+      }
+    });
     const releaseTelemetry = this.client.onTelemetry((received) => {
       if (active && received.threadId === this.threadId) {
-        telemetry.live(received);
+        deliver({ telemetry: received });
       }
     });
     this.client.request('log/subscribe', { fromSeq: 0, threadId: this.threadId }).then(
@@ -405,6 +441,8 @@ export class CommittedThreadSession {
     return () => {
       disposed ??= (async (): Promise<void> => {
         active = false;
+        clearTimeout(timer);
+        queued.length = 0;
         release();
         releaseTelemetry();
         if (!connectionClosed) {

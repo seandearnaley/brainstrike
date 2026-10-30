@@ -29,8 +29,11 @@ import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 
 const logger = createLogger('CommittedHostConversation');
-/** The live reply's update interval: AI SDK's documented `useChat` throttle example. */
-const LIVE_TELEMETRY_THROTTLE_MS = 50;
+/**
+ * How often a view takes its thread's live rows and telemetry: the interval of
+ * AI SDK's documented `useChat` `experimental_throttle` example.
+ */
+const DELIVERY_THROTTLE_MS = 50;
 /** A committed run.started the host admitted to deliver child results (a wake). */
 const HostWakeStartSchema = Schema.Struct({
   delivery: Schema.Struct({ via: Schema.Literal('wake') }),
@@ -190,7 +193,9 @@ export function createCommittedHostThread(
   options: CommittedHostThreadOptions
 ): CommittedHostThread {
   const { client, threadId } = options;
-  const source = new CommittedThreadSession(client, threadId);
+  const source = new CommittedThreadSession(client, threadId, {
+    deliveryThrottleMs: DELIVERY_THROTTLE_MS,
+  });
   // A running command's output arrives as uncommitted telemetry; its committed
   // result owns the output from then on (ADR-0011 amendment).
   const liveShellOutputs = new LiveShellOutputs();
@@ -202,7 +207,6 @@ export function createCommittedHostThread(
   const store = new CommittedAssistantLogStore({
     identifyRun: (row) => committedConversationIdentity(source.getSnapshot().rows, row),
     liveShellOutputs,
-    liveTelemetryThrottleMs: LIVE_TELEMETRY_THROTTLE_MS,
     source,
     threadId,
   });
