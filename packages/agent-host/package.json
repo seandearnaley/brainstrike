@@ -12,6 +12,7 @@
     "./protocol": "./src/protocol.ts",
     "./boundary-wire": "./src/boundary-wire.ts",
     "./hook-trust": "./src/hook-trust.ts",
+    "./workspace-trust": "./src/workspace-trust.ts",
     "./child-answer": "./src/child-answer.ts",
     "./canonical-tool-bindings": "./src/adapters/canonical-tool-bindings.ts",
     "./state-projection": "./src/state-projection.ts",

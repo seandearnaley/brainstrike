@@ -13,6 +13,7 @@ import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
+import { useWorkspaceTrustRevision } from './workspace-trust/workspace-trust-revision';
 
 const logger = createLogger('UserSlashCommands');
 
@@ -97,6 +98,7 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
   const discovery = useAssistantThreadHost()?.workspaceDiscovery;
   // Subscribe to the mounted roots ONLY as a refresh trigger.
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
+  const trustRevision = useWorkspaceTrustRevision();
   const [list, setList] = useState<UserSlashCommandsListResult>(EMPTY_RESULT);
   const { toast } = useToast();
 
@@ -143,8 +145,8 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
     };
   }, [discovery]);
 
-  // Reload on mount and whenever the mounted roots change.
-  useEffect(() => reload(), [reload, activeRootIds]);
+  // Reload on mount, whenever the mounted roots change, and after a trust answer (ADR-0032).
+  useEffect(() => reload(), [reload, activeRootIds, trustRevision]);
 
   // F9: refresh when the window regains visibility so a command file edited/added
   // while the app was backgrounded appears without a full reload (the IPC is

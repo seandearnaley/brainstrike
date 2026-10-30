@@ -6,6 +6,7 @@ import {
   HostChildWorkspaceChip,
   useAssistantRunNotifications,
   useBudgetGuardrailBinding,
+  WorkspaceTrustPrompt,
 } from '@brainstrike/app-shell';
 import {
   type AssistantThreadHostCapability,
@@ -199,6 +200,22 @@ function useConversationColor(
   return childColor ?? threadColor;
 }
 
+/**
+ * The composer's folder slots. A child shares its root's folder: named, never
+ * changed or trusted here; a root's composer asks to trust it (ADR-0032).
+ */
+function workspaceSlots(
+  child: boolean,
+  threadId: string
+): { readonly workspaceBar: ReactNode; readonly workspaceNotice?: ReactNode } {
+  return child
+    ? { workspaceBar: <HostChildWorkspaceChip threadId={threadId} /> }
+    : {
+        workspaceBar: <CommittedWorkspaceControls threadId={threadId} />,
+        workspaceNotice: <WorkspaceTrustPrompt />,
+      };
+}
+
 function HostThread({
   agentColor,
   canvases,
@@ -362,14 +379,7 @@ function HostThread({
                           {...(reconnect === undefined ? {} : { reconnect })}
                           rewind={child ? null : rewind}
                           store={conversation.store}
-                          workspaceBar={
-                            // A child shares its root's folder: named, never changed here.
-                            child ? (
-                              <HostChildWorkspaceChip threadId={threadId} />
-                            ) : (
-                              <CommittedWorkspaceControls threadId={threadId} />
-                            )
-                          }
+                          {...workspaceSlots(child, threadId)}
                         />
                       </HostChildConversations>
                     </SubagentChildRunContext>

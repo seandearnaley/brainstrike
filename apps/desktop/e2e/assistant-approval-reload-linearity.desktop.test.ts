@@ -23,6 +23,7 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { type ModelProviderRequest, startModelProviderShim } from './utils/model-provider-shim';
 import { startThread } from './utils/new-thread';
 import { E2E_TIMEOUTS } from './utils/timeouts';
+import { trustWorkspaceFromComposer } from './utils/workspace-trust';
 
 /**
  * BST-1243: a linear conversation containing a suspend decision must stay
@@ -402,6 +403,8 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
           .selectOption('ask');
         await ensureAssistantShellVisible(window);
         const root = window.getByRole('region', { exact: true, name: 'Assistant' });
+        // The workspace's persona loads once the person trusts the folder (ADR-0032).
+        await trustWorkspaceFromComposer(root);
         await root.getByRole('textbox', { name: 'Message input' }).fill(parentPrompt);
         await root.getByRole('button', { exact: true, name: 'Send' }).click();
         await expect(root.getByTestId('host-child-waiting')).toBeVisible();
