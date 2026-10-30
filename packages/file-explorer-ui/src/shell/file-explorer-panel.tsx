@@ -944,65 +944,65 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
                 view-filters button) hosting the preset row, the filter chips, and
                 the quick-filter row. grid-rows 0fr->1fr animates to natural
                 content height (unlike a max-height cap, which clips when many
-                filter chips wrap). */}
-            {rootDirectoryHandle && (
-              <div
-                className={cn(
-                  'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
-                  isFiltersExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-                )}
-                id="view-filters-content"
-                inert={!isFiltersExpanded}
-              >
-                <div className="overflow-hidden">
-                  <div className="space-y-2 border-b px-2 py-2">
-                    <div className="flex items-center gap-1.5">
-                      <ToolbarPresetSelector
-                        className="h-8 min-w-0 flex-1 @[300px]:h-9"
-                        onFilterChange={handleFilterChange}
-                      />
-                      <FilterChipsToggleButton
-                        isFilterChipsVisible={isFilterChipsVisible}
-                        setFilterChipsVisible={setFilterChipsVisible}
-                      />
-                    </div>
-                    {/* Filter chips - independently collapsible to reclaim vertical
-                        space. Same grid-rows technique as the section collapse so
-                        toggling animates to natural height without clipping. */}
-                    <div
-                      className={cn(
-                        'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
-                        isFilterChipsVisible
-                          ? 'grid-rows-[1fr] opacity-100'
-                          : 'grid-rows-[0fr] opacity-0'
-                      )}
-                      inert={!isFilterChipsVisible}
-                    >
-                      <div className="overflow-hidden">
-                        <FilterStatus
-                          disabledExcludeFilters={disabledExcludeFilters}
-                          disabledIncludeFilters={disabledIncludeFilters}
-                          excludeFilters={excludeFilters}
-                          includeFilters={includeFilters}
-                          onToggleFilter={toggleFilterEnabled}
-                          quickFilter={quickFilter}
-                          useRegex={useRegex}
-                        />
-                      </div>
-                    </div>
-                    {/* Quick filter input. The tree action buttons live on the
-                        toolbar so they stay reachable while this block is
-                        collapsed. */}
-                    <FileFilterBar
-                      isFiltering={isQuickFiltering}
-                      onChange={setQuickFilter}
-                      onClear={clearQuickFilter}
-                      value={quickFilter}
+                filter chips wrap). It does not wait for a root: an open block
+                that mounted only once the restored root arrived pushed the
+                tree down at startup. */}
+            <div
+              className={cn(
+                'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                isFiltersExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+              )}
+              id="view-filters-content"
+              inert={!isFiltersExpanded}
+            >
+              <div className="overflow-hidden">
+                <div className="space-y-2 border-b px-2 py-2">
+                  <div className="flex items-center gap-1.5">
+                    <ToolbarPresetSelector
+                      className="h-8 min-w-0 flex-1 @[300px]:h-9"
+                      onFilterChange={handleFilterChange}
+                    />
+                    <FilterChipsToggleButton
+                      isFilterChipsVisible={isFilterChipsVisible}
+                      setFilterChipsVisible={setFilterChipsVisible}
                     />
                   </div>
+                  {/* Filter chips - independently collapsible to reclaim vertical
+                        space. Same grid-rows technique as the section collapse so
+                        toggling animates to natural height without clipping. */}
+                  <div
+                    className={cn(
+                      'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                      isFilterChipsVisible
+                        ? 'grid-rows-[1fr] opacity-100'
+                        : 'grid-rows-[0fr] opacity-0'
+                    )}
+                    inert={!isFilterChipsVisible}
+                  >
+                    <div className="overflow-hidden">
+                      <FilterStatus
+                        disabledExcludeFilters={disabledExcludeFilters}
+                        disabledIncludeFilters={disabledIncludeFilters}
+                        excludeFilters={excludeFilters}
+                        includeFilters={includeFilters}
+                        onToggleFilter={toggleFilterEnabled}
+                        quickFilter={quickFilter}
+                        useRegex={useRegex}
+                      />
+                    </div>
+                  </div>
+                  {/* Quick filter input. The tree action buttons live on the
+                        toolbar so they stay reachable while this block is
+                        collapsed. */}
+                  <FileFilterBar
+                    isFiltering={isQuickFiltering}
+                    onChange={setQuickFilter}
+                    onClear={clearQuickFilter}
+                    value={quickFilter}
+                  />
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
           {/* Scrollable Middle Content - File Tree */}
