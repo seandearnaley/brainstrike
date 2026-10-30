@@ -149,11 +149,17 @@ function HostChildDetails({
     return fold.apply(source.getSnapshot().rows);
   }, [source]);
   const details = useSyncExternalStore(source.subscribe, read, read);
-  return details ? (
+  // The bar keeps its height while the child's log replays, so the
+  // conversation below it does not jump down when the details arrive.
+  return (
     <div className="shrink-0 border-b px-2 py-1">
-      <HostChildToolbar details={details} />
+      {details ? (
+        <HostChildToolbar details={details} />
+      ) : (
+        <div aria-hidden="true" className="h-7" />
+      )}
     </div>
-  ) : null;
+  );
 }
 
 interface HostThreadProps {
