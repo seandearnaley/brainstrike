@@ -53,7 +53,7 @@ async function renderedSvg(): Promise<SVGSVGElement> {
 /** The computed color an app theme token resolves to right now. */
 function tokenColor(token: string): string {
   const probe = document.createElement('span');
-  probe.style.color = `hsl(var(${token}))`;
+  probe.style.color = `var(${token})`;
   document.body.append(probe);
   const color = getComputedStyle(probe).color;
   probe.remove();

@@ -10,8 +10,8 @@
    */
   container: bs-thread / inline-size;
   gap: 0.25rem;
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background-color: var(--background);
+  color: var(--foreground);
   overscroll-behavior: contain;
   --background: var(--bs-background, 0 0% 100%);
   --foreground: var(--bs-foreground, 240 10% 3.9%);
@@ -115,15 +115,15 @@
 }
 
 :where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="unresolved"] {
-  --agent-accent: hsl(var(--muted-foreground));
+  --agent-accent: var(--muted-foreground);
 }
 
 /* The surface tokens the panel rules below read. They equal the app theme's own
-   (`--color-muted: hsl(var(--muted))`), declared here so the panel stylesheet
+   (`--color-muted: var(--muted)`), declared here so the panel stylesheet
    stands alone and a coloured conversation can re-key them. */
 .assistant-ui-panel {
-  --color-muted: hsl(var(--muted));
-  --color-accent: hsl(var(--accent));
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
 }
 
 /* A coloured conversation also re-keys the neutral surface tokens behind
@@ -132,20 +132,20 @@
    and diagram header bars, inline code, hovers and selected rows, then stays in
    the conversation's hue instead of laying a grey wash over the tint. */
 .assistant-ui-panel[data-agent-color] {
-  --agent-wash: color-mix(in oklab, var(--agent-accent) 4%, hsl(var(--background)));
-  --agent-card: color-mix(in oklab, var(--agent-accent) 7%, hsl(var(--background)));
-  --agent-edge: color-mix(in oklab, var(--agent-accent) 22%, hsl(var(--border)));
-  --color-muted: color-mix(in oklab, var(--agent-accent) 12%, hsl(var(--muted)));
-  --color-accent: color-mix(in oklab, var(--agent-accent) 16%, hsl(var(--accent)));
-  --color-border: color-mix(in oklab, var(--agent-accent) 14%, hsl(var(--border)));
+  --agent-wash: color-mix(in oklab, var(--agent-accent) 4%, var(--background));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 7%, var(--background));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 22%, var(--border));
+  --color-muted: color-mix(in oklab, var(--agent-accent) 12%, var(--muted));
+  --color-accent: color-mix(in oklab, var(--agent-accent) 16%, var(--accent));
+  --color-border: color-mix(in oklab, var(--agent-accent) 14%, var(--border));
 }
 
 .dark .assistant-ui-panel[data-agent-color] {
-  --agent-wash: color-mix(in oklab, var(--agent-accent) 6%, hsl(var(--background)));
-  --agent-card: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
-  --color-muted: color-mix(in oklab, var(--agent-accent) 18%, hsl(var(--muted)));
-  --color-accent: color-mix(in oklab, var(--agent-accent) 22%, hsl(var(--accent)));
-  --color-border: color-mix(in oklab, var(--agent-accent) 20%, hsl(var(--border)));
+  --agent-wash: color-mix(in oklab, var(--agent-accent) 6%, var(--background));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 9%, var(--background));
+  --color-muted: color-mix(in oklab, var(--agent-accent) 18%, var(--muted));
+  --color-accent: color-mix(in oklab, var(--agent-accent) 22%, var(--accent));
+  --color-border: color-mix(in oklab, var(--agent-accent) 20%, var(--border));
 }
 
 .assistant-ui-panel[data-agent-color] .bs-thread {
@@ -159,7 +159,7 @@
 
 .assistant-ui-panel[data-agent-color] .aui-composer-root {
   border-color: var(--agent-edge);
-  background: linear-gradient(180deg, var(--agent-card), hsl(var(--background)));
+  background: linear-gradient(180deg, var(--agent-card), var(--background));
 }
 
 .assistant-ui-panel[data-agent-color] .aui-user-message-content {
@@ -202,13 +202,13 @@
 }
 
 .assistant-ui-panel[data-agent-color] .aui-composer-send:not(:disabled) {
-  background: color-mix(in oklab, var(--agent-accent) 28%, hsl(var(--background)));
-  color: hsl(var(--foreground));
+  background: color-mix(in oklab, var(--agent-accent) 28%, var(--background));
+  color: var(--foreground);
 }
 
 .bs-subagent-card[data-agent-color] {
-  --agent-card: color-mix(in oklab, var(--agent-accent) 7%, hsl(var(--background)));
-  --agent-edge: color-mix(in oklab, var(--agent-accent) 24%, hsl(var(--border)));
+  --agent-card: color-mix(in oklab, var(--agent-accent) 7%, var(--background));
+  --agent-edge: color-mix(in oklab, var(--agent-accent) 24%, var(--border));
   border-color: var(--agent-edge);
   background: var(--agent-card);
 }
@@ -287,12 +287,12 @@
    which is the ONLY visibility signal — no layout shift either way. */
 .bs-scroll-to-bottom {
   align-items: center;
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
+  background: var(--background);
+  border: 1px solid var(--border);
   border-radius: 999px;
   bottom: 1rem;
-  box-shadow: 0 1px 3px hsl(var(--foreground) / 0.12);
-  color: hsl(var(--muted-foreground));
+  box-shadow: 0 1px 3px color-mix(in oklab, var(--foreground) 12%, transparent);
+  color: var(--muted-foreground);
   display: inline-flex;
   height: 2rem;
   justify-content: center;
@@ -315,12 +315,12 @@
 
 .bs-scroll-to-bottom:hover {
   background: var(--color-muted);
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 /* globals.css strips UA outlines, so the keyboard ring is ours to draw. */
 .bs-scroll-to-bottom:focus-visible {
-  outline: 1.5px solid hsl(var(--foreground) / 0.4);
+  outline: 1.5px solid color-mix(in oklab, var(--foreground) 40%, transparent);
   outline-offset: 2px;
 }
 
@@ -337,10 +337,10 @@
 
 .bs-composer-shell {
   flex-shrink: 0;
-  border-top: 1px solid hsl(var(--border) / 0.72);
+  border-top: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
   background:
-    linear-gradient(to top, hsl(var(--background)) 78%, hsl(var(--background) / 0.84)),
-    hsl(var(--background));
+    linear-gradient(to top, var(--background) 78%, color-mix(in oklab, var(--background) 84%, transparent)),
+    var(--background);
   /* Equidistant: the card sits the same 0.625rem from the left, right, and
      bottom edges of the shell (measured 10/10/8 before this change). */
   padding: 0.5rem 0.625rem 0.625rem;
@@ -353,14 +353,14 @@
   width: 100%;
   flex-direction: column;
   gap: 0.5rem;
-  border: 1px solid hsl(var(--border) / 0.72);
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
   border-radius: 1rem;
   background:
-    linear-gradient(180deg, hsl(var(--muted) / 0.34), hsl(var(--background) / 0.96)),
-    hsl(var(--background));
+    linear-gradient(180deg, color-mix(in oklab, var(--muted) 34%, transparent), color-mix(in oklab, var(--background) 96%, transparent)),
+    var(--background);
   box-shadow:
-    0 18px 48px hsl(var(--foreground) / 0.08),
-    inset 0 1px 0 hsl(var(--foreground) / 0.06);
+    0 18px 48px color-mix(in oklab, var(--foreground) 8%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 6%, transparent);
   padding: 0.625rem;
 }
 
@@ -372,7 +372,7 @@
   left: 0;
   right: 0;
   height: 8px;
-  background: linear-gradient(to top, hsl(var(--background) / 0.05), transparent);
+  background: linear-gradient(to top, color-mix(in oklab, var(--background) 5%, transparent), transparent);
   pointer-events: none;
 }
 
@@ -394,7 +394,7 @@
   border: 0;
   background: transparent;
   box-shadow: none;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   font-size: 0.875rem;
   line-height: 1.5;
   outline: none;
@@ -402,7 +402,7 @@
 }
 
 .aui-composer-input::placeholder {
-  color: hsl(var(--muted-foreground) / 0.72);
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
 }
 
 /*
@@ -423,13 +423,13 @@
   max-height: 16rem;
   overflow-y: auto;
   padding: 0.25rem;
-  border: 1px solid hsl(var(--border) / 0.72);
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
   border-radius: 0.75rem;
-  background: hsl(var(--popover));
-  color: hsl(var(--popover-foreground));
+  background: var(--popover);
+  color: var(--popover-foreground);
   box-shadow:
-    0 10px 30px -12px hsl(var(--foreground) / 0.35),
-    0 2px 8px -4px hsl(var(--foreground) / 0.2);
+    0 10px 30px -12px color-mix(in oklab, var(--foreground) 35%, transparent),
+    0 2px 8px -4px color-mix(in oklab, var(--foreground) 20%, transparent);
 }
 
 .bs-composer-trigger-item {
@@ -440,7 +440,7 @@
   padding: 0.375rem 0.5rem;
   border-radius: 0.5rem;
   background: transparent;
-  color: hsl(var(--popover-foreground));
+  color: var(--popover-foreground);
   font-size: 0.8125rem;
   line-height: 1.25rem;
   text-align: left;
@@ -450,7 +450,7 @@
 .bs-composer-trigger-item:hover,
 .bs-composer-trigger-item[data-highlighted] {
   background: var(--color-accent);
-  color: hsl(var(--accent-foreground));
+  color: var(--accent-foreground);
 }
 
 .bs-composer-trigger-item-label {
@@ -484,7 +484,7 @@
   min-width: 0;
   font-size: 0.6875rem;
   line-height: 1rem;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 .bs-composer-mention-path {
@@ -524,7 +524,7 @@
   align-items: center;
   background: transparent;
   border: 1px solid transparent;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   cursor: pointer;
   display: inline-flex;
   flex: 0 1 auto;
@@ -601,11 +601,11 @@ span.bs-composer-chip {
     [aria-disabled="true"]
   ) {
   background: var(--color-accent);
-  color: hsl(var(--accent-foreground));
+  color: var(--accent-foreground);
 }
 
 :is(.bs-composer-chip, .bs-composer-icon-button, .aui-composer-send, .aui-composer-cancel):focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
@@ -615,18 +615,18 @@ span.bs-composer-chip {
 }
 
 .bs-composer-chip[aria-pressed="true"] {
-  background: hsl(var(--primary) / 0.12);
-  border-color: hsl(var(--primary) / 0.28);
-  color: hsl(var(--primary));
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 28%, transparent);
+  color: var(--primary);
 }
 
 .bs-composer-chip[aria-pressed="true"]:hover {
-  background: hsl(var(--primary) / 0.18);
-  color: hsl(var(--primary));
+  background: color-mix(in oklab, var(--primary) 18%, transparent);
+  color: var(--primary);
 }
 
 .bs-composer-kbd {
-  color: hsl(var(--muted-foreground) / 0.8);
+  color: color-mix(in oklab, var(--muted-foreground) 80%, transparent);
   font-family: inherit;
   font-size: 0.6875rem;
   font-weight: 400;
@@ -636,10 +636,10 @@ span.bs-composer-chip {
 .aui-composer-cancel {
   align-items: center;
   aspect-ratio: 1;
-  background: hsl(var(--foreground));
+  background: var(--foreground);
   border: 0;
   border-radius: 999px;
-  color: hsl(var(--background));
+  color: var(--background);
   cursor: pointer;
   display: inline-flex;
   flex-shrink: 0;
@@ -669,7 +669,7 @@ span.bs-composer-chip {
 
 :is(.aui-composer-send, .aui-composer-cancel):disabled {
   background: var(--color-muted);
-  color: hsl(var(--muted-foreground) / 0.7);
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
   cursor: not-allowed;
 }
 
@@ -677,7 +677,7 @@ span.bs-composer-chip {
    steps back to a tinted one beside it. */
 .bs-composer-footer-end:has(.bs-composer-queue:not(:disabled)) .aui-composer-cancel {
   background: var(--color-muted);
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 /* The toolbar above the card: workspace orientation on the left, the context
@@ -737,7 +737,7 @@ span.bs-composer-chip {
 }
 
 .bs-composer-dirty-dot {
-  background: hsl(var(--warning));
+  background: var(--warning);
   border-radius: 999px;
   flex-shrink: 0;
   height: 0.375rem;
@@ -755,7 +755,7 @@ span.bs-composer-chip {
 }
 
 .bs-composer-context-notice {
-  color: hsl(var(--destructive));
+  color: var(--destructive);
   flex-basis: 100%;
   font-size: 0.6875rem;
   text-align: right;
@@ -849,15 +849,15 @@ span.bs-composer-chip {
 /* Full access reads as a warning in the composer, as Codex and Claude show it,
    and so does a policy that could not be loaded. */
 .bs-composer-access:is([data-access-mode="full"], [data-access-mode="unavailable"]) {
-  color: hsl(var(--warning));
+  color: var(--warning);
 }
 
 .bs-composer-access:is([data-access-mode="full"], [data-access-mode="unavailable"]):is(
     :hover,
     [data-state="open"]
   ) {
-  background: hsl(var(--warning) / 0.12);
-  color: hsl(var(--warning));
+  background: color-mix(in oklab, var(--warning) 12%, transparent);
+  color: var(--warning);
 }
 
 .bs-composer-status {
@@ -876,7 +876,7 @@ span.bs-composer-chip {
   list-style: none;
   margin: 0 0.5rem;
   padding: 0.25rem;
-  border: 1px solid hsl(var(--border) / 0.72);
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
   border-bottom: 0;
   border-radius: 0.75rem 0.75rem 0 0;
   background: color-mix(in oklab, var(--color-muted) 50%, transparent);
@@ -885,7 +885,7 @@ span.bs-composer-chip {
 .bs-composer-queue-item {
   align-items: center;
   border-radius: 0.5rem;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   display: flex;
   font-size: 0.75rem;
   gap: 0.375rem;
@@ -895,11 +895,11 @@ span.bs-composer-chip {
 
 .bs-composer-queue-item:hover,
 .bs-composer-queue-item:focus-within {
-  background: hsl(var(--background) / 0.7);
+  background: color-mix(in oklab, var(--background) 70%, transparent);
 }
 
 .bs-composer-queue-glyph {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   flex-shrink: 0;
   height: 0.875rem;
   width: 0.875rem;
@@ -918,7 +918,7 @@ span.bs-composer-chip {
   padding-inline: 0.5rem;
   line-height: 1.625;
   overflow-wrap: break-word;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .aui-user-message-content {
@@ -978,19 +978,19 @@ span.bs-composer-chip {
   margin: 0.25rem auto 0;
   border-radius: 999px;
   padding: 0.125rem 0.5rem 0.125rem 0.625rem;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-size: 0.75rem;
   font-weight: 500;
   transition: color 120ms ease, background-color 120ms ease;
 }
 
 .bs-expandable-message-toggle:hover {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   background-color: color-mix(in oklab, currentColor 10%, transparent);
 }
 
 .bs-expandable-message-toggle:focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
@@ -1005,7 +1005,7 @@ span.bs-composer-chip {
 }
 
 .bs-tool-timeline {
-  box-shadow: 0 4px 16px hsl(var(--foreground) / 0.04);
+  box-shadow: 0 4px 16px color-mix(in oklab, var(--foreground) 4%, transparent);
 }
 
 /**
@@ -1048,7 +1048,7 @@ span.bs-composer-chip {
    read as one column of cards (see TASK LIST below). */
 .assistant-ui-panel :is(.bs-activity-group, .bs-todo-progress) {
   margin-block: 0.375rem;
-  border: 1px solid hsl(var(--border) / 0.7);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
   border-radius: 0.7rem;
   background: color-mix(in oklab, var(--color-muted) 22%, transparent);
   overflow: hidden;
@@ -1058,13 +1058,13 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-activity-group[data-active="true"] {
-  border-color: hsl(var(--primary) / 0.38);
-  background: hsl(var(--primary) / 0.05);
+  border-color: color-mix(in oklab, var(--primary) 38%, transparent);
+  background: color-mix(in oklab, var(--primary) 5%, transparent);
 }
 
 .assistant-ui-panel .bs-activity-group[data-failed="true"] {
-  border-color: hsl(var(--destructive) / 0.45);
-  background: hsl(var(--destructive) / 0.05);
+  border-color: color-mix(in oklab, var(--destructive) 45%, transparent);
+  background: color-mix(in oklab, var(--destructive) 5%, transparent);
 }
 
 .assistant-ui-panel .bs-activity-summary {
@@ -1075,7 +1075,7 @@ span.bs-composer-chip {
   min-width: 0;
   min-height: 2rem;
   padding: 0.4rem 0.6rem;
-  color: hsl(var(--foreground) / 0.85);
+  color: color-mix(in oklab, var(--foreground) 85%, transparent);
   font-size: 0.75rem;
   text-align: left;
   transition: background-color 140ms ease;
@@ -1134,12 +1134,12 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .bs-activity-summary-meta {
   flex-shrink: 0;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-weight: 400;
 }
 
 .assistant-ui-panel .bs-activity-summary-failed {
-  color: hsl(var(--destructive));
+  color: var(--destructive);
   font-weight: 600;
 }
 
@@ -1152,7 +1152,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-activity-elapsed {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1161,7 +1161,7 @@ span.bs-composer-chip {
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.35rem 0.5rem 0.5rem;
-  border-top: 1px solid hsl(var(--border) / 0.6);
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
 }
 
 .assistant-ui-panel .bs-activity-body[hidden] {
@@ -1186,16 +1186,16 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-todo-progress-header > .bs-step-family-icon {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 .assistant-ui-panel .bs-todo-progress-title {
-  color: hsl(var(--foreground) / 0.85);
+  color: color-mix(in oklab, var(--foreground) 85%, transparent);
   font-weight: 600;
 }
 
 .assistant-ui-panel .bs-todo-progress-count {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1212,7 +1212,7 @@ span.bs-composer-chip {
 .assistant-ui-panel .bs-todo-progress-fill {
   block-size: 100%;
   border-radius: inherit;
-  background: hsl(var(--success));
+  background: var(--success);
   transition: width 300ms ease;
 }
 
@@ -1222,7 +1222,7 @@ span.bs-composer-chip {
   gap: 0.125rem;
   margin: 0;
   padding: 0.5rem 1rem;
-  border-top: 1px solid hsl(var(--border) / 0.6);
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
   list-style: none;
 }
 
@@ -1242,7 +1242,7 @@ span.bs-composer-chip {
   flex-shrink: 0;
   inline-size: 1rem;
   margin-block-start: 0.125rem;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 .assistant-ui-panel .bs-todo-progress-text {
@@ -1251,21 +1251,21 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-todo-progress-item[data-status="completed"] .bs-todo-progress-glyph {
-  color: hsl(var(--success));
+  color: var(--success);
 }
 
 .assistant-ui-panel .bs-todo-progress-item[data-status="completed"] .bs-todo-progress-text {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   text-decoration: line-through;
-  text-decoration-color: hsl(var(--muted-foreground) / 0.5);
+  text-decoration-color: color-mix(in oklab, var(--muted-foreground) 50%, transparent);
 }
 
 .assistant-ui-panel .bs-todo-progress-item[data-status="in_progress"] .bs-todo-progress-glyph {
-  color: hsl(var(--info));
+  color: var(--info);
 }
 
 .assistant-ui-panel .bs-todo-progress-item[data-status="in_progress"] .bs-todo-progress-text {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   font-weight: 500;
 }
 
@@ -1377,7 +1377,7 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .bs-trace-tail-line {
   align-items: center;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   display: flex;
   font-size: 0.7rem;
   gap: 0.5rem;
@@ -1388,7 +1388,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-trace-tail-line[data-state="failed"] {
-  color: hsl(var(--destructive));
+  color: var(--destructive);
 }
 
 .assistant-ui-panel .bs-trace-tail-verb {
@@ -1583,7 +1583,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-step-row-target {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.6875rem;
   min-width: 0;
@@ -1594,7 +1594,7 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .bs-step-row-meta,
 .assistant-ui-panel .bs-step-row-timing {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
 }
@@ -1703,7 +1703,7 @@ span.bs-composer-chip {
   background: none;
   border: 0;
   border-radius: 0.375rem;
-  color: hsl(var(--destructive));
+  color: var(--destructive);
   cursor: pointer;
   flex: 0 0 auto;
   font: inherit;
@@ -1717,7 +1717,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-activity-failed-jump:hover {
-  background: hsl(var(--destructive) / 0.08);
+  background: color-mix(in oklab, var(--destructive) 8%, transparent);
 }
 
 /* One button, one tab stop, however many marks: see `ActivityRunStrip`. The
@@ -1761,12 +1761,12 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel :is(.bs-activity-failed-jump, .bs-run-strip, .bs-activity-filter-chip, .bs-activity-filter-action):focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
 
 .assistant-ui-panel .bs-run-mark {
-  fill: hsl(var(--muted-foreground) / 0.55);
+  fill: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
 }
 
 .assistant-ui-panel .bs-run-mark-call {
@@ -1806,16 +1806,16 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-run-mark-failed {
-  fill: hsl(var(--destructive));
+  fill: var(--destructive);
 }
 
 .assistant-ui-panel .bs-run-mark-waiting {
-  fill: hsl(var(--warning));
+  fill: var(--warning);
 }
 
 .assistant-ui-panel .bs-run-mark-running {
   animation: bs-run-mark-pulse 1s ease-in-out infinite;
-  fill: hsl(var(--primary));
+  fill: var(--primary);
 }
 
 @keyframes bs-run-mark-pulse {
@@ -1845,9 +1845,9 @@ span.bs-composer-chip {
 .assistant-ui-panel .bs-activity-filter-chip {
   align-items: center;
   background: transparent;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   border-radius: 999px;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -1859,24 +1859,24 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .bs-activity-filter-chip:hover {
   background: color-mix(in oklab, var(--color-muted) 50%, transparent);
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .assistant-ui-panel .bs-activity-filter-chip[aria-pressed="true"] {
-  background: hsl(var(--foreground));
-  border-color: hsl(var(--foreground));
-  color: hsl(var(--background));
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
 }
 
 .assistant-ui-panel .bs-activity-filter-chip[data-filter="failed"] {
-  border-color: hsl(var(--destructive) / 0.45);
-  color: hsl(var(--destructive));
+  border-color: color-mix(in oklab, var(--destructive) 45%, transparent);
+  color: var(--destructive);
 }
 
 .assistant-ui-panel .bs-activity-filter-chip[data-filter="failed"][aria-pressed="true"] {
-  background: hsl(var(--destructive));
-  border-color: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground));
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: var(--destructive-foreground);
 }
 
 .assistant-ui-panel .bs-activity-filter-count {
@@ -1888,7 +1888,7 @@ span.bs-composer-chip {
   background: none;
   border: 0;
   border-radius: 0.375rem;
-  color: hsl(var(--primary));
+  color: var(--primary);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -1931,7 +1931,7 @@ span.bs-composer-chip {
 
 /* An open cluster's members hang under its row on a hairline. */
 .assistant-ui-panel .bs-cluster-member {
-  border-inline-start: 1px solid hsl(var(--border));
+  border-inline-start: 1px solid var(--border);
   margin-inline-start: 1rem;
   padding-inline-start: 0.375rem;
 }
@@ -1948,16 +1948,16 @@ span.bs-composer-chip {
 
 /* Approval depth remains a layout cue; color follows the durable owner id. */
 .assistant-ui-panel .bs-approval {
-  --bs-approval-accent: var(--agent-accent, hsl(var(--primary)));
-  --bs-approval-fill: color-mix(in oklab, var(--bs-approval-accent) 10%, hsl(var(--background)));
-  --bs-approval-edge: color-mix(in oklab, var(--bs-approval-accent) 35%, hsl(var(--border)));
-  --bs-approval-ink: color-mix(in oklab, var(--bs-approval-accent) 45%, hsl(var(--foreground)));
+  --bs-approval-accent: var(--agent-accent, var(--primary));
+  --bs-approval-fill: color-mix(in oklab, var(--bs-approval-accent) 10%, var(--background));
+  --bs-approval-edge: color-mix(in oklab, var(--bs-approval-accent) 35%, var(--border));
+  --bs-approval-ink: color-mix(in oklab, var(--bs-approval-accent) 45%, var(--foreground));
   margin-inline-start: calc(var(--bs-approval-depth, 0) * 1.25rem);
   min-width: 0;
 }
 
 .dark .assistant-ui-panel .bs-approval {
-  --bs-approval-fill: color-mix(in oklab, var(--bs-approval-accent) 14%, hsl(var(--background)));
+  --bs-approval-fill: color-mix(in oklab, var(--bs-approval-accent) 14%, var(--background));
 }
 
 .assistant-ui-panel .bs-approval-card {
@@ -1971,9 +1971,9 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-approval-status {
-  background: color-mix(in oklab, var(--bs-approval-accent) 16%, hsl(var(--background)));
+  background: color-mix(in oklab, var(--bs-approval-accent) 16%, var(--background));
   border-color: var(--bs-approval-edge);
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .assistant-ui-panel .bs-approval-row {
@@ -2000,11 +2000,11 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-approval-row-line:hover {
-  background: color-mix(in oklab, var(--bs-approval-accent) 16%, hsl(var(--background)));
+  background: color-mix(in oklab, var(--bs-approval-accent) 16%, var(--background));
 }
 
 .assistant-ui-panel .bs-approval-row-owner {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   flex: 0 0 auto;
   font-size: 0.75rem;
   font-weight: 500;
@@ -2024,7 +2024,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-approval-row-target {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.6875rem;
   min-width: 0;
@@ -2034,9 +2034,9 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-approval-row-status {
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   border-radius: 9999px;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   flex: 0 0 auto;
   font-size: 0.625rem;
   line-height: 1rem;
@@ -2052,7 +2052,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-approval-row-body {
-  border-top: 1px dashed hsl(var(--border));
+  border-top: 1px dashed var(--border);
   padding: 0 0.5rem;
 }
 
@@ -2060,8 +2060,8 @@ span.bs-composer-chip {
    one-click session grant that answers the whole category. */
 .assistant-ui-panel .bs-approval-strip {
   align-items: center;
-  border-top: 1px solid hsl(var(--border));
-  color: hsl(var(--muted-foreground));
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
   display: flex;
   flex-wrap: wrap;
   font-size: 0.75rem;
@@ -2070,7 +2070,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-approval-strip-label {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   font-weight: 500;
 }
 
@@ -2083,9 +2083,9 @@ span.bs-composer-chip {
 .assistant-ui-panel .bs-approval-strip-grant {
   align-items: center;
   background: transparent;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   border-radius: 9999px;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -2109,8 +2109,8 @@ span.bs-composer-chip {
    thinking mark, whose motion stops under reduced motion. */
 .assistant-ui-panel .bs-subagents-running {
   align-items: center;
-  border-top: 1px solid hsl(var(--border));
-  color: hsl(var(--muted-foreground));
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
   display: flex;
   flex-wrap: wrap;
   font-size: 0.75rem;
@@ -2124,16 +2124,16 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-subagents-running-label {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   font-weight: 500;
 }
 
 .assistant-ui-panel .bs-subagents-running-stop {
   align-items: center;
   background: transparent;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   border-radius: 9999px;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -2148,7 +2148,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-subagents-running-stop:focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
@@ -2176,7 +2176,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-step-row[data-state="failed"] .bs-step-row-verb {
-  color: hsl(var(--destructive));
+  color: var(--destructive);
 }
 
 /**
@@ -2386,7 +2386,7 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .bs-thinking-indicator {
   align-items: center;
-  color: hsl(var(--foreground) / 0.72);
+  color: color-mix(in oklab, var(--foreground) 72%, transparent);
   display: inline-flex;
   gap: 0.375rem;
   min-width: 0;
@@ -2394,7 +2394,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-thinking-mark {
-  color: hsl(var(--foreground) / 0.68);
+  color: color-mix(in oklab, var(--foreground) 68%, transparent);
   display: block;
   flex: 0 0 auto;
   overflow: visible;
@@ -2442,9 +2442,9 @@ span.bs-composer-chip {
   animation: bs-thinking-shimmer 1.45s linear infinite;
   background: linear-gradient(
     90deg,
-    hsl(var(--muted-foreground) / 0.52) 0%,
-    hsl(var(--foreground) / 0.94) 42%,
-    hsl(var(--muted-foreground) / 0.58) 84%
+    color-mix(in oklab, var(--muted-foreground) 52%, transparent) 0%,
+    color-mix(in oklab, var(--foreground) 94%, transparent) 42%,
+    color-mix(in oklab, var(--muted-foreground) 58%, transparent) 84%
   );
   background-clip: text;
   background-size: 220% 100%;
@@ -2514,7 +2514,7 @@ span.bs-composer-chip {
 
   .assistant-ui-panel .bs-thinking-shimmer {
     background: none;
-    color: hsl(var(--foreground) / 0.78);
+    color: color-mix(in oklab, var(--foreground) 78%, transparent);
   }
 }
 
@@ -2641,7 +2641,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .aui-md a {
-  color: hsl(var(--primary));
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -2657,7 +2657,7 @@ span.bs-composer-chip {
   border-left: 0;
   border-radius: 0.5rem;
   background: color-mix(in oklab, var(--color-muted) 45%, transparent);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-style: normal;
 }
 
@@ -2671,7 +2671,7 @@ span.bs-composer-chip {
 .assistant-ui-panel .aui-md hr {
   margin-block: 1.2em;
   border: 0;
-  border-top: 1px solid hsl(var(--border));
+  border-top: 1px solid var(--border);
 }
 
 /* Inline code only — fenced blocks are handled by the shared .bs-code-block box. */
@@ -2718,7 +2718,7 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .aui-md :where(th, td) {
   padding: 0.35rem 0.55rem;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   text-align: left;
   /* Cells follow the table's size and wrap; the renderer's cell utilities don't. */
   font-size: inherit;

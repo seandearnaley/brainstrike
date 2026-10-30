@@ -35,7 +35,7 @@ export function ThreadBody({
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 bg-radial-[ellipse_45%_35%_at_50%_0%] from-[hsl(var(--chart-2)/0.12)] to-transparent to-70% forced-colors:hidden"
+        className="pointer-events-none absolute inset-0 -z-10 bg-radial-[ellipse_45%_35%_at_50%_0%] from-(--chart-2)/12 to-transparent to-70% forced-colors:hidden"
       />
       <div className="flex flex-[1_1_0] flex-col items-center justify-end gap-2 px-6 pt-10 pb-5 text-center motion-safe:animate-[bs-new-thread-rise_320ms_ease-out]">
         <h2 className="text-2xl font-semibold tracking-tight text-balance">What’s on your mind?</h2>

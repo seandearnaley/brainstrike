@@ -93,14 +93,14 @@ const BASE_EXTENSIONS: Extension[] = [
     // ignore the app theme (a bright band in dark mode). Use theme tokens so
     // both modes get a subtle, correct highlight.
     '.cm-activeLine': {
-      backgroundColor: 'hsl(var(--muted) / 0.4)',
+      backgroundColor: 'color-mix(in oklab, var(--muted) 40%, transparent)',
     },
     '.cm-activeLineGutter': {
-      backgroundColor: 'hsl(var(--muted) / 0.6)',
-      color: 'hsl(var(--foreground))',
+      backgroundColor: 'color-mix(in oklab, var(--muted) 60%, transparent)',
+      color: 'var(--foreground)',
     },
     '.cm-content': {
-      caretColor: 'hsl(var(--foreground))',
+      caretColor: 'var(--foreground)',
       fontFamily: MONO_FONT_FAMILY,
       fontSize: '0.8125rem',
       lineHeight: '1.55',
@@ -114,12 +114,12 @@ const BASE_EXTENSIONS: Extension[] = [
       outline: 'none',
     },
     '.cm-gutter': {
-      backgroundColor: 'hsl(var(--muted) / 0.35)',
+      backgroundColor: 'color-mix(in oklab, var(--muted) 35%, transparent)',
     },
     '.cm-gutters': {
-      backgroundColor: 'hsl(var(--muted) / 0.35)',
-      borderRight: '1px solid hsl(var(--border))',
-      color: 'hsl(var(--muted-foreground))',
+      backgroundColor: 'color-mix(in oklab, var(--muted) 35%, transparent)',
+      borderRight: '1px solid var(--border)',
+      color: 'var(--muted-foreground)',
     },
     '.cm-line': {
       padding: '0 1rem',
@@ -134,11 +134,11 @@ const BASE_EXTENSIONS: Extension[] = [
     },
     '.cm-selectionBackground': {
       // CodeMirror injects selection styles with high specificity; keep app theme contrast.
-      backgroundColor: 'hsl(var(--primary) / 0.2) !important',
+      backgroundColor: 'color-mix(in oklab, var(--primary) 20%, transparent) !important',
     },
     '&': {
-      backgroundColor: 'hsl(var(--background))',
-      color: 'hsl(var(--foreground))',
+      backgroundColor: 'var(--background)',
+      color: 'var(--foreground)',
       height: '100%',
       minHeight: '100%',
     },
