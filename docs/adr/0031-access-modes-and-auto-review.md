@@ -36,8 +36,14 @@ for its own approval.
   reason the card shows. Auto never approves by default and never denies on its
   own, so it needs no denial circuit breaker: the person is the breaker. Network
   consents, questions and plans always go to the person.
-- **What the reviewer sees.** The user's messages, the assistant's tool calls and
-  the call under review, each clipped. Never tool results or assistant prose.
+- **What the reviewer sees.** The person's requests, the assistant's tool calls
+  and the call under review, each clipped. Never tool results or assistant
+  prose. A request is a user message the person wrote, read from the run's
+  committed branch rather than from message roles: a delegation's task, a
+  wake's child results and a delivery ledger reach the model as user messages,
+  but a model wrote them, so they never read as the user. A child's review
+  starts from the path of the run that delegated it, so it judges against the
+  root person's request.
 - **Which model.** `auto` is the chat provider's first quick model, from the one
   per-provider list the auto observer also uses, so the review never reaches a
   provider that is not already in the conversation. Structured output uses

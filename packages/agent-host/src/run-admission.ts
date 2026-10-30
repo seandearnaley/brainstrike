@@ -12,11 +12,15 @@ import {
   type ToolRiskCategory,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import type { ModelMessage, StepResult, ToolSet } from 'ai';
+import type { StepResult, ToolSet } from 'ai';
 import { Schema } from 'effect';
 import { leaseHostAdmission } from './admission-lease.ts';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.ts';
-import { type HostAutoReviewOutcome, reviewHostToolCall } from './auto-review.ts';
+import {
+  type HostAutoReviewOutcome,
+  hostAutoReviewTurns,
+  reviewHostToolCall,
+} from './auto-review.ts';
 import {
   browserOriginDeniedReason,
   type HostBrowserOriginStore,
@@ -781,7 +785,7 @@ async function hostAskDecision(
   action: Extract<HostEvent, { type: 'effect.started' }>,
   autoReview: PermissionToolGateSnapshot['autoReview'],
   /** A call already asked about is never reviewed again. */
-  step: { readonly messages: readonly ModelMessage[]; readonly prior: unknown }
+  step: { readonly prior: unknown; readonly runs: ReadonlyMap<string, HostRunState> }
 ): Promise<'user-approval' | HostAutoReviewOutcome> {
   const reviewModel = run.admission?.reviewModel;
   let reviewed: HostAutoReviewOutcome | undefined;
@@ -793,10 +797,10 @@ async function hostAskDecision(
             risk: registered.risk,
             toolId: registered.permissionToolId ?? call.toolName,
           },
-          messages: step.messages,
           model: () => reviewModel(autoReview.model),
           run,
           signal: run.controller.signal,
+          turns: hostAutoReviewTurns(step.runs, run),
         })
       : {
           reason: 'Auto-review is not available for this run, so it needs your approval.',
@@ -813,7 +817,7 @@ async function hostAskDecision(
 }
 /**
  * Uses the existing Core-owned run; permission calculation has no log writer.
- * `messages` are the step's model input, which auto access mode reviews.
+ * `runs` are Core's committed runs, whose branches auto access mode reviews.
  */
 export async function decideHostSdkApproval(
   run: HostRunState,
@@ -825,7 +829,7 @@ export async function decideHostSdkApproval(
     input: unknown;
     providerExecuted?: boolean;
   },
-  messages: readonly ModelMessage[]
+  runs: ReadonlyMap<string, HostRunState>
 ): Promise<
   | 'approved'
   | 'denied'
@@ -910,7 +914,7 @@ export async function decideHostSdkApproval(
     return consented;
   }
   if (decision === 'ask' && prior?.decision !== 'approve') {
-    return await hostAskDecision(run, registered, call, action, autoReview, { messages, prior });
+    return await hostAskDecision(run, registered, call, action, autoReview, { prior, runs });
   }
   run.permits.set(call.toolCallId, action);
   return 'approved';

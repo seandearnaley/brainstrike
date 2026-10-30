@@ -665,8 +665,8 @@ async function runHostSdkAttempt(
       },
       // A committed run/steer ends the run after the step in flight (BST-588).
       stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
-      toolApproval: ({ messages, toolCall }) =>
-        decideHostSdkApproval(run, ports.platform, ports.origins, toolCall, messages),
+      toolApproval: ({ toolCall }) =>
+        decideHostSdkApproval(run, ports.platform, ports.origins, toolCall, ports.runs),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
       ...hostTelemetry('brainstrike.host-run', run),
     });

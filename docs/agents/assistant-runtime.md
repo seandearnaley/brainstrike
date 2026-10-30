@@ -68,7 +68,9 @@ See [ADR-0010](../adr/0010-approvals-and-delegation.md) and
 The composer's access mode is the saved policy's `access` (ADR-0031). Full
 access is the gate's `yolo`. In Auto, a call the policy asks about is reviewed
 first by the chat provider's quick model ([auto-review](../../packages/agent-host/src/auto-review.ts)),
-which sees user messages and tool calls but never tool results. Its approval
+which sees the person's requests and the assistant's tool calls but never tool
+results. Requests come from the committed branch, not message roles: a
+delegation's task or delivered child results are not the person's words. Its approval
 runs the call as the SDK's automatic approval; a flag or any review failure
 asks the user, and the card shows the reviewer's reason.
 
