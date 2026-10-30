@@ -127,7 +127,100 @@ const DERIVED = {
     ['panel-surface', 'linear-gradient(to bottom, var(--bs-background), var(--bs-muted))'],
   ],
 };
-const DESTRUCTIVE_FOREGROUND_FALLBACK = 'oklch(0.985 0 0)';
+const LIGHT_INK = 'oklch(0.985 0 0)';
+const DARK_INK = 'oklch(0.145 0 0)';
+/** WCAG AA for normal text. */
+const MIN_TEXT_CONTRAST = 4.5;
+/**
+ * Brainstrike paints `primary` and `destructive` both as fills (with their
+ * `-foreground` on top) and as text and indicators on the page background
+ * (`text-primary` links, `text-destructive` errors). shadcn presets tune them
+ * as fills only, so a dark preset primary can sit near 2.4:1 on its background.
+ * Each listed colour is moved in lightness (chroma and hue kept) until it reads
+ * as text on the background, and each fill gets whichever foreground reads on it.
+ */
+const TEXT_COLOURS = ['primary', 'destructive'];
+const FILL_FOREGROUNDS = [
+  ['primary', 'primary-foreground'],
+  ['destructive', 'destructive-foreground'],
+  ['sidebar-primary', 'sidebar-primary-foreground'],
+];
+
+/** Parses `oklch(L C H)` (opaque only); returns null for anything else. */
+function parseOklch(value) {
+  const match = /^oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)\s*\)$/u.exec(value ?? '');
+  if (!match) {
+    return null;
+  }
+  const l = Number(match[1]) / (match[2] === '%' ? 100 : 1);
+  return { c: Number(match[3]), h: Number(match[4]), l };
+}
+
+function formatOklch({ l, c, h }) {
+  return `oklch(${Number(l.toFixed(3))} ${c} ${h})`;
+}
+
+/** WCAG relative luminance of an OKLCH colour, clipped to the sRGB gamut. */
+function luminance({ l, c, h }) {
+  const a = c * Math.cos((h * Math.PI) / 180);
+  const b = c * Math.sin((h * Math.PI) / 180);
+  const l_ = (l + 0.396_337_777_4 * a + 0.215_803_757_3 * b) ** 3;
+  const m_ = (l - 0.105_561_345_8 * a - 0.063_854_172_8 * b) ** 3;
+  const s_ = (l - 0.089_484_177_5 * a - 1.291_485_548 * b) ** 3;
+  const clip = (v) => Math.min(1, Math.max(0, v));
+  const r = clip(4.076_741_662_1 * l_ - 3.307_711_591_3 * m_ + 0.230_969_929_2 * s_);
+  const g = clip(-1.268_438_004_6 * l_ + 2.609_757_401_1 * m_ - 0.341_319_396_5 * s_);
+  const bl = clip(-0.004_196_086_3 * l_ - 0.703_418_614_7 * m_ + 1.707_614_701 * s_);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+}
+
+export function contrast(first, second) {
+  const [hi, lo] = [luminance(first), luminance(second)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * Returns a copy of `tokens` whose text colours read on the background and
+ * whose fills carry a readable foreground, plus the names it changed.
+ */
+export function normalizeContrast(tokens, mode) {
+  const next = new Map(tokens);
+  const changed = [];
+  const background = parseOklch(next.get('background'));
+  for (const name of TEXT_COLOURS) {
+    let colour = parseOklch(next.get(name));
+    if (!(background && colour) || contrast(colour, background) >= MIN_TEXT_CONTRAST) {
+      continue;
+    }
+    const step = mode === 'dark' ? 0.005 : -0.005;
+    while (contrast(colour, background) < MIN_TEXT_CONTRAST && colour.l > 0 && colour.l < 1) {
+      colour = { ...colour, l: colour.l + step };
+    }
+    next.set(name, formatOklch(colour));
+    changed.push(name);
+  }
+  for (const [fill, foreground] of FILL_FOREGROUNDS) {
+    const fillColour = parseOklch(next.get(fill));
+    if (!fillColour) {
+      continue;
+    }
+    const current = parseOklch(next.get(foreground));
+    if (current && contrast(current, fillColour) >= MIN_TEXT_CONTRAST) {
+      continue;
+    }
+    const ink =
+      contrast(parseOklch(LIGHT_INK), fillColour) >= contrast(parseOklch(DARK_INK), fillColour)
+        ? LIGHT_INK
+        : DARK_INK;
+    if (next.get(foreground) !== ink) {
+      next.set(foreground, ink);
+      if (current) {
+        changed.push(foreground);
+      }
+    }
+  }
+  return { changed, tokens: next };
+}
 /**
  * shadcn's `menuAccent: bold` preset axis paints `accent` with `primary`, so a
  * bold preset ships `--bs-accent === --bs-primary`. Brainstrike does not adopt
@@ -172,9 +265,6 @@ function renderBlock(selector, tokens, derived) {
   for (const [name, value] of tokens) {
     lines.push(`  --bs-${name}: ${value};`);
   }
-  if (!tokens.has('destructive-foreground')) {
-    lines.push(`  --bs-destructive-foreground: ${DESTRUCTIVE_FOREGROUND_FALLBACK};`);
-  }
   for (const [name, value] of derived) {
     lines.push(`  --bs-${name}: ${value};`);
   }
@@ -189,6 +279,12 @@ export function renderThemeCss({ id, code, decoded, light, dark }) {
   const lightAccent = normalizeAccent(light);
   const darkAccent = normalizeAccent(dark);
   const accentNormalized = lightAccent.normalized || darkAccent.normalized;
+  const lightContrast = normalizeContrast(lightAccent.tokens, 'light');
+  const darkContrast = normalizeContrast(darkAccent.tokens, 'dark');
+  const contrastChanges = [
+    ...lightContrast.changed.map((name) => `${name} (light)`),
+    ...darkContrast.changed.map((name) => `${name} (dark)`),
+  ];
   const decodedLines = Object.entries(decoded)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => ` *   ${key.padEnd(12)}${value}`)
@@ -199,6 +295,15 @@ export function renderThemeCss({ id, code, decoded, light, dark }) {
  *   not adopt; accent normalized to the subtle tint.
 `
     : '';
+  const contrastNote =
+    contrastChanges.length > 0
+      ? ` *
+ *   contrastAdjusted: moved to WCAG AA (4.5:1) because Brainstrike also uses
+ *   primary and destructive as text on the background, and every fill needs
+ *   a readable foreground:
+${contrastChanges.map((change) => ` *     ${change}`).join('\n')}
+`
+      : '';
   const header = `/*
  * Theme "${id}" — GENERATED from shadcn preset ${code}. Do not hand-edit values.
  * Regenerate: node scripts/import-shadcn-theme.mjs ${code} ${id}
@@ -207,7 +312,7 @@ export function renderThemeCss({ id, code, decoded, light, dark }) {
  *
  * Decoded preset:
 ${decodedLines}
-${accentNote} *
+${accentNote}${contrastNote} *
  * Only the colour palette and radius are adopted. Style, fonts and icons are
  * project-wide choices and are not part of a theme. Semantic status tokens
  * (success/warning/info) and the font hooks inherit from themes/brainstrike.css.
@@ -215,9 +320,9 @@ ${accentNote} *
 `;
   return `${header}${renderBlock(
     `:root[data-theme="${id}"]`,
-    lightAccent.tokens,
+    lightContrast.tokens,
     DERIVED.light
-  )}\n${renderBlock(`:root[data-theme="${id}"].dark`, darkAccent.tokens, DERIVED.dark)}`;
+  )}\n${renderBlock(`:root[data-theme="${id}"].dark`, darkContrast.tokens, DERIVED.dark)}`;
 }
 
 function decodePreset(code) {
