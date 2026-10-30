@@ -66,6 +66,7 @@
     "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "axe-core": "^4.14.0",
     "jsdom": "catalog:",

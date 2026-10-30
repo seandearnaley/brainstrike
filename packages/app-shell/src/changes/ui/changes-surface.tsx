@@ -37,6 +37,7 @@ import {
 } from '../changes-live-refresh-store';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useChangesStore } from '../changes-store';
+import { useDiffLineCommentToThread } from '../diff-line-comment-to-thread';
 import { useChangeset } from '../use-changeset';
 import { useGitInventory } from '../use-git-inventory';
 import { useRootLabelById } from '../use-root-labels';
@@ -104,6 +105,7 @@ export function ChangesSurface(): ReactElement {
   }, [rootDirectoryHandles, rootIdByPath]);
 
   const rootLabelById = useRootLabelById();
+  const commentToThread = useDiffLineCommentToThread(rootLabelById);
 
   const changeset = useChangesNavigationStore((state) => state.activeChangeset);
   const requestChangeset = useChangesNavigationStore((state) => state.requestChangeset);
@@ -222,6 +224,7 @@ export function ChangesSurface(): ReactElement {
               changesetKind={changeset.kind}
               files={renderedFiles}
               loadFileDiff={fileDiff}
+              onLineComment={commentToThread}
               reloadToken={gitScopeReloadToken}
             />
           </div>
