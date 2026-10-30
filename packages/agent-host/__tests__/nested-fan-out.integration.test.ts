@@ -3,6 +3,7 @@
  * turn's work queue, still finish when every provider reply streams in many
  * deltas. Delegation waits hold no permit (docs/agents/assistant-subagents.md).
  */
+import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import {
@@ -79,7 +80,13 @@ test('nested parallel delegation wider than the work queue finishes with streame
       const task = userTexts(call).join('\n');
       const answered = call.prompt.some((message) => message.role === 'tool');
       if (task.includes('LEAF_')) {
-        return streamed(WORDS);
+        // A leaf reads twice in parallel, as a worker reading two files does.
+        return answered
+          ? streamed(WORDS)
+          : streamed(
+              WORDS,
+              [0, 1].map(() => ({ input: { path: 'notes.md' }, toolName: 'read_file' }))
+            );
       }
       if (task.includes('BRANCH_')) {
         const branch = /BRANCH_(\d)/u.exec(task)?.[1] ?? '0';
@@ -101,6 +108,10 @@ test('nested parallel delegation wider than the work queue finishes with streame
   });
   const harness = await setupChildRunHost(model, cleanup, {
     personas: [worker],
+    policy: () => ({
+      policies: { ...DEFAULT_PERMISSION_POLICIES, read: 'allow' as const },
+      yolo: false,
+    }),
     settings: { maxConcurrentWork: 2 },
   });
   const rootRunId = await harness.start('Fan out.');

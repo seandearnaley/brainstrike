@@ -3,7 +3,7 @@ import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-
   type: 'json',
 };
 import { Schema } from 'effect';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { HostLogRowSchema, type HostRunTelemetry } from '../src/protocol.js';
 import { CommittedThreadSession, CommittedThreadView, foldHostRuns } from '../src/thread-view.js';
 
@@ -201,4 +201,39 @@ test('an untyped replay error never exposes its private path', async () => {
   await replay.promise.catch(() => undefined);
   await Promise.resolve();
   expect(session.getSnapshot()).toMatchObject({ error: INTERNAL_FAULT.message, isLoading: false });
+});
+
+test('a throttled session delivers live rows and telemetry together, in arrival order', async () => {
+  vi.useFakeTimers();
+  try {
+    const { client, live, replay, telemetry } = replayClient();
+    const session = new CommittedThreadSession(client, threadId, { deliveryThrottleMs: 50 });
+    const disconnect = session.connect();
+    replay.resolve({ rows: rows.slice(0, 2), telemetry: [] });
+    await vi.advanceTimersByTimeAsync(0);
+    const seen: string[] = [];
+    session.subscribe(() => seen.push(`rows:${session.getSnapshot().rows.length}`));
+    session.onTelemetry((received) => seen.push(`chunk:${received.ordinal}`));
+    const runId = 'run-1';
+    const chunk = (ordinal: number): HostRunTelemetry => ({
+      chunk: { delta: 'x', id: 't', type: 'text-delta' },
+      ordinal,
+      runId,
+      threadId,
+    });
+    const [third, fourth] = rows.slice(2, 4);
+    if (!(third && fourth)) {
+      throw new Error('The runtime recording is too short');
+    }
+    live(third);
+    telemetry(chunk(0));
+    telemetry(chunk(1));
+    live(fourth);
+    expect(seen).toEqual([]);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(seen).toEqual(['rows:3', 'chunk:0', 'chunk:1', 'rows:4']);
+    await disconnect();
+  } finally {
+    vi.useRealTimers();
+  }
 });
