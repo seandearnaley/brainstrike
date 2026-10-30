@@ -2,6 +2,7 @@
  * @vitest-environment happy-dom
  */
 
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -67,12 +68,12 @@ describe('ThemeProvider', () => {
     vi.resetAllMocks();
   });
 
-  // Default wrapper without explicit defaultTheme
+  // Default wrapper without explicit defaults
   const wrapper = ({ children }: { children: ReactNode }) => (
     <ThemeProvider storageAdapter={mockStorageAdapter}>{children}</ThemeProvider>
   );
 
-  it('provides default theme state', async () => {
+  it('provides the default mode and palette', async () => {
     (mockStorageAdapter.getItem as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const { result } = renderHook(() => useTheme(), { wrapper });
 
@@ -82,7 +83,7 @@ describe('ThemeProvider', () => {
       await vi.runAllTicks();
     });
 
-    expect(result.current.theme).toBe('system');
+    expect(result.current.mode).toBe('system');
   });
 
   it('loads theme from storage if available', async () => {
@@ -94,10 +95,10 @@ describe('ThemeProvider', () => {
       await vi.runAllTicks();
     });
 
-    expect(result.current.theme).toBe('dark');
+    expect(result.current.mode).toBe('dark');
   });
 
-  it('updates theme when setTheme is called', async () => {
+  it('updates the mode when setMode is called', async () => {
     const { result } = renderHook(() => useTheme(), { wrapper });
 
     await act(async () => {
@@ -106,10 +107,10 @@ describe('ThemeProvider', () => {
     });
 
     act(() => {
-      result.current.setTheme('dark');
+      result.current.setMode('dark');
     });
 
-    expect(result.current.theme).toBe('dark');
+    expect(result.current.mode).toBe('dark');
     expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('ui-theme', 'dark');
   });
 
@@ -134,7 +135,7 @@ describe('ThemeProvider', () => {
     });
 
     act(() => {
-      result.current.setTheme('system');
+      result.current.setMode('system');
     });
 
     await act(async () => {
@@ -158,11 +159,11 @@ describe('ThemeProvider', () => {
       vi.runAllTimers();
       await vi.runAllTicks();
     });
-    expect(result.current.theme).toBe('dark');
+    expect(result.current.mode).toBe('dark');
 
     vi.clearAllMocks();
     act(() => {
-      result.current.setTheme('system');
+      result.current.setMode('system');
     });
 
     await act(async () => {
@@ -170,7 +171,7 @@ describe('ThemeProvider', () => {
       await vi.runAllTicks();
     });
 
-    expect(result.current.theme).toBe('system');
+    expect(result.current.mode).toBe('system');
     expect(mockClassList.remove).toHaveBeenCalledTimes(1);
     expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark');
     expect(mockClassList.add).toHaveBeenCalledTimes(1);
@@ -196,9 +197,9 @@ describe('ThemeProvider', () => {
     consoleSpy.mockRestore();
   });
 
-  it('handles custom defaultTheme prop', async () => {
+  it('handles custom defaultMode prop', async () => {
     const customWrapper = ({ children }: { children: ReactNode }) => (
-      <ThemeProvider defaultTheme="dark" storageAdapter={mockStorageAdapter}>
+      <ThemeProvider defaultMode="dark" storageAdapter={mockStorageAdapter}>
         {children}
       </ThemeProvider>
     );
@@ -211,7 +212,7 @@ describe('ThemeProvider', () => {
       await vi.runAllTicks();
     });
 
-    expect(result.current.theme).toBe('dark');
+    expect(result.current.mode).toBe('dark');
   });
 
   it('handles custom storageKey prop', async () => {
@@ -229,9 +230,86 @@ describe('ThemeProvider', () => {
     });
 
     act(() => {
-      result.current.setTheme('light');
+      result.current.setMode('light');
     });
 
     expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('custom-theme-key', 'light');
+  });
+  it('defaults to the brainstrike palette and writes it as data-theme', async () => {
+    const { result } = renderHook(() => useTheme(), { wrapper });
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+
+    expect(result.current.theme).toBe('brainstrike');
+    expect(document.documentElement.dataset['theme']).toBe('brainstrike');
+  });
+
+  it('loads the saved palette and mode from their own keys', async () => {
+    vi.mocked(mockStorageAdapter.getItem).mockImplementation((key) =>
+      Promise.resolve(({ 'ui-theme': 'light', 'ui-theme-palette': 'tide' } as const)[key] ?? null)
+    );
+    const { result } = renderHook(() => useTheme(), { wrapper });
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+
+    expect(result.current.mode).toBe('light');
+    expect(result.current.theme).toBe('tide');
+    expect(document.documentElement.dataset['theme']).toBe('tide');
+  });
+
+  it('switches the palette without touching the mode', async () => {
+    const { result } = renderHook(() => useTheme(), { wrapper });
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+    vi.clearAllMocks();
+
+    act(() => {
+      result.current.setTheme('orchid');
+    });
+
+    expect(result.current.theme).toBe('orchid');
+    expect(result.current.mode).toBe('system');
+    expect(document.documentElement.dataset['theme']).toBe('orchid');
+    expect(mockStorageAdapter.setItem).toHaveBeenCalledTimes(1);
+    expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('ui-theme-palette', 'orchid');
+    expect(mockClassList.add).not.toHaveBeenCalled();
+  });
+
+  it('keeps the defaults when the saved values are unknown to this build', async () => {
+    vi.mocked(mockStorageAdapter.getItem).mockImplementation((key) =>
+      Promise.resolve(
+        ({ 'ui-theme': 'sepia', 'ui-theme-palette': 'retired' } as const)[key] ?? null
+      )
+    );
+    const records: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => {
+      if (record.scope === 'ThemeProvider') {
+        records.push(record);
+      }
+    });
+    const { result } = renderHook(() => useTheme(), { wrapper });
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+    removeLogListener();
+
+    expect(result.current.mode).toBe('system');
+    expect(result.current.theme).toBe('brainstrike');
+    expect(mockStorageAdapter.setItem).not.toHaveBeenCalled();
+    expect(records.map((record) => record.args[0])).toEqual([
+      'Ignoring an unknown saved theme mode',
+      'Ignoring an unknown saved theme',
+    ]);
   });
 });

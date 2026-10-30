@@ -55,6 +55,16 @@
       }
     },
     {
+      "includes": ["scripts/shadcn-theme-fixture/**"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["**/scripts/**", "scripts/**"],
       "linter": {
         "rules": {

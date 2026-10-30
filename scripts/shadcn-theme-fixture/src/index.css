@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+:root {
+  --background: oklch(1 0 0);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+}

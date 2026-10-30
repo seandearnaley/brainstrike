@@ -23,7 +23,7 @@ const mockSetTheme = vi.fn();
 
 vi.mock('../../theme-provider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useTheme: () => ({ setTheme: mockSetTheme, theme: mockTheme }),
+  useTheme: () => ({ mode: mockTheme, setMode: mockSetTheme }),
 }));
 
 const providers: ModelPickerProvider[] = [
