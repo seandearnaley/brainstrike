@@ -5,11 +5,18 @@ import * as React from 'react';
 // Relative imports, never the `@brainstrike/ui` barrel: the barrel re-exports
 // this module, so importing it here would close a source cycle (BST-890).
 import { Button } from './button';
+import { DEFAULT_THEME, isThemeId, type ThemeId } from './themes';
 import { toast } from './use-toast';
 
 const logger = createLogger('ThemeProvider');
 
-export type Theme = 'dark' | 'light' | 'system';
+export type ThemeMode = 'dark' | 'light' | 'system';
+
+const THEME_MODES: ReadonlySet<string> = new Set(['dark', 'light', 'system']);
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return typeof value === 'string' && THEME_MODES.has(value);
+}
 
 export interface ThemeStorageAdapter {
   getItem: (key: string) => Promise<string | null>;
@@ -18,14 +25,20 @@ export interface ThemeStorageAdapter {
 
 interface ThemeProviderProps {
   children: React.ReactNode;
-  defaultTheme?: Theme;
+  /** Light, dark or system. Persisted under `storageKey`. */
+  defaultMode?: ThemeMode;
+  /** Palette id. Persisted under `themeStorageKey`. */
+  defaultTheme?: ThemeId;
   storageAdapter: ThemeStorageAdapter;
   storageKey?: string;
+  themeStorageKey?: string;
 }
 
 interface ThemeProviderState {
-  setTheme: (theme: Theme) => void;
-  theme: Theme;
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
+  setTheme: (theme: ThemeId) => void;
+  theme: ThemeId;
 }
 
 type ThemeLoad =
@@ -40,27 +53,45 @@ const ThemeProviderContext = React.createContext<ThemeProviderState | undefined>
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'system',
+  defaultMode = 'system',
+  defaultTheme = DEFAULT_THEME,
   storageKey = 'ui-theme',
+  themeStorageKey = 'ui-theme-palette',
   storageAdapter,
-  ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = React.useState<Theme>(defaultTheme);
+  const [mode, setModeState] = React.useState<ThemeMode>(defaultMode);
+  const [theme, setThemeState] = React.useState<ThemeId>(defaultTheme);
   const [load, setLoad] = React.useState<ThemeLoad>(LOADING);
   const [attempt, setAttempt] = React.useState(0);
 
   // Only access storage after component is mounted (client-side). A failed read
   // stops here with a visible failure (BST-1731): it never substitutes the
   // default theme on its own, and it never writes over the saved preference.
+  // A saved value this build does not know (a palette removed in a later
+  // release, say) keeps the default and says so; it is not a failed read.
   React.useEffect(() => {
     let current = true;
-    storageAdapter.getItem(storageKey).then(
-      (savedTheme) => {
+    Promise.all([storageAdapter.getItem(storageKey), storageAdapter.getItem(themeStorageKey)]).then(
+      ([savedMode, savedTheme]) => {
         if (!current) {
           return;
         }
+        if (savedMode) {
+          if (isThemeMode(savedMode)) {
+            setModeState(savedMode);
+          } else {
+            logger.warn('Ignoring an unknown saved theme mode', { storageKey, value: savedMode });
+          }
+        }
         if (savedTheme) {
-          setTheme(savedTheme as Theme);
+          if (isThemeId(savedTheme)) {
+            setThemeState(savedTheme);
+          } else {
+            logger.warn('Ignoring an unknown saved theme', {
+              storageKey: themeStorageKey,
+              value: savedTheme,
+            });
+          }
         }
         setLoad(READY);
       },
@@ -68,57 +99,75 @@ export function ThemeProvider({
         if (!current) {
           return;
         }
-        logger.error('Reading the saved theme preference failed', { attempt, error, storageKey });
+        logger.error('Reading the saved theme preference failed', {
+          attempt,
+          error,
+          storageKey,
+          themeStorageKey,
+        });
         setLoad({ error, status: 'failed' });
       }
     );
     return () => {
       current = false;
     };
-  }, [attempt, storageAdapter, storageKey]);
+  }, [attempt, storageAdapter, storageKey, themeStorageKey]);
 
   React.useEffect(() => {
     const root = window.document.documentElement;
 
     root.classList.remove('light', 'dark');
 
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches
+    if (mode === 'system') {
+      const systemMode = window.matchMedia('(prefers-color-scheme: dark)').matches
         ? 'dark'
         : 'light';
 
-      root.classList.add(systemTheme);
+      root.classList.add(systemMode);
       return;
     }
 
-    root.classList.add(theme);
+    root.classList.add(mode);
+  }, [mode]);
+
+  // The palette is a `data-theme` attribute, orthogonal to the light/dark class.
+  React.useEffect(() => {
+    window.document.documentElement.dataset['theme'] = theme;
   }, [theme]);
 
-  const setAndStoreTheme = React.useCallback(
-    (newTheme: Theme) => {
-      storageAdapter.setItem(storageKey, newTheme).catch((error: unknown) => {
-        logger.error('Saving the theme preference failed', {
-          error,
-          storageKey,
-          theme: newTheme,
-        });
+  const store = React.useCallback(
+    (key: string, value: string, detail: Record<string, string>) => {
+      storageAdapter.setItem(key, value).catch((error: unknown) => {
+        logger.error('Saving the theme preference failed', { error, storageKey: key, ...detail });
         toast({
           description: 'The theme changed for this session, but it could not be saved.',
           title: 'Theme not saved',
           variant: 'destructive',
         });
       });
-      setTheme(newTheme);
     },
-    [storageAdapter, storageKey]
+    [storageAdapter]
+  );
+
+  const setMode = React.useCallback(
+    (next: ThemeMode) => {
+      store(storageKey, next, { mode: next });
+      setModeState(next);
+    },
+    [store, storageKey]
+  );
+
+  const setTheme = React.useCallback(
+    (next: ThemeId) => {
+      store(themeStorageKey, next, { theme: next });
+      setThemeState(next);
+    },
+    [store, themeStorageKey]
   );
 
   const value = React.useMemo(
-    () => ({
-      setTheme: setAndStoreTheme,
-      theme,
-    }),
-    [theme, setAndStoreTheme]
+    () => ({ mode, setMode, setTheme, theme }),
+    [mode, setMode, setTheme, theme]
   );
 
   const retryLoad = React.useCallback(() => {
@@ -133,7 +182,7 @@ export function ThemeProvider({
   if (load.status === 'failed') {
     return (
       <ThemeLoadFailure
-        defaultTheme={defaultTheme}
+        defaultMode={defaultMode}
         error={load.error}
         onContinue={continueWithDefault}
         onRetry={retryLoad}
@@ -146,11 +195,7 @@ export function ThemeProvider({
     return null;
   }
 
-  return (
-    <ThemeProviderContext.Provider {...props} value={value}>
-      {children}
-    </ThemeProviderContext.Provider>
-  );
+  return <ThemeProviderContext.Provider value={value}>{children}</ThemeProviderContext.Provider>;
 }
 
 /**
@@ -159,12 +204,12 @@ export function ThemeProvider({
  * session only, leaving the saved preference untouched.
  */
 function ThemeLoadFailure({
-  defaultTheme,
+  defaultMode,
   error,
   onContinue,
   onRetry,
 }: {
-  readonly defaultTheme: Theme;
+  readonly defaultMode: ThemeMode;
   readonly error: unknown;
   readonly onContinue: () => void;
   readonly onRetry: () => void;
@@ -190,11 +235,11 @@ function ThemeLoadFailure({
           Try again
         </Button>
         <Button onClick={onContinue} size="sm" type="button" variant="outline">
-          Continue with the {defaultTheme} theme
+          Continue with the {defaultMode} theme
         </Button>
       </div>
       <p className="text-muted-foreground max-w-md text-xs">
-        Continuing uses the {defaultTheme} theme for this session and keeps your saved preference.
+        Continuing uses the {defaultMode} theme for this session and keeps your saved preference.
       </p>
     </div>
   );

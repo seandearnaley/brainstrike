@@ -14,11 +14,11 @@ vi.mock('../use-toast', async (importOriginal) => {
 });
 
 function ThemedApp() {
-  const { setTheme, theme } = useTheme();
+  const { mode, setMode } = useTheme();
   return (
     <main>
-      <p>App theme: {theme}</p>
-      <button onClick={() => setTheme('dark')} type="button">
+      <p>App theme: {mode}</p>
+      <button onClick={() => setMode('dark')} type="button">
         Use dark
       </button>
     </main>
@@ -27,10 +27,15 @@ function ThemedApp() {
 
 function renderProvider(adapter: ThemeStorageAdapter) {
   return render(
-    <ThemeProvider defaultTheme="light" storageAdapter={adapter} storageKey="app-theme">
+    <ThemeProvider defaultMode="light" storageAdapter={adapter} storageKey="app-theme">
       <ThemedApp />
     </ThemeProvider>
   );
+}
+
+/** Storage holding a saved mode under app-theme and no saved palette. */
+function savedMode(value: string) {
+  return (key: string) => Promise.resolve(key === 'app-theme' ? value : null);
 }
 
 function storageAdapter(overrides: Partial<ThemeStorageAdapter> = {}) {
@@ -60,7 +65,7 @@ describe('ThemeProvider storage failures (BST-1731)', () => {
   });
 
   it('opens the app on the saved theme when the read succeeds', async () => {
-    const adapter = storageAdapter({ getItem: vi.fn().mockResolvedValue('dark') });
+    const adapter = storageAdapter({ getItem: vi.fn(savedMode('dark')) });
     renderProvider(adapter);
 
     expect(await screen.findByText('App theme: dark')).toBeInTheDocument();
@@ -93,6 +98,7 @@ describe('ThemeProvider storage failures (BST-1731)', () => {
         attempt: 0,
         error: expect.objectContaining({ message: 'storage bridge unavailable' }),
         storageKey: 'app-theme',
+        themeStorageKey: 'ui-theme-palette',
       },
     ]);
     expect(adapter.setItem).not.toHaveBeenCalled();
@@ -101,9 +107,8 @@ describe('ThemeProvider storage failures (BST-1731)', () => {
   it('Try again re-reads storage and opens the app on the saved theme', async () => {
     const adapter = storageAdapter({
       getItem: vi
-        .fn()
-        .mockRejectedValueOnce(new Error('storage bridge unavailable'))
-        .mockResolvedValueOnce('dark'),
+        .fn(savedMode('dark'))
+        .mockRejectedValueOnce(new Error('storage bridge unavailable')),
     });
     renderProvider(adapter);
 
@@ -111,7 +116,8 @@ describe('ThemeProvider storage failures (BST-1731)', () => {
 
     expect(await screen.findByText('App theme: dark')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(adapter.getItem).toHaveBeenCalledTimes(2);
+    // Each read covers both keys: the mode and the palette.
+    expect(adapter.getItem).toHaveBeenCalledTimes(4);
     expect(adapter.setItem).not.toHaveBeenCalled();
   });
 
@@ -164,8 +170,8 @@ describe('ThemeProvider storage failures (BST-1731)', () => {
         'Saving the theme preference failed',
         {
           error: expect.objectContaining({ message: 'quota exceeded' }),
+          mode: 'dark',
           storageKey: 'app-theme',
-          theme: 'dark',
         },
       ],
     ]);

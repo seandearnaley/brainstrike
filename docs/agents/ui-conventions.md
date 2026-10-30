@@ -23,9 +23,14 @@ those tokens to its colour on its conversation panel and its Threads row, so an
 overlay inside stays in the thread's hue; do not hardcode a grey or `var(--muted)`
 there. Palette tokens (`--bs-*` in `packages/ui/src/themes/`) hold complete colours:
 use a token as `var(--x)`, and `color-mix(in oklab, var(--x) N%, transparent)` for
-an alpha. Syntax colours are the `--syntax-*` tokens for CodeMirror and the matching
-Shiki themes (GitHub Light, Monokai) for code blocks; the code box owns its
-background. Scrollbars inherit one translucent thumb from `body`.
+an alpha. The palette is `data-theme` on `<html>`, set by `ThemeProvider` beside the
+light/dark class. Generated palettes come from `scripts/import-shadcn-theme.mjs`;
+re-run it rather than editing their values. They override only the shadcn colour
+set and radius, so status, delegation and syntax tokens stay the baseline's, and
+the high-contrast block in `globals.css` wins over every palette. Syntax colours
+are the `--syntax-*` tokens for CodeMirror and the matching Shiki themes (GitHub
+Light, Monokai) for code blocks; the code box owns its background. Scrollbars
+inherit one translucent thumb from `body`.
 
 ## Context actions and layers
 
