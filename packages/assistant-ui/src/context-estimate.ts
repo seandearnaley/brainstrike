@@ -60,7 +60,22 @@ function safeStringify(value: unknown): string | undefined {
   }
 }
 
+// A tool part is replaced, never mutated, when its args or result change, so
+// its count is cached by identity: the streaming tail re-walks on every delta
+// and must not re-serialize results it already counted (BST-2312).
+const toolPartCountCache = new WeakMap<object, { name: string; tokens: number }>();
+
 function countToolPart(part: Record<string, unknown>): { name: string; tokens: number } {
+  const cached = toolPartCountCache.get(part);
+  if (cached) {
+    return cached;
+  }
+  const counted = countToolPartContent(part);
+  toolPartCountCache.set(part, counted);
+  return counted;
+}
+
+function countToolPartContent(part: Record<string, unknown>): { name: string; tokens: number } {
   const name = typeof part['toolName'] === 'string' && part['toolName'] ? part['toolName'] : 'tool';
   let tokens = 0;
   const argsText =
