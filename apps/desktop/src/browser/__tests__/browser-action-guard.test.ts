@@ -47,10 +47,29 @@ describe('blockedActionCategory (BST-2209)', () => {
     const loginForm = {
       captcha: false,
       fields: [field({ hints: 'email' }), field({ type: 'password' })],
+      submitText: 'Sign in',
     };
     expect(blockedActionCategory(target({ form: loginForm, hints: 'email' }), type())).toBe(
       'credential'
     );
+  });
+
+  it('refuses sending a login form, though the person filled it (BST-2336)', () => {
+    const loginForm = {
+      captcha: false,
+      fields: [field({ hints: 'email' }), field({ type: 'password' })],
+      submitText: 'Sign in',
+    };
+    expect(
+      blockedActionCategory(
+        target({ form: loginForm, submits: true, tag: 'button', text: 'Sign in' }),
+        click
+      )
+    ).toBe('credential');
+    // A button that does not send the form, such as "Show password", is fine.
+    expect(
+      blockedActionCategory(target({ form: loginForm, tag: 'button', text: 'Show' }), click)
+    ).toBeUndefined();
   });
 
   it('refuses payment fields and card numbers typed anywhere', () => {
@@ -72,7 +91,7 @@ describe('blockedActionCategory (BST-2209)', () => {
     expect(blockedActionCategory(target({ hints: 'captcha answer' }), type('x7k2'))).toBe(
       'captcha'
     );
-    const guarded = { captcha: true, fields: [field({ hints: 'email' })] };
+    const guarded = { captcha: true, fields: [field({ hints: 'email' })], submitText: 'Send' };
     expect(
       blockedActionCategory(target({ form: guarded, submits: true, tag: 'button' }), click)
     ).toBe('captcha');
@@ -95,7 +114,11 @@ describe('blockedActionCategory (BST-2209)', () => {
     expect(
       blockedActionCategory(target({ tag: 'a', text: 'Proceed to checkout' }), click)
     ).toBeUndefined();
-    const paymentForm = { captcha: false, fields: [field({ autocomplete: ['cc-number'] })] };
+    const paymentForm = {
+      captcha: false,
+      fields: [field({ autocomplete: ['cc-number'] })],
+      submitText: 'Next',
+    };
     expect(
       blockedActionCategory(
         target({ form: paymentForm, submits: true, tag: 'button', text: 'Next' }),
@@ -105,6 +128,23 @@ describe('blockedActionCategory (BST-2209)', () => {
     expect(
       blockedActionCategory(target({ form: paymentForm, hints: 'zip' }), type('02139', true))
     ).toBe('purchase');
+  });
+
+  it('refuses Enter on a checkout whose default button places the order (BST-2336)', () => {
+    // A saved card: the form has no payment fields left to fill.
+    const checkout = {
+      captcha: false,
+      fields: [field({ hints: 'gift note' })],
+      submitText: 'Place order',
+    };
+    const note = target({ form: checkout, hints: 'gift note' });
+    expect(blockedActionCategory(note, type('Happy birthday', true))).toBe('purchase');
+    // Typing without Enter, or Enter in a search box, is fine.
+    expect(blockedActionCategory(note, type('Happy birthday'))).toBeUndefined();
+    const search = { captcha: false, fields: [field({ hints: 'search' })], submitText: 'Search' };
+    expect(
+      blockedActionCategory(target({ form: search, hints: 'search' }), type('red shoes', true))
+    ).toBeUndefined();
   });
 });
 

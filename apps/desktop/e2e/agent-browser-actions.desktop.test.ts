@@ -2,7 +2,8 @@
 // (BST-2324), in the real app against a dev server on this machine. Each
 // action asks a person, by the element it names. The hard blocks (BST-2209)
 // refuse a password, a card number, a purchase and a CAPTCHA before anything
-// reaches the page, and a click that took the tab to an origin nobody approved
+// reaches the page, and so sending a login form the person filled, or
+// pressing Enter on a checkout (BST-2336). A click that took the tab to an origin nobody approved
 // leaves the next action refused (BST-2325). The page reports every input,
 // change, click and submit to the server, so "nothing reached the page" is
 // read from what the page itself saw.
@@ -29,9 +30,12 @@ function page(otherOrigin: string): string {
 <button id="save" type="button">Save</button>
 <output id="status"></output>
 <form id="login"><label>Email <input id="email" type="email"></label>
-  <label>Password <input id="password" type="password"></label></form>
+  <label>Password <input id="password" type="password" value="typed-by-the-person"></label>
+  <button id="signin">Sign in</button></form>
 <form id="pay"><label>Card number <input id="card" autocomplete="cc-number"></label>
   <button id="order">Place order</button></form>
+<form id="checkout"><label>Gift note <input id="note"></label>
+  <button id="place">Place your order</button></form>
 <div class="g-recaptcha"><label><input id="robot" type="checkbox"> Not a robot</label></div>
 <a id="away" href="${otherOrigin}/away">Elsewhere</a>
 <script>
@@ -40,7 +44,9 @@ function page(otherOrigin: string): string {
   for (const kind of ['input', 'change', 'click', 'submit', 'keydown']) {
     document.addEventListener(kind, (event) => report(kind, event.target), true);
   }
-  document.getElementById('pay').addEventListener('submit', (event) => event.preventDefault());
+  for (const id of ['login', 'pay', 'checkout']) {
+    document.getElementById(id).addEventListener('submit', (event) => event.preventDefault());
+  }
   document.getElementById('save').addEventListener('click', () => {
     const saved = 'saved ' + document.getElementById('name').value + ' ' + document.getElementById('size').value;
     document.getElementById('status').value = saved;
@@ -157,6 +163,23 @@ test('the agent acts on its own page, and the hard blocks refuse before the page
           ],
           [
             {
+              arguments: { element: 'Sign in', ref: ref('button', 'Sign in') },
+              name: TOOLS.click,
+            },
+          ],
+          [
+            {
+              arguments: {
+                element: 'Gift note',
+                ref: ref('textbox', 'Gift note'),
+                submit: true,
+                text: 'Happy birthday',
+              },
+              name: TOOLS.type,
+            },
+          ],
+          [
+            {
               arguments: { element: 'Not a robot', ref: ref('checkbox', 'Not a robot') },
               name: TOOLS.click,
             },
@@ -188,6 +211,8 @@ test('the agent acts on its own page, and the hard blocks refuse before the page
       ['Typing into Email', 'brainstrike.browserType'],
       ['Typing into Card', 'brainstrike.browserType'],
       ['Clicking Place order', 'brainstrike.browserClick'],
+      ['Clicking Sign in', 'brainstrike.browserClick'],
+      ['Typing into Gift note', 'brainstrike.browserType'],
       ['Clicking Not a robot', 'brainstrike.browserClick'],
       ['Clicking Elsewhere', 'brainstrike.browserClick'],
       ['Clicking Save again', 'brainstrike.browserClick'],
@@ -208,7 +233,36 @@ test('the agent acts on its own page, and the hard blocks refuse before the page
     for (const category of ['credential', 'payment', 'purchase', 'captcha']) {
       expect(requests).toContain(`Refused (${category})`);
     }
-    for (const target of ['email', 'password', 'card', 'order', 'robot', 'login', 'pay']) {
+    // One refusal per refused action, in the order the model asked: typing
+    // the email, the card, Place order, Sign in, Enter on the gift note, the
+    // CAPTCHA.
+    const history = JSON.stringify(
+      modelProvider
+        .requests()
+        .filter((request) => streaming(request.requestBody))
+        .at(-1)?.messages
+    );
+    expect([...history.matchAll(/Refused \((\w+)\)/gu)].map((match) => match[1])).toEqual([
+      'credential',
+      'payment',
+      'purchase',
+      'credential',
+      'purchase',
+      'captcha',
+    ]);
+    for (const target of [
+      'email',
+      'password',
+      'signin',
+      'card',
+      'order',
+      'note',
+      'place',
+      'robot',
+      'login',
+      'pay',
+      'checkout',
+    ]) {
       expect(
         events.filter((event) => event.target === target),
         target

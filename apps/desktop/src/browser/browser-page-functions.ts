@@ -44,15 +44,25 @@ export const TARGET_FACTS_FUNCTION = `function () {
       type: lower(node.tagName) === 'input' ? lower(node.getAttribute('type') || 'text') : '',
     };
   };
+  const label = (node) =>
+    (node.innerText || node.value || node.getAttribute('aria-label') || node.getAttribute('title') || node.getAttribute('alt') || '')
+      .toString()
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .slice(0, 300);
+  // The \`type\` property, not the attribute: a button with no type, or one
+  // the browser does not know, submits.
+  const isSubmitButton = (node) =>
+    ['button', 'input'].includes(lower(node.tagName)) && (node.type === 'submit' || node.type === 'image');
   const tag = lower(el.tagName);
   const form = el.form || el.closest('form');
-  const type = tag === 'input' ? lower(el.getAttribute('type') || 'text') : '';
-  const buttonType = tag === 'button' ? lower(el.getAttribute('type') || 'submit') : '';
-  const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '')
-    .toString()
-    .replace(/\\s+/g, ' ')
-    .trim()
-    .slice(0, 300);
+  // HTML's implicit submission presses the form's first submit button in
+  // tree order, wherever its \`form\` attribute puts it.
+  const defaultButton = form
+    ? Array.from(form.getRootNode().querySelectorAll('button, input')).find(
+        (node) => node.form === form && isSubmitButton(node)
+      )
+    : undefined;
   return {
     captcha: Boolean(el.closest(CAPTCHA)),
     connected: true,
@@ -63,11 +73,12 @@ export const TARGET_FACTS_FUNCTION = `function () {
           fields: Array.from(form.querySelectorAll('input, select, textarea'))
             .slice(0, 200)
             .map(field),
+          submitText: defaultButton ? label(defaultButton) : '',
         }
       : null,
-    submits: Boolean(form) && (buttonType === 'submit' || type === 'submit' || type === 'image'),
+    submits: Boolean(form) && isSubmitButton(el),
     tag,
-    text,
+    text: label(el),
     ...field(el),
   };
 }`;
