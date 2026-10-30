@@ -94,6 +94,20 @@ describe('estimateConversationTokens (BST-940 estimator v2)', () => {
     expect(second).toEqual(first);
   });
 
+  it('counts a streaming tool call again once its result arrives', () => {
+    const call = {
+      argsText: TOOL_ARGS,
+      toolName: 'brainstrike.readWorkspaceFile',
+      type: 'tool-call',
+    };
+    const tail = (part: object) => [{ content: [part], role: 'assistant' }];
+    const pending = estimateConversationTokens(tail(call));
+    const settled = estimateConversationTokens(tail({ ...call, result: TOOL_RESULT }));
+    expect(settled.toolTokens - pending.toolTokens).toBe(
+      countTokensHeuristic(JSON.stringify(TOOL_RESULT))
+    );
+  });
+
   it('returns an all-zero estimate for an empty thread', () => {
     const estimate = estimateConversationTokens([]);
     expect(estimate.totalTokens).toBe(0);

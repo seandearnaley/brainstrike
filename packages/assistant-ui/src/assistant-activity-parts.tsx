@@ -355,8 +355,11 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
   // (BST-1681): which step is the group's LAST running one — the only row
   // whose verb shimmers. Derived here, where the whole step list is known,
   // and handed down through the provider; with two calls in flight, a card
-  // reading only its own status would shimmer both.
-  const stepMeta = useMemo(() => deriveStepMeta(steps), [steps]);
+  // reading only its own status would shimmer both. Keyed on the id, not the
+  // step list: the list is re-derived on every streamed delta, and a new
+  // context value would re-render every row of the group (BST-2313).
+  const { lastRunningId } = deriveStepMeta(steps);
+  const stepMeta = useMemo(() => ({ lastRunningId }), [lastRunningId]);
   const restingOverride = useAuiState((state) => readActivitySummaryOverride(state.message));
   // Clusters, filters, the live tail, the run strip, jumps and keys (activity
   // trace at scale): derived from the same step list, before any early return.
