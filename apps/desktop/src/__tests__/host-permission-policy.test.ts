@@ -11,10 +11,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { hostPermissionPolicyPersistence } from '../renderer/host-permission-policy';
 
 const SAVED = {
+  access: 'auto',
+  autoReviewModel: 'auto',
   enforce: true,
   perToolOverrides: {},
   policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
-  yolo: false,
 } as const;
 /** One host connection keeping the saved policy, through the wire schemas. */
 function host() {
@@ -61,7 +62,7 @@ describe('the desktop permission policy persistence', () => {
     await expect(
       storage.setItem(
         'permission-policy.v1',
-        JSON.stringify({ state: { ...SAVED, yolo: 'sometimes' }, version: 2 })
+        JSON.stringify({ state: { ...SAVED, access: 'sometimes' }, version: 2 })
       )
     ).rejects.toThrow();
     expect(owner.requests).toEqual([]);

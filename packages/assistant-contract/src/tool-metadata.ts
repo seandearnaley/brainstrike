@@ -47,8 +47,13 @@ export {
 } from './native-tools/index.ts';
 
 export {
+  ACCESS_MODES,
+  type AccessMode,
+  AUTO_REVIEW_MODEL_AUTO,
+  type AutoReviewSettings,
   DEFAULT_PERMISSION_POLICIES,
   InvalidPermissionPolicyError,
+  isAccessMode,
   isPermissionDecision,
   isPermissionDenied,
   PERMISSION_DECISIONS,

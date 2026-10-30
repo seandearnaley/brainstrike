@@ -1,18 +1,20 @@
-import { PERMISSION_DECISIONS } from '@brainstrike/assistant-contract';
+import { ACCESS_MODES, PERMISSION_DECISIONS } from '@brainstrike/assistant-contract';
 import { Schema } from 'effect';
 
 const Decision = Schema.Literals(PERMISSION_DECISIONS);
 /**
  * The permission policy the desktop user saved (BST-1930 stage e): whether it
- * is enforced, each risk category's decision, per-tool overrides and the
- * allow-everything toggle. Session grants are not saved; Core keeps a run
+ * is enforced, each risk category's decision, per-tool overrides, the
+ * composer's access mode and auto mode's review model (`auto` or a
+ * `provider/model` target). Session grants are not saved; Core keeps a run
  * tree's own.
  */
 export const HostPermissionPolicySchema = Schema.Struct({
+  access: Schema.Literals(ACCESS_MODES),
+  autoReviewModel: Schema.String.check(Schema.isMinCodePoints(1)),
   enforce: Schema.Boolean,
   perToolOverrides: Schema.Record(Schema.String.check(Schema.isMinCodePoints(1)), Decision),
   policies: Schema.Struct({ edit: Decision, execute: Decision, mcp: Decision, read: Decision }),
-  yolo: Schema.Boolean,
 });
 export type HostPermissionPolicy = (typeof HostPermissionPolicySchema)['Type'];
 /** A web origin exactly as `URL.origin` writes it: http(s), host and any explicit port. */

@@ -17,6 +17,34 @@
 import type { ToolRiskCategory } from './tool-risk.ts';
 
 /**
+ * How the assistant's gated tool calls are answered, chosen in the composer:
+ * - `ask`: every call the policy asks about waits for the user (the default).
+ * - `auto`: a quick model reviews each of those calls first. A call it judges
+ *   low risk and covered by the user's request runs; anything else, and any
+ *   review that fails, still asks the user.
+ * - `full`: every call runs unprompted (the gate's `yolo`).
+ *
+ * In every mode an explicit deny still wins (ADR-0010).
+ */
+export const ACCESS_MODES = ['ask', 'auto', 'full'] as const;
+export type AccessMode = (typeof ACCESS_MODES)[number];
+
+export function isAccessMode(value: unknown): value is AccessMode {
+  return value === 'ask' || value === 'auto' || value === 'full';
+}
+
+/** The auto-review model target that resolves to the chat provider's quick model. */
+export const AUTO_REVIEW_MODEL_AUTO = 'auto';
+
+/**
+ * Auto access mode's reviewer: `model` is {@link AUTO_REVIEW_MODEL_AUTO} or a
+ * `provider/model` target, as the observational-memory model target is written.
+ */
+export interface AutoReviewSettings {
+  readonly model: string;
+}
+
+/**
  * A SERIALIZABLE snapshot of the permission posture plus the caller-provided
  * tool risk classification, threaded into the agent runtime so it can gate the
  * tool map BEFORE the (immutable) Mastra `Agent` is constructed (permission
@@ -33,6 +61,11 @@ import type { ToolRiskCategory } from './tool-risk.ts';
  * registry-side and never rides on the Mastra tool instance.
  */
 export interface PermissionToolGateSnapshot {
+  /**
+   * Present in auto access mode: a call that resolves to `'ask'` is reviewed
+   * by this quick model before the user is asked.
+   */
+  autoReview?: AutoReviewSettings;
   /**
    * Risk for a tool absent from {@link riskByTool} (e.g. a discovered MCP tool).
    * Defaults to `'mcp'` (most restrictive sensible) in the runtime gate when

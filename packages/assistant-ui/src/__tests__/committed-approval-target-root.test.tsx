@@ -46,4 +46,16 @@ describe('a committed file approval', () => {
     );
     expect(within(dialog).queryByTestId('approval-workspace-root-value')).toBeNull();
   });
+
+  it("shows auto-review's note on why the call still asks", async () => {
+    render(
+      <CommittedApprovalStrip
+        approvals={[{ ...write(), reviewNote: 'Auto-review flagged this: It overwrites notes.' }]}
+      />
+    );
+    const dialog = await review();
+    expect(within(dialog).getByTestId('approval-review-note')).toHaveTextContent(
+      'Auto-review flagged this: It overwrites notes.'
+    );
+  });
 });

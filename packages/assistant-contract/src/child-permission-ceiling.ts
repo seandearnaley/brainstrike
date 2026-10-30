@@ -81,6 +81,8 @@ export function intersectChildPermissionCeilings(
     decision(current, current.defaultRisk ?? 'mcp')
   );
   return {
+    // Like grants, the access mode follows the live root.
+    ...(current.autoReview ? { autoReview: current.autoReview } : {}),
     defaultRisk: 'mcp',
     perToolOverrides,
     policies,
