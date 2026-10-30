@@ -2,6 +2,7 @@ import {
   __resetPermissionPolicyStoreForTests,
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
+import { PERMISSION_POLICY_UNREADABLE_CODE } from '@brainstrike/assistant-contract/tool-metadata';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -294,6 +295,58 @@ describe('PermissionSettingsSection with a host-kept policy', () => {
     failing = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.getByTestId('permission-policy-edit')).not.toBeNull());
+  });
+
+  it('offers a reset, not a retry, when the saved policy is in a shape the host cannot read', async () => {
+    let saved: string | null = 'older';
+    const { section } = await withHostStorage({
+      getItem: async () => {
+        if (saved !== null) {
+          // The store's own module instance: withHostStorage reset the registry.
+          const { refusalError } = await import('@brainstrike/assistant-contract/boundary-failure');
+          throw refusalError(
+            'configuration',
+            PERMISSION_POLICY_UNREADABLE_CODE,
+            'The saved permission settings are from an older version of BrainStrike and cannot be read.'
+          );
+        }
+        return null;
+      },
+      removeItem: async () => {
+        saved = null;
+      },
+      setItem: async () => undefined,
+    });
+    render(<section.PermissionSettingsSection />);
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('from an older version')
+    );
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+
+    await waitFor(() => expect(screen.getByTestId('permission-policy-edit')).not.toBeNull());
+    expect(saved).toBeNull();
+  });
+
+  it('says why a reset failed and keeps offering it', async () => {
+    const { section } = await withHostStorage({
+      getItem: async () => {
+        const { refusalError } = await import('@brainstrike/assistant-contract/boundary-failure');
+        throw refusalError('configuration', PERMISSION_POLICY_UNREADABLE_CODE, 'Older settings.');
+      },
+      removeItem: async () => {
+        throw new Error('The state store is read-only.');
+      },
+      setItem: async () => undefined,
+    });
+    render(<section.PermissionSettingsSection />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reset to defaults' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('The state store is read-only.')
+    );
+    expect(screen.getByRole('button', { name: 'Reset to defaults' })).not.toBeNull();
   });
 
   it('shows a choice once the host saved it, and why when it did not', async () => {
