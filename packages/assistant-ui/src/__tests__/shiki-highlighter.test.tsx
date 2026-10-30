@@ -1,7 +1,7 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown';
 import { render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const shikiMocks = vi.hoisted(() => ({
   createHighlighterCore: vi.fn(),
@@ -44,8 +44,27 @@ async function importSubject(): Promise<typeof import('../shiki-highlighter')> {
   return import('../shiki-highlighter');
 }
 
+/** The block is on screen: it reports intersecting as soon as it is observed. */
+class InViewObserver {
+  private readonly callback: IntersectionObserverCallback;
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+  }
+  observe(target: Element): void {
+    this.callback(
+      [{ isIntersecting: true, target } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver
+    );
+  }
+  disconnect(): void {}
+}
+
 describe('SyntaxHighlighterComponent', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   beforeEach(() => {
+    vi.stubGlobal('IntersectionObserver', InViewObserver);
     vi.resetModules();
     shikiMocks.createHighlighterCore.mockReset();
     shikiMocks.createOnigurumaEngine.mockClear();

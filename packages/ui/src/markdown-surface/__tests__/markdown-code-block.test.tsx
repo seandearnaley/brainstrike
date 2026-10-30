@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../tooltip';
 import { MarkdownCodeBlock } from '../markdown-code-block';
 
@@ -32,8 +32,27 @@ vi.mock('../../shiki/highlighter-core', () => ({
 // button's tooltip needs it.
 const renderBlock = (ui: React.ReactElement) => render(<TooltipProvider>{ui}</TooltipProvider>);
 
+/** Every block is already in view: it reports intersecting as soon as it is observed. */
+class InViewObserver {
+  private readonly callback: IntersectionObserverCallback;
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+  }
+  observe(target: Element): void {
+    this.callback(
+      [{ isIntersecting: true, target } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver
+    );
+  }
+  disconnect(): void {}
+}
+
 describe('MarkdownCodeBlock', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   beforeEach(() => {
+    vi.stubGlobal('IntersectionObserver', InViewObserver);
     vi.clearAllMocks();
     mocks.useShikiHighlighter.mockReturnValue(null);
     mocks.writeText.mockResolvedValue({ ok: true });
