@@ -15,7 +15,7 @@ interface TokenClass {
   readonly label: string;
 }
 
-const chartColor = (index: number): string => `hsl(var(--chart-${index}))`;
+const chartColor = (index: number): string => `var(--chart-${index})`;
 
 function tokenClasses(totals: LedgerUsageTotals): TokenClass[] {
   return [
