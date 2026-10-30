@@ -79,9 +79,10 @@ function usePageOnScreen(
  *
  * The page is on screen only while its tab is selected on the Explorer route
  * and nothing drops over it: the ⌘K palette, a workspace strip menu, or a
- * toast (they stack bottom-right, where the workspace pane sits). Other
- * transient overlays — popovers, dialogs, page context menus — are a
- * documented follow-up.
+ * timed toast (they stack bottom-right, where the workspace pane sits). A
+ * persistent toast stays until someone closes it, so it does not take the
+ * page away; it is still drawn under the page. Other transient overlays —
+ * popovers, dialogs, page context menus — are a documented follow-up.
  */
 export function BrowserPageView({
   bridge,
@@ -101,7 +102,7 @@ export function BrowserPageView({
   const onExplorer = usePanelLayoutStore((state) => state.activeTab === 'explorer');
   const paletteOpen = useCommandPaletteStore((state) => state.isOpen);
   const { isMenuOpen } = useWorkspaceTabs();
-  const toastOpen = useToast().toasts.some((toast) => toast.open);
+  const toastOpen = useToast().toasts.some((toast) => toast.open && !toast.persistent);
   const viewport = useRef<HTMLDivElement | null>(null);
   usePageOnScreen(
     bridge,

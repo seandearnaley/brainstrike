@@ -148,6 +148,17 @@ describe('browser page tab', () => {
     expect(bridge.setOccluded).toHaveBeenLastCalledWith(false);
   });
 
+  it('stays shown while a persistent toast is up, which would otherwise blank the page until someone closes it', async () => {
+    render(<PageTabs isMenuOpen={false} />);
+    await nextFrame();
+
+    act(() => {
+      toast({ persistent: true, title: 'Conversation rewound' });
+    });
+    await nextFrame();
+    expect(bridge.setOccluded).not.toHaveBeenCalledWith(true);
+  });
+
   it('keeps the page hidden away from the Explorer route', async () => {
     usePanelLayoutStore.getState().setActiveTab('settings');
     render(<PageTabs isMenuOpen={false} />);
