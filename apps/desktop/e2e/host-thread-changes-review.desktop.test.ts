@@ -115,3 +115,57 @@ test('a host run is reviewed in Changes from its turn snapshots, and "Last Turn"
   await expect.poll(snapshotRows, { timeout: 30_000 }).toBe(4);
   expect(modelProvider.refusals()).toEqual([]);
 });
+
+test('a comment on a Changes diff line goes into the thread’s next message', async ({
+  electron,
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(240_000);
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-changes-line-comment-')));
+  electron.removeAfterClose(root);
+  writeFileSync(path.join(root, 'notes.txt'), ORIGINAL);
+  await seedRoot(page, root, {
+    disableBackgroundIndexing: true,
+    reloadReason: 'changes-line-comment-root',
+    rootId: randomUUID(),
+  });
+  await enableModel(page);
+  modelProvider.setScript(writeScript('notes.txt', REWRITTEN, FIRST_REPLY));
+  await ensureAssistantShellVisible(page);
+  const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+  const input = region.getByRole('textbox', { name: 'Message input' });
+  await input.fill('Rewrite the notes.');
+  await region.getByRole('button', { exact: true, name: 'Send' }).click();
+  await region.getByRole('button', { name: /^Approve /u }).click({ timeout: 90_000 });
+  await expect(region.getByText(FIRST_REPLY)).toBeVisible({ timeout: 90_000 });
+  await region.getByTestId('changes-review-link').click({ timeout: 30_000 });
+
+  // The + shows on the hovered line; its box takes the comment and Ctrl+Enter adds it.
+  const diff = page
+    .getByTestId('changes-surface')
+    .getByRole('region', { name: 'Diff for notes.txt' });
+  await diff.getByText(REWRITTEN.trim()).hover({ timeout: 30_000 });
+  await diff.getByRole('button', { includeHidden: true, name: 'Comment on new line 1' }).click();
+  const box = diff.getByRole('textbox', { name: 'Comment on new line 1' });
+  await box.fill('Keep the original wording here.');
+  await box.press('Control+Enter');
+  await expect(box).toHaveCount(0);
+  // The message names the file and line, and quotes the line above the comment.
+  await expect(input).toHaveValue(
+    /^`notes\.txt` in [^,]+, line 1:\n```\nrewritten by the host run\n```\nKeep the original wording here\.$/u
+  );
+
+  // Sending it is an ordinary message the model receives.
+  modelProvider.setScript(() => ({ finalText: 'Comment received.' }));
+  await region.getByRole('button', { exact: true, name: 'Send' }).click();
+  await expect(region.getByText('Comment received.')).toBeVisible({ timeout: 90_000 });
+  expect(
+    modelProvider
+      .requests()
+      .some((request) =>
+        JSON.stringify(request.messages).includes('Keep the original wording here.')
+      )
+  ).toBe(true);
+  expect(modelProvider.refusals()).toEqual([]);
+});

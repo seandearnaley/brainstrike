@@ -34,7 +34,7 @@ import type {
   GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
-import { Button, DiffView } from '@brainstrike/ui';
+import { Button, type DiffLineComment, DiffView } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { GitFailureDetails } from '../../git-failure-details';
 
@@ -52,6 +52,10 @@ export interface ChangesetFileDiffCardProps {
     path: string,
     rootId: string | null
   ) => Promise<GitResult<StructuredFileDiff>>;
+  /** Takes a comment on this file's diff lines (BST-2334); without it the diff takes none. */
+  readonly onLineComment?:
+    | ((entry: ChangedFileEntry, comment: DiffLineComment) => boolean)
+    | undefined;
   /**
    * Live-refresh reload signal (BST-1161, PR #2288 review): a changed value
    * re-runs the load on a card whose FIRST load already started, so a
@@ -167,9 +171,11 @@ function ErrorBody({
 function LoadedBody({
   diff,
   entry,
+  onLineComment,
 }: {
   readonly diff: StructuredFileDiff;
   readonly entry: ChangedFileEntry;
+  readonly onLineComment: ChangesetFileDiffCardProps['onLineComment'];
 }): ReactElement {
   if (diff.content.kind === 'binary') {
     return <BinaryBody />;
@@ -179,6 +185,7 @@ function LoadedBody({
       <DiffView
         ariaLabel={`Diff for ${entry.path}`}
         filename={entry.path}
+        onLineComment={onLineComment && ((comment) => onLineComment(entry, comment))}
         source={{ diff, kind: 'structured' }}
       />
     </div>
@@ -193,6 +200,7 @@ export function ChangesetFileDiffCard({
   changesetKind: _changesetKind,
   entry,
   loadFileDiff,
+  onLineComment,
   reloadToken,
 }: ChangesetFileDiffCardProps): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -278,7 +286,9 @@ export function ChangesetFileDiffCard({
       <CardHeader entry={entry} />
       {state.kind === 'idle' || state.kind === 'loading' ? <LoadingBody /> : null}
       {state.kind === 'error' ? <ErrorBody message={state.message} onRetry={retry} /> : null}
-      {state.kind === 'loaded' ? <LoadedBody diff={state.diff} entry={entry} /> : null}
+      {state.kind === 'loaded' ? (
+        <LoadedBody diff={state.diff} entry={entry} onLineComment={onLineComment} />
+      ) : null}
     </div>
   );
 }

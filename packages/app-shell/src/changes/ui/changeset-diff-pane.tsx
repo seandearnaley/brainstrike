@@ -34,7 +34,7 @@ import type {
 } from '@brainstrike/types';
 import { type ReactElement, useMemo } from 'react';
 import { changedFileKey, selectRenderedFiles, useChangesStore } from '../changes-store';
-import { ChangesetFileDiffCard } from './changeset-file-diff-card';
+import { ChangesetFileDiffCard, type ChangesetFileDiffCardProps } from './changeset-file-diff-card';
 
 export interface ChangesetDiffPaneProps {
   /**
@@ -53,6 +53,8 @@ export interface ChangesetDiffPaneProps {
     path: string,
     rootId: string | null
   ) => Promise<GitResult<StructuredFileDiff>>;
+  /** Threaded straight through to each `ChangesetFileDiffCard` (BST-2334). */
+  readonly onLineComment?: ChangesetFileDiffCardProps['onLineComment'];
   /** Threaded straight through to `ChangesetFileDiffCard` — see its `reloadToken` doc comment (BST-1161). */
   readonly reloadToken?: number;
 }
@@ -79,6 +81,7 @@ export function ChangesetDiffPane({
   changesetKind,
   files,
   loadFileDiff,
+  onLineComment,
   reloadToken,
 }: ChangesetDiffPaneProps): ReactElement {
   const selectedFileKeys = useChangesStore((selectorState) => selectorState.selectedFileKeys);
@@ -114,6 +117,7 @@ export function ChangesetDiffPane({
             entry={entry}
             key={`${changesetKey}|${changedFileKey(entry)}`}
             loadFileDiff={loadFileDiff}
+            onLineComment={onLineComment}
             {...(reloadToken === undefined ? {} : { reloadToken })}
           />
         ))}

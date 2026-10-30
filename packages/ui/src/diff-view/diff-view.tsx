@@ -15,6 +15,15 @@ import { Button } from '../button';
 import { resolveCodeSurfaceLanguage } from '../code-surface/language';
 import { appSyntaxHighlighting } from '../code-surface/syntax-highlighting';
 import { cn } from '../lib/utils';
+import { LineCommentBox } from './diff-view-line-comment-box';
+import {
+  createLineCommentController,
+  type DiffFileLineOf,
+  type DiffLineCommentHandler,
+  type DiffLineSide,
+  type LineCommentController,
+  type OpenLineComment,
+} from './diff-view-line-comments';
 import {
   buildSlicedTextDiff,
   createSlicedLineNumberFormatter,
@@ -71,6 +80,24 @@ const DIFF_THEME: Extension = EditorView.theme({
   },
   '.cm-insertedLine': {
     backgroundColor: 'hsl(142 70% 45% / 0.14)',
+  },
+  // BST-2333: the + that opens a line comment, shown on the hovered line.
+  '.cm-line-comment-add': {
+    backgroundColor: 'transparent',
+    border: 'none',
+    borderRadius: '0.25rem',
+    color: 'var(--primary)',
+    cursor: 'pointer',
+    font: 'inherit',
+    lineHeight: 'inherit',
+    opacity: '0',
+    padding: '0 0.25rem',
+  },
+  '.cm-line-comment-add-hovered, .cm-line-comment-add:focus-visible': {
+    opacity: '1',
+  },
+  '.cm-line-comment-add:hover': {
+    backgroundColor: 'color-mix(in oklab, var(--primary) 18%, transparent)',
   },
   '.cm-merge-revert': {
     // Read-only diff: hide the revert gutter entirely.
@@ -381,6 +408,37 @@ function slicedLineNumbers(lineMap: readonly number[]): Extension {
   return lineNumbers({ formatNumber: createSlicedLineNumberFormatter(lineMap) });
 }
 
+/**
+ * The comment gutter for one mounted editor, or nothing when the consumer
+ * takes no comments (see `diff-view-line-comments.tsx`).
+ */
+type LineComments = (side: DiffLineSide, fileLineOf: DiffFileLineOf) => Extension;
+
+const NO_LINE_COMMENTS: LineComments = () => [];
+
+/**
+ * The controller's gutter when the consumer takes comments, else none. A
+ * plain function, like the other `resolve*` helpers, for the same
+ * cognitive-complexity budget as {@link resolveTruncatedNoteVisible}.
+ */
+function resolveLineComments(
+  controller: LineCommentController,
+  commentable: boolean
+): LineComments {
+  return commentable ? controller.extension : NO_LINE_COMMENTS;
+}
+
+/** A whole document's lines are its file lines. */
+const sameFileLine: DiffFileLineOf = (line) => line;
+
+/** A slice's document lines map through its line map; a gap is no file line. */
+function slicedFileLineOf(lineMap: readonly number[]): DiffFileLineOf {
+  return (line) => {
+    const fileLine = lineMap[line - 1];
+    return fileLine === undefined || fileLine === 0 ? null : fileLine;
+  };
+}
+
 /** What a `text`-kind build mounted, so the effect can track it for teardown. */
 interface MountedTextDiff {
   readonly editorView: EditorView | null;
@@ -399,23 +457,26 @@ interface MountedTextDiff {
  * affordances on top of each other.
  */
 function mountSlicedDiff(params: {
+  readonly comments: LineComments;
   readonly host: HTMLElement;
   readonly languageExtension: Extension;
   readonly mode: DiffViewMode;
   readonly sliced: SlicedTextDiff;
 }): MountedTextDiff {
-  const { host, languageExtension, mode, sliced } = params;
+  const { comments, host, languageExtension, mode, sliced } = params;
   const originalExtensions: Extension[] = [
     slicedLineNumbers(sliced.originalLineMap),
     ...BASE_EXTENSIONS_NO_GUTTER,
     READ_ONLY_EXTENSIONS,
     languageExtension,
+    comments('original', slicedFileLineOf(sliced.originalLineMap)),
   ];
   const modifiedExtensions: Extension[] = [
     slicedLineNumbers(sliced.modifiedLineMap),
     ...BASE_EXTENSIONS_NO_GUTTER,
     READ_ONLY_EXTENSIONS,
     languageExtension,
+    comments('modified', slicedFileLineOf(sliced.modifiedLineMap)),
   ];
 
   if (mode === 'split') {
@@ -459,6 +520,7 @@ function mountSlicedDiff(params: {
  * so `buildWithLanguage` stays under Biome's cognitive-complexity limit.
  */
 function mountTextDiff(params: {
+  readonly comments: LineComments;
   readonly host: HTMLElement;
   readonly languageExtension: Extension;
   readonly mode: DiffViewMode;
@@ -467,10 +529,11 @@ function mountTextDiff(params: {
   readonly oversizedDoc: string | null;
   readonly sliced: SlicedTextDiff | null;
 }): MountedTextDiff {
-  const { host, languageExtension, mode, modified, original, oversizedDoc, sliced } = params;
+  const { comments, host, languageExtension, mode, modified, original, oversizedDoc, sliced } =
+    params;
 
   if (sliced !== null) {
-    return mountSlicedDiff({ host, languageExtension, mode, sliced });
+    return mountSlicedDiff({ comments, host, languageExtension, mode, sliced });
   }
 
   if (oversizedDoc !== null) {
@@ -485,7 +548,12 @@ function mountTextDiff(params: {
         parent: host,
         state: EditorState.create({
           doc: oversizedDoc,
-          extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+          extensions: [
+            ...BASE_EXTENSIONS,
+            READ_ONLY_EXTENSIONS,
+            languageExtension,
+            comments(oversizedDoc === modified ? 'modified' : 'original', sameFileLine),
+          ],
         }),
       }),
       mergeView: null,
@@ -498,11 +566,21 @@ function mountTextDiff(params: {
       mergeView: new MergeView({
         a: {
           doc: original,
-          extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+          extensions: [
+            ...BASE_EXTENSIONS,
+            READ_ONLY_EXTENSIONS,
+            languageExtension,
+            comments('original', sameFileLine),
+          ],
         },
         b: {
           doc: modified,
-          extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+          extensions: [
+            ...BASE_EXTENSIONS,
+            READ_ONLY_EXTENSIONS,
+            languageExtension,
+            comments('modified', sameFileLine),
+          ],
         },
         collapseUnchanged: { margin: 3, minSize: 4 },
         gutter: true,
@@ -522,6 +600,7 @@ function mountTextDiff(params: {
           ...BASE_EXTENSIONS,
           READ_ONLY_EXTENSIONS,
           languageExtension,
+          comments('modified', sameFileLine),
           unifiedMergeView({
             collapseUnchanged: { margin: 3, minSize: 4 },
             gutter: true,
@@ -573,6 +652,12 @@ interface DiffViewBaseProps {
   readonly filename?: string | undefined;
   /** Explicit language name override (takes precedence over `filename`). */
   readonly language?: string | undefined;
+  /**
+   * Takes a comment on a file line or range (BST-2333); without it the diff
+   * has no comment gutter. Hunks-only content never takes one: its lines are
+   * not file lines.
+   */
+  readonly onLineComment?: DiffLineCommentHandler | undefined;
   readonly testId?: string | undefined;
 }
 
@@ -622,6 +707,7 @@ export function DiffView({
   defaultMode = 'split',
   filename,
   language,
+  onLineComment,
   original,
   modified,
   source,
@@ -630,6 +716,11 @@ export function DiffView({
 }: DiffViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<DiffViewMode>(defaultMode);
+  const [openComment, setOpenComment] = useState<OpenLineComment | null>(null);
+  const [lineComments] = useState(() => createLineCommentController(setOpenComment));
+  // A stable function either way, so the build effect rebuilds only when
+  // commenting is switched on or off.
+  const comments = resolveLineComments(lineComments, onLineComment !== undefined);
 
   // Cheap to recompute every render (a switch + a handful of field reads) —
   // deliberately NOT memoized against `source`'s object identity, since a
@@ -771,6 +862,7 @@ export function DiffView({
           assertNonNull(textModified, 'DiffView: text content resolved with no modified.');
 
           const mounted = mountTextDiff({
+            comments,
             host,
             languageExtension,
             mode,
@@ -857,6 +949,7 @@ export function DiffView({
     hunksKey,
     mode,
     resolvedLanguage,
+    comments,
   ]);
 
   return (
@@ -970,6 +1063,12 @@ export function DiffView({
           </div>
         ) : null}
       </section>
+      <LineCommentBox
+        controller={lineComments}
+        key={openComment?.id}
+        onLineComment={onLineComment}
+        open={openComment}
+      />
     </div>
   );
 }
