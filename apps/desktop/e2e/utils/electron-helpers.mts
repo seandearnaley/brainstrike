@@ -557,86 +557,6 @@ function createLaunchOptions(
   return options;
 }
 
-// #region Linux CI Electron binary preflight
-function runPreflightElectronCheck(displayEnv: string | undefined): void {
-  if (process.platform !== 'linux' || !process.env['CI']) {
-    return;
-  }
-
-  const electronBinaryPath = require('electron');
-  const fs = require('node:fs');
-  const { execSync } = require('node:child_process');
-
-  const effectiveDisplay = displayEnv ?? process.env['DISPLAY'];
-  verboseLog('[DEBUG][HYP-F] Checking Electron binary...');
-  verboseLog('[DEBUG][HYP-F] Binary path:', electronBinaryPath);
-  verboseLog('[DEBUG][HYP-F] Effective DISPLAY:', effectiveDisplay);
-
-  // #region X display accessibility diagnostics
-  try {
-    verboseLog('[DEBUG][HYP-I] Checking if X display is accessible...');
-    const xdpyOutput = execSync(`xdpyinfo -display "${effectiveDisplay}" 2>&1 | head -5`, {
-      encoding: 'utf8',
-      timeout: 5000,
-    });
-    verboseLog('[DEBUG][HYP-I] X display accessible:', xdpyOutput.trim().split('\n')[0]);
-  } catch (xdpyErr) {
-    verboseError('[DEBUG][HYP-I] X DISPLAY NOT ACCESSIBLE:', (xdpyErr as Error).message);
-    // Try to list what Xvfb servers are running
-    try {
-      const psOutput = execSync('ps aux | grep -i xvfb | grep -v grep', {
-        encoding: 'utf8',
-        timeout: 5000,
-      });
-      verboseLog('[DEBUG][HYP-I] Running Xvfb processes:', psOutput.trim());
-    } catch {
-      verboseLog('[DEBUG][HYP-I] No Xvfb processes found');
-    }
-  }
-  // #endregion
-
-  try {
-    const stats = fs.statSync(electronBinaryPath);
-    verboseLog('[DEBUG][HYP-F] Binary exists, size:', stats.size);
-    verboseLog('[DEBUG][HYP-F] Binary mode:', stats.mode.toString(8));
-  } catch (statErr) {
-    verboseError('[DEBUG][HYP-F] Cannot stat binary:', statErr);
-  }
-
-  // Check for missing libraries using ldd
-  try {
-    const lddOutput = execSync(`ldd "${electronBinaryPath}" 2>&1 | grep -i "not found"`, {
-      encoding: 'utf8',
-      timeout: 5000,
-    });
-    if (lddOutput.trim()) {
-      verboseError('[DEBUG][HYP-F] MISSING LIBRARIES DETECTED:');
-      verboseError(lddOutput);
-    }
-  } catch (lddErr) {
-    // grep returns exit code 1 when no matches - that's good (no missing libs)
-    if ((lddErr as { status?: number }).status === 1) {
-      verboseLog('[DEBUG][HYP-F] No missing libraries detected');
-    } else {
-      verboseLog('[DEBUG][HYP-F] ldd check inconclusive:', (lddErr as Error).message);
-    }
-  }
-
-  // Try to run electron --version to verify it can execute
-  try {
-    const versionOutput = execSync(`"${electronBinaryPath}" --version 2>&1`, {
-      encoding: 'utf8',
-      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-      env: { ...process.env, DISPLAY: displayEnv ?? process.env['DISPLAY'] },
-      timeout: 10_000,
-    });
-    verboseLog('[DEBUG][HYP-F] Electron version check:', versionOutput.trim());
-  } catch (versionErr) {
-    verboseError('[DEBUG][HYP-F] Electron version check FAILED:', (versionErr as Error).message);
-  }
-}
-// #endregion
-
 async function startElectron(
   launchOptions: Parameters<typeof electron.launch>[0],
   onAppAcquired?: (app: ElectronApplication) => void
@@ -650,9 +570,6 @@ async function startElectron(
   verboseLog('[DEBUG][HYP-D] Launch args:', JSON.stringify(launchOptions?.args ?? []));
   verboseLog('[DEBUG][HYP-D] Launch env keys:', Object.keys(launchOptions?.env ?? {}).join(', '));
   // #endregion
-
-  // Run pre-flight check for Linux CI environments
-  runPreflightElectronCheck(launchOptions?.env?.['DISPLAY']);
 
   const launchStartTime = Date.now();
   try {
