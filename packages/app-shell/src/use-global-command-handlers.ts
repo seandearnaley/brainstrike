@@ -27,7 +27,7 @@ import { useConnectFolder } from './workspace-connect/use-connect-folder';
 export function useGlobalCommandHandlers(): GlobalCommandHandlers {
   const { openPicker } = useConnectFolder();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
-  const { theme, setTheme } = useTheme();
+  const { mode, setMode } = useTheme();
   const startNewThread = useAssistantThreadStore((state) => state.startNewThread);
 
   // New Thread opens the new-thread screen; the host's thread owner creates
@@ -43,13 +43,13 @@ export function useGlobalCommandHandlers(): GlobalCommandHandlers {
     // Resolve `system` toward its effective value, then flip — so a single
     // invocation always produces a visible change.
     const effective =
-      theme === 'system'
+      mode === 'system'
         ? window.matchMedia('(prefers-color-scheme: dark)').matches
           ? 'dark'
           : 'light'
-        : theme;
-    setTheme(effective === 'dark' ? 'light' : 'dark');
-  }, [theme, setTheme]);
+        : mode;
+    setMode(effective === 'dark' ? 'light' : 'dark');
+  }, [mode, setMode]);
 
   return useMemo<GlobalCommandHandlers>(
     () => ({

@@ -8,6 +8,7 @@ describe('createAppConfig', () => {
     expect(config.title).toBe('BrainStrike.ai');
     expect(config.description).toBe('Multi-app dashboard');
     expect(config.themeStorageKey).toBe('app-theme');
+    expect(config.themePaletteStorageKey).toBe('app-theme-palette');
     expect(config.navigationItems).toEqual([]);
   });
 

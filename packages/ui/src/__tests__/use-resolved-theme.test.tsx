@@ -15,7 +15,7 @@ function ThemeProbe() {
 
 describe('useResolvedTheme', () => {
   it('returns the configured theme when not using system mode', () => {
-    useThemeMock.mockReturnValue({ theme: 'dark' });
+    useThemeMock.mockReturnValue({ mode: 'dark' });
 
     render(<ThemeProbe />);
 
@@ -31,7 +31,7 @@ describe('useResolvedTheme', () => {
     );
     const removeEventListener = vi.fn();
 
-    useThemeMock.mockReturnValue({ theme: 'system' });
+    useThemeMock.mockReturnValue({ mode: 'system' });
     vi.stubGlobal(
       'matchMedia',
       vi.fn(() => ({

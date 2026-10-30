@@ -86,7 +86,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
       {children}
     </button>
   ),
-  useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
+  useTheme: () => ({ mode: 'light', setMode: vi.fn(), setTheme: vi.fn(), theme: 'brainstrike' }),
 }));
 
 vi.mock('@assistant-ui/react', () => {

@@ -8,9 +8,9 @@ import { useTheme } from './theme-provider';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
-  const nextTheme = theme === 'light' ? 'dark' : 'light';
-  const tooltipLabel = `Switch to ${nextTheme} mode`;
+  const { mode, setMode } = useTheme();
+  const nextMode = mode === 'light' ? 'dark' : 'light';
+  const tooltipLabel = `Switch to ${nextMode} mode`;
 
   return (
     <Tooltip>
@@ -19,7 +19,7 @@ export function ThemeToggle() {
           aria-label={tooltipLabel}
           className="h-12 w-12 rounded-lg transition-colors duration-200 ease-out hover:shadow-sm"
           depress={false}
-          onClick={() => setTheme(nextTheme)}
+          onClick={() => setMode(nextMode)}
           size="icon"
           variant="ghost"
         >

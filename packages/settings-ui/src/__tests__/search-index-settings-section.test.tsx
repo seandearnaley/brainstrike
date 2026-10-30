@@ -15,7 +15,7 @@ import { makeDbModel, makeDbProvider } from '../settings/models/__tests__/catalo
 import { SearchIndexSettingsSection } from '../settings/system/search-index-settings-section';
 
 vi.mock('../../../ui/src/theme-provider', () => ({
-  useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
+  useTheme: () => ({ mode: 'light', setMode: vi.fn(), setTheme: vi.fn(), theme: 'brainstrike' }),
 }));
 
 const SEMANTIC: IndexConfig = {
