@@ -10,7 +10,7 @@ import {
   highlightSpecialChars,
   lineNumbers,
 } from '@codemirror/view';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '../button';
 import { resolveCodeSurfaceLanguage } from '../code-surface/language';
 import { appSyntaxHighlighting } from '../code-surface/syntax-highlighting';
@@ -801,9 +801,9 @@ export function DiffView({
   // needing to blow away the host DOM node.
   const renderKey = `${mode}:${languageLabel}:${contentKind}`;
 
-  const toggleMode = useCallback(() => {
+  const toggleMode = () => {
     setMode((current) => (current === 'split' ? 'unified' : 'split'));
-  }, []);
+  };
 
   useEffect(() => {
     const host = hostRef.current;

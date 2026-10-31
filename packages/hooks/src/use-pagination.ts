@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface UsePaginationOptions {
   initialPage?: number;
@@ -34,29 +34,26 @@ export function usePagination({
   const isFirstPage = currentPage === 0;
   const isLastPage = currentPage === totalPages - 1 || totalPages === 0;
 
-  const goToPage = useCallback(
-    (page: number) => {
-      const clampedPage = Math.max(0, Math.min(page, totalPages - 1));
-      setCurrentPage(clampedPage);
-    },
-    [totalPages]
-  );
+  const goToPage = (page: number) => {
+    const clampedPage = Math.max(0, Math.min(page, totalPages - 1));
+    setCurrentPage(clampedPage);
+  };
 
-  const goToNextPage = useCallback(() => {
+  const goToNextPage = () => {
     if (!isLastPage) {
       setCurrentPage((prev) => prev + 1);
     }
-  }, [isLastPage]);
+  };
 
-  const goToPreviousPage = useCallback(() => {
+  const goToPreviousPage = () => {
     if (!isFirstPage) {
       setCurrentPage((prev) => prev - 1);
     }
-  }, [isFirstPage]);
+  };
 
-  const resetToFirstPage = useCallback(() => {
+  const resetToFirstPage = () => {
     setCurrentPage(0);
-  }, []);
+  };
 
   // Reset to first page when total pages changes and current page is out of bounds
   // This is intentionally a state mutation (not derivation) because:

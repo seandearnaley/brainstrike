@@ -23,36 +23,30 @@ export function ModelPicker({
   const [searchQuery, setSearchQuery] = React.useState('');
   const resolvedTheme = useResolvedTheme();
 
-  const filteredModels = React.useMemo(
-    () => filterModels(models, searchQuery, modelType),
-    [models, searchQuery, modelType]
-  );
+  const filteredModels = filterModels(models, searchQuery, modelType);
 
-  const handleSelect = React.useCallback(
-    (modelId: string) => {
-      if (mode === 'single') {
-        onChange?.(modelId);
-        setSearchQuery('');
-        setOpen(false);
-      } else {
-        const currentValues = Array.isArray(value) ? value : value ? [value] : [];
-        const newValues = currentValues.includes(modelId)
-          ? currentValues.filter((id) => id !== modelId)
-          : [...currentValues, modelId];
-        onChange?.(newValues);
-      }
-    },
-    [mode, onChange, value]
-  );
+  const handleSelect = (modelId: string) => {
+    if (mode === 'single') {
+      onChange?.(modelId);
+      setSearchQuery('');
+      setOpen(false);
+    } else {
+      const currentValues = Array.isArray(value) ? value : value ? [value] : [];
+      const newValues = currentValues.includes(modelId)
+        ? currentValues.filter((id) => id !== modelId)
+        : [...currentValues, modelId];
+      onChange?.(newValues);
+    }
+  };
 
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
 
-  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+  const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) {
       setSearchQuery('');
     }
-  }, []);
+  };
 
   return (
     // modal=false: composes inside parent Radix Dialogs (also modal) without

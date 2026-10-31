@@ -4,7 +4,6 @@ import {
   useFileExplorerStoreSelector,
 } from '@brainstrike/file-explorer-ui/shell';
 import type { FileExplorerState } from '@brainstrike/types';
-import { useCallback, useMemo } from 'react';
 
 /** A search result file is either in the explorer selection or not. */
 export type FileSelectionState = 'checked' | 'unchecked';
@@ -49,28 +48,22 @@ export function useSearchSelectionBridge(): SearchSelectionBridge {
   const addSelectedFile = useFileExplorerStoreSelector((s) => s.addSelectedFile);
   const removeSelectedFile = useFileExplorerStoreSelector((s) => s.removeSelectedFile);
 
-  const fileState = useCallback(
-    (compositeKey: string): FileSelectionState =>
-      isKeySelected({ currentFolderId, folderStates, selectedFilePaths }, compositeKey)
-        ? 'checked'
-        : 'unchecked',
-    [currentFolderId, folderStates, selectedFilePaths]
-  );
+  const fileState = (compositeKey: string): FileSelectionState =>
+    isKeySelected({ currentFolderId, folderStates, selectedFilePaths }, compositeKey)
+      ? 'checked'
+      : 'unchecked';
 
-  const toggleFile = useCallback(
-    (compositeKey: string, nextChecked: boolean): void => {
-      if (isKeySelected(explorerStore.getState(), compositeKey) === nextChecked) {
-        return;
-      }
-      const { folderId, path } = decodeFileSelection(compositeKey);
-      if (nextChecked) {
-        addSelectedFile(folderId, path);
-      } else {
-        removeSelectedFile(folderId, path);
-      }
-    },
-    [explorerStore, addSelectedFile, removeSelectedFile]
-  );
+  const toggleFile = (compositeKey: string, nextChecked: boolean): void => {
+    if (isKeySelected(explorerStore.getState(), compositeKey) === nextChecked) {
+      return;
+    }
+    const { folderId, path } = decodeFileSelection(compositeKey);
+    if (nextChecked) {
+      addSelectedFile(folderId, path);
+    } else {
+      removeSelectedFile(folderId, path);
+    }
+  };
 
-  return useMemo(() => ({ fileState, toggleFile }), [fileState, toggleFile]);
+  return { fileState, toggleFile };
 }

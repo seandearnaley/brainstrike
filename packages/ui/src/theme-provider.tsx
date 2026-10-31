@@ -130,15 +130,12 @@ export function ThemeProvider({
     font: DEFAULT_FONT,
     theme: defaultTheme,
   }));
-  const appearanceStorageKeys = React.useMemo<Readonly<Record<AppearanceKey, string>>>(
-    () => ({
-      codeFont: `${storageKey}-code-font`,
-      codeTheme: `${storageKey}-code-theme`,
-      font: `${storageKey}-font`,
-      theme: themeStorageKey,
-    }),
-    [storageKey, themeStorageKey]
-  );
+  const appearanceStorageKeys: Readonly<Record<AppearanceKey, string>> = {
+    codeFont: `${storageKey}-code-font`,
+    codeTheme: `${storageKey}-code-theme`,
+    font: `${storageKey}-font`,
+    theme: themeStorageKey,
+  };
   const [load, setLoad] = React.useState<ThemeLoad>(LOADING);
   const [attempt, setAttempt] = React.useState(0);
 
@@ -227,57 +224,45 @@ export function ThemeProvider({
     window.document.documentElement.style.setProperty('--font-mono', codeFontFamily(codeFont));
   }, [codeFont]);
 
-  const store = React.useCallback(
-    (key: string, value: string, detail: Record<string, string>) => {
-      storageAdapter.setItem(key, value).catch((error: unknown) => {
-        logger.error('Saving the theme preference failed', { error, storageKey: key, ...detail });
-        toast({
-          description: 'The theme changed for this session, but it could not be saved.',
-          title: 'Theme not saved',
-          variant: 'destructive',
-        });
+  const store = (key: string, value: string, detail: Record<string, string>) => {
+    storageAdapter.setItem(key, value).catch((error: unknown) => {
+      logger.error('Saving the theme preference failed', { error, storageKey: key, ...detail });
+      toast({
+        description: 'The theme changed for this session, but it could not be saved.',
+        title: 'Theme not saved',
+        variant: 'destructive',
       });
-    },
-    [storageAdapter]
-  );
+    });
+  };
 
-  const setMode = React.useCallback(
-    (next: ThemeMode) => {
-      store(storageKey, next, { mode: next });
-      setModeState(next);
-    },
-    [store, storageKey]
-  );
+  const setMode = (next: ThemeMode) => {
+    store(storageKey, next, { mode: next });
+    setModeState(next);
+  };
 
-  const setAppearance = React.useCallback(
-    <Key extends AppearanceKey>(key: Key, next: Appearance[Key]) => {
-      store(appearanceStorageKeys[key], next, { [key]: next });
-      setAppearanceState((previous) => ({ ...previous, [key]: next }));
-    },
-    [appearanceStorageKeys, store]
-  );
+  const setAppearance = <Key extends AppearanceKey>(key: Key, next: Appearance[Key]) => {
+    store(appearanceStorageKeys[key], next, { [key]: next });
+    setAppearanceState((previous) => ({ ...previous, [key]: next }));
+  };
 
-  const value = React.useMemo(
-    () => ({
-      ...appearance,
-      mode,
-      setCodeFont: (next: CodeFontId) => setAppearance('codeFont', next),
-      setCodeTheme: (next: CodeThemeId) => setAppearance('codeTheme', next),
-      setFont: (next: FontId) => setAppearance('font', next),
-      setMode,
-      setTheme: (next: ThemeId) => setAppearance('theme', next),
-    }),
-    [appearance, mode, setAppearance, setMode]
-  );
+  const value = {
+    ...appearance,
+    mode,
+    setCodeFont: (next: CodeFontId) => setAppearance('codeFont', next),
+    setCodeTheme: (next: CodeThemeId) => setAppearance('codeTheme', next),
+    setFont: (next: FontId) => setAppearance('font', next),
+    setMode,
+    setTheme: (next: ThemeId) => setAppearance('theme', next),
+  };
 
-  const retryLoad = React.useCallback(() => {
+  const retryLoad = () => {
     setLoad(LOADING);
     setAttempt((previous) => previous + 1);
-  }, []);
+  };
 
-  const continueWithDefault = React.useCallback(() => {
+  const continueWithDefault = () => {
     setLoad(READY);
-  }, []);
+  };
 
   if (load.status === 'failed') {
     return (

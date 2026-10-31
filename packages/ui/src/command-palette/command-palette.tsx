@@ -107,59 +107,50 @@ export function CommandPalette({
     return matches.length > 0 ? [{ commands: matches, heading: page.heading }] : [];
   }, [commands, page, query]);
 
-  const handleOpenChange = React.useCallback(
-    (next: boolean) => {
-      if (!next) {
-        // Reset whenever the palette closes so the next open starts at the root.
-        setQuery('');
-        setPage(null);
-      }
-      onOpenChange(next);
-    },
-    [onOpenChange]
-  );
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      // Reset whenever the palette closes so the next open starts at the root.
+      setQuery('');
+      setPage(null);
+    }
+    onOpenChange(next);
+  };
 
-  const handleInputKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === 'Backspace' && query === '' && page) {
-        event.preventDefault();
-        setPage(null);
-      }
-    },
-    [page, query]
-  );
+  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Backspace' && query === '' && page) {
+      event.preventDefault();
+      setPage(null);
+    }
+  };
 
-  const handleSelect = React.useCallback(
-    async (command: Command) => {
-      if (command.page) {
-        setPage(command.page(context));
-        setQuery('');
-        return;
-      }
-      let outcome: { ok: boolean; error?: string };
-      try {
-        outcome = await command.run(context);
-      } catch (error) {
-        outcome = {
-          error: error instanceof Error ? error.message : 'Command failed unexpectedly',
-          ok: false,
-        };
-      }
-      if (outcome.ok) {
-        handleOpenChange(false);
-        return;
-      }
-      // Surface the failure (toast + log) — never swallow it.
-      const description = outcome.error ?? `"${command.label}" could not be completed.`;
-      reportCommandFailure(command, description);
-      toast({
-        description,
-        title: 'Command failed',
-        variant: 'destructive',
-      });
-    },
-    [context, handleOpenChange, toast]
-  );
+  const handleSelect = async (command: Command) => {
+    if (command.page) {
+      setPage(command.page(context));
+      setQuery('');
+      return;
+    }
+    let outcome: { ok: boolean; error?: string };
+    try {
+      outcome = await command.run(context);
+    } catch (error) {
+      outcome = {
+        error: error instanceof Error ? error.message : 'Command failed unexpectedly',
+        ok: false,
+      };
+    }
+    if (outcome.ok) {
+      handleOpenChange(false);
+      return;
+    }
+    // Surface the failure (toast + log) — never swallow it.
+    const description = outcome.error ?? `"${command.label}" could not be completed.`;
+    reportCommandFailure(command, description);
+    toast({
+      description,
+      title: 'Command failed',
+      variant: 'destructive',
+    });
+  };
 
   return (
     <Cmdk.Dialog

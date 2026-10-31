@@ -13,7 +13,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { Badge, Button } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Play, Sparkles } from 'lucide-react';
-import { useCallback, useId, useMemo, useState } from 'react';
+import { useId, useState } from 'react';
 import type { ToolExecutionResult, ToolPlaygroundProps } from './types';
 
 /**
@@ -193,26 +193,23 @@ export function ToolPlayground({
   const [parseError, setParseError] = useState<string | null>(null);
 
   // Get schema display info for native tools
-  const schemaDisplay = useMemo(() => getToolSchemaDisplay(toolId), [toolId]);
+  const schemaDisplay = getToolSchemaDisplay(toolId);
 
-  const handleInputChange = useCallback(
-    (value: string) => {
-      setInput(value);
-      storeInput(toolId, value);
-      setParseError(null);
-    },
-    [toolId]
-  );
+  const handleInputChange = (value: string) => {
+    setInput(value);
+    storeInput(toolId, value);
+    setParseError(null);
+  };
 
-  const handleGenerateExample = useCallback(() => {
+  const handleGenerateExample = () => {
     if (schemaDisplay) {
       const example = generateExampleInput(schemaDisplay);
       const formatted = JSON.stringify(example, null, 2);
       handleInputChange(formatted);
     }
-  }, [schemaDisplay, handleInputChange]);
+  };
 
-  const handleExecute = useCallback(async () => {
+  const handleExecute = async () => {
     // Parse input
     let parsedInput: unknown;
     try {
@@ -241,7 +238,7 @@ export function ToolPlayground({
     const executionResult = await getResult();
     setExecuting(false);
     setResult(executionResult);
-  }, [input, onExecute]);
+  };
 
   const parseErrorId = `tool-playground-${toolId}-parse-error`;
 

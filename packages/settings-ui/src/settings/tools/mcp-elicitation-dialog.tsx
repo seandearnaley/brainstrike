@@ -37,7 +37,7 @@ import {
   SelectValue,
 } from '@brainstrike/ui';
 import type React from 'react';
-import { type FormEvent, useCallback, useId, useRef, useState } from 'react';
+import { type FormEvent, useId, useRef, useState } from 'react';
 import {
   buildMcpElicitationContent,
   describeMcpElicitationField,
@@ -329,9 +329,9 @@ export function McpElicitationDialog({
   // When a request is retired the footer the user was focused on unmounts;
   // the Dismiss button mounts in its place and takes focus so keyboard users
   // are not dropped onto the dialog container.
-  const focusDismissOnMount = useCallback((node: HTMLButtonElement | null) => {
+  const focusDismissOnMount = (node: HTMLButtonElement | null) => {
     node?.focus();
-  }, []);
+  };
   const [values, setValues] = useState<McpElicitationFieldValues>(() =>
     presentation.mode === 'form'
       ? initialMcpElicitationFieldValues(presentation.requestedSchema)

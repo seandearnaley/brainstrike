@@ -1,4 +1,4 @@
-import { type CSSProperties, type RefObject, useCallback, useEffect, useState } from 'react';
+import { type CSSProperties, type RefObject, useEffect, useState } from 'react';
 import { TAB_STRIP_FADE_WIDTH_PX } from './tab-strip-tokens';
 
 export interface TabStripOverflow {
@@ -55,7 +55,7 @@ export function useTabStripOverflow(
 ): TabStripOverflow {
   const [overflow, setOverflow] = useState<TabStripOverflow>(NO_OVERFLOW);
 
-  const measure = useCallback((): void => {
+  const measure = (): void => {
     const element = scrollRef.current;
     if (!element) {
       return;
@@ -64,7 +64,7 @@ export function useTabStripOverflow(
     setOverflow((current) =>
       current.start === next.start && current.end === next.end ? current : next
     );
-  }, [scrollRef]);
+  };
 
   useEffect(() => {
     const element = scrollRef.current;

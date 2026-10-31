@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { processFilter } from '@brainstrike/utils/filter-utils';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import {
   arraysEqual,
   createFilterFunctions,
@@ -73,53 +73,47 @@ export function useFileFilters() {
     filterErrorRef.current = filterError;
   });
 
-  const applyFileFilters = useCallback(
-    (
-      fileTree: IFileNode[],
-      includeFilters: string[],
-      excludeFilters: string[] = [],
-      useRegex = false
-    ): IFileNode[] => {
-      // Only clear error if there was one, to avoid unnecessary state updates
-      if (filterErrorRef.current !== null) {
-        setFilterError(null);
-      }
+  const applyFileFilters = (
+    fileTree: IFileNode[],
+    includeFilters: string[],
+    excludeFilters: string[] = [],
+    useRegex = false
+  ): IFileNode[] => {
+    // Only clear error if there was one, to avoid unnecessary state updates
+    if (filterErrorRef.current !== null) {
+      setFilterError(null);
+    }
 
-      const processedIncludeFilters = useRegex ? includeFilters : includeFilters.map(processFilter);
-      const processedExcludeFilters = useRegex ? excludeFilters : excludeFilters.map(processFilter);
-      const hasNoFilters =
-        processedIncludeFilters.length === 0 && processedExcludeFilters.length === 0;
+    const processedIncludeFilters = useRegex ? includeFilters : includeFilters.map(processFilter);
+    const processedExcludeFilters = useRegex ? excludeFilters : excludeFilters.map(processFilter);
+    const hasNoFilters =
+      processedIncludeFilters.length === 0 && processedExcludeFilters.length === 0;
 
-      // Critical fast path for large trees: avoid cloning/traversing when no filters are active.
-      // Returning the original tree keeps folder switching and preset toggles responsive.
-      if (hasNoFilters) {
-        return fileTree;
-      }
+    // Critical fast path for large trees: avoid cloning/traversing when no filters are active.
+    // Returning the original tree keeps folder switching and preset toggles responsive.
+    if (hasNoFilters) {
+      return fileTree;
+    }
 
-      // Update regex cache if needed
-      const cacheSuccess = updateRegexCacheIfNeeded(
-        regexCache,
-        processedIncludeFilters,
-        processedExcludeFilters,
-        useRegex,
-        setFilterError
-      );
+    // Update regex cache if needed
+    const cacheSuccess = updateRegexCacheIfNeeded(
+      regexCache,
+      processedIncludeFilters,
+      processedExcludeFilters,
+      useRegex,
+      setFilterError
+    );
 
-      if (!cacheSuccess) {
-        return [];
-      }
+    if (!cacheSuccess) {
+      return [];
+    }
 
-      const { matchesInclude, matchesExclude } = createFilterFunctions(
-        regexCache.current,
-        useRegex
-      );
+    const { matchesInclude, matchesExclude } = createFilterFunctions(regexCache.current, useRegex);
 
-      const processTree = createProcessTreeFunction(matchesInclude, matchesExclude);
+    const processTree = createProcessTreeFunction(matchesInclude, matchesExclude);
 
-      return processTree(fileTree);
-    },
-    []
-  );
+    return processTree(fileTree);
+  };
 
   return { applyFileFilters, filterError };
 }
