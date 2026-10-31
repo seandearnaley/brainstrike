@@ -675,8 +675,8 @@ async function runHostSdkAttempt(
     );
     for await (const chunk of watched) {
       outcome.observe(chunk);
-      // The model's text and reasoning go out live, uncommitted; the step's
-      // `model.step` owns them (ADR-0011 amendment).
+      // The model's text, reasoning and tool input go out live, uncommitted; the
+      // step's `model.step` and the `tool-call` own them (ADR-0011 amendment).
       if (isModelStreamTelemetry(chunk)) {
         partial.observe(chunk);
         ports.telemetry({ chunk: jsonValue(chunk), runId: run.id, threadId: run.threadId });

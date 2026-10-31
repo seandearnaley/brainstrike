@@ -1,52 +1,61 @@
 [
   {
     "event": {
-      "commandId": "c4474cfe-cb05-439e-be2b-bb8923b758fe",
+      "commandId": "6141d16c-3203-46ba-8546-1b8bf57adbd7",
       "method": "thread/start",
       "payload": {
-        "commandId": "c4474cfe-cb05-439e-be2b-bb8923b758fe"
+        "commandId": "6141d16c-3203-46ba-8546-1b8bf57adbd7"
       },
       "result": {
-        "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95"
+        "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd"
       },
       "type": "command.accepted"
     },
     "seq": 1,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121430
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434087
   },
   {
     "event": {
-      "commandId": "c4474cfe-cb05-439e-be2b-bb8923b758fe",
+      "commandId": "6141d16c-3203-46ba-8546-1b8bf57adbd7",
       "type": "thread.started"
     },
     "seq": 2,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121430
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434087
   },
   {
     "event": {
-      "commandId": "00c39987-17fd-482f-9e2a-6800bcaa6e1c",
+      "commandId": "9152e564-70e6-4a5d-bdad-667444ae1ab2",
       "method": "run/start",
       "payload": {
-        "commandId": "00c39987-17fd-482f-9e2a-6800bcaa6e1c",
+        "commandId": "9152e564-70e6-4a5d-bdad-667444ae1ab2",
         "modelId": "scripted",
         "prompt": "Answer after a stall.",
-        "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95"
+        "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd"
       },
       "result": {
-        "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3"
+        "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7"
       },
       "type": "command.accepted"
     },
     "seq": 3,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121433
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434095
+  },
+  {
+    "event": {
+      "modelId": "scripted",
+      "type": "thread.selection.updated"
+    },
+    "seq": 4,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434095
   },
   {
     "event": {
       "type": "run.started",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "modelId": "scripted",
       "parentMessageId": null,
       "prompt": "Answer after a stall.",
@@ -58,26 +67,26 @@
         }
       }
     },
-    "seq": 4,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121433
+    "seq": 5,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434095
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "chunk": {
         "type": "start"
       }
     },
-    "seq": 5,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121441
+    "seq": 6,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434111
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "chunk": {
         "type": "start-step",
         "request": {},
@@ -90,14 +99,14 @@
         ]
       }
     },
-    "seq": 6,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121443
+    "seq": 7,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434114
   },
   {
     "event": {
       "type": "run.attempt",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "attempt": 1,
       "detail": "The model stream stalled after 400ms without output.",
       "maxAttempts": 2,
@@ -109,26 +118,26 @@
         "phase": "streaming"
       }
     },
-    "seq": 7,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121850
+    "seq": 8,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434522
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "chunk": {
         "type": "start"
       }
     },
-    "seq": 8,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121856
+    "seq": 9,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434527
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "chunk": {
         "type": "start-step",
         "request": {},
@@ -141,14 +150,14 @@
         ]
       }
     },
-    "seq": 9,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121857
+    "seq": 10,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434529
   },
   {
     "event": {
       "type": "model.step",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "messages": [
         {
           "role": "assistant",
@@ -180,14 +189,14 @@
         "totalTokens": 2
       }
     },
-    "seq": 10,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121858
+    "seq": 11,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434532
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "chunk": {
         "type": "finish-step",
         "finishReason": "stop",
@@ -207,30 +216,30 @@
           "totalTokens": 2
         },
         "performance": {
-          "stepTimeMs": 0.7957499999999982,
+          "stepTimeMs": 1.6217769999998382,
           "toolExecutionMs": {},
-          "responseTimeMs": 0.22749999999996362,
-          "effectiveOutputTokensPerSecond": 4395.604395605099,
-          "outputTokensPerSecond": 13753.455555702381,
-          "inputTokensPerSecond": 6460.323920644221,
-          "effectiveTotalTokensPerSecond": 8791.208791210198,
-          "timeToFirstOutputMs": 0.15479099999993196
+          "responseTimeMs": 0.5289090000001124,
+          "effectiveOutputTokensPerSecond": 1890.6844088487574,
+          "outputTokensPerSecond": 6469.728142016818,
+          "inputTokensPerSecond": 2671.3468663768904,
+          "effectiveTotalTokensPerSecond": 3781.3688176975147,
+          "timeToFirstOutputMs": 0.37434299999995346
         },
         "response": {
-          "id": "aitxt-W8tcTFcAuanveSyCXK0ZOOU8",
-          "timestamp": "2026-10-09T11:58:41.856Z",
+          "id": "aitxt-qoEviHZPJRKBdtBCUFrx23r8",
+          "timestamp": "2026-10-31T08:30:34.527Z",
           "modelId": "mock-model-id"
         }
       }
     },
-    "seq": 11,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121863
+    "seq": 12,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434533
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "chunk": {
         "type": "finish",
         "finishReason": "stop",
@@ -251,45 +260,45 @@
         }
       }
     },
-    "seq": 12,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121869
+    "seq": 13,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434537
   },
   {
     "event": {
       "type": "run.finished",
-      "runId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "runId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "outcome": "completed"
     },
-    "seq": 13,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121870
+    "seq": 14,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434538
   },
   {
     "event": {
-      "commandId": "dfb187d1-c873-4863-b1ed-57882d0c7eb4",
+      "commandId": "e6650be9-0a57-4114-b2b4-2c686079f3f5",
       "method": "run/start",
       "payload": {
-        "commandId": "dfb187d1-c873-4863-b1ed-57882d0c7eb4",
+        "commandId": "e6650be9-0a57-4114-b2b4-2c686079f3f5",
         "modelId": "scripted",
         "prompt": "Call the probe.",
-        "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95"
+        "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd"
       },
       "result": {
-        "runId": "e51b155f-74b5-4e16-8b5b-f7007270ecec"
+        "runId": "a97e6505-c8ed-4113-8f0d-6a9ebc4f4e20"
       },
       "type": "command.accepted"
     },
-    "seq": 14,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121884
+    "seq": 15,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434562
   },
   {
     "event": {
       "type": "run.started",
-      "runId": "e51b155f-74b5-4e16-8b5b-f7007270ecec",
+      "runId": "a97e6505-c8ed-4113-8f0d-6a9ebc4f4e20",
       "modelId": "scripted",
-      "parentMessageId": "55a66c3f-21da-463a-af49-8d6b5e3f49d3",
+      "parentMessageId": "2b452b2b-81f7-46db-8863-fb53d79f98e7",
       "prompt": "Call the probe.",
       "snapshot": {
         "configuration": {},
@@ -299,26 +308,26 @@
         }
       }
     },
-    "seq": 15,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121884
+    "seq": 16,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434562
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "e51b155f-74b5-4e16-8b5b-f7007270ecec",
+      "runId": "a97e6505-c8ed-4113-8f0d-6a9ebc4f4e20",
       "chunk": {
         "type": "start"
       }
     },
-    "seq": 16,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121886
+    "seq": 17,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434564
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "e51b155f-74b5-4e16-8b5b-f7007270ecec",
+      "runId": "a97e6505-c8ed-4113-8f0d-6a9ebc4f4e20",
       "chunk": {
         "type": "start-step",
         "request": {},
@@ -331,14 +340,14 @@
         ]
       }
     },
-    "seq": 17,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121887
+    "seq": 18,
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434566
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "e51b155f-74b5-4e16-8b5b-f7007270ecec",
+      "runId": "a97e6505-c8ed-4113-8f0d-6a9ebc4f4e20",
       "chunk": {
         "id": "call-1",
         "toolName": "probe",
@@ -346,28 +355,14 @@
         "dynamic": false
       }
     },
-    "seq": 18,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121888
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "e51b155f-74b5-4e16-8b5b-f7007270ecec",
-      "chunk": {
-        "delta": "{\"text\":",
-        "id": "call-1",
-        "type": "tool-input-delta"
-      }
-    },
     "seq": 19,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547121888
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434566
   },
   {
     "event": {
       "type": "run.attempt",
-      "runId": "e51b155f-74b5-4e16-8b5b-f7007270ecec",
+      "runId": "a97e6505-c8ed-4113-8f0d-6a9ebc4f4e20",
       "attempt": 1,
       "detail": "The model stream stalled after 400ms without output.",
       "maxAttempts": 2,
@@ -381,18 +376,18 @@
       }
     },
     "seq": 20,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547122291
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434969
   },
   {
     "event": {
       "type": "run.finished",
-      "runId": "e51b155f-74b5-4e16-8b5b-f7007270ecec",
+      "runId": "a97e6505-c8ed-4113-8f0d-6a9ebc4f4e20",
       "detail": "The model stream stalled after 400ms without output.",
       "outcome": "failed"
     },
     "seq": 21,
-    "threadId": "5f7e7e56-213d-45d4-9190-f52d4fbb8a95",
-    "ts": 1791547122297
+    "threadId": "69a15f09-3c3b-4b0c-aa99-b33187cf20fd",
+    "ts": 1793435434970
   }
 ]
