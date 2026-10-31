@@ -87,8 +87,6 @@ import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capa
 import { useToolApprovalGrantHandlers } from './use-tool-approval-grant-handlers';
 import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
 
-// Side-effect: register session-only stores with the factory-reset pipeline.
-
 interface DebouncedPanelLayoutState {
   readonly showConsole: boolean;
   readonly showLeftPanel: boolean;

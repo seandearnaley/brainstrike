@@ -233,7 +233,8 @@ export function createFactoryResetRendererReplacementCoordinator({
           (error: unknown) => [error]
         );
       }
-      // A window is never left blank: it gets its document back even when the wipe failed.
+      // Short of a quit, a window is never left blank: it gets its document back even
+      // when the wipe failed.
       const results = await Promise.allSettled(
         documents.map(({ url, window }) =>
           replaceWindow(window, () => window.webContents.loadURL(url), signal)

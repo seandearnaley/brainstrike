@@ -1,9 +1,9 @@
 /**
  * The renderer's part in a factory reset: its writers retire, and nothing else.
  *
- * Main owns the reset (ADR-0020). It wipes userData and the renderer's session
- * storage (localStorage, IndexedDB, CacheStorage) after it has replaced this
- * document, so no store here clears or resets itself. Preparation is terminal for
+ * Main owns the reset (ADR-0015). It wipes userData and, once this document has
+ * unloaded, the session's storage (localStorage, IndexedDB, CacheStorage) before
+ * loading a fresh document, so no store here clears or resets itself. Preparation is terminal for
  * this renderer; the reset UI must reload on either outcome.
  */
 const factoryResetPreparations = new Set<() => Promise<void>>();
