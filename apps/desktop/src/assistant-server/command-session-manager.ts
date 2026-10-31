@@ -19,6 +19,10 @@ import {
   isWithinRoot,
   resolveShellInvocation,
 } from '@brainstrike/host-capabilities/native-tools';
+import {
+  resolveRootCwd,
+  type WorkspaceRootResolver,
+} from '@brainstrike/host-capabilities/workspace-root-cwd';
 import { createLogger } from '@brainstrike/logging';
 import {
   CHILD_SIGNAL_GRACE_MS,
@@ -27,7 +31,6 @@ import {
 } from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
-import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd';
 import { CommandSessionError, commandSessionStartError } from './command-session-error';
 
 const logger = createLogger('CommandSessionManager');
