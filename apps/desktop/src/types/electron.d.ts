@@ -37,7 +37,10 @@ declare global {
     appMenu?: {
       onOpenSettings: (callback: () => void) => () => void;
     };
-    /** Desktop-only: Settings › Updates, whether update checks offer betas (BST-2367). */
+    /**
+     * Desktop-only: Settings › Updates. Whether update checks offer betas (BST-2367),
+     * and the update status with Check now and Restart to update (BST-2356).
+     */
     appUpdates?: TransportBridge<typeof appUpdatesContract>;
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no

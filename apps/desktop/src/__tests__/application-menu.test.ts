@@ -35,13 +35,18 @@ function click(item: Electron.MenuItemConstructorOptions | undefined): void {
 describe('platform menus', () => {
   const help = {
     includeAbout: true,
+    onCheckForUpdates: vi.fn(),
     onOpenReleaseNotes: vi.fn(),
     onOpenSourceLicenses: vi.fn(),
     onShowCrashReports: vi.fn(),
     onShowLogs: vi.fn(),
   };
   const menus = [
-    buildMacAppMenuTemplate({ appName: 'Brainstrike', onOpenSettings: vi.fn() }),
+    buildMacAppMenuTemplate({
+      appName: 'Brainstrike',
+      onCheckForUpdates: vi.fn(),
+      onOpenSettings: vi.fn(),
+    }),
     buildMacWindowMenuTemplate(),
     buildHelpMenuTemplate(help),
     buildFileMenuTemplate({
@@ -67,11 +72,16 @@ describe('platform menus', () => {
 });
 
 describe('buildMacAppMenuTemplate', () => {
-  it('is named for the app and orders About, Settings…, Services, Hide and Quit', () => {
-    const template = buildMacAppMenuTemplate({ appName: 'Brainstrike', onOpenSettings: vi.fn() });
+  it('is named for the app and orders About, Check for Updates…, Settings…, Services, Hide and Quit', () => {
+    const template = buildMacAppMenuTemplate({
+      appName: 'Brainstrike',
+      onCheckForUpdates: vi.fn(),
+      onOpenSettings: vi.fn(),
+    });
     expect(template.label).toBe('Brainstrike');
     expect(submenuOf(template).map((item) => item.role ?? item.label ?? item.type)).toEqual([
       'about',
+      'Check for Updates…',
       'separator',
       'Settings…',
       'separator',
@@ -88,11 +98,29 @@ describe('buildMacAppMenuTemplate', () => {
   it('opens Settings with ⌘, in the clicked window', () => {
     const onOpenSettings = vi.fn();
     const settings = submenuOf(
-      buildMacAppMenuTemplate({ appName: 'Brainstrike', onOpenSettings })
+      buildMacAppMenuTemplate({
+        appName: 'Brainstrike',
+        onCheckForUpdates: vi.fn(),
+        onOpenSettings,
+      })
     ).find((item) => item.id === APP_MENU_IDS.settings);
     expect(settings?.accelerator).toBe('Cmd+,');
     click(settings);
     expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith(clickedWindow);
+  });
+
+  it('checks for updates over the clicked window (BST-2356)', () => {
+    const onCheckForUpdates = vi.fn();
+    click(
+      submenuOf(
+        buildMacAppMenuTemplate({
+          appName: 'Brainstrike',
+          onCheckForUpdates,
+          onOpenSettings: vi.fn(),
+        })
+      ).find((item) => item.id === APP_MENU_IDS.checkForUpdates)
+    );
+    expect(onCheckForUpdates).toHaveBeenCalledExactlyOnceWith(clickedWindow);
   });
 });
 
@@ -135,6 +163,7 @@ describe('buildHelpMenuTemplate', () => {
     const onShowLogs = vi.fn();
     const template = buildHelpMenuTemplate({
       includeAbout: false,
+      onCheckForUpdates: vi.fn(),
       onOpenReleaseNotes,
       onOpenSourceLicenses,
       onShowCrashReports,
@@ -161,17 +190,25 @@ describe('buildHelpMenuTemplate', () => {
     expect(onOpenSourceLicenses).toHaveBeenCalledOnce();
   });
 
-  it('ends with About where there is no app menu', () => {
+  it('ends with Check for Updates… and About where there is no app menu', () => {
+    const onCheckForUpdates = vi.fn();
     const items = submenuOf(
       buildHelpMenuTemplate({
         includeAbout: true,
+        onCheckForUpdates,
         onOpenReleaseNotes: vi.fn(),
         onOpenSourceLicenses: vi.fn(),
         onShowCrashReports: vi.fn(),
         onShowLogs: vi.fn(),
       })
     );
-    expect(items.at(-1)?.role).toBe('about');
+    expect(items.slice(-3).map((item) => item.role ?? item.label ?? item.type)).toEqual([
+      'separator',
+      'Check for Updates…',
+      'about',
+    ]);
+    click(items.find((item) => item.id === APP_MENU_IDS.checkForUpdates));
+    expect(onCheckForUpdates).toHaveBeenCalledExactlyOnceWith(clickedWindow);
   });
 });
 
