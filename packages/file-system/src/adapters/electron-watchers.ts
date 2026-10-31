@@ -19,7 +19,9 @@ export interface FileSystemChangeBatcher {
 export function createFileSystemChangeBatcher(
   callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
 ): FileSystemChangeBatcher {
-  let batch: FileSystemChange[] = [];
+  // Each distinct change once, at the position of its last occurrence: a path
+  // that changes again within the window adds nothing new (BST-2372).
+  let batch = new Map<string, FileSystemChange>();
   let batchTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
   let filteredChangeBoundaries = new Set<string>();
@@ -27,8 +29,8 @@ export function createFileSystemChangeBatcher(
 
   const flushBatch = (): void => {
     batchTimer = null;
-    if (batch.length > 0 || filteredChangeBoundaries.size > 0) {
-      const changes = batch;
+    if (batch.size > 0 || filteredChangeBoundaries.size > 0) {
+      const changes = [...batch.values()];
       const metadata: FileSystemWatchBatchMetadata | undefined =
         filteredChangeBoundaries.size > 0
           ? {
@@ -38,7 +40,7 @@ export function createFileSystemChangeBatcher(
                 : {}),
             }
           : undefined;
-      batch = [];
+      batch = new Map();
       filteredChangeBoundaries = new Set();
       filteredChangeBoundariesOverflow = false;
       if (metadata) {
@@ -60,8 +62,10 @@ export function createFileSystemChangeBatcher(
     if (disposed) {
       return;
     }
-    batch.push(change);
-    if (batch.length >= FS_WATCH_MAX_BATCH_SIZE) {
+    const identity = `${change.kind}\0${change.type}\0${change.path}`;
+    batch.delete(identity);
+    batch.set(identity, change);
+    if (batch.size >= FS_WATCH_MAX_BATCH_SIZE) {
       if (batchTimer) {
         clearTimeout(batchTimer);
         batchTimer = null;
