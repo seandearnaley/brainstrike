@@ -30,6 +30,7 @@
       "enableNodeOptionsEnvironmentVariable": true,
       "grantFileProtocolExtraPrivileges": false,
       "onlyLoadAppFromAsar": true,
+      "resetAdHocDarwinSignature": true,
       "runAsNode": true
     },
     "npmRebuild": false,

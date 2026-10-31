@@ -83,6 +83,10 @@ in package.json, BST-2357):
   users behind a TLS-inspecting proxy need to reach hosted providers, and the
   packaged E2E lanes attach Playwright through `--inspect`. The owner kept them
   on (2026-10-31), to revisit once Windows builds are signed (BST-2349)
+- `resetAdHocDarwinSignature`: flipping a fuse rewrites the Electron binary, and
+  Apple Silicon refuses to run a binary whose signature no longer matches. The
+  signed macOS build is signed again right after, but the unsigned posture
+  (RELEASES.md) is not, so the app is ad-hoc signed again after the flip
 
 ### Navigation Security
 - Blocks navigation to external URLs
