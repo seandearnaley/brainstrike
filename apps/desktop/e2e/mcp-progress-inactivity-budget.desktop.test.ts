@@ -5,7 +5,8 @@
 // succeeds; under a flat guard it was cancelled at 3 s. The same server kept
 // silent is cancelled at the window, and the model reads that it went silent.
 // A server configured with its own `toolTimeoutMs` gives a silent tool that
-// window instead; a value past the ten-minute ceiling is refused where it is typed.
+// window instead. The ten-minute ceiling on that value is a config check, pinned by
+// `mcp-config.test.ts` and shown by `mcp-config-panel.test.tsx`.
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -156,19 +157,4 @@ test("a silent tool runs past the host's window on a server configured with a lo
       { toolTimeoutMs: 8000 }
     )
   ).toContain('finished');
-});
-
-test('a server tool window past the ten-minute ceiling is refused where it is typed (BST-1779)', async ({
-  window,
-}) => {
-  await ensureMockWorkspaceOpen(window);
-  await openMcpConfig(window);
-  await window
-    .getByTestId('mcp-config-editor')
-    .fill(JSON.stringify({ servers: [fixtureServer('too-slow', {}, { toolTimeoutMs: 600_001 })] }));
-  await window.getByTestId('mcp-config-save').click();
-  await expect(window.getByTestId('mcp-config-error')).toContainText(
-    'servers.0.toolTimeoutMs: must be a whole number of milliseconds from 1000 (1 s) to 600000 (10 min)'
-  );
-  await expect(window.getByTestId('mcp-config-status')).toHaveCount(0);
 });
