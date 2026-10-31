@@ -6,6 +6,13 @@ import { DeleteWorkspaceFileInputSchema } from '../schemas/schemas-workspace.ts'
 // gates it (→ 'ask' by default) like the other file-mutation tools; directory
 // deletes are refused by the tool itself.
 export const deleteWorkspaceFile = defineNativeTool({
+  activity: {
+    active: 'Deleting',
+    countsFiles: 'always',
+    done: 'Deleted',
+    family: 'edit',
+    request: 'Delete',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 130,

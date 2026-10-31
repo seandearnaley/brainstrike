@@ -181,6 +181,7 @@ describe('NATIVE_TOOLS catalog', () => {
 });
 
 const throwawayTool = defineNativeTool({
+  activity: { active: 'Probing', done: 'Probed', family: 'search', request: 'Probe' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 42,
@@ -236,6 +237,7 @@ describe('deriveNativeToolRegistries', () => {
 
 describe('defineNativeTool fail-loud checks', () => {
   const base = {
+    activity: { active: 'Probing', done: 'Probed', family: 'search', request: 'Probe' },
     description: 'probe',
     id: 'brainstrike.probe',
     inputSchema: effectToolInputSchema(Schema.Struct({})),

@@ -12,6 +12,7 @@ import { ExecuteCommandInputSchema } from '../schemas/schemas-execution.ts';
 // when there is no workflow storage to resume the suspend, or when `execute`
 // is `'deny'`. `'allow'`/YOLO runs it unprompted.
 export const executeCommand = defineNativeTool({
+  activity: { active: 'Running', done: 'Ran', family: 'run', request: 'Run' },
   defaults: {
     category: 'action',
     estimatedTokens: 180,

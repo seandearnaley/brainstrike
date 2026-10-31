@@ -810,6 +810,7 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
     );
     const { composeNativeToolInstructions } = await import('../default-instructions');
     const probe = defineNativeTool({
+      activity: { active: 'Probing', done: 'Probed', family: 'search', request: 'Probe' },
       defaults: {
         category: 'retrieval',
         estimatedTokens: 1,

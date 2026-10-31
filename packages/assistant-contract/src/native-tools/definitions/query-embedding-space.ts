@@ -3,6 +3,7 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { QueryEmbeddingSpaceInputSchema } from '../schemas/schemas-search.ts';
 
 export const queryEmbeddingSpace = defineNativeTool({
+  activity: { active: 'Searching', done: 'Searched', family: 'search', request: 'Search' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 190,

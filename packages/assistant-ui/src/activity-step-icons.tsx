@@ -1,7 +1,7 @@
+import type { VerbFamily } from '@brainstrike/assistant-contract';
 import { AlertCircle, CheckCircle, CircleDashed, CircleSlash, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { FAMILY_ICONS, STEP_STATE_LABELS, type StepGlyphState } from './activity-step-tokens';
-import type { VerbFamily } from './activity-verbs';
 import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
 
 export type { StepGlyphState } from './activity-step-tokens';

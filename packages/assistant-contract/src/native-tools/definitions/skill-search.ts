@@ -7,6 +7,12 @@ import { standardInputSchema } from '../schemas/standard-input-schema.ts';
 // before the pipeline, READ-ONLY, explicit 'read' risk. Its output is a
 // disposable search-result list (like grepSearch), so it is recency-prunable.
 export const skillSearch = defineNativeTool({
+  activity: {
+    active: 'Searching skills',
+    done: 'Searched skills',
+    family: 'skill',
+    request: 'Search skills',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 110,
