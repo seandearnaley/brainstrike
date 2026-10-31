@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Brainstrike color icon</title>
+  <desc id="desc">A circle with a transparent, classic zigzag lightning-bolt cutout.</desc>
+  <rect width="1024" height="1024" fill="#000CDE"/>
+  <path fill="#D0FB07" fill-rule="evenodd" clip-rule="evenodd" d="M512 78 A434 434 0 1 1 512 946 A434 434 0 1 1 512 78 Z M618 128 L251 558 L493 558 L358 892 L734 440 L524 440 Z"/>
+</svg>
