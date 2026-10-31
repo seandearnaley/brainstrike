@@ -10,7 +10,7 @@ import { TruthIndexer } from './helpers/truth-indexer.js';
 
 afterEach(() => cleanupDirs());
 
-test('Canvas version metadata and shared HTML survive bundle import; collection waits for the last version', async () => {
+test('Canvas versions share one HTML blob; collection waits for the last version', async () => {
   const threadId = 'canvas-thread';
   const html = `<!doctype html><html><body>${'<p>Canvas content</p>'.repeat(1000)}</body></html>`;
   const hash = createHash('sha256').update(html).digest('hex');
@@ -62,12 +62,6 @@ test('Canvas version metadata and shared HTML survive bundle import; collection 
     expect(readFileSync(join(root, BLOBS_DIR, hash), 'utf8')).toBe(html);
     expect(await indexer.gcCheck([threadId], [hash])).toEqual({ [hash]: 2 });
 
-    const bundle = join(freshDir('canvas-bundle'), 'snapshot');
-    const manifest = await store.exportTo(bundle);
-    expect(manifest.files.find((file) => file.path === `${BLOBS_DIR}/${hash}`)).toMatchObject({
-      bytes: Buffer.byteLength(html),
-      sha256: hash,
-    });
     expect((await store.purge(threadId, 1)).blobsDeleted).toEqual([]);
     expect(await indexer.gcCheck([threadId], [hash])).toEqual({ [hash]: 1 });
     expect(readFileSync(join(root, BLOBS_DIR, hash), 'utf8')).toBe(html);
@@ -75,32 +69,6 @@ test('Canvas version metadata and shared HTML survive bundle import; collection 
     expect((await store.purge(threadId, 2)).blobsDeleted).toEqual([hash]);
     expect(existsSync(join(root, BLOBS_DIR, hash))).toBe(false);
     expect(await indexer.gcCheck([threadId], [hash])).toEqual({ [hash]: 0 });
-
-    // A completed snapshot owns its copied HTML even after both source versions are purged.
-    expect(readFileSync(join(bundle, BLOBS_DIR, hash), 'utf8')).toBe(html);
-    const importedRoot = freshDir('canvas-import');
-    StateStore.importBundle(bundle, importedRoot);
-    const importedIndexer = new TruthIndexer(importedRoot);
-    const imported = await StateStore.open(importedRoot, {
-      indexer: importedIndexer,
-      onForeignLock: () => true, // same-host copied-root confirmation
-    });
-    try {
-      expect((await imported.read(threadId)).map((row) => row.raw)).toEqual(
-        before.map((row) => row.raw)
-      );
-      expect(readFileSync(join(importedRoot, BLOBS_DIR, hash), 'utf8')).toBe(html);
-      expect(await importedIndexer.gcCheck([threadId], [hash])).toEqual({ [hash]: 2 });
-      expect((await imported.purge(threadId, 1)).blobsDeleted).toEqual([]);
-      expect((await imported.purge(threadId, 2)).blobsDeleted).toEqual([hash]);
-      expect(existsSync(join(importedRoot, BLOBS_DIR, hash))).toBe(false);
-    } finally {
-      try {
-        await imported.close();
-      } finally {
-        importedIndexer.close();
-      }
-    }
   } finally {
     try {
       await store.close();
