@@ -1848,35 +1848,68 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.isIndexing).toBe(false);
   });
 
-  it('settles a batch whose worker crashed during its cache read, never posting to the dead worker', async () => {
-    const cacheRead = Promise.withResolvers<Map<string, TokenCacheEntry>>();
+  it('settles a batch whose worker crashed during its cache read alone, never posting to the dead worker', async () => {
+    vi.useFakeTimers();
+    const staleRead = Promise.withResolvers<Map<string, TokenCacheEntry>>();
     const store = {
       get: vi.fn(async () => null),
-      getBatch: vi.fn(() => cacheRead.promise),
+      getBatch: vi
+        .fn<() => Promise<Map<string, TokenCacheEntry>>>()
+        .mockReturnValueOnce(staleRead.promise)
+        .mockResolvedValue(new Map()),
       set: vi.fn(async () => {}),
     };
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({ mode: 'accurate', onFileError: vi.fn(), store })
     );
-    const worker = await markWorkerReady();
-    const file = { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' };
-    let indexing!: Promise<void>;
+    const crashed = mockWorkers[0]!;
+    await markSpecificWorkerReady(crashed);
+    const stale = { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' };
+    const fresh = { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' };
+    let staleIndexing!: Promise<void>;
     act(() => {
-      indexing = result.current.indexFiles([file]);
+      staleIndexing = result.current.indexFiles([stale]);
     });
-    await waitFor(() => expect(store.getBatch).toHaveBeenCalledOnce());
+    await flushPromises();
+    expect(store.getBatch).toHaveBeenCalledOnce();
 
+    // The worker crashes during the read; its replacement starts and takes a new batch.
     act(() => {
-      worker.onerror?.(new ErrorEvent('error', { message: 'runtime boom' }));
+      crashed.onerror?.(new ErrorEvent('error', { message: 'runtime boom' }));
     });
-    expect(worker.terminate).toHaveBeenCalledOnce();
+    await runPendingTimers();
+    const replacement = mockWorkers[1]!;
+    await markSpecificWorkerReady(replacement);
+    let freshIndexing!: Promise<void>;
+    act(() => {
+      freshIndexing = result.current.indexFiles([fresh]);
+    });
+    await flushPromises();
+    expect(replacement.postMessage).toHaveBeenCalledOnce();
+
     await act(async () => {
-      cacheRead.resolve(new Map());
-      await expect(indexing).rejects.toThrow('worker restarted during the cache read');
+      staleRead.resolve(new Map());
+      await expect(staleIndexing).rejects.toThrow('worker restarted during the cache read');
     });
+    expect(crashed.postMessage).not.toHaveBeenCalled();
 
-    expect(worker.postMessage).not.toHaveBeenCalled();
-    expect(result.current.isIndexing).toBe(false);
+    // The replacement's batch is untouched and completes.
+    await act(async () => {
+      replacement.emitEvent('message', {
+        data: {
+          compositeKey: fresh.compositeKey,
+          contentHash: 'hash',
+          filePath: fresh.filePath,
+          fileSize: 12,
+          folderId: fresh.folderId,
+          mode: 'accurate',
+          skipped: false,
+          tokenCount: 3,
+          type: 'result',
+        },
+      } as MessageEvent);
+    });
+    await expect(freshIndexing).resolves.toBeUndefined();
   });
 
   it('settles a startup still waiting for ready with the retirement and cancels its readiness timeout', async () => {
