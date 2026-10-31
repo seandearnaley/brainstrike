@@ -8,7 +8,7 @@ const projection = `id AS fileId, root_id AS rootId, embedding_set_id AS embeddi
 /** @typedef {import('./source-catalog-types.ts').SourceCatalogRecord} Record */
 /** @typedef {import('./source-catalog-types.ts').SourceCatalogInput} Input */
 /** @typedef {Omit<Record, 'content' | 'stat' | 'chunksProcessed'> & { mtimeMs:number|null; size:number; chunksProcessed:0|1 }} Row */
-/** @typedef {{put(hash:string,content:string):void;read(hash:string,maxBytes:number):string|null}} Blobs */
+/** @typedef {{flush():void;put(hash:string,content:string):void;read(hash:string,maxBytes:number):string|null}} Blobs */
 
 /** @param {Row} row @returns {Record} */
 function record(row) {
@@ -212,41 +212,51 @@ function completeSources(db, request) {
  * @param {Blobs} blobs @returns {import('./source-catalog-types.ts').SourceCatalogReply} */
 export function executeSourceCatalogRequest(db, request, blobs) {
   return db.transaction(() => {
-    switch (request.operation) {
-      case 'list':
-        return {
-          files: /** @type {Row[]} */ (
-            db.prepare(`SELECT ${projection} FROM file_records ORDER BY created_at DESC,id`).all()
-          ).map(record),
-        };
-      case 'inventory':
-        return {
-          files: /** @type {Row[]} */ (
-            db
-              .prepare(
-                `SELECT ${projection} FROM file_records WHERE embedding_set_id IS ? ORDER BY id`
-              )
-              .all(request.embeddingSetId)
-          ).map(record),
-        };
-      case 'read':
-        return readSources(db, request, blobs);
-      case 'prepare':
-        return { files: prepare(db, request, blobs) };
-      case 'replace':
-        return replaceSources(db, request, blobs);
-      case 'complete':
-        return completeSources(db, request);
-      case 'remove': {
-        assertExpected(reader(db), request.files);
-        const remove = db.prepare('DELETE FROM file_records WHERE id=?');
-        for (const file of request.files) {
-          remove.run(file.fileId);
-        }
-        return { files: request.files };
-      }
-      default:
-        throw new Error('Unknown canonical source operation');
-    }
+    const reply = sourceCatalogReply(db, request, blobs);
+    // The request's new blobs are durable before the transaction that references them commits.
+    blobs.flush();
+    return reply;
   })();
+}
+
+/** @param {import('better-sqlite3').Database} db
+ * @param {import('./source-catalog-types.ts').SourceCatalogRequest} request
+ * @param {Blobs} blobs @returns {import('./source-catalog-types.ts').SourceCatalogReply} */
+function sourceCatalogReply(db, request, blobs) {
+  switch (request.operation) {
+    case 'list':
+      return {
+        files: /** @type {Row[]} */ (
+          db.prepare(`SELECT ${projection} FROM file_records ORDER BY created_at DESC,id`).all()
+        ).map(record),
+      };
+    case 'inventory':
+      return {
+        files: /** @type {Row[]} */ (
+          db
+            .prepare(
+              `SELECT ${projection} FROM file_records WHERE embedding_set_id IS ? ORDER BY id`
+            )
+            .all(request.embeddingSetId)
+        ).map(record),
+      };
+    case 'read':
+      return readSources(db, request, blobs);
+    case 'prepare':
+      return { files: prepare(db, request, blobs) };
+    case 'replace':
+      return replaceSources(db, request, blobs);
+    case 'complete':
+      return completeSources(db, request);
+    case 'remove': {
+      assertExpected(reader(db), request.files);
+      const remove = db.prepare('DELETE FROM file_records WHERE id=?');
+      for (const file of request.files) {
+        remove.run(file.fileId);
+      }
+      return { files: request.files };
+    }
+    default:
+      throw new Error('Unknown canonical source operation');
+  }
 }
