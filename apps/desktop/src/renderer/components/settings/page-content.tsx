@@ -60,7 +60,7 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/settings-ui/settings-page-content';
-import { FileCog, Layers } from 'lucide-react';
+import { Download, FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { indexSearchContract } from '../../../ipc-domains/index-search.contract';
 import { resolveDesktopHostBrowserOrigins } from '../../host-browser-origins';
@@ -71,6 +71,7 @@ import {
 } from '../../host-mcp-settings';
 import { createIpcCapability } from '../../ipc-capability';
 import { DesktopLoggingSettings } from './logging-settings';
+import { DesktopUpdateSettings } from './update-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
 
 const refuseWithoutHost = (): Promise<never> =>
@@ -542,6 +543,14 @@ export default function SettingsPageContent() {
         status: worktreeSettings.status,
       }),
       createNotificationSettingsCategory(),
+      {
+        content: <DesktopUpdateSettings />,
+        description: 'Choose whether Brainstrike updates to beta releases.',
+        icon: Download,
+        id: 'updates',
+        keywords: ['updates', 'update', 'beta', 'prerelease', 'release channel', 'version'],
+        title: 'Updates',
+      },
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
         clearContent,
