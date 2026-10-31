@@ -6,11 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createNodeChunker } from '@brainstrike/chunking-worker/node';
 import { canonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
+import { runGrepSearchWith } from '@brainstrike/host-capabilities/native-tools';
 import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import { SqliteQueryClient, spawnQueryProcess } from '@brainstrike/sqlite-query';
 import { GrepSearchService } from '@brainstrike/utils/grep-search';
 import { expect, it } from 'vitest';
-import { runGrepSearchWith } from '../../assistant-server/grep-search-core';
 import { createNativeScopedSearchCapability } from '../../native-scoped-search';
 
 /**
