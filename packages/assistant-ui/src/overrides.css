@@ -2513,7 +2513,7 @@ span.bs-composer-chip {
      (0,3,0), so the plain `.bs-thinking-shimmer` entry in this same list —
      (0,2,0) — cannot reach it however late the block is declared. Drop either
      and exactly one element keeps shimmering under a reduced-motion
-     preference (pinned in assistant-ui-panel-architecture.test.ts). */
+     preference. */
   .assistant-ui-panel .bs-thinking-pulse,
   .assistant-ui-panel .bs-thinking-core,
   .assistant-ui-panel .bs-thinking-shimmer,

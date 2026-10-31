@@ -42,6 +42,18 @@ describe('preload bundle contract', () => {
     ]);
   });
 
+  it('lists a require or import whose specifier is computed', () => {
+    const source = [
+      'var electron = require("electron");',
+      'var mod = require(name);',
+      'const later = import( specifier );',
+    ].join('\n');
+    expect(findPreloadBundleRequireViolations(source)).toEqual([
+      'import(<computed>)',
+      'require(<computed>)',
+    ]);
+  });
+
   it('throws a named error for a bundle that requires beyond electron', () => {
     expect(() =>
       assertPreloadBundleRequires('preload.js', 'require("electron"); require("node:os");')
