@@ -371,16 +371,17 @@ export function McpConfigPanel({
         });
       }
     };
-    let result: Awaited<ReturnType<typeof writeMcpConfigText>>;
     dispatch({ type: 'SAVE_STARTED' });
-    try {
-      result = await writeMcpConfigText(editorValue, baseRevision);
-    } catch (error) {
-      reportSaveFailure(errorMessageOr(error, 'Failed to save MCP config'), false);
+    const saved = await writeMcpConfigText(editorValue, baseRevision).then(
+      (result) => ({ result }),
+      (error: unknown) => ({ error })
+    );
+    dispatch({ type: 'SAVE_SETTLED' });
+    if ('error' in saved) {
+      reportSaveFailure(errorMessageOr(saved.error, 'Failed to save MCP config'), false);
       return;
-    } finally {
-      dispatch({ type: 'SAVE_SETTLED' });
     }
+    const { result } = saved;
     if (!result.success) {
       reportSaveFailure(result.error, result.conflict === true);
       return;

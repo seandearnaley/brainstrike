@@ -30,11 +30,10 @@ export function McpTaskInputCancel({
       setCancelled(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'MCP task cancellation failed.');
-    } finally {
-      inFlight.current = false;
-      setPending(false);
-      onPendingChange(false);
     }
+    inFlight.current = false;
+    setPending(false);
+    onPendingChange(false);
   };
   return (
     <div className="space-y-2">
