@@ -134,15 +134,6 @@ vi.mock('../hooks/use-view-filter-presets', () => ({
 }));
 vi.mock('../indexing/use-background-token-indexer-integration', () => ({
   useBackgroundTokenIndexerIntegration: vi.fn(() => ({
-    diagnostics: {
-      cacheOperational: true,
-      cachePersisted: true,
-      clearIndexedCache: vi.fn(),
-      fileHandleMapSize: 0,
-      indexedCount: 0,
-      inFlightCount: 0,
-      workerReady: true,
-    },
     isIndexing: false,
     isReady: true,
     progress: null,
