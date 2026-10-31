@@ -3,7 +3,7 @@ import type { AssistantCheckpointRevertRunResult } from '@brainstrike/assistant-
 import { createLogger } from '@brainstrike/logging';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { Undo2 } from 'lucide-react';
-import { type ReactElement, useMemo, useState } from 'react';
+import { type ReactElement, useState } from 'react';
 import { useCheckpointTurnRevert } from './edit-checkpoint-context';
 import { isToolCallPart } from './tool-activity';
 
@@ -222,7 +222,7 @@ export function CheckpointTurnRevertControl({
  */
 export function CheckpointTurnRevert(): ReactElement | null {
   const parts = useAuiState((state) => state.message.parts);
-  const toolCallIds = useMemo(() => collectMutationToolCallIds(parts), [parts]);
+  const toolCallIds = collectMutationToolCallIds(parts);
   const turn = useCheckpointTurnRevert(toolCallIds);
   if (!turn) {
     return null;

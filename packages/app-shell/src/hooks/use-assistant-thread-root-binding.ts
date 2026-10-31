@@ -1,6 +1,6 @@
 import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore, useResourceThread } from '@brainstrike/assistant-data';
-import { useCallback } from 'react';
+
 import {
   type AssistantOperatingRootCandidate,
   resolveAssistantOperatingRootBinding as resolveDurableAssistantOperatingRootBinding,
@@ -66,7 +66,7 @@ export function useAssistantThreadRootBinding({
         ...(displayRootBinding.path ? { path: displayRootBinding.path } : {}),
       }
     : undefined;
-  const resolveThreadRootBinding = useCallback(async () => {
+  const resolveThreadRootBinding = async () => {
     if (selectedThreadMetadataPending) {
       throw new Error(
         'Cannot resolve the assistant thread root before the selected thread metadata is loaded.'
@@ -85,36 +85,29 @@ export function useAssistantThreadRootBinding({
       );
     }
     return resolveDurableAssistantOperatingRootBinding(currentMainRoot);
-  }, [currentMainRoot, selectedThreadMetadataPending, threadRootBinding]);
-  const persistThreadRootBinding = useCallback(
-    async (binding: Omit<AssistantOperatingRootBinding, 'persisted'>): Promise<void> => {
-      if (!(assistantThreadRepository && selectedMemoryThreadId)) {
-        throw new Error('Cannot bind an assistant thread root without an active thread.');
-      }
-      if (selectedThreadMetadataPending) {
-        throw new Error(
-          'Cannot persist the assistant thread root before the selected thread metadata is loaded.'
-        );
-      }
-      await updateThreadMetadata(
-        assistantThreadRepository,
-        memoryResourceId,
-        selectedMemoryThreadId,
-        {
-          operatingRootDisplayName: binding.displayName,
-          operatingRootId: binding.rootId,
-          ...(binding.path ? { operatingRootPath: binding.path } : {}),
-        }
+  };
+  const persistThreadRootBinding = async (
+    binding: Omit<AssistantOperatingRootBinding, 'persisted'>
+  ): Promise<void> => {
+    if (!(assistantThreadRepository && selectedMemoryThreadId)) {
+      throw new Error('Cannot bind an assistant thread root without an active thread.');
+    }
+    if (selectedThreadMetadataPending) {
+      throw new Error(
+        'Cannot persist the assistant thread root before the selected thread metadata is loaded.'
       );
-    },
-    [
+    }
+    await updateThreadMetadata(
       assistantThreadRepository,
       memoryResourceId,
       selectedMemoryThreadId,
-      selectedThreadMetadataPending,
-      updateThreadMetadata,
-    ]
-  );
+      {
+        operatingRootDisplayName: binding.displayName,
+        operatingRootId: binding.rootId,
+        ...(binding.path ? { operatingRootPath: binding.path } : {}),
+      }
+    );
+  };
 
   return {
     operatingRoot,

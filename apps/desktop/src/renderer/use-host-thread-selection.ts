@@ -2,7 +2,7 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostRunSelection } from '@brainstrike/agent-host/protocol';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { Schema } from 'effect';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 /** ADR-0019: a host thread's run selection as the composer reads and sets it. */
 export interface HostThreadSelectionBinding {
@@ -55,23 +55,20 @@ export function useHostThreadSelection(
       release();
     };
   }, [client, threadId]);
-  const set = useCallback(
-    async (modelId: string, configuration: Record<string, unknown>): Promise<void> => {
-      const committed = {
-        configuration: wireDecoder(Configuration, { errors: 'all', onExcessProperty: 'error' })(
-          JSON.parse(JSON.stringify(configuration))
-        ),
-        modelId,
-      };
-      await client.request('thread/selection/set', {
-        ...committed,
-        commandId: crypto.randomUUID(),
-        threadId,
-      });
-      setRead({ selection: committed, threadId });
-    },
-    [client, threadId]
-  );
+  const set = async (modelId: string, configuration: Record<string, unknown>): Promise<void> => {
+    const committed = {
+      configuration: wireDecoder(Configuration, { errors: 'all', onExcessProperty: 'error' })(
+        JSON.parse(JSON.stringify(configuration))
+      ),
+      modelId,
+    };
+    await client.request('thread/selection/set', {
+      ...committed,
+      commandId: crypto.randomUUID(),
+      threadId,
+    });
+    setRead({ selection: committed, threadId });
+  };
   if (read?.threadId !== threadId) {
     return { selection: undefined, set };
   }

@@ -24,7 +24,7 @@ import {
   Input,
   Label,
 } from '@brainstrike/ui';
-import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import type { McpPromptEntry } from './mcp-prompt-catalog';
 
 /** Keystrokes collapse into one `completion/complete` round trip per pause. */
@@ -86,13 +86,13 @@ export function McpPromptDialog({
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busy = submitting || retiredReason !== undefined;
 
-  const cancelPendingCompletion = useCallback((): void => {
+  const cancelPendingCompletion = (): void => {
     completionSequenceRef.current += 1;
     if (completionTimerRef.current !== null) {
       clearTimeout(completionTimerRef.current);
       completionTimerRef.current = null;
     }
-  }, []);
+  };
   useEffect(() => cancelPendingCompletion, [cancelPendingCompletion]);
 
   const requestSuggestions = (

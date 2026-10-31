@@ -14,7 +14,7 @@ import type { McpStatusCapability } from '@brainstrike/app-shell/mcp-status-capa
 import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { McpAppsServerEnablement } from '@brainstrike/mcp-app-host-ui';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const logger = createLogger('McpAppsEnablement');
 
@@ -54,5 +54,5 @@ export function useMcpAppsEnablement(status: McpStatusCapability | null): McpApp
     };
   }, [status]);
 
-  return useCallback((configuredServerId: string) => !disabled.has(configuredServerId), [disabled]);
+  return (configuredServerId: string) => !disabled.has(configuredServerId);
 }

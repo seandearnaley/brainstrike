@@ -1,7 +1,6 @@
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { useModelToggle } from '@brainstrike/settings-ui/settings/models/use-model-toggle';
 import { useToast } from '@brainstrike/ui';
-import { useCallback } from 'react';
 
 /**
  * Enabling a model from a `ComposerModelPicker` search result — shared by the
@@ -17,22 +16,19 @@ export function useEnableModel(): (providerId: string, modelId: string) => Promi
   const { toggle: toggleModelEnabled } = useModelToggle();
   const { toast } = useToast();
 
-  return useCallback(
-    async (providerId: string, modelId: string): Promise<boolean> => {
-      if (!isSupportedProvider(providerId)) {
-        toast({
-          description: `${providerId} is not a known provider.`,
-          title: 'Could not enable this model',
-          variant: 'destructive',
-        });
-        return false;
-      }
-      // `models.id` is the model registry table's primary key (catalog
-      // migrations upsert `ON CONFLICT (id)`), so a bare id identifies
-      // exactly one row even though the UI keys selection by
-      // `provider::model`.
-      return toggleModelEnabled(modelId, true);
-    },
-    [toast, toggleModelEnabled]
-  );
+  return async (providerId: string, modelId: string): Promise<boolean> => {
+    if (!isSupportedProvider(providerId)) {
+      toast({
+        description: `${providerId} is not a known provider.`,
+        title: 'Could not enable this model',
+        variant: 'destructive',
+      });
+      return false;
+    }
+    // `models.id` is the model registry table's primary key (catalog
+    // migrations upsert `ON CONFLICT (id)`), so a bare id identifies
+    // exactly one row even though the UI keys selection by
+    // `provider::model`.
+    return toggleModelEnabled(modelId, true);
+  };
 }

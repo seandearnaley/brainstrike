@@ -49,7 +49,7 @@
 import { useWatcherHealth } from '@brainstrike/file-explorer-hooks';
 import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import { useCallback } from 'react';
+
 import type { RewindRootRef } from './rewind-port';
 
 const logger = createLogger('RewindExplorerRecovery');
@@ -77,51 +77,48 @@ function connectedRoots(rootOutcomes: readonly RewindRootRef[]): readonly Connec
 export function useRewindExplorerRecovery(): RewindExplorerRecovery {
   const { healthByRoot, retry } = useWatcherHealth();
 
-  return useCallback(
-    async (rootOutcomes: readonly RewindRootRef[]): Promise<void> => {
-      const roots = connectedRoots(rootOutcomes);
-      if (roots.length === 0) {
-        return;
+  return async (rootOutcomes: readonly RewindRootRef[]): Promise<void> => {
+    const roots = connectedRoots(rootOutcomes);
+    if (roots.length === 0) {
+      return;
+    }
+
+    window.dispatchEvent(
+      createFileExplorerRefreshEvent({
+        roots: roots.map((root) => ({
+          changes: [],
+          rootId: root.rootId,
+          rootPath: root.rootPath,
+        })),
+        scope: 'full',
+        source: 'watcher',
+      })
+    );
+
+    for (const root of roots) {
+      // ONLY `failed`. `degraded` keeps a live subscription (the backend
+      // recovers itself on the next clean batch) and retrying it would tear
+      // down a working watch.
+      if (healthByRoot.get(root.rootPath)?.state !== 'failed') {
+        continue;
       }
-
-      window.dispatchEvent(
-        createFileExplorerRefreshEvent({
-          roots: roots.map((root) => ({
-            changes: [],
-            rootId: root.rootId,
-            rootPath: root.rootPath,
-          })),
-          scope: 'full',
-          source: 'watcher',
-        })
-      );
-
-      for (const root of roots) {
-        // ONLY `failed`. `degraded` keeps a live subscription (the backend
-        // recovers itself on the next clean batch) and retrying it would tear
-        // down a working watch.
-        if (healthByRoot.get(root.rootPath)?.state !== 'failed') {
-          continue;
-        }
-        try {
-          const outcome = await retry(root.rootPath);
-          if (!outcome.retried) {
-            // Never silently absorbed: a root left unwatched after a rewind is
-            // a real, user-visible degradation and the chip's manual retry is
-            // the fallback the log points at.
-            logger.warn('Watcher retry after rewind did not restart the watch', {
-              reason: outcome.reason,
-              rootId: root.rootId,
-            });
-          }
-        } catch (error) {
-          logger.error('Watcher retry after rewind failed', {
-            error: error instanceof Error ? error.message : String(error),
+      try {
+        const outcome = await retry(root.rootPath);
+        if (!outcome.retried) {
+          // Never silently absorbed: a root left unwatched after a rewind is
+          // a real, user-visible degradation and the chip's manual retry is
+          // the fallback the log points at.
+          logger.warn('Watcher retry after rewind did not restart the watch', {
+            reason: outcome.reason,
             rootId: root.rootId,
           });
         }
+      } catch (error) {
+        logger.error('Watcher retry after rewind failed', {
+          error: error instanceof Error ? error.message : String(error),
+          rootId: root.rootId,
+        });
       }
-    },
-    [healthByRoot, retry]
-  );
+    }
+  };
 }

@@ -21,14 +21,7 @@ import {
 import { type IndexerTelemetrySnapshot, useIndexerTelemetry } from '@brainstrike/token-cache';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { Activity, CheckCircle2, Database, RefreshCw, Server, Timer, XCircle } from 'lucide-react';
-import {
-  type ReactElement,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { type ReactElement, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   type RendererLongTaskTelemetrySnapshot,
   rendererLongTaskTelemetry,
@@ -650,7 +643,7 @@ export function SystemDiagnosticsPanel({
     };
   }, [refreshKey]);
 
-  const handleRefreshAll = useCallback(() => {
+  const handleRefreshAll = () => {
     setIsRefreshing(true);
     setRefreshKey((k) => k + 1);
     // Clear any existing timeout before setting a new one
@@ -662,7 +655,7 @@ export function SystemDiagnosticsPanel({
       () => setIsRefreshing(false),
       REFRESH_ANIMATION_DURATION_MS
     );
-  }, []);
+  };
 
   return (
     <div className="space-y-6" data-testid="system-diagnostics-panel">

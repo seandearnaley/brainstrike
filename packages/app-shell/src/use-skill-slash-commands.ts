@@ -26,7 +26,7 @@ import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
 import { useWorkspaceTrustRevision } from './workspace-trust/workspace-trust-revision';
@@ -122,7 +122,7 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
 
   const generationRef = useRef(0);
 
-  const reload = useCallback(() => {
+  const reload = () => {
     // Factory reset preparation is terminal for this renderer: its replacement
     // loads the list, so this one starts no load once preparation began.
     if (!discovery || hasFactoryResetPreparationStarted()) {
@@ -148,7 +148,7 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
     return () => {
       generationRef.current += 1;
     };
-  }, [discovery]);
+  };
 
   useEffect(() => reload(), [reload, activeRootIds, trustRevision]);
 

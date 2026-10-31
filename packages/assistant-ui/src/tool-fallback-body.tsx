@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from 'react';
+import type { ReactNode } from 'react';
 import type { ActivityStepState } from './activity-trace-model';
 import { CanvasLinkChip } from './canvas-link-chip';
 import { readCanvasMutationResult } from './canvas-result-model';
@@ -109,7 +109,7 @@ function CanvasResultRegion({
   result: ToolResult;
   toolName: string;
 }): ReactNode {
-  const canvas = useMemo(() => readCanvasMutationResult(toolName, result), [result, toolName]);
+  const canvas = readCanvasMutationResult(toolName, result);
   if (!canvas || isRunning) {
     return null;
   }
@@ -175,14 +175,8 @@ function ToolDetailsPane({
   readonly toolCallId: string;
   readonly toolName: string;
 }) {
-  const formattedArgs = useMemo(
-    () => (argsText ? formatToolArguments(argsText) : undefined),
-    [argsText]
-  );
-  const formattedResult = useMemo(
-    () => (hasResult ? formatToolResult(result) : undefined),
-    [hasResult, result]
-  );
+  const formattedArgs = argsText ? formatToolArguments(argsText) : undefined;
+  const formattedResult = hasResult ? formatToolResult(result) : undefined;
   return (
     <div className="flex flex-col gap-1.5 border-t pt-1.5" id={detailsId}>
       {showRawIo ? (

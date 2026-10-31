@@ -29,14 +29,7 @@
  * - Pointer, wheel, and touch intent cancel both an in-flight follow and any
  *   scheduled post-layout measurement so user navigation wins immediately.
  */
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { createContext, type ReactNode, useContext, useState, useSyncExternalStore } from 'react';
 
 export interface ThreadScrollFollow {
   /**
@@ -392,15 +385,12 @@ export function useThreadFollowScrollerRef(): (
   element: HTMLDivElement | null
 ) => (() => void) | undefined {
   const follow = useThreadScrollFollow();
-  return useCallback(
-    (element: HTMLDivElement | null) => {
-      if (!element) {
-        return;
-      }
-      return follow.attach(element);
-    },
-    [follow]
-  );
+  return (element: HTMLDivElement | null) => {
+    if (!element) {
+      return;
+    }
+    return follow.attach(element);
+  };
 }
 
 /** Reactive pinned state for the region's data-pinned + the jump button. */

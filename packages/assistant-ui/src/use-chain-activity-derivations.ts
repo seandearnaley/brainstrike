@@ -46,11 +46,9 @@ export function useChainActivityDerivations(
       })
     );
   }, [messageParts, groupParts]);
-  const toolDurations = useStableRecord(
-    useMemo(() => collectToolDurations(messageParts), [messageParts])
-  );
+  const toolDurations = useStableRecord(collectToolDurations(messageParts));
   const shellOutputs = useShellOutputs(messageId, messageParts);
-  const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
+  const taskList = deriveTaskListFromParts(messageParts);
 
   return { activityFallbackMs, shellOutputs, taskList, toolDurations };
 }

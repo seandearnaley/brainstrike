@@ -1,7 +1,7 @@
 import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
-import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChangesBridge } from '../changes/changes-bridge';
 import { useChangesBridge } from '../workspace-git-services';
 import { notifyRootRegistered } from './root-registration-events';
@@ -344,7 +344,7 @@ export function useRootsReconciliation({
   // identity (and therefore never re-renders inverting consumers needlessly).
   // Declared before the boot effect that calls it (avoids a TDZ in the effect's
   // dep array).
-  const publishCanonicalMapping = useCallback((adapterRootId: string, dbRootId: string): void => {
+  const publishCanonicalMapping = (adapterRootId: string, dbRootId: string): void => {
     setDbRootIdByAdapterRootId((prev) => {
       if (prev.get(adapterRootId) === dbRootId) {
         return prev;
@@ -353,8 +353,8 @@ export function useRootsReconciliation({
       next.set(adapterRootId, dbRootId);
       return next;
     });
-  }, []);
-  const publishCanonicalKind = useCallback((adapterRootId: string, kind: string): void => {
+  };
+  const publishCanonicalKind = (adapterRootId: string, kind: string): void => {
     setDbRootKindByAdapterRootId((prev) => {
       if (prev.get(adapterRootId) === kind) {
         return prev;
@@ -363,10 +363,10 @@ export function useRootsReconciliation({
       next.set(adapterRootId, kind);
       return next;
     });
-  }, []);
-  const publishReconciliationSettled = useCallback((settled: boolean): void => {
+  };
+  const publishReconciliationSettled = (settled: boolean): void => {
     setRootsReconciliationSettled(settled);
-  }, []);
+  };
 
   useEffect(() => {
     if (hasRunRef.current) {
@@ -448,85 +448,79 @@ export function useRootsReconciliation({
   // is unreachable — the render phase initializes the ref before any consumer
   // can obtain these callbacks — and throwing keeps the "always settles"
   // contract honest instead of hanging on a fresh promise.
-  const awaitBootSettle = useCallback(async (): Promise<void> => {
+  const awaitBootSettle = async (): Promise<void> => {
     const settling = settlingRef.current;
     if (settling === null) {
       throw new Error('roots reconciliation awaited before settling promise initialization');
     }
     await settling.promise;
-  }, []);
+  };
 
-  const registerRoot = useCallback(
-    async (descriptor: RootDescriptor): Promise<void> => {
-      const run = async (): Promise<void> => {
-        // Ordering: the boot reconcile wins races — never write before it settles.
-        await awaitBootSettle();
-        await performRootRegistration({
-          adapter: adapterRef.current,
-          changes: changesRef.current,
-          dbRootIdMap: dbRootIdMapRef.current,
-          descriptor,
-          publishCanonicalKind,
-          publishCanonicalMapping,
-          registration: registrationRef.current,
-        });
-      };
-      // Serialize registrations so two adds for the same path cannot interleave
-      // their SELECT/INSERT and double-insert. performRootRegistration never
-      // rejects, so the chain cannot break.
-      const chained = pendingRegistrationsRef.current.then(run);
-      pendingRegistrationsRef.current = chained;
-      return await chained;
-    },
-    [awaitBootSettle, publishCanonicalKind, publishCanonicalMapping]
-  );
+  const registerRoot = async (descriptor: RootDescriptor): Promise<void> => {
+    const run = async (): Promise<void> => {
+      // Ordering: the boot reconcile wins races — never write before it settles.
+      await awaitBootSettle();
+      await performRootRegistration({
+        adapter: adapterRef.current,
+        changes: changesRef.current,
+        dbRootIdMap: dbRootIdMapRef.current,
+        descriptor,
+        publishCanonicalKind,
+        publishCanonicalMapping,
+        registration: registrationRef.current,
+      });
+    };
+    // Serialize registrations so two adds for the same path cannot interleave
+    // their SELECT/INSERT and double-insert. performRootRegistration never
+    // rejects, so the chain cannot break.
+    const chained = pendingRegistrationsRef.current.then(run);
+    pendingRegistrationsRef.current = chained;
+    return await chained;
+  };
 
   // A folder re-added after removal comes back under its one id (BST-1990), so a
   // folder no longer mounted must leave the maps. Otherwise its re-registration,
   // and the native-index and git-discovery nudges it sends, would be skipped as
   // a repeat of the first, and Explorer search would keep scoping its query to a
   // folder the native index no longer authorizes.
-  const syncMountedRoots = useCallback(
-    async (current: readonly RootDescriptor[]): Promise<void> => {
-      const forgetUnmounted = async (): Promise<void> => {
-        await awaitBootSettle();
-        const mounted = new Set(current.flatMap((root) => [root.rootId, root.handle.path]));
-        for (const key of [...dbRootIdMapRef.current.keys()]) {
-          if (!mounted.has(key)) {
-            dbRootIdMapRef.current.delete(key);
-          }
-        }
-        setDbRootIdByAdapterRootId((prev) => retainMountedKeys(prev, mounted));
-        setDbRootKindByAdapterRootId((prev) => retainMountedKeys(prev, mounted));
-      };
-      const chained = pendingRegistrationsRef.current.then(forgetUnmounted);
-      pendingRegistrationsRef.current = chained;
-      await chained;
-      for (const root of current) {
-        await registerRoot(root);
-      }
-    },
-    [awaitBootSettle, registerRoot]
-  );
-
-  const resolveDbRootId = useCallback(
-    async (rootPath: string, adapterRootId?: string | null): Promise<string | null> => {
+  const syncMountedRoots = async (current: readonly RootDescriptor[]): Promise<void> => {
+    const forgetUnmounted = async (): Promise<void> => {
       await awaitBootSettle();
-      // Mid-session registrations enqueued before this call must be visible:
-      // a sync pass triggered by the same Add Folder commit would otherwise
-      // race the INSERT and write root_id = NULL. The chain only grows
-      // synchronously inside registerRoot, so awaiting the tail is sufficient.
-      await pendingRegistrationsRef.current;
-      const rootKey = adapterRootId || rootPath;
-      const dbRootId = dbRootIdMapRef.current.get(rootKey) ?? null;
-      if (dbRootId === null && !warnedUnmappedRoots.has(rootKey)) {
-        warnedUnmappedRoots.add(rootKey);
-        logger.warn('Root identity has no mapped db root id', { adapterRootId, rootPath });
+      const mounted = new Set(current.flatMap((root) => [root.rootId, root.handle.path]));
+      for (const key of [...dbRootIdMapRef.current.keys()]) {
+        if (!mounted.has(key)) {
+          dbRootIdMapRef.current.delete(key);
+        }
       }
-      return dbRootId;
-    },
-    [awaitBootSettle]
-  );
+      setDbRootIdByAdapterRootId((prev) => retainMountedKeys(prev, mounted));
+      setDbRootKindByAdapterRootId((prev) => retainMountedKeys(prev, mounted));
+    };
+    const chained = pendingRegistrationsRef.current.then(forgetUnmounted);
+    pendingRegistrationsRef.current = chained;
+    await chained;
+    for (const root of current) {
+      await registerRoot(root);
+    }
+  };
+
+  const resolveDbRootId = async (
+    rootPath: string,
+    adapterRootId?: string | null
+  ): Promise<string | null> => {
+    await awaitBootSettle();
+    // Mid-session registrations enqueued before this call must be visible:
+    // a sync pass triggered by the same Add Folder commit would otherwise
+    // race the INSERT and write root_id = NULL. The chain only grows
+    // synchronously inside registerRoot, so awaiting the tail is sufficient.
+    await pendingRegistrationsRef.current;
+    const rootKey = adapterRootId || rootPath;
+    const dbRootId = dbRootIdMapRef.current.get(rootKey) ?? null;
+    if (dbRootId === null && !warnedUnmappedRoots.has(rootKey)) {
+      warnedUnmappedRoots.add(rootKey);
+      logger.warn('Root identity has no mapped db root id', { adapterRootId, rootPath });
+    }
+    return dbRootId;
+  };
 
   return {
     dbRootIdByAdapterRootId,

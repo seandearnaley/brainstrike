@@ -36,7 +36,7 @@ import {
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
-import { useCallback, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 
 const logger = createLogger('FollowUpQueue');
 
@@ -312,22 +312,19 @@ export function resetThreadMessageQueues(): void {
 
 /** The identity keys of the tool decisions waiting in a thread's queue. */
 export function useQueuedDecisionKeys(threadKey: string | undefined): ReadonlySet<string> {
-  const subscribe = useCallback(
-    (listener: () => void): (() => void) => {
-      let unsubscribe = findThreadMessageQueue(threadKey)?.subscribe(listener);
-      const rebind = (): void => {
-        unsubscribe?.();
-        unsubscribe = findThreadMessageQueue(threadKey)?.subscribe(listener);
-        listener();
-      };
-      registryListeners.add(rebind);
-      return () => {
-        registryListeners.delete(rebind);
-        unsubscribe?.();
-      };
-    },
-    [threadKey]
-  );
+  const subscribe = (listener: () => void): (() => void) => {
+    let unsubscribe = findThreadMessageQueue(threadKey)?.subscribe(listener);
+    const rebind = (): void => {
+      unsubscribe?.();
+      unsubscribe = findThreadMessageQueue(threadKey)?.subscribe(listener);
+      listener();
+    };
+    registryListeners.add(rebind);
+    return () => {
+      registryListeners.delete(rebind);
+      unsubscribe?.();
+    };
+  };
   const getKeys = (): ReadonlySet<string> =>
     findThreadMessageQueue(threadKey)?.getDecisionKeys() ?? EMPTY_KEYS;
   return useSyncExternalStore(subscribe, getKeys, getKeys);

@@ -1,5 +1,5 @@
 import { AppReloadProvider } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useCallback } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { type ChunkReloadGuardOptions, writeChunkReloadMarker } from './chunk-reload-guard';
 
 export interface AppReloadGateProps {
@@ -25,9 +25,9 @@ export function AppReloadGate({
   getStorage,
   reload = reloadWindow,
 }: AppReloadGateProps): ReactElement {
-  const requestAppReload = useCallback(() => {
+  const requestAppReload = () => {
     writeChunkReloadMarker({ buildId, getStorage });
     reload();
-  }, [buildId, getStorage, reload]);
+  };
   return <AppReloadProvider requestAppReload={requestAppReload}>{children}</AppReloadProvider>;
 }

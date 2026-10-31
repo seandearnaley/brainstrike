@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { isAgentColor } from '@brainstrike/types/agent-color';
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
 import {
   type AssistantThreadHostChild,
@@ -40,10 +40,7 @@ export function HostChildConversations({
   readonly threadId: string;
 }) {
   const host = useAssistantThreadHost();
-  const list = useMemo(
-    () => (host?.childThreads ? host.childThreads.bind(host) : undefined),
-    [host]
-  );
+  const list = host?.childThreads ? host.childThreads.bind(host) : undefined;
   const [listed, setListed] = useState<{
     readonly children: readonly AssistantThreadHostChild[];
     readonly threadId: string;
@@ -85,54 +82,48 @@ export function HostChildConversations({
     };
   }, [current]);
   // The card presents the child's call sign and family colour, as its tab does.
-  const presentation = useCallback(
-    async (childThreadId: string) => {
-      const known =
-        current?.find((child) => child.threadId === childThreadId) ??
-        (await list?.(threadId))?.find((child) => child.threadId === childThreadId);
-      if (!known) {
-        throw new Error('The child conversation belongs to another parent.');
-      }
-      if (!isAgentColor(known.color)) {
-        throw new Error('The child conversation colour is not an agent colour.');
-      }
-      return {
-        colorId: known.color,
-        displayName: known.callSign,
-        markClassName: getDelegatedColorPresentation(known.color).markClassName,
-      };
-    },
-    [current, list, threadId]
-  );
-  const open = useCallback(
-    (childThreadId: string, origin?: HTMLElement) => {
-      if (origin) {
-        rememberHostChildOrigin(childThreadId, threadId, origin);
-      }
-      const known = current?.find((child) => child.threadId === childThreadId);
-      if (known) {
-        openHostChildTab(known);
-        return;
-      }
-      // The card can read a result before this view's listing catches up.
-      list?.(threadId)
-        .then((found) => {
-          const child = found.find((candidate) => candidate.threadId === childThreadId);
-          if (!child) {
-            throw new Error(UNAVAILABLE);
-          }
-          openHostChildTab(child);
-        })
-        .catch((error: unknown) => {
-          logger.error('Host child conversation could not be opened', {
-            childThreadId,
-            error,
-            threadId,
-          });
+  const presentation = async (childThreadId: string) => {
+    const known =
+      current?.find((child) => child.threadId === childThreadId) ??
+      (await list?.(threadId))?.find((child) => child.threadId === childThreadId);
+    if (!known) {
+      throw new Error('The child conversation belongs to another parent.');
+    }
+    if (!isAgentColor(known.color)) {
+      throw new Error('The child conversation colour is not an agent colour.');
+    }
+    return {
+      colorId: known.color,
+      displayName: known.callSign,
+      markClassName: getDelegatedColorPresentation(known.color).markClassName,
+    };
+  };
+  const open = (childThreadId: string, origin?: HTMLElement) => {
+    if (origin) {
+      rememberHostChildOrigin(childThreadId, threadId, origin);
+    }
+    const known = current?.find((child) => child.threadId === childThreadId);
+    if (known) {
+      openHostChildTab(known);
+      return;
+    }
+    // The card can read a result before this view's listing catches up.
+    list?.(threadId)
+      .then((found) => {
+        const child = found.find((candidate) => candidate.threadId === childThreadId);
+        if (!child) {
+          throw new Error(UNAVAILABLE);
+        }
+        openHostChildTab(child);
+      })
+      .catch((error: unknown) => {
+        logger.error('Host child conversation could not be opened', {
+          childThreadId,
+          error,
+          threadId,
         });
-    },
-    [current, list, threadId]
-  );
+      });
+  };
   return (
     <SubagentConversationNavigationContext value={list ? open : null}>
       <SubagentConversationPresentationContext value={list ? presentation : null}>

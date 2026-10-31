@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import { createContext, type ReactNode, use, useCallback, useMemo, useState } from 'react';
+import { createContext, type ReactNode, use, useState } from 'react';
 import {
   type AssistantDetailLevel,
   DEFAULT_ASSISTANT_DETAIL_LEVEL,
@@ -53,7 +53,7 @@ function readStoredDetailLevel(): AssistantDetailLevel {
 export function AssistantDetailLevelProvider({ children }: { children: ReactNode }) {
   const [detailLevel, setDetailLevelState] = useState<AssistantDetailLevel>(readStoredDetailLevel);
 
-  const setDetailLevel = useCallback((level: AssistantDetailLevel) => {
+  const setDetailLevel = (level: AssistantDetailLevel) => {
     setDetailLevelState(level);
     if (typeof window === 'undefined') {
       return;
@@ -63,12 +63,9 @@ export function AssistantDetailLevelProvider({ children }: { children: ReactNode
     } catch (error) {
       logger.warn('Failed to persist detail level', { error, level });
     }
-  }, []);
+  };
 
-  const value = useMemo<AssistantDetailLevelValue>(
-    () => ({ detailLevel, setDetailLevel }),
-    [detailLevel, setDetailLevel]
-  );
+  const value: AssistantDetailLevelValue = { detailLevel, setDetailLevel };
 
   return (
     <AssistantDetailLevelContext.Provider value={value}>
