@@ -71,7 +71,7 @@ it('never re-opens a failure after startup, a refusal, or one not typed as trans
         category: 'availability',
         code: 'state-index.retired',
         message: 'The state index stopped 4 times in a row.',
-        remedy: 'Restart BrainStrike.',
+        remedy: 'Restart Brainstrike.',
       })
     ),
     true

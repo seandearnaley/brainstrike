@@ -294,7 +294,7 @@ it('stops after three replacements in a row with no request served, refused with
       category: 'availability',
       code: 'state-index.retired',
       kind: 'refusal',
-      remedy: 'Restart BrainStrike.',
+      remedy: 'Restart Brainstrike.',
     },
   });
   expect(starts()).toBe(4);
