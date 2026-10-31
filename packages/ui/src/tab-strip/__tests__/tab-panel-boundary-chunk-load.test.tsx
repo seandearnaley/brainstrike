@@ -70,7 +70,7 @@ describe('TabPanelBoundary with a failed lazy chunk', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent("Changes couldn't load");
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Part of BrainStrike failed to download, usually after an update or a dropped connection. Reload the app to fix it.'
+      'Part of Brainstrike failed to download, usually after an update or a dropped connection. Reload the app to fix it.'
     );
     expect(screen.queryByRole('button', { name: 'Reload tab' })).toBeNull();
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([

@@ -113,7 +113,7 @@ const ComposerInputRow = ({
             queueOrSteerOnEnter(event, runActions);
           }
         }}
-        placeholder={isRunning ? 'Queue a follow-up, or steer…' : 'Ask BrainStrike anything…'}
+        placeholder={isRunning ? 'Queue a follow-up, or steer…' : 'Ask Brainstrike anything…'}
         rows={1}
       />
       {slashPopover}

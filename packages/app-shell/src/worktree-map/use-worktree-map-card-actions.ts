@@ -179,7 +179,7 @@ export function useWorktreeMapCardActions(
           // after which this retries successfully.
           setActionError(
             message === NEVER_GRANTED_MOUNT_MESSAGE
-              ? `"${card.entry.name}" was adopted, but BrainStrike couldn't confirm it's inside an open folder or its managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
+              ? `"${card.entry.name}" was adopted, but Brainstrike couldn't confirm it's inside an open folder or its managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
               : message
           );
         });

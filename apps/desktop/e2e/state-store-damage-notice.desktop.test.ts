@@ -77,7 +77,7 @@ test.describe('Damaged state store notice (desktop) @desktop-db-storage', () => 
     const reopened = await electron.ensureWindow({ preserveState: true });
     const notice = reopened.getByTestId('state-store-damage-notice');
     await expect(notice).toContainText(
-      'BrainStrike’s conversation store is damaged, so it opened read-only.',
+      'Brainstrike’s conversation store is damaged, so it opened read-only.',
       { timeout: 60_000 }
     );
     await expect(notice).toContainText('Nothing was deleted or replaced.');
