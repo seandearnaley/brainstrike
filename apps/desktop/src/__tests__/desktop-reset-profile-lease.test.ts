@@ -48,7 +48,6 @@ describe('desktop reset profile ownership', () => {
   async function handler(state: ReturnType<typeof setup>) {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     return createDesktopFactoryResetHandler({
-      clearCredentials: async () => true,
       completeSuccessfulReset: state.renderer,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset: state.prepare,

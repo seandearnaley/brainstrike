@@ -71,7 +71,6 @@ app
     writeFileSync(path.join(profile, 'state.db'), 'state payload');
     writeFileSync(path.join(profile, 'index.db-wal'), 'index payload');
     const run = createDesktopFactoryResetHandler({
-      clearCredentials: async () => true,
       completeSuccessfulReset: async () => {
         assert(guard?.isReleased === true, 'Renderer replacement preceded guard release');
         record('renderer');

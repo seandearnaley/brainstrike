@@ -540,9 +540,6 @@ const profileReset = createDesktopProfileResetOwner({
 });
 
 const handleResetLocal = createDesktopFactoryResetHandler({
-  // The host is the one credential writer; `auth/clear` also drops its MCP
-  // OAuth records with their live providers.
-  clearCredentials: async () => (await agentHostMainClient.request('auth/clear', {})).cleared,
   clearRetainedContent: async () => {
     await nativeIndexActivation.destroyNativeOwner();
     await applicationIpcDomain.roots.clearForContent();

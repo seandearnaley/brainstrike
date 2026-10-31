@@ -43,10 +43,8 @@ NDJSON backstop sits on the logging choke points.
   reopening. Only the exact terminal cancellation is expected; unrelated
   failures and existing shutdown deadlines remain unchanged.
   **Main-owned reset amendment, approved by Sean on 2026-10-31 (BST-2382):**
-  Main is the only owner of Factory Reset. Before the purge it clears stored
-  credentials through the host, their one writer, since the OS keychain lies
-  outside userData; a credential clear that fails fails the reset. After the
-  purge it loads `about:blank`
+  Main is the only owner of Factory Reset. The userData purge also deletes the
+  sealed credential store. After the purge it loads `about:blank`
   in every window, so no old document can write, clears the default session's
   storage with `clearStorageData` (`clearData` skips the app's own non-web
   scheme), and then loads each window's document again. The renderer only
