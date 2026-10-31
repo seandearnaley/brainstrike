@@ -3,7 +3,10 @@
 # protections in .mergify.yml queue a PR only after this job has succeeded on
 # its head and every review thread is resolved.
 #
-# - The first non-draft run posts one PR review with every finding inline.
+# - The first non-draft run posts one PR review with every finding inline, or as
+#   a comment on its file when its lines are outside the diff, so each one is a
+#   thread the merge protection counts. Only a finding on a file the PR doesn't
+#   change, which can't be a thread, is listed in the review body instead.
 # - A later push gets a follow-up limited to the lines its commits changed. It
 #   posts a review only when it has something new, and resolves the threads of
 #   earlier findings the push fixed. A push that leaves the PR adding and

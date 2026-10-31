@@ -103,9 +103,8 @@ regression. Do not repeat that gate locally before a PR.
   push, or reply with why it stands, then resolve the thread; a reply alone
   doesn't resolve it. Claude's follow-up review resolves its own thread when it
   judges the push fixed it. A thread posted after the PR queued holds the merge
-  the same way, so a fix never needs a draft. If Claude Review fails, rerun its
-  failed job once (`gh run rerun <run-id> --failed`); a second failure is a
-  defect to report.
+  the same way, so a fix never needs a draft. A failed Claude Review holds the
+  PR too: report it to the owner with its run, don't rerun it.
 - Keep a PR a draft, which holds it out of the queue, only while it depends on
   another open PR. Mergify orders, batches and speculatively checks the rest.
 - For a large or risky change, open the PR as a draft with the `full-check`
