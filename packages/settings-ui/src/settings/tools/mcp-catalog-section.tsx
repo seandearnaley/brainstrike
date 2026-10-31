@@ -136,23 +136,20 @@ function McpCatalogCard({ blocked, entry, installed, onInstall }: McpCatalogCard
   const submit = async (token?: string): Promise<boolean> => {
     setError(null);
     setPending(true);
-    try {
-      const result = await onInstall(entry, {
-        access,
-        catalogId: entry.id,
-        ...(token === undefined ? {} : { token }),
-      });
-      if (!result.success) {
-        setError(result.error);
-        return false;
-      }
-      return true;
-    } catch (cause) {
-      setError(errorText(cause));
+    const failure = await onInstall(entry, {
+      access,
+      catalogId: entry.id,
+      ...(token === undefined ? {} : { token }),
+    }).then(
+      (result) => (result.success ? null : result.error),
+      (cause: unknown) => errorText(cause)
+    );
+    setPending(false);
+    if (failure !== null) {
+      setError(failure);
       return false;
-    } finally {
-      setPending(false);
     }
+    return true;
   };
 
   const handleInstall = () => {
