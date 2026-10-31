@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { acquireProfileResetLease } from '@brainstrike/host-lease';
@@ -50,7 +50,10 @@ describe('factory reset with the packaged macOS database layout', () => {
     mkdirSync(path.join(rootPath, 'backups', `${profile}-2026-09-29`), { recursive: true });
     mkdirSync(path.join(userData, 'Local Storage'));
     mkdirSync(path.join(userData, 'Crashpad', 'completed'), { recursive: true });
+    mkdirSync(path.join(userData, 'Crashpad', 'new'));
+    writeFileSync(path.join(userData, 'Crashpad', 'settings.dat'), 'crashpad settings');
     writeFileSync(path.join(userData, 'Crashpad', 'completed', 'report.dmp'), 'minidump');
+    writeFileSync(path.join(userData, 'Crashpad', 'completed', 'report.meta'), 'metadata');
     mkdirSync(path.join(userData, 'logs'));
     writeFileSync(path.join(userData, 'logs', 'brainstrike.log'), 'kept');
     return { pgdata, root: rootPath };
@@ -60,6 +63,7 @@ describe('factory reset with the packaged macOS database layout', () => {
     const { pgdata, root } = seedPackagedProfile();
     const profile = path.dirname(pgdata);
     const sessionData = path.join(userData, 'session-data');
+    const crashpad = path.join(userData, 'Crashpad');
     mkdirSync(sessionData);
     writeFileSync(path.join(sessionData, 'engine-container'), 'Electron-owned container');
     writeFileSync(path.join(profile, 'state.db'), 'state');
@@ -67,6 +71,7 @@ describe('factory reset with the packaged macOS database layout', () => {
     const lease = await acquireProfileResetLease(profile);
     try {
       const result = await resetDesktopApplicationData({
+        crashDumpsPath: crashpad,
         getProtectedPaths: () => [RootLock.dirOf(lease.root), sessionData],
         resetDatabaseProfile: async () => {
           await lease.clearRootContents();
@@ -81,8 +86,12 @@ describe('factory reset with the packaged macOS database layout', () => {
       expect(existsSync(RootLock.dirOf(lease.root))).toBe(true);
       expect(existsSync(path.join(root, 'backups'))).toBe(false);
       expect(existsSync(path.join(userData, 'Local Storage'))).toBe(false);
-      // The profile's minidumps go with it (BST-2351).
-      expect(existsSync(path.join(userData, 'Crashpad'))).toBe(false);
+      // The minidumps go, but Crashpad's live folders stay so the next crash
+      // is still captured (BST-2351).
+      expect(readdirSync(path.join(crashpad, 'completed'))).toEqual([]);
+      expect(readdirSync(path.join(crashpad, 'new'))).toEqual([]);
+      expect(existsSync(path.join(crashpad, 'settings.dat'))).toBe(true);
+      expect(result.deletedPaths).toContain(path.join(crashpad, 'completed', 'report.dmp'));
       expect(existsSync(path.join(sessionData, 'engine-container'))).toBe(true);
       expect(result.preservedPaths).toContain(RootLock.dirOf(lease.root));
       await expect(RootLock.acquire(profile)).rejects.toMatchObject({ name: 'RootLockedError' });

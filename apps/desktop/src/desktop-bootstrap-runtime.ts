@@ -132,7 +132,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   app.setPath('sessionData', sessionDataDir);
   // Crashpad writes a minidump for any process that crashes, into this
   // profile so a dev or test profile never writes into the release one. Upload
-  // stays off; factory reset clears the folder with the rest of userData.
+  // stays off; factory reset deletes the reports and keeps the live database.
   app.setPath('crashDumps', path.join(userDataDir, 'Crashpad'));
   crashReporter.start({ uploadToServer: false });
   // Linux launches the GPU process through Chromium's zygote. A signal to Main's process group

@@ -96,7 +96,7 @@ The application implements a comprehensive Content Security Policy that differs 
 - Crash reports stay on the machine (BST-2351): Crashpad writes a minidump for
   a crashed process into `<userData>/Crashpad` with upload off. A minidump can
   hold memory from the crashed process, so the thread debug pack lists only
-  names, times and sizes, and factory reset deletes the folder
+  names, times and sizes, and factory reset deletes every report
 
 ### Credential storage
 - Provider keys, MCP bearer tokens and MCP OAuth records live in one private

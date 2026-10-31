@@ -1,5 +1,5 @@
 import type { Dirent } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 /** The newest minidumps a listing carries; the folder keeps every one until factory reset. */
@@ -62,4 +62,42 @@ export async function listCrashDumps(directory: string): Promise<CrashDumpListin
   }
   dumps.sort((left, right) => right.modifiedAt.localeCompare(left.modifiedAt));
   return { directory, dumps: dumps.slice(0, CRASH_DUMP_LIST_LIMIT), totalCount: dumps.length };
+}
+
+export interface CrashReportPurgeResult {
+  readonly purgedPaths: readonly string[];
+  readonly purgeFailures: readonly string[];
+}
+
+/**
+ * Factory reset's step for the Crashpad folder: deletes every report file and
+ * keeps the folders and Crashpad's top-level settings. The handler is still
+ * running and writes each new report into the folders it created at start, so
+ * deleting the folders would stop capture until the next launch.
+ */
+export async function purgeCrashReports(directory: string): Promise<CrashReportPurgeResult> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(directory, { recursive: true, withFileTypes: true });
+  } catch (error) {
+    if (isMissing(error)) {
+      return { purgedPaths: [], purgeFailures: [] };
+    }
+    throw error;
+  }
+  const purgedPaths: string[] = [];
+  const purgeFailures: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.parentPath === directory) {
+      continue;
+    }
+    const filePath = path.join(entry.parentPath, entry.name);
+    try {
+      await rm(filePath, { force: true });
+      purgedPaths.push(filePath);
+    } catch {
+      purgeFailures.push(filePath);
+    }
+  }
+  return { purgedPaths, purgeFailures };
 }

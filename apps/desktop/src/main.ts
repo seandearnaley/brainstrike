@@ -541,6 +541,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     }
     await completeRendererReplacement(signal);
   },
+  crashDumpsPath: app.getPath('crashDumps'),
   // The durable NDJSON backstop (Flight Recorder P2a) is a plaintext mirror
   // of `brainstrike_diagnostic_events`, which factory reset already wipes —
   // without this, the mirror would survive inside the preserved `logs`
