@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
-import { resolveCardStatus, resolveErrorMessage } from '../tool-fallback-state';
+import { formatToolPayload, resolveCardStatus, resolveErrorMessage } from '../tool-fallback-state';
 
 /**
  * Seam test for `tool-fallback-state.ts` (BST-1684 review follow-through,
@@ -85,5 +85,32 @@ describe('resolveErrorMessage', () => {
 
   it('returns undefined when the result states no error and the part carries none', () => {
     expect(resolveErrorMessage({ type: 'complete' }, { ok: true }, false)).toBeUndefined();
+  });
+});
+
+describe('formatToolPayload', () => {
+  it('indents compact JSON text, as streamed tool arguments arrive', () => {
+    expect(formatToolPayload('{"path":"src/app.ts","limit":2}')).toBe(
+      '{\n  "path": "src/app.ts",\n  "limit": 2\n}'
+    );
+  });
+
+  it('expands JSON held in a string inside a result, such as MCP text content', () => {
+    const result = { content: [{ text: '{"items":[1,2]}', type: 'text' }] };
+    expect(formatToolPayload(result)).toBe(
+      JSON.stringify({ content: [{ text: { items: [1, 2] }, type: 'text' }] }, null, 2)
+    );
+  });
+
+  it('keeps numbers in JSON text exactly as written', () => {
+    expect(formatToolPayload('{"id":9223372036854775807,"price":1.50}')).toBe(
+      '{\n  "id": 9223372036854775807,\n  "price": 1.50\n}'
+    );
+  });
+
+  it('shows text that is not complete JSON exactly as it arrived', () => {
+    expect(formatToolPayload('{"path":"src/ap')).toBe('{"path":"src/ap');
+    expect(formatToolPayload('total 8\n-rw-r--r-- a.ts')).toBe('total 8\n-rw-r--r-- a.ts');
+    expect(formatToolPayload({ note: '[draft] notes' })).toBe('{\n  "note": "[draft] notes"\n}');
   });
 });

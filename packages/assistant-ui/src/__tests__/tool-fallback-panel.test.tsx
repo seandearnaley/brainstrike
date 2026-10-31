@@ -207,7 +207,7 @@ describe('ToolFallback', () => {
       await user.click(expandButton);
 
       expect(screen.getByText(/Arguments:/u)).toBeInTheDocument();
-      expect(screen.getByText(/"input":"test value"/u)).toBeInTheDocument();
+      expect(screen.getByText(/"input": "test value"/u)).toBeInTheDocument();
       expect(screen.getByText(/Result:/u)).toBeInTheDocument();
       expect(screen.getByText(/result value/u)).toBeInTheDocument();
     });
@@ -350,7 +350,7 @@ describe('ToolFallback', () => {
       await user.click(expandButton);
 
       expect(screen.getByText(/Arguments:/u)).toBeInTheDocument();
-      expect(screen.getByText(/"param":"value"/u)).toBeInTheDocument();
+      expect(screen.getByText(/"param": "value"/u)).toBeInTheDocument();
       expect(screen.queryByText(/Result:/u)).not.toBeInTheDocument();
 
       const collapseButton = screen.getByRole('button', { name: /collapse details/iu });
