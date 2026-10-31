@@ -69,9 +69,11 @@ describe('useExpandAll', () => {
   let cancelLoadOperationsMock: Mock<() => void>;
   let onErrorMock: Mock<(error: Error) => void>;
   let onProgressMock: Mock<(loaded: number, total: number) => void>;
+  let isExpandingAllRef: { current: boolean };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    isExpandingAllRef = { current: false };
     rootNodesRef = {
       current: [
         createDirectoryNode({
@@ -118,6 +120,7 @@ describe('useExpandAll', () => {
         },
         getNodeByPath: (path: string) => findNodeByPath(rootNodesRef.current, path),
         getRootNodes: () => rootNodesRef.current,
+        isExpandingAllRef,
         loadDirectoryPath,
         onError: (error: Error): void => {
           onErrorMock(error);
@@ -395,7 +398,7 @@ describe('useExpandAll', () => {
     });
     expect(loadDirectoryPath).toHaveBeenCalledTimes(2);
     expect(result.current.isExpandingAll).toBe(true);
-    expect(result.current.isExpandingAllRef.current).toBe(true);
+    expect(isExpandingAllRef.current).toBe(true);
 
     await act(async () => {
       releaseLoads[0]?.();
@@ -403,7 +406,7 @@ describe('useExpandAll', () => {
     });
 
     const remainedActiveAfterStaleSettlement = result.current.isExpandingAll;
-    const refRemainedActiveAfterStaleSettlement = result.current.isExpandingAllRef.current;
+    const refRemainedActiveAfterStaleSettlement = isExpandingAllRef.current;
 
     await act(async () => {
       releaseLoads[1]?.();
@@ -413,7 +416,7 @@ describe('useExpandAll', () => {
     expect(remainedActiveAfterStaleSettlement).toBe(true);
     expect(refRemainedActiveAfterStaleSettlement).toBe(true);
     expect(result.current.isExpandingAll).toBe(false);
-    expect(result.current.isExpandingAllRef.current).toBe(false);
+    expect(isExpandingAllRef.current).toBe(false);
     expect(onErrorMock).not.toHaveBeenCalled();
   });
 
