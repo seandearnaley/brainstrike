@@ -43,28 +43,8 @@
  * only a STRICTLY LATER generation — one bumped by a registration that landed
  * AFTER that read — satisfies the wait.
  *
- * FACTORY RESET (see `docs/agents/platform-contracts.md` § FACTORY RESET
- * CONTRACT — this module is named there, deliberately un-wired, alongside
- * this reasoning): a reset wipes the `roots` table but NOT `seqByKey` below —
- * there is no resetter registered for this module in
- * `register-factory-reset-session-stores.ts`, and there must not be. This
- * module DOES hold a fact a reset makes wrong to keep as an absolute — "path P
- * has registered N times" becomes false the instant the DB row it counted is
- * gone. What keeps it correct anyway is that its ONLY consumer
- * (`resolveRootIdAfterReconciliation` in `use-workspace-bar.ts`) never reads
- * the counter as an absolute, only as a DELTA: capture-before-read, compare
- * strictly-greater. A stale (pre-reset) generation can structurally never
- * satisfy a wait captured after it, so a survived-reset counter is harmless —
- * pinned by the real reset-pipeline test in
- * `register-factory-reset-session-stores.test.ts`. Wiring a resetter here
- * would make things WORSE, not better: clearing `seqByKey` mid-session (the
- * reset-without-reload path this repo's own contract exists for) would strand
- * any IN-FLIGHT waiter whose `since` sits above the post-reset generation
- * (e.g. `since: 3`, reset rebumps to 1) — `1 > 3` is false forever, so that
- * waiter would run its full bounded timeout and raise the destructive "Folder
- * added, but not attached to this thread" toast on a request that should have
- * succeeded. See `rootRegistrationSeq` below for the one way this delta-only
- * safety argument can be reopened.
+ * FACTORY RESET: Main replaces this document after a reset, so the counters
+ * start again with the new document; nothing resets them in place.
  */
 
 type Waiter = () => void;

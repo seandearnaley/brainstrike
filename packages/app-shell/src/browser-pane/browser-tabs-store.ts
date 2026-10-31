@@ -4,8 +4,7 @@
  * The main `BrowserViewManager` is the source of truth; this store holds the
  * latest `tabsChanged` push, so each page tab renders off one subscription.
  * `seeded` turns true once main's list has arrived: before that an open page
- * tab cannot be told apart from a closed one. Session-only (never persisted)
- * — reset wiring lives in `register-factory-reset-session-stores.ts`.
+ * tab cannot be told apart from a closed one. Session-only (never persisted).
  */
 
 import { create } from 'zustand';

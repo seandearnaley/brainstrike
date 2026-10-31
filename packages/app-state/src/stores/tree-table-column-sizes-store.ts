@@ -15,9 +15,8 @@
  *   stripped of NaN / non-finite / negative entries before they reach the
  *   store. Malformed columns fall back to their `defaultWidth`.
  *
- * Factory reset is handled implicitly: `clearPersistentUiState` performs a
- * `localStorage.clear()` (see `factory-reset-helpers.ts`), which removes every
- * versioned store created here.
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 
 import { createLogger } from '@brainstrike/logging';

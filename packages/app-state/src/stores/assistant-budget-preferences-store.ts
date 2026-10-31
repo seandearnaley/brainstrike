@@ -13,10 +13,8 @@
  * anything else THROWS (no silent coercion — see AGENTS.md). Persisted
  * hydration sanitizes unknown payloads back to the null default.
  *
- * Factory reset: the persisted slice is wiped by `clearPersistentUiState`'s
- * blanket `localStorage.clear()` and the live store is reset explicitly via
- * `resetAssistantBudgetPreferencesStoreToDefaults`, which
- * `clearPersistentUiState` invokes (FACTORY RESET CONTRACT).
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 
 import { createBrowserJsonStorage } from '@brainstrike/storage';
@@ -111,11 +109,8 @@ export const useAssistantBudgetPreferencesStore = create<AssistantBudgetPreferen
   )
 );
 
-/**
- * Resets the live store to defaults AND clears its persisted slice. Invoked by
- * the factory-reset pipeline (FACTORY RESET CONTRACT).
- */
-export function resetAssistantBudgetPreferencesStoreToDefaults(): void {
+/** Test-only reset helper. */
+export function __resetAssistantBudgetPreferencesStoreForTests(): void {
   try {
     const persistApi = (
       useAssistantBudgetPreferencesStore as typeof useAssistantBudgetPreferencesStore & {
@@ -127,9 +122,4 @@ export function resetAssistantBudgetPreferencesStoreToDefaults(): void {
     // Best effort: storage errors must not block the reset of in-memory state.
   }
   useAssistantBudgetPreferencesStore.setState(defaultData());
-}
-
-/** Test-only reset helper. */
-export function __resetAssistantBudgetPreferencesStoreForTests(): void {
-  resetAssistantBudgetPreferencesStoreToDefaults();
 }

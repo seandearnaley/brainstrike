@@ -20,12 +20,8 @@
  * desktop assistant server (`workspace-instructions-context.ts`), so this store
  * stays trivially testable and SSR-safe.
  *
- * Factory reset: the persisted slice is wiped by `clearPersistentUiState`'s
- * blanket `localStorage.clear()`, and the live store is reset explicitly via
- * `resetWorkspaceInstructionsPreferencesStoreToDefaults`, which
- * `clearPersistentUiState` invokes (mirrors `notification-preferences-store`) so
- * an in-memory opt-in never survives a reset that does not reload the page
- * (FACTORY RESET CONTRACT).
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 
 import { createBrowserJsonStorage } from '@brainstrike/storage';
@@ -135,11 +131,8 @@ export const workspaceInstructionsPreferencesSelectors = {
     store.oversizedOptInByRootId,
 };
 
-/**
- * Resets the live store to defaults AND clears its persisted slice. Invoked by
- * the factory-reset pipeline (FACTORY RESET CONTRACT).
- */
-export function resetWorkspaceInstructionsPreferencesStoreToDefaults(): void {
+/** Test-only reset helper. */
+export function __resetWorkspaceInstructionsPreferencesStoreForTests(): void {
   try {
     const persistApi = (
       useWorkspaceInstructionsPreferencesStore as typeof useWorkspaceInstructionsPreferencesStore & {
@@ -151,9 +144,4 @@ export function resetWorkspaceInstructionsPreferencesStoreToDefaults(): void {
     // Best effort: storage errors must not block the reset of in-memory state.
   }
   useWorkspaceInstructionsPreferencesStore.setState(defaultData());
-}
-
-/** Test-only reset helper. */
-export function __resetWorkspaceInstructionsPreferencesStoreForTests(): void {
-  resetWorkspaceInstructionsPreferencesStoreToDefaults();
 }

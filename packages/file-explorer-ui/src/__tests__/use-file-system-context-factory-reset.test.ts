@@ -115,25 +115,4 @@ describe('useFileSystem — factory reset preparation (BST-2149)', () => {
     expect(disposeWatch).toHaveBeenCalledTimes(1);
     expect(adapter.watchDirectory).toHaveBeenCalledTimes(1);
   });
-
-  it('the explorer the reset remounts starts no root watch', async () => {
-    const { adapter, disposeWatch, result } = renderExplorer(async () => handle);
-    await waitFor(() => expect(result.current.rootDirectoryHandle?.path).toBe('/reset-root'));
-    expect(adapter.watchDirectory).toHaveBeenCalledTimes(1);
-    const restoresBeforeReset = adapter.restoreLastFolder.mock.calls.length;
-
-    // The desktop reset prepares the renderer, then clears its live stores,
-    // which remounts the explorer subtree while the reset retires the folders.
-    await act(async () => {
-      await factoryReset.prepareFactoryReset();
-      await factoryReset.clearPersistentUiStateWithResult({ skipIndexedDb: true });
-    });
-    await waitFor(() =>
-      expect(adapter.restoreLastFolder.mock.calls.length).toBeGreaterThan(restoresBeforeReset)
-    );
-    await waitFor(() => expect(result.current.rootDirectoryHandle?.path).toBe('/reset-root'));
-
-    expect(disposeWatch).toHaveBeenCalledTimes(1);
-    expect(adapter.watchDirectory).toHaveBeenCalledTimes(1);
-  });
 });

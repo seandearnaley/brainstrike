@@ -4,7 +4,6 @@ import {
   DIAGNOSTICS_RETENTION_DAY_OPTIONS,
   DIAGNOSTICS_RETENTION_ROW_OPTIONS,
   diagnosticsRetentionSelectors,
-  resetDiagnosticsRetentionStoreToDefaults,
   useDiagnosticsRetentionStore,
 } from '../stores/diagnostics-retention-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
@@ -103,31 +102,5 @@ describe('diagnostics-retention-store', () => {
       DIAGNOSTIC_RETENTION_MAX_AGE_MS / MS_PER_DAY
     );
     expect(useDiagnosticsRetentionStore.getState().maxRows).toBe(DIAGNOSTIC_RETENTION_MAX_ROWS);
-  });
-
-  it('resetDiagnosticsRetentionStoreToDefaults restores defaults and clears persisted storage', () => {
-    const options = storeWithPersist.persist?.getOptions?.();
-    if (!(options?.storage && options.name)) {
-      throw new Error('persist storage unavailable for test');
-    }
-
-    useDiagnosticsRetentionStore.getState().setMaxAgeDays(7);
-    useDiagnosticsRetentionStore.getState().setMaxRows(5000);
-    expect(options.storage.getItem(options.name)).not.toBeNull();
-
-    resetDiagnosticsRetentionStoreToDefaults();
-
-    const state = useDiagnosticsRetentionStore.getState();
-    expect(state.maxAgeDays).toBe(DIAGNOSTIC_RETENTION_MAX_AGE_MS / MS_PER_DAY);
-    expect(state.maxRows).toBe(DIAGNOSTIC_RETENTION_MAX_ROWS);
-
-    // clearStorage() wipes the prior slice; the subsequent default setState
-    // re-persists the DEFAULT posture (not the customized one).
-    const persisted = options.storage.getItem(options.name) as unknown as {
-      state?: { maxAgeDays?: number; maxRows?: number };
-    } | null;
-    expect(persisted).not.toBeNull();
-    expect(persisted?.state?.maxAgeDays).toBe(DIAGNOSTIC_RETENTION_MAX_AGE_MS / MS_PER_DAY);
-    expect(persisted?.state?.maxRows).toBe(DIAGNOSTIC_RETENTION_MAX_ROWS);
   });
 });

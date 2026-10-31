@@ -293,7 +293,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     // The retired document stays visually ready while Main purges its stores.
     // Join the replacement document before consulting its readiness or catalog.
     await Promise.all([
-      window.waitForEvent('load'),
+      window.waitForEvent('load', { predicate: (loaded) => loaded.url() !== 'about:blank' }),
       window.getByTestId('factory-reset-button').click(),
     ]);
     await expect

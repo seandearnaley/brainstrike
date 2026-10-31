@@ -18,11 +18,8 @@
  * `runtimeData.skillsPreference` — a preference that can only REDUCE the skill
  * set, never inject.
  *
- * Factory reset: the persisted slice is wiped by `clearPersistentUiState`'s
- * blanket `localStorage.clear()`, and the live store is reset explicitly via
- * {@link resetSkillsPreferencesStoreToDefaults}, which `clearPersistentUiState`
- * invokes (mirrors `workspace-instructions-preferences-store`; FACTORY RESET
- * CONTRACT).
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 
 import type { SkillsContextRequest } from '@brainstrike/assistant-contract';
@@ -150,11 +147,8 @@ export function buildSkillsContextRequest(
   };
 }
 
-/**
- * Resets the live store to defaults AND clears its persisted slice. Invoked by
- * the factory-reset pipeline (FACTORY RESET CONTRACT).
- */
-export function resetSkillsPreferencesStoreToDefaults(): void {
+/** Test-only reset helper. */
+export function __resetSkillsPreferencesStoreForTests(): void {
   try {
     const persistApi = (
       useSkillsPreferencesStore as typeof useSkillsPreferencesStore & {
@@ -166,9 +160,4 @@ export function resetSkillsPreferencesStoreToDefaults(): void {
     // Best effort: storage errors must not block the reset of in-memory state.
   }
   useSkillsPreferencesStore.setState(defaultData());
-}
-
-/** Test-only reset helper. */
-export function __resetSkillsPreferencesStoreForTests(): void {
-  resetSkillsPreferencesStoreToDefaults();
 }

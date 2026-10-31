@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { clearPersistentUiState } from '../factory-reset.ts';
 import {
   __resetWorktreeSetupConsentStoreForTests,
   useWorktreeSetupConsentStore,
@@ -128,15 +127,5 @@ describe('worktree-setup-consent-store', () => {
         1
       )
     ).toEqual({ decisionsByRepositoryId: {} });
-  });
-
-  it('drops every repository decision during factory reset', async () => {
-    const store = useWorktreeSetupConsentStore.getState();
-    store.decide('/repos/approved/.git', 'approved', 'hash-a');
-    store.decide('/repos/denied/.git', 'denied', 'hash-d');
-
-    await clearPersistentUiState({ skipIndexedDb: true });
-
-    expect(useWorktreeSetupConsentStore.getState().decisionsByRepositoryId).toEqual({});
   });
 });

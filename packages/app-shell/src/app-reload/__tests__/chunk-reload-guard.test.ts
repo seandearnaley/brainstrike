@@ -1,4 +1,3 @@
-import { clearPersistentUiState } from '@brainstrike/app-state/factory-reset';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CHUNK_RELOAD_STORAGE_KEY,
@@ -184,16 +183,5 @@ describe('writeChunkReloadMarker', () => {
     consumeChunkReloadMarker({ buildId: 'build-1' });
 
     expect(markReloadAlreadyAttempted).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('factory reset', () => {
-  it('clears the marker with the blanket sessionStorage wipe, so it needs no per-key wiring', async () => {
-    writeChunkReloadMarker({ buildId: 'build-1' });
-    expect(window.sessionStorage.getItem(CHUNK_RELOAD_STORAGE_KEY)).not.toBeNull();
-
-    await clearPersistentUiState({ skipIndexedDb: true });
-
-    expect(window.sessionStorage.getItem(CHUNK_RELOAD_STORAGE_KEY)).toBeNull();
   });
 });

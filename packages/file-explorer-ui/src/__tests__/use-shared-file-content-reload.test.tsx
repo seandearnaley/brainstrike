@@ -1,4 +1,3 @@
-import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider, buildInaccessibleContent } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
@@ -496,93 +495,6 @@ describe('useSharedFileContentLoading reload ordering', () => {
       'replacement content'
     );
   });
-
-  it('factory reset invalidates an in-flight read and clears live content state', async () => {
-    const adapter = new MockFileSystemAdapter();
-    const fileNode = createFileNode({ path: '/reset.txt', rootFolderId: 'root-reset' });
-    const compositeKey = encodeFileSelection('root-reset', '/reset.txt');
-    const pendingReads: PendingWorkerRead[] = [];
-    const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    vi.mocked(createFileContentWorker).mockReturnValue(worker);
-
-    const wrapper = createWrapper(adapter);
-    const { result } = renderHook(
-      () => {
-        const store = useFileExplorerStoreContext();
-        return { loader: useSharedFileContentLoading([fileNode]), store };
-      },
-      { wrapper }
-    );
-
-    let inFlightLoad: Promise<void> | undefined;
-    act(() => {
-      inFlightLoad = result.current.loader.handleFileContentLoading([compositeKey], 'background');
-    });
-    await waitFor(() => expect(pendingReads).toHaveLength(1));
-    act(() => {
-      result.current.store.getState().setFileContent(compositeKey, 'cached before reset');
-    });
-
-    await act(async () => {
-      const resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
-      expect(resetResult.success).toBe(true);
-    });
-    const loadingImmediatelyAfterReset = new Set(result.current.loader.loadingFiles);
-    const contentsImmediatelyAfterReset = result.current.store.getState().fileContents;
-    const cacheEntriesImmediatelyAfterReset = result.current.store
-      .getState()
-      .getFileContentCacheStats().entryCount;
-
-    await act(async () => {
-      pendingReads[0]?.complete('obsolete content after reset');
-      await Promise.allSettled([inFlightLoad]);
-    });
-
-    expect(loadingImmediatelyAfterReset.size).toBe(0);
-    expect(contentsImmediatelyAfterReset).toEqual({});
-    expect(cacheEntriesImmediatelyAfterReset).toBe(0);
-    expect(result.current.store.getState().getFileContent(compositeKey)).toBeUndefined();
-  });
-
-  it('factory reset clears projected terminal content errors', async () => {
-    const adapter = new MockFileSystemAdapter();
-    const fileNode = createFileNode({ path: '/reset-error.txt', rootFolderId: 'root-reset-error' });
-    const compositeKey = encodeFileSelection('root-reset-error', '/reset-error.txt');
-    const workerFailure = new Error('read failed before reset');
-    const worker = vi.fn().mockRejectedValue(workerFailure);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    vi.mocked(createFileContentWorker).mockReturnValue(worker);
-
-    const wrapper = createWrapper(adapter);
-    const retainedErrorOwner = {};
-    const { result } = renderHook(
-      () => ({
-        authority: useFileContentLoadAuthority(),
-        loader: useSharedFileContentLoading([fileNode]),
-      }),
-      { wrapper }
-    );
-    act(() => {
-      result.current.authority.setRetainedErrorKeys(retainedErrorOwner, [compositeKey]);
-    });
-
-    await act(async () => {
-      await expect(
-        result.current.loader.handleFileContentLoading([compositeKey], 'background')
-      ).rejects.toBe(workerFailure);
-    });
-    expect(result.current.loader.fileContentErrors.get(compositeKey)).toBe(workerFailure);
-
-    await act(async () => {
-      const resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
-      expect(resetResult.success).toBe(true);
-    });
-
-    expect(result.current.loader.fileContentErrors.size).toBe(0);
-    expect(result.current.loader.error).toBeNull();
-  });
-
   it('settles preparation per key and prunes an unowned report error after rejection', async () => {
     const adapter = new MockFileSystemAdapter();
     const validNode = createFileNode({ path: '/valid.txt', rootFolderId: 'root-prepare' });

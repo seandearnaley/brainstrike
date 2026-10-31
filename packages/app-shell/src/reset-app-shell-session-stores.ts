@@ -9,16 +9,12 @@ import { useWorktreeCheckoutIntentStore } from './stores/worktree-checkout-inten
 import { resetThreadSearchStore } from './thread-search-store';
 
 /**
- * Reset dependency-free app-shell session stores that tests can safely preload.
- *
- * This list is authoritative for both factory-reset registration and
- * app-shell's Vitest beforeEach isolation. Production registers each member
- * separately so one throwing resetter cannot prevent later stores from
- * clearing. Component-coupled stores retain explicit production registrations
- * and focused test setup: preloading them here would bind their dependencies
- * before test modules can install mocks.
+ * Dependency-free app-shell session stores that app-shell's Vitest beforeEach
+ * resets between cases. Component-coupled stores keep focused test setup:
+ * preloading them here would bind their dependencies before test modules can
+ * install mocks.
  */
-export const APP_SHELL_SESSION_STORE_RESETTERS: readonly (() => void)[] = [
+const APP_SHELL_SESSION_STORE_RESETTERS: readonly (() => void)[] = [
   resetDiagnosticSinkHealthStore,
   resetDiagnosticsSeenStore,
   () => useAssistantComposerCommandStore.getState().reset(),
@@ -30,10 +26,7 @@ export const APP_SHELL_SESSION_STORE_RESETTERS: readonly (() => void)[] = [
   resetThreadSearchStore,
 ];
 
-/**
- * @internal Test seam: app-shell's vitest.setup.ts runs it before each case.
- * Production registers each resetter separately (see above).
- */
+/** @internal Test seam: app-shell's vitest.setup.ts runs it before each case. */
 export function resetAppShellSessionStores(): void {
   for (const reset of APP_SHELL_SESSION_STORE_RESETTERS) {
     reset();
