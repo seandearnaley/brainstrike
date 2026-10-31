@@ -11,7 +11,7 @@ import { checkpointTruncate } from './sqlite-checkpoint.mjs';
 /** @typedef {{ kind: 'ok'; tail: number } | { kind: 'damaged'; atSeq: number; error: string }} ThreadStatus */
 /** @typedef {{ seq: number; payload: string; crc: number; ts: number }} Row */
 /** One appended row: [threadId, type, runId, body (event JSON without seq), hydrate (0 | 1)]. */
-/** @typedef {[string, string, string | null, string, number | null, 0 | 1]} AppendRow */
+/** @typedef {[string, string, string | null, string, 0 | 1]} AppendRow */
 /** @typedef {{ threadId: string; createdAt: number; updatedAt: number; rows: Row[]; damage: ThreadDamage | null }} HydrationThread */
 /** @typedef {{ log: number; checkpointed: number; busy: number }} CheckpointRow */
 
