@@ -55,10 +55,13 @@ describe('tool output artifact contracts', () => {
     ).toBe(true);
   });
 
-  it('rejects path-like ids, malformed cursors, extra fields, and false truncation claims', () => {
+  it('rejects path-like ids, non-canonical expiry, malformed cursors, extra fields, and false truncation claims', () => {
     expect(isToolOutputArtifactReference({ ...reference, id: '/tmp/output.json' })).toBe(false);
     expect(isToolOutputArtifactReference({ ...reference, byteLength: -1 })).toBe(false);
     expect(isToolOutputArtifactReference({ ...reference, format: 'binary' })).toBe(false);
+    expect(isToolOutputArtifactReference({ ...reference, expiresAt: '2026-07-25T12:00:00Z' })).toBe(
+      false
+    );
     expect(isToolOutputArtifactReference({ ...reference, owner: 'thread-id' })).toBe(false);
     expect(isToolOutputArtifactCursor('bsto1.')).toBe(false);
     expect(isToolOutputArtifactCursor('legacy:cursor')).toBe(false);
