@@ -137,8 +137,28 @@ interface RootEntry {
 const GITLINK_MODE = '160000';
 const ALL_ZERO_OID_PATTERN = /^0+$/u;
 
-const RAW_DIFF_ARGS = ['diff', '--raw', '-z', '--no-abbrev', '--no-renames'] as const;
-const NUMSTAT_DIFF_ARGS = ['diff', '--numstat', '-z', '--no-renames'] as const;
+/**
+ * `--ignore-submodules=dirty`: a nested repository (a gitlink, such as an
+ * agent's worktree under the workspace) counts as changed only when its
+ * recorded commit moved. Uncommitted files inside it would otherwise list it
+ * as "modified" with the same commit on both sides and +0 −0, a change no
+ * restore acts on (see `nested-repo` in snapshot-restore-plan.ts).
+ */
+const RAW_DIFF_ARGS = [
+  'diff',
+  '--raw',
+  '-z',
+  '--no-abbrev',
+  '--no-renames',
+  '--ignore-submodules=dirty',
+] as const;
+const NUMSTAT_DIFF_ARGS = [
+  'diff',
+  '--numstat',
+  '-z',
+  '--no-renames',
+  '--ignore-submodules=dirty',
+] as const;
 
 function statusForRawEntry(entry: RawDiffEntry): 'added' | 'deleted' | 'modified' {
   if (entry.status === 'A') {

@@ -50,7 +50,7 @@ describe('Changes tree status accessibility', () => {
       }
       render(<Cell {...props(status)} />);
       expect(screen.getByRole('img', { name: label })).toHaveClass(className);
-      expect(screen.getByText('src/example.ts')).toBeVisible();
+      expect(screen.getByTitle('src/example.ts')).toBeVisible();
     }
   );
 });
