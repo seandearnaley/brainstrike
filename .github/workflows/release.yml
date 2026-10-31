@@ -499,6 +499,20 @@ jobs:
             Where-Object { $_.Name -eq "Brainstrike.exe" } | Select-Object -First 1
           if (-not $App) { Write-Error "installed executable not found under LOCALAPPDATA\Programs"; exit 1 }
           Write-Host "installed app: $($App.FullName)"
+          # main-bootstrap.ts answers --version and exits before any GUI or host
+          # work, so a package that cannot start fails here, as on the other legs.
+          $Out = Join-Path $env:RUNNER_TEMP "brainstrike-version.out"
+          $Err = Join-Path $env:RUNNER_TEMP "brainstrike-version.err"
+          $run = Start-Process -FilePath $App.FullName -ArgumentList "--version" -NoNewWindow -PassThru `
+            -RedirectStandardOutput $Out -RedirectStandardError $Err
+          if (-not $run.WaitForExit(60000)) { $run.Kill(); Write-Error "installed app did not answer --version within 60 s"; exit 1 }
+          $Reported = "$(Get-Content -Raw $Out)".Trim()
+          Write-Host "installed app --version => $Reported"
+          if ($Reported -notlike "*$Version*") {
+            Get-Content $Err -Tail 40
+            Write-Error "installed app did not report version $Version"
+            exit 1
+          }
 
       - name: Record asset metadata
         shell: bash

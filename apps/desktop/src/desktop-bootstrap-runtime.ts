@@ -33,6 +33,8 @@ import {
 const logger = createLogger('DesktopBootstrap');
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 const DEVELOPMENT_APP_NAME = 'BrainStrike Desktop Dev';
+/** package.json's `build.appId`, which electron-builder gives the NSIS Start-menu shortcut. */
+const WINDOWS_APP_USER_MODEL_ID = 'com.brainstrike.desktop';
 type BindPlatform = (
   port: MessagePortMain,
   children: HostNativeChildren
@@ -143,6 +145,11 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   // release's key. Renamed after the launch lock, whose identity stays the same.
   if (!app.isPackaged && credentialStore.kind === 'sealed-file') {
     app.setName(DEVELOPMENT_APP_NAME);
+  }
+  // Windows attributes a toast, the update notice included, to the Start-menu
+  // shortcut with the same AppUserModelID; without it the toast reads as Electron.
+  if (process.platform === 'win32' && app.isPackaged) {
+    app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
   }
   const mainEntryPath = resolveBundledSiblingPath('Desktop bootstrap', 'main.js');
   const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
