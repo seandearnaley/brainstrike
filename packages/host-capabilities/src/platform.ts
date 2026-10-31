@@ -50,13 +50,14 @@ import {
   disposeLiveChildProcesses,
   executeCommandExecutor,
   forgetSharedNativeToolThread,
+  grepSearchExecutor,
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from './native-tools/index.ts';
 import { closeStandaloneOwners } from './standalone-close.ts';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.ts';
 
-/** The native tools a standalone host runs over its launch roots: the shared ones and its shell. */
+/** The native tools a standalone host runs over its launch roots: the shared ones, grep and its shell. */
 const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
@@ -68,6 +69,7 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.manageCanvas,
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.findWorkspaceSymbol,
+  NATIVE_TOOL_ID.grepSearch,
   NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.executeCommand,
 ] as const;
@@ -94,10 +96,11 @@ const standaloneCapabilities = {
 const standaloneWindowsCommandEntry = (): string =>
   createRequire(import.meta.url).resolve('@brainstrike/host-capabilities/windows-command-entry');
 
-const STANDALONE_SHELL_EXECUTORS = {
+const STANDALONE_HOST_EXECUTORS = {
   [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
     windowsCommandEntry: standaloneWindowsCommandEntry,
   }),
+  [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
 };
 
 /** The standalone host has no plan mode; it refuses one rather than run unplanned. */
@@ -170,7 +173,7 @@ function standaloneSystemPrompt(
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
   const unavailableMcp = configuredMcp ? '' : 'configured MCP/Tasks, ';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list, canvases, shell commands started in a workspace root and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Content search, language-server inspection, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, the task list, canvases, shell commands started in a workspace root and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Language-server inspection, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -380,7 +383,7 @@ export async function createHostPlatform(
       );
       const bindings = createStandaloneHumanTools(resolvedToolResultBudget);
       const workspaceTools = createSharedNativeHostTools({
-        executors: STANDALONE_SHELL_EXECUTORS,
+        executors: STANDALONE_HOST_EXECUTORS,
         ids: STANDALONE_WORKSPACE_TOOL_IDS,
         readFileCursorRegistry,
         resolvedToolResultBudget,

@@ -3,7 +3,8 @@
  * through the canonical catalog to the real provider SDK, and no flag can name
  * a trusted model. Present (only through a trusted `--platform` module), the
  * injected model runs under its own identity, which `run.started` and each
- * `model.step` name, and no catalog model runs beside it.
+ * `model.step` name, and no catalog model runs beside it. Through it, a scripted
+ * call shows the host's own workspace tools run over its launch root.
  */
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
@@ -52,9 +53,16 @@ async function refusingProvider() {
   return { baseUrl: `http://127.0.0.1:${address.port}/v1`, requests };
 }
 
-async function standaloneHost(env: Readonly<Record<string, string>>, platformModule?: string) {
+async function standaloneHost(
+  env: Readonly<Record<string, string>>,
+  platformModule?: string,
+  files: Readonly<Record<string, string>> = {}
+) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-trusted-model-data-'));
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-trusted-model-ws-')));
+  for (const [name, text] of Object.entries(files)) {
+    await writeFile(join(workspace, name), text);
+  }
   const command = (args: readonly string[]) =>
     new Promise<{ code: number; stderr: string; stdout: string }>((resolve, reject) => {
       execFile(
@@ -120,8 +128,14 @@ async function standaloneHost(env: Readonly<Record<string, string>>, platformMod
   return { run, started };
 }
 
-/** A trusted `--platform` module: the standalone platform with the scripted fixture as `provider::probe`. */
-async function trustedPlatformModule(provider: string): Promise<string> {
+/**
+ * A trusted `--platform` module: the standalone platform with the scripted
+ * fixture as `provider::probe`, which makes `calls` one step each, then answers.
+ */
+async function trustedPlatformModule(
+  provider: string,
+  calls: readonly { readonly input: unknown; readonly toolId: string }[] = []
+): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'bs-trusted-model-module-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
   const scripted = pathToFileURL(
@@ -131,8 +145,8 @@ async function trustedPlatformModule(provider: string): Promise<string> {
   await writeFile(
     module,
     `import { createHostPlatform as standalone } from ${JSON.stringify(platform)};
-import { scriptedModel } from ${JSON.stringify(scripted)};
-const fixture = scriptedModel();
+import { scriptedToolSequence } from ${JSON.stringify(scripted)};
+const fixture = scriptedToolSequence(${JSON.stringify(calls)});
 const model = {
   doGenerate: (options) => fixture.doGenerate(options),
   doStream: (options) => fixture.doStream(options),
@@ -211,4 +225,40 @@ test('a trusted model that claims a catalog provider identity fails host start',
   const host = await standaloneHost({}, await trustedPlatformModule('openai'));
   expect(host.started.code).toBe(1);
   expect(host.started.stderr).toMatch(/must not claim a catalog provider's identity/u);
+});
+
+test('the standalone host searches its launch root with grepSearch', {
+  timeout: 120_000,
+}, async () => {
+  const module = await trustedPlatformModule('trusted-fixture', [
+    { input: { pattern: 'needle-2386' }, toolId: 'brainstrike_grepSearch' },
+  ]);
+  const host = await standaloneHost({}, module, {
+    'haystack.txt': 'hay\nthe needle-2386 is here\nhay\n',
+  });
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  const searched = await host.run('trusted-fixture::probe');
+  expect(searched.result, searched.result.stderr).toMatchObject({ code: 0 });
+  const toolResult = z.object({
+    output: z.unknown(),
+    toolCallId: z.literal('recorded-call-1'),
+    type: z.literal('tool-result'),
+  });
+  const results = (searched.rows ?? []).flatMap(({ event }) =>
+    event.type === 'model.step'
+      ? event.messages.flatMap(
+          (message) =>
+            z
+              .object({ content: z.array(z.unknown()), role: z.literal('tool') })
+              .safeParse(message)
+              .data?.content.flatMap((part) => toolResult.safeParse(part).data ?? []) ?? []
+        )
+      : []
+  );
+  // The model sees the launch root's matching file and line, found on disk by this host.
+  expect(results).toEqual([
+    expect.objectContaining({
+      output: { type: 'text', value: expect.stringMatching(/^haystack\.txt:2 \(1 match\)$/mu) },
+    }),
+  ]);
 });

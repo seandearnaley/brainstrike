@@ -6,25 +6,25 @@ import {
 } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
+  describeOpenRootTopology,
+  type OpenRootTopology,
+  resolveWorkspaceSearchScope,
+  type WorkspaceSearchScope,
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { createLogger } from '@brainstrike/logging';
+import { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
+import type { GrepMatch } from '@brainstrike/utils/grep-search';
+import { resolveGrepFilePaths } from './grep-file-paths.ts';
+import {
   type GrepContentToolResult,
   type GrepFileSummary,
   type GrepFilesToolResult,
   type GrepToolResult,
   type ModelFacingGrepMatch,
   parseGrepToolResult,
-} from '@brainstrike/host-capabilities/grep-search-result-contract';
-import { createLogger } from '@brainstrike/logging';
-import { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
-import type { GrepMatch } from '@brainstrike/utils/grep-search';
-import { resolveGrepFilePaths } from './grep-file-paths';
-import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero-match-probes';
-import { type LiveGrepResult, probeExcludedPathMatches, runLiveGrep } from './live-grep';
-import {
-  describeOpenRootTopology,
-  type OpenRootTopology,
-  resolveWorkspaceSearchScope,
-  type WorkspaceSearchScope,
-} from './workspace-roots';
+} from './grep-search-result-contract.ts';
+import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero-match-probes.ts';
+import { type LiveGrepResult, probeExcludedPathMatches, runLiveGrep } from './live-grep.ts';
 
 const logger = createLogger('AssistantGrepSearchTool');
 

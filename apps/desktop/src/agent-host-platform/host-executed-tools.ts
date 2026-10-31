@@ -6,6 +6,7 @@ import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   type CommandSandbox,
   executeCommandExecutor,
+  grepSearchExecutor,
   isSharedNativeToolId,
   type NativeToolExecutor,
   type ShellCorrelationDependencies,
@@ -18,7 +19,6 @@ import {
   CONTEXT_READ_TOOL_IDS,
   contextReadExecutors,
 } from '../assistant-server/native-tool-executors-context';
-import { grepSearchExecutor } from '../assistant-server/native-tool-executors-grep';
 import { INSPECTION_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-inspection';
 import {
   type CodeExecutionHost,

@@ -1,6 +1,6 @@
 import type { RuntimeWorkspaceRoot } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
-import { resolveGrepFilePaths } from '../../assistant-server/grep-file-paths';
+import { resolveGrepFilePaths } from '../src/native-tools/grep-file-paths.js';
 
 /**
  * BST-764. `runLiveGrep` used to normalize every allowlisted path with only

@@ -1,21 +1,16 @@
 /**
- * grepSearch, run by the desktop agent host in its own process over the
- * thread's folders on disk (ADR 0026: the core lane never asks Main's index).
- * This module must not import Electron or Main's database: the host bundle
- * loads it.
+ * grepSearch, run by every agent host in its own process over the thread's
+ * folders on disk (ADR 0026: the core lane never asks Main's index).
  */
 import { type GrepSearchInput, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
-import {
-  attachGrepSearchTelemetry,
-  type NativeToolExecutor,
-  parseToolExecuteInput,
-  projectGrepSearchModelOutput,
-  readStateScope,
-  type ToolExecuteInput,
-  withRepeatedCallGuard,
-} from '@brainstrike/host-capabilities/native-tools';
-import { runGrepSearchWith } from './grep-search-core';
+import { runGrepSearchWith } from './grep-search-core.ts';
+import type { NativeToolExecutor } from './host-tools.ts';
+import { withRepeatedCallGuard } from './tool-call-loop-guards.ts';
+import { attachGrepSearchTelemetry } from './tool-call-telemetry.ts';
+import { parseToolExecuteInput, type ToolExecuteInput } from './tool-execute-support.ts';
+import { readStateScope } from './workspace-file-staleness.ts';
+import { projectGrepSearchModelOutput } from './workspace-search-model-projections.ts';
 
 export function grepSearchExecutor(): NativeToolExecutor {
   return ({ resolveActiveDomainCharBudget, runtimeData }) => ({
