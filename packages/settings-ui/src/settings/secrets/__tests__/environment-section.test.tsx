@@ -183,7 +183,7 @@ describe('EnvironmentSection', () => {
         'The login shell /bin/zsh exited with code 1 before printing its environment.'
       );
       expect(banner).toHaveTextContent(
-        'BrainStrike is running on the environment it was launched with'
+        'Brainstrike is running on the environment it was launched with'
       );
     });
 

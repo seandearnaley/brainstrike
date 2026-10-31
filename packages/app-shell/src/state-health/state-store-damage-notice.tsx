@@ -145,7 +145,7 @@ export function StateStoreDamageNotice({
         {view.kind === 'damaged' ? (
           <>
             <p className="font-medium">
-              BrainStrike’s conversation store is damaged, so it opened read-only.
+              Brainstrike’s conversation store is damaged, so it opened read-only.
             </p>
             <p>
               Your conversations can be read, but new messages and changes can’t be saved. Nothing
@@ -164,7 +164,7 @@ export function StateStoreDamageNotice({
             </details>
           </>
         ) : (
-          <p>BrainStrike couldn’t check its conversation store: {view.message}</p>
+          <p>Brainstrike couldn’t check its conversation store: {view.message}</p>
         )}
         {checkedAt && view.kind === 'damaged' ? (
           <p className="text-xs" role="status">
