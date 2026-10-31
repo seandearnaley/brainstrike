@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -71,6 +71,13 @@ beforeAll(() => {
   } as never;
   window.HTMLElement.prototype.scrollIntoView = () => {};
 });
+
+/** Lets the lazy DiffView load, so an absence assertion cannot pass only because it is still loading. */
+async function settleLazyPreviews(): Promise<void> {
+  await act(async () => {
+    await import('@brainstrike/ui/diff-view');
+  });
+}
 
 function renderNotice(data: unknown) {
   const Comp = AssistantToolApprovalNotice as unknown as (p: { data: unknown }) => ReactElement;
@@ -148,24 +155,26 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     expect(rootValue).toHaveAttribute('title', longRoot);
   });
 
-  it('falls back to a visible note when file-tool args fail narrowing', () => {
+  it('falls back to a visible note when file-tool args fail narrowing', async () => {
     renderNotice({
       ...baseRequest,
       // Missing `newStr` — cannot render a diff.
       args: { oldStr: 'const answer = 0;', path: 'src/answer.ts' },
       toolName: 'brainstrike.stringReplaceWorkspaceFile',
     });
+    await settleLazyPreviews();
 
     expect(screen.queryByTestId('approval-diff-view')).toBeNull();
     expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
   });
 
-  it('leaves non-file tools with the plain JSON args view (no preview)', () => {
+  it('leaves non-file tools with the plain JSON args view (no preview)', async () => {
     renderNotice({
       ...baseRequest,
       args: { query: 'hello' },
       toolName: 'brainstrike.queryEmbeddingSpace',
     });
+    await settleLazyPreviews();
 
     expect(screen.queryByTestId('approval-diff-view')).toBeNull();
     expect(screen.queryByTestId('approval-write-preview')).toBeNull();
