@@ -27,6 +27,12 @@ export type DesktopToolDescriptor = (typeof PlatformSelectionSchema)['Encoded'][
 
 /** What an admission decided that changes which tools exist. */
 export interface DesktopToolAdmission {
+  /**
+   * BST-2360: this host runs code inside the OS fence. run_python runs nowhere
+   * else, so a host without one (Windows) leaves it out of the run instead of
+   * asking the person to approve a call that cannot run.
+   */
+  readonly codeFence: boolean;
   readonly enabledNativeToolIds: readonly string[];
   /** ADR 0026: Main's index can serve semantic retrieval over the thread's folders. */
   readonly retrieval: boolean;
@@ -73,6 +79,9 @@ const INTERACTIONS: Readonly<
 };
 
 function admitted(id: string, admission: DesktopToolAdmission): boolean {
+  if (id === NATIVE_TOOL_ID.runPython) {
+    return admission.codeFence;
+  }
   if (id === NATIVE_TOOL_ID.runSkillScript) {
     return admission.skills;
   }
