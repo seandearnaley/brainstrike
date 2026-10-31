@@ -300,10 +300,7 @@ export function createDesktopTerminals({
       const supervised = trackNativeChild(ptyProcess.pid, { group: true });
 
       const terminalId = `pty-${randomUUID()}`;
-      let resolveExited: () => void = () => undefined;
-      const exited = new Promise<void>((resolve) => {
-        resolveExited = resolve;
-      });
+      const { promise: exited, resolve: resolveExited } = Promise.withResolvers<void>();
       const entry: LiveTerminal = {
         exited,
         pid: ptyProcess.pid,

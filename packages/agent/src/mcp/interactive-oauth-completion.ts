@@ -413,12 +413,11 @@ class OwnedInteractiveOAuthCompletion implements InteractiveOAuthCompletion {
       return existing;
     }
     const controller = new AbortController();
-    let rejectRedirectCaptured = (_reason: unknown): void => undefined;
-    let resolveRedirectCaptured = (): void => undefined;
-    const redirectCaptured = new Promise<void>((resolve, reject) => {
-      rejectRedirectCaptured = reject;
-      resolveRedirectCaptured = resolve;
-    });
+    const {
+      promise: redirectCaptured,
+      reject: rejectRedirectCaptured,
+      resolve: resolveRedirectCaptured,
+    } = Promise.withResolvers<void>();
     void redirectCaptured.catch(() => undefined);
     const setup: AuthorizationSetup = {
       controller,

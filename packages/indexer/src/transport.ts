@@ -163,10 +163,7 @@ export function createIndexerConnection(
   let exited = false;
   let exitCode: number | null | undefined;
   let closing = false;
-  let resolveExit!: () => void;
-  const exit = new Promise<void>((resolve) => {
-    resolveExit = resolve;
-  });
+  const { promise: exit, resolve: resolveExit } = Promise.withResolvers<void>();
   let retirement: Promise<void> | undefined;
   /** Whether the process exits within `ms`; the exit itself stays joinable either way. */
   const exitsWithin = (ms: number): Promise<boolean> =>

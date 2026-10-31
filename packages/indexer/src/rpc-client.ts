@@ -8,12 +8,8 @@ export class RpcClient {
   private sequence = 0;
   private readonly pending = new Map<number, Pending>();
   private failure: unknown;
-  private readyResolve!: (value: unknown) => void;
-  private readyReject!: (error: unknown) => void;
-  readonly ready = new Promise<unknown>((resolve, reject) => {
-    this.readyResolve = resolve;
-    this.readyReject = reject;
-  });
+  private readonly readiness = Promise.withResolvers<unknown>();
+  readonly ready = this.readiness.promise;
   private readonly send: (message: object) => void;
   private readonly onFailure: () => void;
 
@@ -25,7 +21,7 @@ export class RpcClient {
     try {
       const frame = decoder(frameSchema)(input);
       if (frame.kind === 'ready') {
-        this.readyResolve(frame.value);
+        this.readiness.resolve(frame.value);
         return;
       }
       if (frame.kind === 'startup-error') {
@@ -51,7 +47,7 @@ export class RpcClient {
       return;
     }
     this.failure = error;
-    this.readyReject(this.failure);
+    this.readiness.reject(this.failure);
     for (const pending of this.pending.values()) {
       pending.reject(this.failure);
     }
