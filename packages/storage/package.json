@@ -25,7 +25,6 @@
   "scripts": {
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "type": "module"

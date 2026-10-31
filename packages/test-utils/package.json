@@ -47,10 +47,7 @@
     "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
     "./fixtures/recorded-grep-patterns.json": "./fixtures/recorded-grep-patterns.json",
     "./fixtures/observation-memory": "./fixtures/observation-memory.mjs",
-    "./vitest.base": {
-      "types": "./src/vitest.base.ts",
-      "default": "./vitest.base.mjs"
-    },
+    "./vitest.base": "./src/vitest.base.ts",
     "./vitest-lost-file-reporter": "./vitest-lost-file-reporter.mjs",
     "./vitest-react-compiler": "./vitest-react-compiler.mjs",
     "./electron": "./src/index.ts",
@@ -68,9 +65,7 @@
     "access": "public"
   },
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,

@@ -9,208 +9,68 @@
     "globalConfiguration": true
   },
   "global": {
-    // Global configuration.
-    //
-    // This is the BUILD/TEST parallelism calibration, and it is inherited by
-    // every invocation that does not pass its own cap — including CI's Build
-    // job (`.github/workflows/test.yml` runs `pnpm turbo run build` uncapped on
-    // a 4-vCPU ubicloud runner) and local `pnpm build` / `pnpm type-check`. The
-    // capped lanes state their own: `pnpm check` and `pnpm test` (=4), CI's
-    // Type check (TURBO_CONCURRENCY=4), Unit (--concurrency=4 / =2),
-    // native-electron and coverage (=4). Desktop's `dev` is the only persistent
-    // task, so `pnpm dev` needs no cap of its own.
+    // Default for uncapped invocations (CI Build, local build/type-check); capped lanes pass their own.
     "concurrency": "40",
-    // Turbo's cache key has no OS, CPU architecture or Node version. These put
-    // them in: GitHub runners set RUNNER_OS/RUNNER_ARCH, pnpm's user agent names
-    // the OS and arch on every machine, and package.json (in `inputs`) pins Node
-    // through devEngines. One platform's result or native binary is never
-    // replayed on another.
+    // Turbo's cache key has no OS, architecture or Node version; these add them.
     "env": ["RUNNER_OS", "RUNNER_ARCH", "npm_config_user_agent"],
-    // Files that, when changed, invalidate every task's cache. Keep this list
-    // to files that really are read by every task: one edit here re-runs all
-    // ~140 build/test/type-check tasks for everyone who pulls main.
-    //
-    // Deliberately NOT listed, because Turbo already hashes them per task:
-    //   - pnpm-lock.yaml: each task hash carries `hashOfExternalDependencies`,
-    //     the package's own resolved dependency closure read from the lockfile,
-    //     and the global hash carries the root package's. A version bump in one
-    //     package's dependency re-hashes that package and its dependents only; a
-    //     root devDependency bump re-hashes everything (both measured with
-    //     `turbo run test --dry=json` against an edited lockfile). Patched
-    //     dependencies are covered too: the patch hash is part of the resolved
-    //     version.
-    //   - turbo.jsonc: each task hash includes its resolved task definition
-    //     (dependsOn, env, inputs, outputs) and the global hash includes this
-    //     block's env and inputs. Listing the file only made comment edits and
-    //     edits to unrelated tasks bust every cache.
-    //   - the root tsconfig.json: only packages/config/tsconfig.json extends it,
-    //     so packages/config/turbo.json lists it for that package's tasks.
-    //
-    // pnpm-workspace.yaml IS listed: its allowBuilds, overrides and pnpm
-    // settings change what an install builds and links, and those do not all
-    // appear in any package's resolved dependency closure.
-    //
-    // tsconfig invalidation contract (Series B2): the repo's tsconfig `extends`
-    // graph terminates at packages/config/tsconfig/base.json, which every
-    // package extends by a RAW RELATIVE PATH, not a package import, so no
-    // dependency edge carries it into consumers' hashes. The
-    // "packages/*/tsconfig/*.json" glob is that carrier. Removing it would make
-    // base.json an invisible input and replay stale-green caches repo-wide (the
-    // #1066/#1207 landmine). Each package's own tsconfig*.json is already a
-    // $TURBO_DEFAULT$ input of that package, so it is not listed here.
-    //
-    // The workflows and composite actions ARE listed: they install the toolchain,
-    // native build inputs and test tools (ripgrep, Electron, Node headers) every CI
-    // task runs against, and set its env. Unlisted, a CI-only change replayed every
-    // shard from cache and was never run: #4306 swapped Windows' ripgrep and its
-    // own queue run replayed Windows desktop-5 in 4 min (10.7 min when run), and
-    // the next uncached runs failed.
+    // Only files every task reads. Lockfile closures and task definitions are hashed per task.
+    // Rationale: README.md "Build and test configuration".
     "inputs": [
       ".github/actions/**", // Composite setup: toolchain, install, native build inputs
       ".github/workflows/**", // Runner images, installed test tools, task env
       "pnpm-workspace.yaml", // allowBuilds, overrides and install settings
       "package.json", // Root devEngines pins the Node version (native ABI)
-      "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers
+      "packages/*/tsconfig/*.json", // Shared tsconfig preset, extended by raw path: its only hash carrier
       ".nvmrc" // Node version specification
     ]
   },
-  // Defines the tasks that can be run via `turbo run <taskName>`
   "tasks": {
-    // --- Transit Node (Series B4) --- //
-    //
-    // `topo` is a SYNTHETIC no-op task: no package defines a `topo` script, so
-    // turbo never executes anything for it. It exists purely as a HASH-
-    // PROPAGATION node — Turborepo's canonical "Transit Node" pattern
-    // (https://turborepo.dev/docs/crafting-your-repository/configuring-tasks
-    // — "name the task anything that isn't already a script in your Workspace").
-    // Its whole job is to give the `test*` tasks below an upstream edge that
-    // carries the SOURCE hash of every workspace dependency WITHOUT forcing that
-    // dependency to `build` first.
-    //
-    // WHY THIS EXISTS (Series B4 payoff): `test`/`test:integration`/
-    // `test:coverage` used to `dependsOn: ["^build"]`. Since B3 (#1651) every
-    // package test lane resolves `@brainstrike/*` workspace imports to SOURCE
-    // (every package's `exports` names its source), so tests no longer need a
-    // dependency's `dist` to exist — yet `^build` still rebuilt ~39 packages
-    // before a single test could run (a `packages/types` whitespace edit rebuilt
-    // the world). `dependsOn: ["topo"]` keeps the topological hash cascade (a
-    // dep's source change still re-hashes and re-runs dependents' tests) while
-    // building NOTHING.
-    //
-    // WHY PLAIN DELETION WOULD BE A STALE-GREEN LANDMINE (do not "simplify" this
-    // back to an empty dependsOn): `^build` was doing DOUBLE duty — (1) ensuring
-    // dist existed [no longer needed post-B3] and (2) making a dependent's
-    // cached `test` result depend on its upstreams' hashes. Because tests import
-    // upstream SOURCE, if you DELETE the edge instead of replacing it, editing
-    // `packages/utils/src` no longer moves `packages/hooks#test`'s hash — turbo
-    // replays hooks' stale-green cached test against the OLD utils source. That
-    // is the #1066/#1207 incident class in cache flavor (a broken upstream stays
-    // green for weeks). `topo` REPLACES the edge: it re-carries the cascade
-    // through a node that runs no script. See proof #2 in the B4 PR body.
-    //
-    // INPUTS: full defaults unless a package has an explicitly guarded pilot.
-    // Types alone excludes executable test/spec files from topo and build;
-    // lint:private-test-input-locality rejects outside readers of those files.
-    // Owner tests retain full inputs. Helpers and shared fixtures remain hashed.
-    // Do not extend exclusions without import/read and real Turbo hash proofs.
+    // Transit node: no package defines `topo`. Tasks that read dependency source depend on it,
+    // so an upstream edit re-hashes dependents without building anything. Never drop the edge.
     "topo": {
       "dependsOn": [
         "^topo"
       ]
     },
-    // --- Clean Task --- //
     "clean": {
-      // Cleaning mutates local build artifacts and must always execute.
       "cache": false,
       "outputs": []
     },
-    // --- Build Task --- //
     "build": {
-      // Ensures that the 'build' task for dependencies runs before this package's build.
-      // Crucial for building packages in the correct topological order.
       "dependsOn": [
         "^build"
       ],
-      // Specifies the output artifacts of the build task.
-      // Turborepo caches these directories/files.
       "outputs": [
         "dist/**"
       ],
-      // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-    // --- Test Task --- //
+    // Tests import workspace source. A suite that needs a native add-on declares that `build`
+    // edge in its package's turbo.json.
     "test": {
-      // Tests import workspace dependencies from SOURCE (B3, #1651), so they do
-      // NOT need a dependency's `dist`. `topo` (the transit node above) carries
-      // the upstream SOURCE-hash cascade WITHOUT building anything — replacing
-      // the old `^build` edge. Do NOT delete this to an empty dependsOn: that
-      // drops the cascade and replays stale-green cached tests against edited
-      // upstream source (see the topo comment for the full landmine rationale).
-      // Packages whose tests genuinely need a built artifact declare the exact
-      // edge in their own turbo.json: the native add-ons' own tests and the
-      // suites that load them depend on the add-on `build` (an edge, never an
-      // inline `pnpm build &&` in the script — that raced a concurrently
-      // scheduled `build` as two simultaneous node-gyp rebuilds; see
-      // packages/secure-fs-native/turbo.json). Every other package is source
-      // only and has no build, so nothing depends on one.
       "dependsOn": [
         "topo"
       ],
-      // Tests can be sensitive to NODE_ENV. CI changes Vitest worker count and
-      // some package coverage workloads, TURBO_TEST_MODE differentiates plain
-      // test runs from coverage runs, and TEST_TIMEOUT_MULTIPLIER changes
-      // timeout verdicts. All are result-affecting and must be hashed.
       "env": [
         "CI",
         "NODE_ENV",
         "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
-      // Turbo's default STRICT environment mode filters out every variable that
-      // is not declared, including the CI-vendor variables GitHub Actions injects
-      // (https://turborepo.dev/docs/crafting-your-repository/using-environment-variables).
-      // Routing test execution through `turbo run test` therefore strips `CI` and
-      // `COVERAGE` from the vitest child process unless they are declared here. Both
-      // are read at runtime by the test configs:
-      //   - packages/test-utils/src/vitest.base.ts gates `maxWorkers` on `CI`,
-      //   - ~12 packages compute `coverageEnabled = CI === 'true' || COVERAGE === 'true'`.
-      // CI belongs in `env`: its worker and coverage branches change the
-      // workload, so a local green must never be replayed in CI without
-      // executing CI's profile. `COVERAGE` differs between the PR path (unset)
-      // and the push path ("false") —
-      // hashing it would give the two paths different cache keys and defeat the whole
-      // point of this change (PR and push runs sharing cache entries). passThroughEnv
-      // exposes COVERAGE at runtime while keeping the hash identical across both paths.
+      // Read at run time but kept out of the hash, so PR (unset) and push ("false") runs share entries.
       "passThroughEnv": [
         "COVERAGE",
         "VITEST_MAX_WORKERS"
       ],
-      // Plain unit tests do not produce stable artifacts. Coverage is handled by
-      // the separate test:coverage task so coverage CLI args don't hash build tasks.
       "outputs": [],
-      // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-    // --- Integration Test Task (real processes, cached) --- //
     "test:integration": {
-      // Cached like every other test task (owner rule, AGENTS.md "Time is the
-      // scarcest resource"): a hit replays a green whose inputs turbo hashed.
-      // Anything result-affecting that is not a file belongs in `env` (see
-      // BRAINSTRIKE_FENCE_DEPS_REQUIRED below), never a reason to uncache.
       "dependsOn": [
         "topo"
       ],
-      // BRAINSTRIKE_FENCE_DEPS_REQUIRED is the one entry that deliberately does
-      // NOT mirror `test`: the real-OS-fence suites live only in this lane. The
-      // Unit job sets it after installing bubblewrap/socat/ripgrep, and it turns
-      // a missing srt dependency from a self-skip into a collection failure
-      // (packages/agent/src/__tests__/fixtures/fence-host-gate.ts). Turbo runs
-      // tasks in Strict env mode, so a variable absent from this list simply
-      // never reaches vitest — which would silently restore the quiet skip this
-      // exists to end. It sits in `env` rather than `passThroughEnv` because it
-      // is result-affecting: a run that requires the fence never replays one
-      // that skipped it.
+      // BRAINSTRIKE_FENCE_DEPS_REQUIRED turns a missing fence dependency into a failure
+      // (packages/agent/src/__tests__/fixtures/fence-host-gate.ts); hashed so it never replays a skip.
       "env": [
         "BRAINSTRIKE_FENCE_DEPS_REQUIRED",
         "CI",
@@ -225,71 +85,36 @@
       "outputs": [],
       "outputLogs": "new-only"
     },
-    // --- Lint Task --- //
-    "lint": {
-      // Formatting policy affects lint, not every workspace test/build.
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/biome.json", "$TURBO_ROOT$/biome.base.json"],
-      // No outputs to cache.
-      "outputs": []
-    },
-    // --- Type Check Task --- //
     "type-check": {
-      // Every package's `types` export points at its source, so a type-check
-      // reads its dependencies' source and needs no `dist`. `topo` carries the
-      // dependencies' source hashes into this task's hash without building them.
       "dependsOn": [
         "topo"
       ],
       "outputs": [],
-      // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-    // --- Development Task --- //
     "dev": {
-      // Marks this task as long-running (e.g., a dev server or watch process).
-      // Tasks marked as persistent cannot be depended upon by other tasks.
       "persistent": true,
-      // Development tasks usually shouldn't be cached as they are interactive/watch processes.
       "cache": false
     },
-    // --- Browser Test Task (Vitest Browser Mode) --- //
     "test:browser": {
-      // Browser suites run workspace source in Chromium and load no built
-      // output. `topo` carries the dependencies' source hashes, exactly as for
-      // `test`; a `build` edge here built the desktop app, the MCP lab,
-      // agent-evals and both native add-ons before any browser suite started.
       "dependsOn": [
         "topo"
       ],
-      // Turborepo runs tasks with a constrained environment. The Browser tests
-      // CI job (test.yml, non-required lane) runs in the official Playwright
-      // Docker image with browsers preinstalled and sets
-      // PLAYWRIGHT_BROWSERS_PATH directly; declare it here so Turborepo passes
-      // it through to package-level tasks.
       "env": [
         "CI",
         "PLAYWRIGHT_BROWSERS_PATH",
         "TEST_TIMEOUT_MULTIPLIER"
       ],
-      // Browser tests produce screenshots and artifacts
       "outputs": [
         "__tests__/__screenshots__/**"
       ],
-      // Show all logs for browser tests
       "outputLogs": "full"
     },
-    // --- E2E Test Task --- //
-    // The smoke lane `pnpm check` runs. Cached like every task (AGENTS.md): it
-    // depends on desktop's build, whose hash carries every workspace dependency,
-    // so an unchanged app replays its green instead of relaunching Electron.
+    // The smoke lane `pnpm check` runs. Desktop's build hash carries every workspace dependency.
     "test:e2e:lane:smoke": {
       "dependsOn": [
         "build"
       ],
-      // Every variable the specs and fixtures read that changes what runs or what
-      // passes is hashed, so an opted-in run (BRAINSTRIKE_E2E_AGENT_DEVTOOLS=1)
-      // reaches Playwright and never replays a cached skip. Strict env mode drops
-      // anything undeclared.
       "env": [
         "BRAINSTRIKE_DESKTOP_DEV_SERVER_URL",
         "BRAINSTRIKE_E2E_*",
@@ -325,14 +150,9 @@
       "outputLogs": "full"
     },
     "test:e2e": {
-      // E2E tests should run after the app is built
       "dependsOn": [
         "build"
       ],
-      // Every variable the specs and fixtures read that changes what runs or what
-      // passes is hashed, so an opted-in run (BRAINSTRIKE_E2E_AGENT_DEVTOOLS=1)
-      // reaches Playwright and never replays a cached skip. Strict env mode drops
-      // anything undeclared.
       "env": [
         "BRAINSTRIKE_DESKTOP_DEV_SERVER_URL",
         "BRAINSTRIKE_E2E_*",
@@ -360,13 +180,11 @@
         "XDG_SESSION_TYPE",
         "pnpm_config_ci"
       ],
-      // E2E tests produce test results and reports
       "outputs": [
         "test-results/**",
         "playwright-report/**",
         "blob-report/**"
       ],
-      // Show all logs for E2E tests as they're important for debugging
       "outputLogs": "full"
     }
   }

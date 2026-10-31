@@ -88,9 +88,7 @@
   },
   "private": true,
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "type": "module"
