@@ -32,7 +32,8 @@ export function useNativeUnseenDiagnosticsCount(
     let active = true;
     let request = 0;
     const refresh = (): void => {
-      const current = ++request;
+      request += 1;
+      const current = request;
       void reader.getUnseenCounts(sinceMs).then(
         (counts) => {
           if (active && request === current) {

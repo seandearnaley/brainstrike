@@ -51,7 +51,7 @@ export function useProviderModelDefaults(
   const initializeProviderModelDefaults = useModelRegistryStore(
     (state) => state.initializeProviderModelDefaults
   );
-  const attempted = useRef<Map<SupportedProvider, InitializationAttempt> | null>(null);
+  const attempted = useRef(new Map<SupportedProvider, InitializationAttempt>());
   const { toast } = useToast();
 
   useEffect(() => {
@@ -59,7 +59,6 @@ export function useProviderModelDefaults(
       return;
     }
 
-    attempted.current ??= new Map<SupportedProvider, InitializationAttempt>();
     const attemptedProviders = attempted.current;
 
     for (const provider of configuredProviders) {

@@ -487,12 +487,18 @@ export function TokenCacheProvider({
     });
 
     workerInitPromiseRef.current = initPromise;
-    try {
-      return await initPromise;
-    } finally {
+    const settle = (): void => {
       if (workerInitPromiseRef.current === initPromise) {
         workerInitPromiseRef.current = null;
       }
+    };
+    try {
+      const pool = await initPromise;
+      settle();
+      return pool;
+    } catch (error) {
+      settle();
+      throw error;
     }
   }, [lazyWorkerInit, noopWorkerPool, workerUrl]);
 
