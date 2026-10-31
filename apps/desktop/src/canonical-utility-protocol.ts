@@ -86,13 +86,6 @@ export const receiptSchema = Schema.Struct({
   scanComplete: Schema.Boolean,
   ticket: ticketSchema,
 });
-const manifestResultSchema = Schema.Struct({
-  changed: Schema.Array(manifestSchema),
-  complete: Schema.Boolean,
-  missing: Schema.Array(manifestSchema),
-  storeId: identifier,
-  unexpected: Schema.Array(manifestSchema),
-});
 const listSchema = Schema.NullOr(
   Schema.Struct({
     entries: Schema.Array(
@@ -295,6 +288,14 @@ const scopedManifestFileSchema: Schema.Codec<ScopedManifestFile> = Schema.Struct
   ),
   contentHash: hash,
 });
+const manifestResultSchema = Schema.Struct({
+  acknowledged: Schema.Array(scopedManifestFileSchema),
+  changed: Schema.Array(manifestSchema),
+  complete: Schema.Boolean,
+  missing: Schema.Array(manifestSchema),
+  storeId: identifier,
+  unexpected: Schema.Array(manifestSchema),
+});
 const scopedManifestResultSchema: Schema.Codec<ScopedManifestResult> = Schema.Struct({
   ...proofFields,
   changed: Schema.Array(scopedManifestFileSchema),
@@ -434,7 +435,11 @@ export const canonicalOperations = {
     output: scopedCoverageSchema,
   },
   'verify-manifest': {
-    input: Schema.Struct({ files: Schema.Array(manifestSchema), scope: scopeSchema }),
+    input: Schema.Struct({
+      files: Schema.Array(manifestSchema),
+      profileHash: Schema.optionalKey(hash),
+      scope: scopeSchema,
+    }),
     output: manifestResultSchema,
   },
   'verify-vector-manifest': {
