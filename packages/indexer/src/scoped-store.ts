@@ -86,6 +86,8 @@ interface SyntaxWriter {
 export class ScopedIndex {
   readonly authority: ScopeAuthority;
   readonly #chunkCap: number | undefined;
+  /** better-sqlite3 does not cache statements; `db.close()` finalizes these. */
+  readonly #statements = new Map<string, Database.Statement>();
   readonly db: Database.Database;
   readonly engine: CoarseVectorEngine;
   readonly syntax: SyntaxWriter | undefined;
@@ -101,6 +103,15 @@ export class ScopedIndex {
     this.syntax = syntax;
     this.authority = new ScopeAuthority(options);
     this.#chunkCap = options.chunkCap;
+  }
+  /** The store's one prepared statement for `sql`, prepared on first use. */
+  private statement(sql: string): Database.Statement {
+    let statement = this.#statements.get(sql);
+    if (!statement) {
+      statement = this.db.prepare(sql);
+      this.#statements.set(sql, statement);
+    }
+    return statement;
   }
   static initialize(db: Database.Database): void {
     db.exec(`CREATE TABLE index_scope_authority(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch TEXT NOT NULL);
@@ -129,11 +140,9 @@ export class ScopedIndex {
   }
   private stored(fileId: string): ReturnType<typeof decodeStored> {
     return decodeStored(
-      this.db
-        .prepare(
-          'SELECT snapshot_hash AS snapshotHash,content_hash AS contentHash,scoped,root_id AS rootId,embedding_set_id AS embeddingSetId FROM file_records WHERE id=?'
-        )
-        .get(fileId) ?? null
+      this.statement(
+        'SELECT snapshot_hash AS snapshotHash,content_hash AS contentHash,scoped,root_id AS rootId,embedding_set_id AS embeddingSetId FROM file_records WHERE id=?'
+      ).get(fileId) ?? null
     );
   }
   private assertOwnership(snapshot: ScopedFileSnapshot): void {
@@ -164,11 +173,9 @@ export class ScopedIndex {
         decoder(
           Schema.Array(Schema.Struct({ chunkId: Schema.String, contentHash: Schema.String }))
         )(
-          this.db
-            .prepare(
-              'SELECT c.id AS chunkId,v.content_hash AS contentHash FROM scoped_vectors v JOIN file_chunks c ON c.pk=v.chunk_pk WHERE c.file_record_id=? AND v.profile_hash=?'
-            )
-            .all(request.snapshot.fileId, profileHash)
+          this.statement(
+            'SELECT c.id AS chunkId,v.content_hash AS contentHash FROM scoped_vectors v JOIN file_chunks c ON c.pk=v.chunk_pk WHERE c.file_record_id=? AND v.profile_hash=?'
+          ).all(request.snapshot.fileId, profileHash)
         ).map((row) => [row.chunkId, row.contentHash])
       );
       return decoder(scopedPlanSchema)({
@@ -287,7 +294,7 @@ export class ScopedIndex {
     return this.syntax;
   }
   private storedChunks(): number {
-    return Number(this.db.prepare('SELECT count(*) FROM file_chunks').pluck().get());
+    return Number(this.statement('SELECT count(*) FROM file_chunks').pluck().get());
   }
   /**
    * Inside the commit's transaction: a commit that grows the store past the
@@ -319,24 +326,22 @@ export class ScopedIndex {
     }
     const oldById = this.clearOldChunks(plan);
     const snapshot = plan.snapshot;
-    this.db
-      .prepare(
-        'INSERT INTO file_records(id,root_id,name,path,embedding_set_id,source_path,scoped,content_hash,snapshot_hash) VALUES(?,?,?,?,?,?,1,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,path=excluded.path,embedding_set_id=excluded.embedding_set_id,source_path=excluded.source_path,scoped=1,content_hash=excluded.content_hash,snapshot_hash=excluded.snapshot_hash'
-      )
-      .run(
-        snapshot.fileId,
-        snapshot.rootId,
-        snapshot.relativePath
-          ? path.posix.basename(snapshot.relativePath)
-          : snapshot.sourcePath
-            ? hostBasename(snapshot.sourcePath)
-            : '',
-        snapshot.relativePath,
-        snapshot.embeddingSetId,
-        snapshot.sourcePath,
-        plan.contentHash,
-        snapshotHash(snapshot)
-      );
+    this.statement(
+      'INSERT INTO file_records(id,root_id,name,path,embedding_set_id,source_path,scoped,content_hash,snapshot_hash) VALUES(?,?,?,?,?,?,1,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,path=excluded.path,embedding_set_id=excluded.embedding_set_id,source_path=excluded.source_path,scoped=1,content_hash=excluded.content_hash,snapshot_hash=excluded.snapshot_hash'
+    ).run(
+      snapshot.fileId,
+      snapshot.rootId,
+      snapshot.relativePath
+        ? path.posix.basename(snapshot.relativePath)
+        : snapshot.sourcePath
+          ? hostBasename(snapshot.sourcePath)
+          : '',
+      snapshot.relativePath,
+      snapshot.embeddingSetId,
+      snapshot.sourcePath,
+      plan.contentHash,
+      snapshotHash(snapshot)
+    );
     if (plan.profile) {
       this.registerProfile(plan.profile);
     }
@@ -361,11 +366,9 @@ export class ScopedIndex {
   }
   private clearOldChunks(plan: ScopedFilePlan): Map<string, StoredChunk> {
     const old = decoder(Schema.Array(storedChunkSchema))(
-      this.db
-        .prepare(
-          'SELECT pk,id AS chunkId,root_id AS rootId,file_record_id AS fileId,start_line AS startLine,end_line AS endLine,content,content_hash AS contentHash,chunk_index AS chunkIndex,chunk_size AS chunkSize,chunk_type AS chunkType,start_offset AS startOffset,end_offset AS endOffset,token_count AS tokenCount FROM file_chunks WHERE file_record_id=?'
-        )
-        .all(plan.snapshot.fileId)
+      this.statement(
+        'SELECT pk,id AS chunkId,root_id AS rootId,file_record_id AS fileId,start_line AS startLine,end_line AS endLine,content,content_hash AS contentHash,chunk_index AS chunkIndex,chunk_size AS chunkSize,chunk_type AS chunkType,start_offset AS startOffset,end_offset AS endOffset,token_count AS tokenCount FROM file_chunks WHERE file_record_id=?'
+      ).all(plan.snapshot.fileId)
     );
     const byId = new Map(plan.chunks.map((chunk) => [chunk.chunkId, chunk]));
     this.deleteVectors(
@@ -375,7 +378,7 @@ export class ScopedIndex {
     );
     const removed = old.filter((chunk) => !byId.has(chunk.chunkId));
     if (removed.length > 0) {
-      const deleteChunk = this.db.prepare('DELETE FROM file_chunks WHERE pk=?');
+      const deleteChunk = this.statement('DELETE FROM file_chunks WHERE pk=?');
       for (const chunk of removed) {
         deleteChunk.run(chunk.pk);
       }
@@ -411,41 +414,35 @@ export class ScopedIndex {
     const pk = equal
       ? previous.pk
       : decoder(Schema.Struct({ pk: integer }))(
-          this.db
-            .prepare(
-              'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count RETURNING pk'
-            )
-            .get(
-              chunk.chunkId,
-              snapshot.rootId,
-              snapshot.fileId,
-              chunk.startLine,
-              chunk.endLine,
-              chunk.content,
-              chunk.contentHash,
-              chunk.chunkIndex,
-              chunk.chunkSize,
-              chunk.chunkType,
-              chunk.startOffset,
-              chunk.endOffset,
-              chunk.tokenCount
-            )
+          this.statement(
+            'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count RETURNING pk'
+          ).get(
+            chunk.chunkId,
+            snapshot.rootId,
+            snapshot.fileId,
+            chunk.startLine,
+            chunk.endLine,
+            chunk.content,
+            chunk.contentHash,
+            chunk.chunkIndex,
+            chunk.chunkSize,
+            chunk.chunkType,
+            chunk.startOffset,
+            chunk.endOffset,
+            chunk.tokenCount
+          )
         ).pk;
     const writtenChunks = !previous || previous.contentHash !== chunk.contentHash ? 1 : 0;
     let reusedEmbeddings = 0;
     if (plan.profile && plan.profileHash && emb) {
       const vectorPk = decoder(Schema.Struct({ pk: integer }))(
-        this.db
-          .prepare(
-            'INSERT INTO scoped_vectors(chunk_pk,profile_hash,content_hash,dimensions,emb) VALUES(?,?,?,?,?) RETURNING pk'
-          )
-          .get(pk, plan.profileHash, chunk.contentHash, plan.profile.dimensions, emb)
+        this.statement(
+          'INSERT INTO scoped_vectors(chunk_pk,profile_hash,content_hash,dimensions,emb) VALUES(?,?,?,?,?) RETURNING pk'
+        ).get(pk, plan.profileHash, chunk.contentHash, plan.profile.dimensions, emb)
       ).pk;
-      this.db
-        .prepare(
-          `INSERT INTO ${vectorTable(plan.profile.dimensions)}(id,profile_hash,bin) VALUES(?,?,vec_quantize_binary(?))`
-        )
-        .run(BigInt(vectorPk), plan.profileHash, coarseVectorBlob(emb));
+      this.statement(
+        `INSERT INTO ${vectorTable(plan.profile.dimensions)}(id,profile_hash,bin) VALUES(?,?,vec_quantize_binary(?))`
+      ).run(BigInt(vectorPk), plan.profileHash, coarseVectorBlob(emb));
     } else if (plan.profile) {
       reusedEmbeddings += 1;
     }
@@ -453,9 +450,9 @@ export class ScopedIndex {
   }
   private registerProfile(profile: VectorProfile): void {
     const hash = vectorProfileHash(profile);
-    this.db
-      .prepare('INSERT INTO vector_profiles VALUES(?,?,?) ON CONFLICT(profile_hash) DO NOTHING')
-      .run(hash, JSON.stringify(profile), profile.dimensions);
+    this.statement(
+      'INSERT INTO vector_profiles VALUES(?,?,?) ON CONFLICT(profile_hash) DO NOTHING'
+    ).run(hash, JSON.stringify(profile), profile.dimensions);
     this.db.exec(
       this.engine.tableDefinition(vectorTable(profile.dimensions), {
         bits: Math.ceil(profile.dimensions / 8) * 8,
@@ -464,24 +461,19 @@ export class ScopedIndex {
       })
     );
   }
-  /** Each statement is prepared once per call: better-sqlite3 does not cache them. */
   private deleteVectors(chunkPks: readonly number[]): void {
     if (chunkPks.length === 0) {
       return;
     }
-    const select = this.db.prepare(
+    const select = this.statement(
       'SELECT pk,chunk_pk AS chunkPk,profile_hash AS profileHash,dimensions FROM scoped_vectors WHERE chunk_pk=?'
     );
-    const deleteRows = this.db.prepare('DELETE FROM scoped_vectors WHERE chunk_pk=?');
-    const deleteCoarse = new Map<number, Database.Statement>();
+    const deleteRows = this.statement('DELETE FROM scoped_vectors WHERE chunk_pk=?');
     for (const chunkPk of chunkPks) {
       for (const vector of decodeVectors(select.all(chunkPk))) {
-        let statement = deleteCoarse.get(vector.dimensions);
-        if (!statement) {
-          statement = this.db.prepare(`DELETE FROM ${vectorTable(vector.dimensions)} WHERE id=?`);
-          deleteCoarse.set(vector.dimensions, statement);
-        }
-        statement.run(BigInt(vector.pk));
+        this.statement(`DELETE FROM ${vectorTable(vector.dimensions)} WHERE id=?`).run(
+          BigInt(vector.pk)
+        );
       }
       deleteRows.run(chunkPk);
     }
@@ -508,10 +500,10 @@ export class ScopedIndex {
       let removed = 0;
       for (const fileId of fileIds) {
         const rows = decoder(Schema.Array(Schema.Struct({ pk: integer })))(
-          this.db.prepare('SELECT pk FROM file_chunks WHERE file_record_id=?').all(fileId)
+          this.statement('SELECT pk FROM file_chunks WHERE file_record_id=?').all(fileId)
         );
         this.deleteVectors(rows.map((row) => row.pk));
-        removed += this.db.prepare('DELETE FROM file_records WHERE id=?').run(fileId).changes;
+        removed += this.statement('DELETE FROM file_records WHERE id=?').run(fileId).changes;
       }
       return removed;
     })();

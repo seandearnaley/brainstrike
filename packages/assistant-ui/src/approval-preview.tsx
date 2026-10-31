@@ -1,13 +1,19 @@
 import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
-import { Badge, CodeSurface, DiffView } from '@brainstrike/ui';
+import { Badge, CodeSurface, LoadingFallback } from '@brainstrike/ui';
 import { Predicate } from 'effect';
+import { lazy, Suspense } from 'react';
 import {
   type ApprovalPreviewSubject,
   narrowRunPythonArgs,
   readRunPythonExecutionContext,
 } from './approval-preview-policy';
 import { formatRunDuration } from './run-python-result-model';
+
+// CodeMirror Merge loads with the first diff approval, not with the chat.
+const DiffView = lazy(() =>
+  import('@brainstrike/ui/diff-view').then((m) => ({ default: m.DiffView }))
+);
 
 /**
  * Character cap applied to each large text field (`oldStr`/`newStr`/`content`)
@@ -684,14 +690,16 @@ export function ApprovalPreview({
           root={approval.targetRoot?.displayName ?? parsed.root}
         />
         <div className="border-border mt-1.5 h-72 overflow-hidden rounded-md border">
-          <DiffView
-            ariaLabel={`Proposed changes to ${parsed.path}`}
-            filename={parsed.path}
-            modified={newPreview.text}
-            original={oldPreview.text}
-            testId="approval-diff-view"
-            truncated={isTruncated}
-          />
+          <Suspense fallback={<LoadingFallback message="Loading diff…" />}>
+            <DiffView
+              ariaLabel={`Proposed changes to ${parsed.path}`}
+              filename={parsed.path}
+              modified={newPreview.text}
+              original={oldPreview.text}
+              testId="approval-diff-view"
+              truncated={isTruncated}
+            />
+          </Suspense>
         </div>
         {isTruncated ? (
           <PreviewTruncatedNote preview={moreTruncatedPreview(oldPreview, newPreview)} />

@@ -9,8 +9,8 @@ import { changedFileKey, useChangesStore } from '../changes-store';
 import { ChangesetDiffPane } from '../ui/changeset-diff-pane';
 
 // Stub the heavy CodeMirror DiffView (covered by its own suite).
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/ui')>();
+vi.mock('@brainstrike/ui/diff-view', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/ui/diff-view')>();
   return {
     ...original,
     DiffView: (props: { filename?: string; mode?: string; source: DiffViewSource }) => (

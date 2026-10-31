@@ -14,7 +14,16 @@ export * from './context-menu';
 export * from './copy-text-button';
 export * from './data-table';
 export * from './dialog';
-export * from './diff-view';
+// DiffView itself loads from the `./diff-view` subpath, so CodeMirror Merge
+// stays out of every chunk that only needs the root.
+export type {
+  DiffLineComment,
+  DiffLineCommentHandler,
+  DiffLineSide,
+  DiffViewMode,
+  DiffViewProps,
+  DiffViewSource,
+} from './diff-view';
 export * from './dropdown-menu';
 export * from './empty-state';
 export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';

@@ -180,6 +180,11 @@ import { createSafeStorageCredentialCipher } from './safe-storage-credential-cip
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { openIndexQuery } from './sqlite-query-host-manager';
+import {
+  markRendererFirstPaint,
+  markStartupMilestone,
+  readStartupTimeline,
+} from './startup-timeline';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { resolveThirdPartyNoticesPath } from './third-party-notices-path';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
@@ -1089,18 +1094,21 @@ if (singleInstanceLockAcquired) {
       );
       // Threads use the profile even when search has no selected catalog. Start
       // its existing owner before catalog discovery and renderer hydration.
-      void nativeIndexActivation
+      const agentHostProfile = nativeIndexActivation
         .acquireProfile()
         .catch((error: unknown) =>
           reportNativeIndexActivationError('Agent host profile unavailable', error)
         );
       void nativeIndexActivation.acquire().catch(reportInitialNativeFailure);
-      void observeNativeReaderStartup(
+      const indexStartup = observeNativeReaderStartup(
         nativeIndexActivation.acquireRead(),
         reportInitialNativeFailure
-      ).then((outcome) =>
-        logger.info('Initial native reader startup settled', { kind: outcome.kind })
-      );
+      ).then((outcome) => {
+        if (outcome.kind === 'ready') {
+          markStartupMilestone('indexReady');
+        }
+        logger.info('Initial native reader startup settled', { kind: outcome.kind });
+      });
       logger.debug('Configured desktop renderer target', { rendererTarget });
 
       // Register the root-validated `brainstrike-asset://` protocol now that the
@@ -1699,6 +1707,16 @@ if (singleInstanceLockAcquired) {
         return;
       }
       logger.debug('Main window created successfully');
+      // One line per launch, once the host, the index and the first paint have settled.
+      void Promise.allSettled([
+        agentHostProfile,
+        indexStartup,
+        markRendererFirstPaint(mainWindow.webContents).catch((error: unknown) =>
+          logger.warn('Could not read the renderer first paint for the startup timeline', {
+            error,
+          })
+        ),
+      ]).then(() => logger.info('Startup timeline', readStartupTimeline()));
       appUpdates.start({
         publish: (status) => {
           for (const window of BrowserWindow.getAllWindows()) {

@@ -82,6 +82,7 @@
     ".": "./src/index.ts",
     "./use-toast": "./src/use-toast.ts",
     "./code-block": "./src/code-block/index.ts",
+    "./diff-view": "./src/diff-view/index.ts",
     "./markdown-surface": "./src/markdown-surface/index.ts",
     "./mermaid-block": "./src/markdown-surface/mermaid-block.tsx",
     "./diagram-full-size-container": "./src/markdown-surface/diagram-full-size-container.ts",
