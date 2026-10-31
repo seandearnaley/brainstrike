@@ -526,7 +526,7 @@ describe("the host composer's access chip", () => {
   });
 
   test('a saved policy that cannot be loaded shows as unavailable and opens Settings → Permissions', () => {
-    const error = 'The saved permission settings are from an older version of BrainStrike.';
+    const error = 'The saved permission settings are from an older version of Brainstrike.';
     usePermissionPolicyHydration.setState({ error, status: 'failed', unreadable: true }, true);
     const { result } = renderHook(() => present());
     const access = result.current.accessMode;

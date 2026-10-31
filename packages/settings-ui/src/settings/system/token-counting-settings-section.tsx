@@ -50,7 +50,7 @@ const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
   },
   unavailable: {
     description:
-      'BrainStrike is configured to require tiktoken. Requests that need token sizing will fail until the WASM tokenizer loads or you explicitly switch to heuristic mode.',
+      'Brainstrike is configured to require tiktoken. Requests that need token sizing will fail until the WASM tokenizer loads or you explicitly switch to heuristic mode.',
     icon: AlertTriangle,
     label: 'Accurate tokenizer unavailable',
     variant: 'destructive',
@@ -81,7 +81,7 @@ export function TokenCountingSettingsSection({
       <CardHeader>
         <CardTitle>Token Counting</CardTitle>
         <CardDescription>
-          Choose how BrainStrike measures tokens for previews. The default is tiktoken in
+          Choose how Brainstrike measures tokens for previews. The default is tiktoken in
           WebAssembly; heuristic counting is only used when you explicitly disable accurate mode.
         </CardDescription>
       </CardHeader>
@@ -92,7 +92,7 @@ export function TokenCountingSettingsSection({
               Use WASM tokenizer (recommended)
             </Label>
             <p className="text-muted-foreground text-sm">
-              When enabled, BrainStrike loads tiktoken in WebAssembly for accurate token counting.
+              When enabled, Brainstrike loads tiktoken in WebAssembly for accurate token counting.
             </p>
           </div>
           <Switch

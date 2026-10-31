@@ -21,8 +21,8 @@ export function AppReloadNotice(): ReactElement | null {
       <AlertTriangle aria-hidden="true" className="text-destructive size-4 shrink-0" />
       <p className="min-w-0 flex-1">
         {reloadAlreadyAttempted
-          ? "Part of BrainStrike still can't load. Reloading didn't fix this."
-          : 'Part of BrainStrike failed to load. Reload the app to fix it.'}
+          ? "Part of Brainstrike still can't load. Reloading didn't fix this."
+          : 'Part of Brainstrike failed to load. Reload the app to fix it.'}
       </p>
       <Button onClick={() => requestAppReload()} size="sm" type="button" variant="outline">
         <RotateCw aria-hidden="true" />
