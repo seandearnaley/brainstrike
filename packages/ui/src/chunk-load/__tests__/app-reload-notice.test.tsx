@@ -77,7 +77,7 @@ describe('AppReloadNotice', () => {
     act(() => appReloadStore.markRequired());
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Part of BrainStrike failed to load. Reload the app to fix it.'
+      'Part of Brainstrike failed to load. Reload the app to fix it.'
     );
     expect(screen.getByRole('button', { name: 'Reload app' })).toBeInTheDocument();
   });
@@ -91,7 +91,7 @@ describe('AppReloadNotice', () => {
     });
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      "Part of BrainStrike still can't load. Reloading didn't fix this."
+      "Part of Brainstrike still can't load. Reloading didn't fix this."
     );
     expect(screen.getByRole('button', { name: 'Reload app' })).toBeInTheDocument();
   });

@@ -323,7 +323,7 @@ export type ManagedWorktreeAuthorization = 'authorized' | 'managed-but-unauthori
  */
 const NEVER_GRANTED_MESSAGE = 'Folder was never granted in this app; use Add Folder to grant it.';
 const MANAGED_BUT_UNAUTHORIZED_MESSAGE =
-  'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.';
+  'Folder was never granted in this app and is not a Brainstrike-managed worktree; use Add Folder to grant it.';
 
 /**
  * Authorizes a path the app itself created under its managed worktree

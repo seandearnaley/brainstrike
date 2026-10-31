@@ -307,7 +307,7 @@ describe('PermissionSettingsSection with a host-kept policy', () => {
           throw refusalError(
             'configuration',
             PERMISSION_POLICY_UNREADABLE_CODE,
-            'The saved permission settings are from an older version of BrainStrike and cannot be read.'
+            'The saved permission settings are from an older version of Brainstrike and cannot be read.'
           );
         }
         return null;

@@ -519,7 +519,7 @@ describe('resolveGrantedRootHandle managed-worktree gate (BST-1390, spec §6.2)'
         Promise.resolve('managed-but-unauthorized')
       )
     ).rejects.toThrow(
-      'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
+      'Folder was never granted in this app and is not a Brainstrike-managed worktree; use Add Folder to grant it.'
     );
   });
 
