@@ -916,6 +916,11 @@ export function useBackgroundTokenIndexer({
         if (retirementRef.current) {
           throw retirementRef.current;
         }
+        // A worker that crashed during the read is terminated: the batch settles as the
+        // batches it carried did, and is never posted to a worker that cannot answer.
+        if (workerRef.current !== worker) {
+          throw new Error('Background token indexer worker restarted during the cache read.');
+        }
         const requests = buildIndexRequests(files, cachedByFolder, currentMode);
         for (const request of requests) {
           pendingFilesRef.current.add(request.compositeKey);

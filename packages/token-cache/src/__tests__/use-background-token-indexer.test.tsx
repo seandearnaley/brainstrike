@@ -1848,6 +1848,37 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.isIndexing).toBe(false);
   });
 
+  it('settles a batch whose worker crashed during its cache read, never posting to the dead worker', async () => {
+    const cacheRead = Promise.withResolvers<Map<string, TokenCacheEntry>>();
+    const store = {
+      get: vi.fn(async () => null),
+      getBatch: vi.fn(() => cacheRead.promise),
+      set: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({ mode: 'accurate', onFileError: vi.fn(), store })
+    );
+    const worker = await markWorkerReady();
+    const file = { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' };
+    let indexing!: Promise<void>;
+    act(() => {
+      indexing = result.current.indexFiles([file]);
+    });
+    await waitFor(() => expect(store.getBatch).toHaveBeenCalledOnce());
+
+    act(() => {
+      worker.onerror?.(new ErrorEvent('error', { message: 'runtime boom' }));
+    });
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    await act(async () => {
+      cacheRead.resolve(new Map());
+      await expect(indexing).rejects.toThrow('worker restarted during the cache read');
+    });
+
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    expect(result.current.isIndexing).toBe(false);
+  });
+
   it('settles a startup still waiting for ready with the retirement and cancels its readiness timeout', async () => {
     vi.useFakeTimers();
     const onFileError = vi.fn();
