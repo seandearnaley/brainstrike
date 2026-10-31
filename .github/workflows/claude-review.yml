@@ -1,7 +1,7 @@
 # Claude reviews a ready pull request once in full, then reviews only what each
-# later push adds. It comments and never fails on a finding. The merge
-# protections in .mergify.yml queue a PR only after this job has succeeded on
-# its head and every review thread is resolved.
+# later push adds. It comments and never fails on a finding. The default queue's
+# conditions in .mergify.yml admit a PR only after this job has succeeded on its
+# head, and its merge protection holds it while any review thread is unresolved.
 #
 # - The first non-draft run posts one PR review with every finding inline, or as
 #   a comment on its file when its lines are outside the diff, so each one is a
