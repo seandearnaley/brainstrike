@@ -1,6 +1,6 @@
 {
   "name": "@brainstrike/desktop",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "build": {
     "appId": "com.brainstrike.desktop",
     "appImage": {
