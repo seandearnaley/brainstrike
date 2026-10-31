@@ -141,6 +141,7 @@ async function fixture(selectedProfile: VectorProfile = profile) {
       vectorCoverageComplete: true,
     })),
     verifyManifest: vi.fn(async () => ({
+      acknowledged: [],
       changed: [],
       complete: true,
       missing: [],
