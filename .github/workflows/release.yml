@@ -267,7 +267,17 @@ jobs:
           APPLE_API_ISSUER: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_API_ISSUER || '' }}
           APPLE_TEAM_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_TEAM_ID || '' }}
         # The zip is electron-updater's macOS payload; the DMG is the download.
-        run: pnpm --filter @brainstrike/desktop run dist --mac dmg zip --"$ARCH" --publish never
+        # electron-builder takes a defined but empty CSC_LINK as a certificate
+        # path (the working directory), so the unsigned posture unsets the
+        # empty credentials instead of passing them.
+        run: |
+          set -euo pipefail
+          for NAME in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_TEAM_ID; do
+            if [[ -z "${!NAME}" ]]; then
+              unset "$NAME"
+            fi
+          done
+          pnpm --filter @brainstrike/desktop run dist --mac dmg zip --"$ARCH" --publish never
 
       - name: Remove the notarization key
         if: always() && steps.signing.outputs.signed == 'true'
