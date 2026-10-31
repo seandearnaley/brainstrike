@@ -52,10 +52,12 @@ queue_rules:
       # so a merge protection on it dequeued every batch (#4859, batch draft
       # #4860). Queue conditions are read on the PR's own head, for automatic
       # entry and for `@mergifyio queue` or the checkbox alike. The workflow
-      # skips bot PRs (Renovate's), so those never wait for it.
+      # skips bot PRs (Renovate's) and fork PRs, so those never wait for it; a
+      # fork is queued by hand only after it has been read (above).
       - or:
           - check-success = @github-actions/Claude Review
           - author ~= \[bot\]$
+          - from-fork
     merge_conditions:
       - check-success = @github-actions/Merge Queue Gate
     # The ruleset's required Merge Queue Gate never reports on a PR head, so
