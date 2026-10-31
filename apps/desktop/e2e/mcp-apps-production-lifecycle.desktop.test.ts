@@ -6,8 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { expect, test } from '@playwright/test';
+import react from '@vitejs/plugin-react';
 import { build } from 'esbuild';
 import { type Browser, chromium, type Page } from 'playwright';
+import { build as buildWithVite } from 'vite';
 import { APP_RENDERER_DOCUMENT_URL } from '../src/desktop-renderer-origin';
 import {
   createLoopbackToolServer,
@@ -928,7 +930,7 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
 
 async function buildHarness(directory: string, serverOrigin: string): Promise<string> {
   const appEntryPath = path.join(directory, 'app-entry.js');
-  const entryPath = path.join(directory, 'harness-entry.jsx');
+  const entryPath = path.join(directory, 'harness-entry.js');
   await writeFile(appEntryPath, sandboxedAppSource(), 'utf8');
   const appBuild = await build({
     bundle: true,
@@ -946,23 +948,32 @@ async function buildHarness(directory: string, serverOrigin: string): Promise<st
     throw new Error('BST-1571 official MCP App bundle is unavailable');
   }
   await writeFile(entryPath, harnessSource(serverOrigin, sandboxedAppDocument(appBundle)), 'utf8');
-  // One self-contained IIFE, injected into the packaged renderer over CDP.
-  const harnessBuild = await build({
-    bundle: true,
-    entryPoints: [entryPath],
-    format: 'iife',
-    loader: {
-      '.png': 'dataurl',
-      '.svg': 'dataurl',
-      '.woff': 'dataurl',
-      '.woff2': 'dataurl',
+  // One self-contained IIFE, injected into the packaged renderer over CDP. Vite and the
+  // React Compiler build it the way the shipped renderer is built, so the surface under
+  // test is the compiled surface; lib mode inlines every asset.
+  const harnessBuild = await buildWithVite({
+    build: {
+      lib: { entry: entryPath, formats: ['iife'], name: 'bst1571Harness' },
+      minify: false,
+      target: 'chrome136',
+      write: false,
     },
+    configFile: false,
+    define: { 'process.env.NODE_ENV': JSON.stringify('development') },
     logLevel: 'silent',
-    platform: 'browser',
-    target: 'chrome136',
-    write: false,
+    // The generated entry is plain JavaScript outside the workspace; only workspace
+    // React is compiled.
+    plugins: [
+      react({ compiler: { compilationMode: 'infer' }, exclude: [/node_modules/u, entryPath] }),
+    ],
+    root: directory,
   });
-  const harnessBundle = harnessBuild.outputFiles[0]?.text;
+  const [harnessOutput] = Array.isArray(harnessBuild) ? harnessBuild : [harnessBuild];
+  const harnessChunk =
+    harnessOutput && 'output' in harnessOutput
+      ? harnessOutput.output.find((output) => output.type === 'chunk')
+      : undefined;
+  const harnessBundle = harnessChunk?.code;
   if (harnessBundle === undefined) {
     throw new Error('BST-1571 harness bundle is unavailable');
   }

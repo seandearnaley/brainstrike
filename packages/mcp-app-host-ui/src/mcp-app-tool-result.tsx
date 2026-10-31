@@ -16,7 +16,7 @@ import {
   McpAppToolCallAuthority,
   type McpAppToolRiskCategory,
 } from '@brainstrike/mcp-app-host';
-import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactElement, useEffect, useRef, useState } from 'react';
 import {
   type McpAppHostState,
   McpAppHostSurface,
@@ -201,14 +201,10 @@ function LiveMcpApp({
   readonly ports?: McpAppRuntimePorts;
   readonly threadId: string;
 }): ReactElement {
-  const runtimePorts = useMemo(() => ports ?? createDefaultRuntimePorts(), [ports]);
+  const runtimePorts = ports ?? createDefaultRuntimePorts();
   // The persisted marker is re-read (freshly parsed) on every parent render,
   // so the mount identity is the origin's primitives, never the object.
   const { mimeType, resourceUri, serverId, toolName } = app;
-  const origin = useMemo<McpAppOrigin>(
-    () => ({ mimeType, resourceUri, serverId, toolName }),
-    [mimeType, resourceUri, serverId, toolName]
-  );
   // `undefined` only between commit and the mount effect's first run.
   const [view, setView] = useState<McpAppView | undefined>(undefined);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -221,6 +217,7 @@ function LiveMcpApp({
   useEffect(() => {
     let disposed = false;
     let frameBridge: McpAppFrameBridge | undefined;
+    const origin: McpAppOrigin = { mimeType, resourceUri, serverId, toolName };
     const session = createAppSession(origin, threadId, bridge);
     // Ownership lives in McpAppSandboxOwner: every shell it registers through
     // the bridge is released by its mount's `close()`, which the cleanup
@@ -326,19 +323,19 @@ function LiveMcpApp({
         sessionChangeRef.current?.(undefined);
       })();
     };
-  }, [bridge, hostVersion, origin, runtimePorts, threadId]);
+  }, [bridge, hostVersion, mimeType, resourceUri, runtimePorts, serverId, threadId, toolName]);
 
   if (view === undefined) {
     return (
       <div className="my-1 max-w-xl" ref={recoveryRef} tabIndex={-1}>
-        <McpAppLoadingState appName={origin.toolName} />
+        <McpAppLoadingState appName={toolName} />
       </div>
     );
   }
   return (
     <div className="my-1 max-w-xl" ref={recoveryRef} tabIndex={-1}>
       <McpAppHostSurface
-        appName={origin.toolName}
+        appName={toolName}
         authority={view.session.authority}
         recoveryFocusRef={recoveryRef}
         state={view.state}
@@ -346,13 +343,13 @@ function LiveMcpApp({
         {view.shellUrl === undefined ? null : (
           // biome-ignore lint/security/useIframeSandbox: the host-authored shell needs its own origin for header-delivered CSP; it sandboxes the untrusted app frame itself (apps-session-policy.ts).
           <iframe
-            aria-label={`${origin.toolName} app`}
+            aria-label={`${toolName} app`}
             className="h-full w-full rounded-lg border-0"
             data-mcp-app-sandbox="true"
             key={view.shellUrl}
             ref={frameRef}
             src={view.shellUrl}
-            title={`${origin.toolName} app`}
+            title={`${toolName} app`}
           />
         )}
       </McpAppHostSurface>
