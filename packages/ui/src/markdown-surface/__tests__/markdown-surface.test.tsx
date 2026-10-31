@@ -186,10 +186,13 @@ describe('MarkdownSurface', () => {
     expect(onOpenLink).not.toHaveBeenCalled();
   });
 
-  it('reports scroll position changes', () => {
+  it('reports the scroll position once scrolling settles', () => {
     const onScrollTopChange = vi.fn();
     renderSurface('# a\n', { onScrollTopChange, testId: 'md-surface' });
-    fireEvent.scroll(screen.getByTestId('md-surface'), { target: { scrollTop: 120 } });
+    const surface = screen.getByTestId('md-surface');
+    fireEvent.scroll(surface, { target: { scrollTop: 120 } });
+    expect(onScrollTopChange).not.toHaveBeenCalled();
+    fireEvent(surface, new Event('scrollend'));
     expect(onScrollTopChange).toHaveBeenCalledWith(120);
   });
 

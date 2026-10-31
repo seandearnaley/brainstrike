@@ -58,6 +58,7 @@ export interface CodeSurfaceProps {
   readonly onContextMenuSelection?:
     | ((selection: CodeSurfaceContextMenuSelection) => void)
     | undefined;
+  /** The scroll position once scrolling settles (`scrollend`), not on every scroll frame. */
   readonly onScrollTopChange?: ((scrollTop: number) => void) | undefined;
   readonly onSelectionChange?: ((selection: CodeSurfaceSelection) => void) | undefined;
   readonly path?: string | undefined;
@@ -257,11 +258,11 @@ export function CodeSurface({
       }),
     });
 
-    const handleScroll = () => {
+    const handleScrollEnd = () => {
       callbacksRef.current.onScrollTopChange?.(view.scrollDOM.scrollTop);
     };
 
-    view.scrollDOM.addEventListener('scroll', handleScroll, { passive: true });
+    view.scrollDOM.addEventListener('scrollend', handleScrollEnd, { passive: true });
     viewRef.current = view;
     const restoreScrollFrame = window.requestAnimationFrame(() => {
       if (viewRef.current !== view) {
@@ -304,7 +305,7 @@ export function CodeSurface({
 
     return () => {
       window.cancelAnimationFrame(restoreScrollFrame);
-      view.scrollDOM.removeEventListener('scroll', handleScroll);
+      view.scrollDOM.removeEventListener('scrollend', handleScrollEnd);
       view.destroy();
       if (viewRef.current === view) {
         viewRef.current = null;

@@ -1,6 +1,6 @@
 /// <reference path="../vite-env.d.ts" />
 import 'katex/dist/katex.min.css';
-import { isValidElement, type ReactNode, useLayoutEffect, useRef } from 'react';
+import { isValidElement, type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import rehypeSlug from 'rehype-slug';
@@ -30,6 +30,7 @@ export interface MarkdownSurfaceProps {
     | undefined;
   /** Non-anchor link clicks (http, mailto, relative paths) — the host decides. */
   readonly onOpenLink: (href: string) => void;
+  /** The scroll position once scrolling settles (`scrollend`), not on every scroll frame. */
   readonly onScrollTopChange?: (scrollTop: number) => void;
   /** Resolve a raw image src (relative or absolute path) to a displayable URL. Reject => visible placeholder. */
   readonly resolveImageSrc: (src: string) => Promise<string>;
@@ -94,11 +95,20 @@ export function MarkdownSurface({
     }
   }, []);
 
-  const handleScroll = () => {
-    if (containerRef.current) {
-      onScrollTopChange?.(containerRef.current.scrollTop);
+  // React has no `scrollend` prop, so subscribe to the DOM event directly.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!(container && onScrollTopChange)) {
+      return;
     }
-  };
+    const handleScrollEnd = () => {
+      onScrollTopChange(container.scrollTop);
+    };
+    container.addEventListener('scrollend', handleScrollEnd, { passive: true });
+    return () => {
+      container.removeEventListener('scrollend', handleScrollEnd);
+    };
+  }, [onScrollTopChange]);
 
   const handleContextMenu = () => {
     if (!onContextMenuSelection) {
@@ -183,7 +193,6 @@ export function MarkdownSurface({
       className="h-full overflow-auto"
       data-testid={testId}
       onContextMenu={handleContextMenu}
-      onScroll={handleScroll}
       ref={containerRef}
     >
       <div className={cn('prose prose-sm dark:prose-invert mx-auto max-w-3xl px-6 py-4')}>
