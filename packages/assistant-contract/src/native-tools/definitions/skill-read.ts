@@ -11,6 +11,12 @@ import { standardInputSchema } from '../schemas/standard-input-schema.ts';
 // 'execute' approval gate. Explicit 'read' keeps it free under the default
 // policy and available in plan mode (an investigation tool).
 export const skillRead = defineNativeTool({
+  activity: {
+    active: 'Reading skill file',
+    done: 'Read skill file',
+    family: 'skill',
+    request: 'Read skill file',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 120,

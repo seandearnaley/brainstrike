@@ -5,6 +5,13 @@ import { BrowserTypeInputSchema } from '../schemas/schemas-browser.ts';
 // BST-2324: fills a field the way Playwright's `fill` does. Credential and
 // payment fields are refused (BST-2209).
 export const browserType = defineNativeTool({
+  activity: {
+    active: 'Typing into',
+    done: 'Typed into',
+    family: 'web',
+    request: 'Type into',
+    targetArg: 'element',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 140,

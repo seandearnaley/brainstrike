@@ -3,6 +3,12 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { ListEmbeddingSetsInputSchema } from '../schemas/schemas-diagnostics.ts';
 
 export const listEmbeddingSpaces = defineNativeTool({
+  activity: {
+    active: 'Listing embedding spaces',
+    done: 'Listed embedding spaces',
+    family: 'search',
+    request: 'List embedding spaces',
+  },
   defaults: {
     category: 'analysis',
     estimatedTokens: 110,

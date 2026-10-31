@@ -4,6 +4,7 @@ import { HybridSearchInputSchema } from '../schemas/schemas-search.ts';
 
 // Read-only hybrid (vector + BM25 keyword, RRF-fused) workspace retrieval.
 export const hybridSearch = defineNativeTool({
+  activity: { active: 'Searching', done: 'Searched', family: 'search', request: 'Search' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 200,

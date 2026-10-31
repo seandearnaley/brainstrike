@@ -9,6 +9,12 @@ import { ListWorktreesInputSchema } from '../schemas/schemas-worktrees.ts';
 // classification is honest. It touches no worktree and runs no git mutation —
 // WorktreeService.list() is inventory ⋈ ledger.
 export const listWorktrees = defineNativeTool({
+  activity: {
+    active: 'Listing worktrees',
+    done: 'Listed worktrees',
+    family: 'worktree',
+    request: 'List worktrees',
+  },
   defaults: {
     category: 'analysis',
     estimatedTokens: 115,

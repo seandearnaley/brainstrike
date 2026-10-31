@@ -3,6 +3,12 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { RunSkillScriptInputSchema } from '../schemas/schemas-execution.ts';
 
 export const runSkillScript = defineNativeTool({
+  activity: {
+    active: 'Running skill script',
+    done: 'Ran skill script',
+    family: 'skill',
+    request: 'Run skill script',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 220,

@@ -400,21 +400,6 @@ export {
 export { createSanitizedToolNameMap } from './tool-projection/tool-sanitizer.ts';
 // Suspending tools (plan mode + ask-user)
 export { ASK_USER_TOOL_ID, createAskUserTool, formatAskUserAnswer } from './tools/ask-user-tool.ts';
-// System diagnostics tool factory (Tier 3)
-export {
-  type ComponentHealth,
-  createSystemDiagnosticsTool,
-  type DatabaseDiagnostics,
-  DIAGNOSTICS_ERROR_MESSAGES,
-  type DiagnosticsToolDependencies,
-  type HealthStatus,
-  type QueueDiagnostics,
-  SAFE_DIAGNOSTICS_ERRORS,
-  type StorageDiagnostics,
-  SYSTEM_DIAGNOSTICS_TOOL_ID,
-  type SystemDiagnosticsToolResult,
-  type WorkerDiagnostics,
-} from './tools/diagnostics-tool.ts';
 // Shared docs search helpers
 export {
   type DocSummaryResponse,
@@ -433,16 +418,6 @@ export {
   recordKnownFileMtime,
   resetFileReadState,
 } from './tools/file-read-state.ts';
-// File tree tool factory (Tier 2)
-export {
-  createQueryFileTreeTool,
-  FILE_TREE_ERROR_MESSAGES,
-  type FileEntry,
-  type FileTreeToolDependencies,
-  QUERY_FILE_TREE_TOOL_ID,
-  type QueryFileTreeToolResult,
-  SAFE_FILE_TREE_ERRORS,
-} from './tools/file-tree-tool.ts';
 export { withFileLock } from './tools/file-write-lock.ts';
 export { guardToolExecution } from './tools/guard-tool-execution.ts';
 export {
@@ -452,19 +427,6 @@ export {
   type HookToolGateResult,
 } from './tools/hook-runner.ts';
 export { applyToolHooks } from './tools/hook-tool-wrap.ts';
-// Queue status tool factory
-export {
-  type CoverageStats,
-  createQueueStatusTool,
-  type LatencyStats as QueueLatencyStats,
-  QUEUE_STATUS_ERROR_MESSAGES,
-  QUEUE_STATUS_TOOL_ID,
-  type QueueCounts,
-  type QueueStatusToolDependencies,
-  type QueueStatusToolResult,
-  SAFE_QUEUE_STATUS_ERRORS,
-  type VectorQueueSnapshot,
-} from './tools/queue-status-tool.ts';
 export { readToolExecutionThreadId } from './tools/read-tool-call-id.ts';
 export {
   computeExecutionContextFingerprint,

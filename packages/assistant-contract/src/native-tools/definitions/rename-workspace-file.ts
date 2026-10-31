@@ -6,6 +6,13 @@ import { RenameWorkspaceFileInputSchema } from '../schemas/schemas-workspace.ts'
 // the permission engine gates it (→ 'ask' by default) like the other
 // file-mutation tools; cross-root moves and overwrites are refused by the tool.
 export const renameWorkspaceFile = defineNativeTool({
+  activity: {
+    active: 'Renaming',
+    countsFiles: 'always',
+    done: 'Renamed',
+    family: 'edit',
+    request: 'Rename',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 150,

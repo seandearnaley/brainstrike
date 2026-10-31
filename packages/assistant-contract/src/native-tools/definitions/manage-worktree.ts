@@ -10,6 +10,12 @@ import { ManageWorktreeInputSchema } from '../schemas/schemas-worktrees.ts';
 // the user's checkout. The read-only listing lives in its OWN tool
 // (`listWorktrees`) precisely so this classification can stay strict.
 export const manageWorktree = defineNativeTool({
+  activity: {
+    active: 'Updating worktree',
+    done: 'Updated worktree',
+    family: 'worktree',
+    request: 'Update worktree',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 280,
