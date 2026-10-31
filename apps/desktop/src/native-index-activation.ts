@@ -251,8 +251,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         // A scan's proofs are reads: another root's binding replacement joins them
         // before it retires their query client (BST-2055).
         coverageScope: (request) => runtime.withWriterRead(port, () => port.coverageScope(request)),
-        removeScopedFile: (request) =>
-          runtime.mutateAuthority(port, () => port.removeScopedFile(request)),
+        removeScopedFiles: (request) =>
+          runtime.mutateAuthority(port, () => port.removeScopedFiles(request)),
         verifyScopedManifest: (request) =>
           runtime.withWriterRead(port, () => port.verifyScopedManifest(request)),
       },

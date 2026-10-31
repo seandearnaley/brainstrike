@@ -17,12 +17,18 @@ describe('canonical discovery partition membership', () => {
       try {
         if (publishes) {
           await f.host.scan(f.request);
-          expect(f.publication.commitTextFile).toHaveBeenCalledWith(
-            expect.objectContaining({ file: expect.objectContaining({ embeddingSetId: null }) })
+          expect(f.publication.commitTextFiles).toHaveBeenCalledWith(
+            expect.objectContaining({
+              files: [
+                expect.objectContaining({
+                  file: expect.objectContaining({ embeddingSetId: null }),
+                }),
+              ],
+            })
           );
         } else {
           await expect(f.host.scan(f.request)).rejects.toThrow(/Canonical prepar/u);
-          expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+          expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
         }
       } finally {
         await f.host.close();

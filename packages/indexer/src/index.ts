@@ -122,13 +122,16 @@ export interface PurgeIndexerPort {
 /** Trusted main/catalog owner port. Never forward renderer-supplied binding inventories. */
 export interface ScopedIndexerPort {
   commitScopedFile(commit: unknown): Promise<CommitResult>;
-  commitScopedTextFile(commit: unknown): Promise<CommitResult>;
+  /** Prepare and commit TEXT files in one writer transaction; each file's plan, in order. */
+  commitScopedTextFiles(batch: unknown): Promise<readonly ScopedFilePlan[]>;
   coverageBatch(requests: unknown): Promise<readonly ScopedCoverage[]>;
   coverageScope(request: unknown): Promise<ScopedCoverage>;
   prepareScopedFile(request: unknown): Promise<ScopedFilePlan>;
   readScopedFileChunkBounds(request: unknown): Promise<ScopedFileChunkBounds>;
   readScopedFilePage(request: unknown): Promise<ScopedFilePage>;
   removeScopedFile(identity: unknown): Promise<boolean>;
+  /** Remove one scope's files in one writer transaction; how many were stored. */
+  removeScopedFiles(batch: unknown): Promise<number>;
   replaceFileBindings(bindings: unknown): Promise<void>;
   searchScopes(request: unknown): Promise<ScopedSearchResult>;
   verifyScopedManifest(request: unknown): Promise<ScopedManifestResult>;

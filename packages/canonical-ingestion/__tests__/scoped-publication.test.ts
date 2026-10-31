@@ -37,7 +37,7 @@ function requestedScope(input: unknown): CanonicalSourceScope {
 function fixture() {
   const port = {
     commitScopedFile: vi.fn(),
-    commitScopedTextFile: vi.fn(),
+    commitScopedTextFiles: vi.fn(),
     coverageBatch: vi.fn(),
     coverageScope: vi.fn(),
     info: vi.fn(async () => ({
@@ -51,7 +51,7 @@ function fixture() {
       writerThreadId: 1,
     })),
     prepareScopedFile: vi.fn(),
-    removeScopedFile: vi.fn(async () => true),
+    removeScopedFiles: vi.fn(async () => 1),
     verifyScopedManifest: vi.fn(
       async (request: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]) => ({
         authorityEpoch: 'epoch',
@@ -367,24 +367,24 @@ it.each(['TEXT', 'VECTOR'] as const)(
     const f = planFixture();
     const ticket = await f.publication.beginScan({ requestId: 'before-delete', scope });
     const plan = await f.port.prepareScopedFile({});
-    if (mode === 'TEXT') {
-      f.port.prepareScopedFile.mockResolvedValue({ ...plan, profile: null, profileHash: null });
-    }
     const held = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     const commit = async (): Promise<void> => {
       entered.resolve();
       await held.promise;
     };
-    f.port.commitScopedTextFile.mockImplementation(commit);
+    f.port.commitScopedTextFiles.mockImplementation(async () => {
+      await commit();
+      return [{ ...plan, profile: null, profileHash: null }];
+    });
     f.port.commitScopedFile.mockImplementation(commit);
+    const text = {
+      file: f.file,
+      payload: { content: 'canonical', fileId: f.file.fileId, providedChunks: [] },
+    };
     const publishing =
       mode === 'TEXT'
-        ? f.publication.commitTextFile({
-            file: f.file,
-            payload: { content: 'canonical', fileId: f.file.fileId, providedChunks: [] },
-            ticket,
-          })
+        ? f.publication.commitTextFiles({ files: [text], ticket })
         : f.publication.commitVectorFile({
             embeddings: [],
             file: f.file,
@@ -402,22 +402,14 @@ it.each(['TEXT', 'VECTOR'] as const)(
       complete: false,
       missing: [declared],
     });
-    await expect(
-      f.publication.commitTextFile({
-        file: f.file,
-        payload: { content: 'canonical', fileId: f.file.fileId, providedChunks: [] },
-        ticket,
-      })
-    ).rejects.toThrow('invalidated');
+    await expect(f.publication.commitTextFiles({ files: [text], ticket })).rejects.toThrow(
+      'invalidated'
+    );
     await f.publication.abortScan(ticket);
     await f.publication.finishScan({ ...completion, aborted: true, ticket });
     const next = await f.publication.beginScan({ requestId: 'returned-id', scope });
     if (mode === 'TEXT') {
-      await f.publication.commitTextFile({
-        file: f.file,
-        payload: { content: 'canonical', fileId: f.file.fileId, providedChunks: [] },
-        ticket: next,
-      });
+      await f.publication.commitTextFiles({ files: [text], ticket: next });
     } else {
       await f.publication.commitVectorFile({
         embeddings: [],
@@ -437,35 +429,35 @@ it.each(['TEXT', 'VECTOR'] as const)(
 describe('main canonical publication ownership', () => {
   it('joins an admitted removal before abort and refuses late writes', async () => {
     const { port, publication } = fixture();
-    const held = Promise.withResolvers<boolean>();
-    port.removeScopedFile.mockReturnValueOnce(held.promise);
+    const held = Promise.withResolvers<number>();
+    port.removeScopedFiles.mockReturnValueOnce(held.promise);
     const ticket = await publication.beginScan({ requestId: 'scan', scope });
-    const write = publication.removeFile({ file, ticket });
-    await vi.waitFor(() => expect(port.removeScopedFile).toHaveBeenCalledOnce());
+    const write = publication.removeFiles({ files: [file], ticket });
+    await vi.waitFor(() => expect(port.removeScopedFiles).toHaveBeenCalledOnce());
     let settled = false;
     const abort = publication.abortScan(ticket).then(() => {
       settled = true;
     });
-    await expect(publication.removeFile({ file, ticket })).rejects.toThrow('closed');
+    await expect(publication.removeFiles({ files: [file], ticket })).rejects.toThrow('closed');
     await Promise.resolve();
     expect(settled).toBe(false);
-    held.resolve(true);
+    held.resolve(1);
     await write;
     await abort;
     expect(await publication.finishScan({ ...completion, ticket })).toMatchObject({
       reason: 'aborted',
       scanComplete: false,
     });
-    expect(port.removeScopedFile).toHaveBeenCalledWith({ fileId: 'file', scope });
+    expect(port.removeScopedFiles).toHaveBeenCalledWith({ fileIds: ['file'], scope });
     expect(port.verifyScopedManifest).not.toHaveBeenCalled();
   });
 
   it('retains a failed write in its receipt even when its caller observed the rejection', async () => {
     const { port, publication } = fixture();
     const cause = new Error('native removal failed');
-    port.removeScopedFile.mockRejectedValueOnce(cause);
+    port.removeScopedFiles.mockRejectedValueOnce(cause);
     const ticket = await publication.beginScan({ requestId: 'scan', scope });
-    await expect(publication.removeFile({ file, ticket })).rejects.toBe(cause);
+    await expect(publication.removeFiles({ files: [file], ticket })).rejects.toBe(cause);
     expect(await publication.finishScan({ ...completion, ticket })).toMatchObject({
       reason: 'write-failed',
       scanComplete: false,
@@ -483,7 +475,7 @@ describe('main canonical publication ownership', () => {
     });
     expect(port.verifyScopedManifest).toHaveBeenCalledWith({ files: [], scope });
     await expect(publication.finishScan({ ...completion, ticket })).rejects.toThrow('stale');
-    await expect(publication.removeFile({ file, ticket })).rejects.toThrow('stale');
+    await expect(publication.removeFiles({ files: [file], ticket })).rejects.toThrow('stale');
   });
 
   // A retirement can cancel a scan whose finish already released its ticket (BST-1955).

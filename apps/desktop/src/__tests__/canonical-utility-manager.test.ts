@@ -89,9 +89,9 @@ function workspace({
     publication: {
       abortScan: async () => {},
       beginScan: async ({ requestId }) => ({ generation: 1, requestId, scope, storeId: 'store' }),
-      commitTextFile: async () => {},
+      commitTextFiles: async () => {},
       finishScan: async ({ ticket }) => ({ reason: 'complete', scanComplete: true, ticket }),
-      removeFile: async () => {},
+      removeFiles: async () => {},
       verifyManifest: async () => ({
         acknowledged: [],
         changed: [],

@@ -321,15 +321,22 @@ export const scopedPlanSchema = Schema.Struct({
   storeId: hash,
 });
 export type ScopedFilePlan = typeof scopedPlanSchema.Type;
-export const scopedTextCommitSchema = Schema.Struct({
-  plan: scopedPlanSchema,
-  syntax: Schema.optional(syntaxSchema),
+/**
+ * A batch of TEXT files the writer prepares and commits in one transaction: all of it lands,
+ * or none. `storeId` is the store the caller's scan began on; another store refuses it whole.
+ */
+export const scopedTextBatchSchema = Schema.Struct({
+  files: Schema.Array(
+    Schema.Struct({ snapshot: scopedSnapshotSchema, syntax: Schema.optional(syntaxSchema) })
+  ),
+  storeId: hash,
 });
 const flexibleVector = Schema.Array(Schema.Finite).check(Schema.isBetweenLength(1, 16_000));
 export const scopedCommitSchema = Schema.Struct({
-  ...scopedTextCommitSchema.fields,
   embeddings: Schema.Array(Schema.Struct({ chunkId: hash, vector: flexibleVector })),
+  plan: scopedPlanSchema,
   profile: vectorProfileSchema,
+  syntax: Schema.optional(syntaxSchema),
 });
 /** Root grants come only from acquisition; thread membership comes from State truth. */
 const stateMessageScopeSchema = Schema.Struct({
@@ -472,6 +479,13 @@ export type StateObservationHit = typeof stateObservationHitSchema.Type;
 export type StateObservationPurge = StateMessagePurge;
 export const stateObservationPurgeSchema = stateMessagePurgeSchema;
 export const scopedRemoveSchema = Schema.Struct({ fileId: nonblank, scope: scopeSchema });
+/** Files of one scope the writer removes in one transaction. */
+export const scopedRemoveBatchSchema = Schema.Struct({
+  fileIds: Schema.Array(nonblank),
+  scope: scopeSchema,
+});
+/** How many of a removal batch's files were stored. */
+export const removedCountSchema = nonnegative;
 export const scopedSearchSchema = Schema.Struct({
   fileIds: Schema.optional(Schema.Array(nonblank)),
   limit: positive.check(Schema.isLessThanOrEqualTo(100)),

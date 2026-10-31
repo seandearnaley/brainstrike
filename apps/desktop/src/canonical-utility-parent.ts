@@ -789,11 +789,11 @@ export class CanonicalUtilityParent {
         value = null;
         break;
       }
-      case 'commit-text': {
-        const input = decode(canonicalOperations['commit-text'].input)(frame.payload);
+      case 'commit-texts': {
+        const input = decode(canonicalOperations['commit-texts'].input)(frame.payload);
         scope(input.ticket.scope);
-        files([input.file]);
-        await publication.commitTextFile(input);
+        files(input.files.map(({ file }) => file));
+        await publication.commitTextFiles(input);
         value = null;
         break;
       }
@@ -808,11 +808,11 @@ export class CanonicalUtilityParent {
         value = receipt;
         break;
       }
-      case 'remove-file': {
-        const input = decode(canonicalOperations['remove-file'].input)(frame.payload);
+      case 'remove-published': {
+        const input = decode(canonicalOperations['remove-published'].input)(frame.payload);
         scope(input.ticket.scope);
-        files([input.file]);
-        await publication.removeFile(input);
+        files(input.files);
+        await publication.removeFiles(input);
         value = null;
         break;
       }

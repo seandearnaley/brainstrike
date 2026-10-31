@@ -21,9 +21,10 @@ import {
   scopedManifestChunkSchema,
   scopedPlanSchema,
   scopedPrepareSchema,
+  scopedRemoveBatchSchema,
   scopedRemoveSchema,
   scopedSearchSchema,
-  scopedTextCommitSchema,
+  scopedTextBatchSchema,
   type VectorProfile,
 } from './contracts.ts';
 import { readIndexIdentity, readScopeEpoch } from './index-metadata.ts';
@@ -188,12 +189,31 @@ export class ScopedIndex {
       });
     })();
   }
-  commitText(input: unknown): CommitResult {
-    const request = decoder(scopedTextCommitSchema)(input);
-    if (request.plan.profile !== null) {
-      throw new TypeError('Scoped TEXT commit requires a TEXT plan.');
+  /**
+   * Prepare and commit a batch of TEXT files in one transaction, returning each file's plan in
+   * request order. A failure on any file, or a store other than `storeId`, rolls back the batch.
+   */
+  commitTexts(input: unknown): readonly ScopedFilePlan[] {
+    const request = decoder(scopedTextBatchSchema)(input);
+    const syntaxWriter = this.syntaxWriter();
+    for (const file of request.files) {
+      if (file.syntax) {
+        syntaxWriter.validate(file.syntax, file.snapshot.fileId);
+      }
     }
-    return this.commit(request.plan, [], request.syntax);
+    return this.db.transaction(() => {
+      if (request.storeId !== readIndexIdentity(this.db).storeId) {
+        throw new IndexerError('stale-file-plan', 'The index store changed after the scan began.');
+      }
+      const before = this.#chunkCap === undefined ? 0 : this.storedChunks();
+      const plans = request.files.map((file) => {
+        const plan = this.prepare({ snapshot: file.snapshot });
+        this.apply(plan, new Map(), file.syntax, syntaxWriter);
+        return plan;
+      });
+      this.assertWithinChunkCap(before);
+      return plans;
+    })();
   }
   commitVector(input: unknown): CommitResult {
     const request = decoder(scopedCommitSchema)(input);
@@ -249,19 +269,22 @@ export class ScopedIndex {
     if (plan.profile && supplied.size !== plan.embeddingChunkIds.length) {
       throw new TypeError('Every missing vector must be supplied exactly once.');
     }
-    if (!this.syntax) {
-      throw new IndexerError('read-only', 'Scoped publication requires the owned writer.');
-    }
+    const syntaxWriter = this.syntaxWriter();
     if (syntax) {
-      this.syntax.validate(syntax, plan.snapshot.fileId);
+      syntaxWriter.validate(syntax, plan.snapshot.fileId);
     }
-    const syntaxWriter = this.syntax;
     return this.db.transaction(() => {
       const before = this.#chunkCap === undefined ? 0 : this.storedChunks();
       const result = this.apply(plan, supplied, syntax, syntaxWriter);
       this.assertWithinChunkCap(before);
       return result;
     })();
+  }
+  private syntaxWriter(): SyntaxWriter {
+    if (!this.syntax) {
+      throw new IndexerError('read-only', 'Scoped publication requires the owned writer.');
+    }
+    return this.syntax;
   }
   private storedChunks(): number {
     return Number(this.db.prepare('SELECT count(*) FROM file_chunks').pluck().get());
@@ -280,7 +303,7 @@ export class ScopedIndex {
     if (stored > cap && stored > before) {
       throw new IndexerError(
         'corpus-cap',
-        `The file index holds at most ${cap.toLocaleString('en-US')} chunks; this file would take it to ${stored.toLocaleString('en-US')}.`
+        `The file index holds at most ${cap.toLocaleString('en-US')} chunks; this commit would take it to ${stored.toLocaleString('en-US')}.`
       );
     }
   }
@@ -465,16 +488,31 @@ export class ScopedIndex {
   }
   remove(input: unknown): boolean {
     const request = decoder(scopedRemoveSchema)(input);
-    this.authority.authorize([request.scope]);
-    this.authority.file(request.fileId, request.scope);
+    return this.removeAll([request.fileId], request.scope) > 0;
+  }
+  /** Remove a batch of one scope's files in one transaction; returns how many were stored. */
+  removeBatch(input: unknown): number {
+    const request = decoder(scopedRemoveBatchSchema)(input);
+    return this.removeAll(request.fileIds, request.scope);
+  }
+  private removeAll(
+    fileIds: readonly string[],
+    scope: typeof scopedRemoveSchema.Type.scope
+  ): number {
+    this.authority.authorize([scope]);
+    for (const fileId of fileIds) {
+      this.authority.file(fileId, scope);
+    }
     this.authority.revision += 1;
     return this.db.transaction(() => {
-      const rows = decoder(Schema.Array(Schema.Struct({ pk: integer })))(
-        this.db.prepare('SELECT pk FROM file_chunks WHERE file_record_id=?').all(request.fileId)
-      );
-      this.deleteVectors(rows.map((row) => row.pk));
-      const removed =
-        this.db.prepare('DELETE FROM file_records WHERE id=?').run(request.fileId).changes > 0;
+      let removed = 0;
+      for (const fileId of fileIds) {
+        const rows = decoder(Schema.Array(Schema.Struct({ pk: integer })))(
+          this.db.prepare('SELECT pk FROM file_chunks WHERE file_record_id=?').all(fileId)
+        );
+        this.deleteVectors(rows.map((row) => row.pk));
+        removed += this.db.prepare('DELETE FROM file_records WHERE id=?').run(fileId).changes;
+      }
       return removed;
     })();
   }
