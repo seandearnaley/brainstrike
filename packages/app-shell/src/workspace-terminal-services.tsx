@@ -14,7 +14,6 @@ export type {
   TerminalCreateResult,
   TerminalDataEvent,
   TerminalExitEvent,
-  TerminalResult,
 } from './terminal-panel/terminal-bridge';
 
 /**

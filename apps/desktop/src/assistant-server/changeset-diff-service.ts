@@ -37,7 +37,6 @@
  */
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { Changeset, ChangesetView, StructuredFileDiff } from '@brainstrike/types';
-import type { RootCwdResult } from '../workspace-root-cwd';
 import { resolveGitScopeChangesetView, resolveGitScopeFileDiff } from './changeset-git-scope';
 import type { HostThreadTurns } from './changeset-host-turns';
 import {
@@ -59,7 +58,7 @@ export interface ChangesetDiffServiceDeps {
   /** The audited `resolveRootCwd` seam (`workspace-root-cwd.ts`), already
    * partially applied by the caller to its `WorkspaceRootResolver`/`domain`/
    * `logger` — this service only ever supplies `rootId`. */
-  readonly resolveRootCwd: (rootId: unknown) => Promise<RootCwdResult>;
+  readonly resolveRootCwd: (rootId: unknown) => Promise<BoundaryResult<string>>;
   readonly run: GitCommandRunner;
   /** Absent ⇒ `agent-run`/`run-range` resolve to a typed unavailability error. */
   readonly snapshots?: ChangesetDiffServiceSnapshotDeps | undefined;
