@@ -91,10 +91,10 @@ regression. Do not repeat that gate locally before a PR.
   specs for the feature you changed. Report exactly what ran.
 - Open the PR ready for review once those checks pass. Mergify queues a ready
   PR from this repository by itself once Claude Review has run on its head and
-  every review thread is resolved (the merge protections in `.mergify.yml`).
-  Confirm Mergify reports the PR queued (its Merge Queue check is in progress);
-  an unqueued PR with green CI never merges, and its Mergify Merge Protections
-  check names what it is waiting for. To queue by hand, as for a fork PR, tick
+  every review thread is resolved (`.mergify.yml`). Confirm Mergify reports
+  the PR queued (its Merge Queue check is in progress); an unqueued PR with
+  green CI never merges. Its Mergify Merge Protections check names an open
+  thread, and a missing or failed Claude Review check keeps it out. To queue by hand, as for a fork PR, tick
   "Queue this pull request" in Mergify's comment, or comment `@mergifyio queue`.
   Agents posting through the GitHub connector or API must tick boxes (edit
   Mergify's comment so `- [ ]` becomes `- [x]`): their queue comment arrives

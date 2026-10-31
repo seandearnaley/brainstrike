@@ -26,22 +26,22 @@ merge_protections_settings:
   auto_merge_conditions:
     - -draft
     - -from-fork
+    # Claude Review gates entry, not merge. Mergify evaluates a merge
+    # condition's checks on the batch's draft PR, where the review never runs
+    # (the workflow skips bot PRs), so a merge protection on it dequeued every
+    # batch (#4859, batch draft #4860). Here it is read on the PR's own head
+    # commit. The workflow skips bot PRs (Renovate's), so those never wait.
+    - or:
+        - check-success = @github-actions/Claude Review
+        - author ~= \[bot\]$
 
 # Review findings are addressed before a PR merges (owner decision 2026-10-30).
-# A ready PR queues only once both rules pass, and Mergify merges nothing while
-# one fails, so a thread posted after the PR queued holds it too. The Mergify
-# Merge Protections check on the PR names the rule it waits for.
+# A ready PR queues only once Claude Review passed (above) and every thread is
+# resolved, and Mergify merges nothing while a thread is open, so a thread
+# posted after the PR queued holds it too. Thread counts are read on the PR
+# itself, not on the batch draft. The Mergify Merge Protections check on the PR
+# names the rule it waits for.
 merge_protections:
-  - name: Claude Review finished
-    description: Claude Review has run on the PR's head commit.
-    # The workflow skips forks and bot PRs (Renovate's, Mergify's own batches),
-    # so those never wait for it. A failed review holds the PR until it reruns.
-    if:
-      - base = main
-      - -from-fork
-      - -author ~= \[bot\]$
-    success_conditions:
-      - check-success = @github-actions/Claude Review
   - name: Review threads resolved
     description: >-
       Every review thread, from Claude, Codex or a person, is resolved: fixed by
