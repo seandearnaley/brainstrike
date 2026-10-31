@@ -71,16 +71,20 @@ export const TARGET_FACTS_FUNCTION = `function () {
       }
     }
   }
-  // HTML's implicit submission presses the form's first submit button in
-  // tree order, wherever its \`form\` attribute puts it.
-  const defaultButton = form
-    ? Array.from(form.getRootNode().querySelectorAll('button, input')).find(
-        (node) => node.form === form && isSubmitButton(node)
+  // A form's own properties can be shadowed by a control's name (an input
+  // named "elements"), so its controls are found from the tree: each names its
+  // form in \`node.form\`, wherever its \`form="id"\` attribute puts it.
+  const formControls = form
+    ? Array.from(el.getRootNode().querySelectorAll('button, ' + FIELDS)).filter(
+        (node) => node.form === form
       )
+    : [];
+  // HTML's implicit submission presses the form's first submit button in tree order.
+  const defaultButton = form
+    ? formControls.find(isSubmitButton)
     : group && group.querySelector(BUTTONS);
-  // \`elements\` holds the fields outside the form that name it with \`form="id"\`.
   const fields = form
-    ? Array.from(form.elements).filter((node) => node.matches(FIELDS))
+    ? formControls.filter((node) => node.matches(FIELDS))
     : group
       ? Array.from(group.querySelectorAll(FIELDS))
       : [];

@@ -24,8 +24,9 @@ beforeAll(() => {
   });
 });
 
-function decide(html: string, selector: string, action: BrowserAction) {
+function decide(html: string, selector: string, action: BrowserAction, arrange?: () => void) {
   document.body.innerHTML = html;
+  arrange?.();
   const element = document.querySelector(selector);
   if (!element) {
     throw new Error(`No ${selector} in the fixture`);
@@ -79,5 +80,20 @@ describe('target facts on pages without a form (BST-2375)', () => {
       <form id="login"><input id="user" name="username"><button id="send">Continue</button></form>
       <input form="login" type="password" name="secret">`;
     expect(decide(page, '#send', click)).toBe('credential');
+  });
+
+  it('finds the login fields though a control named "elements" shadows the form property', () => {
+    const page = `
+      <form id="login">
+        <input type="hidden" name="elements">
+        <input type="password" name="secret">
+        <button id="send">Continue</button>
+      </form>`;
+    // jsdom does not expose a form's named controls as its properties; a browser does.
+    const shadow = () => {
+      const form = document.querySelector('form');
+      Object.defineProperty(form, 'elements', { value: form?.querySelector('[name=elements]') });
+    };
+    expect(decide(page, '#send', click, shadow)).toBe('credential');
   });
 });
