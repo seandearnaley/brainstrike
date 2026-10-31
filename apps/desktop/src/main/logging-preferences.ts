@@ -287,7 +287,7 @@ export function createDesktopLoggingPreferencesController(
       if (!record?.v1) {
         return;
       }
-      return sanitizeDesktopPreferences(record.v1);
+      return record.v1;
     } catch {
       return;
     }
@@ -386,7 +386,8 @@ export function createDesktopLoggingPreferencesController(
   function getSettingsPayload(): LoggingSettingsPayload {
     return cloneLoggingSettingsPayload({
       capabilities: getLoggingCapabilities(),
-      defaults: sanitizeDesktopPreferences(createDesktopDefaultPreferences()),
+      // Restore Defaults commits these through applyAndPersist, which sanitizes them.
+      defaults: defaultPreferences,
       preferences: currentLoggingPreferences,
     });
   }
