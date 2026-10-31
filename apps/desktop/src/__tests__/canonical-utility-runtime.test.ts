@@ -160,6 +160,7 @@ function workspace(published: CanonicalIndexPayload[]): TextWorkspace {
       },
       removeFile: async () => {},
       verifyManifest: async () => ({
+        acknowledged: [],
         changed: [],
         complete: true,
         missing: [],

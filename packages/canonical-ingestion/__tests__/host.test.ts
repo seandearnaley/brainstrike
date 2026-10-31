@@ -334,6 +334,7 @@ describe('utility canonical source ingestion', () => {
       { ...f.catalogFile, chunksProcessed: true },
     ]);
     vi.mocked(f.publication.verifyManifest).mockResolvedValue({
+      acknowledged: [],
       changed: [],
       complete: true,
       missing: [],
