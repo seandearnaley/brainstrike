@@ -199,24 +199,22 @@ export function WorkspaceTabsProvider({
     selectionIntentRef.current += 1;
   }, []);
 
-  const openApps = useMemo(() => {
-    // Dev-mode assertion: WorkspaceApp.id is used as a tab dom id and as the
-    // persistence key for open/active apps, so collisions cause silent UI bugs
-    // (clicking one tab selects another) rather than visible errors.
-    if (process.env['NODE_ENV'] !== 'production') {
-      const seen = new Set<string>();
-      for (const app of apps) {
-        if (seen.has(app.id)) {
-          logger.error('Duplicate WorkspaceApp id detected — apps must have unique ids', {
-            duplicateId: app.id,
-          });
-        }
-        seen.add(app.id);
+  // Dev-mode assertion: WorkspaceApp.id is used as a tab dom id and as the
+  // persistence key for open/active apps, so collisions cause silent UI bugs
+  // (clicking one tab selects another) rather than visible errors.
+  if (process.env['NODE_ENV'] !== 'production') {
+    const seen = new Set<string>();
+    for (const app of apps) {
+      if (seen.has(app.id)) {
+        logger.error('Duplicate WorkspaceApp id detected — apps must have unique ids', {
+          duplicateId: app.id,
+        });
       }
+      seen.add(app.id);
     }
-    const openIdSet = new Set(openAppIds);
-    return apps.filter((app) => openIdSet.has(app.id));
-  }, [apps, openAppIds]);
+  }
+  const openIdSet = new Set(openAppIds);
+  const openApps = apps.filter((app) => openIdSet.has(app.id));
   const mountedAppIds = useMemo(() => new Set(mountedAppIdList), [mountedAppIdList]);
 
   // Restoration plumbing: surfaces persisted-tab status (restored / needs-permission /
@@ -703,19 +701,17 @@ export function WorkspaceTabsProvider({
     [apps, closedTabs, handleOpenApp, handleOpenFileInTab, reorderTabs, rootDescriptors]
   );
 
-  const tabOrder = useMemo<readonly WorkspaceTabRef[]>(() => {
-    const pinned: WorkspaceTabRef[] = [];
-    const dynamic: WorkspaceTabRef[] = [];
-    for (const app of openApps) {
-      (app.placement === 'pinned' ? pinned : dynamic).push({ id: app.id, label: app.label });
-    }
-    const files = tabs.map((tab) => ({
-      detail: tab.path,
-      id: tab.id,
-      label: getFileName(tab.path),
-    }));
-    return [...pinned, ...dynamic, ...files];
-  }, [openApps, tabs]);
+  const pinned: WorkspaceTabRef[] = [];
+  const dynamic: WorkspaceTabRef[] = [];
+  for (const app of openApps) {
+    (app.placement === 'pinned' ? pinned : dynamic).push({ id: app.id, label: app.label });
+  }
+  const files = tabs.map((tab) => ({
+    detail: tab.path,
+    id: tab.id,
+    label: getFileName(tab.path),
+  }));
+  const tabOrder: readonly WorkspaceTabRef[] = [...pinned, ...dynamic, ...files];
 
   const value = useMemo<WorkspaceTabsValue>(
     () => ({

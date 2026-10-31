@@ -144,16 +144,14 @@ export function useActivityGroupLayout(
     [steps, filter]
   );
   const shown = useStableByKey(derivedShown, derivedShown ? [...derivedShown].join('\u0000') : '');
-  const showRootChip = useMemo(() => {
-    const roots = new Set<string>();
-    for (const part of groupParts) {
-      const root = part.type === 'tool-call' ? extractResolvedRootName(part.result) : undefined;
-      if (root) {
-        roots.add(root);
-      }
+  const roots = new Set<string>();
+  for (const part of groupParts) {
+    const root = part.type === 'tool-call' ? extractResolvedRootName(part.result) : undefined;
+    if (root) {
+      roots.add(root);
     }
-    return roots.size > 1;
-  }, [groupParts]);
+  }
+  const showRootChip = roots.size > 1;
 
   const toggleCluster = (clusterId: string) => {
     setOpenClusters((previous) => {
@@ -165,16 +163,14 @@ export function useActivityGroupLayout(
     });
   };
   const memberDomId = (clusterId: string, index: number) => `${domBase}-${clusterId}-${index}`;
-  const view = useMemo((): ActivityGroupView => {
-    const clusterOf = new Map<string, ActivityClusterSlot>();
-    for (const cluster of clusters) {
-      const open = openClusters.has(cluster.id);
-      cluster.memberIds.forEach((id, index) => {
-        clusterOf.set(id, { cluster, index, open });
-      });
-    }
-    return { clusterOf, memberDomId, shown, showRootChip, toggleCluster };
-  }, [clusters, memberDomId, openClusters, shown, showRootChip, toggleCluster]);
+  const clusterOf = new Map<string, ActivityClusterSlot>();
+  for (const cluster of clusters) {
+    const open = openClusters.has(cluster.id);
+    cluster.memberIds.forEach((id, index) => {
+      clusterOf.set(id, { cluster, index, open });
+    });
+  }
+  const view = { clusterOf, memberDomId, shown, showRootChip, toggleCluster };
 
   const jumpTo = (stepId: string) => {
     setExpanded(true);

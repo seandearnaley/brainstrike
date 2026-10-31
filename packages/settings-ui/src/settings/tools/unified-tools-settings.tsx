@@ -413,20 +413,17 @@ export function UnifiedToolsSettings({
     uiDispatch({ type: 'SET_CONFIG_ALERT_DISMISSED' });
   }, []);
 
-  const serverStatusMap = useMemo(() => {
-    const statusMap = new Map<
-      string,
-      { status: McpConnectionStatus; error: string | null; toolsAvailability: McpToolsAvailability }
-    >();
-    for (const server of mcpServers) {
-      statusMap.set(server.configuredServerId, {
-        error: server.state === 'error' ? server.error.message : null,
-        status: server.state,
-        toolsAvailability: resolveMcpToolsAvailability(server),
-      });
-    }
-    return statusMap;
-  }, [mcpServers]);
+  const serverStatusMap = new Map<
+    string,
+    { status: McpConnectionStatus; error: string | null; toolsAvailability: McpToolsAvailability }
+  >();
+  for (const server of mcpServers) {
+    serverStatusMap.set(server.configuredServerId, {
+      error: server.state === 'error' ? server.error.message : null,
+      status: server.state,
+      toolsAvailability: resolveMcpToolsAvailability(server),
+    });
+  }
   const configuredServerIds = useMemo(() => new Set(serverStatusMap.keys()), [serverStatusMap]);
 
   const getServerStatus = useCallback(
@@ -455,17 +452,15 @@ export function UnifiedToolsSettings({
     [tools]
   );
 
-  const filteredTools = useMemo(() => {
-    const queryLower = searchQuery.trim().toLowerCase();
-    return searchableTools
-      .filter(
-        ({ tool, searchText }) =>
-          (categoryFilter === 'all' || tool.category === categoryFilter) &&
-          (tierFilter === 'all' || tool.loadingTier === tierFilter) &&
-          (!queryLower || searchText.includes(queryLower))
-      )
-      .map(({ tool }) => tool);
-  }, [searchableTools, searchQuery, categoryFilter, tierFilter]);
+  const queryLower = searchQuery.trim().toLowerCase();
+  const filteredTools = searchableTools
+    .filter(
+      ({ tool, searchText }) =>
+        (categoryFilter === 'all' || tool.category === categoryFilter) &&
+        (tierFilter === 'all' || tool.loadingTier === tierFilter) &&
+        (!queryLower || searchText.includes(queryLower))
+    )
+    .map(({ tool }) => tool);
 
   const toolGroups = useMemo(() => groupTools(filteredTools), [filteredTools]);
   const missingStatusSubscriptionError =

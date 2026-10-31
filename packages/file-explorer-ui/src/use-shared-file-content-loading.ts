@@ -11,7 +11,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -535,10 +534,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     loadAuthority.getErrorsSnapshot,
     loadAuthority.getErrorsSnapshot
   );
-  const error = useMemo(() => {
-    const uniqueErrors = [...new Set(fileContentErrors.values())];
-    return uniqueErrors.length > 0 ? createFileContentLoadError(uniqueErrors) : null;
-  }, [fileContentErrors]);
+  const uniqueErrors = [...new Set(fileContentErrors.values())];
+  const error = uniqueErrors.length > 0 ? createFileContentLoadError(uniqueErrors) : null;
 
   // Try to use shared FileTreeIndex for O(1) lookups when available
   // Falls back to cache-based lookups when not within FileTreeProvider
