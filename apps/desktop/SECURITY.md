@@ -53,7 +53,9 @@ The application implements a comprehensive Content Security Policy that differs 
 - `webSecurity: true`: Enables web security features
 - `sandbox: true`: The Chromium renderer sandbox is on; only test runs turn it
   off, because Playwright's Electron driver cannot launch a sandboxed app in CI
-  (`create-window.ts`)
+  (`create-window.ts`). The `dev:electron`, `start` and `start:dev` scripts
+  launch Electron with `--no-sandbox`, which turns the sandbox off for every
+  process; packaged builds never pass it
 - `allowRunningInsecureContent: false`: Blocks mixed content
 - `experimentalFeatures: false`: Disables experimental web features
 - `safeDialogs: true`: Enables safe dialog handling
