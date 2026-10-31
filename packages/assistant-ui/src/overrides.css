@@ -762,10 +762,11 @@ span.bs-composer-chip {
 }
 
 /* Below the textarea: attach, plan, access, model and effort on the left;
-   Controls and the send/stop cluster on the right. ONE line down to a 22rem
-   composer: as it narrows, chips shed their secondary words, then their
-   chevrons, then shrink to icons, and the model label truncates last; below
-   that the icons wrap. The send cluster never shrinks. Collapsed words stay in the accessible name. */
+   Controls and the send/stop cluster on the right. ONE line while the
+   composer is wider than 22rem: as it narrows, chips shed their secondary
+   words, then their chevrons, and the model label truncates. At 22rem and
+   below, chips shrink to icons and wrap onto a second line. The send cluster
+   never shrinks. Collapsed words stay in the accessible name. */
 .bs-composer-input-frame {
   container: bs-composer / inline-size;
 }
