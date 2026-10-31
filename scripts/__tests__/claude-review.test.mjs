@@ -143,11 +143,22 @@ describe('placeFinding', () => {
       placeFinding({ ...finding, line: 14, start_line: 11 }, { prFiles }).comment.start_line,
       11
     );
-    assert.equal(placeFinding({ ...finding, line: 41, start_line: 14 }, { prFiles }).kind, 'body');
+    assert.equal(placeFinding({ ...finding, line: 41, start_line: 14 }, { prFiles }).kind, 'file');
   });
 
-  it('moves a full-review finding outside the diff into the review body', () => {
-    assert.equal(placeFinding({ ...finding, line: 30 }, { prFiles }).kind, 'body');
+  it('posts a finding outside the hunks of a changed file as a thread on that file', () => {
+    const placed = placeFinding({ ...finding, line: 30 }, { prFiles });
+    assert.equal(placed.kind, 'file');
+    assert.deepEqual(
+      { path: placed.comment.path, subject_type: placed.comment.subject_type },
+      { path: 'src/one.ts', subject_type: 'file' }
+    );
+    assert.equal(placed.comment.line, undefined);
+    assert.match(placed.comment.body, /Line 30, outside this PR's diff\./u);
+    assert.match(placed.comment.body, /<!-- claude-review-finding -->$/u);
+  });
+
+  it('lists a full-review finding on a file the PR does not change in the review body', () => {
     assert.equal(placeFinding({ ...finding, path: 'src/other.ts' }, { prFiles }).kind, 'body');
   });
 

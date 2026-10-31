@@ -95,7 +95,7 @@ const THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $en
     pullRequest(number: $number) {
       reviewThreads(first: 100, after: $endCursor) {
         pageInfo { hasNextPage endCursor }
-        nodes { id isResolved path line comments(first: 20) { nodes { author { login } body } } }
+        nodes { id isResolved path line subjectType comments(first: 20) { nodes { author { login } body } } }
       }
     }
   }
@@ -122,6 +122,7 @@ function priorFindings(repository, number) {
     .flatMap((page) => page.data.repository.pullRequest.reviewThreads.nodes)
     .filter((thread) => isOwnFinding(thread.comments.nodes[0], GRAPHQL_BOT))
     .map((thread, index) => ({
+      file: thread.subjectType === 'FILE',
       id: `F${index + 1}`,
       line: thread.line,
       path: thread.path,
@@ -201,12 +202,13 @@ export function prepare() {
     if (lastHead) {
       try {
         git(['fetch', '--no-tags', '--depth=1', 'origin', lastHead]);
-      } catch {
-        // Only a full review could cover this push now, and a second full
-        // review is what this workflow exists to avoid.
-        state.reason = `The last reviewed commit \`${short(lastHead)}\` can no longer be fetched, so this push is not reviewed.`;
-        process.stderr.write(`::warning::${state.reason}\n`);
-        return;
+      } catch (error) {
+        // Only a full review could cover this push now, and a second full one
+        // is the owner's call. Fail, which holds the PR, rather than pass an
+        // unreviewed push.
+        throw new Error(
+          `The last reviewed commit ${short(lastHead)} can no longer be fetched (${error.message.split('\n')[0]}). Delete the "Claude review" status comment and re-run this job for a fresh full review.`
+        );
       }
       const incremental = git([
         'diff',
@@ -344,23 +346,18 @@ function postReview({ body, comments, head, number, repository }) {
     '--input',
     '-',
   ];
-  const payload = { body, comments, commit_id: head, event: 'COMMENT' };
-  try {
-    return post(route, payload);
-  } catch (error) {
-    if (!comments.length) {
-      throw error;
-    }
-    // GitHub refuses the whole review when one comment misses its hunk. Keep
-    // every finding by moving them into the body rather than losing the review.
-    process.stderr.write(
-      `::warning::GitHub refused the inline comments (${error.message.split('\n')[0]}); posting them in the review body.\n`
-    );
-    const listed = comments
-      .map((comment) => `- \`${comment.path}:${comment.line}\` ${comment.body}`)
-      .join('\n\n');
-    return post(route, { ...payload, body: `${body}\n\n### Findings\n\n${listed}`, comments: [] });
-  }
+  // Every comment was checked against GitHub's hunks, so a refusal is a bug
+  // here: fail the job, which holds the PR, rather than post findings without
+  // the threads the merge protection counts.
+  return post(route, { body, comments, commit_id: head, event: 'COMMENT' });
+}
+
+/** A file-level comment, for a finding outside the hunks; reviews can't carry one. */
+function postFileComment({ comment, head, number, repository }) {
+  post(['api', '-X', 'POST', `repos/${repository}/pulls/${number}/comments`, '--input', '-'], {
+    ...comment,
+    commit_id: head,
+  });
 }
 
 function resolveThread(threadId) {
@@ -431,6 +428,7 @@ export function publish() {
   const touched = state.touched && deserializeFiles(state.touched);
   const selected = new Set(selectFindings(result.findings, state.mode));
   const comments = [];
+  const fileComments = [];
   const inBody = [];
   let outOfScope = 0;
   for (const finding of result.findings) {
@@ -440,6 +438,8 @@ export function publish() {
     const placed = placeFinding(finding, { prFiles, touched });
     if (placed.kind === 'inline') {
       comments.push(placed.comment);
+    } else if (placed.kind === 'file') {
+      fileComments.push(placed.comment);
     } else if (placed.kind === 'body') {
       inBody.push(finding);
     } else {
@@ -455,7 +455,7 @@ export function publish() {
   // A follow-up with nothing new to say posts no review: resolving threads and
   // editing the status comment notify no one.
   let reviewUrl = null;
-  if (state.mode === 'full' || comments.length || inBody.length) {
+  if (state.mode === 'full' || comments.length || fileComments.length || inBody.length) {
     let body = reviewBody({
       ...counts,
       effort: env.CLAUDE_REVIEW_EFFORT,
@@ -477,11 +477,22 @@ export function publish() {
       repository: state.repository,
     }).html_url;
   }
+  for (const comment of fileComments) {
+    postFileComment({
+      comment,
+      head: state.head,
+      number: state.number,
+      repository: state.repository,
+    });
+  }
   for (const finding of resolved) {
     resolveThread(finding.threadId);
   }
 
   const parts = [`${comments.length} posted inline`];
+  if (fileComments.length) {
+    parts.push(`${fileComments.length} as file comments`);
+  }
   if (inBody.length) {
     parts.push(`${inBody.length} in the review body`);
   }

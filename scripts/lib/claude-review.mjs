@@ -259,13 +259,16 @@ export function selectFindings(findings, mode) {
 }
 
 /**
- * Where one finding goes. GitHub rejects a whole review when any comment sits
- * outside a hunk, so a finding is anchored inline only when its whole range lies
- * in one hunk of the PR diff; otherwise a full review lists it in the review
- * body. A follow-up posts only on lines the new commits added (`touched`), so it
- * cannot drift back over code the first review already covered.
+ * Where one finding goes. Every finding on a file the PR changes becomes a
+ * review thread, which the merge protection in .mergify.yml counts. GitHub
+ * rejects a whole review when any comment sits outside a hunk, so a finding is
+ * anchored inline only when its whole range lies in one hunk; otherwise it is a
+ * comment on its file. A finding on a file the PR doesn't change can't be a
+ * thread, so a full review lists it in the review body. A follow-up posts only
+ * on lines the new commits added (`touched`), so it cannot drift back over code
+ * the first review already covered.
  *
- * @returns {{ kind: 'inline', comment: object } | { kind: 'body' } | { kind: 'drop', reason: string }}
+ * @returns {{ kind: 'inline' | 'file', comment: object } | { kind: 'body' } | { kind: 'drop', reason: string }}
  */
 export function placeFinding(finding, { prFiles, touched = null }) {
   const end = finding.line;
@@ -283,11 +286,20 @@ export function placeFinding(finding, { prFiles, touched = null }) {
       return { kind: 'drop', reason: 'not on a line the new commits changed' };
     }
   }
-  const inHunk = prFiles
-    .get(finding.path)
-    ?.ranges.some(([first, last]) => first <= start && end <= last);
-  if (!inHunk) {
+  const file = prFiles.get(finding.path);
+  if (!file) {
     return touched ? { kind: 'drop', reason: 'outside the PR diff' } : { kind: 'body' };
+  }
+  if (!file.ranges.some(([first, last]) => first <= start && end <= last)) {
+    const lines = start < end ? `Lines ${start}-${end}` : `Line ${end}`;
+    return {
+      comment: {
+        body: findingBody(finding, `${lines}, outside this PR's diff.`),
+        path: finding.path,
+        subject_type: 'file',
+      },
+      kind: 'file',
+    };
   }
   const comment = { body: findingBody(finding), line: end, path: finding.path, side: 'RIGHT' };
   if (start < end) {
@@ -299,8 +311,9 @@ export function placeFinding(finding, { prFiles, touched = null }) {
 
 const findingHeading = (finding) => `**${SEVERITY_LABELS[finding.severity]}: ${finding.title}**`;
 
-export function findingBody(finding) {
-  return `${findingHeading(finding)}\n\n${finding.body.trim()}\n\n<!-- ${FINDING_MARKER} -->`;
+export function findingBody(finding, where = null) {
+  const lead = where ? `${findingHeading(finding)}\n\n${where}` : findingHeading(finding);
+  return `${lead}\n\n${finding.body.trim()}\n\n<!-- ${FINDING_MARKER} -->`;
 }
 
 /** The title an earlier finding was posted under. */
@@ -356,7 +369,10 @@ function priorLines(prior) {
   return prior
     .map((finding) => {
       const replies = finding.replies.map((reply) => `\n    reply from ${reply}`).join('');
-      return `- ${finding.id} [${finding.resolved ? 'resolved' : 'open'}] ${finding.path}:${finding.line ?? 'outdated'} — ${finding.title}${replies}`;
+      const where = finding.file
+        ? `${finding.path} (file comment)`
+        : `${finding.path}:${finding.line ?? 'outdated'}`;
+      return `- ${finding.id} [${finding.resolved ? 'resolved' : 'open'}] ${where} — ${finding.title}${replies}`;
     })
     .join('\n');
 }
@@ -408,8 +424,8 @@ ${reviewRules}
 ${scope}
 
 Each finding:
-- path: relative to the repository root.
-- line: the line number in the file at the head commit (the + side of the diff). For a problem spanning lines, also start_line; keep the range inside one hunk.
+- path: relative to the repository root, and a file this PR changes. When the PR causes a problem that shows up elsewhere, anchor it on the changed line that causes it and name the other place in the body. Only a pre_existing finding may sit in a file the PR doesn't change.
+- line: the line number in the file at the head commit (the + side of the diff). For a problem spanning lines, also start_line; keep the range inside one hunk. A finding outside the diff is posted as a comment on its file.
 - severity: important (a bug that should be fixed before merging), nit (a minor issue, worth fixing but not blocking), or pre_existing (a bug already in the codebase that this PR did not introduce).
 - confidence: 0-100, how sure you are it is real after checking the surrounding code. Do not report what you could not confirm.
 - title: one line naming the defect. body: why it is wrong, the concrete input or state that breaks it, and the fix (a \`\`\`suggestion block when the fix replaces the commented lines exactly).
@@ -449,7 +465,7 @@ export function reviewBody({
   const sections = [`## Claude review\n\n${scope}\n\n${summary.trim()}`];
   if (inBody.length) {
     sections.push(
-      `### Findings outside the diff\n\n${inBody.map((finding) => `- ${findingHeading(finding)} \`${finding.path}:${finding.line}\`\n\n  ${finding.body.trim().replaceAll('\n', '\n  ')}`).join('\n')}`
+      `### Findings in files this PR doesn't change\n\n${inBody.map((finding) => `- ${findingHeading(finding)} \`${finding.path}:${finding.line}\`\n\n  ${finding.body.trim().replaceAll('\n', '\n  ')}`).join('\n')}`
     );
   }
   if (resolved.length) {
