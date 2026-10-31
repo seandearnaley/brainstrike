@@ -6,7 +6,7 @@ import {
   type EnvBootstrapReport,
 } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { Button } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { deprecatedEnvVarMessage } from '../deprecated-env-var-message';
 import { getEnvBootstrapCapability } from './env-bootstrap-capability';
 import { buildDeprecatedEnvVariableNameSet, buildEnvVariableSlotIndex } from './env-variable-index';
@@ -150,7 +150,7 @@ export function EnvironmentSection({
   onSelectCredentialSlot,
 }: EnvironmentSectionProps = {}) {
   // The preload bridge cannot appear mid-session, so it is resolved once.
-  const capability = useMemo(() => getEnvBootstrapCapability(), []);
+  const capability = getEnvBootstrapCapability();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [revealError, setRevealError] = useState<string | null>(null);
 
@@ -190,23 +190,20 @@ export function EnvironmentSection({
     return byName;
   }, [deprecatedEnvVars]);
 
-  const handleReveal = useCallback(
-    async (absolutePath: string) => {
-      if (!onRevealPath) {
-        return;
+  const handleReveal = async (absolutePath: string) => {
+    if (!onRevealPath) {
+      return;
+    }
+    setRevealError(null);
+    try {
+      const result = await onRevealPath(absolutePath);
+      if (!result.ok) {
+        setRevealError(`Could not open ${absolutePath}: ${result.error ?? 'Reveal failed'}`);
       }
-      setRevealError(null);
-      try {
-        const result = await onRevealPath(absolutePath);
-        if (!result.ok) {
-          setRevealError(`Could not open ${absolutePath}: ${result.error ?? 'Reveal failed'}`);
-        }
-      } catch (error) {
-        setRevealError(`Could not open ${absolutePath}: ${toErrorMessage(error, 'Reveal failed')}`);
-      }
-    },
-    [onRevealPath]
-  );
+    } catch (error) {
+      setRevealError(`Could not open ${absolutePath}: ${toErrorMessage(error, 'Reveal failed')}`);
+    }
+  };
 
   if (!capability) {
     return null;

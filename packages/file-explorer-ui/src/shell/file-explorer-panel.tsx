@@ -212,15 +212,12 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     shallow
   );
 
-  const handleMaxSelectionCountChange = useCallback(
-    (count: number) => {
-      setMaxSelectionCount(count);
-      void persistFileExplorerStateImmediately(store, storageAdapter).catch((error: unknown) => {
-        logger.error('Failed to persist max selection count immediately', { error });
-      });
-    },
-    [setMaxSelectionCount, store, storageAdapter]
-  );
+  const handleMaxSelectionCountChange = (count: number) => {
+    setMaxSelectionCount(count);
+    void persistFileExplorerStateImmediately(store, storageAdapter).catch((error: unknown) => {
+      logger.error('Failed to persist max selection count immediately', { error });
+    });
+  };
 
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -309,42 +306,29 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
 
   // Wrapper for recursive folder selection that binds store actions
   // This allows FileExplorerSidebar to call with just the node
-  const handleSelectFolderRecursively = useCallback(
-    async (node: IFileNode) => {
-      // The node carries its OWN root identity (stamped by every tree loader
-      // since storage v5) — the focused root's id is WRONG for clicks inside
-      // another root's tree in forest mode. Focused-root resolution remains
-      // only as the fallback for legacy nodes without a rootFolderId.
-      const folderId =
-        node.rootFolderId ||
-        (getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '');
-      const selectedDescendantCount = countSelectedInDirectory(
-        selectedFilesList,
-        folderId,
-        node.path
-      );
-      return selectFolderRecursively(
-        node,
-        folderId,
-        addMultipleSelectedFiles,
-        maxSelectionCount,
-        selectedCount,
-        selectedDescendantCount,
-        addMultipleSelectedFilesChunked
-      );
-    },
-    [
-      selectFolderRecursively,
-      rootDirectoryHandle,
-      rootIdByPath,
-      currentFolderId,
+  const handleSelectFolderRecursively = async (node: IFileNode) => {
+    // The node carries its OWN root identity (stamped by every tree loader
+    // since storage v5) — the focused root's id is WRONG for clicks inside
+    // another root's tree in forest mode. Focused-root resolution remains
+    // only as the fallback for legacy nodes without a rootFolderId.
+    const folderId =
+      node.rootFolderId ||
+      (getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '');
+    const selectedDescendantCount = countSelectedInDirectory(
+      selectedFilesList,
+      folderId,
+      node.path
+    );
+    return selectFolderRecursively(
+      node,
+      folderId,
       addMultipleSelectedFiles,
-      addMultipleSelectedFilesChunked,
       maxSelectionCount,
       selectedCount,
-      selectedFilesList,
-    ]
-  );
+      selectedDescendantCount,
+      addMultipleSelectedFilesChunked
+    );
+  };
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
@@ -354,7 +338,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     return new Error(filterError);
   }, [filterError]);
 
-  const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
+  const stableFileTree = fileTree || [];
 
   // Get selection model for query-mode token counting and display
   const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
@@ -402,11 +386,12 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
 
   // Electron file reader - reads file content via IPC for the background worker
   // The worker cannot read files directly in Electron due to security restrictions
-  const electronFileReader = useCallback(
-    async (handle: { path: string; name: string; kind: 'file'; platform: 'electron' }) =>
-      fileSystemAdapter.readFile(handle),
-    [fileSystemAdapter]
-  );
+  const electronFileReader = async (handle: {
+    path: string;
+    name: string;
+    kind: 'file';
+    platform: 'electron';
+  }) => fileSystemAdapter.readFile(handle);
 
   const [quickFilter, setQuickFilter, clearQuickFilter] = useFileExplorerStoreSelector(
     (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const
@@ -422,10 +407,9 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   // Workspace filters are already applied in useFileExplorer() which returns
   // fileTree with excluded directories (like .turbo) completely removed.
   // Uses deferredQuickFilter so tree filtering is deferred behind UI updates.
-  const quickFilteredTree = useMemo(
-    () => (stableFileTree ? applyQuickFilterToTree(stableFileTree, deferredQuickFilter) : null),
-    [deferredQuickFilter, stableFileTree]
-  );
+  const quickFilteredTree = stableFileTree
+    ? applyQuickFilterToTree(stableFileTree, deferredQuickFilter)
+    : null;
 
   // Per-row metadata seam (BST-1207/1208). Owned here because `onTokenResolved`
   // below is the PRECISE invalidation path: every count the indexer resolves
@@ -551,7 +535,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     useFallbackDisplayedFiles,
   ]);
 
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = async () => {
     if (!rootDirectoryHandle) {
       return;
     }
@@ -582,9 +566,9 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       handleRefreshError(error);
     }
     setIsRefreshing(false);
-  }, [rootDirectoryHandle, refreshFileExplorer, showToast, handleRefreshError]);
+  };
 
-  const handleDirectorySelect = useCallback(async () => {
+  const handleDirectorySelect = async () => {
     const { supported, reason } = isFileSystemAccessSupported();
     if (!supported) {
       // Fall back to inline fixture demo mode when the directory picker is unavailable.
@@ -614,17 +598,9 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       handleDirectorySelectError(error);
       return null;
     }
-  }, [
-    handleRootDirectorySelect,
-    handleBrowserCompatibilityError,
-    handleDirectorySelectError,
-    isFileSystemAccessSupported,
-    fileSystemAdapter,
-    setDevInlineFixtureEnabled,
-    showToast,
-  ]);
+  };
 
-  const handleToolbarDirectorySelect = useCallback(async (): Promise<void> => {
+  const handleToolbarDirectorySelect = async (): Promise<void> => {
     // When roots already exist, use addRootDirectory (multi-root Add Folder).
     // Otherwise fall back to the standard single-root select flow.
     const hasRoots = (rootDirectoryHandles?.length ?? 0) > 0;
@@ -637,17 +613,18 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       return;
     }
     await handleDirectorySelect();
-  }, [handleDirectorySelect, rootDirectoryHandles, addRootDirectory, handleDirectorySelectError]);
+  };
 
-  const handleFilterChange = useCallback(
-    (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
-      // Avoid forcing a synchronous full-tree filter pass on preset changes.
-      // We only update filter state here; deferred filtering happens in useFileExplorer().
-      setFilters(newIncludeFilters, newExcludeFilters);
-      setUseRegex(newUseRegex);
-    },
-    [setFilters, setUseRegex]
-  );
+  const handleFilterChange = (
+    newIncludeFilters: string[],
+    newExcludeFilters: string[],
+    newUseRegex: boolean
+  ) => {
+    // Avoid forcing a synchronous full-tree filter pass on preset changes.
+    // We only update filter state here; deferred filtering happens in useFileExplorer().
+    setFilters(newIncludeFilters, newExcludeFilters);
+    setUseRegex(newUseRegex);
+  };
 
   useEffect(() => {
     if (rootDirectoryHandle) {
@@ -748,7 +725,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     isExpandingAll,
   ]);
 
-  const collapseAll = useCallback(() => {
+  const collapseAll = () => {
     // Cancel any in-progress expand-all first (every section + the legacy path),
     // then clear the workspace-global expansion set — all sections collapse.
     forestActions?.cancelExpandAll();
@@ -757,17 +734,18 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
     // Forest mode: one click means FULLY compact — the root section headers
     // close too, not just the directories under them (BST-571).
     forestActions?.collapseAllSections();
-  }, [forestActions, store, cancelExpandAll]);
+  };
 
-  const forestSelectAll = useCallback<typeof selectAllRecursively>(
-    (_filteredTree, _folderId, _addFiles, maxCount) =>
-      runForestSelectAllSweep({ forestActions, maxCount, showToast }),
-    [forestActions, showToast]
-  );
+  const forestSelectAll: typeof selectAllRecursively = (
+    _filteredTree,
+    _folderId,
+    _addFiles,
+    maxCount
+  ) => runForestSelectAllSweep({ forestActions, maxCount, showToast });
   // FOREST quick-filter Select All: select the visible search matches across
   // EVERY section (composite keys through the union-partitioning setter) —
   // no scanning beyond what the user sees, capped at the selection limit.
-  const forestQuickFilterSelectAll = useCallback(() => {
+  const forestQuickFilterSelectAll = () => {
     const keys = (forestActions?.collectVisibleQuickFilterKeys() ?? []).slice(0, maxSelectionCount);
     if (keys.length === 0) {
       showToast({
@@ -777,7 +755,7 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       return;
     }
     setSelectedFilesFromList(keys);
-  }, [forestActions, maxSelectionCount, setSelectedFilesFromList, showToast]);
+  };
   const selectAllWiring = resolveSelectAllWiring({
     fileTreeLength: fileTree.length,
     forestActions,
@@ -790,18 +768,18 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   // Routing through the list setter (rather than the raw store setter) keeps
   // the cross-root partition semantics: every active root's folderState is
   // cleared too, not just the focused root's top-level set.
-  const handleClearSelection = useCallback(() => {
+  const handleClearSelection = () => {
     setSelectedFilesFromList([]);
-  }, [setSelectedFilesFromList]);
+  };
 
-  const handleCancelOperation = useCallback(() => {
+  const handleCancelOperation = () => {
     cancelOperation();
     showToast({
       description: 'The file loading operation has been cancelled.',
       title: 'Operation Cancelled',
       variant: 'default',
     });
-  }, [cancelOperation, showToast]);
+  };
 
   return (
     <FileExplorerErrorBoundary>

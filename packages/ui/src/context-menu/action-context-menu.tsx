@@ -46,10 +46,10 @@ export interface ContextMenuTargetController {
 export function useContextMenuTarget(): ContextMenuTargetController {
   const [target, setTargetState] = useState<ContextTarget | null>(null);
   const targetRef = useRef<ContextTarget | null>(null);
-  const setTarget = useCallback((next: ContextTarget | null) => {
+  const setTarget = (next: ContextTarget | null) => {
     targetRef.current = next;
     setTargetState(next);
-  }, []);
+  };
   return { setTarget, target, targetRef };
 }
 
@@ -130,33 +130,27 @@ export function ActionContextMenu({
     [onActionStart, registry.services]
   );
 
-  const handleWrapperContextMenu = useCallback(
-    (event: ReactMouseEvent) => {
-      // The surface resets the target in a capture-phase handler, then row
-      // handlers (inner, bubble) claim it by calling setTarget. By the time
-      // this outer handler runs, a null ref means "no row claimed this
-      // right-click" — prevent default so Radix does not open an empty menu.
-      // A claimed target can ALSO yield zero actions (capability gating, or a
-      // registry with nothing applicable to this kind) — veto that at event
-      // time too, so an empty menu box never opens.
-      const claimed = targetRef.current;
-      if (!claimed || registry.actionsFor(claimed, localActions).length === 0) {
-        event.preventDefault();
-      }
-    },
-    [targetRef, registry, localActions]
-  );
-
-  const handleCloseAutoFocus = useCallback(
-    (event: Event) => {
-      if (!onCloseAutoFocus) {
-        return;
-      }
+  const handleWrapperContextMenu = (event: ReactMouseEvent) => {
+    // The surface resets the target in a capture-phase handler, then row
+    // handlers (inner, bubble) claim it by calling setTarget. By the time
+    // this outer handler runs, a null ref means "no row claimed this
+    // right-click" — prevent default so Radix does not open an empty menu.
+    // A claimed target can ALSO yield zero actions (capability gating, or a
+    // registry with nothing applicable to this kind) — veto that at event
+    // time too, so an empty menu box never opens.
+    const claimed = targetRef.current;
+    if (!claimed || registry.actionsFor(claimed, localActions).length === 0) {
       event.preventDefault();
-      onCloseAutoFocus();
-    },
-    [onCloseAutoFocus]
-  );
+    }
+  };
+
+  const handleCloseAutoFocus = (event: Event) => {
+    if (!onCloseAutoFocus) {
+      return;
+    }
+    event.preventDefault();
+    onCloseAutoFocus();
+  };
 
   // Known limitation (desktop-first): Radix opens context menus from
   // touch/pen long-press (~700ms) without a native `contextmenu` event, so the

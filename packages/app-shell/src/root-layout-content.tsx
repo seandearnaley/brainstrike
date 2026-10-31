@@ -580,8 +580,8 @@ export function RootLayoutContent({
   useAppMenuSettings();
   const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([shellTab]));
   const appConfig = createAppConfig({ navigationItems: orderNavigationItems(navigationItems) });
-  // useMemo with [] is correct: the preload bridge exists before React mounts,
-  // so capability detection at first render is stable for the window's lifetime.
+  // Resolved once: the preload bridge exists before React mounts, so capability
+  // detection at first render is stable for the window's lifetime.
   const actionRegistry = createAppActionRegistry();
   // Capability gate mirrors terminalPageContent:
   // the desktop wrapper only passes changesPageContent when the Changes bridge

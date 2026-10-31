@@ -42,39 +42,35 @@ export function useCanvasWorkspaceApps(shellSrc: string | undefined): readonly W
   const reads = useThreadCanvasReads(
     addresses.flatMap(({ tab }) => (tab instanceof Error ? [] : [tab.threadId]))
   );
-  return useMemo(
-    () =>
-      addresses.map(({ id, tab }): WorkspaceApp => {
-        if (tab instanceof Error || shellSrc === undefined) {
-          const message = tab instanceof Error ? tab.message : 'Canvases are unavailable.';
-          return {
-            icon,
-            id,
-            label: FALLBACK_LABEL,
-            placement: 'dynamic',
-            render: () => (
-              <p className="text-destructive p-4 text-xs" role="alert">
-                {message}
-              </p>
-            ),
-          };
-        }
-        const read = reads.get(tab.threadId);
-        const title =
-          read?.status === 'ready' ? read.canvases.get(tab.canvasId)?.at(-1)?.title : undefined;
-        return {
-          icon,
-          id,
-          label: title?.trim() || FALLBACK_LABEL,
-          placement: 'dynamic',
-          render: () => <CanvasDocumentView read={read} shellSrc={shellSrc} tab={tab} />,
-          // A closed canvas tab leaves this registry, so Reopen Closed Tab opens it again here.
-          reopen: () => {
-            openCanvasTab(tab);
-            return Promise.resolve();
-          },
-        };
-      }),
-    [addresses, reads, shellSrc]
-  );
+  return addresses.map(({ id, tab }): WorkspaceApp => {
+    if (tab instanceof Error || shellSrc === undefined) {
+      const message = tab instanceof Error ? tab.message : 'Canvases are unavailable.';
+      return {
+        icon,
+        id,
+        label: FALLBACK_LABEL,
+        placement: 'dynamic',
+        render: () => (
+          <p className="text-destructive p-4 text-xs" role="alert">
+            {message}
+          </p>
+        ),
+      };
+    }
+    const read = reads.get(tab.threadId);
+    const title =
+      read?.status === 'ready' ? read.canvases.get(tab.canvasId)?.at(-1)?.title : undefined;
+    return {
+      icon,
+      id,
+      label: title?.trim() || FALLBACK_LABEL,
+      placement: 'dynamic',
+      render: () => <CanvasDocumentView read={read} shellSrc={shellSrc} tab={tab} />,
+      // A closed canvas tab leaves this registry, so Reopen Closed Tab opens it again here.
+      reopen: () => {
+        openCanvasTab(tab);
+        return Promise.resolve();
+      },
+    };
+  });
 }

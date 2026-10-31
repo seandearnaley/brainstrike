@@ -36,7 +36,7 @@ import {
 } from '@brainstrike/ui';
 import { formatTimestampedDownloadFilename } from '@brainstrike/utils/browser-download';
 import { Download } from 'lucide-react';
-import { type ReactElement, useCallback, useMemo, useState } from 'react';
+import { type ReactElement, useMemo, useState } from 'react';
 import { getDelegatedColorPresentation } from '../agent-color-presentation';
 import type { AssistantThreadContextSnapshot } from '../assistant-thread-host-context';
 import { openHostChildTab } from '../open-host-child-tab';
@@ -307,10 +307,7 @@ function LaneView({
   turn,
 }: LaneViewProps): ReactElement {
   const [selectedKey, setSelectedKey] = useState<string>();
-  const view = useMemo(
-    () => threadContextAt(record.snapshot, record.branchRunIds, turn),
-    [record, turn]
-  );
+  const view = threadContextAt(record.snapshot, record.branchRunIds, turn);
   const rows = useMemo(() => contextFileRows(view.calls, mode), [view, mode]);
   const totals = useMemo(() => contextMapTotals(view, rows), [view, rows]);
   // Chunk bounds are read again once the thread starts a turn or edits a file.
@@ -344,7 +341,7 @@ function LaneView({
     const displayName = adapterRootId ? rootDescriptors[adapterRootId]?.displayName : undefined;
     return row.rootName ?? displayName ?? 'A folder not open in the explorer';
   };
-  const bundle = useCallback(() => contextBundleMarkdown(rows, view.turn), [rows, view]);
+  const bundle = () => contextBundleMarkdown(rows, view.turn);
   const title = `What ${subject} model received`;
 
   if (view.branch.length === 0) {

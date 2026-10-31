@@ -227,7 +227,7 @@ export function useChangeset(
       : 0
   );
 
-  const loadView = useCallback(async (): Promise<GitResult<ChangesetView> | null> => {
+  const loadView = async (): Promise<GitResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
     if (!(bridge && rootId && stableChangeset)) {
@@ -245,7 +245,7 @@ export function useChangeset(
       setError(result.ok ? null : result.error);
     }
     return result;
-  }, [bridge, rootId, stableChangeset]);
+  };
 
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();
@@ -261,31 +261,31 @@ export function useChangeset(
     void refresh();
   }, [refresh, gitInvalidationNonce, liveRefreshNonce, rewindGeneration]);
 
-  const fileDiff = useCallback(
-    async (path: string, entryRootId?: string | null): Promise<GitResult<StructuredFileDiff>> => {
-      const resolvedRootId = entryRootId ?? rootId;
-      if (!(bridge && resolvedRootId && stableChangeset)) {
-        return {
-          error: 'changeset-unavailable: no active bridge, root, or changeset',
-          ok: false,
-        };
+  const fileDiff = async (
+    path: string,
+    entryRootId?: string | null
+  ): Promise<GitResult<StructuredFileDiff>> => {
+    const resolvedRootId = entryRootId ?? rootId;
+    if (!(bridge && resolvedRootId && stableChangeset)) {
+      return {
+        error: 'changeset-unavailable: no active bridge, root, or changeset',
+        ok: false,
+      };
+    }
+    try {
+      const result = await bridge.fileDiff(resolvedRootId, stableChangeset, path);
+      if (!result.ok) {
+        // The diff card shows a bounded summary and output (BST-2136); the
+        // full text lives here.
+        logger.warn('File diff failed', { error: result.error, path });
       }
-      try {
-        const result = await bridge.fileDiff(resolvedRootId, stableChangeset, path);
-        if (!result.ok) {
-          // The diff card shows a bounded summary and output (BST-2136); the
-          // full text lives here.
-          logger.warn('File diff failed', { error: result.error, path });
-        }
-        return result;
-      } catch (caught) {
-        const message = caught instanceof Error ? caught.message : String(caught);
-        logger.error('Failed to load file diff', { error: caught, path });
-        return { error: message, ok: false };
-      }
-    },
-    [bridge, rootId, stableChangeset]
-  );
+      return result;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      logger.error('Failed to load file diff', { error: caught, path });
+      return { error: message, ok: false };
+    }
+  };
 
   return {
     available: bridge !== null,

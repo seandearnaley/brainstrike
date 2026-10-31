@@ -3,7 +3,6 @@ import { readMcpTaskToolInvocationResult } from '@brainstrike/assistant-contract
 import {
   type KeyboardEvent,
   type RefObject,
-  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -119,14 +118,10 @@ export function useActivityGroupLayout(
   const [openClusters, setOpenClusters] = useState<ReadonlySet<string>>(() => new Set());
   const [focusRequest, setFocusRequest] = useState<{ readonly stepId: string } | null>(null);
 
-  const unfoldable = useMemo(
-    () =>
-      new Set(
-        groupParts.flatMap((part) =>
-          part.type === 'tool-call' && keepsItsOwnCard(part, renderers) ? [part.toolCallId] : []
-        )
-      ),
-    [groupParts, renderers]
+  const unfoldable = new Set(
+    groupParts.flatMap((part) =>
+      part.type === 'tool-call' && keepsItsOwnCard(part, renderers) ? [part.toolCallId] : []
+    )
   );
   const derivedClusters = useMemo(
     () => deriveActivityClusters(steps, unfoldable),
@@ -160,7 +155,7 @@ export function useActivityGroupLayout(
     return roots.size > 1;
   }, [groupParts]);
 
-  const toggleCluster = useCallback((clusterId: string) => {
+  const toggleCluster = (clusterId: string) => {
     setOpenClusters((previous) => {
       const next = new Set(previous);
       if (!next.delete(clusterId)) {
@@ -168,11 +163,8 @@ export function useActivityGroupLayout(
       }
       return next;
     });
-  }, []);
-  const memberDomId = useCallback(
-    (clusterId: string, index: number) => `${domBase}-${clusterId}-${index}`,
-    [domBase]
-  );
+  };
+  const memberDomId = (clusterId: string, index: number) => `${domBase}-${clusterId}-${index}`;
   const view = useMemo((): ActivityGroupView => {
     const clusterOf = new Map<string, ActivityClusterSlot>();
     for (const cluster of clusters) {
@@ -184,21 +176,18 @@ export function useActivityGroupLayout(
     return { clusterOf, memberDomId, shown, showRootChip, toggleCluster };
   }, [clusters, memberDomId, openClusters, shown, showRootChip, toggleCluster]);
 
-  const jumpTo = useCallback(
-    (stepId: string) => {
-      setExpanded(true);
-      const step = steps.find((candidate) => candidate.id === stepId);
-      if (step && !matchesActivityFilter(step, filter)) {
-        setFilter('all');
-      }
-      const cluster = clusters.find((candidate) => candidate.memberIds.includes(stepId));
-      if (cluster) {
-        setOpenClusters((previous) => new Set(previous).add(cluster.id));
-      }
-      setFocusRequest({ stepId });
-    },
-    [clusters, filter, steps]
-  );
+  const jumpTo = (stepId: string) => {
+    setExpanded(true);
+    const step = steps.find((candidate) => candidate.id === stepId);
+    if (step && !matchesActivityFilter(step, filter)) {
+      setFilter('all');
+    }
+    const cluster = clusters.find((candidate) => candidate.memberIds.includes(stepId));
+    if (cluster) {
+      setOpenClusters((previous) => new Set(previous).add(cluster.id));
+    }
+    setFocusRequest({ stepId });
+  };
   // Focus once the opened body and unfolded rows have committed.
   useEffect(() => {
     if (!focusRequest) {
@@ -232,8 +221,8 @@ export function useActivityGroupLayout(
   const toggleAllClusters = (): void => {
     setOpenClusters(allClustersOpen ? new Set() : new Set(clusters.map((cluster) => cluster.id)));
   };
-  const tail = useMemo(() => deriveLiveTail(steps), [steps]);
-  const strip = useMemo(() => deriveRunStrip(steps), [steps]);
+  const tail = deriveLiveTail(steps);
+  const strip = deriveRunStrip(steps);
 
   return {
     layout: {

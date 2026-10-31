@@ -510,17 +510,14 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
 function useFileEditorContext() {
   const [openFileInTabFn, setOpenFileInTabFn] = React.useState<OpenFileInTab | null>(null);
 
-  const registerOpenFileInTab = useCallback((fn: OpenFileInTab) => {
+  const registerOpenFileInTab = (fn: OpenFileInTab) => {
     setOpenFileInTabFn(() => fn);
-  }, []);
+  };
 
-  const fileEditorContextValue = useMemo(
-    () => ({
-      openFileInTab: openFileInTabFn || undefined,
-      registerOpenFileInTab,
-    }),
-    [openFileInTabFn, registerOpenFileInTab]
-  );
+  const fileEditorContextValue = {
+    openFileInTab: openFileInTabFn || undefined,
+    registerOpenFileInTab,
+  };
 
   return fileEditorContextValue;
 }
@@ -619,7 +616,7 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
     hideConsoleButtonRef,
   } = config;
 
-  const handleShowLeftPanel = useCallback(() => {
+  const handleShowLeftPanel = () => {
     isInitialRenderRef.current = false;
     const effectiveLeftSize = safeLeftSize < 10 ? 25 : safeLeftSize;
     saveLayout(
@@ -632,24 +629,14 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
     requestAnimationFrame(() => {
       hideExplorerButtonRef.current?.focus();
     });
-  }, [
-    toggleLeftPanel,
-    saveLayout,
-    safeLeftSize,
-    safeRightSize,
-    safeConsoleSize,
-    showConsole,
-    showRightPanel,
-    isInitialRenderRef,
-    hideExplorerButtonRef,
-  ]);
+  };
 
-  const handleHideLeftPanel = useCallback(() => {
+  const handleHideLeftPanel = () => {
     isInitialRenderRef.current = false;
     toggleLeftPanel();
-  }, [toggleLeftPanel, isInitialRenderRef]);
+  };
 
-  const handleShowRightPanel = useCallback(() => {
+  const handleShowRightPanel = () => {
     isInitialRenderRef.current = false;
     const effectiveRightSize = safeRightSize < 10 ? 20 : safeRightSize;
     saveLayout(
@@ -662,24 +649,14 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
     requestAnimationFrame(() => {
       hideToolsPanelButtonRef.current?.focus();
     });
-  }, [
-    toggleRightPanel,
-    saveLayout,
-    safeLeftSize,
-    safeRightSize,
-    safeConsoleSize,
-    showConsole,
-    showLeftPanel,
-    isInitialRenderRef,
-    hideToolsPanelButtonRef,
-  ]);
+  };
 
-  const handleHideRightPanel = useCallback(() => {
+  const handleHideRightPanel = () => {
     isInitialRenderRef.current = false;
     toggleRightPanel();
-  }, [toggleRightPanel, isInitialRenderRef]);
+  };
 
-  const handleShowConsole = useCallback(() => {
+  const handleShowConsole = () => {
     isInitialRenderRef.current = false;
     const effectiveConsoleSize = safeConsoleSize < 10 ? 20 : safeConsoleSize;
     saveLayout(
@@ -692,22 +669,12 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
     requestAnimationFrame(() => {
       hideConsoleButtonRef.current?.focus();
     });
-  }, [
-    toggleConsole,
-    saveLayout,
-    safeLeftSize,
-    safeRightSize,
-    safeConsoleSize,
-    showLeftPanel,
-    showRightPanel,
-    isInitialRenderRef,
-    hideConsoleButtonRef,
-  ]);
+  };
 
-  const handleHideConsole = useCallback(() => {
+  const handleHideConsole = () => {
     isInitialRenderRef.current = false;
     toggleConsole();
-  }, [toggleConsole, isInitialRenderRef]);
+  };
 
   /**
    * Handle panel collapse/expand triggered by drag (onResize callback from react-resizable-panels).
@@ -724,76 +691,52 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
    * The isInitialRenderRef guard prevents state updates during hydration when
    * the layout is being restored from persistence.
    */
-  const createCollapseHandler = useCallback(
+  const createCollapseHandler =
     (
       isVisible: boolean,
       buildHiddenArgs: () => Parameters<typeof saveLayout>,
       buildVisibleArgs: () => Parameters<typeof saveLayout>
     ) =>
-      (collapsed: boolean) => {
-        if (isInitialRenderRef.current) {
-          return;
-        }
-        if (collapsed && isVisible) {
-          saveLayout(...buildHiddenArgs());
-        } else if (!(collapsed || isVisible)) {
-          saveLayout(...buildVisibleArgs());
-        }
-      },
-    [saveLayout, isInitialRenderRef]
-  );
+    (collapsed: boolean) => {
+      if (isInitialRenderRef.current) {
+        return;
+      }
+      if (collapsed && isVisible) {
+        saveLayout(...buildHiddenArgs());
+      } else if (!(collapsed || isVisible)) {
+        saveLayout(...buildVisibleArgs());
+      }
+    };
 
-  const handleLeftPanelCollapse = useCallback(
-    (collapsed: boolean) =>
-      createCollapseHandler(
-        showLeftPanel,
-        () => [[safeLeftSize, safeRightSize, safeConsoleSize], showConsole, false, showRightPanel],
-        () => {
-          const effectiveLeftSize = safeLeftSize < 10 ? 25 : safeLeftSize;
-          return [
-            [effectiveLeftSize, safeRightSize, safeConsoleSize],
-            showConsole,
-            true,
-            showRightPanel,
-          ];
-        }
-      )(collapsed),
-    [
-      createCollapseHandler,
-      safeLeftSize,
-      safeRightSize,
-      safeConsoleSize,
-      showConsole,
+  const handleLeftPanelCollapse = (collapsed: boolean) =>
+    createCollapseHandler(
       showLeftPanel,
-      showRightPanel,
-    ]
-  );
+      () => [[safeLeftSize, safeRightSize, safeConsoleSize], showConsole, false, showRightPanel],
+      () => {
+        const effectiveLeftSize = safeLeftSize < 10 ? 25 : safeLeftSize;
+        return [
+          [effectiveLeftSize, safeRightSize, safeConsoleSize],
+          showConsole,
+          true,
+          showRightPanel,
+        ];
+      }
+    )(collapsed);
 
-  const handleRightPanelCollapse = useCallback(
-    (collapsed: boolean) =>
-      createCollapseHandler(
-        showRightPanel,
-        () => [[safeLeftSize, safeRightSize, safeConsoleSize], showConsole, showLeftPanel, false],
-        () => {
-          const effectiveRightSize = safeRightSize < 10 ? 20 : safeRightSize;
-          return [
-            [safeLeftSize, effectiveRightSize, safeConsoleSize],
-            showConsole,
-            showLeftPanel,
-            true,
-          ];
-        }
-      )(collapsed),
-    [
-      createCollapseHandler,
-      safeLeftSize,
-      safeRightSize,
-      safeConsoleSize,
-      showConsole,
-      showLeftPanel,
+  const handleRightPanelCollapse = (collapsed: boolean) =>
+    createCollapseHandler(
       showRightPanel,
-    ]
-  );
+      () => [[safeLeftSize, safeRightSize, safeConsoleSize], showConsole, showLeftPanel, false],
+      () => {
+        const effectiveRightSize = safeRightSize < 10 ? 20 : safeRightSize;
+        return [
+          [safeLeftSize, effectiveRightSize, safeConsoleSize],
+          showConsole,
+          showLeftPanel,
+          true,
+        ];
+      }
+    )(collapsed);
 
   const handleConsolePanelCollapse = useCallback(
     (collapsed: boolean) =>
@@ -929,18 +872,9 @@ export const IdeLayout = React.memo(function IdeLayout({
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
   const hideToolsPanelButtonRef = useRef<HTMLButtonElement>(null);
   const hideConsoleButtonRef = useRef<HTMLButtonElement>(null);
-  const resolvedLeftPanelChrome = useMemo(
-    () => ({ ...DEFAULT_LEFT_PANEL_CHROME, ...leftPanelChrome }),
-    [leftPanelChrome]
-  );
-  const resolvedRightPanelChrome = useMemo(
-    () => ({ ...DEFAULT_RIGHT_PANEL_CHROME, ...rightPanelChrome }),
-    [rightPanelChrome]
-  );
-  const resolvedPanelConstraints = useMemo(
-    () => ({ ...DEFAULT_PANEL_CONSTRAINTS, ...panelConstraints }),
-    [panelConstraints]
-  );
+  const resolvedLeftPanelChrome = { ...DEFAULT_LEFT_PANEL_CHROME, ...leftPanelChrome };
+  const resolvedRightPanelChrome = { ...DEFAULT_RIGHT_PANEL_CHROME, ...rightPanelChrome };
+  const resolvedPanelConstraints = { ...DEFAULT_PANEL_CONSTRAINTS, ...panelConstraints };
   const LeftPanelIcon = resolvedLeftPanelChrome.icon;
   const RightPanelIcon = resolvedRightPanelChrome.icon;
   const layoutIds = useMemo<LayoutIds>(() => {

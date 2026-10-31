@@ -18,20 +18,17 @@ export const useSelectionManager = ({
   maxSelectionCount,
   setSelectedFiles,
 }: UseSelectionManagerParams) => {
-  const wouldExceedSelectionLimit = useCallback(
-    (newFilePaths: string[]) => {
-      const uniqueNewPaths = new Set(newFilePaths);
-      const currentCount = selectedFilePaths.size;
-      let additionalCount = 0;
-      for (const path of uniqueNewPaths) {
-        if (!selectedFilePaths.has(path)) {
-          additionalCount += 1;
-        }
+  const wouldExceedSelectionLimit = (newFilePaths: string[]) => {
+    const uniqueNewPaths = new Set(newFilePaths);
+    const currentCount = selectedFilePaths.size;
+    let additionalCount = 0;
+    for (const path of uniqueNewPaths) {
+      if (!selectedFilePaths.has(path)) {
+        additionalCount += 1;
       }
-      return currentCount + additionalCount > maxSelectionCount;
-    },
-    [selectedFilePaths, maxSelectionCount]
-  );
+    }
+    return currentCount + additionalCount > maxSelectionCount;
+  };
 
   const handleSelectionChange = useCallback(
     (nextSelectedFiles: Set<string>) => {

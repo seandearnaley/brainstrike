@@ -96,7 +96,7 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
   // an EQUAL set (or the same set in another order) must not re-query. JSON,
   // not a joined string — a root id is opaque text, and any separator it could
   // itself contain would let two DIFFERENT id sets collapse to one key.
-  const rootIdsKey = useMemo(() => JSON.stringify([...new Set(rootIds)].sort()), [rootIds]);
+  const rootIdsKey = JSON.stringify([...new Set(rootIds)].sort());
   const distinctRootIds = useMemo<readonly string[]>(
     () => JSON.parse(rootIdsKey) as readonly string[],
     [rootIdsKey]

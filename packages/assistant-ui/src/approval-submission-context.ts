@@ -26,10 +26,8 @@ export function useApprovalSubmission(identityKey: string) {
     throw new Error('Approval controls require ApprovalSubmissionProvider.');
   }
   const { setFailure: setKeyedFailure, setSubmission: setKeyedSubmission } = state;
-  const setSubmission = useCallback(
-    (value: ApprovalSubmission | null) => setKeyedSubmission(identityKey, value),
-    [identityKey, setKeyedSubmission]
-  );
+  const setSubmission = (value: ApprovalSubmission | null) =>
+    setKeyedSubmission(identityKey, value);
   const setFailure = useCallback(
     (value: ApprovalSendFailure | null) => setKeyedFailure(identityKey, value),
     [identityKey, setKeyedFailure]

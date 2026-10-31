@@ -13,7 +13,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
 import * as React from 'react';
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { hasPersistApi } from './hooks/recursive-selection-utils';
 import { useViewFilterPresets } from './hooks/use-view-filter-presets';
 import { useOptionalExplorerThreadStatus } from './shell/explorer-thread-status';
@@ -66,7 +66,7 @@ function useThreadTouchedPreset(): ViewFilterPreset | null {
     subscribe,
     threadStatus?.getTouchedPaths ?? noTouchedPaths
   );
-  return useMemo(() => threadTouchedPreset(touchedPaths), [touchedPaths]);
+  return threadTouchedPreset(touchedPaths);
 }
 
 interface ToolbarPresetSelectorProps {
@@ -175,19 +175,13 @@ const ToolbarPresetSelectorInner = React.memo(
       useViewFilterPresets();
     const threadPreset = useThreadTouchedPreset();
     // Stored presets first: the thread's never shadows a stored preset with the same filters.
-    const selectablePresets = useMemo(
-      () => (threadPreset ? [...presets, threadPreset] : presets),
-      [presets, threadPreset]
-    );
+    const selectablePresets = threadPreset ? [...presets, threadPreset] : presets;
 
-    const activeFilters = useMemo<ActiveFilterState>(
-      () => ({
-        excludeFilters,
-        includeFilters,
-        useRegex,
-      }),
-      [includeFilters, excludeFilters, useRegex]
-    );
+    const activeFilters: ActiveFilterState = {
+      excludeFilters,
+      includeFilters,
+      useRegex,
+    };
     const [optimisticPresetId, setOptimisticPresetId] = useState<string | null>(null);
 
     // The active preset is the exact preset whose filter triplet matches the live filter state.
@@ -253,45 +247,35 @@ const ToolbarPresetSelectorInner = React.memo(
     ]);
 
     // Handle preset selection with persistence
-    const handlePresetSelect = useCallback(
-      async (preset: ViewFilterPreset) => {
-        setOptimisticPresetId(preset.id);
-        // Apply the filter payload before setting the preset id so the synchronization
-        // effect never observes a new preset id against stale filter state.
-        setFilters(preset.includes, preset.excludes);
-        // Stale per-entry disable toggles reference the OUTGOING lists; a
-        // preset that reintroduces a toggled-off string must not arrive
-        // silently disabled (spike B9) — the effective filters ARE the preset.
-        clearDisabledFilters();
-        setUseRegex(preset.useRegex);
-        setViewFilterPresetId(preset.id);
+    const handlePresetSelect = async (preset: ViewFilterPreset) => {
+      setOptimisticPresetId(preset.id);
+      // Apply the filter payload before setting the preset id so the synchronization
+      // effect never observes a new preset id against stale filter state.
+      setFilters(preset.includes, preset.excludes);
+      // Stale per-entry disable toggles reference the OUTGOING lists; a
+      // preset that reintroduces a toggled-off string must not arrive
+      // silently disabled (spike B9) — the effective filters ARE the preset.
+      clearDisabledFilters();
+      setUseRegex(preset.useRegex);
+      setViewFilterPresetId(preset.id);
 
-        // Defer expensive tree filtering to prevent UI blocking on large trees.
-        // startTransition allows React to interrupt this work if the user
-        // interacts with the UI, keeping the app responsive.
-        React.startTransition(() => {
-          onFilterChange(preset.includes, preset.excludes, preset.useRegex);
-        });
+      // Defer expensive tree filtering to prevent UI blocking on large trees.
+      // startTransition allows React to interrupt this work if the user
+      // interacts with the UI, keeping the app responsive.
+      React.startTransition(() => {
+        onFilterChange(preset.includes, preset.excludes, preset.useRegex);
+      });
 
-        // Persist the store snapshot immediately (async, doesn't block UI) so
-        // a quick app quit cannot lose the change to the debounce window.
-        try {
-          await persistNow();
-        } catch (error) {
-          if (isDevEnv()) {
-            logger.warn('Failed to persist preset selection', { error });
-          }
+      // Persist the store snapshot immediately (async, doesn't block UI) so
+      // a quick app quit cannot lose the change to the debounce window.
+      try {
+        await persistNow();
+      } catch (error) {
+        if (isDevEnv()) {
+          logger.warn('Failed to persist preset selection', { error });
         }
-      },
-      [
-        setViewFilterPresetId,
-        setFilters,
-        setUseRegex,
-        clearDisabledFilters,
-        onFilterChange,
-        persistNow,
-      ]
-    );
+      }
+    };
 
     // Filters are active but match no preset — the trigger must say so
     // rather than implying nothing is filtered.
@@ -343,13 +327,13 @@ const ToolbarPresetSelector = React.memo(
     // ONE writer: the canonical store snapshot (same serializer as the
     // persist middleware), never a hand-merged patch — a second JSON writer
     // racing the middleware was the historical settings-clobber source.
-    const persistNow = useCallback(async () => {
+    const persistNow = async () => {
       if (!hasPersistApi(store)) {
         logger.warn('Preset selection not persisted immediately: store has no persist API');
         return;
       }
       await persistFileExplorerStateImmediately(store, storageAdapter);
-    }, [store, storageAdapter]);
+    };
 
     return (
       <ToolbarPresetSelectorInner

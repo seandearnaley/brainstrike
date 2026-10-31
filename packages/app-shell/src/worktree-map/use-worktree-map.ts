@@ -173,17 +173,13 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   const indexStatus = useNativeWorkspaceSearchDependencies()?.status;
   const indexedRootIds = indexStatus?.kind === 'ready' ? indexStatus.authorizedRootIds : null;
 
-  const repositories = useMemo(
-    () =>
-      buildWorktreeMap({
-        entries,
-        indexedRootIds,
-        indexingOptInByRootId,
-        runningThreadIds: input.runningThreadIds,
-        threads,
-      }),
-    [entries, indexedRootIds, indexingOptInByRootId, input.runningThreadIds, threads]
-  );
+  const repositories = buildWorktreeMap({
+    entries,
+    indexedRootIds,
+    indexingOptInByRootId,
+    runningThreadIds: input.runningThreadIds,
+    threads,
+  });
 
   const paths = useMemo(
     () =>
@@ -199,12 +195,12 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   );
   const statusByPath = useWorktreeCheckoutStatuses({ bridge, paths, refreshNonce });
 
-  const refresh = useCallback(async (): Promise<void> => {
+  const refresh = async (): Promise<void> => {
     // The awaited load IS the list read; the bump only re-keys the status
     // reads (the load effect does not see `manualNonce` — see `refreshNonce`).
     setManualNonce((previous) => previous + 1);
     await load();
-  }, [load]);
+  };
 
   return {
     error,
