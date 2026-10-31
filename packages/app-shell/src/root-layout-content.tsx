@@ -43,7 +43,6 @@ import {
   TabPanelBoundary,
 } from '@brainstrike/ui';
 import {
-  memo,
   type ReactElement,
   type ReactNode,
   Suspense,
@@ -451,7 +450,7 @@ function FilesAppSurface(): ReactElement {
   return <ExplorerSearchTabs />;
 }
 
-const ExplorerAppSurface = memo(function ExplorerAppSurface({
+function ExplorerAppSurface({
   canvasShellSrc,
   changesPageContent,
   logsPageContent,
@@ -556,7 +555,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       </FileTreeWrapper>
     </div>
   );
-});
+}
 
 export function RootLayoutContent({
   nativeIndexSearch,

@@ -117,7 +117,7 @@ interface PageSizeControlProps {
   resolvedDensity: ResolvedPaginationDensity;
 }
 
-const PageSizeControl = memo(function PageSizeControl({
+function PageSizeControl({
   onPageSizeChange,
   pageSize,
   actualPageSizeOptions,
@@ -151,8 +151,7 @@ const PageSizeControl = memo(function PageSizeControl({
       </Select>
     </>
   );
-});
-PageSizeControl.displayName = 'PageSizeControl';
+}
 
 interface NavigationControlsProps {
   displayPage: number;
@@ -174,7 +173,7 @@ interface NavigationControlsProps {
   totalPages: number;
 }
 
-const NavigationControls = memo(function NavigationControls({
+function NavigationControls({
   displayPage,
   isMicroDensity,
   isMinimalDensity,
@@ -299,18 +298,14 @@ const NavigationControls = memo(function NavigationControls({
       </span>
     </div>
   );
-});
-NavigationControls.displayName = 'NavigationControls';
+}
 
 interface RangeSummaryProps {
   rangeSummary: string;
   shouldRenderRangeSummary: boolean;
 }
 
-const RangeSummary = memo(function RangeSummary({
-  shouldRenderRangeSummary,
-  rangeSummary,
-}: RangeSummaryProps) {
+function RangeSummary({ shouldRenderRangeSummary, rangeSummary }: RangeSummaryProps) {
   return (
     <div className="text-muted-foreground flex min-w-0 flex-1 justify-end text-xs tabular-nums">
       {shouldRenderRangeSummary && (
@@ -329,8 +324,7 @@ const RangeSummary = memo(function RangeSummary({
       )}
     </div>
   );
-});
-RangeSummary.displayName = 'RangeSummary';
+}
 
 interface TablePaginationProps {
   /** Current page index (0-based) */

@@ -11,7 +11,7 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { Check, Files, Pencil, X } from 'lucide-react';
-import { memo, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { formatCompactSelectionCount } from './selection-count-format';
 
 /**
@@ -69,12 +69,12 @@ export interface SelectionCounterProps {
   selectedCount: number;
 }
 
-export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCounter({
+export function SelectionCounter({
   selectedCount,
   maxSelectionCount,
   onMaxSelectionCountChange,
   compact = false,
-}) {
+}: SelectionCounterProps) {
   const isEditable = typeof onMaxSelectionCountChange === 'function';
   const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState<string>('');
@@ -311,4 +311,4 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
       </Popover>
     </output>
   );
-});
+}

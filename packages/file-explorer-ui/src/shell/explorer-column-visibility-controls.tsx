@@ -27,85 +27,83 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { Columns3 } from 'lucide-react';
-import { memo } from 'react';
+
 import { EXPLORER_METADATA_COLUMN_CONFIGS } from '../tree/file-tree-columns';
 import { useExplorerColumns } from './explorer-columns-context';
 import { useOptionalExplorerThreadStatus } from './explorer-thread-status';
 
-export const ExplorerColumnVisibilityControls = memo(
-  function ExplorerColumnVisibilityControlsComponent({ show }: { show: boolean }) {
-    const { areMetadataColumnsSuppressed } = useExplorerColumns();
-    const size = useExplorerColumnVisibilityStore((state) => state.size);
-    const thread = useExplorerColumnVisibilityStore((state) => state.thread);
-    const tokens = useExplorerColumnVisibilityStore((state) => state.tokens);
-    const type = useExplorerColumnVisibilityStore((state) => state.type);
-    const setColumnVisible = useExplorerColumnVisibilityStore((state) => state.setColumnVisible);
-    // "This thread" is offered only where it can render (ADR-0021).
-    const threadAvailable = useOptionalExplorerThreadStatus() !== null;
-    const visibility: Record<ExplorerMetadataColumnId, boolean> = { size, thread, tokens, type };
-    const configs = EXPLORER_METADATA_COLUMN_CONFIGS.filter(
-      (config) => config.id !== 'thread' || threadAvailable
-    );
-    const enabledCount = configs.filter((config) => visibility[config.id]).length;
+export function ExplorerColumnVisibilityControls({ show }: { show: boolean }) {
+  const { areMetadataColumnsSuppressed } = useExplorerColumns();
+  const size = useExplorerColumnVisibilityStore((state) => state.size);
+  const thread = useExplorerColumnVisibilityStore((state) => state.thread);
+  const tokens = useExplorerColumnVisibilityStore((state) => state.tokens);
+  const type = useExplorerColumnVisibilityStore((state) => state.type);
+  const setColumnVisible = useExplorerColumnVisibilityStore((state) => state.setColumnVisible);
+  // "This thread" is offered only where it can render (ADR-0021).
+  const threadAvailable = useOptionalExplorerThreadStatus() !== null;
+  const visibility: Record<ExplorerMetadataColumnId, boolean> = { size, thread, tokens, type };
+  const configs = EXPLORER_METADATA_COLUMN_CONFIGS.filter(
+    (config) => config.id !== 'thread' || threadAvailable
+  );
+  const enabledCount = configs.filter((config) => visibility[config.id]).length;
 
-    if (!show) {
-      return null;
-    }
-
-    return (
-      <Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button
-                aria-label="Select visible columns"
-                className="size-7 p-0"
-                data-testid="explorer-column-visibility-trigger"
-                size="icon-xs"
-                variant="ghost"
-              >
-                <Columns3 className="size-4" />
-              </Button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Select visible columns</TooltipContent>
-        </Tooltip>
-        <PopoverContent align="end" className="w-52 p-2">
-          <div className="space-y-1">
-            {configs.map((config) => {
-              const columnId = config.id;
-              return (
-                <div
-                  className="hover:bg-accent flex items-center gap-2 rounded px-2 py-1.5"
-                  key={columnId}
-                >
-                  <Checkbox
-                    checked={visibility[columnId]}
-                    id={`explorer-column-${columnId}`}
-                    onCheckedChange={(checked) => setColumnVisible(columnId, checked === true)}
-                  />
-                  <label
-                    className="cursor-pointer text-sm select-none"
-                    htmlFor={`explorer-column-${columnId}`}
-                  >
-                    {config.label}
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-          <p
-            className={cn(
-              'text-muted-foreground mt-1 border-t px-2 pt-2 text-[11px]',
-              !areMetadataColumnsSuppressed && 'sr-only'
-            )}
-          >
-            {areMetadataColumnsSuppressed
-              ? 'The panel is too narrow to show these columns — widen it to see them.'
-              : `Name always shows. ${enabledCount} of ${configs.length} extra columns visible.`}
-          </p>
-        </PopoverContent>
-      </Popover>
-    );
+  if (!show) {
+    return null;
   }
-);
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              aria-label="Select visible columns"
+              className="size-7 p-0"
+              data-testid="explorer-column-visibility-trigger"
+              size="icon-xs"
+              variant="ghost"
+            >
+              <Columns3 className="size-4" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Select visible columns</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="w-52 p-2">
+        <div className="space-y-1">
+          {configs.map((config) => {
+            const columnId = config.id;
+            return (
+              <div
+                className="hover:bg-accent flex items-center gap-2 rounded px-2 py-1.5"
+                key={columnId}
+              >
+                <Checkbox
+                  checked={visibility[columnId]}
+                  id={`explorer-column-${columnId}`}
+                  onCheckedChange={(checked) => setColumnVisible(columnId, checked === true)}
+                />
+                <label
+                  className="cursor-pointer text-sm select-none"
+                  htmlFor={`explorer-column-${columnId}`}
+                >
+                  {config.label}
+                </label>
+              </div>
+            );
+          })}
+        </div>
+        <p
+          className={cn(
+            'text-muted-foreground mt-1 border-t px-2 pt-2 text-[11px]',
+            !areMetadataColumnsSuppressed && 'sr-only'
+          )}
+        >
+          {areMetadataColumnsSuppressed
+            ? 'The panel is too narrow to show these columns — widen it to see them.'
+            : `Name always shows. ${enabledCount} of ${configs.length} extra columns visible.`}
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
