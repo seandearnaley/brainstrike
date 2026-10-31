@@ -11,7 +11,6 @@ import type {
 import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
 export interface DesktopStorageBridge {
-  clear: () => Promise<void>;
   getAllKeys: () => Promise<string[]>;
   getItem: (key: string) => Promise<string | null>;
   removeItem: (key: string) => Promise<void>;

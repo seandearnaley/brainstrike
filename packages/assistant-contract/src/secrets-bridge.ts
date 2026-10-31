@@ -32,7 +32,6 @@ export type SecretsCredentialReadResult =
   | { ok: false; error: SecretReadErrorCode; provider: string };
 
 export interface SecretsBridge {
-  clearAll: (confirmationToken?: string) => Promise<{ message?: string; success: boolean }>;
   deleteKey: (provider: string) => Promise<boolean>;
   getCredential: (provider: string) => Promise<SecretsCredentialReadResult>;
   getKey: (provider: string) => Promise<string | null>;
@@ -47,7 +46,6 @@ export interface SecretsBridge {
 // rejected — the pin can never silently become a subset (or superset) of the
 // interface.
 const SECRETS_BRIDGE_REQUIRED_METHOD_SET = {
-  clearAll: true,
   deleteKey: true,
   getCredential: true,
   getKey: true,

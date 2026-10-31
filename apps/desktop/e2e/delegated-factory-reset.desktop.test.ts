@@ -23,6 +23,11 @@ const LEDGER = 'Background invocations of this turn';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENAI_API_KEY: 'offline-reset-fixture' } });
 
+const storedCredentials = (page: Page): Promise<string[]> =>
+  page.evaluate(() =>
+    (window as unknown as { secrets: { listStored(): Promise<string[]> } }).secrets.listStored()
+  );
+
 test.describe('@destructive', () => {
   async function openSubagents(page: Page): Promise<void> {
     await new HomePage(page).openSettings();
@@ -98,6 +103,7 @@ test.describe('@destructive', () => {
         compositeModelKey: 'openai::gpt-6-sol',
         provider: 'openai',
       });
+      expect(await storedCredentials(page)).toContain('openai');
       await send(page, ENABLED, `${ENABLED} complete`);
       expect(catalogs.get(ENABLED)).toContain('agent-worker');
       await send(page, 'Delegate one reset child', ROOT_REPLY);
@@ -197,6 +203,7 @@ test.describe('@destructive', () => {
           )
           .toBe('answering');
         expect((await readTree()).filter((thread) => oldIds.has(thread.threadId))).toEqual([]);
+        expect(await storedCredentials(page)).toEqual([]);
         await expect(page.getByRole('tab', { exact: true, name: callSign })).toHaveCount(0);
         await openSubagents(page);
         await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(

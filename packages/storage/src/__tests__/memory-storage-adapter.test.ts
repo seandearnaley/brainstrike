@@ -55,18 +55,6 @@ describe('MemoryStorageAdapter', () => {
     });
   });
 
-  describe('clear', () => {
-    it('should remove all items', async () => {
-      await adapter.setItem('key1', 'value1');
-      await adapter.setItem('key2', 'value2');
-      await adapter.clear();
-
-      expect(await adapter.getItem('key1')).toBeNull();
-      expect(await adapter.getItem('key2')).toBeNull();
-      expect(adapter.getSize()).toBe(0);
-    });
-  });
-
   describe('getAllKeys', () => {
     it('should return empty array when no items stored', async () => {
       const keys = await adapter.getAllKeys();

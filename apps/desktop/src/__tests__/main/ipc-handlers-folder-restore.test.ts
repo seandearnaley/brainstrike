@@ -47,7 +47,7 @@ describe('IPC handlers - last-folder preference', () => {
         storedValues.set(key, value);
       }),
     } as unknown as ElectronStorageAdapter;
-    close = registerIpcHandlers(fileSystem, storage, () => null, {
+    close = registerIpcHandlers(fileSystem, storage, {
       getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
     });

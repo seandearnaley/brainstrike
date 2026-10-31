@@ -28,7 +28,6 @@ function getDesktopCredentials(): HostCredentials {
 
 /** The host's credential writes Settings forwards to; the host is their only writer. */
 export interface DesktopCredentialWriter {
-  clear(): Promise<boolean>;
   deleteCredential(account: string): Promise<boolean>;
   setCredential(account: string, credential: ProviderCredential): Promise<void>;
 }
@@ -63,7 +62,6 @@ export function createDesktopSettingsSecrets(writer: DesktopCredentialWriter): S
   };
   return {
     ...reads,
-    clearAll: () => writer.clear(),
     deleteKey: (account) => writer.deleteCredential(account),
     saveKey: (account, key) => write(account, { key, type: 'api_key' }),
     setCredential: write,

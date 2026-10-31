@@ -31,7 +31,6 @@ describe('runtime host boundary', () => {
     const domain = createApplicationIpcDomain(
       {} as Parameters<typeof createApplicationIpcDomain>[0],
       {} as Parameters<typeof createApplicationIpcDomain>[1],
-      () => null,
       {
         getRootsCatalog: async () => {
           throw new Error('Unexpected catalog read during registration');

@@ -217,7 +217,6 @@ describe('assistant-preferences-store', () => {
   it('resolves available providers from secrets API', async () => {
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      clearAll: vi.fn(),
       deleteKey: vi.fn(),
       getKey: vi.fn(),
       list: vi.fn().mockResolvedValue([
@@ -236,7 +235,6 @@ describe('assistant-preferences-store', () => {
   it('surfaces secrets API failures instead of silently degrading to no providers', async () => {
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      clearAll: vi.fn(),
       deleteKey: vi.fn(),
       getKey: vi.fn(),
       list: vi.fn().mockRejectedValue(new Error('not allowed')),
@@ -252,7 +250,6 @@ describe('assistant-preferences-store', () => {
   it('accepts stored entries carrying the save-time fingerprint metadata (BST-1362)', async () => {
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      clearAll: vi.fn(),
       deleteKey: vi.fn(),
       getKey: vi.fn(),
       list: vi.fn().mockResolvedValue([
@@ -273,7 +270,6 @@ describe('assistant-preferences-store', () => {
   it('rejects a stored entry whose fingerprint metadata is malformed', async () => {
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      clearAll: vi.fn(),
       deleteKey: vi.fn(),
       getKey: vi.fn(),
       list: vi.fn().mockResolvedValue([
@@ -295,7 +291,6 @@ describe('assistant-preferences-store', () => {
   it('rejects malformed provider key metadata', async () => {
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      clearAll: vi.fn(),
       deleteKey: vi.fn(),
       getKey: vi.fn(),
       list: vi

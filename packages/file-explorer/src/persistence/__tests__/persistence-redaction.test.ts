@@ -17,7 +17,6 @@ vi.mock('../test-environment', () => ({
 }));
 
 const storageAdapter: StorageAdapter = {
-  clear: vi.fn(async () => {}),
   getAllKeys: vi.fn(async () => []),
   getItem: vi.fn(async () => null),
   removeItem: vi.fn(async () => {}),
