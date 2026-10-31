@@ -156,8 +156,8 @@ export * from './workspace-wire.ts';
 // envelope: a failure is a `BoundaryFailure` instead of a string or a `{ code, message }` pair,
 // and a call with nothing to return answers `value: null`. The required field is why this is a
 // version bump.
-// v16 (2026-10-31): `auth/clear` is gone. A factory reset deletes the profile's credential
-// store with the rest of its data (ADR-0015), so no client asks the host to empty it.
+// v16 (2026-10-31): `auth/clear` is gone; a factory reset deletes the credential store (ADR-0015).
+// Additions since: `workspace/personas` and `workspace/context-files` (ADR-0029 stage 2a).
 export const AGENT_HOST_PROTOCOL_VERSION = 16;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
