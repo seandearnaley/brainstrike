@@ -1,9 +1,6 @@
+/** The AI SDK 7 `fullStream` fields this deadline reads. */
 interface ToolCallInputPart {
   id?: unknown;
-  payload?: {
-    id?: unknown;
-    toolCallId?: unknown;
-  };
   toolCallId?: unknown;
   type?: unknown;
 }
@@ -27,20 +24,9 @@ export function describeToolCallInputTimeout(error: ToolCallInputStreamingTimeou
   return `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms. The incomplete tool call was cancelled before execution.`;
 }
 
-/**
- * Streamed tool-input boundaries in both stream vocabularies this deadline
- * wraps: Mastra's chunk names and the AI SDK 7 `fullStream` part names.
- */
-const INPUT_START_PARTS: ReadonlySet<string> = new Set([
-  'tool-call-input-streaming-start',
-  'tool-call-delta',
-  'tool-input-start',
-  'tool-input-delta',
-]);
-const INPUT_END_PARTS: ReadonlySet<string> = new Set([
-  'tool-call-input-streaming-end',
-  'tool-input-end',
-]);
+/** AI SDK 7 streamed tool-input parts, which name their call `id`. */
+const INPUT_START_PARTS: ReadonlySet<string> = new Set(['tool-input-start', 'tool-input-delta']);
+const INPUT_END_PARTS: ReadonlySet<string> = new Set(['tool-input-end']);
 
 function readPart(value: unknown): ToolCallInputPart | undefined {
   if (!(value && typeof value === 'object')) {
@@ -50,24 +36,8 @@ function readPart(value: unknown): ToolCallInputPart | undefined {
 }
 
 function readToolCallId(part: ToolCallInputPart): string | undefined {
-  const toolCallId = part.toolCallId;
-  if (typeof toolCallId === 'string' && toolCallId.length > 0) {
-    return toolCallId;
-  }
-  const id = part.id;
-  if (typeof id === 'string' && id.length > 0) {
-    return id;
-  }
-  const payload = part.payload;
-  const payloadToolCallId = payload?.toolCallId;
-  if (typeof payloadToolCallId === 'string' && payloadToolCallId.length > 0) {
-    return payloadToolCallId;
-  }
-  const payloadId = payload?.id;
-  if (typeof payloadId === 'string' && payloadId.length > 0) {
-    return payloadId;
-  }
-  return;
+  const toolCallId = part.toolCallId ?? part.id;
+  return typeof toolCallId === 'string' && toolCallId.length > 0 ? toolCallId : undefined;
 }
 
 function observeToolCallInputPart(
@@ -117,7 +87,7 @@ function findEarliestInput(
  * Bound the absolute time spent assembling one streamed tool-call input.
  *
  * The ordinary stream inactivity watchdog resets on every delivered part.
- * Provider `tool-call-delta` parts therefore prove transport activity but do
+ * `tool-input-delta` parts therefore prove transport activity but do
  * not prove that the call will ever become executable. This wrapper keeps the
  * first-delta deadline stable until the stream emits the matching input end or
  * complete tool call.

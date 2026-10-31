@@ -93,15 +93,10 @@ export interface StreamInactivityOptions<T> {
   /**
    * Whether a part is PROVIDER output, as opposed to framework scaffolding.
    *
-   * This is the whole reason the phase means anything. Measured against the
-   * real `@mastra/core` loop, a turn's raw parts arrive as:
-   *
-   *     start       t+0ms      <- framework, instant
-   *     step-start  t+7ms      <- framework, instant
-   *     tool-call   t+312ms    <- provider, after 305ms of thinking
-   *     ...
-   *     step-start  t+321ms    <- framework, instant
-   *     text-start  t+723ms    <- provider, after 402ms of thinking
+   * This is the whole reason the phase means anything. The AI SDK opens the
+   * stream and each step with its own parts (`start`, `start-step`,
+   * `finish-step`) around the provider's output, so a step's first real
+   * output can come minutes after the parts that frame it.
    *
    * Treating any part as "the provider started" therefore ends the wide window
    * within milliseconds and measures every real time-to-first-token against the
@@ -114,7 +109,7 @@ export interface StreamInactivityOptions<T> {
   readonly countsAsProviderOutput?: (part: T) => boolean;
   /**
    * Name the part kind for the stall diagnostic. The watchdog is generic over
-   * the stream element, so domain knowledge (Mastra part types) is supplied by
+   * the stream element, so domain knowledge (SDK part types) is supplied by
    * the caller rather than assumed here.
    */
   readonly describePart?: (part: T) => string | undefined;

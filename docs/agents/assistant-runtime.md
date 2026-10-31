@@ -12,12 +12,15 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
   descriptions and schemas must describe the admitted executable capability.
 - The stream watchdog never judges a running tool.
   - AI SDK `onToolExecutionStart`/`onToolExecutionEnd` bracket each execution;
-    while any runs the watchdog has no window (the SDK's `chunkMs` also pauses).
+    while any runs the watchdog has no window.
   - Each tool is bounded by its own guard; a delegated child by its own run's
     watchdog and `maxChildRuntimeMs`.
   - Otherwise it distinguishes first provider output, reasoning activity and
     provider silence. SDK scaffolding is not provider output; reasoning alone is
     not an answer.
+  - `streamText`'s own `timeout` is not used: `firstChunkMs` starts after the
+    response headers, `chunkMs` is one window for reasoning and answer gaps,
+    and `stepMs` includes tool execution.
 - An expired tool guard cancels that tool call's work. A provider timeout aborts
   the provider attempt.
 - Native tools have a flat guard. An MCP tool's guard is an inactivity budget:
