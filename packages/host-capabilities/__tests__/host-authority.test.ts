@@ -14,16 +14,6 @@ function hostAuthority() {
   return { auth, credentials, memory };
 }
 
-test('factory reset drops every stored credential', async () => {
-  const { auth, credentials, memory } = hostAuthority();
-  try {
-    await expect(auth.clear()).resolves.toBe(true);
-    expect(memory.entries.size).toBe(0);
-  } finally {
-    await credentials.close();
-  }
-});
-
 test('Settings writes go through the host authority', async () => {
   const { auth, credentials, memory } = hostAuthority();
   try {

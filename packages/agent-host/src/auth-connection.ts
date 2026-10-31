@@ -37,5 +37,4 @@ export function bindHostAuthMethods(
   handle('auth/credential/delete', async ({ account }) => ({
     deleted: await desktop().deleteCredential(account),
   }));
-  handle('auth/clear', async () => ({ cleared: await desktop().clear() }));
 }

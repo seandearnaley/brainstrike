@@ -43,7 +43,6 @@ export function getSecretsService(): SecretsService {
     throw new Error('Main reads credentials only; the agent host owns every credential write');
   };
   return {
-    clearAll: refuseWrite,
     deleteKey: refuseWrite,
     getCredential: (provider) => service.getCredential(provider),
     getKey: (provider) => service.getKey(provider),

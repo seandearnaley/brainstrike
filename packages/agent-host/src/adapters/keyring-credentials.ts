@@ -252,20 +252,6 @@ export function createKeyringSecretsService(options: KeyringSecretsServiceOption
   };
 
   return {
-    async clearAll() {
-      let success = true;
-      const accounts = await options.credentials.listAccounts();
-      for (const target of accounts) {
-        if (options.providerForAccount(target) !== undefined) {
-          try {
-            await options.credentials.delete(target);
-          } catch {
-            success = false;
-          }
-        }
-      }
-      return success;
-    },
     async deleteKey(provider) {
       return await options.credentials.delete(account(provider));
     },

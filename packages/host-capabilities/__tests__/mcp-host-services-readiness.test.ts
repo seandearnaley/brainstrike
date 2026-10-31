@@ -10,7 +10,6 @@ const unused = (): never => {
 };
 const oauthStore: McpOAuthStore = {
   clear: unused,
-  clearAll: unused,
   read: unused,
   write: unused,
 };

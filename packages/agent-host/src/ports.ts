@@ -455,7 +455,6 @@ export interface HostRunAdmission {
 
 /** The host's single credential writer and token holder. */
 export interface HostAuthService {
-  clear(): Promise<boolean>;
   deleteCredential(account: string): Promise<boolean>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
   setCredential(account: string, credential: ProviderCredential): Promise<void>;

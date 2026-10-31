@@ -52,7 +52,6 @@ export interface McpOAuthStoreIdentity {
 
 export interface McpOAuthStore {
   clear(identity: McpOAuthStoreIdentity, signal?: AbortSignal): Promise<void>;
-  clearAll(signal?: AbortSignal): Promise<void>;
   /** Actual persistence completion; aborting a caller does not satisfy this join. */
   join?(): Promise<void>;
   read(identity: McpOAuthStoreIdentity, signal?: AbortSignal): Promise<McpOAuthRecords>;
@@ -65,16 +64,6 @@ export interface McpOAuthStore {
 
 export interface EncryptedStoreSchema {
   records: Record<string, string>;
-}
-
-const encryptedStores = new Set<McpOAuthStore>();
-const liveProviders = new Set<McpOAuthClientProvider>();
-
-export function registerMcpOAuthStore(store: McpOAuthStore): () => void {
-  encryptedStores.add(store);
-  return () => {
-    encryptedStores.delete(store);
-  };
 }
 
 export interface McpOAuthSafeStorage {
@@ -364,9 +353,6 @@ export function createSafeStorageMcpOAuthStore(
         store.set('records', next);
       }, signal);
     },
-    async clearAll(signal) {
-      await enqueue(() => store.set('records', {}), signal);
-    },
     async join() {
       await queueTail;
       if (cancelledNativeFailures.length > 0) {
@@ -407,7 +393,6 @@ export function createSafeStorageMcpOAuthStore(
       }, signal);
     },
   };
-  registerMcpOAuthStore(result);
   return result;
 }
 
@@ -445,9 +430,6 @@ export function createLazySafeStorageMcpOAuthStore(
     async clear(identity, signal) {
       await (await resolveForOperation(signal)).clear(identity, signal);
     },
-    async clearAll(signal) {
-      await (await resolveForOperation(signal)).clearAll(signal);
-    },
     async join() {
       const resolved = store ?? (pending ? await pending : undefined);
       await resolved?.join?.();
@@ -466,9 +448,6 @@ export function createInMemoryMcpOAuthStore(): McpOAuthStore {
   return {
     async clear(identity) {
       records.delete(identityKey(identity));
-    },
-    async clearAll() {
-      records.clear();
     },
     async read(identity) {
       return records.get(identityKey(identity)) ?? {};
@@ -696,11 +675,7 @@ export async function createMcpOAuthClientProvider(
     staleDiscoveryByIssuer.clear();
     callback.cancel();
     closePromise = joinCredentialCleanup(
-      [
-        writeTail,
-        options.store.join?.() ?? Promise.resolve(),
-        callback.close().then(() => liveProviders.delete(provider)),
-      ],
+      [writeTail, options.store.join?.() ?? Promise.resolve(), callback.close()],
       'MCP OAuth persistence or callback cleanup failed.'
     ).then(() => ({
       callbacksClosed: 1,
@@ -982,14 +957,5 @@ export async function createMcpOAuthClientProvider(
       options.signal.throwIfAborted();
     }
   }
-  liveProviders.add(provider);
   return provider;
-}
-/** Clears every live MCP OAuth provider and encrypted MCP OAuth store. */
-export async function purgeMcpOAuthRuntimeState(): Promise<void> {
-  await joinCredentialCleanup(
-    [...liveProviders].map(async (provider) => await provider.disconnect()),
-    'MCP OAuth reset completed with failures.',
-    () => [...encryptedStores].map(async (store) => await store.clearAll())
-  );
 }

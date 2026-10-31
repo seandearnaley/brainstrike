@@ -84,8 +84,6 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
           await credentials?.close();
         } catch (cause) {
           failures.push(cause);
-        } finally {
-          oauth?.unregister();
         }
         if (failures.length > 0) {
           throw new AggregateError(failures, 'Agent host adapter cleanup failed.');
@@ -123,7 +121,6 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
       // Settings and provider callers stop admitting work immediately. Runtime
       // cleanup retains the same underlying authority until its final writes join.
       const settingsSecrets: SecretsService = {
-        clearAll: () => guarded(() => secrets.clearAll()),
         deleteKey: (provider) => guarded(() => secrets.deleteKey(provider)),
         getCredential: (provider) => guarded(() => secrets.getCredential(provider)),
         getKey: (provider) => guarded(() => secrets.getKey(provider)),
