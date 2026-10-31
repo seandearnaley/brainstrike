@@ -166,6 +166,14 @@ function RewindPreviewRegion({
         No agent file edits are recorded after this message — only the conversation can be restored.
       </PreviewNotice>
     );
+  } else if (ready) {
+    // No changeset to show: the files scope is not offered, and the scope
+    // choice gives the owner's reason under its disabled option.
+    notice = (
+      <PreviewNotice testId="rewind-conversation-only" tone="muted">
+        Only the conversation can be restored; the reason is under the choices below.
+      </PreviewNotice>
+    );
   }
 
   return (
