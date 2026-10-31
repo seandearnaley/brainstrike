@@ -7,15 +7,19 @@ import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { captureResetLogs } from './utils/reset-log-capture';
 import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
+import { textReadiness } from './utils/text-search-mode';
+import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const FACTORY_RESET_BROWSER_CACHE_NAME = 'brainstrike-reset-e2e-cache';
 const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL = 'https://brainstrike.local/reset-e2e-cache-entry';
 const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-reset-e2e-indexed-db';
 const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:reset:e2e:local-storage';
 const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:reset:e2e:session-storage';
+const AFTER_RESET_REPLY = 'The fresh profile answers.';
 
 async function openTokenCountingSettings(
   homePage: HomePage,
@@ -153,6 +157,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     homePage,
     electronApp,
     electronHarness,
+    modelProvider,
   }, testInfo) => {
     const logs = captureResetLogs();
     logs.observeApp(electronApp.app);
@@ -175,8 +180,11 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
 
     // Two folders: the first opened with the workspace, the second added from the Explorer.
     const firstRoot = await electronApp.app.evaluate(
-      () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
+      () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH']
     );
+    if (!firstRoot) {
+      throw new Error('Disposable workspace fixture missing');
+    }
     const secondRoot = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), 'brainstrike-reset-root-'))
     );
@@ -196,6 +204,11 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       }, secondRoot);
       await window.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
       await expect(window.getByText('reset-folder-1.txt', { exact: true })).toBeVisible();
+      // The Explorer is renderer state: wait for the index's own readiness of both folders,
+      // since the new folder opens the next index generation (BST-2152).
+      await expect
+        .poll(() => textReadiness(window), { timeout: 60_000 })
+        .toEqual({ folders: 2, indexMode: 'text-only', kind: 'ready' });
       expect(await readNativeResetProbe(window, resetProbe)).toEqual({
         folders: 2,
         retainedProbeIds: [resetProbe.indexedFileId],
@@ -294,6 +307,16 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       await restartedHomePage.openSettings();
       await restartedSettingsPage.openCategory(/Permissions/iu, 'permissions');
       await expect(restarted.getByTestId('permission-policy-edit')).toHaveValue('ask');
+      // The fresh profile still runs an assistant turn once a key is saved again.
+      await configureAssistantProvider(restarted);
+      modelProvider.setScript({ finalText: AFTER_RESET_REPLY });
+      await ensureAssistantShellVisible(restarted);
+      const assistant = restarted.getByRole('region', { exact: true, name: 'Assistant' });
+      await assistant.getByRole('textbox', { name: 'Message input' }).fill('Hello after reset.');
+      await assistant.getByRole('button', { exact: true, name: 'Send' }).click();
+      await expect(assistant.getByText(AFTER_RESET_REPLY, { exact: true })).toBeVisible({
+        timeout: E2E_TIMEOUTS.messageVisibility,
+      });
     } finally {
       // Capture ordinary shutdown too; a known-looking shutdown error still fails.
       try {
