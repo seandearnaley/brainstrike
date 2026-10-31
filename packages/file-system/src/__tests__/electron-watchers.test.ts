@@ -41,6 +41,19 @@ describe('createFileSystemChangeBatcher', () => {
     batcher.dispose();
   });
 
+  it('emits a change repeated within the window once, at its latest position', () => {
+    const batcher = createFileSystemChangeBatcher(collect);
+    const removed: FileSystemChange = { kind: 'file', path: '/root/f1.txt', type: 'removed' };
+    batcher.enqueue(change(1));
+    batcher.enqueue(change(2));
+    batcher.enqueue(removed);
+    batcher.enqueue(change(1));
+    batcher.enqueue(change(2));
+    vi.advanceTimersByTime(FS_WATCH_BATCH_WINDOW_MS);
+    expect(batches).toEqual([[removed, change(1), change(2)]]);
+    batcher.dispose();
+  });
+
   it('flushes immediately when the bounded batch size is reached', () => {
     const batcher = createFileSystemChangeBatcher(collect);
     for (let i = 0; i < FS_WATCH_MAX_BATCH_SIZE; i += 1) {
