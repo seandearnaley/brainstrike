@@ -170,19 +170,21 @@ describe('AppLayout', () => {
     ).toBeTruthy();
   });
 
-  it('renders the app reload strip as the top row of the shell, above the navigation and content', () => {
+  it('renders the app reload strip above the content, beside the navigation rail', () => {
     render(
       <AppLayout config={mockConfig} currentPath="/">
         <div>Page Content</div>
       </AppLayout>
     );
 
+    // The rail owns the window's top-left corner (the macOS traffic lights),
+    // so the strip heads the content column instead of the whole window.
     const strip = screen.getByTestId('app-reload-strip');
-    const shell = strip.parentElement;
-    expect(shell).toHaveClass('flex', 'h-screen', 'flex-col');
-    expect(shell?.firstElementChild).toBe(strip);
-    expect(shell).toContainElement(screen.getByRole('main'));
-    expect(shell).toContainElement(screen.getByTestId('status-bar'));
+    const column = strip.parentElement;
+    expect(column?.firstElementChild).toBe(strip);
+    expect(column).toContainElement(screen.getByRole('main'));
+    expect(column).not.toContainElement(screen.getByTestId('navigation-sidebar'));
+    expect(column?.parentElement).toContainElement(screen.getByTestId('navigation-sidebar'));
   });
 
   it('mounts the session-wide retired-model notice hook exactly once (BST-565)', () => {

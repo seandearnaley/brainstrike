@@ -9,7 +9,7 @@ export function AssistantPanelLoadingState({ label }: { readonly label: string }
       role="status"
     >
       <div
-        className="border-border bg-muted/20 flex h-9 shrink-0 items-center gap-2 border-b px-2"
+        className="app-window-drag border-border bg-muted/20 flex h-9 shrink-0 items-center gap-2 border-b px-2"
         data-testid="assistant-panel-loading-tab-strip"
       >
         <div aria-hidden="true" className="bg-muted/55 size-7 rounded-full" />
