@@ -73,9 +73,8 @@ export function SavedBrowserOriginsSection({
       setRevision((value) => value + 1);
     } catch (cause) {
       setRemoveError(`Couldn't remove ${origin}: ${message(cause)}`);
-    } finally {
-      setRemoving(undefined);
     }
+    setRemoving(undefined);
   };
   const entries =
     listing.status === 'ready'
