@@ -319,6 +319,35 @@ it('discards the removed file plan and its proof so a returned identity cannot r
   });
 });
 
+it('lets a VECTOR scan skip a file only while its acknowledged plan has that scan profile', async () => {
+  const f = planFixture();
+  await f.scan();
+  const file = { ...f.file, contentHash: f.contentHash };
+  const { chunks } = f.plan;
+  expect(
+    await f.publication.verifyManifest({
+      files: [file],
+      profileHash: vectorProfileHash(hostedProfile),
+      scope,
+    })
+  ).toMatchObject({
+    acknowledged: [
+      {
+        chunks: chunks.map(({ content: _content, embeddingHash: _hash, ...chunk }) => chunk),
+        contentHash: f.contentHash,
+        fileId: file.fileId,
+      },
+    ],
+    changed: [],
+    complete: true,
+    missing: [],
+  });
+  const otherProfile = vectorProfileHash({ ...hostedProfile, modelId: 'text-embedding-3-large' });
+  expect(
+    await f.publication.verifyManifest({ files: [file], profileHash: otherProfile, scope })
+  ).toMatchObject({ acknowledged: [], changed: [file], complete: false });
+});
+
 it('preserves surviving complete proofs when an already-retired binding is acknowledged again', async () => {
   const f = planFixture();
   await f.scan();

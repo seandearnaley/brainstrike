@@ -36,6 +36,7 @@ function fixture(): CanonicalWorkspaceRuntimeDependencies {
       }),
       removeFile: async () => {},
       verifyManifest: async () => ({
+        acknowledged: [],
         changed: [],
         complete: true,
         missing: [],

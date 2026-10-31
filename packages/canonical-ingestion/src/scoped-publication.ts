@@ -140,7 +140,11 @@ export function createNativeCanonicalPublication(
 } {
   const states = new Map<string, ScanState>();
   const ownedScopes = scopes.map((scope) => ({ ...scope }));
-  const published = new Map<string, ScopedManifestFile>();
+  /** Each file's acknowledged plan in this lifetime, with the profile its vectors were written under. */
+  const published = new Map<
+    string,
+    { readonly manifest: ScopedManifestFile; readonly profileHash: string | null }
+  >();
   for (const scope of ownedScopes) {
     if (states.has(scopeKey(scope))) {
       throw new Error('Canonical publication scopes must be distinct.');
@@ -341,7 +345,7 @@ export function createNativeCanonicalPublication(
           ...(payload.syntax === undefined ? {} : { syntax: payload.syntax }),
         });
         assertFileCurrent();
-        published.set(file.fileId, manifest(plan));
+        published.set(file.fileId, { manifest: manifest(plan), profileHash: plan.profileHash });
         acknowledgePlan(ticket, plan);
       }),
     commitVectorFile: ({ file, plan, profile, embeddings, syntax, ticket }) =>
@@ -355,7 +359,7 @@ export function createNativeCanonicalPublication(
           ...(syntax === undefined ? {} : { syntax }),
         });
         assertFileCurrent();
-        published.set(file.fileId, manifest(plan));
+        published.set(file.fileId, { manifest: manifest(plan), profileHash: plan.profileHash });
         acknowledgePlan(ticket, plan);
       }),
     finishScan: async (request) => {
@@ -377,7 +381,7 @@ export function createNativeCanonicalPublication(
             return receipt(failure);
           }
           const files = request.files.map((file) => {
-            const stored = published.get(file.fileId);
+            const stored = published.get(file.fileId)?.manifest;
             if (!(stored && matches(file, stored)) || file.contentHash !== stored.contentHash) {
               throw new Error('Canonical full manifest has no matching acknowledged chunk plan.');
             }
@@ -469,21 +473,31 @@ export function createNativeCanonicalPublication(
       stateFor(scope);
       return writer.coverageScope({ profile, scope });
     },
-    verifyManifest: async ({ files, scope }) => {
+    verifyManifest: async ({ files, profileHash, scope }) => {
       stateFor(scope);
+      const acknowledged: ScopedManifestFile[] = [];
       const missing: CanonicalManifestFile[] = [];
       const changed: CanonicalManifestFile[] = [];
       for (const file of files) {
         const stored = published.get(file.fileId);
         if (!stored) {
           missing.push(file);
-        } else if (!matches(file, stored) || file.contentHash !== stored.contentHash) {
+        } else if (
+          !matches(file, stored.manifest) ||
+          file.contentHash !== stored.manifest.contentHash ||
+          (profileHash !== undefined && stored.profileHash !== profileHash)
+        ) {
           changed.push(file);
+        } else {
+          acknowledged.push(stored.manifest);
         }
       }
-      // Only an acknowledged same-lifetime canonical plan permits a stat skip.
-      // Reopening starts with no plans, forcing reads/parsing before the full native proof.
+      // Only an acknowledged same-lifetime canonical plan permits a stat skip, and for a VECTOR
+      // scan only one whose vectors were written under its profile: the scan declares that plan in
+      // its vector proof. Reopening starts with no plans, forcing reads/parsing before the full
+      // native proof.
       return {
+        acknowledged,
         changed,
         complete: missing.length === 0 && changed.length === 0,
         missing,

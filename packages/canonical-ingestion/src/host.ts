@@ -38,6 +38,7 @@ import {
   getDiscoveredSources,
   prepareDiscoveredSources,
   readCanonicalSource,
+  statCacheSkip,
 } from './source-preparation.ts';
 
 /**
@@ -448,35 +449,22 @@ export class CanonicalIngestionHost {
     );
     context.signal.throwIfAborted();
     const byId = authorizeBatch([...files, ...removed], authorized, request.scope);
-    const existingManifest = authorized.flatMap((file) =>
-      file.contentHash === null ? [] : [{ ...file, contentHash: file.contentHash }]
+    const { acknowledged, force } = await this.batchInventory(
+      request,
+      context,
+      ticket,
+      authorized,
+      profile
     );
-    const inventory = await publication.verifyManifest({
-      files: existingManifest,
-      scope: request.scope,
-    });
-    context.signal.throwIfAborted();
-    if (inventory.storeId !== ticket.storeId) {
-      throw new Error('Canonical native inventory changed stores during its scan.');
-    }
-    const force = new Set([
-      ...[...inventory.missing, ...inventory.changed].map((file) => file.fileId),
-      ...(request.forceFileIds ?? []),
-    ]);
     const manifest: CanonicalManifestFile[] = [];
     const reads: CanonicalPreparedRead[] = [];
     const removals = [...removed];
     for (const file of files) {
       context.signal.throwIfAborted();
-      const prior = byId.get(file.fileId);
-      if (
-        profile === undefined &&
-        prior &&
-        !force.has(file.fileId) &&
-        isStatCacheHit(file, prior) &&
-        prior.contentHash !== null
-      ) {
-        manifest.push({ ...file, contentHash: prior.contentHash });
+      const skipped = statCacheSkip(file, byId.get(file.fileId), force, acknowledged);
+      if (skipped) {
+        manifest.push({ ...file, contentHash: skipped.contentHash });
+        vectorFiles.push(...skipped.vectorPlans);
         continue;
       }
       const read = await readCanonicalSource(source, file, request.maxFileBytes, context);
@@ -557,6 +545,39 @@ export class CanonicalIngestionHost {
     return ineligible.size === 0
       ? manifest
       : manifest.filter((file) => !ineligible.has(file.fileId));
+  }
+  /** The batch's native inventory: the files to force and, for a VECTOR scan, its acknowledged plans. */
+  private async batchInventory(
+    request: CanonicalScanRequest,
+    context: CanonicalOperationContext,
+    ticket: CanonicalScanTicket,
+    authorized: readonly CanonicalCatalogFile[],
+    profile: VectorProfile | undefined
+  ): Promise<{
+    readonly acknowledged: ReadonlyMap<string, ScopedManifestFile> | undefined;
+    readonly force: ReadonlySet<string>;
+  }> {
+    const inventory = await this.dependencies.publication.verifyManifest({
+      files: authorized.flatMap((file) =>
+        file.contentHash === null ? [] : [{ ...file, contentHash: file.contentHash }]
+      ),
+      ...(profile === undefined ? {} : { profileHash: vectorProfileHash(profile) }),
+      scope: request.scope,
+    });
+    context.signal.throwIfAborted();
+    if (inventory.storeId !== ticket.storeId) {
+      throw new Error('Canonical native inventory changed stores during its scan.');
+    }
+    return {
+      acknowledged:
+        profile === undefined
+          ? undefined
+          : new Map(inventory.acknowledged.map((plan) => [plan.fileId, plan])),
+      force: new Set([
+        ...[...inventory.missing, ...inventory.changed].map((file) => file.fileId),
+        ...(request.forceFileIds ?? []),
+      ]),
+    };
   }
   private async publishVectors(
     inputs: readonly VectorFileInput[],
@@ -874,15 +895,6 @@ function sameTicket(left: CanonicalScanTicket, right: CanonicalScanTicket): bool
     left.requestId === right.requestId &&
     left.generation === right.generation &&
     sameScope(left.scope, right.scope)
-  );
-}
-function isStatCacheHit(file: CanonicalSourceFile, prior: CanonicalCatalogFile): boolean {
-  return (
-    prior.chunksProcessed &&
-    prior.stat.mtimeMs !== null &&
-    file.stat.mtimeMs !== null &&
-    prior.stat.size === file.stat.size &&
-    prior.stat.mtimeMs === Math.floor(file.stat.mtimeMs)
   );
 }
 function authorizeBatch(

@@ -142,6 +142,11 @@ export interface CanonicalScanTicket {
   readonly storeId: string;
 }
 export interface CanonicalManifestResult {
+  /**
+   * The acknowledged chunk plan of each requested file that is neither missing nor changed: what
+   * a VECTOR scan that skips the file declares for it in its vector proof.
+   */
+  readonly acknowledged: readonly ScopedManifestFile[];
   readonly changed: readonly CanonicalManifestFile[];
   readonly complete: boolean;
   readonly missing: readonly CanonicalManifestFile[];
@@ -197,6 +202,8 @@ export interface CanonicalPublicationPort {
   }): Promise<void>;
   verifyManifest(request: {
     readonly files: readonly CanonicalManifestFile[];
+    /** A VECTOR scan's profile: a file whose acknowledged plan has another profile is changed. */
+    readonly profileHash?: string;
     readonly scope: CanonicalSourceScope;
   }): Promise<CanonicalManifestResult>;
 }
