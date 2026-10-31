@@ -14,7 +14,7 @@
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import { createWorkerRuntimeClient, type WorkerRuntimeClient } from '@brainstrike/worker-runtime';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type {
   IndexerBatchRequest,
   IndexerError,
@@ -24,6 +24,11 @@ import type {
   WorkerLog,
   WorkerResponse,
 } from './background-indexer-protocol';
+import {
+  type PendingBatchTracker,
+  rejectBatchTrackers,
+  settleBatchTrackers,
+} from './batch-trackers';
 import { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
 import { emitIndexedFile, emitIndexingBacklog, emitIndexingError } from './telemetry';
 import type { TokenCacheEntry, TokenCacheStoreLike, TokenCountingMode } from './types';
@@ -154,13 +159,6 @@ function createRequestId(): string {
   return `req_${generateUUID()}`;
 }
 
-interface PendingBatchTracker {
-  done: boolean;
-  reject: (error: Error) => void;
-  remainingCompositeKeys: Set<string>;
-  resolve: () => void;
-}
-
 /**
  * Factory function to create a new worker instance.
  * Uses the URL resolver pattern which is compatible with both Vite and tsup builds.
@@ -284,38 +282,15 @@ export function useBackgroundTokenIndexer({
 
   const settleBatchTrackersForCompositeKey = useCallback((compositeKey: string) => {
     const trackers = pendingBatchTrackersRef.current;
-    if (trackers.length === 0) {
-      return;
+    if (trackers.length > 0) {
+      pendingBatchTrackersRef.current = settleBatchTrackers(trackers, compositeKey);
     }
-
-    const remainingTrackers: PendingBatchTracker[] = [];
-    for (const tracker of trackers) {
-      if (tracker.done) {
-        continue;
-      }
-
-      tracker.remainingCompositeKeys.delete(compositeKey);
-      if (tracker.remainingCompositeKeys.size === 0) {
-        tracker.done = true;
-        tracker.resolve();
-      } else {
-        remainingTrackers.push(tracker);
-      }
-    }
-
-    pendingBatchTrackersRef.current = remainingTrackers;
   }, []);
 
   const rejectAllPendingBatchTrackers = useCallback((error: Error) => {
     const trackers = pendingBatchTrackersRef.current;
     pendingBatchTrackersRef.current = [];
-    for (const tracker of trackers) {
-      if (tracker.done) {
-        continue;
-      }
-      tracker.done = true;
-      tracker.reject(error);
-    }
+    rejectBatchTrackers(trackers, error);
   }, []);
 
   const disposeCurrentWorker = useCallback(() => {
@@ -830,9 +805,11 @@ export function useBackgroundTokenIndexer({
     [settleBatchTrackersForCompositeKey]
   );
 
-  handleResultRef.current = handleResult;
-  handleProgressRef.current = handleProgress;
-  handleErrorRef.current = handleError;
+  useLayoutEffect(() => {
+    handleResultRef.current = handleResult;
+    handleProgressRef.current = handleProgress;
+    handleErrorRef.current = handleError;
+  });
 
   /**
    * Queue files for background indexing.

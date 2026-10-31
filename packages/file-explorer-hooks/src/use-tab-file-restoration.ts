@@ -15,7 +15,7 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useTabFileRestoration');
@@ -444,7 +444,9 @@ export function useTabFileRestoration(
 
   // Store restoreTabs in a ref to avoid useEffect re-running when callback changes
   const restoreTabsRef = useRef(restoreTabs);
-  restoreTabsRef.current = restoreTabs;
+  useLayoutEffect(() => {
+    restoreTabsRef.current = restoreTabs;
+  });
 
   // Auto-restore tabs on mount/when tabs change
   useEffect(() => {

@@ -10,7 +10,7 @@ import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
 import { useWorkspaceTrustRevision } from './workspace-trust/workspace-trust-revision';
@@ -105,9 +105,13 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
   // Keep the latest threadId + toast in refs so `execute` reads current values at
   // call time without rebuilding every command closure on each thread switch.
   const threadIdRef = useRef(threadId);
-  threadIdRef.current = threadId;
+  useLayoutEffect(() => {
+    threadIdRef.current = threadId;
+  });
   const toastRef = useRef(toast);
-  toastRef.current = toast;
+  useLayoutEffect(() => {
+    toastRef.current = toast;
+  });
 
   // Monotonic generation guard (mirrors the workspace-search store): EVERY
   // reload trigger — mount, roots change, and the visibilitychange refresh that

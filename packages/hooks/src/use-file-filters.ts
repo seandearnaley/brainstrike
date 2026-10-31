@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { processFilter } from '@brainstrike/utils/filter-utils';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import {
   arraysEqual,
   createFilterFunctions,
@@ -69,7 +69,9 @@ export function useFileFilters() {
   });
   const [filterError, setFilterError] = useState<string | null>(null);
   const filterErrorRef = useRef(filterError);
-  filterErrorRef.current = filterError;
+  useLayoutEffect(() => {
+    filterErrorRef.current = filterError;
+  });
 
   const applyFileFilters = useCallback(
     (

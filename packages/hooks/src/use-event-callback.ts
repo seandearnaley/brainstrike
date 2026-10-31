@@ -43,6 +43,5 @@ export function useEventCallback<T extends (...args: never[]) => unknown>(callba
   // `(...args: Parameters<T>) => ReturnType<T>` which is not structurally
   // identical to T (T could carry extra properties or a `this` type).  For an
   // internal hook scoped to plain event handlers this is safe.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   return useCallback((...args: Parameters<T>) => callbackRef.current(...args), []) as T;
 }

@@ -372,7 +372,8 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   const [editValue, setEditValue] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
-  const autoDensityRef = useRef<ResolvedPaginationDensity>('full');
+  // The density last shown: auto density keeps it within the hysteresis band.
+  const [settledDensity, setSettledDensity] = useState<ResolvedPaginationDensity>('full');
   const displayPage = currentPage + 1;
 
   // When focused, show user's edit; when not focused, always show current page
@@ -460,7 +461,6 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   useIsomorphicLayoutEffect(() => {
     // Reduce initial-density flash by measuring once on mount before paint when possible.
     if (density !== 'auto') {
-      autoDensityRef.current = density;
       return;
     }
     const container = containerRef.current;
@@ -481,14 +481,12 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
 
   const isFirstPage = currentPage === 0;
   const isLastPage = currentPage === totalPages - 1 || totalPages === 0;
-  const resolvedDensity = useMemo(
-    () => resolvePaginationDensity(density, containerWidth, autoDensityRef.current),
-    [density, containerWidth]
-  );
-
-  useIsomorphicLayoutEffect(() => {
-    autoDensityRef.current = resolvedDensity;
-  }, [resolvedDensity]);
+  // State adjusted during render: resolving again from the settled density
+  // returns it unchanged, so this settles after one extra pass.
+  const resolvedDensity = resolvePaginationDensity(density, containerWidth, settledDensity);
+  if (resolvedDensity !== settledDensity) {
+    setSettledDensity(resolvedDensity);
+  }
 
   const isReducedDensity = resolvedDensity !== 'full';
   const isMicroDensity = resolvedDensity === 'micro';

@@ -1,7 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, RootDescriptor, StoredRootDescriptor } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
 import { useAdapters } from './adapters-context.js';
 import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers.js';
 
@@ -416,9 +416,13 @@ export function useFileSystem({
   // Stable refs for callbacks that must be fresh at call time but should not
   // trigger effect re-runs (avoids infinite loops from unstable inline fn refs).
   const getFolderAccessOrderRef = useRef(getFolderAccessOrder);
-  getFolderAccessOrderRef.current = getFolderAccessOrder;
+  useLayoutEffect(() => {
+    getFolderAccessOrderRef.current = getFolderAccessOrder;
+  });
   const setActiveRootsRef = useRef(setActiveRoots);
-  setActiveRootsRef.current = setActiveRoots;
+  useLayoutEffect(() => {
+    setActiveRootsRef.current = setActiveRoots;
+  });
 
   const updateCurrentFolderId = useCallback(
     (folderId: string | null) => {
