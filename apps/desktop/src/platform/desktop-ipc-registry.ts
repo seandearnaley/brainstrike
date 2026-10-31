@@ -17,6 +17,7 @@ export type DesktopIpcDomain =
   | 'threadGroups'
   | 'viewFilterPresets'
   | 'agent'
+  | 'appUpdates'
   | 'browser'
   | 'clipboard'
   | 'contextFiles'
