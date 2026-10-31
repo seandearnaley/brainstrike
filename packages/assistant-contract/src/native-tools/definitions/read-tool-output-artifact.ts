@@ -3,6 +3,12 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { ReadToolOutputArtifactCursorInputSchema } from '../schemas/schemas-artifacts.ts';
 
 export const readToolOutputArtifact = defineNativeTool({
+  activity: {
+    active: 'Reading output',
+    done: 'Read output',
+    family: 'read',
+    request: 'Read output',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 150,

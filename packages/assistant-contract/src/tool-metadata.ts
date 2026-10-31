@@ -17,6 +17,7 @@ export {
   type WebNativeToolId,
 } from './native-tool-catalog.ts';
 export {
+  type ActivityFileCountMode,
   DEFERRED_CAPABILITY_FAMILY_PHRASES,
   DESKTOP_NATIVE_TOOLS,
   type DeferredCapabilityFamily,
@@ -31,6 +32,7 @@ export {
   NATIVE_TOOL_REGISTRIES,
   NATIVE_TOOLS,
   type NativeTool,
+  type NativeToolActivity,
   type NativeToolDefinition,
   type NativeToolDiscoveryNamespace,
   type NativeToolExecutionBudget,
@@ -44,6 +46,8 @@ export {
   type SkillNativeTool,
   type SkillNativeToolDefinition,
   toNativeToolKey,
+  VERB_FAMILIES,
+  type VerbFamily,
 } from './native-tools/index.ts';
 
 export {

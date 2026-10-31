@@ -4,6 +4,13 @@ import { BrowserSelectOptionInputSchema } from '../schemas/schemas-browser.ts';
 
 // BST-2324: picks options of a <select>, matching Playwright's selectOption.
 export const browserSelectOption = defineNativeTool({
+  activity: {
+    active: 'Selecting',
+    done: 'Selected',
+    family: 'web',
+    request: 'Select',
+    targetArg: 'element',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 110,

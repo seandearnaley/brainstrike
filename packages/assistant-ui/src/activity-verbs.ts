@@ -2,85 +2,32 @@ import {
   denormalizeNativeToolName,
   HOST_META_TOOL_ID,
   type HostMetaToolId,
+  isNativeToolId,
   NATIVE_TOOL_ID,
+  NATIVE_TOOL_REGISTRIES,
+  type NativeToolActivity,
   type NativeToolId,
+  type VerbFamily,
 } from '@brainstrike/assistant-contract';
 import type { ManageCanvasInput } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
 import { personaLabelForToolName } from './subagent-persona-label';
 
 /**
- * Every verb family, as a single source of truth (BST-1685): `VerbFamily` is
- * derived from this tuple rather than declared as a parallel union, so a
- * test iterating families (`activity-step-icons.test.tsx`) can import the
- * runtime list instead of hand-maintaining its own copy that could drift
- * from the type.
+ * How a step reads in the activity trace. A native tool's verb is the
+ * `activity` its own definition declares; everything here adds the readings
+ * of calls outside the catalog.
  */
-export const VERB_FAMILIES = [
-  'ask',
-  'call',
-  'canvas',
-  'delegate',
-  'edit',
-  'memory',
-  'other',
-  'read',
-  'run',
-  'search',
-  'skill',
-  'tasks',
-  'tools',
-  'web',
-  'worktree',
-] as const;
-
-export type VerbFamily = (typeof VERB_FAMILIES)[number];
-
-/**
- * Whether the resting summary folds this verb's distinct targets into a file
- * count, and from which count. Set ONLY on verbs whose target IS a file —
- * never inferred from the family, since `read` also covers directory listings,
- * artifact reads and context reads ("Listed 2 files" was the defect).
- * `'always'` counts from one ("Edited 1 file": an edit names its file even
- * alone); `'plural'` counts only from two ("Read 2 files", but a single read
- * stays the bare "Read").
- */
-type ActivityFileCountMode = 'always' | 'plural';
-
-export interface ActivityVerb {
-  /** Present participle while the step runs: "Reading". */
-  readonly active: string;
-  /** Set only on file-targeted verbs; see `ActivityFileCountMode`. */
-  readonly countsFiles?: ActivityFileCountMode;
-  /** Past tense once it settled: "Read". */
-  readonly done: string;
-  /** Icon/colour family for the step row (phase 3) and summary grouping. */
-  readonly family: VerbFamily;
+export interface ActivityVerb extends NativeToolActivity {
   /**
    * Set on the generic fallbacks ("Calling server.tool", "Using x"), whose
    * wording already carries the tool id — so a row must not repeat the id as
    * its target chip (it would read "Called legacy.echo · legacy.echo").
    */
   readonly namesTool?: true;
-  /**
-   * The action as it was asked for, neither running nor done: "Run skill
-   * script". A call that never ran (declined or blocked) and an approval,
-   * which names the action it asks for, read this form.
-   */
-  readonly request: string;
-  /**
-   * The argument that names the step's target chip. Absent: the generic
-   * reading (`extractPrimaryArg`'s priority keys, then the first string). A
-   * key: that argument alone; several keys: the first present (a list of
-   * names reads as one list). `null`: the arguments name no target at all —
-   * they carry content (working memory's markdown, a canvas's HTML), which is
-   * never a target.
-   */
-  readonly targetArg?: string | readonly string[] | null;
 }
 
 interface VerbOptions {
-  readonly countsFiles?: ActivityFileCountMode;
   readonly namesTool?: true;
   readonly targetArg?: string | readonly string[] | null;
 }
@@ -100,150 +47,6 @@ const namingVerb = (
   request: string,
   family: VerbFamily
 ): ActivityVerb => verb(active, done, request, family, { namesTool: true });
-
-/** A verb whose target is a file, so the resting summary folds a file count. */
-const fileVerb = (
-  active: string,
-  done: string,
-  request: string,
-  family: VerbFamily,
-  countsFiles: ActivityFileCountMode
-): ActivityVerb => verb(active, done, request, family, { countsFiles });
-
-/**
- * One entry per native tool id. The table is total over `NATIVE_TOOL_IDS`
- * (pinned by activity-verbs.test.ts), so adding a native tool without a verb
- * fails the suite instead of silently reading "Using brainstrike.x".
- *
- * `NATIVE_TOOL_IDS` includes the `brainstrike.*` desktop ids plus the three
- * Mastra-native Agent Skills ids (`skill`, `skill_read`, `skill_search`,
- * deliberately unprefixed — see native-tools/definitions/skill.ts).
- *
- * `manageCanvas` here is the reading before its call's action is known (a
- * streaming input); {@link verbForTool} reads the action once it is.
- */
-export const TOOL_VERBS: Readonly<Record<NativeToolId, ActivityVerb>> = Object.freeze({
-  [NATIVE_TOOL_ID.askUser]: verb('Asking', 'Asked', 'Ask', 'ask'),
-  // The page's acting tools name the element the person approves (BST-2324).
-  [NATIVE_TOOL_ID.browserClick]: verb('Clicking', 'Clicked', 'Click', 'web', {
-    targetArg: 'element',
-  }),
-  [NATIVE_TOOL_ID.browserGetPageText]: verb(
-    'Reading page text',
-    'Read page text',
-    'Read page text',
-    'web'
-  ),
-  [NATIVE_TOOL_ID.browserNavigate]: verb('Opening', 'Opened', 'Open', 'web'),
-  [NATIVE_TOOL_ID.browserReadPage]: verb('Reading page', 'Read page', 'Read page', 'web'),
-  [NATIVE_TOOL_ID.browserSelectOption]: verb('Selecting', 'Selected', 'Select', 'web', {
-    targetArg: 'element',
-  }),
-  [NATIVE_TOOL_ID.browserType]: verb('Typing into', 'Typed into', 'Type into', 'web', {
-    targetArg: 'element',
-  }),
-  [NATIVE_TOOL_ID.deleteWorkspaceFile]: fileVerb('Deleting', 'Deleted', 'Delete', 'edit', 'always'),
-  [NATIVE_TOOL_ID.executeCommand]: verb('Running', 'Ran', 'Run', 'run'),
-  [NATIVE_TOOL_ID.findWorkspaceSymbol]: verb('Inspecting', 'Inspected', 'Inspect', 'search'),
-  [NATIVE_TOOL_ID.globWorkspace]: verb('Finding files', 'Found files', 'Find files', 'search'),
-  [NATIVE_TOOL_ID.grepSearch]: verb('Searching', 'Searched', 'Search', 'search'),
-  [NATIVE_TOOL_ID.hybridSearch]: verb('Searching', 'Searched', 'Search', 'search'),
-  [NATIVE_TOOL_ID.inspectCommandSessions]: verb(
-    'Inspecting sessions',
-    'Inspected sessions',
-    'Inspect sessions',
-    'run'
-  ),
-  [NATIVE_TOOL_ID.listEmbeddingSpaces]: verb(
-    'Listing embedding spaces',
-    'Listed embedding spaces',
-    'List embedding spaces',
-    'search'
-  ),
-  [NATIVE_TOOL_ID.listWorkspaceContext]: verb(
-    'Listing context',
-    'Listed context',
-    'List context',
-    'read'
-  ),
-  [NATIVE_TOOL_ID.listWorktrees]: verb(
-    'Listing worktrees',
-    'Listed worktrees',
-    'List worktrees',
-    'worktree'
-  ),
-  [NATIVE_TOOL_ID.lspInspect]: verb('Inspecting', 'Inspected', 'Inspect', 'search'),
-  [NATIVE_TOOL_ID.manageCanvas]: verb(
-    'Managing canvas',
-    'Managed canvas',
-    'Manage canvas',
-    'canvas',
-    {
-      targetArg: null,
-    }
-  ),
-  [NATIVE_TOOL_ID.manageCommandSession]: verb('Running', 'Ran', 'Run', 'run'),
-  [NATIVE_TOOL_ID.manageTaskList]: verb('Updating tasks', 'Updated tasks', 'Update tasks', 'tasks'),
-  [NATIVE_TOOL_ID.manageWorktree]: verb(
-    'Updating worktree',
-    'Updated worktree',
-    'Update worktree',
-    'worktree'
-  ),
-  [NATIVE_TOOL_ID.queryDiagnostics]: verb('Inspecting', 'Inspected', 'Inspect', 'search'),
-  [NATIVE_TOOL_ID.queryEmbeddingSpace]: verb('Searching', 'Searched', 'Search', 'search'),
-  [NATIVE_TOOL_ID.readToolOutputArtifact]: verb(
-    'Reading output',
-    'Read output',
-    'Read output',
-    'read'
-  ),
-  [NATIVE_TOOL_ID.readWorkspaceContext]: verb(
-    'Reading context',
-    'Read context',
-    'Read context',
-    'read'
-  ),
-  [NATIVE_TOOL_ID.readWorkspaceDirectory]: verb('Listing', 'Listed', 'List', 'read'),
-  [NATIVE_TOOL_ID.readWorkspaceFile]: fileVerb('Reading', 'Read', 'Read', 'read', 'plural'),
-  [NATIVE_TOOL_ID.renameWorkspaceFile]: fileVerb('Renaming', 'Renamed', 'Rename', 'edit', 'always'),
-  [NATIVE_TOOL_ID.runPython]: verb('Running', 'Ran', 'Run', 'run'),
-  [NATIVE_TOOL_ID.runSkillScript]: verb(
-    'Running skill script',
-    'Ran skill script',
-    'Run skill script',
-    'skill'
-  ),
-  [NATIVE_TOOL_ID.skill]: verb('Activating skill', 'Activated skill', 'Activate skill', 'skill'),
-  [NATIVE_TOOL_ID.skillRead]: verb(
-    'Reading skill file',
-    'Read skill file',
-    'Read skill file',
-    'skill'
-  ),
-  [NATIVE_TOOL_ID.skillSearch]: verb(
-    'Searching skills',
-    'Searched skills',
-    'Search skills',
-    'skill'
-  ),
-  [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: fileVerb(
-    'Editing',
-    'Edited',
-    'Edit',
-    'edit',
-    'always'
-  ),
-  [NATIVE_TOOL_ID.submitPlan]: verb('Proposing plan', 'Proposed plan', 'Propose plan', 'ask'),
-  [NATIVE_TOOL_ID.webExtract]: verb('Fetching', 'Fetched', 'Fetch', 'web'),
-  [NATIVE_TOOL_ID.webSearch]: verb(
-    'Searching the web',
-    'Searched the web',
-    'Search the web',
-    'web'
-  ),
-  [NATIVE_TOOL_ID.writeWorkspaceFile]: fileVerb('Editing', 'Edited', 'Edit', 'edit', 'always'),
-});
 
 /**
  * The host's own model-facing tools beside its native catalog (tool
@@ -301,10 +104,6 @@ const CANVAS_ACTION_VERBS: Readonly<Record<CanvasAction, ActivityVerb>> = Object
   update: verb('Updating canvas', 'Updated canvas', 'Update canvas', 'canvas', { targetArg: null }),
 });
 
-function isNativeToolId(name: string): name is NativeToolId {
-  return Object.hasOwn(TOOL_VERBS, name);
-}
-
 function isHostMetaToolId(name: string): name is HostMetaToolId {
   return Object.hasOwn(HOST_META_VERBS, name);
 }
@@ -322,7 +121,9 @@ function readCanvasAction(args: unknown): CanvasAction | undefined {
 
 function nativeVerb(id: NativeToolId, args: unknown): ActivityVerb {
   const action = id === NATIVE_TOOL_ID.manageCanvas ? readCanvasAction(args) : undefined;
-  return action === undefined ? TOOL_VERBS[id] : CANVAS_ACTION_VERBS[action];
+  return action === undefined
+    ? NATIVE_TOOL_REGISTRIES.byId[id].activity
+    : CANVAS_ACTION_VERBS[action];
 }
 
 /**

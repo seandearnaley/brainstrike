@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import { VERB_FAMILIES } from '@brainstrike/assistant-contract';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { type StepGlyphState, StepStateGlyph } from '../activity-step-icons';
 import { FAMILY_ICONS, STEP_STATE_LABELS } from '../activity-step-tokens';
-import { VERB_FAMILIES } from '../activity-verbs';
 
 describe('FAMILY_ICONS', () => {
   it('has an icon for every verb family', () => {

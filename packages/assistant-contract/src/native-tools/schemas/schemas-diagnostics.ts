@@ -64,20 +64,6 @@ export const QueryDiagnosticsInputSchema = Schema.Struct({
 export type QueryDiagnosticsInput = typeof QueryDiagnosticsInputSchema.Type;
 
 // ============================================================================
-// Queue Status Tool Schema
-// ============================================================================
-
-export const QueueStatusInputSchema = Schema.Struct({
-  embeddingSetId: Schema.optionalKey(
-    nonEmpty.annotate({
-      description: 'Optional: filter to specific embedding set',
-    })
-  ),
-});
-
-export type QueueStatusInput = typeof QueueStatusInputSchema.Type;
-
-// ============================================================================
 // Embedding Sets Tool Schemas
 // ============================================================================
 
@@ -93,20 +79,6 @@ export const ListEmbeddingSetsInputSchema = Schema.Struct({
 });
 
 export type ListEmbeddingSetsInput = typeof ListEmbeddingSetsInputSchema.Type;
-
-// ============================================================================
-// System Diagnostics Tool Schema
-// ============================================================================
-
-export const SystemDiagnosticsInputSchema = Schema.Struct({
-  categories: Schema.optionalKey(
-    Schema.Array(Schema.Literals(['database', 'queue', 'worker', 'storage', 'all'])).annotate({
-      description: 'Diagnostic categories to check',
-    })
-  ),
-});
-
-export type SystemDiagnosticsInput = typeof SystemDiagnosticsInputSchema.Type;
 
 // ============================================================================
 // Re-embed Collection Tool Schema

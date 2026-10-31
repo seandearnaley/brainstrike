@@ -8,6 +8,7 @@ import { LspInspectInputSchema } from '../schemas/schemas-search.ts';
 // other workspace readers. Desktop-only (spawns a server child process);
 // web omits it.
 export const lspInspect = defineNativeTool({
+  activity: { active: 'Inspecting', done: 'Inspected', family: 'search', request: 'Inspect' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 160,

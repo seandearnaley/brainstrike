@@ -8,6 +8,12 @@ import { BrowserGetPageTextInputSchema } from '../schemas/schemas-browser.ts';
 // so file:/devtools:/chrome: can never be reached. Write-actions
 // (click/type/form_input) arrive in PR3 as gated 'edit' tools.
 export const browserGetPageText = defineNativeTool({
+  activity: {
+    active: 'Reading page text',
+    done: 'Read page text',
+    family: 'web',
+    request: 'Read page text',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 100,

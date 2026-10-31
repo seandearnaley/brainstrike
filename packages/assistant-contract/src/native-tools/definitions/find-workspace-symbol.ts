@@ -3,6 +3,7 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { FindWorkspaceSymbolInputSchema } from '../schemas/schemas-workspace.ts';
 
 export const findWorkspaceSymbol = defineNativeTool({
+  activity: { active: 'Inspecting', done: 'Inspected', family: 'search', request: 'Inspect' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 150,
