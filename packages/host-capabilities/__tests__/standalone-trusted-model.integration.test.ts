@@ -327,14 +327,23 @@ test("the standalone host loads a trusted launch root's instructions and the hom
   expect(ran.result, ran.result.stderr).toMatchObject({ code: 0 });
   const events = (ran.rows ?? []).map((row) => row.event);
   const started = z
-    .object({ snapshot: z.object({ configuration: z.object({ system: z.string() }) }) })
+    .object({
+      snapshot: z.object({
+        configuration: z.object({ childSystem: z.string(), system: z.string() }),
+      }),
+    })
     .parse(
       events.find((event) => event.type === 'run.started'),
       { reportInput: true }
     );
+  const { childSystem, system } = started.snapshot.configuration;
   // The run's instructions carry the root's AGENTS.md and the home skill's catalog entry.
-  expect(started.snapshot.configuration.system).toContain('Every answer cites its ticket.');
-  expect(started.snapshot.configuration.system).toContain('release-notes');
+  expect(system).toContain('Every answer cites its ticket.');
+  expect(system).toContain('release-notes');
+  // A delegated child inherits the same workspace context, not the parent's own prompt.
+  expect(childSystem).toContain('Every answer cites its ticket.');
+  expect(childSystem).toContain('release-notes');
+  expect(system.length).toBeGreaterThan(childSystem.length);
   // The model reads the skill's instructions, loaded from disk by this host.
   const result = recordedToolResults(ran.rows).find(
     ({ toolCallId }) => toolCallId === 'recorded-call-2'

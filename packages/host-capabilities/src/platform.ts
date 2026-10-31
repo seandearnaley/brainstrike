@@ -243,6 +243,8 @@ async function standaloneWorkspaceContext(
     readonly system: string;
   }
 ): Promise<{
+  /** The workspace context a delegated child inherits (`deriveHostChildAdmission`). */
+  readonly childFields: { readonly childSystem?: string };
   readonly referencedFileFailures: readonly ReferencedFileFailure[];
   readonly system: string;
   readonly workspaceSkills: ScannedWorkspaceSkills;
@@ -258,10 +260,16 @@ async function standaloneWorkspaceContext(
     throw new Error('The standalone host scanned no skills engine');
   }
   if (request.snapshot) {
+    const committed = request.snapshot.configuration;
+    const childSystem = wireDecoder(Schema.optional(Schema.String), {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(committed['childSystem']);
     return {
+      childFields: childSystem === undefined ? {} : { childSystem },
       referencedFileFailures: [],
       system: wireDecoder(Schema.String, { errors: 'all', onExcessProperty: 'error' })(
-        request.snapshot.configuration['system']
+        committed['system']
       ),
       workspaceSkills,
     };
@@ -272,11 +280,15 @@ async function standaloneWorkspaceContext(
     runtime: options.runtime,
     workspaceSkills,
   });
+  const joined = (sections: readonly (string | undefined)[]): string =>
+    sections.filter((section): section is string => Boolean(section)).join('\n\n');
+  // A child runs on its persona's instructions plus this shared workspace
+  // context (instructions, skills catalog), never the parent's own prompt.
+  const shared = joined([context.skillsCatalog, ...context.injected]);
   return {
+    childFields: shared === '' ? {} : { childSystem: shared },
     referencedFileFailures: context.referencedFileFailures,
-    system: [options.system, context.skillsCatalog, ...context.injected]
-      .filter((section): section is string => Boolean(section))
-      .join('\n\n'),
+    system: joined([options.system, shared]),
     workspaceSkills,
   };
 }
@@ -506,9 +518,11 @@ export async function createHostPlatform(
       });
       return {
         configuration,
+        ...workspaceContext.childFields,
         delegation: resolveHostDelegation({ subagents }, configurationRoots, false),
         durableConfiguration: {
           capabilities,
+          ...workspaceContext.childFields,
           intent,
           // Recovery and a wake run on the instructions the run started with.
           system: workspaceContext.system,
