@@ -1,4 +1,3 @@
-import { useEventCallback } from '@brainstrike/hooks';
 import { type FocusEvent, type RefObject, useEffect, useRef } from 'react';
 import { isFocusLost } from '../lib/focus';
 import { findSelectedTab, findTab, focusFirstTrailingControl, revealTab } from './tab-strip-dom';
@@ -32,26 +31,26 @@ export function useTabStripFocus({
   const pointerFocusRef = useRef(false);
   const hasRevealedRef = useRef(false);
 
-  const focusTab = useEventCallback((id: string): void => {
+  const focusTab = (id: string): void => {
     const element = findTab(rootRef.current, id);
     element?.focus();
     revealTab(element, false);
-  });
-  const focusTabAfterCommit = useEventCallback((id: string): void => {
+  };
+  const focusTabAfterCommit = (id: string): void => {
     window.requestAnimationFrame(() => focusTab(id));
-  });
+  };
   const focusFallbackNow = (): void => {
     if (!focusFirstTrailingControl(trailingRef.current)) {
       tablistRef.current?.focus();
     }
   };
-  const focusFallback = useEventCallback((): void => {
+  const focusFallback = (): void => {
     window.requestAnimationFrame(focusFallbackNow);
-  });
+  };
   // The ✕ and middle-click never take focus, but closing the active tab
   // unmounts its panel: focus inside it falls to body. Only then move it to the
   // newly selected tab; focus that survived the close stays where it is.
-  const focusAfterPointerClose = useEventCallback((): void => {
+  const focusAfterPointerClose = (): void => {
     window.requestAnimationFrame(() => {
       if (!isFocusLost()) {
         return;
@@ -63,8 +62,8 @@ export function useTabStripFocus({
       }
       focusFallbackNow();
     });
-  });
-  const handleTablistPointerDown = useEventCallback((): void => {
+  };
+  const handleTablistPointerDown = (): void => {
     // Focus from a press lands in the same task as pointerdown; clear the flag
     // on the next frame so a press that yields NO focus (the mouse-only close
     // button, Safari buttons) cannot suppress a later keyboard reveal.
@@ -72,8 +71,8 @@ export function useTabStripFocus({
     window.requestAnimationFrame(() => {
       pointerFocusRef.current = false;
     });
-  });
-  const handleTablistFocus = useEventCallback((event: FocusEvent<HTMLDivElement>): void => {
+  };
+  const handleTablistFocus = (event: FocusEvent<HTMLDivElement>): void => {
     const fromPointer = pointerFocusRef.current;
     pointerFocusRef.current = false;
     if (fromPointer) {
@@ -82,7 +81,7 @@ export function useTabStripFocus({
     if (event.target instanceof HTMLElement && event.target.matches('[role="tab"]')) {
       revealTab(event.target, false);
     }
-  });
+  };
 
   // Imperative scroll-into-view synced to a prop that changes from outside the
   // strip (store, All-tabs menu).

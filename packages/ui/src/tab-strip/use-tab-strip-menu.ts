@@ -49,10 +49,10 @@ export function useTabStripMenu({
     menuOriginRef.current = id;
     setTarget(contextMenu?.getTabTarget(id) ?? null);
   });
-  const handleStripContextMenuCapture = useEventCallback((): void => {
+  const handleStripContextMenuCapture = (): void => {
     claimedThisEventRef.current = false;
     setTarget(null);
-  });
+  };
   const handleStripContextMenu = useEventCallback((): void => {
     if (claimedThisEventRef.current || !contextMenu?.getStripTarget) {
       return;
@@ -60,7 +60,7 @@ export function useTabStripMenu({
     menuOriginRef.current = null;
     setTarget(contextMenu.getStripTarget());
   });
-  const openContextMenu = useEventCallback((id: string): void => {
+  const openContextMenu = (id: string): void => {
     const element = findTab(rootRef.current, id);
     if (!element) {
       return;
@@ -76,7 +76,7 @@ export function useTabStripMenu({
         clientY: rect.bottom,
       })
     );
-  });
+  };
   // ActionContextMenu prevents Radix's default close-autofocus before calling this.
   const restoreFocusAfterMenu = useEventCallback((): void => {
     const root = rootRef.current;

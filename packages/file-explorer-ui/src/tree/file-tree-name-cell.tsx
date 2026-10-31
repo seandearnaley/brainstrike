@@ -7,7 +7,6 @@
  */
 
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { useEventCallback } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { LightweightCheckbox } from '@brainstrike/ui';
 import {
@@ -108,7 +107,7 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
    * TreeTable row already owns treegrid row semantics; nesting interactive roles
    * announces awkwardly on some screen-reader + browser combos.
    */
-  const handleFileNameClick = useEventCallback((event: MouseEvent<HTMLDivElement>) => {
+  const handleFileNameClick = (event: MouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
     // folderId guard: the FileTreeSelectionContext provider falls back to '' when
     // upstream folderId is undefined. An empty folderId would produce a malformed
@@ -117,7 +116,7 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
       return;
     }
     openFileInTab(encodeFileSelection(folderId, fileNode.path));
-  });
+  };
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5">

@@ -7,9 +7,8 @@ import { combine } from '@atlaskit/pragmatic-drag-and-drop/utils/combine';
 import { autoScrollForElements } from '@atlaskit/pragmatic-drag-and-drop-auto-scroll/element';
 import { attachClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/attach-closest-edge';
 import { extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge/extract-closest-edge';
-import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
-import { type RefObject, useEffect, useId, useState } from 'react';
+import { type RefObject, useEffect, useEffectEvent, useId, useState } from 'react';
 import { resolveTabDropOrder, type TabEdge } from './tab-strip-order';
 
 const logger = createLogger('TabStripReorder');
@@ -113,7 +112,7 @@ export function useTabStripReorderMonitor({
   readonly orderedIds: readonly string[];
   readonly scrollRef: RefObject<HTMLElement | null>;
 }): void {
-  const handleDrop = useEventCallback((sourceId: string, targetId: string, edge: TabEdge): void => {
+  const onDrop = useEffectEvent((sourceId: string, targetId: string, edge: TabEdge): void => {
     const resolution = resolveTabDropOrder({ edge, orderedIds, sourceId, targetId });
     if (resolution.kind === 'stale') {
       logger.warn('Ignored a tab drop whose tab is no longer open', {
@@ -143,10 +142,10 @@ export function useTabStripReorderMonitor({
         if (!(targetData && edge)) {
           return;
         }
-        handleDrop(sourceData.id, targetData.id, edge);
+        onDrop(sourceData.id, targetData.id, edge);
       },
     });
-  }, [handleDrop, instanceId]);
+  }, [instanceId]);
 
   useEffect(() => {
     const element = scrollRef.current;
