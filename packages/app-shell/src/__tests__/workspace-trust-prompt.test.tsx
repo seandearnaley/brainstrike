@@ -8,7 +8,7 @@ import type {
   WorkspaceTrustDecision,
   WorkspaceTrustRoot,
 } from '@brainstrike/settings-ui/settings/system/workspace-trust';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantHostWorkspaceDiscovery } from '../assistant-thread-host-context';
@@ -130,5 +130,41 @@ describe('WorkspaceTrustPrompt', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The agent host is not running');
     expect(screen.getByTestId('workspace-trust-prompt-root-cloned')).toBeInTheDocument();
+  });
+
+  it('says when it cannot read which folders are trusted', async () => {
+    hostState.host = {
+      workspaceDiscovery: {
+        listCommands: () => Promise.reject(new Error('Commands are not under test')),
+        listTrust: () => Promise.reject(new Error('The agent host is not running')),
+        scanSkills: () => Promise.reject(new Error('Skills are not under test')),
+        setTrust: () => Promise.reject(new Error('Answers are not under test')),
+      },
+    };
+    render(<WorkspaceTrustPrompt />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('could not check which folders you trust');
+    expect(alert).toHaveTextContent('The agent host is not running');
+  });
+
+  it('asks about a folder that gained agent configuration when the window is shown again', async () => {
+    const roots: WorkspaceTrustRoot[] = [
+      root({ agentConfiguration: { commands: 0, instructions: null, personas: 0, skills: 0 } }),
+    ];
+    const { listTrust } = setHost(roots);
+    render(<WorkspaceTrustPrompt />);
+    await waitFor(() => expect(listTrust).toHaveBeenCalled());
+    expect(screen.queryByTestId('workspace-trust-prompt-root-cloned')).not.toBeInTheDocument();
+
+    // A git pull brings AGENTS.md while the person is in another window.
+    roots[0] = CLONED;
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(await screen.findByTestId('workspace-trust-prompt-root-cloned')).toHaveTextContent(
+      'This folder has AGENTS.md'
+    );
   });
 });
