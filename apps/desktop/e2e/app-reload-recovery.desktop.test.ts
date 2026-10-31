@@ -41,7 +41,7 @@ test('Reload app on a failed Terminal chunk reloads once at once, with no run di
   await expect(panel.getByRole('button', { name: 'Reload app' })).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Reload tab' })).toHaveCount(0);
   await expect(
-    page.getByRole('alert').filter({ hasText: 'Part of BrainStrike failed to load' })
+    page.getByRole('alert').filter({ hasText: 'Part of Brainstrike failed to load' })
   ).toBeVisible();
 
   // The chunk is reachable again, as after the reload a real deployment fixes.
@@ -58,6 +58,6 @@ test('Reload app on a failed Terminal chunk reloads once at once, with no run di
 
   await expect.poll(() => reloads).toBe(1);
   await expect(page.getByText('Open a workspace folder to run a shell in it.')).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'Reload BrainStrike?' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Reload Brainstrike?' })).toHaveCount(0);
   expect(reloads).toBe(1);
 });

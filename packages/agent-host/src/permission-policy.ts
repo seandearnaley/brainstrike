@@ -38,7 +38,7 @@ export async function readHostPermissionPolicy(
     throw refusalError(
       'configuration',
       PERMISSION_POLICY_UNREADABLE_CODE,
-      'The saved permission settings are from an older version of BrainStrike and cannot be read.',
+      'The saved permission settings are from an older version of Brainstrike and cannot be read.',
       'Reset them to the defaults in Settings → Permissions.'
     );
   }
