@@ -252,25 +252,20 @@ describe('stable MCP Apps message allowlist', () => {
     ).toThrow(/must not contain cycles/u);
   });
 
-  it('preserves own __proto__ JSON fields without prototype mutation', () => {
+  it('refuses an own __proto__ field, which the pinned schema drops, without prototype mutation', () => {
     const structuredContent: unknown = JSON.parse('{"__proto__":{"isTrusted":true}}');
-    const parsed = parseMcpAppMessage(
-      {
-        id: 'context',
-        jsonrpc: '2.0',
-        method: 'ui/update-model-context',
-        params: { structuredContent },
-      },
-      'app-to-host'
-    );
-    const snapshot = parsed.params?.['structuredContent'];
-    if (typeof snapshot !== 'object' || snapshot === null || Array.isArray(snapshot)) {
-      throw new Error('expected structured content object');
-    }
-
-    expect(Object.hasOwn(snapshot, '__proto__')).toBe(true);
-    expect(Reflect.get(snapshot, '__proto__')).toEqual({ isTrusted: true });
-    expect(Reflect.get(snapshot, 'isTrusted')).toBeUndefined();
+    expect(() =>
+      parseMcpAppMessage(
+        {
+          id: 'context',
+          jsonrpc: '2.0',
+          method: 'ui/update-model-context',
+          params: { structuredContent },
+        },
+        'app-to-host'
+      )
+    ).toThrow(/structuredContent contains unsupported field "__proto__"/u);
+    expect(Reflect.get({}, 'isTrusted')).toBeUndefined();
   });
 
   it('rejects JSON payloads beyond the bounded nesting depth', () => {

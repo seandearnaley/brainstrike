@@ -4,7 +4,23 @@ import {
   PingRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/core';
-import * as McpAppsSchemas from '@modelcontextprotocol/ext-apps';
+import {
+  McpUiHostContextChangedNotificationSchema,
+  McpUiInitializedNotificationSchema,
+  McpUiInitializeRequestSchema,
+  McpUiMessageRequestSchema,
+  McpUiOpenLinkRequestSchema,
+  McpUiRequestDisplayModeRequestSchema,
+  McpUiResourceTeardownRequestSchema,
+  McpUiSandboxProxyReadyNotificationSchema,
+  McpUiSandboxResourceReadyNotificationSchema,
+  McpUiSizeChangedNotificationSchema,
+  McpUiToolCancelledNotificationSchema,
+  McpUiToolInputNotificationSchema,
+  McpUiToolInputPartialNotificationSchema,
+  McpUiToolResultNotificationSchema,
+  McpUiUpdateModelContextRequestSchema,
+} from '@modelcontextprotocol/ext-apps';
 import { MCP_APPS_SPEC_VERSION } from './capabilities.ts';
 import { parseMcpAppResourceMeta } from './metadata.ts';
 import { MCP_APPS_STABLE_METHODS, type McpAppStableMethod } from './stable-contract.ts';
@@ -31,19 +47,17 @@ export interface McpAppMessage {
 const STABLE_METHOD_SET = new Set<string>(MCP_APPS_STABLE_METHODS);
 
 interface CanonicalMessageSchema {
-  safeParse(value: unknown): { readonly success: boolean };
-}
-
-function requireMcpAppsSchema(name: string): CanonicalMessageSchema {
-  const schema: unknown = Reflect.get(McpAppsSchemas, name);
-  if (
-    (typeof schema !== 'object' && typeof schema !== 'function') ||
-    schema === null ||
-    typeof Reflect.get(schema, 'safeParse') !== 'function'
-  ) {
-    throw new TypeError(`Pinned MCP Apps runtime schema ${name} is unavailable`);
-  }
-  return schema as CanonicalMessageSchema;
+  safeParse(value: unknown):
+    | { readonly data: { readonly params?: unknown }; readonly success: true }
+    | {
+        readonly error: {
+          readonly issues: readonly {
+            readonly message: string;
+            readonly path: readonly PropertyKey[];
+          }[];
+        };
+        readonly success: false;
+      };
 }
 
 const CANONICAL_MESSAGE_SCHEMAS: Readonly<Record<McpAppStableMethod, CanonicalMessageSchema>> =
@@ -52,29 +66,21 @@ const CANONICAL_MESSAGE_SCHEMAS: Readonly<Record<McpAppStableMethod, CanonicalMe
     ping: PingRequestSchema,
     'resources/read': ReadResourceRequestSchema,
     'tools/call': CallToolRequestSchema,
-    'ui/initialize': requireMcpAppsSchema('McpUiInitializeRequestSchema'),
-    'ui/message': requireMcpAppsSchema('McpUiMessageRequestSchema'),
-    'ui/notifications/host-context-changed': requireMcpAppsSchema(
-      'McpUiHostContextChangedNotificationSchema'
-    ),
-    'ui/notifications/initialized': requireMcpAppsSchema('McpUiInitializedNotificationSchema'),
-    'ui/notifications/sandbox-proxy-ready': requireMcpAppsSchema(
-      'McpUiSandboxProxyReadyNotificationSchema'
-    ),
-    'ui/notifications/sandbox-resource-ready': requireMcpAppsSchema(
-      'McpUiSandboxResourceReadyNotificationSchema'
-    ),
-    'ui/notifications/size-changed': requireMcpAppsSchema('McpUiSizeChangedNotificationSchema'),
-    'ui/notifications/tool-cancelled': requireMcpAppsSchema('McpUiToolCancelledNotificationSchema'),
-    'ui/notifications/tool-input': requireMcpAppsSchema('McpUiToolInputNotificationSchema'),
-    'ui/notifications/tool-input-partial': requireMcpAppsSchema(
-      'McpUiToolInputPartialNotificationSchema'
-    ),
-    'ui/notifications/tool-result': requireMcpAppsSchema('McpUiToolResultNotificationSchema'),
-    'ui/open-link': requireMcpAppsSchema('McpUiOpenLinkRequestSchema'),
-    'ui/request-display-mode': requireMcpAppsSchema('McpUiRequestDisplayModeRequestSchema'),
-    'ui/resource-teardown': requireMcpAppsSchema('McpUiResourceTeardownRequestSchema'),
-    'ui/update-model-context': requireMcpAppsSchema('McpUiUpdateModelContextRequestSchema'),
+    'ui/initialize': McpUiInitializeRequestSchema,
+    'ui/message': McpUiMessageRequestSchema,
+    'ui/notifications/host-context-changed': McpUiHostContextChangedNotificationSchema,
+    'ui/notifications/initialized': McpUiInitializedNotificationSchema,
+    'ui/notifications/sandbox-proxy-ready': McpUiSandboxProxyReadyNotificationSchema,
+    'ui/notifications/sandbox-resource-ready': McpUiSandboxResourceReadyNotificationSchema,
+    'ui/notifications/size-changed': McpUiSizeChangedNotificationSchema,
+    'ui/notifications/tool-cancelled': McpUiToolCancelledNotificationSchema,
+    'ui/notifications/tool-input': McpUiToolInputNotificationSchema,
+    'ui/notifications/tool-input-partial': McpUiToolInputPartialNotificationSchema,
+    'ui/notifications/tool-result': McpUiToolResultNotificationSchema,
+    'ui/open-link': McpUiOpenLinkRequestSchema,
+    'ui/request-display-mode': McpUiRequestDisplayModeRequestSchema,
+    'ui/resource-teardown': McpUiResourceTeardownRequestSchema,
+    'ui/update-model-context': McpUiUpdateModelContextRequestSchema,
   });
 const REQUEST_METHODS = new Set<McpAppStableMethod>([
   'ui/initialize',
@@ -119,27 +125,6 @@ const METHODS_BY_DIRECTION: Readonly<
   'host-to-sandbox': new Set<McpAppStableMethod>(['ui/notifications/sandbox-resource-ready']),
   'sandbox-to-host': new Set<McpAppStableMethod>(['ui/notifications/sandbox-proxy-ready']),
 });
-
-function expectString(value: unknown, label: string): string {
-  if (typeof value !== 'string') {
-    throw new TypeError(`${label} must be a string`);
-  }
-  return value;
-}
-
-function expectBoolean(value: unknown, label: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new TypeError(`${label} must be a boolean`);
-  }
-  return value;
-}
-
-function expectNumber(value: unknown, label: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new TypeError(`${label} must be a finite number`);
-  }
-  return value;
-}
 
 type JsonValue = boolean | null | number | string | readonly JsonValue[] | Readonly<UnknownRecord>;
 interface JsonCloneContext {
@@ -245,148 +230,6 @@ function cloneJsonValue(
   return cloneJsonObject(expectRecord(value, label), label, context, depth);
 }
 
-function parseEmptyParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, [], [], label);
-  return Object.freeze({});
-}
-
-function parseImplementation(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(
-    record,
-    ['description', 'icons', 'name', 'title', 'version', 'websiteUrl'],
-    ['name', 'version'],
-    label
-  );
-  const parsed: UnknownRecord = {
-    name: expectString(record['name'], `${label}.name`),
-    version: expectString(record['version'], `${label}.version`),
-  };
-  for (const key of ['description', 'title', 'websiteUrl'] as const) {
-    if (record[key] !== undefined) {
-      parsed[key] = expectString(record[key], `${label}.${key}`);
-    }
-  }
-  if (record['icons'] !== undefined) {
-    if (!Array.isArray(record['icons'])) {
-      throw new TypeError(`${label}.icons must be an array`);
-    }
-    parsed['icons'] = Object.freeze(
-      record['icons'].map((value, index) => {
-        const iconLabel = `${label}.icons[${index}]`;
-        const icon = expectRecord(value, iconLabel);
-        expectExactKeys(icon, ['mimeType', 'sizes', 'src', 'theme'], ['src'], iconLabel);
-        const parsedIcon: UnknownRecord = {
-          src: expectString(icon['src'], `${iconLabel}.src`),
-        };
-        if (icon['mimeType'] !== undefined) {
-          parsedIcon['mimeType'] = expectString(icon['mimeType'], `${iconLabel}.mimeType`);
-        }
-        if (icon['sizes'] !== undefined) {
-          if (
-            !Array.isArray(icon['sizes']) ||
-            icon['sizes'].some((size) => typeof size !== 'string')
-          ) {
-            throw new TypeError(`${iconLabel}.sizes must be an array of strings`);
-          }
-          parsedIcon['sizes'] = Object.freeze([...icon['sizes']]);
-        }
-        if (icon['theme'] !== undefined) {
-          if (icon['theme'] !== 'light' && icon['theme'] !== 'dark') {
-            throw new TypeError(`${iconLabel}.theme must be "light" or "dark"`);
-          }
-          parsedIcon['theme'] = icon['theme'];
-        }
-        return Object.freeze(parsedIcon);
-      })
-    );
-  }
-  return Object.freeze(parsed);
-}
-
-function parseExperimentalCapabilities(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  const parsed: UnknownRecord = {};
-  for (const [key, entry] of Object.entries(record)) {
-    defineOwnValue(parsed, key, parseJsonRecord(entry, `${label}.${key}`));
-  }
-  return Object.freeze(parsed);
-}
-
-function parseAppCapabilities(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['availableDisplayModes', 'experimental', 'tools'], [], label);
-
-  const parsed: UnknownRecord = {};
-  if (record['experimental'] !== undefined) {
-    parsed['experimental'] = parseExperimentalCapabilities(
-      record['experimental'],
-      `${label}.experimental`
-    );
-  }
-  if (record['tools'] !== undefined) {
-    const tools = expectRecord(record['tools'], `${label}.tools`);
-    expectExactKeys(tools, ['listChanged'], [], `${label}.tools`);
-    parsed['tools'] = Object.freeze(
-      tools['listChanged'] === undefined
-        ? {}
-        : { listChanged: expectBoolean(tools['listChanged'], `${label}.tools['listChanged']`) }
-    );
-  }
-  if (record['availableDisplayModes'] !== undefined) {
-    if (
-      !Array.isArray(record['availableDisplayModes']) ||
-      record['availableDisplayModes'].some(
-        (mode) => mode !== 'inline' && mode !== 'fullscreen' && mode !== 'pip'
-      )
-    ) {
-      throw new TypeError(
-        `${label}.availableDisplayModes must contain only "inline", "fullscreen", or "pip"`
-      );
-    }
-    parsed['availableDisplayModes'] = Object.freeze([...record['availableDisplayModes']]);
-  }
-  return Object.freeze(parsed);
-}
-
-function parseInitializeParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(
-    record,
-    ['appCapabilities', 'appInfo', 'protocolVersion'],
-    ['appCapabilities', 'appInfo', 'protocolVersion'],
-    label
-  );
-  if (record['protocolVersion'] !== MCP_APPS_SPEC_VERSION) {
-    throw new TypeError(`${label}.protocolVersion must be "${MCP_APPS_SPEC_VERSION}"`);
-  }
-  return Object.freeze({
-    appCapabilities: parseAppCapabilities(record['appCapabilities'], `${label}.appCapabilities`),
-    appInfo: parseImplementation(record['appInfo'], `${label}.appInfo`),
-    protocolVersion: MCP_APPS_SPEC_VERSION,
-  });
-}
-
-function parseContentBlocks(value: unknown, label: string): readonly Readonly<UnknownRecord>[] {
-  if (!Array.isArray(value)) {
-    throw new TypeError(`${label} must be an array of MCP content blocks`);
-  }
-  return Object.freeze(
-    value.map((entry, index) => {
-      const block = cloneJsonRecord(entry, `${label}[${index}]`);
-      if (typeof block['type'] !== 'string') {
-        throw new TypeError(`${label}[${index}].type must be a string`);
-      }
-      return block;
-    })
-  );
-}
-
-function parseJsonRecord(value: unknown, label: string): Readonly<UnknownRecord> {
-  return cloneJsonRecord(value, label);
-}
-
 export function parseMcpAppJsonRecord(value: unknown, label: string): Readonly<UnknownRecord> {
   return cloneJsonRecord(value, label);
 }
@@ -395,226 +238,90 @@ export function parseMcpAppJsonValue(value: unknown, label: string): JsonValue {
   return cloneJsonValue(value, label);
 }
 
-type ParamsParser = (value: unknown, label: string) => Readonly<UnknownRecord>;
+/**
+ * The pinned schemas strip a field they don't define. The host refuses it
+ * instead, so a frame cannot send what the stable contract leaves out.
+ */
+function expectNoStrippedFields(input: JsonValue, output: unknown, label: string): void {
+  if (input === output || typeof input !== 'object' || input === null) {
+    return;
+  }
+  if (typeof output !== 'object' || output === null) {
+    throw new TypeError(`${label} does not match its canonical schema`);
+  }
+  if (Array.isArray(input)) {
+    input.forEach((entry, index) => {
+      expectNoStrippedFields(entry, Reflect.get(output, index), `${label}[${index}]`);
+    });
+    return;
+  }
+  for (const key of Object.keys(input)) {
+    if (!Object.hasOwn(output, key)) {
+      throw new TypeError(`${label} contains unsupported field "${key}"`);
+    }
+    expectNoStrippedFields(
+      (input as Readonly<UnknownRecord>)[key] as JsonValue,
+      Reflect.get(output, key),
+      `${label}.${key}`
+    );
+  }
+}
 
-function parseOpenLinkParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['url'], ['url'], label);
-  const url = expectString(record['url'], `${label}.url`);
+function expectExternalUrl(url: unknown, label: string): void {
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    parsed = new URL(String(url));
   } catch (error: unknown) {
-    throw new TypeError(`${label}.url must be a valid external URL`, { cause: error });
+    throw new TypeError(`${label} must be a valid external URL`, { cause: error });
   }
   if (
     (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
     parsed.username.length > 0 ||
     parsed.password.length > 0
   ) {
-    throw new TypeError(`${label}.url must use http or https without embedded credentials`);
+    throw new TypeError(`${label} must use http or https without embedded credentials`);
   }
-  return Object.freeze({ url });
 }
 
-function parseMessageParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['content', 'role'], ['content', 'role'], label);
-  if (record['role'] !== 'user') {
-    throw new TypeError(`${label}.role must be "user"`);
-  }
-  return Object.freeze({
-    content: parseContentBlocks(record['content'], `${label}.content`),
-    role: 'user',
-  });
-}
+type ParamsPolicy = (params: Readonly<UnknownRecord>, label: string) => void;
 
-function parseDisplayModeParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['mode'], ['mode'], label);
-  if (record['mode'] !== 'inline' && record['mode'] !== 'fullscreen' && record['mode'] !== 'pip') {
-    throw new TypeError(`${label}.mode must be "inline", "fullscreen", or "pip"`);
-  }
-  return Object.freeze({ mode: record['mode'] });
-}
-
-function parseUpdateModelContextParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['content', 'structuredContent'], [], label);
-  const parsed: UnknownRecord = {};
-  if (record['content'] !== undefined) {
-    parsed['content'] = parseContentBlocks(record['content'], `${label}.content`);
-  }
-  if (record['structuredContent'] !== undefined) {
-    parsed['structuredContent'] = parseJsonRecord(
-      record['structuredContent'],
-      `${label}.structuredContent`
-    );
-  }
-  return Object.freeze(parsed);
-}
-
-function parseSizeChangedParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['height', 'width'], [], label);
-  const parsed: UnknownRecord = {};
-  if (record['height'] !== undefined) {
-    parsed['height'] = expectNumber(record['height'], `${label}.height`);
-  }
-  if (record['width'] !== undefined) {
-    parsed['width'] = expectNumber(record['width'], `${label}.width`);
-  }
-  return Object.freeze(parsed);
-}
-
-function parseToolInputParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['arguments'], [], label);
-  return Object.freeze(
-    record['arguments'] === undefined
-      ? {}
-      : { arguments: parseJsonRecord(record['arguments'], `${label}.arguments`) }
-  );
-}
-
-function parseToolCancelledParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['reason'], [], label);
-  return Object.freeze(
-    record['reason'] === undefined
-      ? {}
-      : { reason: expectString(record['reason'], `${label}.reason`) }
-  );
-}
-
-function parseSandboxResourceParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['csp', 'html', 'permissions', 'sandbox'], ['html'], label);
-  const parsed: UnknownRecord = { html: expectString(record['html'], `${label}.html`) };
-  if (record['sandbox'] !== undefined) {
-    parsed['sandbox'] = expectString(record['sandbox'], `${label}.sandbox`);
-  }
-  if (record['csp'] !== undefined || record['permissions'] !== undefined) {
-    const meta = parseMcpAppResourceMeta({
-      ...(record['csp'] === undefined ? {} : { csp: record['csp'] }),
-      ...(record['permissions'] === undefined ? {} : { permissions: record['permissions'] }),
-    });
-    if (meta.csp !== undefined) {
-      parsed['csp'] = meta.csp;
+/** The host's own rules on top of the pinned schemas' shapes. */
+const PARAMS_POLICIES: Readonly<Partial<Record<McpAppStableMethod, ParamsPolicy>>> = Object.freeze({
+  'resources/read': (params, label) => {
+    const uri = String(params['uri']);
+    if (uri.length === 0 || uri.length > 2048) {
+      throw new TypeError(`${label}.uri must contain 1 to 2048 characters`);
     }
-    if (meta.permissions !== undefined) {
-      parsed['permissions'] = meta.permissions;
+    try {
+      new URL(uri);
+    } catch (error: unknown) {
+      throw new TypeError(`${label}.uri must be an absolute URI`, { cause: error });
     }
-  }
-  return Object.freeze(parsed);
-}
-
-function parseOptionalMeta(
-  record: UnknownRecord,
-  label: string
-): Readonly<UnknownRecord> | undefined {
-  return record['_meta'] === undefined
-    ? undefined
-    : parseJsonRecord(record['_meta'], `${label}._meta`);
-}
-
-function parseCallToolParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['_meta', 'arguments', 'name'], ['name'], label);
-  const name = expectString(record['name'], `${label}.name`);
-  if (name.length === 0 || name.length > 256) {
-    throw new TypeError(`${label}.name must contain 1 to 256 characters`);
-  }
-  const meta = parseOptionalMeta(record, label);
-  return Object.freeze({
-    ...(meta === undefined ? {} : { _meta: meta }),
-    ...(record['arguments'] === undefined
-      ? {}
-      : { arguments: parseJsonRecord(record['arguments'], `${label}.arguments`) }),
-    name,
-  });
-}
-
-function parseReadResourceParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['_meta', 'uri'], ['uri'], label);
-  const uri = expectString(record['uri'], `${label}.uri`);
-  if (uri.length === 0 || uri.length > 2048) {
-    throw new TypeError(`${label}.uri must contain 1 to 2048 characters`);
-  }
-  try {
-    new URL(uri);
-  } catch (error: unknown) {
-    throw new TypeError(`${label}.uri must be an absolute URI`, { cause: error });
-  }
-  const meta = parseOptionalMeta(record, label);
-  return Object.freeze({ ...(meta === undefined ? {} : { _meta: meta }), uri });
-}
-
-const LOG_LEVELS = new Set([
-  'alert',
-  'critical',
-  'debug',
-  'emergency',
-  'error',
-  'info',
-  'notice',
-  'warning',
-]);
-
-function parseLoggingParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['_meta', 'data', 'level', 'logger'], ['data', 'level'], label);
-  if (typeof record['level'] !== 'string' || !LOG_LEVELS.has(record['level'])) {
-    throw new TypeError(`${label}.level must be a standard MCP logging level`);
-  }
-  const meta = parseOptionalMeta(record, label);
-  return Object.freeze({
-    ...(meta === undefined ? {} : { _meta: meta }),
-    data: cloneJsonValue(record['data'], `${label}.data`),
-    level: record['level'],
-    ...(record['logger'] === undefined
-      ? {}
-      : { logger: expectString(record['logger'], `${label}.logger`) }),
-  });
-}
-
-function parsePingParams(value: unknown, label: string): Readonly<UnknownRecord> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['_meta'], [], label);
-  const meta = parseOptionalMeta(record, label);
-  return Object.freeze(meta === undefined ? {} : { _meta: meta });
-}
-
-const PARAMS_PARSERS: Readonly<Record<McpAppStableMethod, ParamsParser>> = Object.freeze({
-  'notifications/message': parseLoggingParams,
-  ping: parsePingParams,
-  'resources/read': parseReadResourceParams,
-  'tools/call': parseCallToolParams,
-  'ui/initialize': parseInitializeParams,
-  'ui/message': parseMessageParams,
-  'ui/notifications/host-context-changed': parseJsonRecord,
-  'ui/notifications/initialized': parseEmptyParams,
-  'ui/notifications/sandbox-proxy-ready': parseEmptyParams,
-  'ui/notifications/sandbox-resource-ready': parseSandboxResourceParams,
-  'ui/notifications/size-changed': parseSizeChangedParams,
-  'ui/notifications/tool-cancelled': parseToolCancelledParams,
-  'ui/notifications/tool-input': parseToolInputParams,
-  'ui/notifications/tool-input-partial': parseToolInputParams,
-  'ui/notifications/tool-result': parseJsonRecord,
-  'ui/open-link': parseOpenLinkParams,
-  'ui/request-display-mode': parseDisplayModeParams,
-  'ui/resource-teardown': parseEmptyParams,
-  'ui/update-model-context': parseUpdateModelContextParams,
+  },
+  'tools/call': (params, label) => {
+    const name = String(params['name']);
+    if (name.length === 0 || name.length > 256) {
+      throw new TypeError(`${label}.name must contain 1 to 256 characters`);
+    }
+  },
+  'ui/initialize': (params, label) => {
+    if (params['protocolVersion'] !== MCP_APPS_SPEC_VERSION) {
+      throw new TypeError(`${label}.protocolVersion must be "${MCP_APPS_SPEC_VERSION}"`);
+    }
+  },
+  'ui/notifications/sandbox-resource-ready': (params) => {
+    const { csp, permissions } = params;
+    if (csp !== undefined || permissions !== undefined) {
+      parseMcpAppResourceMeta({
+        ...(csp === undefined ? {} : { csp }),
+        ...(permissions === undefined ? {} : { permissions }),
+      });
+    }
+  },
+  'ui/open-link': (params, label) => {
+    expectExternalUrl(params['url'], `${label}.url`);
+  },
 });
-
-function parseMethodParams(
-  method: McpAppStableMethod,
-  value: unknown,
-  label: string
-): Readonly<UnknownRecord> {
-  return PARAMS_PARSERS[method](value, label);
-}
 
 function parseStableMethod(value: unknown): McpAppStableMethod {
   if (typeof value !== 'string' || !STABLE_METHOD_SET.has(value)) {
@@ -623,14 +330,31 @@ function parseStableMethod(value: unknown): McpAppStableMethod {
   return value as McpAppStableMethod;
 }
 
-function assertCanonicalMessage(
+/**
+ * A message's params are snapshotted as bounded plain JSON, checked against the
+ * method's pinned SDK schema with nothing stripped, then held to host policy.
+ */
+function parseParams(
   method: McpAppStableMethod,
-  params: unknown,
-  hasParams: boolean,
+  value: unknown,
   label: string
-): void {
-  const message = hasParams ? { method, params } : { method };
-  if (!CANONICAL_MESSAGE_SCHEMAS[method].safeParse(message).success) {
+): Readonly<UnknownRecord> {
+  const params = cloneJsonRecord(value, label);
+  const result = CANONICAL_MESSAGE_SCHEMAS[method].safeParse({ method, params });
+  if (!result.success) {
+    const [issue] = result.error.issues;
+    const where =
+      issue === undefined ? '' : ` at ${issue.path.map(String).join('.')}: ${issue.message}`;
+    throw new TypeError(`${label} does not match its canonical schema${where}`);
+  }
+  expectNoStrippedFields(params, result.data.params, label);
+  PARAMS_POLICIES[method]?.(params, label);
+  return params;
+}
+
+function assertCanonicalMethod(method: McpAppStableMethod, label: string): void {
+  const result = CANONICAL_MESSAGE_SCHEMAS[method].safeParse({ method });
+  if (!result.success) {
     throw new TypeError(`${label} ${method} does not match its canonical schema`);
   }
 }
@@ -678,12 +402,13 @@ export function parseMcpAppMessage(
     throw new TypeError(`${label}.jsonrpc must be "2.0"`);
   }
 
-  assertCanonicalMessage(method, record['params'], record['params'] !== undefined, label);
-
   const params =
     record['params'] === undefined && paramsOptional
       ? undefined
-      : parseMethodParams(method, record['params'], `${label} ${method}.params`);
+      : parseParams(method, record['params'], `${label} ${method}.params`);
+  if (params === undefined) {
+    assertCanonicalMethod(method, label);
+  }
   const parsed = Object.freeze({
     ...(isRequest ? { id: parseRequestId(record['id'], label) } : {}),
     jsonrpc: '2.0' as const,
