@@ -27,7 +27,6 @@ vi.mock('../../app-windows', () => ({
 }));
 
 interface SecretsServiceMock {
-  clearAll?: ReturnType<typeof vi.fn>;
   deleteKey: ReturnType<typeof vi.fn>;
   getCredential?: ReturnType<typeof vi.fn>;
   getKey: ReturnType<typeof vi.fn>;
@@ -522,7 +521,6 @@ describe('registerSecretsIpcHandlers', () => {
     process.env['NODE_ENV'] = 'production';
     isAppWindowSenderMock.mockReturnValue(false);
     const secretsService: SecretsServiceMock = {
-      clearAll: vi.fn().mockResolvedValue(true),
       deleteKey: vi.fn().mockResolvedValue(true),
       getCredential: vi.fn().mockResolvedValue({ key: 'secret', type: 'api_key' }),
       getKey: vi.fn().mockResolvedValue('secret'),
