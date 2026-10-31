@@ -40,7 +40,10 @@ export default defineConfig({
     // hooks), but its suites still use waitFor and would otherwise sit on
     // the library's unscalable 1s default. Applied only where the file's
     // environment has a DOM; node-environment files skip the import.
-    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware-timeouts.setup'],
+    setupFiles: [
+      '@brainstrike/test-utils/vitest.dom-aware-timeouts.setup',
+      '@brainstrike/test-utils/zustand-store-reset',
+    ],
     testTimeout: 15_000,
   },
 });

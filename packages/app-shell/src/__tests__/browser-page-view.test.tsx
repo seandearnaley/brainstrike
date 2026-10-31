@@ -5,10 +5,7 @@
  */
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { WorkspaceTabsContext, type WorkspaceTabsValue } from '@brainstrike/file-explorer-ui/shell';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { resetToastStore, toast } from '@brainstrike/ui';
 import { cleanup, render, renderHook, screen } from '@testing-library/react';
@@ -103,7 +100,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   useBrowserTabsStore.getState().reset();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 describe('browser page tab', () => {

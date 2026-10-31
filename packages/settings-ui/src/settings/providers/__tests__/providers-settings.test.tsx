@@ -1,9 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
-import {
-  __resetSecretsStoreForTests,
-  useSecretsStore,
-} from '@brainstrike/app-state/stores/secrets-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type {
   ProviderVerificationSnapshot,
   ProviderVerificationStatus,
@@ -99,7 +96,6 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  __resetSecretsStoreForTests();
   currentModels = [];
   toggleModelMock.mockReset();
   toggleModelMock.mockResolvedValue(undefined);

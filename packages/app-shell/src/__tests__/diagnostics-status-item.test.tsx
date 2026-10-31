@@ -2,14 +2,8 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  resetDiagnosticSinkHealthStore,
-  useDiagnosticSinkHealthStore,
-} from '../diagnostics/diagnostic-sink-health-store';
-import {
-  resetDiagnosticsSeenStore,
-  useDiagnosticsSeenStore,
-} from '../diagnostics/diagnostics-seen-store';
+import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
+import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
 import { DiagnosticsStatusItem } from '../status-items/diagnostics-status-item';
 
 const { useUnseenDiagnosticsCountMock } = vi.hoisted(() => ({
@@ -34,7 +28,6 @@ function mockUnseenCounts(
 describe('DiagnosticsStatusItem', () => {
   beforeEach(() => {
     mockUnseenCounts([{ errorCount: 0, warningCount: 0 }]);
-    resetDiagnosticsSeenStore();
     usePanelLayoutStore.setState({ activeTab: 'explorer' });
     window.location.hash = '';
   });
@@ -145,11 +138,6 @@ describe('DiagnosticsStatusItem', () => {
 });
 
 describe('DiagnosticsStatusItem sink health', () => {
-  beforeEach(() => {
-    resetDiagnosticsSeenStore();
-    resetDiagnosticSinkHealthStore();
-  });
-
   // A disabled sink writes NO new rows, so the unseen count sits at 0
   // forever and the chip would render nothing — the status bar silently
   // claiming "no errors" precisely when errors have stopped being

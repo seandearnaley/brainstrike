@@ -4,10 +4,7 @@
 // scheduled `fetchRegistry`, then rethrows). This file drives the hook
 // against the real `model-registry-store` so a failed write is verified
 // against what the store actually does, not an assumed shape.
-import {
-  __resetModelRegistryStoreForTests,
-  useModelRegistryStore,
-} from '@brainstrike/app-state/stores/model-registry-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { type ModelCatalogCapability, projectModelCatalog } from '@brainstrike/assistant-contract';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import {
@@ -51,7 +48,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 describe('useModelToggle against the real model-registry-store', () => {
   beforeEach(() => {
     toast.mockClear();
-    __resetModelRegistryStoreForTests();
     useModelRegistryStore.setState({
       models: [
         {
@@ -74,7 +70,6 @@ describe('useModelToggle against the real model-registry-store', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    __resetModelRegistryStoreForTests();
   });
 
   it('commits and reports refused desktop writes with no database', async () => {

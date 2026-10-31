@@ -1,8 +1,8 @@
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderMarkedText } from '../thread-search-headline';
-import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
+import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanelSearch } from '../threads-panel-search';
 
 const THREAD: AssistantMemoryThread = {
@@ -55,10 +55,6 @@ describe('renderMarkedText', () => {
 });
 
 describe('ThreadsPanelSearch', () => {
-  beforeEach(() => {
-    resetThreadSearchStore();
-  });
-
   it('renders only the input when idle', () => {
     renderSearch();
     expect(screen.getByTestId('thread-search-input')).toBeInTheDocument();

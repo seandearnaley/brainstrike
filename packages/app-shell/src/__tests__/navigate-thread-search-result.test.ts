@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantThreadHostCapability } from '../assistant-thread-host-context';
 import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
 import { navigateThreadSearchResult } from '../navigate-thread-search-result';
-import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
+import { useThreadSearchStore } from '../thread-search-store';
 import { threadWorkspaceNavigation } from '../thread-workspace/live-thread-workspace-navigation';
 
 const OWNER = 'workspace-memory';
@@ -36,7 +36,6 @@ function host(
 
 describe('navigateThreadSearchResult for host threads', () => {
   beforeEach(() => {
-    resetThreadSearchStore();
     useAssistantThreadStore.setState({
       threadsByResourceId: {
         [OWNER]: [{ id: 'host-root', resourceId: OWNER } as never],

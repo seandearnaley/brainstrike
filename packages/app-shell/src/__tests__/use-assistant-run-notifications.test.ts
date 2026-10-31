@@ -1,7 +1,4 @@
-import {
-  __resetNotificationPreferencesStoreForTests,
-  useNotificationPreferencesStore,
-} from '@brainstrike/app-state/stores/notification-preferences-store';
+import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantRunNotifications } from '../use-assistant-run-notifications';
@@ -33,7 +30,6 @@ describe('useAssistantRunNotifications', () => {
   // The gate reads the shared `isAppActive()`, which caches the window state and
   // re-reads it on window events, so the tests drive it the way a browser does.
   beforeEach(() => {
-    __resetNotificationPreferencesStoreForTests();
     blurWindow();
   });
 
@@ -44,7 +40,6 @@ describe('useAssistantRunNotifications', () => {
     } else {
       Reflect.deleteProperty(globalThis, 'Notification');
     }
-    __resetNotificationPreferencesStoreForTests();
   });
 
   it('never notifies when the master toggle is off (the default)', () => {

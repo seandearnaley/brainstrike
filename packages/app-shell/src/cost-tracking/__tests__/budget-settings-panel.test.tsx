@@ -1,8 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import {
-  __resetAssistantBudgetPreferencesStoreForTests,
-  useAssistantBudgetPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
+import { useAssistantBudgetPreferencesStore } from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -44,12 +41,10 @@ describe('parseCapInput', () => {
 
 describe('BudgetGuardrailSettingsPanel', () => {
   beforeEach(() => {
-    __resetAssistantBudgetPreferencesStoreForTests();
     stubDurableUsageCapability();
   });
 
   afterEach(() => {
-    __resetAssistantBudgetPreferencesStoreForTests();
     removeDurableUsageCapability();
   });
 

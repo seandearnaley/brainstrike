@@ -1,9 +1,6 @@
-import {
-  __resetNotificationPreferencesStoreForTests,
-  useNotificationPreferencesStore,
-} from '@brainstrike/app-state/stores/notification-preferences-store';
+import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { NotificationSettingsSection } = await import(
   '../settings/system/notification-settings-section'
@@ -18,10 +15,6 @@ function stubNotification(value: { permission: string; requestPermission: () => 
 
 describe('NotificationSettingsSection', () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Notification');
-
-  beforeEach(() => {
-    __resetNotificationPreferencesStoreForTests();
-  });
 
   afterEach(() => {
     if (originalDescriptor) {

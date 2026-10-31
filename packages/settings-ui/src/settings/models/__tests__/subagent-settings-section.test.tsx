@@ -1,8 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import {
-  __resetAssistantSubagentPreferencesStoreForTests,
-  useAssistantSubagentPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
+import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -11,7 +8,6 @@ import { SubagentSettingsSection } from '../subagent-settings-section';
 
 beforeEach(() => {
   window.localStorage.clear();
-  __resetAssistantSubagentPreferencesStoreForTests();
 });
 afterEach(() => {
   cleanup();

@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  __resetWorktreeSetupConsentStoreForTests,
-  useWorktreeSetupConsentStore,
-} from '../stores/worktree-setup-consent-store.ts';
+import { useWorktreeSetupConsentStore } from '../stores/worktree-setup-consent-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const STORE_KEY = 'worktree-setup-consent.v1';
@@ -13,7 +10,6 @@ const storeWithPersist = useWorktreeSetupConsentStore as PersistApi<
 describe('worktree-setup-consent-store', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    __resetWorktreeSetupConsentStoreForTests();
   });
 
   it('persists approvals and denials independently per repository, pinned to a script hash', () => {

@@ -10,11 +10,8 @@ import { useWorkspaceTabs, type WorkspaceTabsValue } from '../shell/use-workspac
 import type { WorkspaceApp } from '../shell/workspace-app';
 import { WorkspaceTabStrip } from '../shell/workspace-tab-strip';
 import { WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../stores/workspace-tab-selection-store';
+import { useTabManagerStore } from '../stores/tab-manager-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { stubMatchMedia } from './setup/stub-match-media';
 import { FileExplorerTestWrapper } from './test-helpers';
 import { CHANGES_APP, CHILD_CEDAR_APP, FILES_APP } from './workspace-tabs-test-support';
@@ -104,8 +101,6 @@ async function reopen(): Promise<ActionOutcome | undefined> {
 
 beforeEach(() => {
   storage = new MemoryStorageAdapter();
-  __resetTabManagerStoreForTests();
-  __resetWorkspaceTabSelectionStoreForTests();
   const files = useTabManagerStore.getState();
   for (const file of ['a.ts', 'b.ts', 'c.ts']) {
     files.openTab(`src/${file}`, key(file), key(file));
@@ -119,8 +114,6 @@ beforeEach(() => {
 afterEach(() => {
   probe.explorer = null;
   probe.tabs = null;
-  __resetTabManagerStoreForTests();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 describe('workspace strip — tab order and dispatch for chords (BST-1842)', () => {

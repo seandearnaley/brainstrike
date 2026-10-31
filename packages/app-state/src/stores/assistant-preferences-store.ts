@@ -23,7 +23,6 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import { getAssistantConfiguredProvidersTestOverride } from '../automation-overrides.ts';
 import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations.ts';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version.ts';
-import { clearPersistedStorageForTests } from './persist-api.ts';
 
 export {
   getModelIdMigrationTarget,
@@ -802,26 +801,3 @@ export const useAssistantPreferencesStore = create<Store>()(
     }
   )
 );
-
-function resetStoreState() {
-  useAssistantPreferencesStore.setState({
-    enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
-    modelMigrationNotices: [],
-    modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
-    planModeEnabled: false,
-    providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
-    recentModels: [],
-    selectedModel: null,
-  });
-}
-
-// Test helper to reset state between tests
-export function __resetAssistantPreferencesStoreForTests() {
-  try {
-    resetStoreState();
-    clearPersistedStorageForTests(useAssistantPreferencesStore);
-  } catch {
-    // Intentionally silent in tests - if storage fails, state is still reset.
-    // This prevents test failures when localStorage is unavailable.
-  }
-}

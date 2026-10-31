@@ -1,9 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -20,7 +17,6 @@ import { useHostChildWorkspaceApps } from '../use-host-child-workspace-apps';
 
 afterEach(() => {
   cleanup();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 const refused = (): Promise<never> => Promise.reject(new Error('not used by a child tab'));

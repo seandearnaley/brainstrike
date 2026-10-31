@@ -2,12 +2,9 @@ import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseStatusSync } from '../hooks/use-database-status-sync.ts';
-import {
-  __resetDatabaseStatusStoreForTests,
-  useDatabaseStatusStore,
-} from '../stores/database-status-store.ts';
+import { useDatabaseStatusStore } from '../stores/database-status-store.ts';
 
 describe('useDatabaseStatusSync', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -74,9 +71,6 @@ describe('useDatabaseStatusSync', () => {
         testResult: INTERNAL_FAULT.message,
       })
     );
-  });
-  beforeEach(() => {
-    __resetDatabaseStatusStoreForTests();
   });
 
   it('keeps loading when the model catalog is not available', () => {

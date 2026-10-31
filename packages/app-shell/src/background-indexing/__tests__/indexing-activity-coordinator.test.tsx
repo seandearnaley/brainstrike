@@ -1,12 +1,6 @@
 import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
-import {
-  __resetIndexingActivityStoreForTests,
-  useIndexingActivityStore,
-} from '@brainstrike/app-state/stores/indexing-activity-store';
-import {
-  __resetWorkspaceCollectionSyncStatusStoreForTests,
-  useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, waitFor } from '@testing-library/react';
@@ -15,8 +9,6 @@ import { IndexingActivityCoordinator } from '../indexing-activity-coordinator';
 
 describe('IndexingActivityCoordinator', () => {
   beforeEach(() => {
-    __resetIndexingActivityStoreForTests();
-    __resetWorkspaceCollectionSyncStatusStoreForTests();
     useIndexConfigStore.setState({ state: { kind: 'loading' }, update: null });
   });
 

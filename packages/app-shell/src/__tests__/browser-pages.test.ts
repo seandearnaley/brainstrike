@@ -4,10 +4,7 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserBridge, BrowserTab } from '../browser-pane/browser-bridge';
@@ -56,7 +53,6 @@ beforeEach(() => {
 afterEach(() => {
   Reflect.deleteProperty(window as Window & { browser?: unknown }, 'browser');
   useBrowserTabsStore.getState().reset();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 describe('browser pages', () => {

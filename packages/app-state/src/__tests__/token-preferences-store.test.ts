@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  __resetTokenPreferencesStoreForTests,
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '../stores/token-preferences-store.ts';
@@ -23,7 +22,6 @@ const storeWithPersist = useTokenPreferencesStore as PersistApi<typeof useTokenP
 
 describe('token-preferences-store', () => {
   beforeEach(() => {
-    __resetTokenPreferencesStoreForTests();
     vi.restoreAllMocks();
   });
 

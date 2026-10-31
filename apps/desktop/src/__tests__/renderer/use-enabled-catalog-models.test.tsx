@@ -1,8 +1,5 @@
 // @vitest-environment jsdom
-import {
-  __resetModelRegistryStoreForTests,
-  useModelRegistryStore,
-} from '@brainstrike/app-state/stores/model-registry-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { type ModelCatalogCapability, projectModelCatalog } from '@brainstrike/assistant-contract';
 import {
   describeBoundaryFailure,
@@ -15,7 +12,7 @@ import {
 } from '@brainstrike/assistant-contract/boundary-result';
 import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { useEnabledCatalogModels } from '../../renderer/use-enabled-catalog-models';
 
 const initial = projectModelCatalog({ models: [], providers: [] });
@@ -41,7 +38,6 @@ function catalog(): BoundaryTransport<ModelCatalogCapability> {
     setProvider: vi.fn(async () => ({ ok: true as const, value: initial })),
   };
 }
-beforeEach(() => __resetModelRegistryStoreForTests());
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, 'modelCatalog');

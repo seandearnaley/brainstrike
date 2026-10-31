@@ -14,10 +14,7 @@ import {
 import { WorkspaceBody } from '../shell/workspace-body';
 import { WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
 import { useFileTabPaneStore } from '../stores/file-tab-pane-store';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../stores/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { stubMatchMedia } from './setup/stub-match-media';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -184,7 +181,6 @@ describe('workspace tabs open-file refresh', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     capturedFileExplorerStore = null;
-    __resetWorkspaceTabSelectionStoreForTests();
 
     const tabModule = await import('../hooks/use-tab-manager');
     const empty: UseTabManagerReturn = {
