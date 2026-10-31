@@ -844,6 +844,25 @@ span.bs-composer-chip {
     white-space: nowrap;
     width: 1px;
   }
+
+  /* Icon-only, the controls still outgrow the narrowest composer: they wrap
+     onto a second line instead of running under Send, which stays on the
+     bottom line. A wrapping row breaks before it shrinks anything, so the
+     model slot starts at its status dot and grows back to its label. */
+  .bs-composer-footer {
+    align-items: flex-end;
+  }
+
+  .bs-composer-footer-start {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+
+  .bs-composer-model-slot {
+    flex: 1 1 1.75rem;
+    max-width: max-content;
+    min-width: 1.75rem;
+  }
 }
 
 /* Full access reads as a warning in the composer, as Codex and Claude show it,
