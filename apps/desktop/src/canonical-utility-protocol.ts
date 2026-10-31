@@ -4,13 +4,15 @@ import {
   BoundaryFailureSchema,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import type {
-  ScopedCoverage,
-  ScopedFilePlan,
-  ScopedManifestFile,
-  ScopedManifestResult,
-  VectorProfile,
-} from '@brainstrike/indexer';
+import {
+  providedChunkSchema,
+  scopedCoverageSchema,
+  scopedManifestFileSchema,
+  scopedManifestResultSchema,
+  scopedPlanSchema,
+  syntaxSchema,
+  vectorProfileSchema,
+} from '@brainstrike/indexer/contracts';
 import { isChunkingStrategy } from '@brainstrike/text-splitter';
 import { Schema } from 'effect';
 import { hostedEmbeddingFailure } from './hosted-embedding-error';
@@ -172,121 +174,11 @@ const discoveredSchema = Schema.Struct({
   sourcePath: identifier,
   stat: statSchema,
 });
-const chunkSchema = Schema.Struct({
-  chunkIndex: nonnegative,
-  chunkSize: positive,
-  chunkType: Schema.Literals(['text', 'sentence', 'recursive']),
-  content: Schema.String,
-  contentHash: hash,
-  endLine: positive,
-  endOffset: nonnegative,
-  startLine: positive,
-  startOffset: nonnegative,
-  tokenCount: nonnegative,
-});
-const syntaxSchema = Schema.Struct({
-  refs: Schema.Array(
-    Schema.Struct({
-      fileRecordId: identifier,
-      fromSymbolSeq: Schema.optionalKey(nonnegative),
-      kind: Schema.Literals(['call', 'extends', 'implements', 'import']),
-      line: positive,
-      module: Schema.optionalKey(Schema.String),
-      name: identifier,
-      seq: nonnegative,
-    })
-  ),
-  symbols: Schema.Array(
-    Schema.Struct({
-      endLine: positive,
-      endOffset: nonnegative,
-      exported: Schema.Boolean,
-      fileRecordId: identifier,
-      kind: Schema.Literals([
-        'class',
-        'enum',
-        'function',
-        'interface',
-        'method',
-        'type',
-        'variable',
-      ]),
-      name: identifier,
-      seq: nonnegative,
-      startLine: positive,
-      startOffset: nonnegative,
-    })
-  ),
-});
-const profileFields = {
-  dimensions: positive.check(Schema.isLessThanOrEqualTo(16_000)),
-  distance: Schema.Literals(['cosine', 'l2', 'ip']),
-  modelId: identifier,
-};
-export const vectorProfileSchema: Schema.Codec<VectorProfile> = Schema.Struct({
-  ...profileFields,
-  provider: Schema.Literals(['openai', 'google', 'cohere', 'voyage']),
-});
-const bindingFields = {
-  embeddingSetId: Schema.NullOr(identifier),
-  fileId: identifier,
-  relativePath: Schema.NullOr(identifier),
-  rootId: Schema.NullOr(identifier),
-  sourcePath: Schema.NullOr(identifier),
-};
 const payloadSchema = Schema.Struct({
   content: Schema.String,
   fileId: identifier,
-  providedChunks: Schema.Array(chunkSchema),
+  providedChunks: Schema.Array(providedChunkSchema),
   syntax: Schema.optionalKey(syntaxSchema),
-});
-const chunkMetadata = {
-  chunkIndex: Schema.NullOr(nonnegative),
-  chunkSize: Schema.NullOr(positive),
-  chunkType: Schema.NullOr(chunkSchema.fields.chunkType),
-  endOffset: Schema.NullOr(nonnegative),
-  startOffset: Schema.NullOr(nonnegative),
-  tokenCount: Schema.NullOr(positive),
-};
-const nativeChunkSchema = Schema.Struct({
-  ...chunkMetadata,
-  chunkId: hash,
-  content: Schema.String,
-  contentHash: hash,
-  embeddingHash: Schema.NullOr(hash),
-  endLine: positive,
-  startLine: positive,
-});
-const proofFields = { authorityEpoch: hash, authorityRevision: nonnegative, storeId: hash };
-const scopedPlanSchema: Schema.Codec<ScopedFilePlan> = Schema.Struct({
-  ...proofFields,
-  chunks: Schema.Array(nativeChunkSchema),
-  contentHash: hash,
-  embeddingChunkIds: Schema.Array(hash),
-  previousSnapshotHash: Schema.NullOr(hash),
-  profile: Schema.NullOr(vectorProfileSchema),
-  profileHash: Schema.NullOr(hash),
-  snapshot: Schema.Union([
-    Schema.Struct({ ...bindingFields, chunkLines: positive, content: Schema.String }),
-    Schema.Struct({
-      ...bindingFields,
-      content: Schema.String,
-      providedChunks: Schema.Array(chunkSchema),
-    }),
-  ]),
-});
-const scopedManifestFileSchema: Schema.Codec<ScopedManifestFile> = Schema.Struct({
-  ...bindingFields,
-  chunks: Schema.Array(
-    Schema.Struct({
-      ...chunkMetadata,
-      chunkId: hash,
-      contentHash: hash,
-      endLine: positive,
-      startLine: positive,
-    })
-  ),
-  contentHash: hash,
 });
 const manifestResultSchema = Schema.Struct({
   acknowledged: Schema.Array(scopedManifestFileSchema),
@@ -295,27 +187,6 @@ const manifestResultSchema = Schema.Struct({
   missing: Schema.Array(manifestSchema),
   storeId: identifier,
   unexpected: Schema.Array(manifestSchema),
-});
-const scopedManifestResultSchema: Schema.Codec<ScopedManifestResult> = Schema.Struct({
-  ...proofFields,
-  changed: Schema.Array(scopedManifestFileSchema),
-  complete: Schema.Boolean,
-  missing: Schema.Array(scopedManifestFileSchema),
-  scope: scopeSchema,
-  unexpected: Schema.Array(scopedManifestFileSchema),
-});
-const scopedCoverageSchema: Schema.Codec<ScopedCoverage> = Schema.Struct({
-  ...proofFields,
-  counts: Schema.Struct({
-    chunks: nonnegative,
-    indexedFiles: nonnegative,
-    missingVectors: nonnegative,
-    vectors: nonnegative,
-  }),
-  profile: Schema.NullOr(vectorProfileSchema),
-  profileHash: Schema.NullOr(hash),
-  scope: scopeSchema,
-  vectorCoverageComplete: Schema.Boolean,
 });
 const embeddingsSchema = Schema.Array(
   Schema.Struct({

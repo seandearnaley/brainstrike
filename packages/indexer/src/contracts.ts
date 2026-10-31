@@ -195,14 +195,14 @@ export const symbolSchema = Schema.Struct({
 });
 export const refSchema = Schema.Struct({
   fileRecordId: nonblank,
-  fromSymbolSeq: Schema.optional(nonnegative),
+  fromSymbolSeq: Schema.optionalKey(nonnegative),
   kind: Schema.Literals(['call', 'extends', 'implements', 'import']),
   line: positive,
-  module: Schema.optional(Schema.String),
+  module: Schema.optionalKey(Schema.String),
   name: Schema.String,
   seq: nonnegative,
 });
-const syntaxSchema = Schema.Struct({
+export const syntaxSchema = Schema.Struct({
   refs: Schema.Array(refSchema),
   symbols: Schema.Array(symbolSchema),
 });
