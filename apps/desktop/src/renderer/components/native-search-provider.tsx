@@ -113,6 +113,27 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * A new value for every observation Main pushes, even one whose status is
+ * unchanged: consumers re-read availability on each push. It takes the whole
+ * observation because the React Compiler memoizes a call on its arguments, and
+ * would keep the previous value across a push whose status was equal.
+ */
+function searchDependencies(
+  observation: NativeSearchStatus,
+  rest: Omit<NativeWorkspaceSearchDependencies, 'profileUnavailableReason' | 'status'> & {
+    readonly mode: IndexConfig['mode'] | null;
+  }
+): NativeWorkspaceSearchDependencies {
+  const { mode, ...dependencies } = rest;
+  const reason = profileUnavailableReason(mode, observation.status);
+  return {
+    ...dependencies,
+    status: observation.status,
+    ...(reason === undefined ? {} : { profileUnavailableReason: reason }),
+  };
+}
+
 /** Main resolves the saved catalog/profile and embeds the query with the hosted provider. */
 export function NativeSearchProvider({
   capability,
@@ -208,17 +229,10 @@ export function NativeSearchProvider({
     },
     [capability, vectorExecution]
   );
-  const dependencies = useMemo<NativeWorkspaceSearchDependencies>(() => {
-    const reason = profileUnavailableReason(mode, observation.status);
-    return {
-      capability,
-      embedQuery,
-      lifecycle,
-      profile,
-      status: observation.status,
-      ...(reason === undefined ? {} : { profileUnavailableReason: reason }),
-    };
-  }, [capability, embedQuery, lifecycle, mode, observation, profile]);
+  const dependencies = useMemo(
+    () => searchDependencies(observation, { capability, embedQuery, lifecycle, mode, profile }),
+    [capability, embedQuery, lifecycle, mode, observation, profile]
+  );
   return (
     <NativeWorkspaceSearchProvider dependencies={dependencies}>
       {children}

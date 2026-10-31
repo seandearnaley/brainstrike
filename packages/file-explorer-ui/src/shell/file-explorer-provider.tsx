@@ -404,6 +404,20 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
   };
 }
 
+/**
+ * Store and content-read authority share one lifecycle: replacing the storage
+ * adapter must never carry active reads into the replacement store. One call
+ * that takes the adapter keeps them together; the React Compiler memoizes a
+ * value on what creates it, so an authority built without the adapter would
+ * outlive it.
+ */
+function createFileExplorerLifecycle(storageAdapter: StorageAdapter) {
+  return {
+    fileContentLoadAuthority: createFileContentLoadAuthority(),
+    store: createFileExplorerStore(storageAdapter),
+  };
+}
+
 export interface FileExplorerProviderProps {
   children: React.ReactNode;
   /** Optional file system adapter — when provided, enables inline fixture subscription */
@@ -417,13 +431,8 @@ export function FileExplorerProvider({
   children,
 }: FileExplorerProviderProps) {
   const [fileContentResetRevision, setFileContentResetRevision] = useState(0);
-  // Store and content-read authority share one lifecycle: replacing the
-  // storage adapter must never carry active reads into the replacement store.
   const { fileContentLoadAuthority, store } = useMemo(
-    () => ({
-      fileContentLoadAuthority: createFileContentLoadAuthority(),
-      store: createFileExplorerStore(storageAdapter),
-    }),
+    () => createFileExplorerLifecycle(storageAdapter),
     [storageAdapter]
   );
 

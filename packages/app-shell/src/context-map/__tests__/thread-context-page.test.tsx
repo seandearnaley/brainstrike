@@ -34,9 +34,12 @@ import { contextBundleMarkdown } from '../context-bundle';
 import { contextFileRows } from '../context-map-model';
 import { ThreadContextPage } from '../thread-context-page';
 
-const active = vi.hoisted(() => ({ threadId: 'thread-1' as string | null }));
+const useActiveThread = await vi.hoisted(async () => {
+  const { create } = await import('zustand');
+  return create<{ readonly threadId: string | null }>(() => ({ threadId: 'thread-1' }));
+});
 vi.mock('@brainstrike/assistant-data', () => ({
-  useActiveAssistantThreadId: () => active.threadId,
+  useActiveAssistantThreadId: () => useActiveThread((state) => state.threadId),
 }));
 const explorer = vi.hoisted(() => ({
   rootDescriptors: { 'adapter-1': { displayName: 'project' } } as Record<string, unknown>,
@@ -163,7 +166,7 @@ function Page({
 
 beforeEach(() => {
   onRetryFileContent.mockClear();
-  active.threadId = 'thread-1';
+  useActiveThread.setState({ threadId: 'thread-1' });
   resetThreadContextStore();
   vi.mocked(chunkBounds.fileChunks).mockClear();
   // The page is the Context workspace tab, shown.
@@ -176,11 +179,10 @@ afterEach(() => {
 
 describe('ThreadContextPage', () => {
   it('asks for an active thread, then for a first run', () => {
-    active.threadId = null;
-    const { rerender } = render(<Page chunkBounds={null} />);
+    useActiveThread.setState({ threadId: null });
+    render(<Page chunkBounds={null} />);
     expect(screen.getByText('No active thread')).toBeTruthy();
-    active.threadId = 'thread-1';
-    rerender(<Page chunkBounds={null} />);
+    act(() => useActiveThread.setState({ threadId: 'thread-1' }));
     expect(screen.getByText('Nothing delivered yet')).toBeTruthy();
   });
 

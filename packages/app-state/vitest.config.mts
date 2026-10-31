@@ -1,4 +1,5 @@
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import { defineConfig } from 'vitest/config';
 
 const coverageEnabled =
@@ -6,6 +7,7 @@ const coverageEnabled =
   (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
 
 export default defineConfig({
+  plugins: [reactCompiler()],
   test: {
     coverage: {
       enabled: coverageEnabled,

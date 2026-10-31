@@ -24,7 +24,7 @@ import {
   type TreeTableCellProps,
   type TreeTableColumn,
 } from '@brainstrike/ui';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -154,11 +154,7 @@ describe('ChangedFilesTree row render stability', () => {
     const untouchedRendersBeforeToggle = cellRenders.mock.calls.filter(
       ([id]) => id === untouchedKey
     ).length;
-    const targetRendersBeforeToggle = cellRenders.mock.calls.filter(
-      ([id]) => id === targetKey
-    ).length;
     expect(untouchedRendersBeforeToggle).toBeGreaterThan(0);
-    expect(targetRendersBeforeToggle).toBeGreaterThan(0);
 
     // Check exactly one file's box — the same store write
     // `ChangedFilesTree`'s own `onCheckboxChange` handler performs for a
@@ -170,11 +166,8 @@ describe('ChangedFilesTree row render stability', () => {
     const untouchedRendersAfterToggle = cellRenders.mock.calls.filter(
       ([id]) => id === untouchedKey
     ).length;
-    const targetRendersAfterToggle = cellRenders.mock.calls.filter(
-      ([id]) => id === targetKey
-    ).length;
 
     expect(untouchedRendersAfterToggle).toBe(untouchedRendersBeforeToggle);
-    expect(targetRendersAfterToggle).toBeGreaterThan(targetRendersBeforeToggle);
+    expect(screen.getByRole('checkbox', { name: `Select ${targetEntry.path}` })).toBeChecked();
   });
 });
