@@ -9,23 +9,23 @@ owner a launch did not start is refused, never killed, replaced or guessed stale
 A starting or exiting owner is waited for under the launch's one deadline: a
 refused attach, or a race whose winner releases, waits for that owner to give up
 the root and acquires again. Only an owner that keeps the root to the deadline is
-refused (BST-2142).
+refused.
 A leaving owner is recognized by code, never by message: the closing refusal
 crosses the wire as `host-lease.host-closing`, and a lost handshake connection as
-`host-lease.connection-closed` (BST-2158). Changing a frame's shape bumps
+`host-lease.connection-closed`. Changing a frame's shape bumps
 `PROTOCOL_VERSION`.
 
 Keep discovery and credential records private with owner-only permissions. On
 Windows, host start sets the data root's private owner and DACL natively
 (`secure-fs-native`), on one directory handle, and every check of an owner a
 launch did not start verifies them the same way; neither starts a process, and a
-failed check fails the launch (BST-2237). A launch never re-reads or re-verifies
+failed check fails the launch. A launch never re-reads or re-verifies
 the host it started: that host's ready report carries its record. An elevated
 Windows token defaults new objects' owner to `BUILTIN\Administrators`. So every
 Windows process entry that can create host-lease or state-store objects first
 imports `@brainstrike/secure-fs-native/default-owner`, which makes the user the
 process's default owner. Administrators is never accepted as an owner, and an
-existing root another principal owns is still refused (BST-2246). Validate
+existing root another principal owns is still refused. Validate
 record shape, path, generation and process identity before attachment. Public
 clients receive the authenticated host protocol, not desktop-private platform
 credentials or capabilities. Authentication failure does not start another owner.
@@ -36,7 +36,7 @@ Register startup/exit listeners before awaited acquisition. A desktop manager ow
 only hosts it forks; closing an attachment to a CLI/external host cannot signal
 that owner. Electron stays in the adapter, not the shared lease package.
 
-A launch owns the host its starter started until it settles it (BST-2167): an
+A launch owns the host its starter started until it settles it: an
 attachment releases it to its lifetime; a failed attach, or a host that left on
 its own, retires it before the launch rejects or acquires again.
 
@@ -63,12 +63,11 @@ R2 exception: not ours to wait on):
 - **Startup, 90 s** (`HOST_STARTUP_TIMEOUT_MS`, or `startupTimeoutMs`),
   measured from the launch's start: waiting for a starting or leaving owner, and
   the handshake with an existing owner or a race's winner; a live but unreachable
-  owner is refused at it. The handshake has no tighter bound of its own: a loaded
-  runner slows it 100-300 times: a 1.5 s bound refused live CLI hosts, and 30 s
-  refused hosted Windows runners, which take 20-30 s to start a healthy host. It
+  owner is refused at it. The handshake gets no tighter bound: loaded runners
+  slow it by orders of magnitude, and shorter bounds refused healthy hosts. It
   never bounds the start or attach of the launch's own host.
 - The caller's `signal` (quit) ends either wait at once with its own reason
-  (BST-2279): quit has no deadline of its own to bound them (ADR-0026).
+ : quit has no deadline of its own to bound them (ADR-0026).
 - **The Node (CLI) starter** keeps its own ladder, an R2 exception on the
   external CLI path this redesign did not convert: readiness 90 s
   (`HOST_STARTER_READY_TIMEOUT_MS`), then `cancel-startup`, then SIGKILL (the

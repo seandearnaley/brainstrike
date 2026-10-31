@@ -1,6 +1,6 @@
 # Agent package
 
-Follow root instructions. This package supplies shared runtime contracts and
+This package supplies shared runtime contracts and
 adapters; the host owns run execution, permissions and durable state (ADR-0012).
 
 - Native tool definitions have one catalog in `@brainstrike/assistant-contract`.
@@ -16,5 +16,4 @@ adapters; the host owns run execution, permissions and durable state (ADR-0012).
   execution behind the existing CodeExecutor and permission seams.
 
 Consult `docs/agents/assistant-providers.md`, `assistant-subagents.md`,
-`code-execution.md` or `mastra-boundary.md` for the relevant contract. Commands and
-export shapes come from package configuration.
+`code-execution.md` or `mastra-boundary.md` for the relevant contract.

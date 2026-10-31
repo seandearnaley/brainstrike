@@ -1,34 +1,13 @@
 # @brainstrike/config
 
-Shared TypeScript, Biome and browser/Playwright configuration. This package's
-JSON/source exports are consumed directly; it is not a generic runtime library
-with a second build system.
+Shared TypeScript, Biome and browser/Playwright configuration, consumed directly from source and JSON.
 
-## Select the existing profile
-
-The TypeScript profile lives in [`tsconfig`](tsconfig/). `base.json` supplies the
-shared strict checks and resolves modules the way the bundlers that consume
-workspace packages do. Workspace packages export their source as types, so a
-consumer type-checks its dependencies' source under its own options. A package
-whose emitted output Node runs directly states NodeNext in its own tsconfig.
-Native-addon builds retain their native build boundary.
-
-Choose a profile by the actual runtime/output, not by copying a compiler-options
-list. Include/exclude patterns and emission belong to the consuming package
-configuration. Do not add experimental decorator options
-or a bundler just because an obsolete example listed them.
-
-The Biome entries are declared in [`package.json`](package.json).
-`/playwright-environment` owns environment/CLI configuration used by both apps;
-`/vitest-browser` supplies browser project/provider helpers. Each app/package's
-own config chooses its projects and launch boundaries. An environment setting
-named CI does not authorize hosted workflows.
-
-## Changes and validation
-
-Use the declared package scripts when changing configuration; there is no package
-`build` script to invent. Prefer executable configuration as the source of truth
-for versions, worker counts and budgets. For policy and check selection, use
-`pnpm check`.
-Local consumers
-declare this internal package with `workspace:*`.
+- TypeScript: [`tsconfig/base.json`](tsconfig/base.json) holds the strict checks and bundler-style module resolution.
+  - Consumers type-check their dependencies' source under their own options.
+  - A package whose emitted output Node runs directly sets NodeNext in its own tsconfig.
+  - Include/exclude and emission belong to the consuming package.
+- Biome: `/biome` and `/biome/base`.
+- `/playwright-environment`: environment and CLI configuration for Playwright.
+- `/vitest-browser`: browser project and provider helpers. Each package's own config chooses its projects.
+- An environment setting named CI does not authorize hosted workflows.
+- There is no `build` script.

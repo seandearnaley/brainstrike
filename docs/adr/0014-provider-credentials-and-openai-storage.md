@@ -9,7 +9,7 @@
 
 Credentials cross several seams: the agent runtime, Bedrock's bearer key and AWS
 credential chain (BST-1350, BST-1353), the provider OAuth engine, which is bound by
-the signed `docs/OAUTH_LEGAL_REVIEW_GATE.md`, and the desktop env bootstrap report.
+the signed OAuth legal review gate (no longer in the repo), and the desktop env bootstrap report.
 `RequestContext.toJSON` drops functions, so a credential closure placed in a
 request context vanishes silently. The ChatGPT-subscription path built each request
 as if OpenAI stored it and rewrote it to unstored afterwards, so from the second
@@ -23,7 +23,7 @@ tool-calling step it pointed at reasoning that was never stored (BST-1918).
 - Bedrock precedence is env bearer, stored bearer, env chain, stored chain: a stored
   bearer key outranks an ambient AWS environment.
 - The AWS credential chain resolves only where the host injects the chain capability.
-  Web never resolves a chain.
+  Web never resolved a chain (the web app has since been removed).
 - Anthropic subscription OAuth is permanently rejected under the signed legal gate.
 - The env bootstrap report carries variable names, file paths, counts and the
   loader's own messages, never a value, prefix, hash or length.

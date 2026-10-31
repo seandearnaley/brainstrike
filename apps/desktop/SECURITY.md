@@ -1,65 +1,30 @@
-# Security Implementation for Brainstrike
+# Desktop security
 
-This document outlines the security measures implemented in the Brainstrike Electron application.
+Security boundaries of the Electron app. Code is the reference; this file says where each boundary lives and what it guarantees.
 
-## Content Security Policy (CSP)
+## Content Security Policy and headers
 
-### Overview
-The application implements a comprehensive Content Security Policy that differs between development and production environments.
+- The policy is built by `packages/platform-utils/src/content-security-policy.ts` (target `electron`) and stamped on every response by `src/setup-security.ts`.
+- Production:
+  - `default-src 'self'`; `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`; `frame-ancestors 'none'`.
+  - `script-src 'self' blob: 'wasm-unsafe-eval'`: no CDN, no `unsafe-eval`, no inline script.
+  - `connect-src` allows `'self'`, loopback (`127.0.0.1`/`localhost`, any port) and the embedding provider origins the renderer calls directly (OpenAI, Google, Cohere, Voyage).
+  - `frame-src` allows only the two sandbox shell schemes, `brainstrike-canvas:` and `brainstrike-mcp-app:`; never `blob:`.
+  - `style-src` allows `'unsafe-inline'`; `img-src` allows `data:`, `blob:` and `brainstrike-asset:`.
+- Development adds `localhost` sources, WebSockets and `'unsafe-inline'`/`'unsafe-eval'` scripts for Vite HMR.
+- Response headers:
+  - `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`.
+  - `X-XSS-Protection: 0` (the legacy auditor is itself a risk; CSP covers XSS).
+  - `Permissions-Policy` disables camera, microphone, geolocation and payment.
+  - The sandbox shell schemes are exempt from this stamp and carry their own headers (see MCP Apps below).
 
-### Development CSP
-- Permits connections to localhost for the development server
-- Enables WebSocket connections for live reload
-- Allows `'unsafe-inline'` scripts to support Vite Hot Module Replacement (HMR)
+## Electron security settings
 
-### Production CSP
-- Stricter policy without `unsafe-eval`
-- Only allows connections to self
-- Blocks all external resource loading except explicitly allowed
+### WebPreferences (`src/create-window.ts`)
 
-### CSP Directives
-- `default-src 'self'`: Only allow resources from same origin
-- `script-src`: Controls JavaScript execution
-- `style-src 'self' 'unsafe-inline'`: Allows inline styles for CSS frameworks
-- `img-src 'self' data: blob:`: Allows images from self, data URLs, and blobs
-- `font-src 'self' data:`: Allows fonts from self and data URLs
-- `object-src 'none'`: Blocks all plugins
-- `base-uri 'self'`: Restricts base tag URLs
-- `form-action 'self'`: Restricts form submissions
-- `frame-ancestors 'none'`: Prevents embedding in frames
-
-## Additional Security Headers
-
-### X-Content-Type-Options
-- Set to `nosniff` to prevent MIME type sniffing
-
-### X-Frame-Options
-- Set to `DENY` to prevent clickjacking attacks
-
-### X-XSS-Protection
-- Set to `0` to disable the legacy XSS auditor, which can itself introduce vulnerabilities. Modern CSP provides superior XSS protection.
-
-### Referrer-Policy
-- Set to `strict-origin-when-cross-origin` for privacy
-
-### Permissions-Policy
-- Disables camera, microphone, geolocation, and payment APIs
-
-## Electron Security Settings
-
-### WebPreferences
-- `nodeIntegration: false`: Disables Node.js in renderer
-- `contextIsolation: true`: Isolates context between main and renderer
-- `webSecurity: true`: Enables web security features
-- `sandbox: true`: The Chromium renderer sandbox is on in packaged builds. Test
-  runs turn it off, because Playwright's Electron driver cannot launch a
-  sandboxed app in CI (`create-window.ts`), and the `dev:electron`, `start` and
-  `start:dev` scripts launch Electron with `--no-sandbox`, which turns it off for
-  every process
-- `allowRunningInsecureContent: false`: Blocks mixed content
-- `experimentalFeatures: false`: Disables experimental web features
-- `safeDialogs: true`: Enables safe dialog handling
-- `navigateOnDragDrop: false`: Prevents navigation on drag/drop
+- `nodeIntegration: false`, `contextIsolation: true`, `webSecurity: true`.
+- `sandbox: true` in packaged builds. Test runs turn it off (Playwright's Electron driver cannot launch a sandboxed app in CI), and the `dev:electron`, `start` and `start:dev` scripts pass `--no-sandbox`.
+- `allowRunningInsecureContent: false`, `experimentalFeatures: false`, `safeDialogs: true`, `navigateOnDragDrop: false`.
 
 ### Fuses
 electron-builder flips Electron's fuses in every packaged build (`electronFuses`
@@ -88,44 +53,17 @@ in package.json, BST-2357):
   signed macOS build is signed again right after, but the unsigned posture
   (RELEASES.md) is not, so the app is ad-hoc signed again after the flip
 
-### Navigation Security
-- Blocks navigation to external URLs
-- Only allows navigation within the application
-- Prevents opening new windows to external sites
+### Navigation and IPC
 
-### Window Security
-- Uses preload script for secure IPC communication
-- Implements secure context bridge for renderer communication
+- `setWindowOpenHandler` denies popups and `will-navigate` keeps the main frame inside the app.
+- The renderer reaches main only through `contextBridge` preload APIs; filesystem and storage operations go over IPC.
+- One dispatcher rejects untracked senders and unrecognized frames before any handler runs; handlers validate their payloads.
 
-## IPC Security
+## Storage
 
-### Preload Script
-- Uses `contextBridge` to expose limited APIs
-- No direct Node.js access in renderer process
-- All file system and storage operations go through IPC
+- Crash reports stay on the machine (BST-2351): Crashpad writes minidumps to `<userData>/Crashpad` with upload off. A minidump can hold process memory, so the thread debug pack lists only names, times and sizes, and factory reset deletes every report.
 
-### Main Process Handlers
-- Validates all IPC messages
-- Implements proper error handling
-- Uses typed interfaces for communication
-
-## File System Security
-
-### Directory Access
-- Uses secure directory picker dialog
-- Validates file paths before operations
-- Implements proper error handling for file operations
-
-### Storage Security
-- Local storage adapter with validation
-- No sensitive data stored in plain text
-- Proper cleanup of temporary data
-- Crash reports stay on the machine (BST-2351): Crashpad writes a minidump for
-  a crashed process into `<userData>/Crashpad` with upload off. A minidump can
-  hold memory from the crashed process, so the thread debug pack lists only
-  names, times and sizes, and factory reset deletes every report
-
-### Credential storage
+## Credential storage
 - Provider keys, MCP bearer tokens and MCP OAuth records live in one private
   file in the profile, `brainstrike-credentials.sealed.json`. The agent host is
   its only writer; Main reads it.
@@ -171,7 +109,7 @@ hard payload rule.
 ## MCP HTTP OAuth (BST-1468)
 
 The implementation lives in
-`src/mcp/oauth-client-provider.ts` and is an SDK v2 `OAuthClientProvider` for a
+`packages/host-capabilities/src/mcp/oauth-client-provider.ts` and is an SDK v2 `OAuthClientProvider` for a
 single configured HTTP MCP resource.
 
 - The official SDK owns RFC 9728 protected-resource discovery, RFC 8414/OIDC
@@ -231,8 +169,8 @@ single configured HTTP MCP resource.
   clears the shared secrets authority; because every fetch resolves afresh, a
   closure created before reset cannot continue authenticating afterward.
 
-The focused fake-authorization-server suite and production-host integration are
-`src/__tests__/main/mcp-oauth-client-provider.integration.test.ts`; the
+The fake-authorization-server suite is
+`src/__tests__/main/mcp-oauth-client-provider.test.ts`; the
 credential boundary and config contracts are covered by the adjacent unit
 tests. Startup reports an authentication-required state, and only explicit
 Connect or Reauthorize passes the provider and its one-shot callback source to
@@ -296,7 +234,7 @@ dials, so a stale or racing frame can never regain a permission or a download.
   session, so the `allow` attribute and the shell's `Permissions-Policy`
   header cannot be the whole story: they only govern Permissions-Policy
   features. `notifications` is not one, and with no session handler installed
-  Electron's default GRANTS every permission request — measured on the pinned
+  Electron's default GRANTS every permission request — measured on
   Electron 43, `Notification.requestPermission()` from the opaque app document
   resolved `granted`. `installMcpAppSessionPolicy`
   (`src/mcp/apps-session-policy.ts`, wired from `setup-security.ts` onto
@@ -428,48 +366,14 @@ download offline. The DMG container itself is deliberately unsigned
   secret to the build, builds the documented unsigned posture, and asserts no
   Developer ID signature is present, so a build is never half-signed.
 
-## Development vs Production
+## Logging, DevTools and updates
 
-### Development Mode
-- More permissive CSP for the Vite dev server and HMR
-- Console logging for security configuration
-
-### Production Mode
-- Strict CSP without development exceptions
-- Logging at `info` unless `LOG_LEVEL` or Settings › Logging says otherwise
-- macOS bundles signed and notarized; Windows unsigned until Authenticode lands
-  (BST-2349)
-
-### Both
-- DevTools open from View › Toggle Developer Tools in every build
-
-## Security Checklist
-
-- [x] Content Security Policy implemented
-- [x] Context isolation enabled
-- [x] Node integration disabled in renderer
-- [x] Secure preload script
-- [x] Navigation restrictions
-- [x] Window opening restrictions
-- [x] Security headers configured
-- [x] Input validation in IPC handlers
-- [x] Secure file system access
-- [x] No hardcoded secrets
-- [x] Proper error handling
-
-## Monitoring and Updates
-
-### Security Monitoring
-- Renovate opens dependency and Electron updates (`.github/renovate.json5`)
-- Electron security warnings monitoring
-
-### Update Process
-- Automated security updates for dependencies
-- Regular Electron version updates
-- Security patch deployment process
+- Packaged builds log at `info` unless `LOG_LEVEL` or Settings › Logging says otherwise.
+- DevTools open from View › Toggle Developer Tools in every build.
+- Renovate opens dependency and Electron updates (`.github/renovate.json5`).
 
 ## References
 
-- [Electron Security Guidelines](https://www.electronjs.org/docs/tutorial/security)
-- [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP)
-- [OWASP Electron Security](https://owasp.org/www-project-electron-security/)
+- [Electron security guidelines](https://www.electronjs.org/docs/tutorial/security)
+- [Content Security Policy (MDN)](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP)
+- [OWASP Electron security](https://owasp.org/www-project-electron-security/)

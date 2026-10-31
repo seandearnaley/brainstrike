@@ -1,31 +1,12 @@
 # @brainstrike/hooks
 
-Small shared React hooks. [`index.ts`](src/index.ts) owns exports including
-`useDebouncedValue` and `useFileFilters`.
+Small shared React hooks; exports are in [`index.ts`](src/index.ts).
 
-`useDebouncedValue(value, delay)` takes an explicit delay and cancels its prior
-scheduled update when the value/delay changes or the component unmounts:
+- `useDebouncedValue(value, delay)` cancels the pending update when the value or delay changes or the component unmounts:
 
-```tsx
-import { useState } from 'react';
-import { useDebouncedValue } from '@brainstrike/hooks';
-
-export function QueryPreview() {
-  const [query, setQuery] = useState('');
+  ```tsx
   const debouncedQuery = useDebouncedValue(query, 300);
-  return (
-    <>
-      <input value={query} onChange={(event) => setQuery(event.target.value)} />
-      <output>{debouncedQuery}</output>
-    </>
-  );
-}
-```
+  ```
 
-Hook cleanup is scoped to its own resources; a loading flag does not own or cancel
-a longer-lived host operation. Use the filter/loading hooks' actual input and
-result types instead of copying package-local stores into this generic layer.
-
-Exports, scripts and versions live in [`package.json`](package.json). Local
-consumers use `workspace:*`; [shared contribution/validation policy](../../AGENTS.md)
-applies.
+- `useFileFilters` and the loading hooks: use their actual input and result types; don't copy package-local stores into this generic layer.
+- Hook cleanup covers only its own resources; a loading flag never owns or cancels a longer-lived host operation.
