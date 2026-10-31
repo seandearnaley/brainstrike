@@ -87,6 +87,12 @@ describe('stable MCP Apps resource metadata', () => {
     });
   });
 
+  it('treats a permission set to undefined as not requested', () => {
+    expect(
+      parseMcpAppResourceMeta({ permissions: { camera: undefined, geolocation: {} } })
+    ).toEqual({ permissions: { geolocation: {} } });
+  });
+
   it.each([
     { draftField: true },
     { csp: { scriptDomains: ['https://example.com'] } },

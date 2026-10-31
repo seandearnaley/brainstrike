@@ -173,8 +173,13 @@ export function parseMcpAppResourceMeta(value: unknown): McpAppResourceMeta {
   }
   if (meta.permissions !== undefined) {
     // Each granted permission is an empty object; the strip check refused any field in one.
+    // A key set to undefined is no request, as the sandbox reads it.
     parsed.permissions = Object.freeze(
-      Object.fromEntries(Object.keys(meta.permissions).map((key) => [key, Object.freeze({})]))
+      Object.fromEntries(
+        Object.entries(meta.permissions)
+          .filter(([, grant]) => grant !== undefined)
+          .map(([key]) => [key, Object.freeze({})])
+      )
     );
   }
   if (meta.domain !== undefined) {
