@@ -281,7 +281,18 @@ async function subscribeRootWatch(
   const batcher = createFileSystemChangeBatcher(callback);
   let stopped = false;
 
-  const processEvent = async (eventType: fs.WatchEventType, eventPath: string): Promise<void> => {
+  // Paths whose stat is still queued, with the event type they will report. A
+  // path that fires again before its stat runs joins that stat (BST-2372): a
+  // checkout or install fires several events per path, and each would
+  // otherwise stat the path again. A rename is kept over a later change, so a
+  // membership change is never reported as content-only.
+  const queuedEvents = new Map<string, { eventType: fs.WatchEventType }>();
+
+  const processEvent = async (
+    eventPath: string,
+    queued: { readonly eventType: fs.WatchEventType }
+  ): Promise<void> => {
+    queuedEvents.delete(eventPath);
     if (stopped) {
       return;
     }
@@ -298,7 +309,7 @@ async function subscribeRootWatch(
       kind: stat.isDirectory() ? 'directory' : 'file',
       path: eventPath,
       // A rename that leaves the path present is a membership change.
-      type: eventType === 'rename' ? 'added' : 'modified',
+      type: queued.eventType === 'rename' ? 'added' : 'modified',
     });
   };
 
@@ -346,8 +357,17 @@ async function subscribeRootWatch(
       return;
     }
     const eventPath = relativePath.length === 0 ? rootPath : path.join(rootPath, filename);
+    const alreadyQueued = queuedEvents.get(eventPath);
+    if (alreadyQueued) {
+      if (eventType === 'rename') {
+        alreadyQueued.eventType = eventType;
+      }
+      return;
+    }
+    const queued = { eventType };
+    queuedEvents.set(eventPath, queued);
     eventQueue = eventQueue
-      .then(() => processEvent(eventType, eventPath))
+      .then(() => processEvent(eventPath, queued))
       .catch((processError: unknown) => {
         logger.error('Root watcher event processing failed', {
           error: processError,
