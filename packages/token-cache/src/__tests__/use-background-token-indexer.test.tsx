@@ -1848,6 +1848,81 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.isIndexing).toBe(false);
   });
 
+  describe('a worker restart during the cache read', () => {
+    async function startBatchThenRestartWorker() {
+      vi.useFakeTimers();
+      const onFileIndexed = vi.fn();
+      const cacheRead = Promise.withResolvers<Map<string, TokenCacheEntry>>();
+      const store = {
+        get: vi.fn(async () => null),
+        getBatch: vi.fn(() => cacheRead.promise),
+        set: vi.fn(async () => {}),
+      };
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({ mode: 'accurate', onFileIndexed, store })
+      );
+      await markSpecificWorkerReady(mockWorkers[0]!);
+      let indexing!: Promise<void>;
+      act(() => {
+        indexing = result.current.indexFiles([
+          { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+        ]);
+      });
+      await flushPromises();
+      expect(store.getBatch).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        mockWorkers[0]!.onerror?.(new ErrorEvent('error', { message: 'runtime boom' }));
+      });
+      await runPendingTimers();
+      expect(mockWorkers).toHaveLength(2);
+      return { cacheRead, indexing, onFileIndexed };
+    }
+
+    it('dispatches the batch to the replacement once it is ready', async () => {
+      const { cacheRead, indexing, onFileIndexed } = await startBatchThenRestartWorker();
+      await markSpecificWorkerReady(mockWorkers[1]!);
+
+      await act(async () => {
+        cacheRead.resolve(new Map());
+      });
+      expect(mockWorkers[0]!.postMessage).not.toHaveBeenCalled();
+      expect(mockWorkers[1]!.postMessage).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        mockWorkers[1]!.emitEvent('message', {
+          data: {
+            compositeKey: 'folder|@|a.ts',
+            contentHash: 'hash',
+            filePath: 'a.ts',
+            fileSize: 64,
+            folderId: 'folder',
+            mode: 'accurate',
+            skipped: false,
+            tokenCount: 7,
+            type: 'result',
+          },
+        } as MessageEvent);
+      });
+      await expect(indexing).resolves.toBeUndefined();
+      expect(onFileIndexed).toHaveBeenCalledWith('folder|@|a.ts', 7, 64);
+    });
+
+    it('rejects the batch when the replacement is not ready yet', async () => {
+      const { cacheRead, indexing } = await startBatchThenRestartWorker();
+      const rejection = expect(indexing).rejects.toThrow(
+        'Background token indexer worker stopped during the cache read'
+      );
+
+      await act(async () => {
+        cacheRead.resolve(new Map());
+      });
+      await rejection;
+      expect(mockWorkers[0]!.postMessage).not.toHaveBeenCalled();
+      expect(mockWorkers[1]!.postMessage).not.toHaveBeenCalled();
+    });
+  });
+
   it('settles a startup still waiting for ready with the retirement and cancels its readiness timeout', async () => {
     vi.useFakeTimers();
     const onFileError = vi.fn();

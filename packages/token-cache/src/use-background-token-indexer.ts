@@ -902,7 +902,6 @@ export function useBackgroundTokenIndexer({
       }
 
       // Get latest values from refs
-      const worker = workerRef.current;
       const currentStore = storeRef.current;
       const currentMode = modeRef.current;
 
@@ -915,6 +914,15 @@ export function useBackgroundTokenIndexer({
         // Retirement can land during the cache read; nothing dispatches after it.
         if (retirementRef.current) {
           throw retirementRef.current;
+        }
+        // A worker restart or failure can land there too, so the batch goes to the worker that is
+        // ready now, never to the one it saw before the read.
+        const worker = workerRef.current;
+        if (!(worker && workerRuntimeRef.current?.isReady())) {
+          throw (
+            terminalWorkerFailureRef.current ??
+            new Error('Background token indexer worker stopped during the cache read')
+          );
         }
         const requests = buildIndexRequests(files, cachedByFolder, currentMode);
         for (const request of requests) {
