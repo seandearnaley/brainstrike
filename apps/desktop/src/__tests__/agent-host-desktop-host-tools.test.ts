@@ -9,6 +9,10 @@ import { join } from 'node:path';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import {
+  createSecureSkillsFs,
+  prepareAdmittedSkills,
+} from '@brainstrike/host-capabilities/workspace-context';
 import type { WorktreeCreateResult, WorktreeListEntry } from '@brainstrike/types';
 import { afterEach, expect, test, vi } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
@@ -16,8 +20,6 @@ import {
   PlatformNativeRuntimeSchema,
   PlatformSelectionSchema,
 } from '../agent-host-platform/platform-wire';
-import { prepareAdmittedSkills } from '../assistant-server/request-skills';
-import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 
 // run_python reports a host without an OS fence (Windows) before it resolves the
 // interpreter. Fence support is held on so every OS reaches the interpreter half

@@ -14,7 +14,6 @@ import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.con
 import { appUpdatesContract } from './ipc-domains/app-updates.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
-import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
 import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
@@ -23,7 +22,6 @@ import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.con
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
 import { storageContract } from './ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
-import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import type { LoggingSettingsPayload } from './logging-shared';
@@ -478,23 +476,6 @@ if (shouldExposeBridge('hooks')) {
     untrustProjectHooks: (absPath: string) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks, absPath),
   });
-}
-
-// Workspace context-files bridge (desktop). Capability-gated: the Workspace
-// Instructions settings panel scans each mounted root's detected
-// AGENTS.md/AGENT.md/CLAUDE.md (size + token estimate + injection status) so the
-// user can opt an oversized file in. Web never constructs this bridge.
-if (shouldExposeBridge('contextFiles')) {
-  exposeBridge('contextFiles', contextFilesContract);
-}
-
-// Subagent persona discovery bridge (desktop-only). Capability-gated: the
-// Settings -> Subagents panel calls `list` to show built-in + user-defined
-// personas scanned from `.brainstrike/agents`. Web never constructs this
-// bridge (no preload), so consumers must capability-check
-// `window.assistantPersonas` rather than `isElectron()`.
-if (shouldExposeBridge('assistantPersonas')) {
-  exposeBridge('assistantPersonas', userPersonasContract);
 }
 
 if (shouldExposeBridge('threadGroups')) {

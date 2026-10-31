@@ -64,9 +64,6 @@ export const DESKTOP_IPC_CHANNELS = {
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
   },
-  contextFiles: {
-    scan: 'context-files:scan',
-  },
   db: {
     clearAll: 'db:clearAll',
     getUserDataPath: 'db:getUserDataPath',
@@ -184,9 +181,6 @@ export const DESKTOP_IPC_CHANNELS = {
     setItem: 'storage:setItem',
   },
   threadGroups: { readRoots: 'thread-groups:read-roots', request: 'thread-groups:request' },
-  userPersonas: {
-    list: 'user-personas:list',
-  },
   viewFilterPresets: { request: 'view-filter-presets:request' },
   // Native focus of the host BrowserWindow (BST-1864). `isFocused` is the ONLY
   // invoke: the value for the asking window, served on request so a renderer

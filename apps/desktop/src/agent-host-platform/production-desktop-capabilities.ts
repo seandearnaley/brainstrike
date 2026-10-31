@@ -64,7 +64,9 @@ function desktopAdmissionReads(
       const row = (await dependencies.modelCatalog.read()).models.find(
         (candidate) => candidate.id === model && candidate.providerId === provider
       );
-      return row ? { isEnabled: row.isEnabled, providerId: row.providerId } : null;
+      return row
+        ? { isEnabled: row.isEnabled, providerId: row.providerId, type: row.capabilities.type }
+        : null;
     },
     ...(readCliOwnerIntent ? { cliOwnerIntent: readCliOwnerIntent } : {}),
     /**

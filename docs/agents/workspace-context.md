@@ -23,6 +23,13 @@ project tiers. An untrusted folder still mounts and stays readable and editable.
 Home tiers load regardless, and hooks keep their own hash pins. Add any new
 repo-supplied input that steers the agent behind the same filter.
 
+Every host, desktop and CLI, scans and injects these through
+`@brainstrike/host-capabilities/workspace-context` (ADR-0029 stage 2a). Settings
+reads skills, commands, personas and instructions files over the host methods
+`workspace/skills`, `workspace/commands`, `workspace/personas` and
+`workspace/context-files`; the last two answer only the desktop's private client.
+Main serves none of them.
+
 Use the shared contained, size-bounded readers for workspace instructions,
 references, commands and skills. Respect scoped precedence and hard ignore rules;
 report omissions and preserve Unicode boundaries when limiting context. Never
@@ -54,5 +61,5 @@ Thread deletion/reset retire the associated content through those owners.
 
 Decisions: [ADR-0016](../adr/0016-workspace-trust-and-ignore-chain.md),
 [ADR-0032](../adr/0032-workspace-trust.md).
-Implementation: desktop workspace readers/tools, `packages/agent-host` and
-`packages/file-explorer`.
+Implementation: `packages/host-capabilities` (workspace context and tools),
+`packages/agent-host` and `packages/file-explorer`.

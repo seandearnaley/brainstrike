@@ -15,11 +15,11 @@ import {
   encodeFileMentionId,
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
-import { afterEach, beforeEach, expect, test } from 'vitest';
 import {
   attachedMentionReader,
   placeMentionedFiles,
-} from '../agent-host-platform/desktop-mentioned-files';
+} from '@brainstrike/host-capabilities/workspace-context';
+import { afterEach, beforeEach, expect, test } from 'vitest';
 import { createDesktopRunAdmission } from '../agent-host-platform/desktop-run-admission';
 import { capturedIntent, everyRootTrusted, mainReads } from './fixtures/desktop-admission-reads';
 

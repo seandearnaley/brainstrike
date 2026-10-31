@@ -45,6 +45,7 @@ import { bindHostProviderMethods } from './provider-connection.ts';
 import { storeRefusal } from './store-refusals.ts';
 import { bindHostTerminalMethods } from './terminal-connection.ts';
 import { searchHostThreads } from './thread-search.ts';
+import { bindHostWorkspaceDiscoveryMethods } from './workspace-discovery-connection.ts';
 import { bindHostWorkspaceTrustMethods } from './workspace-trust.ts';
 
 interface HostConnectionLifecycle {
@@ -352,19 +353,7 @@ export function bindHostConnection(
     signal.throwIfAborted();
     return result;
   });
-  const discovery = (): HostWorkspaceDiscovery => {
-    if (!workspaceDiscovery) {
-      throw refusalError(
-        'configuration',
-        'workspace.discovery-unavailable',
-        'Skills and user commands are unavailable on this host'
-      );
-    }
-    return workspaceDiscovery;
-  };
-  handle('workspace/skills', (_params, signal) => discovery().skills(signal));
-  handle('workspace/commands', (_params, signal) => discovery().commands(signal));
-  handle('workspace/trust/list', (_params, signal) => discovery().trust(signal));
+  bindHostWorkspaceDiscoveryMethods(handle, workspaceDiscovery, origin);
   handle('thread/search', (params) => searchHostThreads(core, searchState, params));
   handle('thread/selection/read', (params) => core.selections.read(params.threadId));
   handle('thread/selection/set', (params) => core.selections.set(params));

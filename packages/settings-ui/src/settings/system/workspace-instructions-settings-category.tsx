@@ -1,6 +1,9 @@
 import { FileText } from 'lucide-react';
 import type { SettingsCategory } from '../../settings-page-content';
-import { WorkspaceInstructionsSettingsSection } from './workspace-instructions-settings-section';
+import {
+  WorkspaceInstructionsSettingsSection,
+  type WorkspaceInstructionsSettingsSectionProps,
+} from './workspace-instructions-settings-section';
 
 /**
  * Factory for the Workspace Instructions settings category. Lives in its own
@@ -8,9 +11,11 @@ import { WorkspaceInstructionsSettingsSection } from './workspace-instructions-s
  * can preserve `SettingsPageContent`'s state (react-refresh
  * `only-export-components`), mirroring `notification-settings-category.tsx`.
  */
-export function createWorkspaceInstructionsSettingsCategory(): SettingsCategory {
+export function createWorkspaceInstructionsSettingsCategory(
+  options: WorkspaceInstructionsSettingsSectionProps = {}
+): SettingsCategory {
   return {
-    content: <WorkspaceInstructionsSettingsSection />,
+    content: <WorkspaceInstructionsSettingsSection {...options} />,
     description:
       'Auto-inject each open workspace folder’s AGENTS.md / AGENT.md / CLAUDE.md into the assistant’s context.',
     icon: FileText,

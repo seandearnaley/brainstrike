@@ -3,11 +3,11 @@
  *
  * Master switch (delegation on/off) + per-persona toggles, persisted in the
  * subagent-personas store and applied server-side per request. Built-in
- * personas are included in every successful host scan; user-defined personas load through the
- * capability-gated `window.assistantPersonas` bridge (desktop main scans
- * `.brainstrike/agents`) — INCLUDING invalid persona files with their
- * parse/validation error, so authors see exactly why a file did not load.
- * Web has no bridge and shows an honest desktop-only note instead.
+ * personas are included in every successful host scan; user-defined personas load from the
+ * agent host's scan of `.brainstrike/agents` (`workspace/personas`, desktop
+ * only) — INCLUDING invalid persona files with their parse/validation error,
+ * so authors see exactly why a file did not load. Web has no host scan and
+ * shows an honest desktop-only note instead.
  */
 
 import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
@@ -22,7 +22,6 @@ import {
   effectiveChildStepBudget,
   personaScope,
 } from '@brainstrike/assistant-contract';
-import { resolveAssistantPersonasBridge } from '@brainstrike/assistant-contract/personas-bridge';
 import {
   Badge,
   Button,
@@ -60,7 +59,7 @@ function displayToolId(toolId: string): string {
  * The scope a loadable persona runs with, in plain terms, from the same facts
  * the host enforces: effective mode, the HOST-CAPPED step budget
  * (`effectiveChildStepBudget`, the number the model is told), and the declared
- * capability set. Absent facts (an older bridge) render nothing rather than a
+ * capability set. Absent facts (an older host) render nothing rather than a
  * guess.
  */
 function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem }) {
@@ -202,30 +201,35 @@ function PersonaRow(props: {
   );
 }
 
-export function SubagentPersonasSettingsSection(): React.JSX.Element {
+export interface SubagentPersonasSettingsSectionProps {
+  /** The agent host's persona scan with its preflight checks; absent where no host serves it. */
+  readonly listPersonas?: () => Promise<AssistantPersonasListResult>;
+}
+
+export function SubagentPersonasSettingsSection({
+  listPersonas,
+}: SubagentPersonasSettingsSectionProps): React.JSX.Element {
   const delegationEnabled = useSubagentPersonasStore(subagentPersonasSelectors.delegationEnabled);
   const disabledPersonaIds = useSubagentPersonasStore(subagentPersonasSelectors.disabledPersonaIds);
   const setDelegationEnabled = useSubagentPersonasStore((state) => state.setDelegationEnabled);
   const setPersonaEnabled = useSubagentPersonasStore((state) => state.setPersonaEnabled);
 
-  const hasBridge = resolveAssistantPersonasBridge() !== null;
+  const hasHost = listPersonas !== undefined;
   const [load, setLoad] = useState<{
     status: 'loading' | 'loaded' | 'failed';
     result: AssistantPersonasListResult | null;
-  }>(() => ({ result: null, status: hasBridge ? 'loading' : 'loaded' }));
+  }>(() => ({ result: null, status: hasHost ? 'loading' : 'loaded' }));
   const [reloadVersion, setReloadVersion] = useState(0);
   const loading = load.status === 'loading';
   const loadFailed = load.status === 'failed';
   const incompleteDirs = load.result?.incompleteDirs ?? [];
 
   useEffect(() => {
-    const bridge = resolveAssistantPersonasBridge();
-    if (!bridge) {
+    if (!listPersonas) {
       return;
     }
     let cancelled = false;
-    bridge
-      .list()
+    listPersonas()
       .then((result) => {
         if (!cancelled) {
           setLoad({ result, status: 'loaded' });
@@ -241,11 +245,11 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [reloadVersion]);
+  }, [listPersonas, reloadVersion]);
 
-  // Bridge results include built-ins first; without a bridge fall back to the
+  // Host results include built-ins first; without a host fall back to the
   // static built-in list so the panel is meaningful on web too.
-  const items = load.result?.personas ?? (hasBridge ? [] : BUILT_IN_ITEMS);
+  const items = load.result?.personas ?? (hasHost ? [] : BUILT_IN_ITEMS);
   const disabledSet = new Set(disabledPersonaIds);
 
   return (
@@ -283,7 +287,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
           checked again for every request. Host checks below do not grant access or promise that
           every declared tool can run.
         </p>
-        {hasBridge ? (
+        {hasHost ? (
           <div className="space-y-2">
             {loadFailed ? (
               <p className="text-destructive text-sm" role="alert">
@@ -338,7 +342,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
           ))}
         </fieldset>
 
-        {hasBridge ? null : (
+        {hasHost ? null : (
           <p className="text-muted-foreground text-xs">
             User-defined personas load from <code>.brainstrike/agents/</code> in the desktop app.
             Delegation runs in the desktop assistant runtime.

@@ -5,6 +5,7 @@ import type {
   ScopedToolOutputArtifactReader,
 } from '@brainstrike/agent/tool-runtime';
 import type {
+  AssistantPersonasListResult,
   McpElicitationPresentationWire,
   McpElicitationSettlement,
   McpHostCloseReport,
@@ -635,6 +636,10 @@ export interface HostProviderService {
  */
 export interface HostWorkspaceDiscovery {
   commands(signal: AbortSignal): Promise<UserSlashCommandsListResult>;
+  /** Stage 2a: each trusted root's workspace instructions file, for Settings. */
+  contextFiles(signal: AbortSignal): Promise<HostResults['workspace/context-files']>;
+  /** Stage 2a: every persona with the host's preflight facts, for Settings › Subagents. */
+  personas(signal: AbortSignal): Promise<AssistantPersonasListResult>;
   skills(signal: AbortSignal): Promise<SkillsScanResultSummary>;
   /** Each live root's trust and what trusting it would load, for the composer and Settings. */
   trust(signal: AbortSignal): Promise<{ readonly roots: HostWorkspaceTrustRoot[] }>;

@@ -22,7 +22,6 @@ export type DesktopIpcDomain =
   | 'appUpdates'
   | 'browser'
   | 'clipboard'
-  | 'contextFiles'
   | 'db'
   | 'diagnostics'
   | 'fileExports'
@@ -36,7 +35,6 @@ export type DesktopIpcDomain =
   | 'shell'
   | 'storage'
   | 'tools'
-  | 'userPersonas'
   | 'windowFocus'
   | 'workspace';
 
