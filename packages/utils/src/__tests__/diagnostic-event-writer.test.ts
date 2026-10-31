@@ -148,10 +148,7 @@ describe('DiagnosticEventWriter', () => {
   });
 
   it('dispose-during-in-flight: captures events enqueued while sink promise is pending', async () => {
-    let resolveSink: () => void;
-    const sinkPromise = new Promise<void>((resolve) => {
-      resolveSink = resolve;
-    });
+    const { promise: sinkPromise, resolve: resolveSink } = Promise.withResolvers<void>();
     const inserted: DiagnosticEvent[][] = [];
     const writer = new DiagnosticEventWriter({
       flushBatchSize: 2,

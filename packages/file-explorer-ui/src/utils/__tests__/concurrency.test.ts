@@ -3,14 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { runWithConcurrency } from '../concurrency';
 
-function createDeferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve = (): void => {};
-  const promise = new Promise<void>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
-
 describe('runWithConcurrency', () => {
   it('should process all items and return results in order', async () => {
     const items = [1, 2, 3, 4, 5];
@@ -79,7 +71,7 @@ describe('runWithConcurrency', () => {
 
   it('should drain started peers before rejecting and stop assigning new work after an error', async () => {
     const items = [1, 2, 3];
-    const held = createDeferred();
+    const held = Promise.withResolvers<void>();
     const fn = vi.fn(async (item: number) => {
       if (item === 1) {
         await held.promise;
@@ -115,8 +107,8 @@ describe('runWithConcurrency', () => {
   });
 
   it('should give the next item to a free worker without waiting for a held peer', async () => {
-    const held = createDeferred();
-    const released = createDeferred();
+    const held = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
     const fn = vi.fn(async (item: number) => {
       if (item === 1) {
         await held.promise;

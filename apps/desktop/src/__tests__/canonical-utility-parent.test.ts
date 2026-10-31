@@ -247,10 +247,7 @@ describe('captured canonical utility capabilities', () => {
     const deps = fixture();
     const original = deps.source.lease;
     const replacement = { ...original, retire: vi.fn(async () => {}) };
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
     original.readFile = vi.fn(async () => {
       await held;
       return { status: 'not-found' as const };
@@ -269,10 +266,7 @@ describe('captured canonical utility capabilities', () => {
     'rejects a captured lease %s change during admitted IO before returning source bytes',
     async (field) => {
       const deps = fixture();
-      let release!: () => void;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
+      const { promise: held, resolve: release } = Promise.withResolvers<void>();
       deps.source.lease.readFile = vi.fn(async () => {
         await held;
         return { content: Buffer.from('old mount source'), status: 'ok' as const };
@@ -300,10 +294,7 @@ describe('captured canonical utility capabilities', () => {
     };
     let current = old;
     deps.source.inventory.loadFiles = async () => [current];
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
     deps.publication.commitTextFile = async () => {
       await held;
     };
@@ -359,10 +350,7 @@ describe('captured canonical utility capabilities', () => {
 
   it('joins admitted native IO after close synchronously stops admission', async () => {
     const deps = fixture();
-    let release!: () => void;
-    const read = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: read, resolve: release } = Promise.withResolvers<void>();
     deps.source.lease.readFile = vi.fn(async () => {
       await read;
       return { status: 'not-found' as const };
@@ -463,10 +451,7 @@ describe('captured canonical utility capabilities', () => {
       .mockRejectedValueOnce(new Error('exit unsubscribe failed'))
       .mockResolvedValue(undefined);
     deps.source.lease.subscribe = vi.fn(async () => ({ close: unsubscribe }));
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
     deps.source.lease.readFile = vi.fn(async () => {
       await held;
       return { status: 'not-found' as const };
@@ -488,10 +473,7 @@ describe('captured canonical utility capabilities', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
   it('physically cancels and joins captured inference after remote exit, retaining failed join for retry', async () => {
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
     const generate = vi.fn(
       async (request: Parameters<CanonicalInferencePort<VectorProfile>['generate']>[0]) => {
         await held;
@@ -532,10 +514,7 @@ describe('captured canonical utility capabilities', () => {
     expect(join).toHaveBeenLastCalledWith('exact-operation');
   });
   it('retires original inference after replacement while refusing new work on the replacement', async () => {
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
     const generate = vi.fn(
       async (request: Parameters<CanonicalInferencePort<VectorProfile>['generate']>[0]) => {
         await held;

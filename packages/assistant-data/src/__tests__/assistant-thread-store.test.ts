@@ -79,10 +79,8 @@ describe('useAssistantThreadStore tab sessions', () => {
   });
 
   it('deduplicates concurrent resource thread loads', async () => {
-    let resolveThreads!: (threads: readonly AssistantMemoryThread[]) => void;
-    const listThreadsPromise = new Promise<readonly AssistantMemoryThread[]>((resolve) => {
-      resolveThreads = resolve;
-    });
+    const { promise: listThreadsPromise, resolve: resolveThreads } =
+      Promise.withResolvers<readonly AssistantMemoryThread[]>();
     const repository = createRepository([]);
     vi.mocked(repository.listThreads).mockReturnValue(listThreadsPromise);
 

@@ -9,10 +9,7 @@ describe('useFileLoadingManager', () => {
   });
 
   it('updates loading state while a file is being loaded', async () => {
-    let resolveLoad: (() => void) | undefined;
-    const loadPromise = new Promise<void>((resolve) => {
-      resolveLoad = resolve;
-    });
+    const { promise: loadPromise, resolve: resolveLoad } = Promise.withResolvers<void>();
     const loadFileContent = vi.fn(() => loadPromise);
     const selectedFilePaths = new Set<string>(['/test.txt']);
     const fileContents: Record<string, string> = {};

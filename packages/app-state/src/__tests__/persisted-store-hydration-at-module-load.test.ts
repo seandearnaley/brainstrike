@@ -118,10 +118,7 @@ describe('persisted store hydration at module load', () => {
     // the store is usable. A first-run profile has no snapshot (`null`), and a
     // `merge` that spreads defaults over `currentState` would revert any edit
     // made before the IPC read completes.
-    let resolveRead: ((value: string | null) => void) | undefined;
-    const pendingRead = new Promise<string | null>((resolve) => {
-      resolveRead = resolve;
-    });
+    const { promise: pendingRead, resolve: resolveRead } = Promise.withResolvers<string | null>();
     const electronAPI = {
       storage: {
         getItem: () => pendingRead,

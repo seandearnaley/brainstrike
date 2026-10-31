@@ -193,10 +193,7 @@ describe('createGitInventoryService', () => {
         'brainstrike-git-inv-svc-join-late-build-'
       );
       const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
-      let resolveRunCalled: (() => void) | undefined;
-      const runCalled = new Promise<void>((resolve) => {
-        resolveRunCalled = resolve;
-      });
+      const { promise: runCalled, resolve: resolveRunCalled } = Promise.withResolvers<void>();
       let capturedSignal: AbortSignal | undefined;
       // A git child that ignores the abort and only fails 5 s later, longer
       // than the 2 s the old drain bound waited before abandoning the build.
@@ -243,10 +240,7 @@ describe('createGitInventoryService', () => {
         'brainstrike-git-inv-svc-forced-join-'
       );
       const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
-      let resolveRunCalled: (() => void) | undefined;
-      const runCalled = new Promise<void>((resolve) => {
-        resolveRunCalled = resolve;
-      });
+      const { promise: runCalled, resolve: resolveRunCalled } = Promise.withResolvers<void>();
       // The git child ignores the abort and only fails 5 s later.
       const run: GitCommandRunner = () => {
         resolveRunCalled?.();

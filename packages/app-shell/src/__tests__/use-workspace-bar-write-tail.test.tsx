@@ -579,10 +579,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
         },
       },
     });
-    let releaseFirstWrite = (): void => undefined;
-    const firstWriteGate = new Promise<void>((resolve) => {
-      releaseFirstWrite = resolve;
-    });
+    const { promise: firstWriteGate, resolve: releaseFirstWrite } = Promise.withResolvers<void>();
     let firstWrite = true;
     useAssistantThreadStore.setState({
       updateThreadMetadata: async (
@@ -670,10 +667,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
         },
       },
     });
-    let releaseFirstWrite = (): void => undefined;
-    const firstWriteGate = new Promise<void>((resolve) => {
-      releaseFirstWrite = resolve;
-    });
+    const { promise: firstWriteGate, resolve: releaseFirstWrite } = Promise.withResolvers<void>();
     useAssistantThreadStore.setState({
       updateThreadMetadata: async (
         repository: AssistantThreadCatalogRepository,

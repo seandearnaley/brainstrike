@@ -33,12 +33,7 @@ const neverRunAdapter: ChatModelAdapter = {
 const HEADLINE_SELECTOR = '.bs-activity-summary-label';
 
 function deferred() {
-  let release: () => void = () => {
-    throw new Error('Deferred promise was not initialized.');
-  };
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise, resolve: release } = Promise.withResolvers<void>();
   return { promise, release };
 }
 

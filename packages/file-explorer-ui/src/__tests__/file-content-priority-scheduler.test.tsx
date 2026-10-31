@@ -583,10 +583,7 @@ it('preserves background intent across twenty singleton reload groups ahead of r
   );
   const resolvePredecessors: Array<() => void> = [];
   for (const compositeKey of backgroundKeys) {
-    let resolvePredecessor: (() => void) | undefined;
-    const predecessor = new Promise<void>((resolve) => {
-      resolvePredecessor = resolve;
-    });
+    const { promise: predecessor, resolve: resolvePredecessor } = Promise.withResolvers<void>();
     let trackedPredecessor: Promise<void>;
     trackedPredecessor = predecessor.finally(() => {
       result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);

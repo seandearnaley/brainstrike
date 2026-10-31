@@ -85,10 +85,8 @@ describe('recursive-selection-query queue/frontier invariants (BST-478)', () => 
     ): { adapter: FileSystemAdapter; lateReadStarted: Promise<void> } {
       // Definite assignment: the Promise executor runs synchronously, so the
       // resolver exists before any adapter read can invoke it.
-      let signalLateReadStart!: () => void;
-      const lateReadStarted = new Promise<void>((resolve) => {
-        signalLateReadStart = resolve;
-      });
+      const { promise: lateReadStarted, resolve: signalLateReadStart } =
+        Promise.withResolvers<void>();
       const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
         if (handle.path === '/root') {
           return [
@@ -228,10 +226,8 @@ describe('recursive-selection-query queue/frontier invariants (BST-478)', () => 
       // completion outcome" contract must not depend on the loader
       // rechecking after every read.
       const controller = new AbortController();
-      let signalLateReadStart!: () => void;
-      const lateReadStarted = new Promise<void>((resolve) => {
-        signalLateReadStart = resolve;
-      });
+      const { promise: lateReadStarted, resolve: signalLateReadStart } =
+        Promise.withResolvers<void>();
       const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
         if (handle.path === '/root') {
           return [

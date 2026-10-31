@@ -36,10 +36,6 @@ const scope = {
   serverId: 'linear',
 } as const;
 
-function deferred<Value>() {
-  return Promise.withResolvers<Value>();
-}
-
 function taskFields(taskId: string) {
   return {
     createdAt: CREATED_AT,
@@ -100,7 +96,7 @@ interface FakeClient {
 
 function createClient(): FakeClient {
   let handler: McpTasksNotificationHandler | undefined;
-  const closed = deferred<Awaited<McpTasksNotificationLease['closed']>>();
+  const closed = Promise.withResolvers<Awaited<McpTasksNotificationLease['closed']>>();
   const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
   const wake = vi.fn();
   observationPort.attachAuthority({ wake });
@@ -190,7 +186,7 @@ const approved: ElicitResult = { action: 'accept', content: { approved: true } }
 afterEach(() => vi.useRealTimers());
 describe('McpTaskInteraction', () => {
   it('deduplicates task input and preserves exact elicitation and update provenance', async () => {
-    const decision = deferred<ElicitResult>();
+    const decision = Promise.withResolvers<ElicitResult>();
     const handle = vi.fn<NonNullable<Parameters<typeof createInteraction>[1]>>(
       async () => await decision.promise
     );
@@ -309,7 +305,7 @@ describe('McpTaskInteraction', () => {
   });
 
   it('retires superseded input before a stale user response can be delivered', async () => {
-    const decision = deferred<ElicitResult>();
+    const decision = Promise.withResolvers<ElicitResult>();
     const fake = createClient();
     const interaction = createInteraction(fake, async () => await decision.promise);
     await interaction.start(['task-1']);
@@ -370,7 +366,7 @@ describe('McpTaskInteraction', () => {
   it('fences an answer whose in-flight tasks/update was withdrawn instead of presenting it again', async () => {
     const fake = createClient();
     const applied: unknown[] = [];
-    const dispatched = deferred<void>();
+    const dispatched = Promise.withResolvers<void>();
     fake.requestExtension.mockImplementation(
       (_contract: unknown, params: unknown, options?: { readonly signal?: AbortSignal }) => {
         applied.push(params);
@@ -556,7 +552,7 @@ describe('McpTaskInteraction', () => {
   });
 
   it('rejects changed lifetime-key reuse without presenting the request again', async () => {
-    const decision = deferred<ElicitResult>();
+    const decision = Promise.withResolvers<ElicitResult>();
     const handle = vi.fn<NonNullable<Parameters<typeof createInteraction>[1]>>(
       async () => await decision.promise
     );
@@ -614,7 +610,7 @@ describe('McpTaskInteraction', () => {
   });
 
   it('fences an abort-ignorant input callback when the coordinator closes', async () => {
-    const decision = deferred<ElicitResult>();
+    const decision = Promise.withResolvers<ElicitResult>();
     const fake = createClient();
     const interaction = createInteraction(fake, async () => await decision.promise);
     await interaction.start(['task-1']);
@@ -626,7 +622,7 @@ describe('McpTaskInteraction', () => {
   });
 
   it('closes while an abort-ignorant cancellation acknowledgement remains unresolved', async () => {
-    const acknowledgement = deferred<unknown>();
+    const acknowledgement = Promise.withResolvers<unknown>();
     const fake = createClient();
     fake.requestExtension.mockImplementationOnce(async () => await acknowledgement.promise);
     const interaction = createInteraction(fake);

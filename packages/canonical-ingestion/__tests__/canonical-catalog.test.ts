@@ -34,13 +34,6 @@ const record: SourceCatalogRecord = {
   stat: { mtimeMs: 42, size: Buffer.byteLength(content) },
   updatedAt: '2026-10-13T00:00:00.000Z',
 };
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
 function fixture(row: SourceCatalogRecord = record) {
   const controller = new AbortController();
   const context: CanonicalOperationContext = { requestId: 'scan', signal: controller.signal };
@@ -111,8 +104,8 @@ describe('authoritative native canonical catalog', () => {
   });
   it('joins binding acknowledgement and suppresses return after cancellation', async () => {
     const f = fixture();
-    const admitted = deferred<void>();
-    const binding = deferred<void>();
+    const admitted = Promise.withResolvers<void>();
+    const binding = Promise.withResolvers<void>();
     vi.mocked(f.dependencies.replaceTrustedBindings).mockImplementation(async () => {
       admitted.resolve();
       await binding.promise;
@@ -135,8 +128,8 @@ describe('authoritative native canonical catalog', () => {
   });
   it('joins admitted catalog work and refuses later binding publication on cancellation', async () => {
     const f = fixture();
-    const admitted = deferred<void>();
-    const read = deferred<void>();
+    const admitted = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<void>();
     f.sourceCatalog.mockImplementationOnce(async () => {
       admitted.resolve();
       await read.promise;
@@ -174,8 +167,8 @@ describe('authoritative native canonical catalog', () => {
   });
   it('joins native removal before catalog invalidation', async () => {
     const f = fixture();
-    const entered = deferred<void>();
-    const removal = deferred<void>();
+    const entered = Promise.withResolvers<void>();
+    const removal = Promise.withResolvers<void>();
     vi.mocked(f.dependencies.joinNativeRemoval).mockImplementation(async () => {
       entered.resolve();
       await removal.promise;
@@ -205,8 +198,8 @@ describe('authoritative native canonical catalog', () => {
   });
   it('does not invalidate the catalog after cancellation during native removal', async () => {
     const f = fixture();
-    const entered = deferred<void>();
-    const removal = deferred<void>();
+    const entered = Promise.withResolvers<void>();
+    const removal = Promise.withResolvers<void>();
     vi.mocked(f.dependencies.joinNativeRemoval).mockImplementation(async () => {
       entered.resolve();
       await removal.promise;

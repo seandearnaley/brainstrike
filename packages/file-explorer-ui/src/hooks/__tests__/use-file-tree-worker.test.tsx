@@ -123,17 +123,6 @@ function createFileNode(overrides: Partial<IFileNode> = {}): IFileNode {
   };
 }
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
-
 describe('useFileTreeWorker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -305,8 +294,8 @@ describe('useFileTreeWorker', () => {
   });
 
   it('does not publish handles from a renderer read retired by its correlated request signal', async () => {
-    const readGate = createDeferred<IFileNode[]>();
-    const readStarted = createDeferred<void>();
+    const readGate = Promise.withResolvers<IFileNode[]>();
+    const readStarted = Promise.withResolvers<void>();
     const staleHandle = { kind: 'file', name: 'child.txt' } as unknown as FileSystemFileHandle;
     const freshHandle = { kind: 'file', name: 'child.txt' } as unknown as FileSystemFileHandle;
     const adapter = createAdapter(

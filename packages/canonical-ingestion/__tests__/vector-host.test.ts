@@ -27,14 +27,6 @@ const profile: VectorProfile = {
 };
 const chunker = createNodeChunker({ parser: 'oxc' });
 const hash = (content: string): string => createHash('sha256').update(content).digest('hex');
-function deferred() {
-  let resolve = (): void => {};
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
 async function fixture(selectedProfile: VectorProfile = profile) {
   const profile = selectedProfile;
   const scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' };
@@ -342,8 +334,8 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
   );
   it('holds cancellation and close through physical inference and join before finish/PG completion', async () => {
     const f = await fixture();
-    const physical = deferred();
-    const joined = deferred();
+    const physical = Promise.withResolvers<void>();
+    const joined = Promise.withResolvers<void>();
     vi.mocked(f.inference.generate).mockImplementation(async (input) => {
       await physical.promise;
       return {
@@ -379,7 +371,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
   });
   it('holds close through physical vector publication without late PG completion', async () => {
     const f = await fixture();
-    const held = deferred();
+    const held = Promise.withResolvers<void>();
     vi.mocked(f.publication.commitVectorFile).mockImplementation(async () => {
       await held.promise;
     });
@@ -474,8 +466,8 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
   });
   it('joins cancellation admitted while physical inference join is held', async () => {
     const f = await fixture();
-    const joining = deferred();
-    const cancellation = deferred();
+    const joining = Promise.withResolvers<void>();
+    const cancellation = Promise.withResolvers<void>();
     vi.mocked(f.inference.join).mockImplementation(async () => {
       await joining.promise;
     });
@@ -501,7 +493,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
   });
   it('reports an independent AbortError and failed stop notice to the scan it cancelled', async () => {
     const f = await fixture();
-    const physical = deferred();
+    const physical = Promise.withResolvers<void>();
     const independent = new DOMException('independent renderer failure', 'AbortError');
     const notice = new Error('stop notice failed');
     vi.mocked(f.inference.generate).mockImplementation(async () => {
@@ -547,7 +539,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
   });
   it('reports a cancelled generation as the scan cancellation and logs how it ended', async () => {
     const f = await fixture();
-    const physical = deferred();
+    const physical = Promise.withResolvers<void>();
     const ownedReason = new DOMException('native owner cancelled', 'AbortError');
     vi.mocked(f.inference.generate).mockImplementation(async () => {
       await physical.promise;
@@ -573,7 +565,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
   });
   it('reports an independent AbortError to the scan and keeps an unjoined inference owned', async () => {
     const f = await fixture();
-    const physical = deferred();
+    const physical = Promise.withResolvers<void>();
     const independent = new DOMException('independent renderer fault', 'AbortError');
     vi.mocked(f.inference.generate).mockImplementation(async () => {
       await physical.promise;
@@ -598,7 +590,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     'ends a scan whose port operation its owner cancelled %s the host cancel as that cancellation',
     async (order) => {
       const f = await fixture();
-      const physical = deferred();
+      const physical = Promise.withResolvers<void>();
       const retired = new CanonicalOperationCancelledError('Canonical attachment retired.');
       vi.mocked(f.publication.vectorCoverage).mockImplementation(async () => {
         await physical.promise;
@@ -621,7 +613,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
   );
   it('reports an independent port failure to the scan it cancelled, and settles the cancel', async () => {
     const f = await fixture();
-    const physical = deferred();
+    const physical = Promise.withResolvers<void>();
     const independent = new DOMException('independent coverage fault', 'AbortError');
     vi.mocked(f.publication.vectorCoverage).mockImplementation(async () => {
       await physical.promise;
@@ -891,8 +883,8 @@ describe('bounded ordered cross-file vector inference', () => {
 
   it('retains grouped inference ownership through cancellation and physical join without publication', async () => {
     const f = await batchFixture([{}, {}]);
-    const physical = deferred();
-    const joined = deferred();
+    const physical = Promise.withResolvers<void>();
+    const joined = Promise.withResolvers<void>();
     const generate = vi.mocked(f.inference.generate).getMockImplementation();
     if (!generate) {
       throw new Error('Expected controlled inference.');

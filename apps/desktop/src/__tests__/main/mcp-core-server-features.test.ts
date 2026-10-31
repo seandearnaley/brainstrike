@@ -579,19 +579,9 @@ describe('tools/call routing with MCP Tasks registered (BST-1566)', () => {
   });
 
   describe('listing (BST-1632)', () => {
-    function deferred<T>() {
-      let resolve: (value: T) => void = () => undefined;
-      let reject: (cause: unknown) => void = () => undefined;
-      const promise = new Promise<T>((settle, fail) => {
-        resolve = settle;
-        reject = fail;
-      });
-      return { promise, reject, resolve };
-    }
-
     it('publishes tools as listing while the first tools/list is in flight, then settles it', async () => {
       const fixture = createClient();
-      const first = deferred<typeof TOOLS>();
+      const first = Promise.withResolvers<typeof TOOLS>();
       fixture.client.listTools.mockImplementationOnce(async () => await first.promise);
       const changed = vi.fn();
       const features = createMcpCoreServerFeatures(fixture.client, { onCatalogChanged: changed });
@@ -618,8 +608,8 @@ describe('tools/call routing with MCP Tasks registered (BST-1566)', () => {
       if (!handlers) {
         throw new Error('The features never watched server events');
       }
-      const failing = deferred<typeof TOOLS>();
-      const succeeding = deferred<typeof TOOLS>();
+      const failing = Promise.withResolvers<typeof TOOLS>();
+      const succeeding = Promise.withResolvers<typeof TOOLS>();
       fixture.client.listTools
         .mockImplementationOnce(async () => await failing.promise)
         .mockImplementationOnce(async () => await succeeding.promise);

@@ -16,19 +16,6 @@ import type {
   CanonicalSourceScope,
 } from '../src/ports.js';
 
-export function deferred(): {
-  promise: Promise<void>;
-  reject: (error: unknown) => void;
-  resolve: () => void;
-} {
-  let resolve = (): void => {};
-  let reject = (_error: unknown): void => {};
-  const promise = new Promise<void>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
-  return { promise, reject, resolve };
-}
 export async function fixture(
   scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' },
   /** A workspace's partition; null is the TEXT partition (BST-1988). */

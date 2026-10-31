@@ -23,17 +23,6 @@ import type { FileTreeDirectorySnapshot, FileTreeRefreshResult } from '../use-la
 const ROOT_PATH = '/workspace';
 const ROOT_ID = 'root-uuid-1';
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
-
 function directoryNode(path: string, loadState: 'loaded' | 'unloaded'): IFileNode {
   return {
     children: [],
@@ -241,10 +230,8 @@ describe('useFileTreeRefreshEvents', () => {
     normalizedTree = createNormalizedFileTreeState([
       { ...directoryNode(srcPath, 'loaded'), children: [nestedNode] },
     ]);
-    let releaseFirstRefresh: (() => void) | null = null;
-    const firstRefreshGate = new Promise<void>((resolve) => {
-      releaseFirstRefresh = resolve;
-    });
+    const { promise: firstRefreshGate, resolve: releaseFirstRefresh } =
+      Promise.withResolvers<void>();
     refreshDirectory.mockImplementation(async (path) => {
       if (path === srcPath) {
         await firstRefreshGate;
@@ -291,7 +278,7 @@ describe('useFileTreeRefreshEvents', () => {
       ...shallowPaths.slice(1).map((path) => directoryNode(path, 'loaded')),
     ]);
     getSelectionAncestorDirectories.mockReturnValue([...shallowPaths, deepPath]);
-    const firstFiveGates = shallowPaths.slice(0, 5).map(() => createDeferred<void>());
+    const firstFiveGates = shallowPaths.slice(0, 5).map(() => Promise.withResolvers<void>());
     let activeShallowReads = 0;
     let maxActiveShallowReads = 0;
     refreshDirectory.mockImplementation(async (path) => {
@@ -581,10 +568,8 @@ describe('useFileTreeRefreshEvents', () => {
 
   it('serializes separate watcher events for the same directory without dropping either event', async () => {
     const srcPath = `${ROOT_PATH}/src`;
-    let releaseFirstRefresh: (() => void) | null = null;
-    const firstRefreshGate = new Promise<void>((resolve) => {
-      releaseFirstRefresh = resolve;
-    });
+    const { promise: firstRefreshGate, resolve: releaseFirstRefresh } =
+      Promise.withResolvers<void>();
     refreshDirectory.mockImplementation(async (path) => {
       if (refreshDirectory.mock.calls.length === 1) {
         await firstRefreshGate;
@@ -625,10 +610,8 @@ describe('useFileTreeRefreshEvents', () => {
 
   it('retires queued and post-await watcher work when the provider unmounts', async () => {
     const srcPath = `${ROOT_PATH}/src`;
-    let releaseFirstRefresh: (() => void) | null = null;
-    const firstRefreshGate = new Promise<void>((resolve) => {
-      releaseFirstRefresh = resolve;
-    });
+    const { promise: firstRefreshGate, resolve: releaseFirstRefresh } =
+      Promise.withResolvers<void>();
     refreshDirectory.mockImplementation(async (path) => {
       if (refreshDirectory.mock.calls.length === 1) {
         await firstRefreshGate;
@@ -674,7 +657,7 @@ describe('useFileTreeRefreshEvents', () => {
       directoryNode(srcPath, 'loaded'),
       directoryNode(testPath, 'loaded'),
     ]);
-    const heldPeer = createDeferred<void>();
+    const heldPeer = Promise.withResolvers<void>();
     let rejectFailingPeer: ((error: Error) => void) | null = null;
     const failingPeer = new Promise<never>((_resolve, reject) => {
       rejectFailingPeer = reject;

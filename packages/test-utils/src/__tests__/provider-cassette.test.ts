@@ -417,10 +417,7 @@ describe('provider cassette replay', () => {
     }
     const cassette = { ...recorded, exchanges: [timed(a, 0, 150), timed(b, 200, 20)] };
     const finished: string[] = [];
-    let aSettled = (): void => undefined;
-    const aCommitted = new Promise<void>((resolve) => {
-      aSettled = resolve;
-    });
+    const { promise: aCommitted, resolve: aSettled } = Promise.withResolvers<void>();
     const waitedOn: string[] = [];
     const server = await startReplay(
       createProviderCassetteReplay(cassette, {
