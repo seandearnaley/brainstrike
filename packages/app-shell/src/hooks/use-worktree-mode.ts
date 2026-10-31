@@ -599,35 +599,34 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       if (args.firstRequestState === 'sent') {
         rejectWithToast('Could not create a worktree', FIRST_REQUEST_CREATE_REASON);
       }
+      const primaryRootId = args.primaryRootId;
       setPending(true);
-      try {
+      const create = async (): Promise<void> => {
         const repositorySetupDecisionForCreate = await resolveRepositorySetupDecisionForCreate(
           bridge,
-          args.primaryRootId,
+          primaryRootId,
           createSheetContext
         );
         const { setup, worktree } = await createWorktree(
           bridge,
-          args.primaryRootId,
+          primaryRootId,
           request,
           args.runId,
           repositorySetupDecisionForCreate
         );
         await mountWorktree(addRootDirectoryByPath, worktree.path);
-        try {
-          await onSelectWorktree({
-            branch: worktree.branch,
-            path: worktree.path,
-            worktreeId: worktree.id,
-          });
-        } catch (error) {
+        await onSelectWorktree({
+          branch: worktree.branch,
+          path: worktree.path,
+          worktreeId: worktree.id,
+        }).catch((error: unknown) => {
           const message = errorMessage(error);
           toastFailure(
             'Worktree created, but binding failed',
             `Created the worktree at ${worktree.path}, but binding the thread failed: ${message}. Use "Use existing worktree…" to reconnect this thread to it.`
           );
           throw error instanceof Error ? error : new Error(message);
-        }
+        });
         if (setup.status === 'failed' || setup.status === 'skipped') {
           toastFailure(
             `Worktree created — setup ${setup.status}`,
@@ -635,9 +634,10 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           );
         }
         await refreshList();
-      } finally {
+      };
+      await create().finally(() => {
         setPending(false);
-      }
+      });
     },
     [
       addRootDirectoryByPath,
@@ -715,9 +715,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       if (!(bridge && currentEntry?.id && currentEntry.managed && currentEntry.detached)) {
         throw new Error('A managed detached worktree is required to create a branch here.');
       }
-      setPending(true);
-      try {
-        const result = await bridge.createBranchHere({ branch, worktreeId: currentEntry.id });
+      const worktreeId = currentEntry.id;
+      const createBranch = async (): Promise<void> => {
+        const result = await bridge.createBranchHere({ branch, worktreeId });
         if (!result.ok) {
           throw new BoundaryFailureError(result.error);
         }
@@ -726,13 +726,17 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           description: `Branch ${branch} is now checked out in ${currentEntry.name}.`,
           title: 'Branch created',
         });
-      } catch (error) {
-        const message = errorMessage(error);
-        toastFailure('Branch creation failed', message);
-        throw error instanceof Error ? error : new Error(message);
-      } finally {
-        setPending(false);
-      }
+      };
+      setPending(true);
+      await createBranch()
+        .catch((error: unknown) => {
+          const message = errorMessage(error);
+          toastFailure('Branch creation failed', message);
+          throw error instanceof Error ? error : new Error(message);
+        })
+        .finally(() => {
+          setPending(false);
+        });
     },
     [bridge, currentEntry, refreshList]
   );
