@@ -560,12 +560,16 @@ const AssistantMessage = () => {
             null without a ChangesReviewProvider binding, a finished run, a
             known thread id, or any edited files. */}
         <ChangesReviewLink threadId={threadKey} />
-        {/* Per-run 👍/👎 verdict (Task Ledger) — renders once per finished run
-            on its terminal message leg; null without a verdict provider. */}
-        <RunVerdictControl />
       </div>
 
-      <AssistantActionBar />
+      {/* One footer line: the per-run 👍/👎 verdict (Task Ledger; once per
+          finished run, on its terminal leg) then Copy/Retry. Inline flow, not
+          flex: the action bar floats (absolute) on older messages, and only an
+          inline static position keeps it after the verdict, not on top of it. */}
+      <div className="col-start-3 row-start-2 -ml-1 leading-5 whitespace-nowrap">
+        <RunVerdictControl />
+        <AssistantActionBar />
+      </div>
 
       <BranchPicker className="col-start-2 row-start-2 mr-2 -ml-2" />
     </MessagePrimitive.Root>
