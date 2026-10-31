@@ -85,10 +85,10 @@ export default defineConfig({
   base: './', // Use relative paths for Electron
   build: {
     assetsInlineLimit: 0,
-    // Accept the measured renderer/main, context-preview and bootstrap
-    // chunks while retaining a useful regression ceiling.
-    // The 2.3 MB o200k table is fetched as an asset only on accurate-token use.
-    chunkSizeWarningLimit: 1300,
+    // Just above the measured largest chunk (main, about 3,080 kB) so any
+    // growth warns. Diff views load with their first use; the 2.3 MB o200k
+    // table is fetched as an asset only on accurate-token use.
+    chunkSizeWarningLimit: 3100,
     emptyOutDir: true,
     outDir: 'dist/renderer',
     rolldownOptions: {

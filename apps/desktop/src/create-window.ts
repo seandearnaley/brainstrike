@@ -22,6 +22,7 @@ import {
   createDesktopIpcSenderFrameAllowlist,
   isAllowedDesktopIpcSenderFrameUrl,
 } from './platform/desktop-ipc-sender-frame';
+import { markStartupMilestone } from './startup-timeline';
 import type { DesktopWindowState } from './store-schema';
 import { publishWindowFocus } from './window-focus-ipc';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
@@ -582,8 +583,10 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     // lists) never runs. So test mode shows its window on every platform, but
     // unfocused, unfocusable and off the taskbar: it never steals focus.
     win.showInactive();
+    markStartupMilestone('windowShown');
   } else if (!win.isDestroyed()) {
     win.show();
+    markStartupMilestone('windowShown');
     logStartupPhase('window-shown');
   }
 
