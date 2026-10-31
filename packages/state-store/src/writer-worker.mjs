@@ -142,13 +142,23 @@ function fsyncDir(dir) {
   }
 }
 
+/** A blob was renamed into place and the blob directory has not been fsynced since, whichever request wrote it. */
+let blobDirUnsynced = false;
+
+/** Make every blob renamed so far durable, including one a failed request left behind. */
+function syncBlobDir() {
+  if (blobDirUnsynced) {
+    fsyncDir(cfg.blobsDir);
+    blobDirUnsynced = false;
+  }
+}
+
 /**
- * Write a content-addressed blob as temp + fsync + rename. Returns whether a new entry was created, which the caller
- * must make durable with a directory fsync before it appends anything that references the blob.
+ * Write a content-addressed blob as temp + fsync + rename. The caller syncs the blob directory before it appends
+ * anything that references the blob.
  * @param {string} hash
  * @param {string} content
  * @param {boolean} verifyExisting re-read and rehash a blob that already exists
- * @returns {boolean}
  */
 function writeBlob(hash, content, verifyExisting) {
   if (
@@ -162,7 +172,7 @@ function writeBlob(hash, content, verifyExisting) {
     if (verifyExisting && createHash('sha256').update(readFileSync(p)).digest('hex') !== hash) {
       throw new Error(`existing blob ${hash} checksum mismatch`);
     }
-    return false;
+    return;
   }
   const tmp = `${p}.tmp`;
   const fd = openSync(tmp, 'w');
@@ -177,7 +187,7 @@ function writeBlob(hash, content, verifyExisting) {
     closeSync(fd);
   }
   renameSync(tmp, p);
-  return true;
+  blobDirUnsynced = true;
 }
 
 /**
@@ -187,9 +197,8 @@ function writeBlob(hash, content, verifyExisting) {
  * @param {string} content
  */
 function putBlob(hash, content) {
-  if (writeBlob(hash, content, true)) {
-    fsyncDir(cfg.blobsDir);
-  }
+  writeBlob(hash, content, true);
+  syncBlobDir();
 }
 
 /**
@@ -198,16 +207,10 @@ function putBlob(hash, content) {
  * once per request, before the transaction that references its new blobs commits. A crash loses at most that request.
  */
 function sourceCatalogBlobs() {
-  let created = false;
   return {
-    flush: () => {
-      if (created) {
-        fsyncDir(cfg.blobsDir);
-        created = false;
-      }
-    },
+    flush: syncBlobDir,
     put: (/** @type {string} */ hash, /** @type {string} */ content) => {
-      created = writeBlob(hash, content, false) || created;
+      writeBlob(hash, content, false);
     },
     read: (/** @type {string} */ hash, /** @type {number} */ maxBytes) => {
       const path = join(cfg.blobsDir, hash);
