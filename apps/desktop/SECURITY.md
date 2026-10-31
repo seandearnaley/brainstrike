@@ -51,7 +51,9 @@ The application implements a comprehensive Content Security Policy that differs 
 - `nodeIntegration: false`: Disables Node.js in renderer
 - `contextIsolation: true`: Isolates context between main and renderer
 - `webSecurity: true`: Enables web security features
-- `sandbox: false`: Disabled to allow IPC communication
+- `sandbox: true`: The Chromium renderer sandbox is on; only test runs turn it
+  off, because Playwright's Electron driver cannot launch a sandboxed app in CI
+  (`create-window.ts`)
 - `allowRunningInsecureContent: false`: Blocks mixed content
 - `experimentalFeatures: false`: Disables experimental web features
 - `safeDialogs: true`: Enables safe dialog handling
@@ -396,15 +398,17 @@ download offline. The DMG container itself is deliberately unsigned
 ## Development vs Production
 
 ### Development Mode
-- More permissive CSP for development tools
-- DevTools enabled for debugging
+- More permissive CSP for the Vite dev server and HMR
 - Console logging for security configuration
 
 ### Production Mode
 - Strict CSP without development exceptions
-- DevTools disabled
-- No debug logging
-- Signed application bundles
+- Logging at `info` unless `LOG_LEVEL` or Settings › Logging says otherwise
+- macOS bundles signed and notarized; Windows unsigned until Authenticode lands
+  (BST-2349)
+
+### Both
+- DevTools open from View › Toggle Developer Tools in every build
 
 ## Security Checklist
 
@@ -423,8 +427,7 @@ download offline. The DMG container itself is deliberately unsigned
 ## Monitoring and Updates
 
 ### Security Monitoring
-- Regular dependency updates via Dependabot
-- Security audit with `npm audit`
+- Renovate opens dependency and Electron updates (`.github/renovate.json5`)
 - Electron security warnings monitoring
 
 ### Update Process
