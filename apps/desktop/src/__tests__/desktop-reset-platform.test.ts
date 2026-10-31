@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import type { MessageConnection } from 'vscode-jsonrpc';
+import { MainMcpHostControl } from '../mcp/main-host-control';
 
 const resetDesktopApplicationDataMock = vi.hoisted(() => vi.fn());
 const completeSuccessfulResetMock = vi.hoisted(() => vi.fn(async () => undefined));
@@ -413,6 +415,60 @@ describe('createDesktopFactoryResetHandler', () => {
       'Failed to reset desktop application data:',
       expect.objectContaining({ errors: [stopFailure, secondStopFailure] })
     );
+  });
+
+  it.each([
+    ['not running', () => undefined],
+    [
+      'still starting',
+      (control: MainMcpHostControl) => {
+        // Bound but never ready: a request reaching it would fail the reset.
+        control.bind({
+          sendRequest: () => Promise.reject(new Error('the starting host answered')),
+        } as unknown as MessageConnection);
+      },
+    ],
+  ])('completes the wipe when the agent host is %s (BST-2400)', async (_state, arrange) => {
+    resetDesktopApplicationDataMock.mockImplementationOnce(
+      async ({
+        resetDatabaseProfile,
+        stopBackgroundRuntimes,
+      }: {
+        resetDatabaseProfile: () => Promise<void>;
+        stopBackgroundRuntimes: () => Promise<void>;
+      }) => {
+        await stopBackgroundRuntimes();
+        await resetDatabaseProfile();
+        return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
+      }
+    );
+    const clearRootContents = vi.fn(async () => undefined);
+    const lease = {
+      clearRootContents,
+      isReleased: false,
+      release: () => undefined,
+      root: '/mock/profile',
+    };
+    const control = new MainMcpHostControl();
+    arrange(control);
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      completeSuccessfulReset: completeSuccessfulResetMock,
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      prepareDatabaseProfileReset: async () => lease,
+      resetLocalDatabase: async (owned) => {
+        await owned?.clearRootContents();
+      },
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      runTransition: (work) => work(),
+      runtimes: [{ name: 'mcp-runtime', stop: () => control.resetSettings() }],
+      sessionDataPath: '/mock/userData/session-data',
+      userDataPath: '/mock/userData',
+    });
+
+    await expect(handleReset.reset()).resolves.toEqual({ success: true });
+    expect(clearRootContents).toHaveBeenCalledOnce();
   });
 
   it.each([new Error('profile deletion failed'), undefined])(
