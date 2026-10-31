@@ -5,7 +5,7 @@ import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { ActionContextMenu, EmptyState, LightweightCheckbox } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
 import { ThreadScopeMarker } from '../components/thread-scope-marker';
@@ -269,36 +269,25 @@ function useSectionRecursiveSelect(folderId: string): {
   const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
   const { selectedCount, selectedFilesList } = useSelectionManager();
 
-  const onSelectFolderRecursively = useCallback(
-    async (node: IFileNode) => {
-      // The node carries its own root identity (stamped by every tree loader
-      // since storage v5); the section folderId is only a legacy fallback.
-      const targetFolderId = node.rootFolderId || folderId;
-      const selectedDescendantCount = countSelectedInDirectory(
-        selectedFilesList,
-        targetFolderId,
-        node.path
-      );
-      return sectionSelectFolderRecursively(
-        node,
-        targetFolderId,
-        addMultipleSelectedFiles,
-        maxSelectionCount,
-        selectedCount,
-        selectedDescendantCount,
-        addMultipleSelectedFilesChunked
-      );
-    },
-    [
-      addMultipleSelectedFiles,
-      addMultipleSelectedFilesChunked,
-      folderId,
-      maxSelectionCount,
-      sectionSelectFolderRecursively,
-      selectedCount,
+  const onSelectFolderRecursively = async (node: IFileNode) => {
+    // The node carries its own root identity (stamped by every tree loader
+    // since storage v5); the section folderId is only a legacy fallback.
+    const targetFolderId = node.rootFolderId || folderId;
+    const selectedDescendantCount = countSelectedInDirectory(
       selectedFilesList,
-    ]
-  );
+      targetFolderId,
+      node.path
+    );
+    return sectionSelectFolderRecursively(
+      node,
+      targetFolderId,
+      addMultipleSelectedFiles,
+      maxSelectionCount,
+      selectedCount,
+      selectedDescendantCount,
+      addMultipleSelectedFilesChunked
+    );
+  };
 
   return {
     isLoadingForSelection: treeContext.isLoadingForSelection,
@@ -316,10 +305,7 @@ function useSectionRecursiveSelect(folderId: string): {
 function useGlobalFilteredTree(tree: IFileNode[]): IFileNode[] {
   const { includeFilters, excludeFilters, useRegex } = useActiveWorkspaceFilters();
   const { applyFileFilters } = useFileFilters();
-  return useMemo(
-    () => applyFileFilters(tree, includeFilters, excludeFilters, useRegex),
-    [applyFileFilters, tree, includeFilters, excludeFilters, useRegex]
-  );
+  return applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
 }
 
 /** Count visible files in a (filtered) section tree + whether any directory is still unloaded. */
@@ -397,7 +383,7 @@ function RootSelectAllCheckbox({
 
   const sectionFileTree = treeContext.fileTree;
   const sectionSelectAll = treeContext.selectAllRecursively;
-  const handleCheckedChange = useCallback(() => {
+  const handleCheckedChange = () => {
     if (selectionCount > 0) {
       // Clear THIS root's selection only.
       if (currentFolderId === null || currentFolderId === folderId) {
@@ -414,18 +400,7 @@ function RootSelectAllCheckbox({
       maxSelectionCount,
       addMultipleSelectedFilesChunked
     );
-  }, [
-    addMultipleSelectedFiles,
-    addMultipleSelectedFilesChunked,
-    clearSelectedFiles,
-    currentFolderId,
-    folderId,
-    maxSelectionCount,
-    sectionFileTree,
-    sectionSelectAll,
-    selectionCount,
-    setFolderSelection,
-  ]);
+  };
 
   return (
     <LightweightCheckbox
@@ -584,7 +559,7 @@ const RootSectionInner = ({
   const { tree: displayTree } = useQuickFilteredTree(viewFilteredTree);
   // Tristate totals count the VIEW-filtered tree (quick filter excluded, as
   // before): the checkbox reflects what select-all can select.
-  const visibleFileTotals = useMemo(() => countTreeFiles(viewFilteredTree), [viewFilteredTree]);
+  const visibleFileTotals = countTreeFiles(viewFilteredTree);
   const isDisplayTreeFiltered = resolveSectionDisplayFilterFlag({
     canonicalTree: treeContext.fileTree,
     deferredTree: deferredFileTree,
@@ -694,15 +669,15 @@ const RootSectionInner = ({
     store,
   ]);
 
-  const handleToggle = useCallback(() => {
+  const handleToggle = () => {
     // Header click: focus this root AND toggle collapse.
     setFocusedRoot?.(rootIdentity);
     setIsCollapsed((v) => !v);
-  }, [setFocusedRoot, rootIdentity]);
+  };
 
-  const handleDisconnectRequest = useCallback(() => {
+  const handleDisconnectRequest = () => {
     setIsDisconnectDialogOpen(true);
-  }, []);
+  };
 
   // A web FSA handle's `path` IS its `name` (packages/types/src/
   // file-system.ts: "on web `path` is only the directory name") — there is
@@ -732,27 +707,24 @@ const RootSectionInner = ({
     rootId: rootIdentity,
   });
 
-  const handleDisconnectConfirm = useCallback(
-    (options: { deleteData: boolean }) => {
-      setIsDisconnectDialogOpen(false);
-      // Legacy roots without a RootId use their path AS the id (matches
-      // removeRootDirectory's path-doubles-as-id resolution).
-      // Fire-and-forget is safe here: removeRootDirectory (use-file-system-
-      // context.ts) catches every failure path internally (deletion AND
-      // adapter disconnect) and surfaces a toast instead of rejecting, so
-      // there is no unhandled-rejection path to `.catch` here.
-      void onRemoveRoot?.(rootIdentity, options);
-    },
-    [onRemoveRoot, rootIdentity]
-  );
+  const handleDisconnectConfirm = (options: { deleteData: boolean }) => {
+    setIsDisconnectDialogOpen(false);
+    // Legacy roots without a RootId use their path AS the id (matches
+    // removeRootDirectory's path-doubles-as-id resolution).
+    // Fire-and-forget is safe here: removeRootDirectory (use-file-system-
+    // context.ts) catches every failure path internally (deletion AND
+    // adapter disconnect) and surfaces a toast instead of rejecting, so
+    // there is no unhandled-rejection path to `.catch` here.
+    void onRemoveRoot?.(rootIdentity, options);
+  };
 
-  const handleTreeInteraction = useCallback(() => {
+  const handleTreeInteraction = () => {
     // Any interaction inside the tree container (row click, key press, etc.)
     // switches focused root. This is the per-root-boundary wiring site: bubbled
     // clicks from OptimizedFileTree rows reach this handler which is cheaper
     // than wiring into every individual row's dispatch path.
     setFocusedRoot?.(rootIdentity);
-  }, [setFocusedRoot, rootIdentity]);
+  };
 
   return (
     <>

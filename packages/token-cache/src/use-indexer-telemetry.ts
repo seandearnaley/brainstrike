@@ -22,7 +22,7 @@
  */
 
 import { isAppActive } from '@brainstrike/hooks';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createIndexerTelemetryAggregator, type IndexerTelemetrySnapshot } from './telemetry';
 
 export interface UseIndexerTelemetryOptions {
@@ -87,9 +87,9 @@ export function useIndexerTelemetry({
     };
   }, [maxEvents, resetCounter, updateIntervalMs, windowMs]);
 
-  const reset = useCallback(() => {
+  const reset = () => {
     setResetCounter((counter) => counter + 1);
-  }, []);
+  };
 
   return { reset, snapshot };
 }

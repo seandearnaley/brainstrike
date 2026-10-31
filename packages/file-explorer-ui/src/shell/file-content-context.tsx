@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext } from 'react';
 import type { FileContentLoadIntent } from '../file-content-load-authority-context';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
@@ -23,20 +23,12 @@ export interface FileContentProviderProps {
 export function FileContentProvider({ fileTree, children }: FileContentProviderProps) {
   const fileContentState = useSharedFileContentLoading(fileTree);
 
-  const contextValue = useMemo(
-    () => ({
-      error: fileContentState.error,
-      fileContents: fileContentState.fileContents,
-      handleFileContentLoading: fileContentState.handleFileContentLoading,
-      isLoading: fileContentState.isLoading,
-    }),
-    [
-      fileContentState.fileContents,
-      fileContentState.isLoading,
-      fileContentState.error,
-      fileContentState.handleFileContentLoading,
-    ]
-  );
+  const contextValue = {
+    error: fileContentState.error,
+    fileContents: fileContentState.fileContents,
+    handleFileContentLoading: fileContentState.handleFileContentLoading,
+    isLoading: fileContentState.isLoading,
+  };
 
   return <FileContentContext.Provider value={contextValue}>{children}</FileContentContext.Provider>;
 }

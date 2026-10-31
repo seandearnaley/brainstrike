@@ -3,7 +3,7 @@ import {
   useTokenPreferencesStore,
 } from '@brainstrike/app-state/stores/token-preferences-store';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import { useCallback, useMemo } from 'react';
+
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 export type TokenCountingMode = 'accurate' | 'heuristic';
@@ -43,32 +43,26 @@ export function useTokenCounting(): TokenCountingState {
     : 'preference-disabled';
   const loading = accuratePreference && tokenCache !== null && tokenCacheIsOperational === false;
 
-  const countTokens = useCallback(
-    async (content: string) => {
-      if (!accuratePreference) {
-        return countTokensHeuristic(content);
-      }
+  const countTokens = async (content: string) => {
+    if (!accuratePreference) {
+      return countTokensHeuristic(content);
+    }
 
-      if (tokenCacheIsOperational && tokenCacheCountingMode === 'accurate' && countTextTokens) {
-        return countTextTokens(content);
-      }
+    if (tokenCacheIsOperational && tokenCacheCountingMode === 'accurate' && countTextTokens) {
+      return countTextTokens(content);
+    }
 
-      throw new Error(
-        'Accurate token counting is unavailable: tiktoken worker is not operational and heuristic mode was not explicitly selected.'
-      );
-    },
-    [accuratePreference, countTextTokens, tokenCacheCountingMode, tokenCacheIsOperational]
-  );
+    throw new Error(
+      'Accurate token counting is unavailable: tiktoken worker is not operational and heuristic mode was not explicitly selected.'
+    );
+  };
 
-  return useMemo(
-    () => ({
-      countTokens,
-      loading,
-      mode,
-      reason,
-    }),
-    [mode, reason, loading, countTokens]
-  );
+  return {
+    countTokens,
+    loading,
+    mode,
+    reason,
+  };
 }
 
 /**

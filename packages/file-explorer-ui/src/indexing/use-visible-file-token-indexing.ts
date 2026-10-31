@@ -38,7 +38,7 @@
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   VISIBLE_FILE_INDEXING_DEBOUNCE_MS,
   VISIBLE_FILE_INDEXING_MAX_PER_PASS,
@@ -113,60 +113,57 @@ export function useVisibleFileTokenIndexing({
   // when a batch completes.
   const [passCursor, setPassCursor] = useState(0);
 
-  const indexVisibleFiles = useCallback(
-    async (compositeKeys: readonly string[]): Promise<void> => {
-      const cache = tokenCacheRef.current;
-      if (!cache?.isOperational) {
-        return;
-      }
+  const indexVisibleFiles = async (compositeKeys: readonly string[]): Promise<void> => {
+    const cache = tokenCacheRef.current;
+    if (!cache?.isOperational) {
+      return;
+    }
 
-      const folderIds = new Set<string>();
-      for (const compositeKey of compositeKeys) {
-        folderIds.add(decodeFileSelection(compositeKey).folderId);
+    const folderIds = new Set<string>();
+    for (const compositeKey of compositeKeys) {
+      folderIds.add(decodeFileSelection(compositeKey).folderId);
+    }
+    const warmups: Promise<void>[] = [];
+    for (const folderId of folderIds) {
+      if (preloadedFolders.has(folderId)) {
+        continue;
       }
-      const warmups: Promise<void>[] = [];
-      for (const folderId of folderIds) {
-        if (preloadedFolders.has(folderId)) {
-          continue;
-        }
-        warmups.push(
-          cache.preloadFolder(folderId).then(() => {
-            // Only remember a warm that could actually have read the DB. Before
-            // persistence is up `preloadFolder` reads nothing, and memoizing
-            // that would defeat cached-first for the whole session.
-            if (tokenCacheRef.current?.isPersisted) {
-              preloadedFolders.add(folderId);
-            }
-          })
-        );
-      }
-      await Promise.all(warmups);
+      warmups.push(
+        cache.preloadFolder(folderId).then(() => {
+          // Only remember a warm that could actually have read the DB. Before
+          // persistence is up `preloadFolder` reads nothing, and memoizing
+          // that would defeat cached-first for the whole session.
+          if (tokenCacheRef.current?.isPersisted) {
+            preloadedFolders.add(folderId);
+          }
+        })
+      );
+    }
+    await Promise.all(warmups);
 
-      const uncachedKeys: string[] = [];
-      for (const compositeKey of compositeKeys) {
-        const { folderId, path } = decodeFileSelection(compositeKey);
-        // `getTokenCount` normalizes the path itself (non-throwing: an unsafe
-        // path reads as a miss), so unsafe paths fall through to the dispatch
-        // planner, which classifies and logs them.
-        if (cache.getTokenCount(folderId, path) === null) {
-          uncachedKeys.push(compositeKey);
-          continue;
-        }
-        indexedFilesRef.current.add(compositeKey);
+    const uncachedKeys: string[] = [];
+    for (const compositeKey of compositeKeys) {
+      const { folderId, path } = decodeFileSelection(compositeKey);
+      // `getTokenCount` normalizes the path itself (non-throwing: an unsafe
+      // path reads as a miss), so unsafe paths fall through to the dispatch
+      // planner, which classifies and logs them.
+      if (cache.getTokenCount(folderId, path) === null) {
+        uncachedKeys.push(compositeKey);
+        continue;
       }
+      indexedFilesRef.current.add(compositeKey);
+    }
 
-      logger.debug('Visible-file indexing pass prepared', {
-        cachedCount: compositeKeys.length - uncachedKeys.length,
-        requestedFiles: compositeKeys.length,
-        uncachedCount: uncachedKeys.length,
-      });
+    logger.debug('Visible-file indexing pass prepared', {
+      cachedCount: compositeKeys.length - uncachedKeys.length,
+      requestedFiles: compositeKeys.length,
+      uncachedCount: uncachedKeys.length,
+    });
 
-      if (uncachedKeys.length > 0) {
-        await triggerIndexing(uncachedKeys);
-      }
-    },
-    [indexedFilesRef, preloadedFolders, tokenCacheRef, triggerIndexing]
-  );
+    if (uncachedKeys.length > 0) {
+      await triggerIndexing(uncachedKeys);
+    }
+  };
 
   useEffect(() => {
     if (!visibleFiles || visibleFiles.size === 0) {

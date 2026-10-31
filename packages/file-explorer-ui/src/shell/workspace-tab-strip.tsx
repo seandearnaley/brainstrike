@@ -162,7 +162,7 @@ export function WorkspaceTabStrip(): ReactElement {
     tabStatuses,
   } = useWorkspaceTabs();
 
-  const openAppsById = useMemo(() => new Map(openApps.map((app) => [app.id, app])), [openApps]);
+  const openAppsById = new Map(openApps.map((app) => [app.id, app]));
   const { dynamicAppItems, pinnedItems } = useMemo(() => {
     const pinned: TabStripItem[] = [];
     const dynamic: TabStripItem[] = [];

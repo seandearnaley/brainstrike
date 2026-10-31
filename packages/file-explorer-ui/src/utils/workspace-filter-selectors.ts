@@ -9,7 +9,7 @@
  */
 
 import type { FileExplorerState } from '@brainstrike/types';
-import { useMemo } from 'react';
+
 import { useOptionalFileExplorerStoreSelector } from '../shell/file-explorer-provider';
 
 /** Selector for include filters (glob patterns like *.ts, *.tsx) */
@@ -65,17 +65,8 @@ export function useActiveWorkspaceFilters(): ActiveWorkspaceFilters {
     EMPTY_DISABLED
   );
 
-  const includeFilters = useMemo(
-    () => includeFiltersRaw.filter((f) => !disabledIncludeFilters.has(f)),
-    [includeFiltersRaw, disabledIncludeFilters]
-  );
-  const excludeFilters = useMemo(
-    () => excludeFiltersRaw.filter((f) => !disabledExcludeFilters.has(f)),
-    [excludeFiltersRaw, disabledExcludeFilters]
-  );
+  const includeFilters = includeFiltersRaw.filter((f) => !disabledIncludeFilters.has(f));
+  const excludeFilters = excludeFiltersRaw.filter((f) => !disabledExcludeFilters.has(f));
 
-  return useMemo(
-    () => ({ excludeFilters, includeFilters, useRegex }),
-    [includeFilters, excludeFilters, useRegex]
-  );
+  return { excludeFilters, includeFilters, useRegex };
 }

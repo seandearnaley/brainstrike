@@ -11,7 +11,7 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { Check, Files, Pencil, X } from 'lucide-react';
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import { formatCompactSelectionCount } from './selection-count-format';
 
 /**
@@ -84,24 +84,21 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
   const isAtLimit = selectedCount >= maxSelectionCount;
   const isNearLimit = selectedCount >= maxSelectionCount * 0.9;
 
-  const handleOpenChange = useCallback(
-    (open: boolean) => {
-      setIsOpen(open);
-      if (open) {
-        // Initialize draft with current max count when opening
-        setDraft(String(maxSelectionCount));
-        setError(null);
-        // Focus and select input after render
-        queueMicrotask(() => {
-          inputRef.current?.focus();
-          inputRef.current?.select();
-        });
-      }
-    },
-    [maxSelectionCount]
-  );
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (open) {
+      // Initialize draft with current max count when opening
+      setDraft(String(maxSelectionCount));
+      setError(null);
+      // Focus and select input after render
+      queueMicrotask(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    }
+  };
 
-  const commit = useCallback(() => {
+  const commit = () => {
     if (typeof onMaxSelectionCountChange !== 'function') {
       setIsOpen(false);
       return;
@@ -125,17 +122,14 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
 
     onMaxSelectionCountChange(parsed);
     setIsOpen(false);
-  }, [draft, onMaxSelectionCountChange]);
+  };
 
-  const applyPreset = useCallback(
-    (value: number) => {
-      if (typeof onMaxSelectionCountChange === 'function') {
-        onMaxSelectionCountChange(value);
-        setIsOpen(false);
-      }
-    },
-    [onMaxSelectionCountChange]
-  );
+  const applyPreset = (value: number) => {
+    if (typeof onMaxSelectionCountChange === 'function') {
+      onMaxSelectionCountChange(value);
+      setIsOpen(false);
+    }
+  };
 
   const tooltipLabel = useMemo(() => {
     if (!isEditable) {

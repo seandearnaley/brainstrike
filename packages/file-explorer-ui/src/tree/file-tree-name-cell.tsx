@@ -19,7 +19,7 @@ import {
   Loader2,
   MoreHorizontal as MoreHorizontalIcon,
 } from 'lucide-react';
-import { type MouseEvent, memo, useCallback, useSyncExternalStore } from 'react';
+import { type MouseEvent, memo, useSyncExternalStore } from 'react';
 import { useFileTreeSelection } from './file-tree-selection-context';
 import type { FileTreeRowData } from './optimized-file-tree-model';
 
@@ -87,10 +87,7 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
   // a selection change ONLY when ITS OWN derived state changed, not on every
   // toggle (#1594). getSnapshot returns a cached object with stable identity
   // while unchanged — the store guarantees that contract.
-  const selectionState = useSyncExternalStore(
-    store.subscribe,
-    useCallback(() => store.getNodeState(rowData), [store, rowData])
-  );
+  const selectionState = useSyncExternalStore(store.subscribe, () => store.getNodeState(rowData));
 
   /**
    * VS Code-style open semantics. The mouse and keyboard paths are intentionally

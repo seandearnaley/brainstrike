@@ -1,7 +1,7 @@
 import { useWatcherHealth } from '@brainstrike/file-explorer-hooks';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export interface WatcherHealthChipProps {
   /** Absolute root path this chip reports on (matches the watch handle path). */
@@ -39,7 +39,7 @@ export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
     };
   }, [retryPending]);
 
-  const onRetry = useCallback(async () => {
+  const onRetry = async () => {
     setRetryPending(true);
     try {
       const outcome = await retry(rootPath);
@@ -59,7 +59,7 @@ export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
     } catch {
       setRetryPending(false);
     }
-  }, [retry, rootPath]);
+  };
 
   if (!health || (health.state !== 'degraded' && health.state !== 'failed')) {
     return null;

@@ -34,7 +34,7 @@
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { RECONCILE_METADATA_DEBOUNCE_MS, RECONCILE_METADATA_MAX_WAIT_MS } from '../constants';
 import {
   FILE_EXPLORER_REFRESH_EVENT,
@@ -129,12 +129,9 @@ export function useFileRowMetadataStore(
 
   // Precise path. `handleFileIndexed` writes the hot cache before invoking this,
   // so the fresh count is already readable.
-  const onTokenResolved = useCallback(
-    (compositeKey: string) => {
-      store.invalidate([compositeKey]);
-    },
-    [store]
-  );
+  const onTokenResolved = (compositeKey: string) => {
+    store.invalidate([compositeKey]);
+  };
 
   const reconcileTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstPendingReconcileAtRef = useRef<number | null>(null);
@@ -211,5 +208,5 @@ export function useFileRowMetadataStore(
     };
   }, [scheduleReconcile, store]);
 
-  return useMemo(() => ({ onTokenResolved, store }), [onTokenResolved, store]);
+  return { onTokenResolved, store };
 }

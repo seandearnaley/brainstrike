@@ -7,7 +7,7 @@ import {
 } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { type ContextExportOutcome, useReportManager } from '@brainstrike/hooks';
-import { useCallback } from 'react';
+
 import type { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface UseContextExportActionsInput {
@@ -33,10 +33,10 @@ export function useContextExportActions(input: UseContextExportActionsInput): {
 
   // Get fresh file contents from store state when needed (avoids stale closure).
   // The store reference is stable, but we call getState() to get current values.
-  const getFileContents = useCallback(() => input.store.getState().fileContents, [input.store]);
+  const getFileContents = () => input.store.getState().fileContents;
   // Storage v5: selection keys carry RootId UUIDs — give the generator the
   // descriptor registry so report file paths render human-readably.
-  const getRootDisplayInfoById = useCallback(() => {
+  const getRootDisplayInfoById = () => {
     const descriptors = input.store.getState().rootDescriptors;
     return Object.fromEntries(
       Object.entries(descriptors).map(([rootId, descriptor]) => [
@@ -44,7 +44,7 @@ export function useContextExportActions(input: UseContextExportActionsInput): {
         { displayName: descriptor.displayName, path: descriptor.path },
       ])
     );
-  }, [input.store]);
+  };
   // `useReportGeneration` models "no directory" as `undefined`, whereas the rest of the explorer
   // surfaces missing root directory as `null`.
   const rootDirectoryHandleForGeneration =

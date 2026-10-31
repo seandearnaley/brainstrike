@@ -29,7 +29,7 @@
  * itself a non-component export.
  */
 
-import { createContext, useContext, useMemo, useState, useSyncExternalStore } from 'react';
+import { createContext, useContext, useState, useSyncExternalStore } from 'react';
 import {
   createFileRowMetadataSourceRegistry,
   type FileRowMetadataSource,
@@ -88,22 +88,16 @@ export function useExplorerRowMetadata(): ExplorerRowMetadata {
   // Create-once (lazy useState) so the registry identity — and therefore the
   // store's source closures — never changes for the panel's lifetime.
   const [registry] = useState(createFileRowMetadataSourceRegistry);
-  const sourceParams = useMemo(
-    () => ({
-      getDirectorySubtree: registry.getDirectorySubtree,
-      getNodeSize: registry.getNodeSize,
-    }),
-    [registry]
-  );
+  const sourceParams = {
+    getDirectorySubtree: registry.getDirectorySubtree,
+    getNodeSize: registry.getNodeSize,
+  };
   const { onTokenResolved, store } = useFileRowMetadataStore(sourceParams);
-  const contextValue = useMemo<FileRowMetadataContextValue>(
-    () => ({
-      publishVisibleFileKeys: registry.setVisibleFileKeys,
-      registerSource: registry.register,
-      store,
-    }),
-    [registry, store]
-  );
+  const contextValue: FileRowMetadataContextValue = {
+    publishVisibleFileKeys: registry.setVisibleFileKeys,
+    registerSource: registry.register,
+    store,
+  };
   // The registry keeps the merged snapshot CONTENT-stable, which is what stops
   // an unchanged republication from re-arming the visible-indexing debounce.
   const visibleFileKeys = useSyncExternalStore(
@@ -111,8 +105,5 @@ export function useExplorerRowMetadata(): ExplorerRowMetadata {
     registry.getVisibleFileKeys,
     registry.getVisibleFileKeys
   );
-  return useMemo(
-    () => ({ contextValue, onTokenResolved, visibleFileKeys }),
-    [contextValue, onTokenResolved, visibleFileKeys]
-  );
+  return { contextValue, onTokenResolved, visibleFileKeys };
 }
