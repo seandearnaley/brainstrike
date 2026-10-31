@@ -1522,7 +1522,7 @@ function ThreadsPanelToolbar({
       <h2 className="min-w-0 truncate text-sm leading-none font-medium">Threads</h2>
       {treeOnScreen ? (
         <span
-          className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums"
+          className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums @max-[260px]/threads-toolbar:sr-only"
           data-testid="threads-visible-count"
           title={`${visibleThreadCount} ${visibleThreadCount === 1 ? 'thread' : 'threads'} visible`}
         >
