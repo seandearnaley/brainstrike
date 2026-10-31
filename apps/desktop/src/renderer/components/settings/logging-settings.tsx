@@ -1,183 +1,71 @@
 import { openLogsTab, useDiagnosticSinkHealthStore } from '@brainstrike/app-shell/diagnostics';
-import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import {
   describeBoundaryError,
   refusalError,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
-import type { LoggingPreferences } from '@brainstrike/logging';
-import {
-  LoggingSettingsSection,
-  type LoggingSettingsSectionProps,
-} from '@brainstrike/settings-ui/settings/system/logging-settings-section';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  useToast,
-} from '@brainstrike/ui';
-import { useCallback, useEffect, useReducer } from 'react';
+import type { LoggingPreferencesPatch } from '@brainstrike/logging';
+import { LoggingSettingsSection } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
+import { useCallback, useEffect, useState } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
 
-interface LoggingSettingsState {
-  error: string | null;
-  fileCapabilities: LoggingSettingsSectionProps['fileCapabilities'];
-  loading: boolean;
-  syncing: boolean;
-}
+type LoggingSettingsState =
+  | { readonly kind: 'loading' }
+  | { readonly error: string; readonly kind: 'error' }
+  | { readonly kind: 'ready'; readonly payload: LoggingSettingsPayload };
 
-type LoggingSettingsAction =
-  | { type: 'start_syncing' }
-  | { type: 'stop_syncing' }
-  | { type: 'load_success'; fileCapabilities: LoggingSettingsSectionProps['fileCapabilities'] }
-  | { type: 'load_error'; error: string };
+const loggingUnavailable = () =>
+  refusalError('availability', 'logging.unavailable', 'Logging is unavailable in this window.');
 
-function loggingSettingsReducer(
-  state: LoggingSettingsState,
-  action: LoggingSettingsAction
-): LoggingSettingsState {
-  switch (action.type) {
-    case 'start_syncing':
-      return { ...state, syncing: true };
-    case 'stop_syncing':
-      return { ...state, syncing: false };
-    case 'load_success':
-      return { ...state, error: null, fileCapabilities: action.fileCapabilities, loading: false };
-    case 'load_error':
-      return { ...state, error: action.error, loading: false };
-  }
-}
-
+/** Logging settings over Main, the preferences' one writer: shown as Main holds them, changed through Main. */
 export function DesktopLoggingSettings() {
-  const [settingsState, settingsDispatch] = useReducer(loggingSettingsReducer, {
-    error: null,
-    fileCapabilities: undefined,
-    loading: true,
-    syncing: false,
-  });
-  const { loading, syncing, error, fileCapabilities } = settingsState;
-  const { toast } = useToast();
-
-  const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
-  const sinkHealthReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
-
-  const mapPayload = useCallback(
-    (payload: LoggingSettingsPayload) => {
-      setPreferences(payload.preferences);
-      settingsDispatch({
-        fileCapabilities: {
-          canSelectDestination: payload.capabilities.canSelectDestination,
-          defaultDestination: payload.capabilities.defaultDestination,
-          fileLoggingSupported: payload.capabilities.fileLoggingSupported,
-          ...(payload.capabilities.reason === undefined
-            ? {}
-            : { reason: payload.capabilities.reason }),
-        },
-        type: 'load_success',
-      });
-    },
-    [setPreferences]
+  const [state, setState] = useState<LoggingSettingsState>(() =>
+    typeof window.logging?.getPreferences === 'function'
+      ? { kind: 'loading' }
+      : { error: describeBoundaryError(loggingUnavailable()), kind: 'error' }
   );
+  const sinkHealthReason = useDiagnosticSinkHealthStore((store) => store.disabledReason);
 
+  // biome-ignore lint/plugin: Not derived state — a one-shot async read of Main's preferences over the preload bridge plus a subscription to Main's broadcast; `cancelled` discards a response that lands after unmount.
   useEffect(() => {
     let cancelled = false;
-
-    const finishWithPayload = (payload: LoggingSettingsPayload) => {
-      if (cancelled) {
-        return;
-      }
-      mapPayload(payload);
-    };
-
-    const finishWithError = (err: unknown) => {
-      if (cancelled) {
-        return;
-      }
-      const message = describeBoundaryError(err);
-      settingsDispatch({ error: message, type: 'load_error' });
-    };
-
-    const fetchPreferences = async () => {
+    const load = async (getPreferences: Window['logging']['getPreferences']) => {
       try {
-        const fn = window.logging?.getPreferences;
-        if (!fn) {
-          finishWithError(
-            refusalError(
-              'availability',
-              'logging.unavailable',
-              'Logging is unavailable in this window.'
-            )
-          );
-          return;
+        const payload = await callBoundary(getPreferences);
+        if (!cancelled) {
+          setState({ kind: 'ready', payload });
         }
-        const response = await callBoundary(fn);
-        if (!response) {
-          finishWithError(
-            refusalError(
-              'availability',
-              'logging.unavailable',
-              'Logging is unavailable in this window.'
-            )
-          );
-          return;
+      } catch (error) {
+        if (!cancelled) {
+          setState({ error: describeBoundaryError(error), kind: 'error' });
         }
-        finishWithPayload(response);
-      } catch (err) {
-        finishWithError(err);
       }
     };
-
-    void fetchPreferences();
-
+    if (window.logging?.getPreferences) {
+      void load(window.logging.getPreferences);
+    }
+    // A change committed from another window reaches this one as Main's broadcast.
+    const unsubscribe = window.logging?.onPreferencesUpdated?.((preferences) => {
+      setState((current) =>
+        current.kind === 'ready'
+          ? { kind: 'ready', payload: { ...current.payload, preferences } }
+          : current
+      );
+    });
     return () => {
       cancelled = true;
+      unsubscribe?.();
     };
-  }, [mapPayload]);
+  }, []);
 
-  const commitPreferences = useCallback(
-    async (preferences: LoggingPreferences) => {
-      if (!window.logging?.setPreferences) {
-        throw refusalError(
-          'availability',
-          'logging.unavailable',
-          'Logging is unavailable in this window.'
-        );
-      }
-      settingsDispatch({ type: 'start_syncing' });
-      let caughtError: unknown = null;
-      let result: LoggingSettingsPayload | undefined;
-      try {
-        result = await callBoundary(() => window.logging.setPreferences(preferences));
-      } catch (err) {
-        caughtError = err;
-      }
-      settingsDispatch({ type: 'stop_syncing' });
-      if (caughtError !== null) {
-        const message = describeBoundaryError(caughtError);
-        toast({
-          description: message,
-          title: 'Failed to persist logging preferences',
-          variant: 'destructive',
-        });
-        throw caughtError;
-      }
-      if (result) {
-        mapPayload(result);
-        return result.preferences;
-      }
-      return;
-    },
-    [mapPayload, toast]
-  );
-
-  const resetPreferences = useCallback(
-    async (preferences: LoggingPreferences) => {
-      await commitPreferences(preferences);
-    },
-    [commitPreferences]
-  );
+  const commitPreferences = useCallback(async (patch: LoggingPreferencesPatch) => {
+    if (!window.logging?.setPreferences) {
+      throw loggingUnavailable();
+    }
+    const payload = await callBoundary(() => window.logging.setPreferences(patch));
+    setState({ kind: 'ready', payload });
+  }, []);
 
   const selectDestination = useCallback(async () => {
     if (!window.logging?.selectDestination) {
@@ -197,7 +85,7 @@ export function DesktopLoggingSettings() {
     return callBoundary(() => window.logging.openDestination(target ?? null));
   }, []);
 
-  if (loading) {
+  if (state.kind === 'loading') {
     return (
       <Card>
         <CardHeader>
@@ -211,7 +99,7 @@ export function DesktopLoggingSettings() {
     );
   }
 
-  if (error) {
+  if (state.kind === 'error') {
     return (
       <Card>
         <CardHeader>
@@ -219,21 +107,27 @@ export function DesktopLoggingSettings() {
           <CardDescription>Logging configuration is unavailable.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-destructive text-sm">{error}</div>
+          <div className="text-destructive text-sm">{state.error}</div>
         </CardContent>
       </Card>
     );
   }
 
+  const { capabilities, defaults, preferences } = state.payload;
   return (
     <LoggingSettingsSection
-      busy={syncing}
-      {...(fileCapabilities === undefined ? {} : { fileCapabilities })}
+      defaults={defaults}
+      fileCapabilities={{
+        canSelectDestination: capabilities.canSelectDestination,
+        defaultDestination: capabilities.defaultDestination,
+        fileLoggingSupported: capabilities.fileLoggingSupported,
+        ...(capabilities.reason === undefined ? {} : { reason: capabilities.reason }),
+      }}
       onCommitPreferences={commitPreferences}
       onOpenLogDestination={openDestination}
       onOpenLogs={openLogsTab}
-      onResetPreferences={resetPreferences}
       onSelectLogDestination={selectDestination}
+      preferences={preferences}
       runtime="electron-renderer"
       sinkHealthReason={sinkHealthReason}
     />

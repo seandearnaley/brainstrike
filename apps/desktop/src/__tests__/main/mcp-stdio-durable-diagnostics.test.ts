@@ -75,6 +75,7 @@ describe('MCP stdio durable diagnostics', () => {
             fileLoggingSupported: true,
             runtime: 'electron',
           },
+          defaults: createDefaultLoggingPreferences(),
           preferences: createDefaultLoggingPreferences(),
         }),
         openDestination: vi.fn(async () => true),
@@ -87,6 +88,7 @@ describe('MCP stdio durable diagnostics', () => {
             fileLoggingSupported: true,
             runtime: 'electron' as const,
           },
+          defaults: createDefaultLoggingPreferences(),
           preferences,
         })),
       });

@@ -82,23 +82,7 @@ describe('createDesktopLoggingPreferencesController', () => {
     });
   });
 
-  it('migrates the legacy debug-everything defaults back to the current defaults', () => {
-    const legacy = createController({ store: null }).controller.initial;
-    const stored = createStore({
-      v1: {
-        ...legacy,
-        consoleLevel: LogLevel.INFO,
-        file: { ...legacy.file, level: LogLevel.DEBUG },
-        level: LogLevel.DEBUG,
-      },
-    });
-    const { controller } = createController({ store: stored });
-    expect(controller.initial.level).toBe(LogLevel.INFO);
-    expect(controller.initial.file.level).toBe(LogLevel.INFO);
-    expect(controller.initial.consoleLevel).toBe(LogLevel.WARN);
-  });
-
-  it('keeps a genuinely customized stored preference set', () => {
+  it('keeps a stored preference set, sanitized', () => {
     const base = createController({ store: null }).controller.initial;
     const stored = createStore({
       v1: { ...base, level: LogLevel.TRACE, redactPaths: [' a ', ''] },
@@ -116,7 +100,7 @@ describe('createDesktopLoggingPreferencesController', () => {
       fileLoggingSupported: false,
       reason: 'File logging disabled by BRAINSTRIKE_DISABLE_FILE_LOGS=1',
     });
-    expect(controller.enableFileLoggingAfterReady()).toBeNull();
+    expect(controller.applyAfterReady()).toBeNull();
   });
 
   it('applies + persists an update, notifies the watchdog hook, and exposes the new current set', async () => {
@@ -196,9 +180,9 @@ describe('createDesktopLoggingPreferencesController', () => {
     expect(payload.preferences.level).toBe(before.level);
   });
 
-  it('enables file logging after app.ready when it was disabled only because no path was known', () => {
+  /** A controller built at module load, before the app is ready, as main.ts builds it. */
+  function createControllerBeforeReady(store: ReturnType<typeof createStore>) {
     let ready = false;
-    const store = createStore();
     const controller = createDesktopLoggingPreferencesController({
       app: {
         getPath: vi.fn(() => '/mock/logs'),
@@ -208,16 +192,31 @@ describe('createDesktopLoggingPreferencesController', () => {
       createMainLogTransportConfig: () => ({ options: { maxBytes: 1, maxFiles: 1 }, target: '/t' }),
       disableFileLogs: false,
       getLogFilePath: () => (ready ? '/mock/logs/brainstrike.log' : null),
-      getSettingsStore: () => store as never,
+      getSettingsStore: () => (ready ? (store as never) : null),
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() } as never,
       onFilePreferencesApplied: vi.fn(),
       showItemInFolder: vi.fn(),
       showSaveDialog: vi.fn(async () => ({ canceled: true, filePath: '' })),
     });
+    return {
+      becomeReady: () => {
+        ready = true;
+      },
+      controller,
+    };
+  }
+
+  it('writes the log file after app.ready on a fresh install, and offers it in the defaults', () => {
+    const { becomeReady, controller } = createControllerBeforeReady(createStore());
     expect(controller.initial.file.enabled).toBe(false);
-    ready = true;
-    expect(controller.enableFileLoggingAfterReady()).toBe('/mock/logs/brainstrike.log');
+
+    becomeReady();
+    expect(controller.applyAfterReady()).toBe('/mock/logs/brainstrike.log');
     expect(controller.current.file).toMatchObject({
+      destination: '/mock/logs/brainstrike.log',
+      enabled: true,
+    });
+    expect(controller.getSettingsPayload().defaults.file).toMatchObject({
       destination: '/mock/logs/brainstrike.log',
       enabled: true,
     });
@@ -228,5 +227,18 @@ describe('createDesktopLoggingPreferencesController', () => {
         baseBindings: expect.objectContaining({ logFile: '/mock/logs/brainstrike.log' }),
       })
     );
+  });
+
+  it('applies the stored preferences once the store opens, so they survive a restart', () => {
+    const base = createController({ store: null }).controller.initial;
+    const stored = createStore({
+      v1: { ...base, file: { ...base.file, enabled: false }, level: LogLevel.TRACE },
+    });
+    const { becomeReady, controller } = createControllerBeforeReady(stored);
+
+    becomeReady();
+    expect(controller.applyAfterReady()).toBeNull();
+    expect(controller.current.level).toBe(LogLevel.TRACE);
+    expect(controller.current.file.enabled).toBe(false);
   });
 });

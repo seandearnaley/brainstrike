@@ -1,5 +1,5 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
+import type { LoggingPreferences, LoggingPreferencesPatch, LogRecord } from '@brainstrike/logging';
 import type { DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
 import type {
   DiagnosticEventsReader,
@@ -241,9 +241,9 @@ if (shouldExposeBridge('logging')) {
     selectDestination: (): Promise<BoundaryResult<string | null>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.selectDestination),
     setPreferences: (
-      preferences: LoggingPreferences
+      patch: LoggingPreferencesPatch
     ): Promise<BoundaryResult<LoggingSettingsPayload>> =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.setPreferences, preferences),
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.setPreferences, patch),
   });
 }
 

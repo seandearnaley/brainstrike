@@ -1,5 +1,5 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
+import type { LoggingPreferences, LoggingPreferencesPatch, LogRecord } from '@brainstrike/logging';
 import type {
   DiagnosticEventsReader,
   mainDiagnosticEventsReader,
@@ -128,7 +128,7 @@ declare global {
     logging: {
       getPreferences: () => Promise<BoundaryResult<LoggingSettingsPayload>>;
       setPreferences: (
-        preferences: LoggingPreferences
+        patch: LoggingPreferencesPatch
       ) => Promise<BoundaryResult<LoggingSettingsPayload>>;
       selectDestination: () => Promise<BoundaryResult<string | null>>;
       openDestination: (target: string | null) => Promise<BoundaryResult<boolean>>;

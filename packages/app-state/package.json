@@ -46,7 +46,6 @@
     "./stores/explorer-sort-state-store": "./src/stores/explorer-sort-state-store.ts",
     "./stores/index-config-store": "./src/stores/index-config-store.ts",
     "./stores/indexing-activity-store": "./src/stores/indexing-activity-store.ts",
-    "./stores/logging-preferences-store": "./src/stores/logging-preferences-store.ts",
     "./stores/model-registry-store": "./src/stores/model-registry-store.ts",
     "./stores/native-tool-preferences-store": "./src/stores/native-tool-preferences-store.ts",
     "./stores/notification-preferences-store": "./src/stores/notification-preferences-store.ts",

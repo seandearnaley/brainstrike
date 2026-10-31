@@ -2,7 +2,6 @@ import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/ap
 import { registerFactoryResetPreparation } from '@brainstrike/app-state/factory-reset';
 import { registerDurableFlush } from '@brainstrike/app-state/renderer-close';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   PERMISSION_POLICY_STORE_VERSION,
@@ -115,42 +114,28 @@ const removeRendererErrorHooks =
     ? () => {}
     : installRendererErrorHooks({ scope: 'DesktopRenderer' });
 
-const loggingStore = useLoggingPreferencesStore.getState();
-if (!loggingStore.hasHydrated) {
-  loggingStore.updatePreferences({
-    consoleLevel: rendererConsoleLevel,
-    level: rendererLevel,
-  });
-}
-
-async function syncLoggingPreferencesFromMain(): Promise<void> {
+// Main owns logging preferences: the renderer applies what Main holds now and every change Main broadcasts.
+async function applyLoggingPreferencesFromMain(): Promise<void> {
   if (!window.logging?.getPreferences) {
     return;
   }
   try {
     const payload = await callBoundary(() => window.logging.getPreferences());
-    useLoggingPreferencesStore.getState().setPreferences(payload.preferences);
+    applyLoggingPreferences(payload.preferences, 'electron-renderer');
   } catch (error) {
-    rendererLogger.warn('Failed to synchronize logging preferences from main process', { error });
+    rendererLogger.warn('Failed to read logging preferences from main process', { error });
   }
 }
 
-void syncLoggingPreferencesFromMain();
-
-applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
-
-const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
-  applyLoggingPreferences(state.preferences, 'electron-renderer');
-});
+void applyLoggingPreferencesFromMain();
 
 const unsubscribeLoggingEvents =
   window.logging?.onPreferencesUpdated?.((preferences: LoggingPreferences) => {
-    useLoggingPreferencesStore.getState().setPreferences(preferences);
+    applyLoggingPreferences(preferences, 'electron-renderer');
   }) ?? null;
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    unsubscribeLoggingPreferences();
     unsubscribeLoggingEvents?.();
     removeRendererErrorHooks();
   });

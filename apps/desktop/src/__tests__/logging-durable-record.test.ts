@@ -35,6 +35,7 @@ function createMockPayload(overrides?: Partial<LoggingPreferences>): LoggingSett
       fileLoggingSupported: true,
       runtime: 'electron',
     },
+    defaults: createMockPreferences(),
     preferences: createMockPreferences(overrides),
   };
 }

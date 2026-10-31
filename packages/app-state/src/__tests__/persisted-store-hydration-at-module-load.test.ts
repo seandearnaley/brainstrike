@@ -24,32 +24,6 @@ describe('persisted store hydration at module load', () => {
     localStorage.clear();
   });
 
-  it('marks the logging preferences store hydrated during the module-load hydration', async () => {
-    localStorage.setItem(
-      'logging-preferences.v1',
-      JSON.stringify({
-        state: {
-          preferences: {
-            consoleLevel: 'debug',
-            enableConsole: true,
-            file: { enabled: false, maxFiles: 5, maxSizeMb: 10 },
-            includeTimestamp: true,
-            level: 'debug',
-            redactPaths: [],
-          },
-        },
-        version: 1,
-      })
-    );
-
-    const { useLoggingPreferencesStore } = await import('../stores/logging-preferences-store.ts');
-
-    // Consumers gate on `hasHydrated` to avoid writing defaults over persisted
-    // preferences. Stuck at `false`, the store looks permanently un-hydrated.
-    expect(useLoggingPreferencesStore.getState().hasHydrated).toBe(true);
-    expect(useLoggingPreferencesStore.getState().preferences.includeTimestamp).toBe(true);
-  });
-
   it('sanitizes unknown native tool ids during the module-load hydration', async () => {
     const knownToolId = DESKTOP_NATIVE_TOOL_IDS[0];
     expect(knownToolId).toBeTypeOf('string');
