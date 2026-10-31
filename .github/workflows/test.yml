@@ -1026,10 +1026,8 @@ jobs:
         # builds both desktop native addons, which this toolchain-less pwuser
         # container cannot compile (proven by this lane's first run). The
         # filtered scope is the five packages + their pure-TS closure.
-        # KEEP IN SYNC with packages defining a test:browser script —
-        # scripts/__tests__/browser-lane-filter-contract.test.mjs fails
-        # `pnpm test:scripts` (Static job) if a package gains test:browser
-        # without being added here.
+        # KEEP IN SYNC with packages defining a test:browser script: a package
+        # that gains one runs no browser tests until it is added here.
         run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/canonical-ingestion --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui
 
       - name: Upload browser test artifacts

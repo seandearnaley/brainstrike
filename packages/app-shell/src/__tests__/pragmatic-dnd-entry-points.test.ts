@@ -20,9 +20,8 @@ import { describe, expect, it } from 'vitest';
  * would split core's module-level drag registry even within one install.
  *
  * These imports are the subject of this test, not application compatibility
- * paths. Companion/core physical identity is checked separately by
- * scripts/__tests__/pragmatic-dnd-single-core.test.mjs across actual importers;
- * a same-importer identity test cannot detect a nested second core install.
+ * paths. A same-importer identity test cannot detect a nested second core
+ * install.
  */
 describe('pragmatic-drag-and-drop entry points', () => {
   it('resolves the canonical element-adapter path to the same bindings as the legacy shim', () => {

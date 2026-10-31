@@ -371,11 +371,10 @@ const LEGACY_PROVIDER_SEPARATOR = ':';
 const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
   {
     displayName: 'OpenAI',
-    // MIRROR-CONTRACT-TESTED (BST-1361): every envKeys list below must equal
-    // the assistant-contract provider registry's canonical two names
-    // (BRAINSTRIKE_* override first, vendor-standard second) — pinned by
-    // scripts/__tests__/provider-env-keys-mirror-contract.test.mjs because
-    // this package's dependency floor forbids importing the registry.
+    // BST-1361: every envKeys list below must equal the assistant-contract
+    // provider registry's canonical two names (BRAINSTRIKE_* override first,
+    // vendor-standard second). They are copied by hand because this package's
+    // dependency floor forbids importing the registry.
     envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
     models: [
