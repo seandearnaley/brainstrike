@@ -24,12 +24,21 @@ describe('readThreadDebugHostProbe', () => {
       },
     });
     expect(readThreadDebugHostProbe()).toBeNull();
+    Object.assign(window, {
+      desktopDiagnostics: {
+        queryEvents: () => Promise.resolve([]),
+        readMainLogWindow: () => Promise.resolve({ ok: true, value: { lines: [] } }),
+        readProcessCounters: () => Promise.resolve({ ok: true, value: { samples: [] } }),
+      },
+    });
+    expect(readThreadDebugHostProbe()).toBeNull();
   });
 
-  it('decodes the log and counter readers after transport, and passes the retained events on', async () => {
+  it('decodes the log, counter and crash dump readers after transport, and passes the retained events on', async () => {
     const events = [{ id: 'event-1', severity: 'error' }];
     const bridge = {
       getSnapshot: () => Promise.resolve({}),
+      listCrashDumps: () => Promise.resolve({ ok: true, value: { dumps: [], totalCount: 0 } }),
       queryEvents: () => Promise.resolve(events),
       readMainLogWindow: () => Promise.resolve({ ok: true, value: { lines: [] } }),
       readProcessCounters: () => Promise.resolve({ ok: true, value: { samples: [] } }),
@@ -41,5 +50,6 @@ describe('readThreadDebugHostProbe', () => {
     });
     await expect(probe?.readProcessCounters()).resolves.toEqual({ samples: [] });
     await expect(probe?.queryEvents({ limit: 50 })).resolves.toBe(events);
+    await expect(probe?.listCrashDumps()).resolves.toEqual({ dumps: [], totalCount: 0 });
   });
 });
