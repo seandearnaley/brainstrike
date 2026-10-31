@@ -325,6 +325,10 @@ vi.mock('../../../../renderer/host-browser-origins', () => ({
   resolveDesktopHostBrowserOrigins: () => null,
 }));
 
+vi.mock('../../../../renderer/host-workspace-settings', () => ({
+  resolveDesktopHostWorkspaceSettings: () => null,
+}));
+
 vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
   DesktopLoggingSettings: () => <div data-testid="logging-settings" />,
 }));

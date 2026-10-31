@@ -1,12 +1,27 @@
 /**
- * run_python over a caller-supplied code-execution host: Main resolves the
- * bundled CPython and the Linux sandbox helper from Electron's app facts, the
- * desktop agent host from the app paths it was launched with. This module must
- * not import Electron: the host bundle loads it.
+ * run_python and runSkillScript over a caller-supplied code-execution host:
+ * the desktop agent host resolves the bundled CPython and the Linux sandbox
+ * helper from the app paths it was launched with. This module must not import
+ * Electron: the host bundle loads it.
  */
-import { createRunPythonTool } from '@brainstrike/agent';
-import type { NativeToolExecutor } from '@brainstrike/host-capabilities/native-tools';
+import {
+  createRunPythonTool,
+  NATIVE_TOOL_INPUT_SCHEMAS,
+  type RunSkillScriptInput,
+  resolveGuardedToolSignal,
+  type ScannedWorkspaceSkills,
+} from '@brainstrike/agent';
+import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import {
+  logToolFailure,
+  type NativeToolExecutor,
+  parseToolExecuteInput,
+  resolveShellOutputStreamer,
+  type ToolExecuteContext,
+  type ToolExecuteInput,
+} from '@brainstrike/host-capabilities/native-tools';
 import { BUNDLED_PYTHON_ENV } from '../python-runtime/resolve-python-binary';
+import { runSkillScript } from './run-skill-script-tool';
 
 /** Where this process finds the bundled interpreter and the sandbox helper. */
 export interface CodeExecutionHost {
@@ -55,4 +70,39 @@ export function runPythonExecutor(host: CodeExecutionHost): NativeToolExecutor {
         return fence ? { fence } : {};
       },
     });
+}
+
+export function runSkillScriptExecutor(
+  skillScriptResolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined,
+  resolvePythonExecutable: (signal?: AbortSignal) => Promise<string>
+): NativeToolExecutor {
+  // Skill execution is capability-gated by the trusted per-request scan
+  // engine: no resolver, no tool; omission is the explicit capability result.
+  return ({ runtimeData }) => {
+    if (!skillScriptResolver) {
+      return;
+    }
+    return {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.runSkillScript],
+      execute: async (
+        input: ToolExecuteInput<RunSkillScriptInput>,
+        options?: ToolExecuteContext
+      ) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.runSkillScript],
+          input
+        );
+        const stream = resolveShellOutputStreamer(options, (error) => {
+          logToolFailure('runSkillScript output streaming failed', error, resolvedInput);
+        });
+        return await runSkillScript(resolvedInput, runtimeData, skillScriptResolver, {
+          resolvePythonExecutable,
+          signal: resolveGuardedToolSignal(options),
+          ...(stream ? { stream } : {}),
+        });
+      },
+      id: NATIVE_TOOL_ID.runSkillScript,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.runSkillScript],
+    };
+  };
 }

@@ -1,8 +1,8 @@
 /**
  * Settings → Subagents panel: master delegation switch + per-persona toggles.
- * Desktop lists user personas (incl. invalid files with their error) via the
- * capability-gated `window.assistantPersonas` bridge; without the bridge (web)
- * only the built-ins render, with an honest desktop-only note.
+ * Desktop lists user personas (incl. invalid files with their error) from the
+ * agent host's scan; without a host scan (web) only the built-ins render, with
+ * an honest desktop-only note.
  */
 
 import '@testing-library/jest-dom/vitest';
@@ -14,24 +14,29 @@ import {
   effectiveChildStepBudget,
   personaScope,
 } from '@brainstrike/assistant-contract';
-import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SubagentPersonasSettingsSection } from '../settings/system/subagent-personas-settings-section';
 
-interface PersonasBridge {
+interface PersonasHost {
   list: () => Promise<AssistantPersonasListResult>;
 }
 
-function setBridge(bridge: PersonasBridge | undefined): void {
-  const host = window as { assistantPersonas?: BoundaryTransport<PersonasBridge> };
-  if (bridge === undefined) {
-    Reflect.deleteProperty(host, 'assistantPersonas');
-  } else {
-    host.assistantPersonas = { list: async () => ({ ok: true, value: await bridge.list() }) };
-  }
+let personasHost: PersonasHost | undefined;
+
+function setHost(host: PersonasHost | undefined): void {
+  personasHost = host;
+}
+
+/** The section as the desktop composes it: with the host's scan, when there is one. */
+function Section() {
+  return (
+    <SubagentPersonasSettingsSection
+      {...(personasHost ? { listPersonas: personasHost.list } : {})}
+    />
+  );
 }
 
 beforeEach(() => {
@@ -40,12 +45,12 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  setBridge(undefined);
+  setHost(undefined);
 });
 
 describe('SubagentPersonasSettingsSection', () => {
   it('renders built-in personas with switches defaulting to on', () => {
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
     for (const persona of BUILT_IN_PERSONAS) {
       expect(screen.getByText(persona.label)).toBeInTheDocument();
       const toggle = screen.getByTestId(`subagent-persona-toggle-${persona.id}`);
@@ -55,20 +60,20 @@ describe('SubagentPersonasSettingsSection', () => {
 
   it('master switch writes the store and disables the persona list', async () => {
     const user = userEvent.setup();
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
     await user.click(screen.getByTestId('subagent-delegation-toggle'));
     expect(useSubagentPersonasStore.getState().delegationEnabled).toBe(false);
   });
 
   it('per-persona switch records the disabled id', async () => {
     const user = userEvent.setup();
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
     await user.click(screen.getByTestId('subagent-persona-toggle-explore'));
     expect(useSubagentPersonasStore.getState().disabledPersonaIds).toEqual(['explore']);
   });
 
-  it('lists user personas from the bridge, including invalid files with errors', async () => {
-    setBridge({
+  it('lists user personas from the host, including invalid files with errors', async () => {
+    setHost({
       list: () =>
         Promise.resolve({
           personas: [
@@ -91,7 +96,7 @@ describe('SubagentPersonasSettingsSection', () => {
           ],
         }),
     });
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
     await waitFor(() => {
       expect(screen.getByText('Security Auditor')).toBeInTheDocument();
     });
@@ -104,7 +109,7 @@ describe('SubagentPersonasSettingsSection', () => {
   it('renders two same-named invalid files from different roots as distinct rows', async () => {
     // Invalid entries key by absPath (their ids are just file names, which can
     // collide across roots — a React key collision would drop/mis-reconcile).
-    setBridge({
+    setHost({
       list: () =>
         Promise.resolve({
           personas: [
@@ -129,7 +134,7 @@ describe('SubagentPersonasSettingsSection', () => {
           ],
         }),
     });
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
     await waitFor(() => {
       expect(screen.getByText(/error A/u)).toBeInTheDocument();
     });
@@ -140,7 +145,7 @@ describe('SubagentPersonasSettingsSection', () => {
   it('renders a shadowed file as an informational row, not an error', async () => {
     // BST-936: a suppressed duplicate must be VISIBLE, but it is a precedence
     // outcome — so no destructive styling, and no toggle (it is not loaded).
-    setBridge({
+    setHost({
       list: () =>
         Promise.resolve({
           personas: [
@@ -156,7 +161,7 @@ describe('SubagentPersonasSettingsSection', () => {
           ],
         }),
     });
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
 
     const detail = await screen.findByText(/this copy is inactive/iu);
     expect(detail).toBeInTheDocument();
@@ -169,7 +174,7 @@ describe('SubagentPersonasSettingsSection', () => {
     // Neither cause is an authoring mistake, so red is reserved for "you must
     // fix a file"; and the notice sits OUTSIDE the delegation fieldset,
     // because it is about disk state (#2035 review).
-    setBridge({
+    setHost({
       list: () =>
         Promise.resolve({
           incompleteDirs: [
@@ -179,7 +184,7 @@ describe('SubagentPersonasSettingsSection', () => {
           personas: [],
         }),
     });
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
 
     const warnings = await screen.findByTestId('subagent-personas-incomplete');
     expect(warnings).toHaveTextContent('/work/a/.brainstrike/agents');
@@ -189,8 +194,8 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(warnings.closest('fieldset')).toBeNull();
   });
 
-  it("states each persona's mode, step budget and tool scope from the bridge, in plain terms", async () => {
-    setBridge({
+  it("states each persona's mode, step budget and tool scope from the host, in plain terms", async () => {
+    setHost({
       list: () =>
         Promise.resolve({
           personas: [
@@ -233,7 +238,7 @@ describe('SubagentPersonasSettingsSection', () => {
           ],
         }),
     });
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
     const shipper = (await screen.findByTestId('subagent-persona-scope-shipper')).textContent;
     expect(shipper).toContain('Worker mode');
     expect(shipper).toContain('Up to 12 steps (1 reserved for its summary)');
@@ -263,7 +268,7 @@ describe('SubagentPersonasSettingsSection', () => {
       throw new Error(parsed.error);
     }
     const persona = parsed.persona;
-    setBridge({
+    setHost({
       list: () =>
         Promise.resolve({
           personas: [
@@ -278,7 +283,7 @@ describe('SubagentPersonasSettingsSection', () => {
           ],
         }),
     });
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
     const scope = await screen.findByTestId('subagent-persona-scope-minimal');
     expect(scope).toHaveTextContent('Read-only');
     expect(scope).toHaveTextContent('7 tools:');
@@ -287,10 +292,10 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(scope).not.toHaveTextContent('edit and run');
   });
 
-  it('limits a read-only wildcard from a bridge to read-only host tools', async () => {
-    // Current persona files reject read-only wildcards; the bridge contract
+  it('limits a read-only wildcard from a host to read-only host tools', async () => {
+    // Current persona files reject read-only wildcards; the host contract
     // can still represent one, and its description must not widen its mode.
-    setBridge({
+    setHost({
       list: () =>
         Promise.resolve({
           personas: [
@@ -307,14 +312,14 @@ describe('SubagentPersonasSettingsSection', () => {
           ],
         }),
     });
-    render(<SubagentPersonasSettingsSection />);
+    render(<Section />);
     const scope = await screen.findByTestId('subagent-persona-scope-reader');
     expect(scope).toHaveTextContent('every read-only tool the host permits');
     expect(scope).not.toHaveTextContent('edit and run');
   });
 
-  it("states the built-in personas' scope without the bridge from the same definitions the host enforces", () => {
-    render(<SubagentPersonasSettingsSection />);
+  it("states the built-in personas' scope without the host scan from the same definitions the host enforces", () => {
+    render(<Section />);
     const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
     const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
     if (!(worker && explore)) {
@@ -332,14 +337,14 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(exploreScope).toContain(`${explore.allowedToolIds.length} tools`);
   });
 
-  it('without the bridge, shows the desktop-only note for user personas', () => {
-    render(<SubagentPersonasSettingsSection />);
+  it('without the host scan, shows the desktop-only note for user personas', () => {
+    render(<Section />);
     expect(screen.getByText(/desktop/iu)).toBeInTheDocument();
   });
 });
 
 it('shows an actionable host issue while keeping declared scope distinct', async () => {
-  setBridge({
+  setHost({
     list: async () => ({
       personas: [
         {
@@ -364,7 +369,7 @@ it('shows an actionable host issue while keeping declared scope distinct', async
       ],
     }),
   });
-  render(<SubagentPersonasSettingsSection />);
+  render(<Section />);
   expect(
     await screen.findByText('Add credentials for anthropic in Providers.')
   ).toBeInTheDocument();
@@ -372,9 +377,9 @@ it('shows an actionable host issue while keeping declared scope distinct', async
   expect(screen.getByText(/Declared scope:/u)).toBeInTheDocument();
 });
 
-it('reports loading failure and retries the bridge instead of hiding user profiles', async () => {
+it('reports loading failure and retries the host scan instead of hiding user profiles', async () => {
   let calls = 0;
-  setBridge({
+  setHost({
     list: async () => {
       calls += 1;
       if (calls === 1) {
@@ -393,7 +398,7 @@ it('reports loading failure and retries the bridge instead of hiding user profil
       };
     },
   });
-  render(<SubagentPersonasSettingsSection />);
+  render(<Section />);
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load user personas');
   expect(screen.queryByText('private disk error')).not.toBeInTheDocument();
   expect(screen.queryByTestId('subagent-persona-toggle-worker')).not.toBeInTheDocument();
@@ -405,13 +410,13 @@ it('reports loading failure and retries the bridge instead of hiding user profil
 it('keeps refresh disabled while the host scan is pending and enables it after settlement', async () => {
   const pending = Promise.withResolvers<AssistantPersonasListResult>();
   let calls = 0;
-  setBridge({
+  setHost({
     list: () => {
       calls += 1;
       return pending.promise;
     },
   });
-  render(<SubagentPersonasSettingsSection />);
+  render(<Section />);
   const refresh = screen.getByRole('button', { name: /personas/iu });
   expect(refresh).toBeDisabled();
   await userEvent.click(refresh);

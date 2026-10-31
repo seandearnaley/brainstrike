@@ -3,14 +3,10 @@
  * listWorkspaceContext), from Main's native index status: the index a host
  * thread actually searches.
  */
+import type { WorkspaceIndexSummary } from '@brainstrike/host-capabilities/native-tools';
 import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 
-export interface WorkspaceIndexSummary {
-  embeddingSetId: string | null;
-  enabled: boolean;
-  mode: string | null;
-  paused: boolean;
-}
+export type { WorkspaceIndexSummary };
 
 export function nativeWorkspaceIndexSummary(status: IndexerStatus): WorkspaceIndexSummary {
   if (status.kind !== 'ready') {

@@ -22,24 +22,23 @@ import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
+import {
+  type AttachedMentionFolders,
+  attachedMentionReader,
+  createSecureSkillsFs,
+  type HostSystemContext,
+  hostPlanModeTools,
+  type PreparedAdmittedSkills,
+  placeMentionedFiles,
+  prepareAdmittedSkills,
+  readHostSystemContext,
+} from '@brainstrike/host-capabilities/workspace-context';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import type { VectorProfile } from '@brainstrike/indexer';
 import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
-import type { AttachedMentionFolders } from '../assistant-server/referenced-files-context';
-import {
-  type PreparedAdmittedSkills,
-  prepareAdmittedSkills,
-} from '../assistant-server/request-skills';
-import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
-import {
-  type DesktopHostSystemContext,
-  desktopPlanModeTools,
-  readDesktopHostSystemContext,
-} from './desktop-host-context';
 import { resolveDesktopHostDelegation } from './desktop-host-delegation';
-import { attachedMentionReader, placeMentionedFiles } from './desktop-mentioned-files';
 import {
   desktopInputTokenLimit,
   desktopMemorySelection,
@@ -91,6 +90,8 @@ export interface DesktopAdmissionReads {
   ): Promise<{
     readonly isEnabled: boolean;
     readonly providerId: string;
+    /** The model's capability type (`llm`, `embedding`, …), as the catalog lists it. */
+    readonly type: string | null;
   } | null>;
   /** The full intent a CLI workspace selection reduces; absent where no owner supplies one. */
   cliOwnerIntent?(request: HostRunIntentRequest): Promise<unknown>;
@@ -157,7 +158,7 @@ function desktopWorkspaceRootObservation(
 function desktopDurableConfiguration(
   intent: (typeof PlatformClientConfigurationSchema)['Type'],
   observerTarget: string | null,
-  { childSystem, system }: DesktopHostSystemContext,
+  { childSystem, system }: HostSystemContext,
   cliWorkspaceRoots?: RuntimeData['workspaceRoots'],
   boundWorkspaceRoots?: RuntimeData['workspaceRoots']
 ): DesktopRunSelection['durableConfiguration'] {
@@ -399,7 +400,7 @@ function desktopRunTools(
   tools: Readonly<Record<string, DesktopToolDescriptor>>,
   request: HostRunAdmissionRequest
 ): Readonly<Record<string, DesktopToolDescriptor>> {
-  return request.planMode ? desktopPlanModeTools(tools) : tools;
+  return request.planMode ? hostPlanModeTools(tools) : tools;
 }
 /** BST-1932: the supervisor instructions name only the personas this run may delegate to. */
 function desktopPersonaFields(delegation: HostDelegation | undefined): {
@@ -547,7 +548,7 @@ export function createDesktopRunAdmission(
       );
       // The host never offers what the saved policy denies; the instructions never name it.
       const policy = await readHostPermissionPolicy(request.threadId);
-      const { childSystem, system, referencedFileFailures } = await readDesktopHostSystemContext({
+      const { childSystem, system, referencedFileFailures } = await readHostSystemContext({
         ...(native.attachedMentions ? { attachedMentions: native.attachedMentions } : {}),
         configurationRoots: native.configurationRoots,
         inputTokenLimit,

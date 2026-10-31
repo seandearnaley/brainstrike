@@ -69,6 +69,7 @@ import {
   resolveDesktopHostMcpSettings,
   resolveDesktopMcpContent,
 } from '../../host-mcp-settings';
+import { resolveDesktopHostWorkspaceSettings } from '../../host-workspace-settings';
 import { createIpcCapability } from '../../ipc-capability';
 import { DesktopLoggingSettings } from './logging-settings';
 import { DesktopUpdateSettings } from './update-settings';
@@ -281,6 +282,7 @@ export default function SettingsPageContent() {
   // server status and lifecycle control; a window without the host has none.
   const mcpSettings = resolveDesktopHostMcpSettings();
   const browserOrigins = resolveDesktopHostBrowserOrigins();
+  const workspaceSettings = resolveDesktopHostWorkspaceSettings();
   // BST-1585: user-initiated MCP content browsing comes from the agent host
   // (BST-1930 c5d); web has none, so the Settings affordance is absent.
   const mcpContent = resolveDesktopMcpContent();
@@ -530,13 +532,17 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(browserOrigins ? { browserOrigins } : undefined),
-      createSubagentPersonasSettingsCategory(),
+      createSubagentPersonasSettingsCategory(
+        workspaceSettings ? { listPersonas: () => workspaceSettings.listPersonas() } : {}
+      ),
       createSkillsSettingsCategory(
         hostDiscovery ? { scanSkills: () => hostDiscovery.scanSkills() } : {}
       ),
       createWorkspaceTrustSettingsCategory(hostDiscovery ? { trust: hostDiscovery } : {}),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
-      createWorkspaceInstructionsSettingsCategory(),
+      createWorkspaceInstructionsSettingsCategory(
+        workspaceSettings ? { scanContextFiles: () => workspaceSettings.scanContextFiles() } : {}
+      ),
       createWorkspaceSettingsCategory({
         onSave: worktreeSettings.save,
         settings: worktreeSettings.settings,
@@ -576,6 +582,7 @@ export default function SettingsPageContent() {
     revealEnvFile,
     setDevInlineFixtureEnabled,
     toolOperations,
+    workspaceSettings,
     worktreeSettings.save,
     worktreeSettings.settings,
     worktreeSettings.status,

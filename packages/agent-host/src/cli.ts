@@ -451,8 +451,8 @@ auth login reads the API key or AWS bearer key from stdin, never from arguments.
 hooks trust shows a standalone root's .brainstrike/hooks.json (default: the current directory)
 and its SHA-256 for review; the host runs its project hooks only at that hash. --sha256
 confirms without a prompt. Desktop roots are approved in Settings > Hooks.
-workspace trust lets a standalone root's agent configuration (its .brainstrike/agents personas)
-load; until then the root runs restricted. --yes confirms without a prompt. Desktop folders
+workspace trust lets a standalone root's agent configuration (its AGENTS.md, skills and
+personas) load; until then the root runs restricted. --yes confirms without a prompt. Desktop folders
 are trusted from the composer or Settings > Workspace trust.
 
 threads search is lexical: words in committed messages and thread titles, fused into one
