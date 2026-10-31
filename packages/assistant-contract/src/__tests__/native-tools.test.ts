@@ -306,4 +306,24 @@ describe('defineNativeTool fail-loud checks', () => {
       })
     ).toThrow(InvalidNativeToolDefinitionError);
   });
+
+  // An empty form reads as a blank label; equal forms make a step that never reads as settled.
+  it.each([
+    ['an empty request', { request: '' }],
+    ['done equal to active', { done: base.activity.active }],
+    ['request equal to active', { request: base.activity.active }],
+  ])('throws for an activity with %s', (_label, override) => {
+    expect(() =>
+      defineNativeTool({
+        ...base,
+        activity: { ...base.activity, ...override },
+        defaults: {
+          category: 'retrieval',
+          estimatedTokens: 1,
+          loadingTier: 'critical',
+          requiresApproval: false,
+        },
+      })
+    ).toThrow(InvalidNativeToolDefinitionError);
+  });
 });

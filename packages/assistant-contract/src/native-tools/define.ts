@@ -271,6 +271,16 @@ export class InvalidNativeToolDefinitionError extends Error {
   }
 }
 
+function assertActivityForms(definition: NativeToolDefinition): void {
+  const { active, done, request } = definition.activity;
+  if (active === '' || done === '' || request === '' || active === done || request === active) {
+    throw new InvalidNativeToolDefinitionError(
+      definition.id,
+      'activity needs distinct, non-empty active, done and request forms'
+    );
+  }
+}
+
 function assertExecutionBudget(definition: NativeToolDefinition): void {
   const budget = definition.executionBudget;
   if (budget === undefined) {
@@ -307,12 +317,15 @@ function assertExecutionBudget(definition: NativeToolDefinition): void {
  * - a deferred desktop tool must declare a `discovery.family` (otherwise it is
  *   behind `search_tools` with no advertised capability).
  * - a declared executionBudget must be two positive integers with defaultMs <= maxMs.
+ * - the activity's active, done and request forms must be non-empty and distinct
+ *   (active vs done, request vs active), so a step reads as running, settled or asked.
  */
 export function defineNativeTool<const Definition extends NativeToolDefinition>(
   definition: Definition
 ): Definition {
   resolveToolRiskCategory(definition.defaults);
   assertExecutionBudget(definition);
+  assertActivityForms(definition);
   if (definition.defaults.loadingTier === 'critical') {
     if (definition.discovery !== undefined) {
       throw new InvalidNativeToolDefinitionError(
