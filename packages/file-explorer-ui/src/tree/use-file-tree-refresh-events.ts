@@ -53,7 +53,7 @@
 import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange } from '@brainstrike/types';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
   FILE_EXPLORER_REFRESH_EVENT,
   type FileExplorerRefreshEvent,
@@ -538,7 +538,7 @@ export function useFileTreeRefreshEvents({
   // Commit-phase latest-value dispatcher: queued events execute against the
   // provider identity that is current when their turn begins. A same-path
   // rootId switch therefore cannot make an old event refresh the new root.
-  const processRefreshEvent = useEventCallback(
+  const processRefreshEvent = useEffectEvent(
     async (
       detail: FileExplorerRefreshEvent['detail'],
       isActive: RefreshLifecycleGuard
@@ -579,7 +579,7 @@ export function useFileTreeRefreshEvents({
     }
   );
 
-  const enqueueFullRefreshEvent = useEventCallback(
+  const enqueueFullRefreshEvent = useEffectEvent(
     (detail: FileExplorerRefreshEvent['detail'], isActive: RefreshLifecycleGuard): boolean => {
       if (!(isActive() && rootPath)) {
         return false;
@@ -645,13 +645,7 @@ export function useFileTreeRefreshEvents({
       }
       pendingFullRefreshRef.current = null;
     };
-  }, [
-    enqueueFullRefreshEvent,
-    lifecycleEpochRef,
-    pendingFullRefreshRef,
-    processRefreshEvent,
-    refreshQueueRef,
-  ]);
+  }, [lifecycleEpochRef, pendingFullRefreshRef, refreshQueueRef]);
 
   return refreshTreeWithSelection;
 }

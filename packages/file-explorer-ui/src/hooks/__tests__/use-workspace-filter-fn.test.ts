@@ -12,17 +12,11 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@brainstrike/hooks', async () => {
-  const { useEventCallbackMock } = await import(
-    '../../__tests__/__mocks__/use-event-callback-mock'
-  );
-  return {
-    useEventCallback: useEventCallbackMock,
-    useFileFilters: () => ({
-      applyFileFilters: mocks.applyFileFilters,
-    }),
-  };
-});
+vi.mock('@brainstrike/hooks', () => ({
+  useFileFilters: () => ({
+    applyFileFilters: mocks.applyFileFilters,
+  }),
+}));
 
 vi.mock('../../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => (selector: (state: typeof mocks.state) => unknown) =>
