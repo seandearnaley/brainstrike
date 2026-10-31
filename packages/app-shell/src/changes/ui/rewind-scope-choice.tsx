@@ -66,19 +66,21 @@ export function RewindScopeChoice({
 }): ReactElement {
   const filesScopeRefused = filesScope.available === false;
   return (
-    <fieldset className="flex flex-col gap-1.5" data-testid="rewind-scope-choice">
-      <legend className="pb-1 text-xs font-medium">What should be restored?</legend>
+    <fieldset className="grid gap-2 sm:grid-cols-2" data-testid="rewind-scope-choice">
+      <legend className="pb-2 text-sm font-medium">What should be restored?</legend>
       {SCOPE_OPTIONS.map((option) => {
         const optionRefused = filesScopeRefused && option.mode === 'conversation-and-files';
         return (
+          // Each option is a card whose whole surface is the radio's label; the
+          // native radio inside keeps arrow-key and screen-reader behaviour.
           <label
-            className={`flex items-start gap-2 text-xs ${optionRefused ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+            className={`border-border has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:focus-visible]:ring-ring/50 flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-xs transition-colors has-[:focus-visible]:ring-2 ${optionRefused ? 'cursor-not-allowed opacity-80' : 'hover:bg-accent/40 cursor-pointer'}`}
             htmlFor={option.testId}
             key={option.mode}
           >
             <input
               checked={mode === option.mode}
-              className="accent-primary mt-0.5"
+              className="accent-primary mt-0.5 size-3.5 shrink-0"
               data-testid={option.testId}
               disabled={disabled || optionRefused}
               id={option.testId}
@@ -87,9 +89,9 @@ export function RewindScopeChoice({
               type="radio"
               value={option.mode}
             />
-            <span className="leading-tight">
-              <span className="text-foreground font-medium">{option.label}</span>
-              <span className="text-muted-foreground block">
+            <span className="leading-snug">
+              <span className="text-foreground text-sm font-medium">{option.label}</span>
+              <span className="text-muted-foreground mt-0.5 block">
                 {option.description[conversation]}
               </span>
               {optionRefused && filesScope.available === false ? (

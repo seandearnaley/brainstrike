@@ -75,7 +75,10 @@ export function RewindConflictList({
         <AlertTriangle aria-hidden="true" className="size-3.5" />
         {unique.length} file{unique.length === 1 ? '' : 's'} cannot be restored cleanly
       </p>
-      <ul className="flex flex-col gap-0.5" data-testid="rewind-conflict-paths">
+      <ul
+        className="flex max-h-28 flex-col gap-0.5 overflow-y-auto"
+        data-testid="rewind-conflict-paths"
+      >
         {unique.map((conflict) => (
           <li className="text-muted-foreground text-xs" key={`${conflict.rootId}|${conflict.path}`}>
             <span className="text-foreground font-mono">{conflict.path}</span>
