@@ -102,9 +102,20 @@ function failed(error: BoundaryFailure): { readonly error: BoundaryFailure; read
   return { error, ok: false };
 }
 
-/** A pty call that threw, reported in node-pty's own words. */
-function ptyFault(code: `terminal.${string}`, message: string) {
-  return failed(fault({ category: 'internal', code, message }));
+/** A pty call that threw: node-pty's words stay in the log under the fault's correlation id. */
+function ptyFault(
+  code: `terminal.${string}`,
+  message: string,
+  error: unknown,
+  details: Readonly<Record<string, unknown>>
+) {
+  const correlationId = randomUUID();
+  logger.error(message, {
+    ...details,
+    correlationId,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  return failed(fault({ category: 'internal', code, correlationId, message }));
 }
 
 /** A live pty in one client's session. */
@@ -304,13 +315,10 @@ export function createDesktopTerminals({
           rows,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.error('Failed to spawn pty', {
+        return ptyFault('terminal.start-failed', 'The terminal could not start.', error, {
           ...fingerprintCwd(cwd.value),
-          error: message,
           shell,
         });
-        return ptyFault('terminal.start-failed', `Failed to start terminal: ${message}`);
       }
       // ADR-0017: node-pty cannot hand the shell the Root's descriptor, so the
       // supervisor tracks it instead. The pty leads its own session and group.
@@ -426,12 +434,9 @@ export function createDesktopTerminals({
           entry.process.resize(cols, rows);
           return { ok: true, value: null };
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          logger.warn('Resize of terminal failed', {
-            error: message,
+          return ptyFault('terminal.resize-failed', 'The terminal could not be resized.', error, {
             terminalId: params.terminalId,
           });
-          return ptyFault('terminal.resize-failed', `Resize failed: ${message}`);
         }
       },
       'terminal/write': async ({ data, terminalId }) => {
@@ -443,9 +448,14 @@ export function createDesktopTerminals({
           entry.process.write(data);
           return { ok: true, value: null };
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          logger.warn('Write to terminal failed', { error: message, terminalId });
-          return ptyFault('terminal.write-failed', `Write failed: ${message}`);
+          return ptyFault(
+            'terminal.write-failed',
+            'The terminal did not accept the input.',
+            error,
+            {
+              terminalId,
+            }
+          );
         }
       },
     };
