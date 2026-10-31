@@ -141,10 +141,10 @@ function TabStripContent({
     focus.focusAfterPointerClose();
   });
   const handlePointerClose = onClose ? handlePointerCloseStable : null;
-  const announce = useEventCallback((message: string): void => {
+  const announce = (message: string): void => {
     // A live region only announces changes; alternate a trailing NBSP for repeats.
     setAnnouncement((current) => (current === message ? `${message} ` : message));
-  });
+  };
   const labelOf = useEventCallback(
     (id: string): string => allItems.find((item) => item.id === id)?.label ?? id
   );
