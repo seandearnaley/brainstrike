@@ -4,11 +4,12 @@
  * sandboxed preloads (`scripts/build-main-config.mjs`, `bundle: true`) AND
  * imported by main, so ONE contract object per domain derives the main
  * handler map (`Handlers<C>`), the preload bridge object (`Bridge<C>`), and
- * the renderer `Window` typing. The method name lives here and nowhere
- * else; `parseArgs` is a plain function that runs only in MAIN, before the
- * handler sees renderer-controlled input, and THROWS on malformed input (no
- * coercion). Every call is authorized by the one dispatcher before it reaches
- * a handler. See `docs/agents/platform-contracts.md`.
+ * the renderer `Window` typing. The method name and its types live here and
+ * nowhere else. Main decodes each channel's arguments with the Effect Schema
+ * that `ContractArgs<C>` (`ipc-args.ts`, main-only) pins to these types, so
+ * Effect never enters a preload. Every call is authorized by the one
+ * dispatcher before its arguments are decoded. See
+ * `docs/agents/platform-contracts.md`.
  */
 import type { BoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
@@ -37,11 +38,11 @@ export interface IpcChannel<
   Result,
   Envelope extends IpcEnvelope = IpcEnvelope,
 > {
+  /** Phantom carrier for the argument tuple; Main decodes it with `ContractArgs<C>`. */
+  readonly args?: Args;
   readonly channel: IpcChannelName;
   readonly envelope: Envelope;
   readonly kind: 'invoke';
-  /** Runs in MAIN before the handler; throws on malformed renderer input. */
-  readonly parseArgs: (raw: readonly unknown[]) => Args;
   /** Phantom carrier for the unwrapped result type; never assigned. */
   readonly result?: Result;
 }
@@ -57,33 +58,27 @@ export interface IpcEvent<Payload> {
 type IpcSpec = IpcChannel<readonly unknown[], unknown> | IpcEvent<unknown>;
 export type Contract = Record<string, IpcSpec>;
 
-interface IpcChannelInput<Args extends readonly unknown[]> {
+interface IpcChannelInput {
   readonly channel: IpcChannelName;
-  readonly parseArgs: (raw: readonly unknown[]) => Args;
 }
 
 export function channel<Args extends readonly unknown[], Result>(
-  spec: IpcChannelInput<Args>
+  spec: IpcChannelInput
 ): IpcChannel<Args, Result, 'ipc-result'> {
-  return { ...spec, envelope: 'ipc-result', kind: 'invoke' };
+  return { channel: spec.channel, envelope: 'ipc-result', kind: 'invoke' };
 }
 
 export function rawChannel<Args extends readonly unknown[], Result>(
-  spec: IpcChannelInput<Args>
+  spec: IpcChannelInput
 ): IpcChannel<Args, Result, 'raw'> {
-  return { ...spec, envelope: 'raw', kind: 'invoke' };
+  return { channel: spec.channel, envelope: 'raw', kind: 'invoke' };
 }
 
 export function pushEvent<Payload>(spec: { readonly channel: IpcChannelName }): IpcEvent<Payload> {
   return { channel: spec.channel, kind: 'push' };
 }
 
-/** `parseArgs` for a channel that takes no renderer input. */
-export function parseNoArgs(): [] {
-  return [];
-}
-
-type InvokeKeys<C extends Contract> = {
+export type InvokeKeys<C extends Contract> = {
   [K in keyof C]: C[K] extends IpcChannel<readonly unknown[], unknown> ? K : never;
 }[keyof C];
 

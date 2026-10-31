@@ -81,7 +81,7 @@ describe('main platform IPC', () => {
 
     await expect(
       invoke(appWindowEvent(), 'app:lifecycle:note-reload-intent', '   ')
-    ).rejects.toThrow('Renderer reload intent reason must be a non-empty string.');
+    ).rejects.toThrow('invalid arguments');
   });
 
   it('rejects reload intent from a destroyed sender window', async () => {

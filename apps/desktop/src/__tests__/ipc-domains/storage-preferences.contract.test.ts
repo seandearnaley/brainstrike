@@ -27,21 +27,4 @@ describe('storage IPC contract', () => {
       setItem: (key: string, value: string) => Promise<void>;
     }>();
   });
-
-  it('parses storage string tuples without coercion', () => {
-    expect(storageContract.getItem.parseArgs(['alpha'])).toEqual(['alpha']);
-    expect(storageContract.setItem.parseArgs(['alpha', 'beta'])).toEqual(['alpha', 'beta']);
-
-    for (const raw of [[], [42], ['a', 'b']]) {
-      expect(() => storageContract.getItem.parseArgs(raw)).toThrow();
-    }
-    for (const raw of [[], ['a'], ['a', 42], ['a', 'b', 'c']]) {
-      expect(() => storageContract.setItem.parseArgs(raw)).toThrow();
-    }
-  });
-
-  it('parses no-argument methods and rejects extra input', () => {
-    expect(storageContract.getAllKeys.parseArgs([])).toEqual([]);
-    expect(() => storageContract.getAllKeys.parseArgs(['unexpected'])).toThrow();
-  });
 });

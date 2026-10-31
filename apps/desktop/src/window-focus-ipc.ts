@@ -5,6 +5,7 @@ import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { NoArgs } from './platform/ipc-args';
 import { ipcFailure, ipcOk } from './platform/ipc-contract';
 
 /**
@@ -66,10 +67,8 @@ export function registerWindowFocusIpcHandlers(): () => void {
   registry.handle(
     'windowFocus',
     windowFocusContract.isFocused.channel,
-    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) => {
-      windowFocusContract.isFocused.parseArgs(raw);
-      return readSenderWindowFocus(event.sender);
-    }
+    NoArgs,
+    (event: IpcMainInvokeEvent) => readSenderWindowFocus(event.sender)
   );
   return () => {
     registry.unregisterAll();

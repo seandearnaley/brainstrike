@@ -43,6 +43,7 @@ import {
   settleIpcResult,
 } from '../platform/desktop-ipc-registry';
 import { fileSystemContract } from './file-system.contract';
+import { fileSystemArgs } from './file-system-args';
 import type { ManagedWorktreeAuthorizer } from './workspace-recent-roots';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
 
@@ -606,7 +607,7 @@ export function createFileSystemIpcDomain({
   const addSelectedRoot = async (): Promise<RootDescriptor> =>
     roots.addRoot(await resolveRequestedDirectoryHandle(fileSystem));
 
-  registerDomain(registry, 'files', fileSystemContract, {
+  registerDomain(registry, 'files', fileSystemContract, fileSystemArgs, {
     addRoot: async () =>
       settleFileSystemResult({ category: 'files', code: 'files.add-root-failed' }, async () =>
         addSelectedRoot()
@@ -716,18 +717,17 @@ export function createFileSystemIpcDomain({
       }),
 
     readFileByAbsolutePath: async (
-      absolutePath: unknown,
-      claimedRootPath: unknown,
-      claimedRootId: unknown
+      absolutePath: string,
+      claimedRootPath: string,
+      claimedRootId: string
     ) =>
       settleFileSystemResult(
         { category: 'files', code: 'files.read-file-by-absolute-path-failed' },
         async () => {
-          const diagnosticPath = typeof absolutePath === 'string' ? absolutePath : '';
           try {
             return await roots.readFileByAbsolutePath(absolutePath, claimedRootPath, claimedRootId);
           } catch (error) {
-            const payload = toFileReadErrorPayload(error, diagnosticPath);
+            const payload = toFileReadErrorPayload(error, absolutePath);
             if (payload) {
               return payload;
             }

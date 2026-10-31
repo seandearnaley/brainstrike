@@ -11,6 +11,7 @@ import {
   registerDomain,
   settleIpcResult,
 } from './platform/desktop-ipc-registry';
+import { NoArgs } from './platform/ipc-args';
 
 /**
  * Registers the subagent persona discovery IPC (desktop-only). The Settings →
@@ -27,9 +28,15 @@ export function registerUserPersonasIpcHandlers(
   )
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
-  registerDomain(registry, 'userPersonas', userPersonasContract, {
-    list: () => settleIpcResult({ category: 'userPersonas', code: 'list_failed' }, listPersonas),
-  });
+  registerDomain(
+    registry,
+    'userPersonas',
+    userPersonasContract,
+    { list: NoArgs },
+    {
+      list: () => settleIpcResult({ category: 'userPersonas', code: 'list_failed' }, listPersonas),
+    }
+  );
   return () => {
     registry.unregisterAll();
   };

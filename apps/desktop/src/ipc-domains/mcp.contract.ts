@@ -5,37 +5,21 @@ import type {
   McpAppShellReleaseRequest,
 } from '@brainstrike/assistant-contract';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { type Bridge, type Contract, parseNoArgs, rawChannel } from '../platform/ipc-contract';
-import { assertArgCount } from './contract-args';
-
-/**
- * Main's remaining MCP channels (BST-1930 c5d): the native config picker and
- * the MCP App shell. Settings, status, control, Tasks cards, server input and
- * content are agent-host methods.
- */
-function oneArg<T>(subject: string): (raw: readonly unknown[]) => [value: T] {
-  return (raw) => {
-    assertArgCount(raw, 1, subject);
-    return [raw[0] as T];
-  };
-}
+import { type Bridge, type Contract, rawChannel } from '../platform/ipc-contract';
 
 /** Main's native picker: the chosen file becomes the host's selected MCP config. */
 export const mcpPathSelectionContract = {
   selectPath: rawChannel<[], string | null>({
     channel: DESKTOP_IPC_CHANNELS.mcp.configSelectPath,
-    parseArgs: parseNoArgs,
   }),
 } as const satisfies Contract;
 
 export const mcpAppsContract = {
   prepareShell: rawChannel<[request: McpAppShellPrepareRequest], McpAppShellPrepareResult>({
     channel: DESKTOP_IPC_CHANNELS.mcp.appsPrepareShell,
-    parseArgs: oneArg('MCP App shell prepare'),
   }),
   releaseShell: rawChannel<[request: McpAppShellReleaseRequest], void>({
     channel: DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell,
-    parseArgs: oneArg('MCP App shell release'),
   }),
 } as const satisfies Contract;
 

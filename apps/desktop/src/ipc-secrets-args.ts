@@ -1,16 +1,11 @@
 /**
- * Argument decoders for the handwritten `secrets:*` IPC handlers in
- * `ipc-secrets.ts` (docs/agents/effect-boundary.md § "Decoding and tooling").
- *
- * Main-only by construction: only `ipc-secrets.ts` imports this module, and no
- * preload reaches it, so importing `effect` here keeps the preload import graph
- * free of bare packages. Like a contract domain's `parseArgs`, a malformed
- * argument list throws: the arity is exact and the provider id is checked
- * before it can key the secrets store. The credential payload of
- * `saveCredential` stays `unknown` here on purpose; `setCredential`'s guard is
- * its single validator.
+ * Argument schemas for the `secrets:*` IPC handlers in `ipc-secrets.ts`.
+ * Main-only: the dispatcher decodes them, so the arity is exact and the
+ * provider id is checked before it can key the secrets store. The credential
+ * payload of `saveCredential` stays `unknown` on purpose: `setCredential`'s
+ * guard is its single validator, and its refusal reaches Settings as
+ * `malformed_credential`.
  */
-import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
 
 const MAX_PROVIDER_ID_LENGTH = 256;
@@ -33,12 +28,10 @@ const providerId = Schema.String.annotate({ message: PROVIDER_ID_MESSAGE }).chec
 const secretValue = Schema.String.annotate({ message: 'secrets IPC value must be a string.' });
 
 /** `secrets:get`, `secrets:getCredential`, `secrets:delete`: `(provider)`. */
-export const decodeProviderArgs = makeThrowingDecoder(Schema.Tuple([providerId]));
+export const ProviderArgs = Schema.Tuple([providerId]);
 
 /** `secrets:save`: `(provider, value)`. */
-export const decodeProviderValueArgs = makeThrowingDecoder(Schema.Tuple([providerId, secretValue]));
+export const ProviderValueArgs = Schema.Tuple([providerId, secretValue]);
 
 /** `secrets:saveCredential`: `(provider, credential)`; the credential is validated downstream. */
-export const decodeProviderCredentialArgs = makeThrowingDecoder(
-  Schema.Tuple([providerId, Schema.Unknown])
-);
+export const ProviderCredentialArgs = Schema.Tuple([providerId, Schema.Unknown]);

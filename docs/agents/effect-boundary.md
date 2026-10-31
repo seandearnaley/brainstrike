@@ -24,7 +24,8 @@ Schema ownership details: [Effect Schema ownership](effect-schema-migration.md).
 - Before writing Effect code, read the installed symbol in
   `node_modules/effect/src` from the consuming package, including its stability tag.
 - Effect stays out of preloads and their value-import graph. Shared IPC contracts
-  keep pure preload parsers; host, renderer, main and worker receivers may use Schema.
+  are type-only, and Main decodes each desktop invoke's arguments with the Schema it
+  registers for that method; host, renderer, main and worker receivers may use Schema.
 - Do not move a stream, watchdog, persistence drain or ordering-sensitive queue to
   fibers just because another subsystem did.
 
@@ -112,7 +113,7 @@ Effect Schema owns tool definitions (ADR-0004, amended 2026-10-15).
 
 - Decode payloads, worker messages and database rows where they are received;
   derive types and check cross-field invariants instead of asserting shapes.
-- Keep the established error class/cause and pure preload parser surface.
+- Keep the established error class and cause.
   Type-only brands add no runtime producer or identity alias.
 - Typed decoders (`decodeSync` / `decodeResult`) for authored or already validated
   input; `decodeUnknown*` for real unknown receivers and malformed fixtures.

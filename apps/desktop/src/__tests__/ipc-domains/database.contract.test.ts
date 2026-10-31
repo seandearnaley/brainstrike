@@ -10,11 +10,4 @@ describe('database path IPC contract', () => {
       envelope: 'raw',
     });
   });
-
-  it('rejects arguments before the handler runs', () => {
-    expect(databasePathContract.getUserDataPath.parseArgs([])).toEqual([]);
-    expect(() => databasePathContract.getUserDataPath.parseArgs(['extra'])).toThrow(
-      'database getUserDataPath requires exactly 0 arguments'
-    );
-  });
 });

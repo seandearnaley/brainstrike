@@ -1,6 +1,8 @@
+import type { Schema } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { attachMcpAppShellBridge } from '../../mcp/apps-shell-bridge';
 import { McpAppShellRegistry } from '../../mcp/apps-shell-protocol';
+import { ipcArgsDecoder } from '../../platform/ipc-args';
 
 const SHELL = Object.freeze({
   contentSecurityPolicy: "default-src 'none'",
@@ -41,9 +43,18 @@ class FakeSender {
 function attach() {
   const registry = new McpAppShellRegistry();
   const handlers = new Map<string, InvokeHandler>();
-  const handle = vi.fn((_domain: string, method: string, handler: InvokeHandler) => {
-    handlers.set(method, handler);
-  });
+  // Mirrors the dispatcher: decode with the method's schema, then run the handler.
+  const handle = vi.fn(
+    (
+      _domain: string,
+      method: string,
+      args: Schema.Decoder<readonly unknown[]>,
+      handler: InvokeHandler
+    ) => {
+      const decode = ipcArgsDecoder(method, args);
+      handlers.set(method, async (event, ...raw) => handler(event, ...decode(raw)));
+    }
+  );
   attachMcpAppShellBridge(registry, { handle: handle as never });
   const invoke = (method: string, sender: FakeSender, ...args: unknown[]): Promise<unknown> => {
     const handler = handlers.get(method);
@@ -94,11 +105,11 @@ describe('attachMcpAppShellBridge', () => {
     ).rejects.toThrow();
     await expect(invoke('mcp:apps:releaseShell', sender, { token: 'nope' })).rejects.toThrow();
     await expect(invoke('mcp:apps:prepareShell', sender, SHELL, 'extra')).rejects.toThrow(
-      /exactly 1 argument/u
+      /invalid arguments/u
     );
     await expect(
       invoke('mcp:apps:releaseShell', sender, { token: '0'.repeat(32) }, 'extra')
-    ).rejects.toThrow(/exactly 1 argument/u);
+    ).rejects.toThrow(/invalid arguments/u);
     expect(registry.size).toBe(0);
   });
 

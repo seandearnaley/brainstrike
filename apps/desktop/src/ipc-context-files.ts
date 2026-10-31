@@ -8,6 +8,7 @@ import {
   registerDomain,
   settleIpcResult,
 } from './platform/desktop-ipc-registry';
+import { NoArgs } from './platform/ipc-args';
 
 export function registerContextFilesIpcHandlers(
   workspaceRoots: WorkspaceRootPort,
@@ -15,10 +16,16 @@ export function registerContextFilesIpcHandlers(
     scanWorkspaceContextFilesForReview({ workspaceRoots })
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
-  registerDomain(registry, 'contextFiles', contextFilesContract, {
-    scan: () =>
-      settleIpcResult({ category: 'contextFiles', code: 'scan_failed' }, scanContextFiles),
-  });
+  registerDomain(
+    registry,
+    'contextFiles',
+    contextFilesContract,
+    { scan: NoArgs },
+    {
+      scan: () =>
+        settleIpcResult({ category: 'contextFiles', code: 'scan_failed' }, scanContextFiles),
+    }
+  );
   return () => {
     registry.unregisterAll();
   };

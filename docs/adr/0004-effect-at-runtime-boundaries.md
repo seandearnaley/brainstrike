@@ -95,3 +95,8 @@ definitions included.
 - **Completion (2026-10-17):** native tool inputs have one Effect producer;
   `providerCompatibleInputSchema` and the zod producer/accessor branches are retired. Remaining
   owners are listed in [schema ownership](../agents/effect-schema-migration.md).
+- **Desktop IPC (2026-10-31, BST-2383):** the owner chose split contracts. A `*.contract.ts`
+  carries only channel names and types, so preloads still import no Effect; Main registers an
+  Effect Schema for every invoke, and the dispatcher decodes it (`onExcessProperty: 'error'`)
+  after sender authorization and before the handler. The hand-written `parseArgs` parsers are
+  retired.

@@ -6,13 +6,15 @@ import type {
   IndexChunkBoundsCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
+import type { Schema } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
 import { getFactoryResetUnavailableReason } from '../factory-reset-availability';
 import { IndexConfigRefused, IndexConfigStoreFailed } from '../index-config';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
-import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
+import { indexSearchArgs, registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
+import { ipcArgsDecoder } from '../platform/ipc-args';
 import { createIpcBridge } from '../platform/ipc-bridge';
 import { createIpcCapability } from '../renderer/ipc-capability';
 import {
@@ -27,6 +29,11 @@ const ipc = vi.hoisted(() => ({
     vi.fn<(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => void>(),
 }));
 vi.mock('electron', () => ({ ipcMain: ipc }));
+
+const decode = <Args extends readonly unknown[]>(
+  schema: Schema.Decoder<Args>,
+  args: readonly unknown[]
+) => ipcArgsDecoder('index-search', schema)(args);
 const registryError = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/logging', async (original) => ({
   ...(await original<typeof import('@brainstrike/logging')>()),
@@ -177,10 +184,7 @@ it('rejects untracked and foreign-frame senders before payload parsing or capabi
     )
   ).rejects.toThrow('unrecognized sender frame URL');
   expect(cap.coverage).not.toHaveBeenCalled();
-  await expect(invoke('coverage', { rootIds: ['r', 'r'] })).resolves.toEqual({
-    error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
-    ok: false,
-  });
+  await expect(invoke('coverage', { rootIds: ['r', 'r'] })).rejects.toThrow('invalid arguments');
   expect(cap.coverage).not.toHaveBeenCalled();
 });
 it('preserves explicit grep options and refuses incomplete or mixed vector profiles', () => {
@@ -191,14 +195,14 @@ it('preserves explicit grep options and refuses incomplete or mixed vector profi
     pattern: '\\bword\\b',
     rootIds: ['r'],
   };
-  expect(indexSearchContract.grep.parseArgs([request])).toEqual([request]);
+  expect(decode(indexSearchArgs.grep, [request])).toEqual([request]);
   expect(() =>
-    indexSearchContract.search.parseArgs([
+    decode(indexSearchArgs.search, [
       { limit: 10, mode: 'vector', profile: {}, rootIds: ['r'], vector: [] },
     ])
   ).toThrow();
   expect(() =>
-    indexSearchContract.search.parseArgs([
+    decode(indexSearchArgs.search, [
       { limit: 10, mode: 'bm25', rootIds: ['r'], text: 'x', vector: [] },
     ])
   ).toThrow();
@@ -214,13 +218,13 @@ it('parses every batch selector and preserves app-window authority and failure p
     })
   );
   const requests = [{ rootIds: ['root'] }, { rootIds: ['root', 'other'] }];
-  expect(indexSearchContract.coverageBatch.parseArgs([requests])).toEqual([requests]);
-  expect(() => indexSearchContract.coverageBatch.parseArgs([[]])).toThrow('requires');
+  expect(decode(indexSearchArgs.coverageBatch, [requests])).toEqual([requests]);
+  expect(() => decode(indexSearchArgs.coverageBatch, [[]])).toThrow(TypeError);
+  expect(() => decode(indexSearchArgs.coverageBatch, [[{ rootIds: ['root', 'root'] }]])).toThrow(
+    'unique'
+  );
   expect(() =>
-    indexSearchContract.coverageBatch.parseArgs([[{ rootIds: ['root', 'root'] }]])
-  ).toThrow('unique');
-  expect(() =>
-    indexSearchContract.coverageBatch.parseArgs([[{ profile: {}, rootIds: ['root'] }]])
+    decode(indexSearchArgs.coverageBatch, [[{ profile: {}, rootIds: ['root'] }]])
   ).toThrow();
   await expect(
     invokeFrom(
@@ -245,7 +249,7 @@ it('parses file chunk requests strictly and keeps them app-window only', async (
     })
   );
   const request = { paths: ['src/a.ts', '/docs/b.md'], rootId: 'root-1' };
-  expect(indexSearchContract.fileChunks.parseArgs([request])).toEqual([request]);
+  expect(decode(indexSearchArgs.fileChunks, [request])).toEqual([request]);
   for (const invalid of [
     { paths: [], rootId: 'root-1' },
     { paths: Array.from({ length: 101 }, (_, index) => `f${index}.ts`), rootId: 'root-1' },
@@ -253,7 +257,7 @@ it('parses file chunk requests strictly and keeps them app-window only', async (
     { paths: ['a.ts'], rootId: ' ' },
     { paths: ['a.ts'], rootId: 'root-1', withContent: true },
   ]) {
-    expect(() => indexSearchContract.fileChunks.parseArgs([invalid])).toThrow();
+    expect(() => decode(indexSearchArgs.fileChunks, [invalid])).toThrow();
   }
   await expect(
     invokeFrom(
@@ -293,14 +297,14 @@ it.each([
       rootIds: ['root'],
       vector: new Array<number>(profile.dimensions).fill(0.5),
     };
-    expect(indexSearchContract.search.parseArgs([request])).toEqual([request]);
+    expect(decode(indexSearchArgs.search, [request])).toEqual([request]);
     for (const invalid of [
       { vector: request.vector.slice(1) },
       { vector: [...request.vector.slice(1), Number.NaN] },
       { profile: { ...profile, unexpected: true } },
       { profile: { ...profile, revision: 'main' } },
     ]) {
-      expect(() => indexSearchContract.search.parseArgs([{ ...request, ...invalid }])).toThrow();
+      expect(() => decode(indexSearchArgs.search, [{ ...request, ...invalid }])).toThrow();
     }
   }
 );
@@ -315,9 +319,7 @@ it.each(['cosine', 'l2', 'ip'] as const)(
       rootIds: ['root'],
       vector: new Array<number>(1536).fill(0.5),
     };
-    expect(() => indexSearchContract.search.parseArgs([request])).toThrow(
-      'Native embedding provider is unsupported.'
-    );
+    expect(() => decode(indexSearchArgs.search, [request])).toThrow(TypeError);
   }
 );
 
@@ -407,10 +409,9 @@ it('accepts only an authorized no-argument registration notification and joins i
       'rootsRegistered'
     )
   ).rejects.toThrow('requires an app window sender');
-  await expect(invoke('rootsRegistered', { rootId: 'renderer-claim' })).resolves.toEqual({
-    error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
-    ok: false,
-  });
+  await expect(invoke('rootsRegistered', { rootId: 'renderer-claim' })).rejects.toThrow(
+    'invalid arguments'
+  );
   expect(rootsRegistered).not.toHaveBeenCalled();
   const settled = vi.fn();
   const response = invoke('rootsRegistered').then(settled);
@@ -456,7 +457,7 @@ it('carries the lifecycle transition tag across IPC without logging a failed ind
   expect(registryError).not.toHaveBeenCalled();
 });
 
-it("hands the renderer's settings change to Main's config owner undecoded and returns the saved config", async () => {
+it("decodes the renderer's settings change before Main's config owner saves it", async () => {
   const saved = { ...DEFAULT_INDEX_CONFIG, paused: true };
   const config = {
     read: vi.fn(async () => DEFAULT_INDEX_CONFIG),
@@ -470,13 +471,15 @@ it("hands the renderer's settings change to Main's config owner undecoded and re
     ok: true,
     value: DEFAULT_INDEX_CONFIG,
   });
-  // Main decodes the change; the IPC boundary passes whatever the renderer sent.
-  const change = { mode: 'semantic', unexpected: true };
-  await expect(invoke('updateConfig', change)).resolves.toEqual({
+  await expect(invoke('updateConfig', { mode: 'semantic', unexpected: true })).rejects.toThrow(
+    'invalid arguments'
+  );
+  expect(config.update).not.toHaveBeenCalled();
+  await expect(invoke('updateConfig', { mode: 'semantic' })).resolves.toEqual({
     ok: true,
     value: saved,
   });
-  expect(config.update).toHaveBeenCalledExactlyOnceWith(change);
+  expect(config.update).toHaveBeenCalledExactlyOnceWith({ mode: 'semantic' });
   await expect(invoke('resetConfig')).resolves.toEqual({ ok: true, value: DEFAULT_INDEX_CONFIG });
   expect(config.reset).toHaveBeenCalledOnce();
 });

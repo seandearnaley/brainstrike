@@ -33,13 +33,13 @@ test('app-window preset writes reach the injected owner once and untracked/malfo
   );
   await expect(
     invoke({ id: 'preset', input: { isDefault: true }, operation: 'update' })
-  ).resolves.toMatchObject({ error: { code: 'boundary.internal', kind: 'fault' }, ok: false });
+  ).rejects.toThrow('invalid arguments');
   await expect(
     invoke({
       input: { excludes: [], icon: 'unknown', includes: [], name: 'test' },
       operation: 'create',
     })
-  ).resolves.toMatchObject({ error: { code: 'boundary.internal', kind: 'fault' }, ok: false });
+  ).rejects.toThrow('invalid arguments');
   expect(viewFilterPresets).toHaveBeenCalledOnce();
   close();
   await expect(invoke({ id: 'preset', operation: 'delete' })).rejects.toThrow(

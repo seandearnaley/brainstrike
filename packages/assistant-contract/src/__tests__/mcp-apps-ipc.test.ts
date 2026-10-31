@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpAppToolInvocationResult,
   McpAppPrepareRequestSchema,
+  McpAppShellPrepareRequestSchema,
+  McpAppShellReleaseRequestSchema,
   parseMcpAppPrepareResult,
-  parseMcpAppShellPrepareRequest,
   parseMcpAppShellPrepareResult,
-  parseMcpAppShellReleaseRequest,
   readMcpAppToolInvocationResult,
 } from '../mcp-apps-ipc.js';
 
@@ -117,6 +117,14 @@ describe('MCP Apps IPC contract', () => {
     expect(() => parseMcpAppPrepareResult({ decision: 'deny', riskCategory: 'x' })).toThrow();
   });
   it('validates shell registration strictly and pins the served URL shape', () => {
+    const parseMcpAppShellPrepareRequest = Schema.decodeUnknownSync(
+      McpAppShellPrepareRequestSchema,
+      { onExcessProperty: 'error' }
+    );
+    const parseMcpAppShellReleaseRequest = Schema.decodeUnknownSync(
+      McpAppShellReleaseRequestSchema,
+      { onExcessProperty: 'error' }
+    );
     const request = {
       contentSecurityPolicy: "default-src 'none'",
       document: '<!doctype html><title>shell</title>',

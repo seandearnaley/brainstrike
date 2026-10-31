@@ -11,7 +11,6 @@ import {
   type TransportBridge,
 } from '../platform/ipc-contract';
 import type { DesktopFileSystemBridge } from '../types/desktop-electron-api';
-import { assertArgCount, parseRecord } from './contract-args';
 
 type ReadMethod = 'readFile' | 'readFileByAbsolutePath' | 'readFileByPath';
 type InvokeArgs<K extends keyof DesktopFileSystemBridge> = Parameters<DesktopFileSystemBridge[K]>;
@@ -20,99 +19,51 @@ type InvokeResult<K extends keyof DesktopFileSystemBridge> = Awaited<
 >;
 type FileReadWireResult = string | FileReadErrorPayload;
 
-function parseNoArguments(raw: readonly unknown[], subject: string): [] {
-  assertArgCount(raw, 0, subject);
-  return [];
-}
-
-function parseString(raw: readonly unknown[], subject: string): [value: string] {
-  assertArgCount(raw, 1, subject);
-  if (typeof raw[0] !== 'string') {
-    throw new Error(`${subject} requires a string`);
-  }
-  return [raw[0]];
-}
-
-function parseHandle<T>(raw: readonly unknown[], subject: string): [handle: T] {
-  assertArgCount(raw, 1, subject);
-  const handle = parseRecord(raw[0], `${subject} handle`);
-  if (typeof handle['path'] !== 'string') {
-    throw new Error(`${subject} handle path must be a string`);
-  }
-  return [handle as T];
-}
-
 export const fileSystemContract = {
   addRoot: channel<InvokeArgs<'addRoot'>, InvokeResult<'addRoot'>>({
     channel: DESKTOP_IPC_CHANNELS.files.addRoot,
-    parseArgs: (raw) => parseNoArguments(raw, 'file system addRoot'),
   }),
   addRootByPath: channel<InvokeArgs<'addRootByPath'>, InvokeResult<'addRootByPath'>>({
     channel: DESKTOP_IPC_CHANNELS.files.addRootByPath,
-    parseArgs: (raw) => parseString(raw, 'file system addRootByPath'),
   }),
   deleteRootData: channel<InvokeArgs<'deleteRootData'>, InvokeResult<'deleteRootData'>>({
     channel: DESKTOP_IPC_CHANNELS.files.deleteRootData,
-    parseArgs: (raw) => {
-      const [rootId] = parseString(raw, 'file system deleteRootData');
-      if (rootId.trim().length === 0 || rootId.length > 1024) {
-        throw new Error('Root data deletion requires a durable root ID.');
-      }
-      return [rootId];
-    },
   }),
   exists: channel<InvokeArgs<'exists'>, InvokeResult<'exists'>>({
     channel: DESKTOP_IPC_CHANNELS.files.exists,
-    parseArgs: (raw) => parseString(raw, 'file system exists'),
   }),
   listRecentRoots: channel<InvokeArgs<'listRecentRoots'>, InvokeResult<'listRecentRoots'>>({
     channel: DESKTOP_IPC_CHANNELS.files.listRecentRoots,
-    parseArgs: (raw) => parseNoArguments(raw, 'file system listRecentRoots'),
   }),
   readDirectory: channel<InvokeArgs<'readDirectory'>, InvokeResult<'readDirectory'>>({
     channel: DESKTOP_IPC_CHANNELS.files.readDirectory,
-    parseArgs: (raw) =>
-      parseHandle<InvokeArgs<'readDirectory'>[0]>(raw, 'file system readDirectory'),
   }),
   readFile: channel<InvokeArgs<'readFile'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFile,
-    parseArgs: (raw) => parseHandle<InvokeArgs<'readFile'>[0]>(raw, 'file system readFile'),
   }),
   readFileByAbsolutePath: channel<InvokeArgs<'readFileByAbsolutePath'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFileByAbsolutePath,
-    parseArgs: (raw) => {
-      assertArgCount(raw, 3, 'file system readFileByAbsolutePath');
-      // The durable root registry owns the semantic/type denial and its
-      // bounded audit record. Preserve that path rather than rejecting here.
-      return raw as unknown as InvokeArgs<'readFileByAbsolutePath'>;
-    },
   }),
   readFileByPath: channel<InvokeArgs<'readFileByPath'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFileByPath,
-    parseArgs: (raw) => parseString(raw, 'file system readFileByPath'),
   }),
   removeRoot: channel<InvokeArgs<'removeRoot'>, InvokeResult<'removeRoot'>>({
     channel: DESKTOP_IPC_CHANNELS.files.removeRoot,
-    parseArgs: (raw) => parseString(raw, 'file system removeRoot'),
   }),
   requestDirectoryAccess: channel<
     InvokeArgs<'requestDirectoryAccess'>,
     InvokeResult<'requestDirectoryAccess'>
   >({
     channel: DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess,
-    parseArgs: (raw) => parseNoArguments(raw, 'file system requestDirectoryAccess'),
   }),
   restoreLastFolder: channel<InvokeArgs<'restoreLastFolder'>, InvokeResult<'restoreLastFolder'>>({
     channel: DESKTOP_IPC_CHANNELS.files.restoreLastFolder,
-    parseArgs: (raw) => parseNoArguments(raw, 'file system restoreLastFolder'),
   }),
   restoreRoots: channel<InvokeArgs<'restoreRoots'>, InvokeResult<'restoreRoots'>>({
     channel: DESKTOP_IPC_CHANNELS.files.restoreRoots,
-    parseArgs: (raw) => parseNoArguments(raw, 'file system restoreRoots'),
   }),
   saveLastFolder: channel<InvokeArgs<'saveLastFolder'>, InvokeResult<'saveLastFolder'>>({
     channel: DESKTOP_IPC_CHANNELS.files.saveLastFolder,
-    parseArgs: (raw) => parseString(raw, 'file system saveLastFolder'),
   }),
 } as const satisfies Contract;
 
@@ -122,7 +73,6 @@ export const fileSystemWatchContract = {
     InvokeResult<'getWatcherTelemetry'>
   >({
     channel: DESKTOP_IPC_CHANNELS.files.watchTelemetry,
-    parseArgs: (raw) => parseNoArguments(raw, 'file system getWatcherTelemetry'),
   }),
   onWatchEvent: pushEvent<Parameters<Parameters<DesktopFileSystemBridge['onWatchEvent']>[0]>[0]>({
     channel: DESKTOP_IPC_CHANNELS.files.watchEvent,
@@ -132,16 +82,12 @@ export const fileSystemWatchContract = {
   }),
   retryWatch: rawChannel<InvokeArgs<'retryWatch'>, InvokeResult<'retryWatch'>>({
     channel: DESKTOP_IPC_CHANNELS.files.watchRetry,
-    parseArgs: (raw) => parseString(raw, 'file system retryWatch'),
   }),
   unwatchDirectory: rawChannel<InvokeArgs<'unwatchDirectory'>, InvokeResult<'unwatchDirectory'>>({
     channel: DESKTOP_IPC_CHANNELS.files.unwatch,
-    parseArgs: (raw) => parseString(raw, 'file system unwatchDirectory'),
   }),
   watchDirectory: rawChannel<InvokeArgs<'watchDirectory'>, InvokeResult<'watchDirectory'>>({
     channel: DESKTOP_IPC_CHANNELS.files.watch,
-    parseArgs: (raw) =>
-      parseHandle<InvokeArgs<'watchDirectory'>[0]>(raw, 'file system watchDirectory'),
   }),
 } as const satisfies Contract;
 

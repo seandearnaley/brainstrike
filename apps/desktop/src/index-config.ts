@@ -4,7 +4,7 @@ import {
   DEFAULT_INDEX_CONFIG,
   INDEX_CHUNKING_OFF_MESSAGE,
   type IndexConfig,
-  IndexConfigPatchSchema,
+  type IndexConfigPatch,
   IndexConfigSchema,
   type IndexModel,
   indexModelId,
@@ -50,7 +50,6 @@ export interface DesktopIndexConfigDependencies {
 }
 
 const PARSE = { errors: 'all', onExcessProperty: 'error' } as const;
-const decodePatch = Schema.decodeUnknownEffect(IndexConfigPatchSchema, PARSE);
 const decodeConfig = Schema.decodeUnknownEffect(IndexConfigSchema, PARSE);
 const refused = (error: { readonly message: string }) =>
   new IndexConfigRefused({ message: error.message });
@@ -115,12 +114,11 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
    * FIFO and publishes the saved config under the permit.
    */
   const save = Effect.fn('IndexConfig.save')(function* (
-    patch: unknown
+    change: IndexConfigPatch
   ): Effect.fn.Return<
     { readonly applying: Fiber.Fiber<void, IndexConfigApplyFailed>; readonly next: IndexConfig },
     IndexConfigRefused | IndexConfigStoreFailed
   > {
-    const change = yield* decodePatch(patch).pipe(Effect.mapError(refused));
     const previous = yield* read();
     const next = yield* decodeConfig({
       ...previous,
@@ -159,7 +157,7 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
   });
 
   const update = Effect.fn('IndexConfig.update')(function* (
-    patch: unknown
+    patch: IndexConfigPatch
   ): Effect.fn.Return<
     IndexConfig,
     IndexConfigApplyFailed | IndexConfigRefused | IndexConfigStoreFailed
@@ -262,7 +260,7 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
       runAtPromiseBoundary(traceNativeIndexWorkflow(read(), 'index-config.read')),
     reset: (): Promise<IndexConfig> =>
       runAtPromiseBoundary(traceNativeIndexWorkflow(reset(), 'index-config.reset')),
-    update: (patch: unknown): Promise<IndexConfig> =>
+    update: (patch: IndexConfigPatch): Promise<IndexConfig> =>
       runAtPromiseBoundary(traceNativeIndexWorkflow(update(patch), 'index-config.update')),
   };
 }

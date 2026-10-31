@@ -92,14 +92,11 @@ export function indexModelId(model: Pick<IndexModel, 'modelKey'>): string {
   return model.modelKey.slice(separator + 2);
 }
 
-/**
- * The profile's index config as Main owns it. `updateConfig` takes `unknown` because preload
- * contracts stay Effect-free: Main decodes the change with `IndexConfigPatchSchema`.
- */
+/** The profile's index config as Main owns it; Main decodes each change with `IndexConfigPatchSchema`. */
 export interface IndexConfigCapability {
   onConfigChanged(listener: (config: IndexConfig) => void): () => void;
   readConfig(): Promise<IndexConfig>;
   /** Saves the defaults in place of a saved config that cannot be read, then rebuilds the index. */
   resetConfig(): Promise<IndexConfig>;
-  updateConfig(patch: unknown): Promise<IndexConfig>;
+  updateConfig(patch: IndexConfigPatch): Promise<IndexConfig>;
 }
