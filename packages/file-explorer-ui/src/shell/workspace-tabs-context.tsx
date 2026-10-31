@@ -259,19 +259,22 @@ export function WorkspaceTabsProvider({
         return;
       }
       permissionRequestsInProgressRef.current.add(compositeKey);
-      try {
+      const attempt = async () => {
         const granted = await requestTabPermission(compositeKey);
         if (isMountedRef.current && granted) {
           startFileContentLoad(compositeKey);
         }
-      } catch (err) {
-        logger.error('Failed to request file permission', {
-          compositeKey,
-          error: err instanceof Error ? err.message : String(err),
+      };
+      return attempt()
+        .catch((err: unknown) => {
+          logger.error('Failed to request file permission', {
+            compositeKey,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          permissionRequestsInProgressRef.current.delete(compositeKey);
         });
-      } finally {
-        permissionRequestsInProgressRef.current.delete(compositeKey);
-      }
     },
     [requestTabPermission, startFileContentLoad]
   );

@@ -80,7 +80,7 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
         return;
       }
 
-      try {
+      const attempt = async () => {
         setRepoLoading(true);
         setRepoError(null);
         const fetchedPresets = await repository.findAll();
@@ -90,25 +90,28 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
         }
         setRepoPresets(fetchedPresets);
         logger.debug('Fetched presets from repository', { count: fetchedPresets.length });
-      } catch (err) {
-        // Ignore abort errors
-        if (signal?.aborted) {
-          return;
-        }
-        const fetchError = err instanceof Error ? err : new Error(String(err));
-        // A preset store that is closed or whose connection closed under the read (a
-        // factory reset retiring this document) is unavailable, not faulty; Main logs the cause.
-        if (err instanceof BoundaryFailureError && err.failure.category === 'availability') {
-          logger.warn('Presets are unavailable', { error: fetchError.message });
-        } else {
-          logger.error('Failed to fetch presets from repository', { error: fetchError.message });
-        }
-        setRepoError(fetchError);
-      } finally {
-        if (!signal?.aborted) {
-          setRepoLoading(false);
-        }
-      }
+      };
+      return attempt()
+        .catch((err: unknown) => {
+          // Ignore abort errors
+          if (signal?.aborted) {
+            return;
+          }
+          const fetchError = err instanceof Error ? err : new Error(String(err));
+          // A preset store that is closed or whose connection closed under the read (a
+          // factory reset retiring this document) is unavailable, not faulty; Main logs the cause.
+          if (err instanceof BoundaryFailureError && err.failure.category === 'availability') {
+            logger.warn('Presets are unavailable', { error: fetchError.message });
+          } else {
+            logger.error('Failed to fetch presets from repository', { error: fetchError.message });
+          }
+          setRepoError(fetchError);
+        })
+        .finally(() => {
+          if (!signal?.aborted) {
+            setRepoLoading(false);
+          }
+        });
     },
     [repository]
   );

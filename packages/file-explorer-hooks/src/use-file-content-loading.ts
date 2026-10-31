@@ -89,7 +89,7 @@ export function useFileContentLoading(
       setIsLoading(true);
       setError(null);
 
-      try {
+      const readDisplayContents = async (): Promise<Record<string, string> | null> => {
         const requests: FileContentRequest[] = [];
         for (const key of compositeKeys) {
           const req = await prepareFileRequest(key);
@@ -97,27 +97,28 @@ export function useFileContentLoading(
             requests.push(req);
           }
         }
-
         if (requests.length === 0) {
-          return;
+          return null;
         }
-
         const results = await processor.processFiles(requests, ({ key }) => {
           loadingPathsRef.current.delete(key);
         });
-
-        const displayContents = Object.fromEntries(
+        return Object.fromEntries(
           Object.entries(results).map(([key, result]) => [
             key,
             result.status === 'accessible' ? result.content : result.message,
           ])
         );
-        setFileContents((prev) => ({ ...prev, ...displayContents }));
-      } catch (err) {
+      };
+
+      const displayContents = await readDisplayContents().catch((err: unknown) => {
         setError(err as Error);
-      } finally {
-        setIsLoading(false);
+        return null;
+      });
+      if (displayContents) {
+        setFileContents((prev) => ({ ...prev, ...displayContents }));
       }
+      setIsLoading(false);
     },
     [prepareFileRequest, processor]
   );
