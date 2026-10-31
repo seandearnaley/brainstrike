@@ -17,7 +17,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';
 import { useIndexingCancellation } from './background-token-indexer-cancellation';
@@ -264,15 +264,13 @@ export function useBackgroundTokenIndexerIntegration({
    * O(rootCount) - only iterates top-level nodes, not entire tree.
    * This is computed regardless of whether FileTreeIndex or local map is used.
    */
-  const rootFingerprint = useMemo(() => {
-    const ids = new Set<string>();
-    for (const node of fileTree) {
-      if (node.rootFolderId) {
-        ids.add(node.rootFolderId);
-      }
+  const ids = new Set<string>();
+  for (const node of fileTree) {
+    if (node.rootFolderId) {
+      ids.add(node.rootFolderId);
     }
-    return Array.from(ids).sort().join('|');
-  }, [fileTree]);
+  }
+  const rootFingerprint = Array.from(ids).sort().join('|');
 
   /**
    * Effect: Clear caches when root folders change.

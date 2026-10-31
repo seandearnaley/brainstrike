@@ -1,6 +1,6 @@
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { type AgentColor, isAgentColor } from '@brainstrike/types/agent-color';
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
 import {
@@ -150,13 +150,12 @@ const WORKSPACE_TAB_SELECTION: HostChildTabSelection = {
  */
 export function useHostChildSidebar(base: readonly ThreadPanelVisibleRow[]) {
   const host = useAssistantThreadHost();
-  const store = useMemo(() => {
-    const childThreads = host?.childThreads?.bind(host);
-    const subscribeChildren = host?.subscribeChildren?.bind(host);
-    return childThreads && subscribeChildren
+  const childThreads = host?.childThreads?.bind(host);
+  const subscribeChildren = host?.subscribeChildren?.bind(host);
+  const store =
+    childThreads && subscribeChildren
       ? new HostChildSidebarStore({ childThreads, subscribeChildren }, WORKSPACE_TAB_SELECTION)
       : undefined;
-  }, [host]);
   // The store follows the host from this effect, not from its render-time
   // construction, so StrictMode's replayed effects reconnect it (BST-1932).
   useEffect(() => store?.connect(), [store]);

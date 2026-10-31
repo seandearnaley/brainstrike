@@ -100,34 +100,28 @@ export function ProvidersSettings({
     [availableDefinitions, sourcesBySlotId, state]
   );
 
-  const modelsByProvider = useMemo(() => {
-    const grouped = new Map<string, DbModel[]>();
-    for (const model of models) {
-      const existing = grouped.get(model.providerId);
-      if (existing) {
-        existing.push(model);
-      } else {
-        grouped.set(model.providerId, [model]);
-      }
+  const modelsByProvider = new Map<string, DbModel[]>();
+  for (const model of models) {
+    const existing = modelsByProvider.get(model.providerId);
+    if (existing) {
+      existing.push(model);
+    } else {
+      modelsByProvider.set(model.providerId, [model]);
     }
-    return grouped;
-  }, [models]);
+  }
 
   /**
    * Slots no provider card owns — today the Tavily web-search key, which is
    * deliberately outside the LLM provider registry. Derived by difference, so
    * a future non-provider slot is homed automatically rather than orphaned.
    */
-  const unclaimedSlotIds = useMemo(() => {
-    const providerIds = new Set<string>(listProviders().map((definition) => definition.id));
-    const unclaimed: string[] = [];
-    for (const slot of listCredentialSlots()) {
-      if (!providerIds.has(slot.id)) {
-        unclaimed.push(slot.id);
-      }
+  const providerIds = new Set<string>(listProviders().map((definition) => definition.id));
+  const unclaimedSlotIds: string[] = [];
+  for (const slot of listCredentialSlots()) {
+    if (!providerIds.has(slot.id)) {
+      unclaimedSlotIds.push(slot.id);
     }
-    return unclaimed;
-  }, []);
+  }
 
   /**
    * Per-provider props that must keep a STABLE identity across renders: a
@@ -135,22 +129,16 @@ export function ProvidersSettings({
    * and re-mounts the filtered inventory. Built once from the registry, which
    * cannot change at runtime.
    */
-  const providerFilters = useMemo(() => {
-    const filters = new Map<string, readonly string[]>();
-    for (const definition of listProviders()) {
-      filters.set(definition.id, Object.freeze([definition.id]));
-    }
-    return filters;
-  }, []);
+  const providerFilters = new Map<string, readonly string[]>();
+  for (const definition of listProviders()) {
+    providerFilters.set(definition.id, Object.freeze([definition.id]));
+  }
 
-  const recommendedModelIds = useMemo(() => {
-    const byProvider = new Map<string, ReadonlySet<string>>();
-    for (const definition of listProviders()) {
-      const defaults = PROVIDER_DEFAULT_ENABLED_MODELS[definition.id];
-      byProvider.set(definition.id, defaults ? new Set(defaults) : EMPTY_MODEL_IDS);
-    }
-    return byProvider;
-  }, []);
+  const recommendedModelIds = new Map<string, ReadonlySet<string>>();
+  for (const definition of listProviders()) {
+    const defaults = PROVIDER_DEFAULT_ENABLED_MODELS[definition.id];
+    recommendedModelIds.set(definition.id, defaults ? new Set(defaults) : EMPTY_MODEL_IDS);
+  }
 
   const anyConnected = groups.some((group) =>
     group.providers.some((card) => card.connection === 'connected')

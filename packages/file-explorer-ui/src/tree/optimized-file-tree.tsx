@@ -192,6 +192,23 @@ interface IOptimizedFileTreeProps {
 
 const logger = createLogger('OptimizedFileTree');
 
+/** Expanded directories whose children are loaded or loading, so their rows render. */
+function collectRenderedExpandedDirectoryPaths(
+  rows: readonly TreeNode<FileTreeRowData>[],
+  expandedPaths: ReadonlySet<string>
+): Set<string> {
+  const paths = new Set<string>();
+  for (const row of rows) {
+    if (!expandedPaths.has(row.id) || row.type !== 'directory') {
+      continue;
+    }
+    if (row.data.fileNode.loadState === 'loaded' || row.data.isChildrenLoading) {
+      paths.add(row.id);
+    }
+  }
+  return paths;
+}
+
 /**
  * Aggregates over the paths a filter leaves visible, or null when nothing is
  * hidden. The normalized tree lives in a mutable ref, and the context value is
@@ -472,19 +489,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         folderStates: s.folderStates,
       })
     );
-    const selectedCount = useMemo(() => {
-      const focusedEffectiveCount = getSelectionCount(
-        topLevelSelectionModel,
-        topLevelSelectedFilePaths,
-        querySelectionManifest
-      );
-      return focusedEffectiveCount + unionSelectionBase;
-    }, [
-      querySelectionManifest,
-      topLevelSelectedFilePaths,
+    const focusedEffectiveCount = getSelectionCount(
       topLevelSelectionModel,
-      unionSelectionBase,
-    ]);
+      topLevelSelectedFilePaths,
+      querySelectionManifest
+    );
+    const selectedCount = focusedEffectiveCount + unionSelectionBase;
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
@@ -768,23 +778,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       recordFileTreeTelemetry(treeRowsBuild.telemetry);
     }, [treeRowsBuild.telemetry]);
 
-    const fileNodeByPath = useMemo(() => {
-      const nodeMap = new Map<string, IFileNode>();
-      for (const row of treeRows) {
-        nodeMap.set(row.id, row.data.fileNode);
-      }
-      return nodeMap;
-    }, [treeRows]);
+    const fileNodeByPath = new Map(treeRows.map((row) => [row.id, row.data.fileNode]));
 
     // Row-id → row data, so a keyboard Space on the focused row can toggle the
     // export-selection checkbox (see handleRowCheckboxSpace below).
-    const rowDataByPath = useMemo(() => {
-      const rowMap = new Map<string, FileTreeRowData>();
-      for (const row of treeRows) {
-        rowMap.set(row.id, row.data);
-      }
-      return rowMap;
-    }, [treeRows]);
+    const rowDataByPath = new Map(treeRows.map((row) => [row.id, row.data]));
 
     const { openFileInTab } = useIdeFileEditor();
     const handleTreeRowSelect = (nodeId: string | null): void => {
@@ -800,18 +798,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       openFileInTab(encodeFileSelection(folderId, fileNode.path));
     };
 
-    const renderedExpandedDirectoryPaths = useMemo(() => {
-      const nextExpandedPaths = new Set<string>();
-      for (const row of treeRows) {
-        if (!effectiveExpandedPaths.has(row.id) || row.type !== 'directory') {
-          continue;
-        }
-        if (row.data.fileNode.loadState === 'loaded' || row.data.isChildrenLoading) {
-          nextExpandedPaths.add(row.id);
-        }
-      }
-      return nextExpandedPaths;
-    }, [effectiveExpandedPaths, treeRows]);
+    const renderedExpandedDirectoryPaths = collectRenderedExpandedDirectoryPaths(
+      treeRows,
+      effectiveExpandedPaths
+    );
 
     const getDirectoryToggleState = (node: IFileNode): DirectoryToggleState => {
       const isChildrenLoadingFromStore = loadingPaths?.has(node.path) ?? false;

@@ -294,13 +294,10 @@ function usePrimaryAdapterRootId(
   rootDescriptors: Readonly<Record<string, WorkspaceBarRootDescriptor>> | undefined,
   primaryRootPath: string | undefined
 ): string | null {
-  const adapterRootIdByPath = useMemo(() => {
-    const byPath = new Map<string, string>();
-    for (const [adapterRootId, descriptor] of Object.entries(rootDescriptors ?? {})) {
-      byPath.set(descriptor.path, adapterRootId);
-    }
-    return byPath;
-  }, [rootDescriptors]);
+  const adapterRootIdByPath = new Map<string, string>();
+  for (const [adapterRootId, descriptor] of Object.entries(rootDescriptors ?? {})) {
+    adapterRootIdByPath.set(descriptor.path, adapterRootId);
+  }
   const primaryAdapterRootId = primaryRootPath
     ? (adapterRootIdByPath.get(primaryRootPath) ?? null)
     : null;
@@ -977,14 +974,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   );
   // The workspace's mounted folders that are not this thread's.
   const primaryRootPathForFolders = primaryRoot?.path;
-  const workspaceFolders = useMemo<readonly WorkspaceBarRecentRoot[]>(() => {
-    const threadPaths = new Set([primaryRootPathForFolders, ...secondaryRoots.map((r) => r.path)]);
-    return Object.values(rootDescriptors ?? {}).flatMap((descriptor) =>
-      threadPaths.has(descriptor.path)
-        ? []
-        : [{ displayName: descriptor.displayName, path: descriptor.path }]
-    );
-  }, [primaryRootPathForFolders, rootDescriptors, secondaryRoots]);
+  const threadPaths = new Set([primaryRootPathForFolders, ...secondaryRoots.map((r) => r.path)]);
+  const workspaceFolders: readonly WorkspaceBarRecentRoot[] = Object.values(
+    rootDescriptors ?? {}
+  ).flatMap((descriptor) =>
+    threadPaths.has(descriptor.path)
+      ? []
+      : [{ displayName: descriptor.displayName, path: descriptor.path }]
+  );
 
   // Resolved ONCE per hook instance, not per render — the capability check IS
   // the platform gate; web omits the affordance rather than stubbing it.

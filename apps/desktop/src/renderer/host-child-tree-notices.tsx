@@ -97,25 +97,23 @@ export function HostApprovalHistoryProvider({
   readonly tree: Pick<HostTreeApprovals, 'getAnswered' | 'subscribe'>;
 }): ReactElement {
   const answered = useSyncExternalStore(tree.subscribe, tree.getAnswered, tree.getAnswered);
-  const history = useMemo(() => {
-    const byThread = new Map<string, SubagentAnsweredApproval[]>();
-    for (const { approval, byPolicy, decision, owner, threadId } of answered) {
-      const entries = byThread.get(threadId) ?? [];
-      entries.push({
-        args: approval.input,
-        byPolicy,
-        decision,
-        interactionId: approval.interactionId,
-        owner,
-        runId: approval.runId,
-        toolCallId: approval.toolCallId,
-        toolName: approval.toolCatalogId ?? approval.toolId,
-      });
-      byThread.set(threadId, entries);
-    }
-    return (threadId: string): readonly SubagentAnsweredApproval[] =>
-      byThread.get(threadId) ?? NO_HISTORY;
-  }, [answered]);
+  const byThread = new Map<string, SubagentAnsweredApproval[]>();
+  for (const { approval, byPolicy, decision, owner, threadId } of answered) {
+    const entries = byThread.get(threadId) ?? [];
+    entries.push({
+      args: approval.input,
+      byPolicy,
+      decision,
+      interactionId: approval.interactionId,
+      owner,
+      runId: approval.runId,
+      toolCallId: approval.toolCallId,
+      toolName: approval.toolCatalogId ?? approval.toolId,
+    });
+    byThread.set(threadId, entries);
+  }
+  const history = (threadId: string): readonly SubagentAnsweredApproval[] =>
+    byThread.get(threadId) ?? NO_HISTORY;
   return (
     <SubagentApprovalHistoryContext value={history}>{children}</SubagentApprovalHistoryContext>
   );

@@ -183,70 +183,57 @@ export function WorkspaceTabStrip(): ReactElement {
     ),
   ];
 
-  const localActions = useMemo<readonly AnyContextAction[]>(() => {
-    const groupOf = (appId: string): readonly string[] => {
-      const placement = apps.find((app) => app.id === appId)?.placement;
-      return placement === undefined ? [] : openAppGroupIds(apps, placement);
-    };
-    return [
-      ...createTabStripActions({
-        close: onCloseApp,
-        closeAll: (appId) => onCloseApps(groupOf(appId)),
-        closeOthers: (appId) => onCloseApps(groupOf(appId).filter((id) => id !== appId)),
-        getId: (target) => target.appId,
-        getLabel: (target) => target.label,
-        getOrderedIds: (target) => openAppGroupIds(apps, target.placement),
-        idPrefix: 'workspace-app-tab',
-        kind: 'workspace-app-tab',
-        noun: 'app tab',
-      }),
-      ...createTabStripActions({
-        close: onCloseFileTab,
-        closeAll: onCloseAllFileTabs,
-        closeOthers: onCloseOtherFileTabs,
-        closeToRight: onCloseFileTabsToRight,
-        getId: (target) => target.tabId,
-        getLabel: (target) => target.name,
-        getOrderedIds: liveFileTabIds,
-        idPrefix: 'workspace-file-tab',
-        kind: 'workspace-file-tab',
-        noun: 'file tab',
-        reorder: onReorderFileTabs,
-      }),
-      defineContextAction({
-        appliesTo: ['tab-strip'] as const,
-        group: 'primary',
-        id: 'workspace-tab-strip.close-all-files',
-        isEnabled: () => liveFileTabIds().length > 0,
-        isVisible: (target) => target.stripId === STRIP_ID,
-        label: 'Close All Files',
-        run: () => {
-          if (liveFileTabIds().length === 0) {
-            return Promise.resolve({ error: 'No file tabs are open', ok: false });
-          }
-          onCloseAllFileTabs();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      createReopenClosedTabAction({
-        hasClosedTabs,
-        idPrefix: 'workspace-tab-strip',
-        reopen: onReopenClosedTab,
-        stripId: STRIP_ID,
-      }),
-    ];
-  }, [
-    apps,
-    hasClosedTabs,
-    onCloseAllFileTabs,
-    onCloseApp,
-    onCloseApps,
-    onCloseFileTab,
-    onCloseFileTabsToRight,
-    onCloseOtherFileTabs,
-    onReopenClosedTab,
-    onReorderFileTabs,
-  ]);
+  const groupOf = (appId: string): readonly string[] => {
+    const placement = apps.find((app) => app.id === appId)?.placement;
+    return placement === undefined ? [] : openAppGroupIds(apps, placement);
+  };
+  const localActions: readonly AnyContextAction[] = [
+    ...createTabStripActions({
+      close: onCloseApp,
+      closeAll: (appId) => onCloseApps(groupOf(appId)),
+      closeOthers: (appId) => onCloseApps(groupOf(appId).filter((id) => id !== appId)),
+      getId: (target) => target.appId,
+      getLabel: (target) => target.label,
+      getOrderedIds: (target) => openAppGroupIds(apps, target.placement),
+      idPrefix: 'workspace-app-tab',
+      kind: 'workspace-app-tab',
+      noun: 'app tab',
+    }),
+    ...createTabStripActions({
+      close: onCloseFileTab,
+      closeAll: onCloseAllFileTabs,
+      closeOthers: onCloseOtherFileTabs,
+      closeToRight: onCloseFileTabsToRight,
+      getId: (target) => target.tabId,
+      getLabel: (target) => target.name,
+      getOrderedIds: liveFileTabIds,
+      idPrefix: 'workspace-file-tab',
+      kind: 'workspace-file-tab',
+      noun: 'file tab',
+      reorder: onReorderFileTabs,
+    }),
+    defineContextAction({
+      appliesTo: ['tab-strip'] as const,
+      group: 'primary',
+      id: 'workspace-tab-strip.close-all-files',
+      isEnabled: () => liveFileTabIds().length > 0,
+      isVisible: (target) => target.stripId === STRIP_ID,
+      label: 'Close All Files',
+      run: () => {
+        if (liveFileTabIds().length === 0) {
+          return Promise.resolve({ error: 'No file tabs are open', ok: false });
+        }
+        onCloseAllFileTabs();
+        return Promise.resolve({ ok: true });
+      },
+    }),
+    createReopenClosedTabAction({
+      hasClosedTabs,
+      idPrefix: 'workspace-tab-strip',
+      reopen: onReopenClosedTab,
+      stripId: STRIP_ID,
+    }),
+  ];
 
   // One strip, two target kinds: an open app id claims the app-tab target,
   // anything else is a file-tab id (the id spaces are disjoint by construction).
