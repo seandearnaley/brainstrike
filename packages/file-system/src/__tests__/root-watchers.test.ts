@@ -348,6 +348,22 @@ describe('root watch engine', () => {
       stop();
     });
 
+    it('stats a path that fires repeatedly once, and reports it once as a membership change', async () => {
+      const fake = createFakeWatch();
+      const stat = vi.spyOn(fs.promises, 'stat');
+      const stop = await startRootWatch(makeHandle(root), collect, { watch: fake.watch });
+      const filePath = join(root, 'burst.txt');
+      await writeFile(filePath, 'x');
+      fake.emit('change', 'burst.txt');
+      fake.emit('rename', 'burst.txt');
+      fake.emit('change', 'burst.txt');
+      fake.emit('change', 'burst.txt');
+      await batchCount(1);
+      expect(batches[0]).toEqual([{ kind: 'file', path: filePath, type: 'added' }]);
+      expect(stat.mock.calls.filter(([statPath]) => statPath === filePath)).toHaveLength(1);
+      stop();
+    });
+
     it('joins event names onto the handle path as given, with no doubled separator', async () => {
       const fake = createFakeWatch();
       const stop = await startRootWatch(makeHandle(`${root}${sep}`), collect, {

@@ -79,37 +79,68 @@ export interface WorkspaceIndexingCoordinatorInputs {
   service: WorkspaceIndexingCoordinatorService | null;
 }
 
-function mergeScopes(
-  current: WorkspaceIndexingTriggerScope | null,
+interface PendingRootChanges {
+  /** Each distinct change once, at the position of its last occurrence. */
+  readonly changes: Map<string, FileSystemChange>;
+  fullResync: boolean;
+}
+
+/**
+ * Triggers queued behind the active pass, accumulated in place (BST-2372): a
+ * large checkout arrives as hundreds of watch batches, and each one is folded
+ * in without copying what is already queued.
+ */
+type PendingScope =
+  | { readonly mode: 'full' }
+  | { readonly mode: 'paths'; readonly roots: Map<string, PendingRootChanges> };
+
+function changeIdentity(change: FileSystemChange): string {
+  return `${change.kind}\0${change.type}\0${change.path}`;
+}
+
+/**
+ * A repeated change carries nothing new, so it is kept once, moved to its
+ * latest position: the last change recorded for a path stays the last one the
+ * pass sees (a removal followed by a recreation still ends as the recreation).
+ */
+function addToPendingScope(
+  pending: PendingScope | null,
   incoming: WorkspaceIndexingTriggerScope
-): WorkspaceIndexingTriggerScope {
-  if (current === null) {
-    return incoming;
-  }
-  if (current.mode === 'full' || incoming.mode === 'full') {
+): PendingScope {
+  if (pending?.mode === 'full' || incoming.mode === 'full') {
     return { mode: 'full' };
   }
-
-  const rootsById = new Map<
-    string,
-    { changes: FileSystemChange[]; fullResync?: boolean; rootId: string }
-  >();
-  for (const root of current.roots) {
-    rootsById.set(root.rootId, {
-      changes: [...root.changes],
-      ...(root.fullResync === true ? { fullResync: true } : {}),
-      rootId: root.rootId,
-    });
-  }
+  const next: PendingScope = pending ?? { mode: 'paths', roots: new Map() };
   for (const root of incoming.roots) {
-    const existing = rootsById.get(root.rootId);
-    rootsById.set(root.rootId, {
-      changes: [...(existing?.changes ?? []), ...root.changes],
-      ...(existing?.fullResync === true || root.fullResync === true ? { fullResync: true } : {}),
-      rootId: root.rootId,
-    });
+    let pendingRoot = next.roots.get(root.rootId);
+    if (!pendingRoot) {
+      pendingRoot = { changes: new Map(), fullResync: false };
+      next.roots.set(root.rootId, pendingRoot);
+    }
+    if (root.fullResync === true) {
+      pendingRoot.fullResync = true;
+    }
+    for (const change of root.changes) {
+      const identity = changeIdentity(change);
+      pendingRoot.changes.delete(identity);
+      pendingRoot.changes.set(identity, change);
+    }
   }
-  return { mode: 'paths', roots: [...rootsById.values()] };
+  return next;
+}
+
+function toTriggerScope(pending: PendingScope): WorkspaceIndexingTriggerScope {
+  if (pending.mode === 'full') {
+    return { mode: 'full' };
+  }
+  return {
+    mode: 'paths',
+    roots: Array.from(pending.roots, ([rootId, root]) => ({
+      changes: [...root.changes.values()],
+      ...(root.fullResync ? { fullResync: true } : {}),
+      rootId,
+    })),
+  };
 }
 
 export class WorkspaceIndexingCoordinator {
@@ -117,7 +148,7 @@ export class WorkspaceIndexingCoordinator {
   private debugState: Record<string, unknown> = { state: 'not-started' };
   private generation = 0;
   private inputs: WorkspaceIndexingCoordinatorInputs | null = null;
-  private pendingScope: WorkspaceIndexingTriggerScope | null = null;
+  private pendingScope: PendingScope | null = null;
 
   updateInputs(inputs: WorkspaceIndexingCoordinatorInputs): void {
     this.inputs = inputs;
@@ -193,7 +224,7 @@ export class WorkspaceIndexingCoordinator {
         this.restartAfterCancellation(scope, inputs, inputs.service);
         return;
       }
-      this.pendingScope = mergeScopes(this.pendingScope, scope);
+      this.pendingScope = addToPendingScope(this.pendingScope, scope);
       this.debugState = {
         ...this.debugState,
         pendingScope: this.pendingScope.mode,
@@ -288,7 +319,7 @@ export class WorkspaceIndexingCoordinator {
         const pendingScope = this.pendingScope;
         this.pendingScope = null;
         if (pendingScope) {
-          this.trigger(pendingScope);
+          this.trigger(toTriggerScope(pendingScope));
         }
       });
   }
@@ -400,7 +431,11 @@ export class WorkspaceIndexingCoordinator {
     if (this.generation !== generation) {
       return;
     }
-    const replacementScope = this.pendingScope ? mergeScopes(scope, this.pendingScope) : scope;
+    const replacementScope = this.pendingScope
+      ? toTriggerScope(
+          addToPendingScope(addToPendingScope(null, scope), toTriggerScope(this.pendingScope))
+        )
+      : scope;
     this.active = false;
     this.pendingScope = null;
     this.start(replacementScope, inputs, service);
