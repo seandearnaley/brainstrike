@@ -104,7 +104,7 @@ export function useReportGeneration({
 
       setIsGenerating(true);
       setProgress({ loaded: 0, total: 1 });
-      try {
+      const generate = async () => {
         // Load missing file contents if the loader is provided
         let finalFileContents = fileContents;
         if (loadMissingContent) {
@@ -136,10 +136,11 @@ export function useReportGeneration({
           },
           (event: ReportProgressEvent) => setProgress(event)
         );
-      } finally {
+      };
+      return generate().finally(() => {
         setIsGenerating(false);
         setProgress(null);
-      }
+      });
     }
   );
 

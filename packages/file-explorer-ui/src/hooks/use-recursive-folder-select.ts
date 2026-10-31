@@ -318,29 +318,7 @@ export function useRecursiveFolderSelect(
         loadingProgress: null,
       });
 
-      try {
-        const result = await querySelectableFiles({
-          collectDirectoryUpdates: Boolean(onDirectoriesLoaded),
-          fileSystemAdapter: validation.fileSystemAdapter,
-          roots: [currentNode],
-          ...(internalFilterTreeFn ? { filterTreeFn: internalFilterTreeFn } : {}),
-          abortSignal: abortController.signal,
-          excludeFilters,
-          includeFilters,
-          maxResults: availableSlots,
-          onProgress: (progress) => {
-            setState((current) => ({
-              ...current,
-              loadingProgress: {
-                loaded: progress.directoriesCompleted,
-                total: Math.max(progress.directoriesDiscovered, progress.directoriesCompleted, 1),
-              },
-            }));
-          },
-          parentRootId,
-          useRegex,
-        });
-
+      const commitResult = async (result: Awaited<ReturnType<typeof querySelectableFiles>>) => {
         // Hydrate the owning tree with what the scan already read from disk —
         // even a zero-match scan loads real structure the tree can keep.
         if (result.directoryUpdates.length > 0) {
@@ -422,15 +400,42 @@ export function useRecursiveFolderSelect(
           filePaths: result.filePaths,
           success: true,
         };
-      } catch (err) {
-        logger.error('selectFolderRecursively failed', { error: err });
-        return handleSelectionError(err, onError);
-      } finally {
-        abortControllerRef.current = null;
-        isStartingRef.current = false;
-        isLoadingForSelectionRef.current = false;
-        setState(RESET_STATE);
-      }
+      };
+      const attempt = async () =>
+        commitResult(
+          await querySelectableFiles({
+            collectDirectoryUpdates: Boolean(onDirectoriesLoaded),
+            fileSystemAdapter: validation.fileSystemAdapter,
+            roots: [currentNode],
+            ...(internalFilterTreeFn ? { filterTreeFn: internalFilterTreeFn } : {}),
+            abortSignal: abortController.signal,
+            excludeFilters,
+            includeFilters,
+            maxResults: availableSlots,
+            onProgress: (progress) => {
+              setState((current) => ({
+                ...current,
+                loadingProgress: {
+                  loaded: progress.directoriesCompleted,
+                  total: Math.max(progress.directoriesDiscovered, progress.directoriesCompleted, 1),
+                },
+              }));
+            },
+            parentRootId,
+            useRegex,
+          })
+        );
+      return attempt()
+        .catch((err: unknown) => {
+          logger.error('selectFolderRecursively failed', { error: err });
+          return handleSelectionError(err, onError);
+        })
+        .finally(() => {
+          abortControllerRef.current = null;
+          isStartingRef.current = false;
+          isLoadingForSelectionRef.current = false;
+          setState(RESET_STATE);
+        });
     },
     [
       currentFolderId,

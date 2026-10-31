@@ -536,27 +536,24 @@ export function useFileTree(
     /* Stryker disable next-line ObjectLiteral, StringLiteral -- loadTree immediately reinitializes progress via readFullTree instrumentation */
     setLoadingProgress({ loaded: 0, phase: 'counting', total: 0 });
 
-    try {
-      const newTree = await readFullTree(
-        rootDirectoryHandle,
-        rootDirectoryHandle,
-        '',
-        true,
-        abortController.signal
-      );
-
-      /* Stryker disable next-line ConditionalExpression, BlockStatement, BooleanLiteral -- progress pipeline already guards abort semantics; mutation is observationally equivalent */
-      if (!abortController.signal.aborted) {
-        setFileTree(newTree);
-      }
-    } catch (err) {
-      logger.error('Error loading file tree:', err);
-      setError(err instanceof Error ? err : new Error(String(err)));
-      throw err;
-    } finally {
-      setIsLoading(false);
-      abortControllerRef.current = null;
-    }
+    await readFullTree(rootDirectoryHandle, rootDirectoryHandle, '', true, abortController.signal)
+      .then(
+        (newTree) => {
+          /* Stryker disable next-line ConditionalExpression, BlockStatement, BooleanLiteral -- progress pipeline already guards abort semantics; mutation is observationally equivalent */
+          if (!abortController.signal.aborted) {
+            setFileTree(newTree);
+          }
+        },
+        (err: unknown) => {
+          logger.error('Error loading file tree:', err);
+          setError(err instanceof Error ? err : new Error(String(err)));
+          throw err;
+        }
+      )
+      .finally(() => {
+        setIsLoading(false);
+        abortControllerRef.current = null;
+      });
   }, [rootDirectoryHandle, readFullTree]);
 
   // Reset loading state when root directory changes
