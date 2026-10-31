@@ -5,7 +5,7 @@
  * use), then canonicalized with `realpath`. The canonical root is the pinned cwd:
  * commands/shells run AT the root, never an arbitrary path.
  *
- * Rejections (all `{ ok: false }`, never a throw):
+ * Rejections (all `{ ok: false }` with a `workspace.*` refusal, never a throw):
  * - empty/non-string rootId,
  * - a rootId that matches no known root (no arbitrary cwd),
  * - a web (FSA) root with no absolute filesystem path,
@@ -13,6 +13,11 @@
  */
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import {
+  type BoundaryFailureCategory,
+  refusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ScopedLogger } from '@brainstrike/logging';
 
 /** Resolves the active path-backed workspace roots for cwd validation. */
@@ -21,8 +26,13 @@ export interface WorkspaceRootResolver {
   listRoots: () => Promise<readonly { displayName: string; path: string; rootId: string }[]>;
 }
 
-/** Structural result so callers can return it verbatim across IPC. */
-export type RootCwdResult = { ok: true; value: string } | { ok: false; error: string };
+function refused(
+  category: BoundaryFailureCategory,
+  code: `workspace.${string}`,
+  message: string
+): BoundaryResult<string> {
+  return { error: refusal({ category, code, message }), ok: false };
+}
 
 /**
  * Path-free, categorized message for a non-`ENOENT` filesystem failure.
@@ -46,9 +56,13 @@ export async function resolveRootCwd(
   rootId: unknown,
   domain: string,
   logger: Pick<ScopedLogger, 'error'>
-): Promise<RootCwdResult> {
+): Promise<BoundaryResult<string>> {
   if (typeof rootId !== 'string' || rootId.trim().length === 0) {
-    return { error: `${domain} requires a non-empty rootId string`, ok: false };
+    return refused(
+      'input',
+      'workspace.root-id-invalid',
+      `${domain} requires a non-empty rootId string`
+    );
   }
   const trimmed = rootId.trim();
   let roots: readonly { displayName: string; path: string; rootId: string }[];
@@ -56,15 +70,27 @@ export async function resolveRootCwd(
     roots = await resolver.listRoots();
   } catch (error) {
     logger.error(`Failed to load workspace roots for ${domain} domain`, { error });
-    return { error: 'Workspace roots are unavailable.', ok: false };
+    return refused(
+      'availability',
+      'workspace.roots-unavailable',
+      'Workspace roots are unavailable.'
+    );
   }
   const match = roots.find((root) => root.rootId === trimmed);
   if (!match) {
-    return { error: `No open folder matches root id "${trimmed}".`, ok: false };
+    return refused(
+      'input',
+      'workspace.root-unknown',
+      `No open folder matches root id "${trimmed}".`
+    );
   }
   if (!path.isAbsolute(match.path)) {
     // Web / FSA roots have no real filesystem path → not addressable.
-    return { error: 'The selected folder has no local filesystem path.', ok: false };
+    return refused(
+      'input',
+      'workspace.root-not-local',
+      'The selected folder has no local filesystem path.'
+    );
   }
   try {
     const canonicalRoot = await fsPromises.realpath(match.path);
@@ -72,9 +98,17 @@ export async function resolveRootCwd(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      return { error: 'The selected folder no longer exists on disk.', ok: false };
+      return refused(
+        'availability',
+        'workspace.root-missing',
+        'The selected folder no longer exists on disk.'
+      );
     }
-    return { error: describeFsFailure('The selected folder', error), ok: false };
+    return refused(
+      'availability',
+      'workspace.root-unreadable',
+      describeFsFailure('The selected folder', error)
+    );
   }
 }
 
@@ -102,7 +136,7 @@ export async function resolveContainedCwd(
   rootCwd: string,
   requested: string | undefined,
   domain: string
-): Promise<RootCwdResult> {
+): Promise<BoundaryResult<string>> {
   if (requested === undefined) {
     return { ok: true, value: rootCwd };
   }
@@ -111,31 +145,51 @@ export async function resolveContainedCwd(
   // TypeScript's compile-time guarantee does not hold at runtime — defensive
   // depth, not dead code. Do not simplify this away.
   if (typeof requested !== 'string' || requested.trim().length === 0) {
-    return { error: `${domain} requires a non-empty cwd string when one is supplied.`, ok: false };
+    return refused(
+      'input',
+      'workspace.cwd-invalid',
+      `${domain} requires a non-empty cwd string when one is supplied.`
+    );
   }
   if (!path.isAbsolute(requested)) {
-    return { error: `${domain} requires an absolute cwd path.`, ok: false };
+    return refused('input', 'workspace.cwd-invalid', `${domain} requires an absolute cwd path.`);
   }
   let canonical: string;
   try {
     canonical = await fsPromises.realpath(requested);
     const stats = await fsPromises.stat(canonical);
     if (!stats.isDirectory()) {
-      return { error: 'The requested working directory is not a directory.', ok: false };
+      return refused(
+        'input',
+        'workspace.cwd-not-directory',
+        'The requested working directory is not a directory.'
+      );
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      return { error: 'The requested working directory no longer exists on disk.', ok: false };
+      return refused(
+        'availability',
+        'workspace.cwd-missing',
+        'The requested working directory no longer exists on disk.'
+      );
     }
-    return { error: describeFsFailure('The requested working directory', error), ok: false };
+    return refused(
+      'availability',
+      'workspace.cwd-unreadable',
+      describeFsFailure('The requested working directory', error)
+    );
   }
   // `rootCwd` can already be sep-terminated (a filesystem root: `/`, `C:\`).
   // Appending another separator would turn the prefix into `//` / `C:\\`,
   // which no real descendant can ever start with — skip the append instead.
   const rootPrefix = rootCwd.endsWith(path.sep) ? rootCwd : `${rootCwd}${path.sep}`;
   if (canonical !== rootCwd && !canonical.startsWith(rootPrefix)) {
-    return { error: 'The requested working directory is outside the open folder.', ok: false };
+    return refused(
+      'input',
+      'workspace.cwd-outside-root',
+      'The requested working directory is outside the open folder.'
+    );
   }
   return { ok: true, value: canonical };
 }

@@ -190,7 +190,7 @@ async function resolveSessionCwd(
   }
   const root = await resolveRootCwd(resolver, rootId, 'command session', logger);
   if (!root.ok) {
-    throw new CommandSessionError('root-unavailable', root.error);
+    throw new CommandSessionError('root-unavailable', root.error.message);
   }
   if (requestedCwd === undefined || requestedCwd.trim().length === 0) {
     return { cwd: root.value, rootPath: root.value };

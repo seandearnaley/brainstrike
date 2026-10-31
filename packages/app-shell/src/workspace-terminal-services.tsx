@@ -7,14 +7,12 @@ export type {
   CommandSessionIdentityParams,
   CommandSessionInfo,
   CommandSessionReadPage,
-  CommandSessionResult,
 } from './terminal-panel/command-session-bridge';
 export type {
   TerminalBridge,
   TerminalCreateResult,
   TerminalDataEvent,
   TerminalExitEvent,
-  TerminalResult,
 } from './terminal-panel/terminal-bridge';
 
 /**

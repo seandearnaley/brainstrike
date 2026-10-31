@@ -1,3 +1,4 @@
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { Button } from '@brainstrike/ui';
 import { CircleStop, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { type FormEvent, type ReactElement, useEffect, useRef, useState } from 'react';
@@ -52,7 +53,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
       return;
     }
     if (!result.ok) {
-      setError(result.error.message);
+      setError(describeBoundaryFailure(result.error));
       return;
     }
     setError(undefined);
@@ -86,7 +87,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
     setLoading(true);
     const result = await bridge.list({ rootId });
     if (!result.ok) {
-      setError(result.error.message);
+      setError(describeBoundaryFailure(result.error));
       setLoading(false);
       return;
     }
@@ -137,7 +138,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
     }
     const result = await bridge.stop({ rootId, sessionId: selectedId });
     if (!result.ok) {
-      setError(result.error.message);
+      setError(describeBoundaryFailure(result.error));
       return;
     }
     await refresh();
@@ -149,7 +150,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
     }
     const result = await bridge.remove({ rootId, sessionId: selectedId });
     if (!result.ok) {
-      setError(result.error.message);
+      setError(describeBoundaryFailure(result.error));
       return;
     }
     selectedIdRef.current = undefined;
@@ -165,7 +166,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
     }
     const result = await bridge.write({ data: `${input}\n`, rootId, sessionId: selectedId });
     if (!result.ok) {
-      setError(result.error.message);
+      setError(describeBoundaryFailure(result.error));
       return;
     }
     setInput('');

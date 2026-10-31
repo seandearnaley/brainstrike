@@ -24,7 +24,7 @@ import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-re
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { endTreeOnDeadline, spawnNativeChild } from '@brainstrike/state-store/native-children';
-import { gitRefused, gitThrew } from './assistant-server/git-failure';
+import { gitThrew } from './assistant-server/git-failure';
 import {
   createGitService,
   GIT_MAX_BUFFER_BYTES,
@@ -256,7 +256,7 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
   ): Promise<BoundaryResult<T>> {
     const cwd = await resolveRootCwd(resolver, rootId, 'git', logger);
     if (!cwd.ok) {
-      return gitRefused('input', 'workspace.root-unresolved', cwd.error);
+      return cwd;
     }
     const service = createGitService({ cwd: cwd.value, run });
     try {
