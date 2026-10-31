@@ -1,6 +1,6 @@
 import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host/client';
 import type { HostMethod, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
-import type { HostAttachment } from '@brainstrike/host-lease';
+import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { mainPlatformConnection } from './agent-host-platform/connection';
 import type { AgentHostPrivateClientPort } from './agent-host-private-clients';
 export interface AgentHostMainClient {
@@ -15,12 +15,12 @@ export interface AgentHostMainClient {
  */
 export function createAgentHostMainClient(
   acquireProfile: () => Promise<HostAttachment>,
-  openPrivateClientPort: () => AgentHostPrivateClientPort | undefined
+  openPrivateClientPort: (record: HostRecord) => AgentHostPrivateClientPort | undefined
 ): AgentHostMainClient {
   let current: Promise<HostClient> | undefined;
   const connect = async (): Promise<HostClient> => {
     const attachment = await acquireProfile();
-    const port = openPrivateClientPort()?.port;
+    const port = openPrivateClientPort(attachment.record)?.port;
     if (!port) {
       throw new Error(
         'Credentials can change only through the agent host this app launched; stop the external host and retry.'

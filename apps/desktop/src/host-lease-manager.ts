@@ -117,6 +117,8 @@ export interface DesktopHostChild {
    */
   readonly lost: Promise<void>;
   postClientPort(port: MessagePortMain): void;
+  /** The record its ready report carried: which host this is. */
+  readonly record: HostRecord;
   /**
    * Asks this child to close for a user's restart over its own control port (no socket),
    * and joins its exit under the lease's one close ladder. Its channel's close takes the
@@ -512,6 +514,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             exited: child.exited,
             lost: lost.promise,
             postClientPort: (port) => child.handle.postMessage({ event: 'client-port' }, [port]),
+            record,
             stopForRelaunch: () => {
               // This child's own exit reads it: a later child's crash still warns.
               child.relaunchRequested = true;

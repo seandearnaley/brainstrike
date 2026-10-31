@@ -17,12 +17,13 @@ const CONNECT_FAILURE = { category: 'availability', code: 'agent-host-connect-fa
  *   the other, admitted as the desktop origin (ADR-0029). Main forwards nothing.
  * - A host the app only attached to (a CLI `host start`): Main relays the frame over that
  *   host's public socket, like any CLI client, so origin-bound capabilities refuse there.
- * Either way the frame owns its port and it closes with the frame's document. Main tells
- * the frame once it holds that host as gone, so the frame's reconnect reaches a live host.
+ * A launched host that is gone is never reached over the socket: its frames are refused as
+ * unavailable until the profile admits its replacement. Either way the frame owns its port,
+ * which closes with the frame's document, and Main tells the frame when the host is gone.
  */
 export function registerAgentHostClientIpc(
   acquireProfile: () => Promise<HostAttachment>,
-  openPrivateClientPort: () => AgentHostPrivateClientPort | undefined
+  openPrivateClientPort: (record: HostRecord) => AgentHostPrivateClientPort | undefined
 ) {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const relays = new Set<AgentHostSocketRelay>();
@@ -31,7 +32,7 @@ export function registerAgentHostClientIpc(
   const openFramePort = async (
     record: HostRecord
   ): Promise<AgentHostPrivateClientPort & { readonly relay?: AgentHostSocketRelay }> => {
-    const direct = openPrivateClientPort();
+    const direct = openPrivateClientPort(record);
     if (direct) {
       return direct;
     }

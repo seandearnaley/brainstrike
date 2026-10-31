@@ -1,4 +1,5 @@
 // @vitest-environment node
+import type { HostRecord } from '@brainstrike/host-lease';
 import { expect, it, vi } from 'vitest';
 import { createAgentHostPrivateClients } from '../agent-host-private-clients';
 
@@ -9,7 +10,8 @@ vi.mock('electron', () => ({
   },
 }));
 
-function child() {
+function child(pid = 4242) {
+  const record = { pid, start: `start-${pid}` } as HostRecord;
   const exit = Promise.withResolvers<number>();
   const lost = Promise.withResolvers<void>();
   return {
@@ -18,6 +20,7 @@ function child() {
     lose: lost.resolve,
     lost: lost.promise,
     postClientPort: vi.fn(),
+    record,
     stopForRelaunch: vi.fn(() => exit.promise),
   };
 }
@@ -40,21 +43,27 @@ it('stops only the live host this app launched, and nothing once it has exited',
   expect(launched.stopForRelaunch).toHaveBeenCalledOnce();
 });
 
-it('hands a lost host no client port, even before its exit is reported', async () => {
+it('refuses a frame of a launched host that is gone, and never treats it as external', async () => {
   const clients = createAgentHostPrivateClients();
   const launched = child();
   clients.attach(launched);
-  expect(clients.open()).toBeDefined();
+  expect(clients.open(launched.record)).toBeDefined();
 
-  // Its lifetime channel closed with the process; Electron has not reported the exit yet.
+  // Its lifetime channel closed with the process; Electron has not reported the exit yet,
+  // and the profile may still hand out its record.
   launched.lose();
   await launched.lost;
   await Promise.resolve();
-  expect(clients.open()).toBeUndefined();
+  expect(() => clients.open(launched.record)).toThrow(
+    expect.objectContaining({ failure: expect.objectContaining({ kind: 'refusal' }) })
+  );
   expect(launched.postClientPort).toHaveBeenCalledOnce();
 
-  const replacement = child();
+  // A host this app did not launch gets no private port.
+  expect(clients.open(child(7).record)).toBeUndefined();
+
+  const replacement = child(4343);
   clients.attach(replacement);
-  expect(clients.open()).toBeDefined();
+  expect(clients.open(replacement.record)).toBeDefined();
   expect(replacement.postClientPort).toHaveBeenCalledOnce();
 });

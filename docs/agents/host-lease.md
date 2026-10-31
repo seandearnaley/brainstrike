@@ -84,21 +84,20 @@ start has a different lifetime. A CLI host no client ever attached closes once i
 startup grace has elapsed and no run lease is held, including a run it recovered on
 start that releases after the grace. A client its launcher connects privately (a
 port, not the socket) counts as attached like a socket client. Main gives each
-authorized renderer frame a port, chosen only by who launched the host:
+authorized renderer frame a port, chosen by which host the profile's attachment
+names:
 
 - The host this app launched: one end of such a private channel, the host holding
   the other as the desktop origin. Main forwards nothing.
-- A host the app only attached to (a CLI `host start`): Main relays the port over
+- A host the app did not launch (a CLI `host start`): Main relays the port over
   that host's public socket (`agent-host-socket-relay.ts`), as a `public-socket`
   client, until host lifetime work picks a transport for hosts Main does not own.
+- The host this app launched, once gone (its lifetime channel closed or it
+  exited) while the profile has yet to admit a replacement: an `availability`
+  refusal, never the socket.
 
-The frame owns its port either way, and it closes with the frame's document. When
-the host side closes, the port's `close` event disposes the frame's connection, so
-requests fail at once. The frame reconnects only when Main reports the host gone:
-its lifetime channel closed or it exited (a launched host), or the relay's socket
-closed. Main hands no private port to a host it holds as gone, so the reconnect
-reaches the replacement; a frame reconnecting on its own port's close would race
-Main and could get a port to the dead host.
+The frame owns its port, which closes with its document. Main tells the frame when
+the host is gone, and the frame connects again through the same call.
 
 Cooperative close fences admission, joins
 Core/platform/native tails and SQLite, then removes discovery and releases Root.

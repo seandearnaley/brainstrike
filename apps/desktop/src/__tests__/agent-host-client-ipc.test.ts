@@ -58,10 +58,12 @@ interface Port extends EventEmitter {
   postMessage(data: unknown): void;
 }
 
-const attachment = { record: { protocolVersion: AGENT_HOST_PROTOCOL_VERSION } } as HostAttachment;
+const record = { pid: 4242, protocolVersion: AGENT_HOST_PROTOCOL_VERSION, start: 'start-4242' };
+const attachment = { record } as HostAttachment;
 
 /** The host this app launched; it echoes whatever its private clients send. */
-function launchedHost() {
+function launchedHost(identity: Partial<typeof record> = {}) {
+  const hostRecord = { ...record, ...identity } as HostAttachment['record'];
   const exit = Promise.withResolvers<number>();
   const lost = Promise.withResolvers<void>();
   const ports: Port[] = [];
@@ -76,6 +78,7 @@ function launchedHost() {
       hostEnd.on('message', ({ data }: { data: unknown }) => hostEnd.postMessage({ echo: data }));
       ports.push(hostEnd);
     },
+    record: hostRecord,
     stopForRelaunch: () => exit.promise,
   };
 }
@@ -107,7 +110,9 @@ function setup() {
   const host = launchedHost();
   const clients = createAgentHostPrivateClients();
   clients.attach(host);
-  const ipc = registerAgentHostClientIpc(async () => attachment, clients.open);
+  // The profile's current attachment; a test moves it to a replacement host.
+  const profile = { attachment };
+  const ipc = registerAgentHostClientIpc(async () => profile.attachment, clients.open);
   const connect = (frame: ReturnType<typeof rendererFrame>) =>
     invokeDesktopIpcFrom(
       ipcMain,
@@ -115,7 +120,7 @@ function setup() {
       DESKTOP_IPC_CHANNELS.agent.hostConnect,
       crypto.randomUUID()
     );
-  return { clients, connect, host, ipc };
+  return { clients, connect, host, ipc, profile };
 }
 
 const open: Port[] = [];
@@ -156,7 +161,7 @@ describe('a renderer client of the agent host', () => {
   });
 
   it('is told once Main holds the host as gone, and its reconnect reaches the replacement', async () => {
-    const { clients, connect, host, ipc } = setup();
+    const { clients, connect, host, ipc, profile } = setup();
     const frame = rendererFrame();
     const requestId = crypto.randomUUID();
     await invokeDesktopIpcFrom(
@@ -185,9 +190,16 @@ describe('a renderer client of the agent host', () => {
         payload: { requestId },
       })
     );
-    // So the frame's reconnect never reaches the dead host: it waits for the replacement.
-    const replacement = launchedHost();
+    // A reconnect while the profile still names the dead host is refused as unavailable,
+    // never sent to that host's socket as if a CLI had started it.
+    await expect(connect(frame)).resolves.toMatchObject({
+      error: { category: 'availability', code: 'host.stopped' },
+      ok: false,
+    });
+    // The profile admits the replacement, which receives the new client.
+    const replacement = launchedHost({ pid: 4343, start: 'start-4343' });
     clients.attach(replacement);
+    profile.attachment = { record: replacement.record } as HostAttachment;
     await expect(connect(frame)).resolves.toEqual({ ok: true, value: undefined });
     expect(host.ports).toHaveLength(1);
     expect(replacement.ports).toHaveLength(1);
