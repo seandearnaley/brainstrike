@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext } from 'react';
 
 /** Panel layout; `sizes` is `[left, right, console]` as percentages. */
 export interface PanelLayoutState {
@@ -34,10 +34,7 @@ export function PanelLayoutProvider({
   controlledState,
   onChange,
 }: PanelLayoutProviderProps) {
-  const value = useMemo(
-    () => ({ ...controlledState, setState: onChange }),
-    [controlledState, onChange]
-  );
+  const value = { ...controlledState, setState: onChange };
 
   return <PanelLayoutContext.Provider value={value}>{children}</PanelLayoutContext.Provider>;
 }

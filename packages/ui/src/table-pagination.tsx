@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from './button';
 import { useResizeObserver } from './hooks/use-resize-observer';
 import { Input } from './input';
@@ -379,36 +379,36 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   // When focused, show user's edit; when not focused, always show current page
   const inputValue = isFocused ? editValue : String(displayPage);
 
-  const goToFirstPage = useCallback(() => {
+  const goToFirstPage = () => {
     onPageChange(0);
-  }, [onPageChange]);
+  };
 
-  const goToPreviousPage = useCallback(() => {
+  const goToPreviousPage = () => {
     onPageChange(Math.max(currentPage - 1, 0));
-  }, [currentPage, onPageChange]);
+  };
 
-  const goToNextPage = useCallback(() => {
+  const goToNextPage = () => {
     if (totalPages > 0) {
       onPageChange(Math.min(currentPage + 1, totalPages - 1));
     }
-  }, [currentPage, totalPages, onPageChange]);
+  };
 
-  const goToLastPage = useCallback(() => {
+  const goToLastPage = () => {
     if (totalPages > 0) {
       onPageChange(totalPages - 1);
     }
-  }, [totalPages, onPageChange]);
+  };
 
-  const handleInputFocus = useCallback(() => {
+  const handleInputFocus = () => {
     setIsFocused(true);
     setEditValue(String(displayPage));
-  }, [displayPage]);
+  };
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setEditValue(e.target.value);
-  }, []);
+  };
 
-  const handleInputBlur = useCallback(() => {
+  const handleInputBlur = () => {
     const parsed = Number.parseInt(editValue, 10);
     setIsFocused(false);
     if (Number.isNaN(parsed) || parsed < 1) {
@@ -420,26 +420,23 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     if (clampedPage !== displayPage) {
       onPageChange(clampedPage - 1);
     }
-  }, [editValue, displayPage, totalPages, onPageChange]);
+  };
 
-  const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.currentTarget.blur();
     } else if (e.key === 'Escape') {
       setIsFocused(false);
       e.currentTarget.blur();
     }
-  }, []);
+  };
 
-  const handlePageSizeChange = useCallback(
-    (value: string) => {
-      const newPageSize = Number.parseInt(value, 10);
-      if (!Number.isNaN(newPageSize) && onPageSizeChange) {
-        onPageSizeChange(newPageSize);
-      }
-    },
-    [onPageSizeChange]
-  );
+  const handlePageSizeChange = (value: string) => {
+    const newPageSize = Number.parseInt(value, 10);
+    if (!Number.isNaN(newPageSize) && onPageSizeChange) {
+      onPageSizeChange(newPageSize);
+    }
+  };
 
   // Ensure we have valid page size options (fallback to defaults if empty array passed)
   const actualPageSizeOptions =
@@ -450,13 +447,13 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   const startItem = totalItems === 0 ? 0 : currentPage * effectivePageSize + 1;
   const endItem = Math.min((currentPage + 1) * effectivePageSize, totalItems);
 
-  const handleContainerResize = useCallback((entry: ResizeObserverEntry) => {
+  const handleContainerResize = (entry: ResizeObserverEntry) => {
     const width = Math.round(entry.contentRect.width);
     if (!Number.isFinite(width) || width <= 0) {
       return;
     }
     setContainerWidth((previousWidth) => (previousWidth === width ? previousWidth : width));
-  }, []);
+  };
 
   useIsomorphicLayoutEffect(() => {
     // Reduce initial-density flash by measuring once on mount before paint when possible.
@@ -492,18 +489,14 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   const isMicroDensity = resolvedDensity === 'micro';
   const isMinimalDensity = resolvedDensity === 'mini' || isMicroDensity;
   const shouldRenderRangeSummary = !isMinimalDensity && (showItemRange || pageInfo !== undefined);
-  const rangeSummary = useMemo(
-    () =>
-      formatRangeSummary({
-        endItem,
-        pageInfo,
-        resolvedDensity,
-        showItemRange,
-        startItem,
-        totalItems,
-      }),
-    [showItemRange, pageInfo, totalItems, resolvedDensity, startItem, endItem]
-  );
+  const rangeSummary = formatRangeSummary({
+    endItem,
+    pageInfo,
+    resolvedDensity,
+    showItemRange,
+    startItem,
+    totalItems,
+  });
 
   if (shouldHide) {
     return null;

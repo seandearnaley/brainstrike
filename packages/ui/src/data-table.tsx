@@ -75,28 +75,25 @@ export function DataTable<TData>({
 
   const totalPages = Math.ceil(data.length / pageSize);
 
-  const handleSort = React.useCallback(
-    (columnId: string) => {
-      if (!sorting?.enabled) {
-        return;
+  const handleSort = (columnId: string) => {
+    if (!sorting?.enabled) {
+      return;
+    }
+
+    let newDirection: 'asc' | 'desc' | null = 'asc';
+
+    if (sortColumn === columnId) {
+      if (sortDirection === 'asc') {
+        newDirection = 'desc';
+      } else if (sortDirection === 'desc') {
+        newDirection = null;
       }
+    }
 
-      let newDirection: 'asc' | 'desc' | null = 'asc';
-
-      if (sortColumn === columnId) {
-        if (sortDirection === 'asc') {
-          newDirection = 'desc';
-        } else if (sortDirection === 'desc') {
-          newDirection = null;
-        }
-      }
-
-      setSortColumn(newDirection ? columnId : null);
-      setSortDirection(newDirection);
-      sorting.onSortChange?.(columnId, newDirection);
-    },
-    [sorting, sortColumn, sortDirection]
-  );
+    setSortColumn(newDirection ? columnId : null);
+    setSortDirection(newDirection);
+    sorting.onSortChange?.(columnId, newDirection);
+  };
 
   if (data.length === 0) {
     return (

@@ -1,13 +1,6 @@
 /// <reference path="../vite-env.d.ts" />
 import 'katex/dist/katex.min.css';
-import {
-  isValidElement,
-  type ReactNode,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from 'react';
+import { isValidElement, type ReactNode, useLayoutEffect, useRef } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import rehypeSlug from 'rehype-slug';
@@ -87,7 +80,7 @@ export function MarkdownSurface({
   value,
 }: MarkdownSurfaceProps) {
   const containerRef = useRef<HTMLElement | null>(null);
-  const frontmatter = useMemo(() => extractFrontmatter(value), [value]);
+  const frontmatter = extractFrontmatter(value);
 
   // Mount-only restore, mirroring CodeSurface's contract: an imperative one-time
   // scroll restore, not derived state. The ref freezes the mount-time value so
@@ -101,13 +94,13 @@ export function MarkdownSurface({
     }
   }, []);
 
-  const handleScroll = useCallback(() => {
+  const handleScroll = () => {
     if (containerRef.current) {
       onScrollTopChange?.(containerRef.current.scrollTop);
     }
-  }, [onScrollTopChange]);
+  };
 
-  const handleContextMenu = useCallback(() => {
+  const handleContextMenu = () => {
     if (!onContextMenuSelection) {
       return;
     }
@@ -127,67 +120,61 @@ export function MarkdownSurface({
     }
     const text = selection.toString();
     onContextMenuSelection({ text: text.length > 0 ? text : null });
-  }, [onContextMenuSelection]);
+  };
 
-  const handleLinkClick = useCallback(
-    (href: string) => {
-      if (href.startsWith('#')) {
-        // Anchor navigation is a best-effort affordance. A malformed anchor (e.g. "#%")
-        // makes decodeURIComponent throw, and click-handler throws aren't caught by React
-        // error boundaries. Scrolling is a pure convenience (no data loss on failure), so
-        // swallow the decode/scroll error and simply don't scroll rather than crash.
-        try {
-          const id = decodeURIComponent(href.slice(1));
-          containerRef.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          });
-        } catch {
-          // Malformed anchor — no-op (scrolling is an optional affordance).
-        }
-        return;
+  const handleLinkClick = (href: string) => {
+    if (href.startsWith('#')) {
+      // Anchor navigation is a best-effort affordance. A malformed anchor (e.g. "#%")
+      // makes decodeURIComponent throw, and click-handler throws aren't caught by React
+      // error boundaries. Scrolling is a pure convenience (no data loss on failure), so
+      // swallow the decode/scroll error and simply don't scroll rather than crash.
+      try {
+        const id = decodeURIComponent(href.slice(1));
+        containerRef.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      } catch {
+        // Malformed anchor — no-op (scrolling is an optional affordance).
       }
-      onOpenLink(href);
-    },
-    [onOpenLink]
-  );
+      return;
+    }
+    onOpenLink(href);
+  };
 
-  const components = useMemo<Components>(
-    () => ({
-      a: ({ children, href }) => {
-        const choices = href ? (linkChoices?.(href) ?? null) : null;
-        const anchor = (
-          <a
-            href={href ?? '#'}
-            onClick={(event) => {
-              event.preventDefault();
-              if (href && !choices) {
-                handleLinkClick(href);
-              }
-            }}
-          >
-            {children}
-          </a>
-        );
-        return choices ? <LinkChoiceMenu choices={choices}>{anchor}</LinkChoiceMenu> : anchor;
-      },
-      img: ({ alt, src }) =>
-        typeof src === 'string' ? (
-          <MarkdownImage alt={alt ?? ''} key={src} resolveImageSrc={resolveImageSrc} src={src} />
-        ) : null,
-      pre: ({ children }) => {
-        const fenced = extractFencedCode(children);
-        if (!fenced) {
-          return <pre>{children}</pre>;
-        }
-        if (fenced.language === 'mermaid') {
-          return <MermaidBlock code={fenced.code} key={fenced.code} />;
-        }
-        return <MarkdownCodeBlock code={fenced.code} language={fenced.language} />;
-      },
-    }),
-    [handleLinkClick, linkChoices, resolveImageSrc]
-  );
+  const components: Components = {
+    a: ({ children, href }) => {
+      const choices = href ? (linkChoices?.(href) ?? null) : null;
+      const anchor = (
+        <a
+          href={href ?? '#'}
+          onClick={(event) => {
+            event.preventDefault();
+            if (href && !choices) {
+              handleLinkClick(href);
+            }
+          }}
+        >
+          {children}
+        </a>
+      );
+      return choices ? <LinkChoiceMenu choices={choices}>{anchor}</LinkChoiceMenu> : anchor;
+    },
+    img: ({ alt, src }) =>
+      typeof src === 'string' ? (
+        <MarkdownImage alt={alt ?? ''} key={src} resolveImageSrc={resolveImageSrc} src={src} />
+      ) : null,
+    pre: ({ children }) => {
+      const fenced = extractFencedCode(children);
+      if (!fenced) {
+        return <pre>{children}</pre>;
+      }
+      if (fenced.language === 'mermaid') {
+        return <MermaidBlock code={fenced.code} key={fenced.code} />;
+      }
+      return <MarkdownCodeBlock code={fenced.code} language={fenced.language} />;
+    },
+  };
 
   return (
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: read-only document surface exposes a standard context menu without changing its region semantics

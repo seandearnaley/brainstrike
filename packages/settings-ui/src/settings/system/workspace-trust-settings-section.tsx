@@ -13,7 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   describeWorkspaceAgentConfiguration,
   type WorkspaceTrustCapability,
@@ -83,7 +83,7 @@ export function WorkspaceTrustSettingsSection({
     };
   }, [trust, generation]);
 
-  const reload = useCallback(() => setGeneration((value) => value + 1), []);
+  const reload = () => setGeneration((value) => value + 1);
 
   const decide = async (root: WorkspaceTrustRoot, decision: WorkspaceTrustDecision) => {
     if (!trust) {

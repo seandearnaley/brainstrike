@@ -153,45 +153,34 @@ export function useColumnSizing<T>({
   // resizes or external mid-drag mutations are added later, this `setWidth`
   // needs to read latest sizes via a ref to avoid silently reverting the
   // other change.
-  const setWidth = React.useCallback(
-    (columnId: string, nextWidth: number) => {
-      const bounds = boundsById.get(columnId);
-      if (!bounds?.resizable) {
-        return;
-      }
-      const clamped = clampWidth(nextWidth, bounds);
-      const current = resolvedSizes[columnId];
-      if (current === clamped) {
-        return;
-      }
-      // Preserve persisted widths for columns that are not currently
-      // rendered (e.g. an Explorer metadata column hidden by its visibility
-      // toggle). Starting from
-      // `controlledSizes` rather than `resolvedSizes` keeps those entries
-      // intact so the downstream persistence store doesn't wipe them when it
-      // sanitizes the next map back into storage. Uncontrolled mode falls
-      // back to the resolved snapshot since there is no consumer-owned map.
-      const baseMap = isControlled
-        ? { ...(controlledSizes ?? {}), ...resolvedSizes }
-        : resolvedSizes;
-      const nextMap: Record<string, number> = { ...baseMap, [columnId]: clamped };
-      if (!isControlled) {
-        setInternalSizes(nextMap);
-      }
-      onSizesChange?.(nextMap);
-    },
-    [boundsById, controlledSizes, isControlled, onSizesChange, resolvedSizes]
-  );
+  const setWidth = (columnId: string, nextWidth: number) => {
+    const bounds = boundsById.get(columnId);
+    if (!bounds?.resizable) {
+      return;
+    }
+    const clamped = clampWidth(nextWidth, bounds);
+    const current = resolvedSizes[columnId];
+    if (current === clamped) {
+      return;
+    }
+    // Preserve persisted widths for columns that are not currently
+    // rendered (e.g. an Explorer metadata column hidden by its visibility
+    // toggle). Starting from
+    // `controlledSizes` rather than `resolvedSizes` keeps those entries
+    // intact so the downstream persistence store doesn't wipe them when it
+    // sanitizes the next map back into storage. Uncontrolled mode falls
+    // back to the resolved snapshot since there is no consumer-owned map.
+    const baseMap = isControlled ? { ...(controlledSizes ?? {}), ...resolvedSizes } : resolvedSizes;
+    const nextMap: Record<string, number> = { ...baseMap, [columnId]: clamped };
+    if (!isControlled) {
+      setInternalSizes(nextMap);
+    }
+    onSizesChange?.(nextMap);
+  };
 
-  const getWidth = React.useCallback(
-    (columnId: string) => resolvedSizes[columnId],
-    [resolvedSizes]
-  );
+  const getWidth = (columnId: string) => resolvedSizes[columnId];
 
-  const isResizable = React.useCallback(
-    (columnId: string) => boundsById.get(columnId)?.resizable ?? false,
-    [boundsById]
-  );
+  const isResizable = (columnId: string) => boundsById.get(columnId)?.resizable ?? false;
 
   return { getWidth, isResizable, setWidth, sizes: resolvedSizes };
 }

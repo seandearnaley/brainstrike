@@ -122,12 +122,9 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
   }, [value, minRows, maxRows, minHeight]);
 
   // Handle change
-  const handleChange = React.useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      onChange(e.target.value);
-    },
-    [onChange]
-  );
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    onChange(e.target.value);
+  };
 
   // Native default is rows=2 (~56px with py-2 + text-sm), which fights minHeight/maxRows=1.
   // rows=minRows keeps intrinsic height to one row until the measure effect sets inline height.

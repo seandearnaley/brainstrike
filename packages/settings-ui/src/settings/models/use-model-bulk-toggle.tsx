@@ -1,6 +1,6 @@
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { ToastAction, useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { pluralize, pluralNoun } from './catalog-format';
 import type { ModelToggleController } from './use-model-toggle';
 
@@ -70,54 +70,48 @@ export function useModelBulkToggle({
     busyRef.current = busyModelIds;
   }, [busyModelIds]);
 
-  const undo = useCallback(
-    async (previous: ReadonlyMap<string, boolean>, target: boolean): Promise<void> => {
-      const restorable = restorableEntries(previous, target, busyRef.current);
-      if (restorable.size === 0) {
-        toast({ title: 'Nothing to undo' });
-        return;
-      }
-      const { disable, enable } = groupByPreviousState(restorable);
-      // A failed write already raised toggleMany's destructive toast; stop there.
-      if (enable.length > 0 && !(await toggleMany(enable, true)).committed) {
-        return;
-      }
-      if (disable.length > 0 && !(await toggleMany(disable, false)).committed) {
-        return;
-      }
-      toast({
-        title:
-          restorable.size === previous.size
-            ? `Restored ${pluralize(previous.size, 'model')}`
-            : `Restored ${restorable.size} of ${pluralize(previous.size, 'model')}`,
-      });
-    },
-    [toast, toggleMany]
-  );
+  const undo = async (previous: ReadonlyMap<string, boolean>, target: boolean): Promise<void> => {
+    const restorable = restorableEntries(previous, target, busyRef.current);
+    if (restorable.size === 0) {
+      toast({ title: 'Nothing to undo' });
+      return;
+    }
+    const { disable, enable } = groupByPreviousState(restorable);
+    // A failed write already raised toggleMany's destructive toast; stop there.
+    if (enable.length > 0 && !(await toggleMany(enable, true)).committed) {
+      return;
+    }
+    if (disable.length > 0 && !(await toggleMany(disable, false)).committed) {
+      return;
+    }
+    toast({
+      title:
+        restorable.size === previous.size
+          ? `Restored ${pluralize(previous.size, 'model')}`
+          : `Restored ${restorable.size} of ${pluralize(previous.size, 'model')}`,
+    });
+  };
 
-  return useCallback(
-    async ({ enabled, modelIds, scopeLabel }: ModelBulkChange): Promise<boolean> => {
-      const outcome = await toggleMany(modelIds, enabled);
-      if (!outcome.committed) {
-        return false;
-      }
-      const { previous } = outcome;
-      toast({
-        action: (
-          <ToastAction
-            altText={`Undo: restore ${pluralize(previous.size, 'model')}`}
-            data-testid="model-bulk-undo"
-            onClick={() => {
-              void undo(previous, enabled);
-            }}
-          >
-            Undo
-          </ToastAction>
-        ),
-        title: `${enabled ? 'Enabled' : 'Disabled'} ${previous.size} ${scopeLabel} ${pluralNoun(previous.size, 'model')}`,
-      });
-      return true;
-    },
-    [toast, toggleMany, undo]
-  );
+  return async ({ enabled, modelIds, scopeLabel }: ModelBulkChange): Promise<boolean> => {
+    const outcome = await toggleMany(modelIds, enabled);
+    if (!outcome.committed) {
+      return false;
+    }
+    const { previous } = outcome;
+    toast({
+      action: (
+        <ToastAction
+          altText={`Undo: restore ${pluralize(previous.size, 'model')}`}
+          data-testid="model-bulk-undo"
+          onClick={() => {
+            void undo(previous, enabled);
+          }}
+        >
+          Undo
+        </ToastAction>
+      ),
+      title: `${enabled ? 'Enabled' : 'Disabled'} ${previous.size} ${scopeLabel} ${pluralNoun(previous.size, 'model')}`,
+    });
+    return true;
+  };
 }

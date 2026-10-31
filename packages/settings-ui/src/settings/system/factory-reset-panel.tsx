@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/app-state/factory-reset';
 import { createLogger } from '@brainstrike/logging';
 import { Button } from '@brainstrike/ui';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { reloadThroughLifecycle } from './reload-through-lifecycle';
 
 const logger = createLogger('FactoryResetPanel');
@@ -60,7 +60,7 @@ export function FactoryResetPanel() {
   const unavailableReason = getDesktopResetCapability()?.unavailableReason;
   const resetAvailable = !unavailableReason && desktopResetAvailable;
 
-  const handleClick = useCallback(async () => {
+  const handleClick = async () => {
     if (getDesktopResetCapability()?.unavailableReason) {
       return;
     }
@@ -92,7 +92,7 @@ export function FactoryResetPanel() {
       });
       await reloadThroughLifecycle('factory-reset-failed-after-renderer-clear', logger);
     }
-  }, []);
+  };
 
   return (
     <div className="bg-destructive/5 space-y-1 rounded-md border p-3">

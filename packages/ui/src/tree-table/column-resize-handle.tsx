@@ -86,121 +86,112 @@ export function ColumnResizeHandle({
     []
   );
 
-  const handlePointerDown = React.useCallback(
-    (event: React.PointerEvent<HTMLSpanElement>) => {
-      if (event.button !== 0) {
+  const handlePointerDown = (event: React.PointerEvent<HTMLSpanElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    stopAllPropagation(event);
+    event.preventDefault();
+    setIsResizing(true);
+
+    const target = event.currentTarget;
+    // Use setPointerCapture so pointer move/up events keep firing on the
+    // handle even when the cursor moves outside the header cell.
+    if (typeof target.setPointerCapture === 'function') {
+      try {
+        target.setPointerCapture(event.pointerId);
+      } catch {
+        // Some test environments (JSDOM) lack pointer-capture support.
+      }
+    }
+
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startWidth: currentWidth,
+    };
+
+    const handleMove = (moveEvent: PointerEvent): void => {
+      const state = dragStateRef.current;
+      if (!state || state.pointerId !== moveEvent.pointerId) {
         return;
       }
-      stopAllPropagation(event);
-      event.preventDefault();
-      setIsResizing(true);
+      const delta = moveEvent.clientX - state.startClientX;
+      const next = clampWidth(state.startWidth + delta, bounds);
+      onResize(columnId, next);
+    };
 
-      const target = event.currentTarget;
-      // Use setPointerCapture so pointer move/up events keep firing on the
-      // handle even when the cursor moves outside the header cell.
-      if (typeof target.setPointerCapture === 'function') {
-        try {
-          target.setPointerCapture(event.pointerId);
-        } catch {
-          // Some test environments (JSDOM) lack pointer-capture support.
-        }
+    const detachListeners = (): void => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleEnd);
+      window.removeEventListener('pointercancel', handleEnd);
+    };
+
+    const handleEnd = (endEvent: PointerEvent): void => {
+      const state = dragStateRef.current;
+      if (!state || state.pointerId !== endEvent.pointerId) {
+        return;
       }
+      const delta = endEvent.clientX - state.startClientX;
+      const final = clampWidth(state.startWidth + delta, bounds);
+      onResize(columnId, final);
+      dragStateRef.current = null;
+      dragCleanupRef.current = null;
+      setIsResizing(false);
+      detachListeners();
+    };
 
-      dragStateRef.current = {
-        pointerId: event.pointerId,
-        startClientX: event.clientX,
-        startWidth: currentWidth,
-      };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleEnd);
+    window.addEventListener('pointercancel', handleEnd);
+    // Stash a tear-down so the unmount-cleanup effect can sever listeners
+    // even if pointerup/pointercancel never fire (e.g., component unmounts
+    // while the user is mid-drag).
+    dragCleanupRef.current = () => {
+      dragStateRef.current = null;
+      detachListeners();
+    };
+  };
 
-      const handleMove = (moveEvent: PointerEvent): void => {
-        const state = dragStateRef.current;
-        if (!state || state.pointerId !== moveEvent.pointerId) {
-          return;
-        }
-        const delta = moveEvent.clientX - state.startClientX;
-        const next = clampWidth(state.startWidth + delta, bounds);
-        onResize(columnId, next);
-      };
-
-      const detachListeners = (): void => {
-        window.removeEventListener('pointermove', handleMove);
-        window.removeEventListener('pointerup', handleEnd);
-        window.removeEventListener('pointercancel', handleEnd);
-      };
-
-      const handleEnd = (endEvent: PointerEvent): void => {
-        const state = dragStateRef.current;
-        if (!state || state.pointerId !== endEvent.pointerId) {
-          return;
-        }
-        const delta = endEvent.clientX - state.startClientX;
-        const final = clampWidth(state.startWidth + delta, bounds);
-        onResize(columnId, final);
-        dragStateRef.current = null;
-        dragCleanupRef.current = null;
-        setIsResizing(false);
-        detachListeners();
-      };
-
-      window.addEventListener('pointermove', handleMove);
-      window.addEventListener('pointerup', handleEnd);
-      window.addEventListener('pointercancel', handleEnd);
-      // Stash a tear-down so the unmount-cleanup effect can sever listeners
-      // even if pointerup/pointercancel never fire (e.g., component unmounts
-      // while the user is mid-drag).
-      dragCleanupRef.current = () => {
-        dragStateRef.current = null;
-        detachListeners();
-      };
-    },
-    [bounds, columnId, currentWidth, onResize]
-  );
-
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLSpanElement>) => {
-      const step = event.shiftKey ? COARSE_STEP : FINE_STEP;
-      let next: number | null = null;
-      switch (event.key) {
-        case 'ArrowLeft':
-          next = currentWidth - step;
-          break;
-        case 'ArrowRight':
-          next = currentWidth + step;
-          break;
-        case 'Home':
-          next = bounds.minWidth;
-          break;
-        case 'End':
-          next = bounds.maxWidth;
-          break;
-        default:
-          return;
-      }
-      stopAllPropagation(event);
-      event.preventDefault();
-      onResize(columnId, clampWidth(next, bounds));
-    },
-    [bounds, columnId, currentWidth, onResize]
-  );
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLSpanElement>) => {
+    const step = event.shiftKey ? COARSE_STEP : FINE_STEP;
+    let next: number | null = null;
+    switch (event.key) {
+      case 'ArrowLeft':
+        next = currentWidth - step;
+        break;
+      case 'ArrowRight':
+        next = currentWidth + step;
+        break;
+      case 'Home':
+        next = bounds.minWidth;
+        break;
+      case 'End':
+        next = bounds.maxWidth;
+        break;
+      default:
+        return;
+    }
+    stopAllPropagation(event);
+    event.preventDefault();
+    onResize(columnId, clampWidth(next, bounds));
+  };
 
   // Headers wire their click handler for sort. The handle must not bubble.
-  const handleClick = React.useCallback((event: React.MouseEvent<HTMLSpanElement>) => {
+  const handleClick = (event: React.MouseEvent<HTMLSpanElement>) => {
     stopAllPropagation(event);
-  }, []);
+  };
 
   // Double-click resets the column to its declared defaultWidth — a standard
   // affordance for users who have dragged a column into an unusable size and
   // want a one-gesture escape hatch. Falls back to minWidth when no default
   // is declared so the column never collapses to zero.
-  const handleDoubleClick = React.useCallback(
-    (event: React.MouseEvent<HTMLSpanElement>) => {
-      stopAllPropagation(event);
-      event.preventDefault();
-      const target = bounds.defaultWidth ?? bounds.minWidth;
-      onResize(columnId, clampWidth(target, bounds));
-    },
-    [bounds, columnId, onResize]
-  );
+  const handleDoubleClick = (event: React.MouseEvent<HTMLSpanElement>) => {
+    stopAllPropagation(event);
+    event.preventDefault();
+    const target = bounds.defaultWidth ?? bounds.minWidth;
+    onResize(columnId, clampWidth(target, bounds));
+  };
 
   return (
     /* biome-ignore lint/a11y/useSemanticElements: <hr> cannot host focus, tabIndex, or pointer/keyboard handlers; the WAI-ARIA pattern for an interactive column resize affordance is span[role="separator"]. */

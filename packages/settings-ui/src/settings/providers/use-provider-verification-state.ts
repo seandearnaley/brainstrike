@@ -6,7 +6,7 @@ import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const MAX_VISIBLE_ERROR_CHARS = 300;
 
@@ -82,7 +82,7 @@ export function useProviderVerificationState({
     []
   );
 
-  const verify = useCallback(() => {
+  const verify = () => {
     requestSequence.current += 1;
     const sequence = requestSequence.current;
     activeController.current?.abort();
@@ -107,7 +107,7 @@ export function useProviderVerificationState({
     // change identity when a caller passes an inline closure, and the one
     // effect that fires it is LATCHED, so an unstable identity can no longer
     // re-trigger the probe (the loop this used to cause).
-  }, [onResolved, providerId, verifyProvider]);
+  };
 
   const lookup = state?.providerId === providerId ? state.lookup : IDLE_LOOKUP;
   return { lookup, verify };
