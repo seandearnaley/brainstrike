@@ -1,5 +1,6 @@
+import { VERB_FAMILIES, type VerbFamily } from '@brainstrike/assistant-contract';
 import { type ActivityStep, stepVerbText } from './activity-trace-model';
-import { type ActivityVerb, VERB_FAMILIES, type VerbFamily } from './activity-verbs';
+import type { ActivityVerb } from './activity-verbs';
 
 /**
  * How one activity group lays out a long run (activity trace at scale): folded

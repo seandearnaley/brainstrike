@@ -8,6 +8,7 @@ import { AskUserInputSchema } from '../schemas/schemas-tasks.ts';
 // It mutates no workspace/fs/persistent-user state. An `action` tool MUST
 // declare riskCategory explicitly (tool-risk.ts throws otherwise).
 export const askUser = defineNativeTool({
+  activity: { active: 'Asking', done: 'Asked', family: 'ask', request: 'Ask' },
   defaults: {
     category: 'action',
     estimatedTokens: 120,

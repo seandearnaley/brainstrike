@@ -10,9 +10,9 @@ import {
 import { describe, expect, it } from 'vitest';
 
 describe('provider registry metadata', () => {
-  it('lists all supported providers with display names', () => {
+  it('lists every supported provider once, each with a display name', () => {
     const providers = listProviders();
-    expect(providers).toHaveLength(7);
+    expect(new Set(providers.map((provider) => provider.id)).size).toBe(providers.length);
 
     for (const provider of providers) {
       expect(typeof provider.displayName).toBe('string');

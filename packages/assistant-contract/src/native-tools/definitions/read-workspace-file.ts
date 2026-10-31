@@ -4,6 +4,13 @@ import { ReadWorkspaceFileInputSchema } from '../schemas/schemas-workspace.ts';
 
 // Core workspace reading tools
 export const readWorkspaceFile = defineNativeTool({
+  activity: {
+    active: 'Reading',
+    countsFiles: 'plural',
+    done: 'Read',
+    family: 'read',
+    request: 'Read',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 140,

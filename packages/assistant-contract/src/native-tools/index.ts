@@ -123,10 +123,12 @@ export {
   describeAvailableDeferredCapabilityFamilies,
 } from './capability-families.ts';
 export {
+  type ActivityFileCountMode,
   type DeferredCapabilityFamilyPhrase,
   type DesktopNativeToolDefinition,
   defineNativeTool,
   InvalidNativeToolDefinitionError,
+  type NativeToolActivity,
   type NativeToolDefinition,
   type NativeToolDiscoveryNamespace,
   type NativeToolExecutionBudget,
@@ -134,6 +136,8 @@ export {
   type NativeToolNameResolver,
   type NativeToolSurface,
   type SkillNativeToolDefinition,
+  VERB_FAMILIES,
+  type VerbFamily,
 } from './define.ts';
 export {
   deriveNativeToolRegistries,

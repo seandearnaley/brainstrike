@@ -5,6 +5,13 @@ import { WriteWorkspaceFileInputSchema } from '../schemas/schemas-workspace.ts';
 // First mutation tool: writes/creates a workspace file. riskCategory 'edit' so
 // the Phase 1 permission engine gates it when enforcement is on.
 export const writeWorkspaceFile = defineNativeTool({
+  activity: {
+    active: 'Editing',
+    countsFiles: 'always',
+    done: 'Edited',
+    family: 'edit',
+    request: 'Edit',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 140,

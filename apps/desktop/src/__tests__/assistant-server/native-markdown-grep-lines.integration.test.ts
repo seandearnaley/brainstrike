@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import { canonicalIndexPayload } from '@brainstrike/canonical-ingestion';
 import { createNodeChunker } from '@brainstrike/chunking-worker/node';
-import { GrepSearchService } from '@brainstrike/host-capabilities/grep-search';
+import { collectGrepMatchesInContent } from '@brainstrike/host-capabilities/grep-search';
 import { runGrepSearchWith } from '@brainstrike/host-capabilities/native-tools';
 import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import { SqliteQueryClient, spawnQueryProcess } from '@brainstrike/sqlite-query';
+import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { expect, it } from 'vitest';
 
 /**
@@ -169,7 +170,8 @@ it('reports each markdown hit on its source line, once, through the real index a
     const expected = needleLines(source);
     expect(expected.length).toBeGreaterThanOrEqual(7);
 
-    // The index's grep, matched to lines by the shared grep service.
+    // The index's grep: each hit's chunk content, matched line by line from the
+    // chunk's start line, lands on the needle's source line.
     const found = await capability.grep({
       caseSensitive: false,
       isRegex: false,
@@ -177,20 +179,23 @@ it('reports each markdown hit on its source line, once, through the real index a
       pattern: needle,
       rootIds: ['root'],
     });
-    const indexed = await new GrepSearchService({
-      findGrepCandidates: async () =>
-        found.hits.map((hit) => ({
-          chunkId: hit.chunkId,
-          content: hit.content,
-          endLine: hit.endLine,
-          filePath: hit.relativePath ?? '',
-          rootId: hit.rootId,
-          startLine: hit.startLine,
-        })),
-    }).search({ contextLines: 0, pattern: needle });
-    expect.soft(indexed.matches.map((match) => match.line)).toEqual(expected);
+    const matcher = createGrepLineMatcher(needle, false, false);
+    const indexed = new Map<number, string>();
+    for (const hit of found.hits) {
+      expect(hit.startLine).not.toBeNull();
+      for (const match of collectGrepMatchesInContent({
+        content: hit.content,
+        contextLines: 0,
+        matcher,
+        path: relativePath,
+        startLine: hit.startLine ?? 0,
+      })) {
+        indexed.set(match.line, match.lineText);
+      }
+    }
+    expect.soft([...indexed.keys()].sort((a, b) => a - b)).toEqual(expected);
     expect
-      .soft(indexed.matches.map((match) => match.lineText))
+      .soft([...indexed.entries()].sort(([a], [b]) => a - b).map(([, text]) => text))
       .toEqual(expected.map((line) => source.split('\n')[line - 1]));
 
     // The agent's grep tool reads the same note on disk.
