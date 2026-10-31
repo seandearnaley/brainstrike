@@ -208,6 +208,19 @@ describe('preload contract-derived bridges', () => {
     expect(callback).toHaveBeenCalledTimes(1);
   });
 
+  it('delivers the app menu Settings… push to onOpenSettings until it unsubscribes', () => {
+    const callback = vi.fn();
+    const unsubscribe = exposedApi('appMenu')['onOpenSettings']?.(callback) as () => void;
+
+    pushFromMain(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined);
+    pushFromMain(DESKTOP_IPC_CHANNELS.commandPalette.open, undefined);
+    expect(callback).toHaveBeenCalledOnce();
+
+    unsubscribe();
+    pushFromMain(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined);
+    expect(callback).toHaveBeenCalledOnce();
+  });
+
   it('omits the retired PostgreSQL integrity owner from the visible preload', () => {
     expect(mockExposeInMainWorld.mock.calls.some(([name]) => name === 'databaseIntegrity')).toBe(
       false

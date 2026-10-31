@@ -27,6 +27,11 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   // Embedded browser (BST-1174). Invoke methods drive the main-process
   // BrowserViewManager; `tabsChanged` is a main→renderer push.
+  appMenu: {
+    // One-way main→renderer push: the app menu's Settings… item (⌘, / Ctrl+,)
+    // triggers this on the FOCUSED window so the renderer opens Settings.
+    openSettings: 'app-menu:open-settings',
+  },
   browser: {
     closeTab: 'browser:closeTab',
     createTab: 'browser:createTab',
