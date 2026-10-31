@@ -11,7 +11,7 @@ const updater = vi.hoisted(() => ({
   logger: null as unknown,
 }));
 
-vi.mock('electron', () => ({ app: { isPackaged: true } }));
+vi.mock('electron', () => ({ app: { getVersion: () => '0.1.0-beta.3', isPackaged: true } }));
 vi.mock('electron-updater', () => ({ default: { autoUpdater: updater } }));
 vi.mock('../../desktop-database-location', () => ({ isIsolatedDesktopTestRun: () => false }));
 
@@ -39,7 +39,7 @@ it('a factory reset deletes the downloaded update and stops one still downloadin
   updater.checkForUpdatesAndNotify.mockReturnValue(check);
   updater.getOrCreateDownloadHelper.mockResolvedValue({ cacheDir });
 
-  checkForAppUpdate();
+  checkForAppUpdate({ get: () => undefined, set: () => undefined });
   await check;
   await clearAppUpdateForReset();
 
