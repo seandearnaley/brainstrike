@@ -272,7 +272,7 @@ function DesktopRendererOutsideElectron() {
       <div className="w-full max-w-3xl rounded-xl border border-amber-400/30 bg-[#111827] p-6 shadow-2xl">
         <h1 className="text-2xl font-semibold">Desktop renderer opened outside Electron</h1>
         <p className="mt-3 text-sm text-slate-200">
-          This page is the BrainStrike desktop renderer. It relies on Electron preload bridges that
+          This page is the Brainstrike desktop renderer. It relies on Electron preload bridges that
           do not exist in a regular browser, so it cannot run here.
         </p>
         <p className="mt-3 text-sm text-slate-300">

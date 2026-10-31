@@ -2096,7 +2096,7 @@ describe('UnifiedToolsSettings', () => {
       const notice = await screen.findByTestId('mcp-config-watch-error');
       expect(notice).toHaveAttribute('role', 'alert');
       expect(notice.textContent).toBe(
-        "BrainStrike can't watch the MCP config file for outside edits: EMFILE: too many open files, watch. Saving or reloading the config retries."
+        "Brainstrike can't watch the MCP config file for outside edits: EMFILE: too many open files, watch. Saving or reloading the config retries."
       );
       act(() => publishConfig?.({ exists: true, path: '/test/mcp.json' }));
       expect(screen.queryByTestId('mcp-config-watch-error')).not.toBeInTheDocument();
