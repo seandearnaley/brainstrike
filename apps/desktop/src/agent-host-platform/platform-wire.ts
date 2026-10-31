@@ -186,7 +186,7 @@ export const PlatformMemoryReadinessSchema = Schema.Union([
 /** BST-1930 stage e: the reads Main serves the host's run admission. */
 export const PlatformCatalogModelSchema = Schema.Struct({ model: Id, provider: Id });
 export const PlatformCatalogModelResultSchema = Schema.NullOr(
-  Schema.Struct({ isEnabled: Schema.Boolean, providerId: Id })
+  Schema.Struct({ isEnabled: Schema.Boolean, providerId: Id, type: Schema.NullOr(Schema.String) })
 );
 export const PlatformObserverCandidatesSchema = Schema.Struct({
   candidates: Schema.mutable(Schema.Array(Id)),

@@ -7,7 +7,7 @@
  * call shows the host's own workspace tools run over its launch root.
  */
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -125,7 +125,7 @@ async function standaloneHost(
     })(JSON.parse(shown.stdout));
     return { result, rows };
   };
-  return { run, started };
+  return { command, run, started, workspace };
 }
 
 type StandaloneHost = Awaited<ReturnType<typeof standaloneHost>>;
@@ -298,4 +298,59 @@ test('the standalone host inspects its launch root with the language server', {
   expect(text).toMatch(/^lsp \| available=true\b/u);
   expect(text).toMatch(/^hover: .*const answer: 42/mu);
   expect(text).toMatch(/^definition \S*main\.ts:1 \| export const answer = 42;$/mu);
+});
+
+test("the standalone host loads a trusted launch root's instructions and the home skills", {
+  timeout: 120_000,
+}, async () => {
+  const home = await mkdtemp(join(tmpdir(), 'bs-trusted-model-home-'));
+  cleanup.push(() => rm(home, { force: true, recursive: true }));
+  await mkdir(join(home, '.brainstrike', 'skills', 'release-notes'), { recursive: true });
+  await writeFile(
+    join(home, '.brainstrike', 'skills', 'release-notes', 'SKILL.md'),
+    '---\nname: release-notes\ndescription: Drafts release notes.\n---\nList every merged change under its ticket.'
+  );
+  // `skill` is a deferred tool: the model loads it by name, then activates the skill.
+  const module = await trustedPlatformModule('trusted-fixture', [
+    { input: { toolName: 'skill' }, toolId: 'load_tool' },
+    { input: { name: 'release-notes' }, toolId: 'skill' },
+  ]);
+  const host = await standaloneHost({ HOME: home, USERPROFILE: home }, module, {
+    'AGENTS.md': 'Every answer cites its ticket.',
+  });
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  // ADR-0032: the launch root's instructions load once the person trusts it.
+  expect(await host.command(['workspace', 'trust', host.workspace, '--yes'])).toMatchObject({
+    code: 0,
+  });
+  const ran = await host.run('trusted-fixture::probe');
+  expect(ran.result, ran.result.stderr).toMatchObject({ code: 0 });
+  const events = (ran.rows ?? []).map((row) => row.event);
+  const started = z
+    .object({
+      snapshot: z.object({
+        configuration: z.object({ childSystem: z.string(), system: z.string() }),
+      }),
+    })
+    .parse(
+      events.find((event) => event.type === 'run.started'),
+      { reportInput: true }
+    );
+  const { childSystem, system } = started.snapshot.configuration;
+  // The run's instructions carry the root's AGENTS.md and the home skill's catalog entry.
+  expect(system).toContain('Every answer cites its ticket.');
+  expect(system).toContain('release-notes');
+  // A delegated child inherits the same workspace context, not the parent's own prompt.
+  expect(childSystem).toContain('Every answer cites its ticket.');
+  expect(childSystem).toContain('release-notes');
+  expect(system.length).toBeGreaterThan(childSystem.length);
+  // The model reads the skill's instructions, loaded from disk by this host.
+  const result = recordedToolResults(ran.rows).find(
+    ({ toolCallId }) => toolCallId === 'recorded-call-2'
+  );
+  expect(
+    z
+      .object({ type: z.literal('text'), value: z.string() })
+      .parse(result?.output, { reportInput: true }).value
+  ).toContain('List every merged change under its ticket.');
 });

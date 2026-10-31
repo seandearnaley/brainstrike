@@ -10,12 +10,12 @@ import {
 } from '@brainstrike/agent';
 import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { readHostSystemContext } from '@brainstrike/host-capabilities/workspace-context';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { readDesktopHostSystemContext } from '../../agent-host-platform/desktop-host-context';
 import { desktopHostToolExecutors } from '../../agent-host-platform/host-executed-tools';
-import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-skills';
+import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-python';
 import {
   buildHostNativeTools,
   nativeRuntimeFor,
@@ -194,7 +194,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // raise is a change of INSTRUMENT, not of authored text. The instruction half
 // used to be `createMastraAgentRuntime(...).agent.getInstructions()` plus a
 // hand-pinned copy of Mastra's SkillsProcessor block. It is now
-// `readDesktopHostSystemContext` — the assembler that gives every production
+// `readHostSystemContext` — the assembler that gives every production
 // host run its system text — so the measured text gained what the engine added
 // through processors rather than inside `getInstructions()`: the current-date
 // note, the context-budget note, and the vendor's real `formatSkillsCatalog`
@@ -347,8 +347,8 @@ function buildPromptBudgetDesktopTools(
 
 /**
  * The system text the PRODUCTION host sends for this tool set, through the
- * desktop host's own assembler. This is the real seam: `readDesktopHostSystemContext`
- * is what `desktop-host-context.ts` gives every run, so the instruction half of
+ * desktop host's own assembler. This is the real seam: `readHostSystemContext`
+ * is what `host-system-context.ts` gives every run, so the instruction half of
  * this budget is measured on the text the model actually receives.
  *
  * It replaces a `createMastraAgentRuntime(...).agent.getInstructions()` call
@@ -381,7 +381,7 @@ async function readDesktopHostSystemContextForBudget(args: {
     })
   );
   vi.useFakeTimers({ now: PROMPT_BUDGET_CLOCK, toFake: ['Date'] });
-  const assembled = await readDesktopHostSystemContext({
+  const assembled = await readHostSystemContext({
     configurationRoots: [],
     inputTokenLimit: PROMPT_BUDGET_INPUT_TOKEN_LIMIT,
     planMode: false,

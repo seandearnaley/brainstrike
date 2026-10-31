@@ -12,11 +12,9 @@ import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring
 import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
 import type { appUpdatesContract } from '../ipc-domains/app-updates.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
-import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
 import type { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
-import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import type { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import type { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -41,13 +39,6 @@ declare global {
      * and the update status with Check now and Restart to update (BST-2356).
      */
     appUpdates?: TransportBridge<typeof appUpdatesContract>;
-    /**
-     * Desktop-only subagent persona discovery bridge. Absent on web (no
-     * preload) — consumers MUST capability-check `window.assistantPersonas`.
-     * The Settings -> Subagents panel calls `list` to show built-in +
-     * user-defined personas (including invalid files with their error).
-     */
-    assistantPersonas?: TransportBridge<typeof userPersonasContract>;
     /**
      * Embedded browser bridge (BST-1174). Desktop-only; absent on web.
      * MUST stay in sync with `BrowserBridge` in
@@ -74,12 +65,6 @@ declare global {
     commandPalette?: {
       onOpen: (callback: () => void) => () => void;
     };
-    /**
-     * Desktop-only workspace context-files scan bridge (Settings → Workspace
-     * Instructions), derived from its contract (BST-1648) and pinned equal
-     * to `ContextFilesBridge` in `@brainstrike/assistant-contract`.
-     */
-    contextFiles?: TransportBridge<typeof contextFilesContract>;
     desktopDiagnostics?: DiagnosticEventsReader & {
       getUnseenCounts: typeof mainDiagnosticEventsReader.getUnseenCounts;
       getSnapshot: () => Promise<BoundaryResult<DesktopPlatformDiagnosticsSnapshot>>;

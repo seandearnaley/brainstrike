@@ -84,3 +84,4 @@ export * from './tool-suspend.ts';
 export * from './tool-telemetry.ts';
 export * from './user-personas.ts';
 export * from './user-slash-commands.ts';
+export * from './workspace-context-files.ts';

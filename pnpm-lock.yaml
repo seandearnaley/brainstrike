@@ -2419,9 +2419,15 @@ importers:
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../host-lease
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
       '@brainstrike/tokenization':
         specifier: workspace:*
         version: link:../tokenization
@@ -2468,9 +2474,6 @@ importers:
         specifier: 'catalog:'
         version: 4.6.7
     devDependencies:
-      '@brainstrike/secure-fs-native':
-        specifier: workspace:*
-        version: link:../secure-fs-native
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store

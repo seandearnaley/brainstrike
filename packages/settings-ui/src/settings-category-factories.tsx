@@ -27,7 +27,10 @@ import {
   SavedBrowserOriginsSection,
 } from './settings/system/saved-browser-origins-section';
 import { SearchIndexSettingsSection } from './settings/system/search-index-settings-section';
-import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
+import {
+  SubagentPersonasSettingsSection,
+  type SubagentPersonasSettingsSectionProps,
+} from './settings/system/subagent-personas-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 import {
   WorktreeSettingsSection,
@@ -229,11 +232,13 @@ export function createAssistantMemorySettingsCategory({
   };
 }
 
-export function createSubagentPersonasSettingsCategory(): SettingsCategory {
+export function createSubagentPersonasSettingsCategory(
+  options: SubagentPersonasSettingsSectionProps = {}
+): SettingsCategory {
   return {
     content: (
       <div className="space-y-6">
-        <SubagentPersonasSettingsSection />
+        <SubagentPersonasSettingsSection {...options} />
         <SubagentSettingsSection />
       </div>
     ),

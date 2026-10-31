@@ -120,7 +120,6 @@ import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery'
 import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
-import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
@@ -138,7 +137,6 @@ import { registerModelCatalogIpc } from './ipc-model-catalog';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
-import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
 import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { registerLoggingIpcHandlers } from './logging-ipc';
@@ -908,14 +906,9 @@ ipcDisposers.add('clipboard', registerClipboardIpcHandlers());
 ipcDisposers.add('window-focus', registerWindowFocusIpcHandlers());
 ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
 ipcDisposers.add('hooks', registerHooksIpcHandlers(desktopHookTrust, workspaceRootCatalog));
-ipcDisposers.add('context-files', registerContextFilesIpcHandlers(workspaceRootCatalog));
 ipcDisposers.add('thread-groups', registerThreadGroupsIpc(workspaceRootCatalog));
 ipcDisposers.add('view-filter-presets', registerViewFilterPresetsIpc(workspaceRootCatalog));
 ipcDisposers.add('model-catalog', registerModelCatalogIpc(modelCatalog));
-ipcDisposers.add(
-  'user-personas',
-  registerUserPersonasIpcHandlers(workspaceRootCatalog, modelCatalog)
-);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
