@@ -1,9 +1,6 @@
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
-import { afterEach, describe, expect, it } from 'vitest';
-import {
-  __resetAssistantSubagentPreferencesStoreForTests,
-  useAssistantSubagentPreferencesStore,
-} from '../stores/assistant-subagent-preferences-store.ts';
+import { describe, expect, it } from 'vitest';
+import { useAssistantSubagentPreferencesStore } from '../stores/assistant-subagent-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useAssistantSubagentPreferencesStore as PersistApi<
@@ -11,10 +8,6 @@ const storeWithPersist = useAssistantSubagentPreferencesStore as PersistApi<
 >;
 
 describe('assistant subagent preferences store', () => {
-  afterEach(() => {
-    __resetAssistantSubagentPreferencesStoreForTests();
-  });
-
   it('defaults to the contract defaults', () => {
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS

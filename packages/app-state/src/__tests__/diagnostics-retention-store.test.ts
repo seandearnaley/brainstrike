@@ -1,6 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  __resetDiagnosticsRetentionStoreForTests,
   DIAGNOSTICS_RETENTION_DAY_OPTIONS,
   DIAGNOSTICS_RETENTION_ROW_OPTIONS,
   diagnosticsRetentionSelectors,
@@ -17,10 +16,6 @@ const DIAGNOSTIC_RETENTION_MAX_AGE_MS = 30 * MS_PER_DAY;
 const DIAGNOSTIC_RETENTION_MAX_ROWS = 20_000;
 
 describe('diagnostics-retention-store', () => {
-  beforeEach(() => {
-    __resetDiagnosticsRetentionStoreForTests();
-  });
-
   it('defaults maxAgeDays/maxRows to 30 days and 20_000 rows, so behavior is unchanged until edited', () => {
     const state = useDiagnosticsRetentionStore.getState();
     expect(state.maxAgeDays).toBe(DIAGNOSTIC_RETENTION_MAX_AGE_MS / MS_PER_DAY);

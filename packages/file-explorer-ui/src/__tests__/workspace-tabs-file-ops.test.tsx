@@ -2,20 +2,16 @@ import { INACCESSIBLE_CONTENT_PREFIX, type TabFileStatus } from '@brainstrike/fi
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
 import { useEditorViewStateStore } from '../stores/editor-view-state-store';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../stores/workspace-tab-selection-store';
+import { useTabManagerStore } from '../stores/tab-manager-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { DEMO_APP, FILES_APP, renderWorkspace } from './workspace-tabs-test-support';
 
 async function openThreeTabsWithDemoAppSelected(): Promise<void> {
   const tabModule = await import('../hooks/use-tab-manager');
   vi.mocked(tabModule.useTabManager).mockRestore();
-  __resetTabManagerStoreForTests();
   const store = useTabManagerStore.getState();
   store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
   store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
@@ -79,7 +75,6 @@ describe('workspace tabs — file tab operations', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    __resetWorkspaceTabSelectionStoreForTests();
 
     const uiModule = await import('@brainstrike/ui');
     vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
@@ -100,10 +95,6 @@ describe('workspace tabs — file tab operations', () => {
       updateTabContent: vi.fn(),
     };
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue(empty);
-  });
-
-  afterEach(() => {
-    __resetWorkspaceTabSelectionStoreForTests();
   });
 
   it('renders a file tab when one is open and switches to it on click', async () => {
@@ -594,7 +585,6 @@ describe('workspace tabs — file tab operations', () => {
     vi.mocked(tabModule.useTabManager).mockRestore();
 
     const user = userEvent.setup();
-    __resetTabManagerStoreForTests();
     const store = useTabManagerStore.getState();
     store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
     store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
@@ -615,8 +605,6 @@ describe('workspace tabs — file tab operations', () => {
         tabId: 'folderA|@|src/c.ts',
       });
     });
-
-    __resetTabManagerStoreForTests();
   });
 
   it('closing the last file tab falls back to the first open app', async () => {
@@ -624,7 +612,6 @@ describe('workspace tabs — file tab operations', () => {
     vi.mocked(tabModule.useTabManager).mockRestore();
 
     const user = userEvent.setup();
-    __resetTabManagerStoreForTests();
     useTabManagerStore
       .getState()
       .openTab('src/only.ts', 'folderA|@|src/only.ts', 'folderA|@|src/only.ts');
@@ -643,8 +630,6 @@ describe('workspace tabs — file tab operations', () => {
         kind: 'app',
       });
     });
-
-    __resetTabManagerStoreForTests();
   });
 
   it('closing the last file tab with NO open apps lands on the launcher', async () => {
@@ -652,7 +637,6 @@ describe('workspace tabs — file tab operations', () => {
     vi.mocked(tabModule.useTabManager).mockRestore();
 
     const user = userEvent.setup();
-    __resetTabManagerStoreForTests();
     useTabManagerStore
       .getState()
       .openTab('src/only.ts', 'folderA|@|src/only.ts', 'folderA|@|src/only.ts');
@@ -667,8 +651,6 @@ describe('workspace tabs — file tab operations', () => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({ kind: 'empty' });
     });
     expect(await screen.findByTestId('workspace-launcher')).toBeInTheDocument();
-
-    __resetTabManagerStoreForTests();
   });
 
   it('the strip background Close All Files clears every file tab and routes to the first open app', async () => {
@@ -676,7 +658,6 @@ describe('workspace tabs — file tab operations', () => {
     vi.mocked(tabModule.useTabManager).mockRestore();
 
     const user = userEvent.setup();
-    __resetTabManagerStoreForTests();
     const store = useTabManagerStore.getState();
     store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
     store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
@@ -697,14 +678,11 @@ describe('workspace tabs — file tab operations', () => {
         kind: 'app',
       });
     });
-
-    __resetTabManagerStoreForTests();
   });
 
   it('right-clicking an inactive file tab can close it without activating it', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.mocked(tabModule.useTabManager).mockRestore();
-    __resetTabManagerStoreForTests();
     const store = useTabManagerStore.getState();
     store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
     store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
@@ -731,7 +709,6 @@ describe('workspace tabs — file tab operations', () => {
   it('right-click Close Others uses the clicked tab as the atomic retained target', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.mocked(tabModule.useTabManager).mockRestore();
-    __resetTabManagerStoreForTests();
     const store = useTabManagerStore.getState();
     store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
     store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');

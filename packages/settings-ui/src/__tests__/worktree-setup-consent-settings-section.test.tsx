@@ -1,14 +1,7 @@
-import {
-  __resetWorktreeSetupConsentStoreForTests,
-  useWorktreeSetupConsentStore,
-} from '@brainstrike/app-state/stores/worktree-setup-consent-store';
+import { useWorktreeSetupConsentStore } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { WorktreeSetupConsentSettingsSection } from '../settings/system/worktree-setup-consent-settings-section';
-
-beforeEach(() => {
-  __resetWorktreeSetupConsentStoreForTests();
-});
 
 describe('WorktreeSetupConsentSettingsSection', () => {
   it('shows an empty state when no repository has a standing decision', () => {

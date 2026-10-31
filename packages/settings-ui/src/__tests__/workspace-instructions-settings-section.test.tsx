@@ -1,12 +1,9 @@
-import {
-  __resetWorkspaceInstructionsPreferencesStoreForTests,
-  useWorkspaceInstructionsPreferencesStore,
-} from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
+import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { WorkspaceContextFileStatus } from '@brainstrike/assistant-contract/context-files-bridge';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { WorkspaceInstructionsSettingsSection } = await import(
   '../settings/system/workspace-instructions-settings-section'
@@ -27,13 +24,8 @@ function stubRejectingBridge(error: Error) {
 }
 
 describe('WorkspaceInstructionsSettingsSection', () => {
-  beforeEach(() => {
-    __resetWorkspaceInstructionsPreferencesStoreForTests();
-  });
-
   afterEach(() => {
     Reflect.deleteProperty(window, 'contextFiles');
-    __resetWorkspaceInstructionsPreferencesStoreForTests();
   });
 
   it('renders the master toggle ON by default', () => {

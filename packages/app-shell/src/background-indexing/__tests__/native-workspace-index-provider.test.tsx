@@ -1,12 +1,6 @@
 import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
-import {
-  __resetIndexingActivityStoreForTests,
-  useIndexingActivityStore,
-} from '@brainstrike/app-state/stores/indexing-activity-store';
-import {
-  __resetWorkspaceCollectionSyncStatusStoreForTests,
-  useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   BoundaryFailureError,
   describeBoundaryFailure,
@@ -110,9 +104,7 @@ function mainIndex() {
 }
 
 beforeEach(() => {
-  __resetIndexingActivityStoreForTests();
   useIndexConfigStore.setState({ state: { kind: 'loading' }, update: null });
-  __resetWorkspaceCollectionSyncStatusStoreForTests();
 });
 
 afterEach(() => {

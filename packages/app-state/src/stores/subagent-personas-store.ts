@@ -167,18 +167,3 @@ export function getSubagentPersonasAvailabilityRequest():
   | undefined {
   return buildSubagentPersonasAvailabilityRequest(useSubagentPersonasStore.getState());
 }
-
-/** Test-only reset helper. */
-export function __resetSubagentPersonasStoreForTests(): void {
-  try {
-    const persistApi = (
-      useSubagentPersonasStore as typeof useSubagentPersonasStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  }
-  useSubagentPersonasStore.setState(defaultData());
-}

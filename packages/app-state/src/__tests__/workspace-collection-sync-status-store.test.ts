@@ -1,15 +1,8 @@
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  __resetWorkspaceCollectionSyncStatusStoreForTests,
-  useWorkspaceCollectionSyncStatusStore,
-} from '../stores/workspace-collection-sync-status-store.ts';
+import { useWorkspaceCollectionSyncStatusStore } from '../stores/workspace-collection-sync-status-store.ts';
 
 describe('workspace-collection-sync-status-store', () => {
-  beforeEach(() => {
-    __resetWorkspaceCollectionSyncStatusStoreForTests();
-  });
-
   describe('durable error-state logging (BST-1257)', () => {
     let captured: LogRecord[] = [];
     let removeListener: (() => void) | null = null;

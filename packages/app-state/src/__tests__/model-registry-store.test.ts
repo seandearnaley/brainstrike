@@ -1,11 +1,6 @@
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetModelRegistryStoreForTests,
-  type DbModel,
-  type DbProvider,
-  useModelRegistryStore,
-} from '../stores/model-registry-store.ts';
+import { useModelRegistryStore } from '../stores/model-registry-store.ts';
 import {
   __resetSettingsTestOverridesForTests,
   __setSettingsTestOverridesForTests,
@@ -25,34 +20,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-const createMockProvider = (overrides: Partial<DbProvider> = {}): DbProvider => ({
-  icon: null,
-  id: 'test-provider',
-  isEnabled: true,
-  name: 'Test Provider',
-  sortOrder: 0,
-  ...overrides,
-});
-
-const createMockModel = (overrides: Partial<DbModel> = {}): DbModel => ({
-  bestFor: ['testing'],
-  capabilities: {
-    defaultDimension: 768,
-    streaming: false,
-    type: 'embedding',
-  },
-  description: 'A test model',
-  icon: null,
-  id: 'test-model',
-  isEnabled: true,
-  name: 'Test Model',
-  parameters: null,
-  providerId: 'test-provider',
-  sortOrder: 0,
-  tagline: 'Test tagline',
-  ...overrides,
-});
-
 function createRowsDeferred(): {
   promise: Promise<{ models: []; providers: [] }>;
   resolve: () => void;
@@ -69,7 +36,6 @@ function createRowsDeferred(): {
 
 describe('model-registry-store', () => {
   beforeEach(() => {
-    __resetModelRegistryStoreForTests();
     __resetSettingsTestOverridesForTests();
   });
 
@@ -148,30 +114,6 @@ describe('model-registry-store', () => {
 
       snapshot.resolve();
       await first;
-    });
-  });
-
-  describe('__resetModelRegistryStoreForTests', () => {
-    it('resets all state to initial values', () => {
-      // Set some state
-      useModelRegistryStore.setState({
-        error: 'Some error',
-        hasLoaded: true,
-        isLoading: true,
-        models: [createMockModel()],
-        providers: [createMockProvider()],
-      });
-
-      // Reset
-      __resetModelRegistryStoreForTests();
-
-      // Verify reset
-      const state = useModelRegistryStore.getState();
-      expect(state.providers).toEqual([]);
-      expect(state.models).toEqual([]);
-      expect(state.isLoading).toBe(false);
-      expect(state.error).toBe(null);
-      expect(state.hasLoaded).toBe(false);
     });
   });
 });

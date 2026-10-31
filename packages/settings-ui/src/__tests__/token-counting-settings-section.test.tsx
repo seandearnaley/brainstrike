@@ -1,7 +1,4 @@
-import {
-  __resetTokenPreferencesStoreForTests,
-  useTokenPreferencesStore,
-} from '@brainstrike/app-state/stores/token-preferences-store';
+import { useTokenPreferencesStore } from '@brainstrike/app-state/stores/token-preferences-store';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +8,6 @@ const { TokenCountingSettingsSection } = await import(
 
 describe('TokenCountingSettingsSection', () => {
   beforeEach(() => {
-    __resetTokenPreferencesStoreForTests();
     useTokenPreferencesStore.setState({ accurateCounting: true });
     vi.clearAllMocks();
   });

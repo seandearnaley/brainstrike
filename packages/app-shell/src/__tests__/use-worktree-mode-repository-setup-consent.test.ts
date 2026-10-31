@@ -5,10 +5,7 @@
  * and must still resolve the same consent state — split out of
  * `use-worktree-mode.test.ts` to keep both files under the line-count ceiling.
  */
-import {
-  __resetWorktreeSetupConsentStoreForTests,
-  useWorktreeSetupConsentStore,
-} from '@brainstrike/app-state/stores/worktree-setup-consent-store';
+import { useWorktreeSetupConsentStore } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -92,7 +89,6 @@ const REPOSITORY_SETUP = {
 describe('useWorktreeMode repository setup consent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    __resetWorktreeSetupConsentStoreForTests();
     getSettingsSpy.mockResolvedValue({
       ok: true,
       value: {

@@ -40,12 +40,3 @@ export const databaseStatusSelectors = {
   location: (s: DatabaseStatusStore) => s.location,
   testResult: (s: DatabaseStatusStore) => s.testResult,
 };
-
-export function __resetDatabaseStatusStoreForTests() {
-  useDatabaseStatusStore.setState({
-    connected: false,
-    loading: true,
-    location: null,
-    testResult: null,
-  });
-}

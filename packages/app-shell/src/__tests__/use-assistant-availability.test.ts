@@ -1,10 +1,7 @@
-import {
-  __resetSecretsStoreForTests,
-  useSecretsStore,
-} from '@brainstrike/app-state/stores/secrets-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ASSISTANT_AVAILABILITY_OVERRIDE_EVENT,
   type AssistantAvailabilityStatus,
@@ -14,10 +11,6 @@ import {
 } from '../hooks/use-assistant-availability';
 
 describe('useAssistantAvailability', () => {
-  beforeEach(() => {
-    __resetSecretsStoreForTests();
-  });
-
   afterEach(() => {
     Reflect.deleteProperty(window, '__assistantAvailabilityOverride');
   });

@@ -147,18 +147,3 @@ export const diagnosticsRetentionSelectors = {
   maxAgeDays: (store: DiagnosticsRetentionStore): number => store.maxAgeDays,
   maxRows: (store: DiagnosticsRetentionStore): number => store.maxRows,
 };
-
-/** Test-only reset helper. */
-export function __resetDiagnosticsRetentionStoreForTests(): void {
-  try {
-    const persistApi = (
-      useDiagnosticsRetentionStore as typeof useDiagnosticsRetentionStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  }
-  useDiagnosticsRetentionStore.setState(defaultData());
-}

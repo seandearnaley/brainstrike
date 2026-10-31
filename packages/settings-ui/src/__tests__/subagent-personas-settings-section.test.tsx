@@ -6,10 +6,7 @@
  */
 
 import '@testing-library/jest-dom/vitest';
-import {
-  __resetSubagentPersonasStoreForTests,
-  useSubagentPersonasStore,
-} from '@brainstrike/app-state/stores/subagent-personas-store';
+import { useSubagentPersonasStore } from '@brainstrike/app-state/stores/subagent-personas-store';
 import {
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
@@ -39,7 +36,6 @@ function setBridge(bridge: PersonasBridge | undefined): void {
 
 beforeEach(() => {
   window.localStorage.clear();
-  __resetSubagentPersonasStoreForTests();
 });
 
 afterEach(() => {

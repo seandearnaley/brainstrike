@@ -1,10 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
-import {
-  __resetDiagnosticsRetentionStoreForTests,
-  useDiagnosticsRetentionStore,
-} from '@brainstrike/app-state/stores/diagnostics-retention-store';
+import { useDiagnosticsRetentionStore } from '@brainstrike/app-state/stores/diagnostics-retention-store';
 import { createDefaultLoggingPreferences } from '@brainstrike/logging';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoggingSettingsSection } from './logging-settings-section';
@@ -28,7 +25,6 @@ const baseProps = {
 
 beforeEach(() => {
   toastMock.mockReset();
-  __resetDiagnosticsRetentionStoreForTests();
 });
 
 beforeAll(() => {

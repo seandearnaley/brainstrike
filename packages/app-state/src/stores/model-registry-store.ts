@@ -177,16 +177,3 @@ export const useModelRegistryStore = create<ModelRegistryState>()((set, get) => 
     set(registrySnapshot(await db.setProvider(providerId, enabled)));
   },
 }));
-
-/**
- * Reset the model registry store to its initial state.
- * Only use in tests to ensure a clean starting state between test runs.
- */
-export function __resetModelRegistryStoreForTests() {
-  try {
-    registryLoadPromise = null;
-    useModelRegistryStore.setState(initialState);
-  } catch {
-    // Intentionally silent in tests - if storage fails, state is still reset.
-  }
-}

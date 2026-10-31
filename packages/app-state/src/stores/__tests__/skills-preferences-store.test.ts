@@ -4,19 +4,14 @@
  * sanitization, and the factory-reset contract.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { PersistApi } from '../../__tests__/persist-api-test-helper.ts';
 import {
-  __resetSkillsPreferencesStoreForTests,
   buildSkillsContextRequest,
   useSkillsPreferencesStore,
 } from '../skills-preferences-store.ts';
 
 const storeWithPersist = useSkillsPreferencesStore as PersistApi<typeof useSkillsPreferencesStore>;
-
-afterEach(() => {
-  __resetSkillsPreferencesStoreForTests();
-});
 
 describe('skills preferences store', () => {
   it('defaults to master enabled with nothing disabled', () => {

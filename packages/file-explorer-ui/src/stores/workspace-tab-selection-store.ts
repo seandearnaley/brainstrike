@@ -302,18 +302,3 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
     }
   )
 );
-
-/** Test-only helper to reset store and persisted value between tests. */
-export function __resetWorkspaceTabSelectionStoreForTests(): void {
-  useWorkspaceTabSelectionStore.setState({
-    mountedAppIds: DEFAULT_OPEN_APP_IDS,
-    openAppIds: DEFAULT_OPEN_APP_IDS,
-    selection: DEFAULT_SELECTION,
-  });
-  const persistApi = (
-    useWorkspaceTabSelectionStore as unknown as {
-      persist?: { clearStorage?: () => void };
-    }
-  ).persist;
-  persistApi?.clearStorage?.();
-}

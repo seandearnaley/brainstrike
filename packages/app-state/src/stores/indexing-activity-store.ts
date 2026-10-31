@@ -775,12 +775,3 @@ useIndexingActivityStore.subscribe((state, prevState) => {
     });
   }
 });
-
-export function __resetIndexingActivityStoreForTests(): void {
-  lastErrorEmissions.clear();
-  useIndexingActivityStore.setState({
-    indexingActivityError: null,
-    managedCollectionStats: DEFAULT_MANAGED_COLLECTION_STATS,
-    snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
-  });
-}

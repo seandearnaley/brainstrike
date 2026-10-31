@@ -3,10 +3,7 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { ThemeProvider } from '@brainstrike/ui';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -104,7 +101,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 describe('canvas workspace tabs', () => {

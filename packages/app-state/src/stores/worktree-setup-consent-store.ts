@@ -187,12 +187,3 @@ export async function ensureWorktreeSetupConsentHydrated(): Promise<void> {
     throw new Error('Worktree setup consent store failed to hydrate.');
   }
 }
-
-export function __resetWorktreeSetupConsentStoreForTests(): void {
-  try {
-    void useWorktreeSetupConsentStore.persist.clearStorage();
-  } catch {
-    // Storage may be unavailable under jsdom; the in-memory reset still stands.
-  }
-  useWorktreeSetupConsentStore.setState(defaultData());
-}
