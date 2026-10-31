@@ -49,7 +49,10 @@ test('paged native Library reads preserve all recorded chunks and refuse foreign
     const plan = await port.prepareScopedFile({
       snapshot: { ...source, content: recording.content, providedChunks: recording.result.chunks },
     });
-    await port.commitScopedTextFile({ plan });
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: plan.snapshot }],
+      storeId: plan.storeId,
+    });
     const first = await port.readScopedFilePage({
       contentHash: plan.contentHash,
       fileId: binding.fileId,
@@ -165,7 +168,10 @@ test('chunk bounds give each bound file its stored line ranges, and an unwritten
     const plan = await port.prepareScopedFile({
       snapshot: { ...source, content: recording.content, providedChunks: recording.result.chunks },
     });
-    await port.commitScopedTextFile({ plan });
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: plan.snapshot }],
+      storeId: plan.storeId,
+    });
 
     const bounds = await port.readScopedFileChunkBounds({
       fileIds: [pending.fileId, binding.fileId],

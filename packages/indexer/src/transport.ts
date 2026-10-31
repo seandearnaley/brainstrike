@@ -16,6 +16,7 @@ import {
   manifestResultSchema,
   type optionsSchema,
   planSchema,
+  removedCountSchema,
   STATE_CATCH_UP_STEP_EVENTS,
   scopedCommitSchema,
   scopedCoverageBatchRequestSchema,
@@ -29,10 +30,11 @@ import {
   scopedManifestResultSchema,
   scopedPlanSchema,
   scopedPrepareSchema,
+  scopedRemoveBatchSchema,
   scopedRemoveSchema,
   scopedSearchResultSchema,
   scopedSearchSchema,
-  scopedTextCommitSchema,
+  scopedTextBatchSchema,
   searchResultSchema,
   searchSchema,
   snapshotSchema,
@@ -352,11 +354,11 @@ export function createIndexerConnection(
     close,
     commitScopedFile: async (request) =>
       call('commit-scoped-file', decoder(scopedCommitSchema)(request), decoder(commitResultSchema)),
-    commitScopedTextFile: async (request) =>
+    commitScopedTextFiles: async (request) =>
       call(
-        'commit-scoped-text-file',
-        decoder(scopedTextCommitSchema)(request),
-        decoder(commitResultSchema)
+        'commit-scoped-text-files',
+        decoder(scopedTextBatchSchema)(request),
+        decoder(Schema.Array(scopedPlanSchema))
       ),
     commitTextFile: async (commit) =>
       call('commit-text-file', decoder(textCommitSchema)(commit), decoder(commitResultSchema)),
@@ -467,6 +469,12 @@ export function createIndexerConnection(
       call('remove-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
     removeScopedFile: async (request) =>
       call('remove-scoped-file', decoder(scopedRemoveSchema)(request), decoder(Schema.Boolean)),
+    removeScopedFiles: async (request) =>
+      call(
+        'remove-scoped-files',
+        decoder(scopedRemoveBatchSchema)(request),
+        decoder(removedCountSchema)
+      ),
     replaceFileBindings: async (bindings) => {
       await call(
         'replace-file-bindings',

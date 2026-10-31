@@ -10,7 +10,10 @@ import {
   type IndexerInfo,
   infoSchema,
   optionsSchema,
+  removedCountSchema,
   requestSchema,
+  scopedPlanSchema,
+  scopedRemoveBatchSchema,
   scopedRemoveSchema,
   stateCountsSchema,
   stateHealthSchema,
@@ -273,6 +276,16 @@ export async function runIndexerProcess(
             work = client.call(request.op, removal, decoder(Schema.Boolean));
             break;
           }
+          case 'remove-scoped-files': {
+            const removal = decoder(scopedRemoveBatchSchema)(request.payload);
+            connection.scoped.authority.authorize([removal.scope]);
+            for (const fileId of removal.fileIds) {
+              connection.scoped.authority.file(fileId, removal.scope);
+            }
+            connection.scoped.authority.revision += 1;
+            work = client.call(request.op, removal, decoder(removedCountSchema));
+            break;
+          }
           case 'info':
             decoder(Schema.Null)(request.payload);
             work = { ...nativeInfo, ...connection.identity };
@@ -290,9 +303,15 @@ export async function runIndexerProcess(
             work = connection.search(request.payload);
             break;
           case 'commit-scoped-file':
-          case 'commit-scoped-text-file':
           case 'commit-text-file':
             work = client.call(request.op, request.payload, decoder(commitResultSchema));
+            break;
+          case 'commit-scoped-text-files':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(scopedPlanSchema))
+            );
             break;
           case 'purge-file':
           case 'remove-file':

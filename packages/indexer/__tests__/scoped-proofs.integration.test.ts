@@ -90,14 +90,15 @@ it('verifies complete rootless manifests with exact file/chunk identities throug
     await expect(port.verifyScopedManifest({ files: [], scope })).rejects.toMatchObject({
       code: 'incomplete-manifest',
     });
-    for (const plan of plans) {
-      await port.commitScopedTextFile({ plan });
-    }
+    const { storeId } = await port.info();
+    await port.commitScopedTextFiles({
+      files: plans.map((plan) => ({ snapshot: plan.snapshot })),
+      storeId,
+    });
     const { profile: _outsideProfile, ...foreign } = outside;
-    await port.commitScopedTextFile({
-      plan: await port.prepareScopedFile({
-        snapshot: { ...foreign, chunkLines: 1, content: 'canonical\n' },
-      }),
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: { ...foreign, chunkLines: 1, content: 'canonical\n' } }],
+      storeId,
     });
     const verified = await port.verifyScopedManifest(request);
     expect(verified).toMatchObject({
@@ -216,7 +217,10 @@ it('compares every original canonical parser chunk field without depending on de
     const plan = await port.prepareScopedFile({
       snapshot: { ...file, content: captured.content, providedChunks: captured.result.chunks },
     });
-    await port.commitScopedTextFile({ plan });
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: plan.snapshot }],
+      storeId: plan.storeId,
+    });
     const manifest = manifestFile(plan);
     expect(
       (
@@ -282,7 +286,10 @@ it('reports complete selected-profile vector coverage independently of full-sour
     const { profile: _profile, ...file } = binding;
     const snapshot = { ...file, chunkLines: 1, content: 'canonical\n'.repeat(101) };
     const textPlan = await port.prepareScopedFile({ snapshot });
-    await port.commitScopedTextFile({ plan: textPlan });
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: textPlan.snapshot }],
+      storeId: textPlan.storeId,
+    });
     expect(await port.coverageScope({ scope })).toMatchObject({
       counts: { chunks: 101, indexedFiles: 1, missingVectors: 101, vectors: 0 },
       profile: null,

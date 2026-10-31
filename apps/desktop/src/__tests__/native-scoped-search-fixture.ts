@@ -92,7 +92,7 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
     commitScopedFile: unused,
-    commitScopedTextFile: unused,
+    commitScopedTextFiles: unused,
     commitTextFile: unused,
     coverage: unused,
     coverageBatch,
@@ -127,6 +127,7 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
     readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,
+    removeScopedFiles: unused,
     replaceFileBindings: unused,
     search: unused,
     searchScopes,

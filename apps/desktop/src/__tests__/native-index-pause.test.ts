@@ -74,7 +74,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   return {
     close: unused,
     commitScopedFile: unused,
-    commitScopedTextFile: unused,
+    commitScopedTextFiles: unused,
     commitTextFile: unused,
     coverage: unused,
     coverageAuthority: async () => ({
@@ -104,6 +104,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,
+    removeScopedFiles: unused,
     replaceFileBindings: async () => {},
     search: unused,
     searchScopes: unused,

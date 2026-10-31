@@ -61,9 +61,9 @@ function fixture(): CanonicalRemoteWorkspaceDependencies {
     publication: {
       abortScan: async () => {},
       beginScan: async ({ requestId }) => ({ generation: 1, requestId, scope, storeId: 'store' }),
-      commitTextFile: async () => {},
+      commitTextFiles: async () => {},
       finishScan: async ({ ticket }) => ({ reason: 'complete', scanComplete: true, ticket }),
-      removeFile: async () => {},
+      removeFiles: async () => {},
       verifyManifest: async () => ({
         acknowledged: [],
         changed: [],
@@ -295,16 +295,15 @@ describe('captured canonical utility capabilities', () => {
     let current = old;
     deps.source.inventory.loadFiles = async () => [current];
     const { promise: held, resolve: release } = Promise.withResolvers<void>();
-    deps.publication.commitTextFile = async () => {
+    deps.publication.commitTextFiles = async () => {
       await held;
     };
     const { parent, owner, frames } = await attached(deps);
     call(parent, owner, 110, 'load-files', scope);
     await flush();
     const { stat: _stat, ...file } = old;
-    call(parent, owner, 111, 'commit-text', {
-      file,
-      payload: { content: '', fileId: file.fileId, providedChunks: [] },
+    call(parent, owner, 111, 'commit-texts', {
+      files: [{ file, payload: { content: '', fileId: file.fileId, providedChunks: [] } }],
       ticket: { generation: 1, requestId: 'request', scope, storeId: 'store' },
     });
     current = {

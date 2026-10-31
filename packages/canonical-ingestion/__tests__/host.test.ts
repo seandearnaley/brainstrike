@@ -31,7 +31,7 @@ describe('utility canonical source ingestion', () => {
         await expect(f.host.scan(f.request)).rejects.toThrow('repeated a workspace path');
         const admittedFiles = order === 'same-batch' ? 0 : 1;
         expect(f.source.read).toHaveBeenCalledTimes(admittedFiles);
-        expect(f.publication.commitTextFile).toHaveBeenCalledTimes(admittedFiles);
+        expect(f.publication.commitTextFiles).toHaveBeenCalledTimes(admittedFiles);
         expect(f.catalog.completeFiles).toHaveBeenCalledTimes(admittedFiles);
         expect(f.catalog.prepareManagedSourcesBatch).toHaveBeenCalledTimes(
           order === 'unresolved-then-registered' ? 1 : 0
@@ -61,7 +61,7 @@ describe('utility canonical source ingestion', () => {
         { files: [], scope: f.request.scope },
         expect.anything()
       );
-      const publication = vi.mocked(f.publication.commitTextFile).mock.calls[0]?.[0];
+      const publication = vi.mocked(f.publication.commitTextFiles).mock.calls[0]?.[0].files[0];
       expect(publication?.file).toMatchObject(f.file);
       expect(publication?.payload.providedChunks).toEqual(f.recorded.result.chunks);
       expect(f.catalog.completeFiles).toHaveBeenCalledWith(
@@ -98,7 +98,7 @@ describe('utility canonical source ingestion', () => {
     try {
       await entered.promise;
       expect(settled).toBe(false);
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       expect(f.catalog.completeFiles).not.toHaveBeenCalled();
       expect(vi.mocked(f.source.read).mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(f.catalog.prepareManagedSourcesBatch).mock.invocationCallOrder[0] ?? 0
@@ -136,12 +136,12 @@ describe('utility canonical source ingestion', () => {
       await Promise.resolve();
       await Promise.resolve();
       expect(cancelSettled).toBe(false);
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       expect(f.catalog.completeFiles).not.toHaveBeenCalled();
       release.resolve();
       await cancellation;
       expect(await outcome).toMatchObject({ error: { name: 'AbortError' }, status: 'rejected' });
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       expect(f.catalog.completeFiles).not.toHaveBeenCalled();
       expect(f.publication.finishScan).toHaveBeenCalledWith(
         expect.objectContaining({ aborted: true })
@@ -191,7 +191,7 @@ describe('utility canonical source ingestion', () => {
     vi.mocked(f.catalog.prepareManagedSourcesBatch).mockResolvedValue(bindings);
     try {
       await expect(f.host.scan(f.request)).rejects.toThrow(/Canonical prepar/u);
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       expect(f.catalog.completeFiles).not.toHaveBeenCalled();
       expect(f.publication.finishScan).toHaveBeenCalledWith(
         expect.objectContaining({ errors: [expect.any(String)], full: false })
@@ -246,7 +246,7 @@ describe('utility canonical source ingestion', () => {
       await expect(f.host.scan(f.request)).rejects.toThrow('repeated a workspace path');
       expect(f.source.read).toHaveBeenCalledOnce();
       expect(f.catalog.prepareManagedSourcesBatch).toHaveBeenCalledOnce();
-      expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+      expect(f.publication.commitTextFiles).toHaveBeenCalledOnce();
     } finally {
       await f.host.close();
     }
@@ -271,7 +271,7 @@ describe('utility canonical source ingestion', () => {
     try {
       await expect(f.host.scan(f.request)).rejects.toThrow('repeated a file identity');
       expect(f.catalog.prepareManagedSourcesBatch).toHaveBeenCalledOnce();
-      expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+      expect(f.publication.commitTextFiles).toHaveBeenCalledOnce();
       expect(f.catalog.completeFiles).toHaveBeenCalledOnce();
     } finally {
       await f.host.close();
@@ -292,7 +292,7 @@ describe('utility canonical source ingestion', () => {
     ]);
     try {
       await expect(f.host.scan(f.request)).rejects.toThrow('exact discovered batch');
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       expect(f.catalog.completeFiles).not.toHaveBeenCalled();
     } finally {
       await f.host.close();
@@ -305,7 +305,7 @@ describe('utility canonical source ingestion', () => {
     vi.mocked(f.catalog.prepareManagedSourcesBatch).mockRejectedValue(failure);
     try {
       await expect(f.host.scan(f.request)).rejects.toBe(failure);
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       expect(f.catalog.completeFiles).not.toHaveBeenCalled();
     } finally {
       await f.host.close();
@@ -315,7 +315,7 @@ describe('utility canonical source ingestion', () => {
   it('publishes the actual recorded chunks and graph and completes PG metadata after native writes', async () => {
     const f = await fixture();
     expect((await f.host.scan(f.request)).scanComplete).toBe(true);
-    const call = vi.mocked(f.publication.commitTextFile).mock.calls[0]?.[0];
+    const call = vi.mocked(f.publication.commitTextFiles).mock.calls[0]?.[0].files[0];
     expect(call?.payload.providedChunks).toEqual(f.recorded.result.chunks);
     expect(call?.payload.syntax?.symbols).toMatchObject([
       { fileRecordId: f.recorded.fileId, name: 'createArtifactReaderModelProjection' },
@@ -324,7 +324,7 @@ describe('utility canonical source ingestion', () => {
     expect(f.catalog.completeFiles).toHaveBeenCalledOnce();
     expect(f.catalog.resolveProfile).not.toHaveBeenCalled();
     expect(vi.mocked(f.catalog.completeFiles).mock.invocationCallOrder[0]).toBeGreaterThan(
-      vi.mocked(f.publication.commitTextFile).mock.invocationCallOrder[0] ?? 0
+      vi.mocked(f.publication.commitTextFiles).mock.invocationCallOrder[0] ?? 0
     );
   });
 
@@ -343,7 +343,7 @@ describe('utility canonical source ingestion', () => {
     });
     await f.host.scan(f.request);
     expect(f.source.read).not.toHaveBeenCalled();
-    expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+    expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
   });
 
   it('forces missing native stat-cache files through the canonical read/parser', async () => {
@@ -353,7 +353,7 @@ describe('utility canonical source ingestion', () => {
     ]);
     await f.host.scan(f.request);
     expect(f.source.read).toHaveBeenCalledOnce();
-    expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+    expect(f.publication.commitTextFiles).toHaveBeenCalledOnce();
   });
 
   it('removes native data before authoritative catalog invalidation', async () => {
@@ -370,7 +370,7 @@ describe('utility canonical source ingestion', () => {
     const f = await fixture();
     const admitted = Promise.withResolvers<void>();
     const commit = Promise.withResolvers<void>();
-    vi.mocked(f.publication.commitTextFile).mockImplementation(async () => {
+    vi.mocked(f.publication.commitTextFiles).mockImplementation(async () => {
       admitted.resolve();
       await commit.promise;
     });
@@ -436,7 +436,7 @@ describe('utility canonical source ingestion', () => {
       return f.completion;
     };
     await expect(f.host.scan(f.request)).rejects.toThrow('repeated a file identity');
-    expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+    expect(f.publication.commitTextFiles).toHaveBeenCalledOnce();
   });
 
   it('joins source iterator retirement before releasing cancelled ownership', async () => {
@@ -473,7 +473,7 @@ describe('utility canonical source ingestion', () => {
     retired.resolve();
     await cancel;
     await rejection;
-    expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+    expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
   });
 
   it('settles a cancellation once the scan it cancelled ends, which reports its own failure', async () => {
@@ -481,7 +481,7 @@ describe('utility canonical source ingestion', () => {
     const admitted = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const failure = new Error('Native transaction failed');
-    vi.mocked(f.publication.commitTextFile).mockImplementation(async () => {
+    vi.mocked(f.publication.commitTextFiles).mockImplementation(async () => {
       admitted.resolve();
       await release.promise;
       throw failure;
@@ -544,7 +544,7 @@ describe('utility canonical source ingestion', () => {
     expect(await outcome).toMatchObject({ name: 'AbortError' });
     expect(generatorRetired).toBe(true);
     expect(f.source.read).toHaveBeenCalledOnce();
-    expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+    expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
   });
 
   it('reports primary and yielding-cleanup failures to the scan when cancellation arrives during retirement', async () => {
@@ -582,7 +582,7 @@ describe('utility canonical source ingestion', () => {
     retired.reject(cleanup);
     expect(await outcome).toMatchObject({ errors: [primary, cleanup] });
     expect(await cancelOutcome).toBeUndefined();
-    expect(f.publication.removeFile).not.toHaveBeenCalled();
+    expect(f.publication.removeFiles).not.toHaveBeenCalled();
     await expect(f.host.scan({ ...f.request, requestId: 'scan-2' })).rejects.toThrow('owned');
     await f.host.close();
   });
@@ -595,14 +595,14 @@ describe('utility canonical source ingestion', () => {
     await expect(f.host.scan(f.request)).rejects.toThrow('authoritative catalog');
     expect(f.source.read).not.toHaveBeenCalled();
     expect(f.catalog.applyManagedCacheBatch).not.toHaveBeenCalled();
-    expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+    expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
   });
 
   it('retires a scan whose abort notice failed, which the scan alone reports', async () => {
     const f = await fixture();
     const admitted = Promise.withResolvers<void>();
     const commit = Promise.withResolvers<void>();
-    vi.mocked(f.publication.commitTextFile).mockImplementation(async () => {
+    vi.mocked(f.publication.commitTextFiles).mockImplementation(async () => {
       admitted.resolve();
       await commit.promise;
     });
@@ -679,15 +679,15 @@ describe('chunker-ineligible content through the canonical scan', () => {
       expect(receipt).toMatchObject({
         excluded: [{ fileId: skippedFile.fileId, reason, relativePath: fileName, rootId: 'root' }],
       });
-      expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+      expect(f.publication.commitTextFiles).toHaveBeenCalledOnce();
       expect(f.publication.finishScan).toHaveBeenCalledWith(
         expect.objectContaining({
           files: [expect.objectContaining({ fileId: f.file.fileId })],
           full: true,
         })
       );
-      expect(f.publication.removeFile).toHaveBeenCalledExactlyOnceWith({
-        file: expect.objectContaining({ fileId: skippedFile.fileId }),
+      expect(f.publication.removeFiles).toHaveBeenCalledExactlyOnceWith({
+        files: [expect.objectContaining({ fileId: skippedFile.fileId })],
         ticket: f.ticket,
       });
       expect(f.publication.abortScan).not.toHaveBeenCalled();
@@ -785,7 +785,7 @@ describe('workspace content eligibility through the canonical scan', () => {
           }),
           expect.anything()
         );
-        expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+        expect(f.publication.commitTextFiles).toHaveBeenCalledOnce();
         expect(f.publication.finishScan).toHaveBeenCalledWith(
           expect.objectContaining({
             errors: [],
@@ -795,8 +795,8 @@ describe('workspace content eligibility through the canonical scan', () => {
         );
         expect(f.publication.abortScan).not.toHaveBeenCalled();
         if (managed) {
-          expect(f.publication.removeFile).toHaveBeenCalledExactlyOnceWith({
-            file: expect.objectContaining({ fileId: excludedFile.fileId }),
+          expect(f.publication.removeFiles).toHaveBeenCalledExactlyOnceWith({
+            files: [expect.objectContaining({ fileId: excludedFile.fileId })],
             ticket: f.ticket,
           });
           expect(f.catalog.removeFiles).toHaveBeenCalledExactlyOnceWith(
@@ -808,7 +808,7 @@ describe('workspace content eligibility through the canonical scan', () => {
           );
           expect(f.order).toEqual(['native-remove', 'catalog-remove']);
         } else {
-          expect(f.publication.removeFile).not.toHaveBeenCalled();
+          expect(f.publication.removeFiles).not.toHaveBeenCalled();
           expect(f.catalog.removeFiles).not.toHaveBeenCalled();
         }
       } finally {
@@ -826,7 +826,7 @@ describe('workspace content eligibility through the canonical scan', () => {
       expect(f.publication.abortScan).toHaveBeenCalledOnce();
       expect(f.catalog.removeFiles).not.toHaveBeenCalled();
       expect(f.catalog.applyManagedCacheBatch).not.toHaveBeenCalled();
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
     } finally {
       await f.host.close();
     }

@@ -58,7 +58,7 @@ function fixture(authority: NativeIndexAuthority, stored: readonly ScopedManifes
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
     commitScopedFile: unused,
-    commitScopedTextFile: unused,
+    commitScopedTextFiles: unused,
     commitTextFile: unused,
     coverage: unused,
     coverageBatch: unused,
@@ -71,6 +71,7 @@ function fixture(authority: NativeIndexAuthority, stored: readonly ScopedManifes
     readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile,
+    removeScopedFiles: unused,
     replaceFileBindings: replaceFileBindings as unknown as ScopedIndexerPort['replaceFileBindings'],
     search: unused,
     searchScopes: unused,

@@ -41,10 +41,10 @@ type PublicationWriter = Pick<IndexerPort, 'info'> &
   Pick<
     ScopedIndexerPort,
     | 'commitScopedFile'
-    | 'commitScopedTextFile'
+    | 'commitScopedTextFiles'
     | 'coverageScope'
     | 'prepareScopedFile'
-    | 'removeScopedFile'
+    | 'removeScopedFiles'
     | 'verifyScopedManifest'
   >;
 interface ScanState {
@@ -195,36 +195,39 @@ export function createNativeCanonicalPublication(
     }
     return state;
   };
+  /** One write of a batch of files: any file's failure fails the scan as write-failed. */
   const runWrite = async <T>(
     ticket: CanonicalScanTicket,
-    file: CanonicalFileIdentity,
-    work: (assertFileCurrent: () => void) => Promise<T>
+    files: readonly CanonicalFileIdentity[],
+    work: (assertFilesCurrent: () => void) => Promise<T>
   ): Promise<T> => {
     const state = stateForTicket(ticket);
-    if (file.rootId !== ticket.scope.rootId) {
+    if (files.some((file) => file.rootId !== ticket.scope.rootId)) {
       throw new Error('Canonical publication file differs from its ticket scope.');
     }
     if (state.aborted || state.finishing !== undefined) {
       throw new Error('Canonical publication write admission is closed.');
     }
-    const assertFileCurrent = (): void => {
-      if (state.invalidatedFiles.has(file.fileId)) {
+    const assertFilesCurrent = (): void => {
+      if (files.some((file) => state.invalidatedFiles.has(file.fileId))) {
         throw new Error('Canonical publication file was invalidated during this scan.');
       }
     };
-    assertFileCurrent();
+    assertFilesCurrent();
     let changed = false;
-    for (const scope of ownedScopes) {
-      if (file.rootId === scope.rootId) {
-        const affected = stateFor(scope);
-        changed = complete(affected, false) || changed;
-        affected.mutationRevision += 1;
+    for (const file of files) {
+      for (const scope of ownedScopes) {
+        if (file.rootId === scope.rootId) {
+          const affected = stateFor(scope);
+          changed = complete(affected, false) || changed;
+          affected.mutationRevision += 1;
+        }
       }
     }
     if (changed) {
       onReadinessChange();
     }
-    const pending = Promise.resolve().then(() => work(assertFileCurrent));
+    const pending = Promise.resolve().then(() => work(assertFilesCurrent));
     state.pending.add(pending);
     try {
       return await pending;
@@ -237,7 +240,7 @@ export function createNativeCanonicalPublication(
   };
   const snapshot = (
     file: CanonicalFileIdentity,
-    payload: Parameters<CanonicalVectorPublicationPort['commitTextFile']>[0]['payload']
+    payload: Parameters<CanonicalVectorPublicationPort['prepareVectorFile']>[0]['payload']
   ) => {
     if (file.fileId !== payload.fileId) {
       throw new Error('Canonical publication payload differs from its catalog file.');
@@ -334,22 +337,37 @@ export function createNativeCanonicalPublication(
         throw error;
       }
     },
-    commitTextFile: ({ file, payload, ticket }) =>
-      runWrite(ticket, file, async (assertFileCurrent) => {
-        assertFileCurrent();
-        const plan = await writer.prepareScopedFile({ snapshot: snapshot(file, payload) });
-        assertFileCurrent();
-        assertPlan(ticket, file, plan, null);
-        await writer.commitScopedTextFile({
-          plan,
-          ...(payload.syntax === undefined ? {} : { syntax: payload.syntax }),
-        });
-        assertFileCurrent();
-        published.set(file.fileId, { manifest: manifest(plan), profileHash: plan.profileHash });
-        acknowledgePlan(ticket, plan);
-      }),
+    commitTextFiles: ({ files, ticket }) =>
+      runWrite(
+        ticket,
+        files.map(({ file }) => file),
+        async (assertFilesCurrent) => {
+          assertFilesCurrent();
+          // The writer prepares and commits the whole batch in one transaction on the scan's store.
+          const plans = await writer.commitScopedTextFiles({
+            files: files.map(({ file, payload }) => ({
+              snapshot: snapshot(file, payload),
+              ...(payload.syntax === undefined ? {} : { syntax: payload.syntax }),
+            })),
+            storeId: ticket.storeId,
+          });
+          assertFilesCurrent();
+          if (plans.length !== files.length) {
+            throw new Error('Canonical publication plans differ from their batch.');
+          }
+          const acknowledged = files.map(({ file }, index) => {
+            const plan = plans[index] as ScopedFilePlan;
+            assertPlan(ticket, file, plan, null);
+            return { file, plan };
+          });
+          for (const { file, plan } of acknowledged) {
+            published.set(file.fileId, { manifest: manifest(plan), profileHash: plan.profileHash });
+            acknowledgePlan(ticket, plan);
+          }
+        }
+      ),
     commitVectorFile: ({ file, plan, profile, embeddings, syntax, ticket }) =>
-      runWrite(ticket, file, async (assertFileCurrent) => {
+      runWrite(ticket, [file], async (assertFileCurrent) => {
         assertFileCurrent();
         assertPlan(ticket, file, plan, vectorProfileHash(profile));
         await writer.commitScopedFile({
@@ -461,13 +479,18 @@ export function createNativeCanonicalPublication(
       settle(state, false);
     },
     prepareVectorFile: ({ file, payload, profile, ticket }) =>
-      runWrite(ticket, file, () =>
+      runWrite(ticket, [file], () =>
         writer.prepareScopedFile({ profile, snapshot: snapshot(file, payload) })
       ),
-    removeFile: ({ file, ticket }) =>
-      runWrite(ticket, file, async () => {
-        await writer.removeScopedFile({ fileId: file.fileId, scope: ticket.scope });
-        published.delete(file.fileId);
+    removeFiles: ({ files, ticket }) =>
+      runWrite(ticket, files, async () => {
+        await writer.removeScopedFiles({
+          fileIds: files.map((file) => file.fileId),
+          scope: ticket.scope,
+        });
+        for (const file of files) {
+          published.delete(file.fileId);
+        }
       }),
     vectorCoverage: ({ profile, scope }) => {
       stateFor(scope);

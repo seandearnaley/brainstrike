@@ -115,15 +115,18 @@ it('publishes bounded cross-file VECTOR through public native scoped writer with
   const base: CanonicalPublicationPort = {
     abortScan: vi.fn(async () => {}),
     beginScan: async (request) => ({ ...request, generation: ++generation, storeId }),
-    commitTextFile: async ({ file: current, payload }) => {
-      const plan = await port.prepareScopedFile({
-        snapshot: {
-          ...bindingFor(current.fileId),
-          content: payload.content,
-          providedChunks: payload.providedChunks,
-        },
+    commitTextFiles: async ({ files }) => {
+      await port.commitScopedTextFiles({
+        files: files.map(({ file: current, payload }) => ({
+          snapshot: {
+            ...bindingFor(current.fileId),
+            content: payload.content,
+            providedChunks: payload.providedChunks,
+          },
+          syntax: payload.syntax,
+        })),
+        storeId,
       });
-      await port.commitScopedTextFile({ plan, syntax: payload.syntax });
     },
     finishScan: async (request) => ({
       reason: request.aborted ? 'aborted' : request.errors.length ? 'scan-errors' : 'complete',
@@ -133,8 +136,8 @@ it('publishes bounded cross-file VECTOR through public native scoped writer with
         !request.truncatedDirectories.length,
       ticket: request.ticket,
     }),
-    removeFile: async ({ file: removed }) => {
-      await port.removeScopedFile({ fileId: removed.fileId, scope });
+    removeFiles: async ({ files }) => {
+      await port.removeScopedFiles({ fileIds: files.map((removed) => removed.fileId), scope });
     },
     verifyManifest: async ({ files }) => ({
       acknowledged: [],
@@ -356,7 +359,7 @@ it.each([
     const publication: CanonicalVectorPublicationPort = {
       abortScan: vi.fn(async () => {}),
       beginScan: async (request) => ({ ...request, generation: 1, storeId }),
-      commitTextFile: async () => {
+      commitTextFiles: async () => {
         throw new Error('A VECTOR scan commits through commitVectorFile.');
       },
       commitVectorFile: async ({ plan, embeddings, profile: selected, syntax }) => {
@@ -376,8 +379,8 @@ it.each([
             providedChunks: payload.providedChunks,
           },
         }),
-      removeFile: async ({ file: removed }) => {
-        await port.removeScopedFile({ fileId: removed.fileId, scope });
+      removeFiles: async ({ files }) => {
+        await port.removeScopedFiles({ fileIds: files.map((removed) => removed.fileId), scope });
       },
       vectorCoverage: async (request) => port.coverageScope(request),
       verifyManifest: async ({ files: requested }) => ({
