@@ -39,7 +39,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { Loader2 } from 'lucide-react';
-import { type ReactElement, useState } from 'react';
+import { type ReactElement, type ReactNode, useState } from 'react';
 import type {
   RewindConflictModel,
   RewindConversationEffect,
@@ -96,40 +96,119 @@ function activeConflicts(
   return preview?.ok === true ? preview.conflicts : [];
 }
 
-function RewindPreviewPanes({
-  rewind,
+/** A line of status inside the preview region, centred where the panes would be. */
+function PreviewNotice({
+  children,
+  testId,
+  tone,
+}: {
+  readonly children: ReactNode;
+  readonly testId: string;
+  readonly tone: 'destructive' | 'muted';
+}): ReactElement {
+  return (
+    <p
+      className={`flex items-center justify-center gap-1.5 px-6 text-center text-sm ${tone === 'destructive' ? 'text-destructive' : 'text-muted-foreground'}`}
+      data-testid={testId}
+    >
+      {children}
+    </p>
+  );
+}
+
+/**
+ * The preview region: the files the restore would touch and their diffs, or
+ * the one status that stands in for them. It is the dialog's flexible row and
+ * always present, so the dialog keeps its size from first paint through
+ * loading to the loaded preview, and nothing below it moves.
+ *
+ * The panes sit side by side when the region is wide enough and stack when it
+ * is not, by a container query on the region itself rather than the viewport.
+ */
+function RewindPreviewRegion({
   requestKey,
+  rewind,
 }: {
   readonly requestKey: string;
   readonly rewind: UseRewindResult;
-}): ReactElement | null {
+}): ReactElement {
   const { inventory } = useGitInventory();
   const rootLabelById = useRootLabelById();
   const preview = rewind.preview;
-  if (preview?.ok !== true || !preview.changeset) {
-    return null;
+  const ready = preview?.ok === true ? preview : null;
+  const files = ready?.view ? ready.view.files : NO_FILES;
+  const changeset = ready?.changeset ?? null;
+  const showPanes = changeset !== null && ready?.noRecordedEdits === false;
+
+  let notice: ReactElement | null = null;
+  if (rewind.loading) {
+    notice = (
+      <PreviewNotice testId="rewind-loading" tone="muted">
+        <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+        Working out what this would restore…
+      </PreviewNotice>
+    );
+  } else if (rewind.error) {
+    notice = (
+      <PreviewNotice testId="rewind-preview-error" tone="destructive">
+        {rewind.error}
+      </PreviewNotice>
+    );
+  } else if (preview && !preview.ok) {
+    notice = (
+      <PreviewNotice testId="rewind-preview-refused" tone="destructive">
+        {preview.message}
+      </PreviewNotice>
+    );
+  } else if (ready?.noRecordedEdits) {
+    notice = (
+      <PreviewNotice testId="rewind-no-file-changes" tone="muted">
+        No agent file edits are recorded after this message — only the conversation can be restored.
+      </PreviewNotice>
+    );
+  } else if (ready) {
+    // No changeset to show: the files scope is not offered, and the scope
+    // choice gives the owner's reason under its disabled option.
+    notice = (
+      <PreviewNotice testId="rewind-conversation-only" tone="muted">
+        Only the conversation can be restored; the reason is under the choices below.
+      </PreviewNotice>
+    );
   }
-  const files = preview.view ? preview.view.files : NO_FILES;
+
   return (
-    <div className="border-border flex min-h-56 flex-1 overflow-hidden rounded-md border">
-      <div className="border-border flex w-64 shrink-0 flex-col border-r">
-        <ChangedFilesTree
-          changesetKey={requestKey}
-          files={files}
-          inventory={inventory}
-          loading={rewind.loading}
-          rootLabelById={rootLabelById}
-        />
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <ChangesetDiffPane
-          changesetKey={requestKey}
-          changesetKind={preview.changeset.kind}
-          files={files}
-          loadFileDiff={rewind.fileDiff}
-        />
-      </div>
-    </div>
+    <section
+      aria-busy={rewind.loading}
+      aria-label="Files this restore changes"
+      className="border-border @container flex min-h-48 flex-1 overflow-hidden rounded-md border"
+      data-testid="rewind-preview"
+    >
+      {showPanes ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col @3xl:flex-row">
+          <div className="border-border flex max-h-[40%] shrink-0 flex-col border-b @3xl:max-h-none @3xl:w-72 @3xl:border-r @3xl:border-b-0 @5xl:w-80">
+            <ChangedFilesTree
+              changesetKey={requestKey}
+              files={files}
+              inventory={inventory}
+              loading={rewind.loading}
+              rootLabelById={rootLabelById}
+            />
+          </div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <ChangesetDiffPane
+              changesetKey={requestKey}
+              changesetKind={changeset.kind}
+              files={files}
+              loadFileDiff={rewind.fileDiff}
+            />
+          </div>
+        </div>
+      ) : (
+        <div aria-live="polite" className="grid min-w-0 flex-1 place-items-center">
+          {notice}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -377,36 +456,7 @@ function RewindConfirmBody({
         </DialogDescription>
       </DialogHeader>
 
-      {rewind.loading ? (
-        <p
-          className="text-muted-foreground flex items-center gap-1.5 text-xs"
-          data-testid="rewind-loading"
-        >
-          <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
-          Working out what this would restore…
-        </p>
-      ) : null}
-
-      {rewind.error ? (
-        <p className="text-destructive text-xs" data-testid="rewind-preview-error">
-          {rewind.error}
-        </p>
-      ) : null}
-
-      {preview && !preview.ok ? (
-        <p className="text-destructive text-xs" data-testid="rewind-preview-refused">
-          {preview.message}
-        </p>
-      ) : null}
-
-      {preview?.ok === true && preview.noRecordedEdits ? (
-        <p className="text-muted-foreground text-xs" data-testid="rewind-no-file-changes">
-          No agent file edits are recorded after this message — only the conversation can be
-          restored.
-        </p>
-      ) : null}
-
-      <RewindPreviewPanes requestKey={requestKey} rewind={rewind} />
+      <RewindPreviewRegion requestKey={requestKey} rewind={rewind} />
 
       <RewindScopeChoice
         conversation={request.port.conversation}
@@ -415,12 +465,6 @@ function RewindConfirmBody({
         mode={effectiveMode}
         onModeChange={setMode}
       />
-
-      {filesMode ? (
-        <p className="text-muted-foreground text-xs" data-testid="rewind-open-files-notice">
-          {OPEN_FILES_NOTICE}
-        </p>
-      ) : null}
 
       {filesMode ? (
         <RewindConflictList
@@ -436,7 +480,15 @@ function RewindConfirmBody({
         </p>
       ) : null}
 
-      <DialogFooter>
+      <DialogFooter className="sm:items-center">
+        {filesMode ? (
+          <p
+            className="text-muted-foreground mr-auto text-xs"
+            data-testid="rewind-open-files-notice"
+          >
+            {OPEN_FILES_NOTICE}
+          </p>
+        ) : null}
         <Button data-testid="rewind-cancel" onClick={onClose} type="button" variant="ghost">
           Cancel
         </Button>
@@ -472,7 +524,12 @@ export function RewindConfirmDialog(): ReactElement {
   return (
     <Dialog onOpenChange={(open) => (open ? undefined : closeRewind())} open={request !== null}>
       <DialogContent
-        className="flex max-h-[min(760px,calc(100vh-4rem))] w-[min(980px,calc(100vw-4rem))] max-w-none flex-col gap-3 overflow-y-auto"
+        // Sized to the window, not DialogContent's `sm:max-w-lg` default, which
+        // a bare `max-w-none` does not override at the `sm` breakpoint and which
+        // used to squeeze two diff columns into half a page. A fixed height
+        // (not a max) keeps the dialog still while the preview loads; the
+        // preview row takes whatever the header and choices leave.
+        className="flex h-[min(56rem,calc(100dvh-3rem))] w-[min(90rem,calc(100vw-3rem))] max-w-none flex-col gap-4 overflow-y-auto sm:max-w-none"
         data-testid="rewind-confirm-dialog"
       >
         {request ? (

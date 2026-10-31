@@ -28,7 +28,8 @@
  */
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ChangedFileEntry, Changeset, StructuredFileDiff } from '@brainstrike/types';
-import { type ReactElement, useMemo } from 'react';
+import { Button, type DiffViewMode } from '@brainstrike/ui';
+import { type ReactElement, useMemo, useState } from 'react';
 import { changedFileKey, selectRenderedFiles, useChangesStore } from '../changes-store';
 import { ChangesetFileDiffCard, type ChangesetFileDiffCardProps } from './changeset-file-diff-card';
 
@@ -81,6 +82,9 @@ export function ChangesetDiffPane({
   reloadToken,
 }: ChangesetDiffPaneProps): ReactElement {
   const selectedFileKeys = useChangesStore((selectorState) => selectorState.selectedFileKeys);
+  // One view mode for the whole stack, switched from the pane's toolbar,
+  // rather than a toolbar row and toggle inside every file's card.
+  const [mode, setMode] = useState<DiffViewMode>('split');
   const renderedFiles = useMemo(
     () => selectRenderedFiles(files, selectedFileKeys),
     [files, selectedFileKeys]
@@ -105,18 +109,41 @@ export function ChangesetDiffPane({
   }
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto" data-testid="changeset-diff-pane">
-      <div className="divide-border flex flex-col divide-y">
-        {renderedFiles.map((entry) => (
-          <ChangesetFileDiffCard
-            changesetKind={changesetKind}
-            entry={entry}
-            key={`${changesetKey}|${changedFileKey(entry)}`}
-            loadFileDiff={loadFileDiff}
-            onLineComment={onLineComment}
-            {...(reloadToken === undefined ? {} : { reloadToken })}
-          />
-        ))}
+    <div className="flex h-full min-h-0 flex-col" data-testid="changeset-diff-pane">
+      <div className="border-border flex h-8 shrink-0 items-center justify-between gap-2 border-b px-3">
+        <span className="text-muted-foreground text-xs" data-testid="changeset-diff-pane-count">
+          {renderedFiles.length === files.length
+            ? `${files.length} ${files.length === 1 ? 'file' : 'files'}`
+            : `${renderedFiles.length} of ${files.length} files`}
+        </span>
+        <Button
+          aria-label={mode === 'split' ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
+          aria-pressed={mode === 'unified'}
+          data-testid="changeset-diff-pane-mode"
+          onClick={() => setMode((current) => (current === 'split' ? 'unified' : 'split'))}
+          size="xs"
+          type="button"
+          variant="outline"
+        >
+          {mode === 'split' ? 'Inline' : 'Side by side'}
+        </Button>
+      </div>
+      {/* overscroll-contain: reaching the end of the stack stops there rather
+          than carrying the scroll on to the dialog or page behind it. */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+        <div className="divide-border flex flex-col divide-y">
+          {renderedFiles.map((entry) => (
+            <ChangesetFileDiffCard
+              changesetKind={changesetKind}
+              entry={entry}
+              key={`${changesetKey}|${changedFileKey(entry)}`}
+              loadFileDiff={loadFileDiff}
+              mode={mode}
+              onLineComment={onLineComment}
+              {...(reloadToken === undefined ? {} : { reloadToken })}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

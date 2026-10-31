@@ -2,6 +2,7 @@ import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-re
 import type { ChangedFileEntry, StructuredFileDiff } from '@brainstrike/types';
 import type { DiffViewSource } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gitFailure } from '../../__tests__/helpers/git-failure';
 import { changedFileKey, useChangesStore } from '../changes-store';
@@ -12,9 +13,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
-    DiffView: (props: { filename?: string; source: DiffViewSource }) => (
+    DiffView: (props: { filename?: string; mode?: string; source: DiffViewSource }) => (
       <div
         data-filename={props.filename}
+        data-mode={props.mode}
         data-source-kind={props.source.kind}
         data-testid="diff-view-stub"
       />
@@ -113,6 +115,38 @@ describe('ChangesetDiffPane', () => {
     expect(cards).toHaveLength(2);
   });
 
+  it('switches every file between side by side and inline from one control', async () => {
+    const user = userEvent.setup();
+    const files = [makeEntry({ path: 'src/a.ts' }), makeEntry({ path: 'src/b.ts' })];
+    const loadFileDiff = vi.fn(
+      async (path: string): Promise<BoundaryResult<StructuredFileDiff>> => ({
+        ok: true,
+        value: makeFullDiff(path),
+      })
+    );
+
+    render(
+      <ChangesetDiffPane
+        changesetKey="test-changeset"
+        changesetKind="git-scope"
+        files={files}
+        loadFileDiff={loadFileDiff}
+      />
+    );
+
+    const diffs = await screen.findAllByTestId('diff-view-stub');
+    expect(diffs.map((diff) => diff.dataset['mode'])).toEqual(['split', 'split']);
+    await user.click(screen.getByRole('button', { name: 'Switch to inline diff' }));
+    expect(screen.getAllByTestId('diff-view-stub').map((diff) => diff.dataset['mode'])).toEqual([
+      'unified',
+      'unified',
+    ]);
+    expect(screen.getByRole('button', { name: 'Switch to side-by-side diff' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
   it('renders only the selected files, in changeset order', async () => {
     const files = [
       makeEntry({ path: 'src/a.ts' }),
@@ -146,8 +180,8 @@ describe('ChangesetDiffPane', () => {
     const cards = await screen.findAllByTestId('changeset-file-diff-card');
     expect(cards).toHaveLength(2);
     // Changeset order (a.ts before c.ts), not selection-insertion order.
-    expect(within(cards[0] as HTMLElement).getByText('src/a.ts')).toBeInTheDocument();
-    expect(within(cards[1] as HTMLElement).getByText('src/c.ts')).toBeInTheDocument();
+    expect(within(cards[0] as HTMLElement).getByTitle('src/a.ts')).toBeInTheDocument();
+    expect(within(cards[1] as HTMLElement).getByTitle('src/c.ts')).toBeInTheDocument();
     expect(screen.queryByText('src/b.ts')).not.toBeInTheDocument();
   });
 

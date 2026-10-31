@@ -232,6 +232,29 @@ describe('DiffView structured mode', () => {
     expect(await screen.findByTestId('diff-stat-summary')).toHaveTextContent('+3 −2');
   });
 
+  it('draws no toolbar when its host names the file and owns the mode', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      additions: 3,
+      content: { kind: 'full', newContent: modified, oldContent: original },
+      deletions: 2,
+    });
+
+    render(
+      <DiffView
+        mode="unified"
+        showFileSummary={false}
+        source={{ diff, kind: 'structured' }}
+        testId="diff"
+      />
+    );
+
+    expect(await screen.findByTestId('diff')).toHaveAttribute('data-mode', 'unified');
+    expect(screen.queryByTestId('diff-stat-summary')).toBeNull();
+    expect(screen.queryByTestId('diff-status-chip')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
   it('renders a read-only unified view naming the over-cap side for hunks-only content, with no fabricated line numbers', async () => {
     const diff = makeStructuredDiff({
       content: {

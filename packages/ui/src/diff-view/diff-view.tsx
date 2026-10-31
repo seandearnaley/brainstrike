@@ -31,6 +31,7 @@ import {
 } from './diff-view-slice';
 import {
   type DiffViewSource,
+  type DiffViewStatSummary,
   type ResolvedDiffPresentation,
   resolveDiffView,
 } from './diff-view-source';
@@ -41,20 +42,36 @@ const logger = createLogger('DiffView');
 const MONO_FONT_FAMILY =
   'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace)';
 
+// Diff tints, from the theme's own status tokens so they track light and dark.
+const REMOVED_LINE = 'color-mix(in oklab, var(--destructive) 12%, transparent)';
+const REMOVED_TEXT = 'color-mix(in oklab, var(--destructive) 26%, transparent)';
+const ADDED_LINE = 'color-mix(in oklab, var(--success) 14%, transparent)';
+const ADDED_TEXT = 'color-mix(in oklab, var(--success) 28%, transparent)';
+
 /**
  * Shared theme mirroring {@link CodeSurface} so the diff viewer is visually
  * consistent with the rest of the read-only code surfaces (same font, gutters,
- * and CSS-variable-driven colors). The `.cm-deletedChunk` / `.cm-insertedLine`
- * / `.cm-changedLine` rules tint the diff highlights using the app's
- * destructive / success-ish tokens.
+ * and CSS-variable-driven colors).
+ *
+ * The change highlighting restates `@codemirror/merge`'s own base-theme
+ * selectors (`&.cm-merge-a`, `&.cm-merge-b`, `.cm-deletedChunk`,
+ * `.cm-changedLineGutter`, `.cm-collapsedLines`) with the app's tokens. A
+ * theme with the same selector outranks the base theme, which is how the
+ * package expects its look to be overridden. Its defaults draw changed words
+ * with a 2px red or green underline (`background: linear-gradient(...)
+ * bottom/100% 2px`) and use fixed hex colours; here a changed line is a soft
+ * tint and its changed words a stronger fill of the same hue, with no
+ * underline, as in a conventional side-by-side diff.
  */
 const DIFF_THEME: Extension = EditorView.theme({
-  // Merge-view chunk highlighting (tinted via theme tokens so it tracks dark mode).
-  '.cm-changedLine': {
-    backgroundColor: 'color-mix(in oklab, var(--primary) 8%, transparent)',
+  '.cm-collapsedLines': {
+    background: 'color-mix(in oklab, var(--muted) 70%, transparent)',
+    color: 'var(--muted-foreground)',
+    fontFamily: 'var(--font-sans, inherit)',
+    fontSize: '0.75rem',
   },
-  '.cm-changedText': {
-    backgroundColor: 'color-mix(in oklab, var(--primary) 18%, transparent)',
+  '.cm-collapsedLines:hover': {
+    color: 'var(--foreground)',
   },
   '.cm-content': {
     caretColor: 'var(--foreground)',
@@ -63,9 +80,6 @@ const DIFF_THEME: Extension = EditorView.theme({
     lineHeight: '1.55',
     minHeight: '100%',
     padding: '0.5rem 0',
-  },
-  '.cm-deletedChunk': {
-    backgroundColor: 'color-mix(in oklab, var(--destructive) 12%, transparent)',
   },
   '.cm-editor': {
     height: '100%',
@@ -78,8 +92,9 @@ const DIFF_THEME: Extension = EditorView.theme({
     borderRight: '1px solid var(--border)',
     color: 'var(--muted-foreground)',
   },
+  // The hunks-only view's own `+` line decoration (see buildHunkLineDecorations).
   '.cm-insertedLine': {
-    backgroundColor: 'hsl(142 70% 45% / 0.14)',
+    backgroundColor: ADDED_LINE,
   },
   // BST-2333: the + that opens a line comment, shown on the hovered line.
   '.cm-line-comment-add': {
@@ -112,6 +127,26 @@ const DIFF_THEME: Extension = EditorView.theme({
     color: 'var(--foreground)',
     height: '100%',
     minHeight: '100%',
+  },
+  '&.cm-merge-a .cm-changedLine, .cm-deletedChunk': {
+    backgroundColor: REMOVED_LINE,
+  },
+  '&.cm-merge-a .cm-changedLineGutter, .cm-deletedLineGutter': {
+    background: 'var(--destructive)',
+  },
+  '&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText, &.cm-merge-b .cm-deletedText': {
+    background: REMOVED_TEXT,
+    borderRadius: '2px',
+  },
+  '&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine': {
+    backgroundColor: ADDED_LINE,
+  },
+  '&.cm-merge-b .cm-changedLineGutter, .cm-inlineChangedLineGutter': {
+    background: 'var(--success)',
+  },
+  '&.cm-merge-b .cm-changedText': {
+    background: ADDED_TEXT,
+    borderRadius: '2px',
   },
 });
 
@@ -640,6 +675,102 @@ const STATUS_LABELS: Record<ChangedFileStatus, string> = {
   untracked: 'Untracked',
 };
 
+/** The caveats a diff's toolbar states about what it is showing. */
+interface DiffNoteFacts {
+  /** The hunks-only view's note on why it shows hunks, else null. */
+  readonly overCap: string | null;
+  readonly oversize: 'none' | 'sliced' | 'unsliceable';
+  readonly truncated: boolean;
+}
+
+function hasDiffNotes(notes: DiffNoteFacts): boolean {
+  return notes.overCap !== null || notes.oversize !== 'none' || notes.truncated;
+}
+
+function DiffNotes({ notes }: { readonly notes: DiffNoteFacts }) {
+  return (
+    <>
+      {/* Tint is deliberately raw amber-500/15, not bg-warning/15: the
+      warning token is a deep amber that darkens the surface toward the
+      text, so text-warning composites to 4.64:1 here but 4.24:1 on
+      bg-warning/15. Re-measure these badges if --bs-warning is retuned. */}
+      {notes.overCap === null ? null : (
+        <span
+          className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
+          data-testid="diff-over-cap-note"
+        >
+          {notes.overCap}
+        </span>
+      )}
+      {notes.oversize === 'sliced' ? (
+        <span
+          className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
+          data-testid="diff-sliced-note"
+        >
+          File too large to diff in full — showing changed regions with surrounding context
+        </span>
+      ) : null}
+      {/* Shown only when there was no usable slice — the honest "we
+      cannot locate the changes" state (no hunk ranges, or a slice
+      still too large to diff interactively), never a
+      silently-degraded stand-in for the sliced view. */}
+      {notes.oversize === 'unsliceable' ? (
+        <span
+          className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
+          data-testid="diff-too-large-note"
+        >
+          File too large to diff inline — showing content without change highlighting
+        </span>
+      ) : null}
+      {notes.truncated ? (
+        <span
+          className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
+          data-testid="diff-truncated-note"
+        >
+          diff truncated
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function FileSummary({
+  filename,
+  stat,
+  status,
+}: {
+  readonly filename: string | undefined;
+  readonly stat: DiffViewStatSummary | null;
+  readonly status: ChangedFileStatus | null;
+}) {
+  return (
+    <>
+      <span className="text-muted-foreground min-w-0 truncate text-xs font-medium" title={filename}>
+        {filename ?? 'Diff'}
+      </span>
+      {status ? (
+        <span
+          className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs"
+          data-testid="diff-status-chip"
+        >
+          {STATUS_LABELS[status]}
+        </span>
+      ) : null}
+      {stat ? (
+        <span className="text-muted-foreground text-xs" data-testid="diff-stat-summary">
+          <span aria-hidden="true">
+            +{stat.additions} −{stat.deletions}
+          </span>
+          <span className="sr-only">
+            {stat.additions} {stat.additions === 1 ? 'addition' : 'additions'}, {stat.deletions}{' '}
+            {stat.deletions === 1 ? 'deletion' : 'deletions'}
+          </span>
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 export type DiffViewMode = 'split' | 'unified';
 
 interface DiffViewBaseProps {
@@ -653,11 +784,23 @@ interface DiffViewBaseProps {
   /** Explicit language name override (takes precedence over `filename`). */
   readonly language?: string | undefined;
   /**
+   * The view mode, when the host owns it — one switch for a stack of diffs.
+   * A controlled diff draws no toggle of its own, and with
+   * `showFileSummary={false}` and no notes to show it draws no toolbar at all.
+   */
+  readonly mode?: DiffViewMode | undefined;
+  /**
    * Takes a comment on a file line or range (BST-2333); without it the diff
    * has no comment gutter. Hunks-only content never takes one: its lines are
    * not file lines.
    */
   readonly onLineComment?: DiffLineCommentHandler | undefined;
+  /**
+   * Whether the toolbar names the file with its status and line counts.
+   * Defaults to true; a host whose own header already says all three (a
+   * changeset's file card) turns it off rather than repeat them.
+   */
+  readonly showFileSummary?: boolean | undefined;
   readonly testId?: string | undefined;
 }
 
@@ -705,17 +848,20 @@ export function DiffView({
   ariaLabel = 'Diff viewer',
   className,
   defaultMode = 'split',
+  mode: controlledMode,
   filename,
   language,
   onLineComment,
   original,
   modified,
+  showFileSummary = true,
   source,
   truncated,
   testId,
 }: DiffViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [mode, setMode] = useState<DiffViewMode>(defaultMode);
+  const [ownMode, setOwnMode] = useState<DiffViewMode>(defaultMode);
+  const mode = controlledMode ?? ownMode;
   const [openComment, setOpenComment] = useState<OpenLineComment | null>(null);
   const [lineComments] = useState(() => createLineCommentController(setOpenComment));
   // A stable function either way, so the build effect rebuilds only when
@@ -802,8 +948,15 @@ export function DiffView({
   const renderKey = `${mode}:${languageLabel}:${contentKind}`;
 
   const toggleMode = () => {
-    setMode((current) => (current === 'split' ? 'unified' : 'split'));
+    setOwnMode((current) => (current === 'split' ? 'unified' : 'split'));
   };
+  const toggleShown = modeTogglable && controlledMode === undefined;
+  const notes: DiffNoteFacts = {
+    overCap: presentation.kind === 'hunks-only' ? presentation.sideNote : null,
+    oversize: oversizeNote,
+    truncated: truncatedNoteVisible,
+  };
+  const toolbarShown = showFileSummary || toggleShown || hasDiffNotes(notes);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -951,86 +1104,34 @@ export function DiffView({
       data-mode={modeTogglable ? mode : undefined}
       data-testid={testId}
     >
-      <div className="border-border flex items-center justify-between gap-2 border-b px-2 py-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted-foreground text-xs font-medium">
-            {effectiveFilename ?? 'Diff'}
-          </span>
-          {resolved.status ? (
-            <span
-              className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs"
-              data-testid="diff-status-chip"
+      {toolbarShown ? (
+        <div className="border-border flex items-center justify-between gap-2 border-b px-2 py-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {showFileSummary ? (
+              <FileSummary
+                filename={effectiveFilename}
+                stat={resolved.statSummary}
+                status={resolved.status}
+              />
+            ) : null}
+            <DiffNotes notes={notes} />
+          </div>
+          {toggleShown ? (
+            <Button
+              aria-label={
+                mode === 'split' ? 'Switch to inline diff' : 'Switch to side-by-side diff'
+              }
+              aria-pressed={mode === 'unified'}
+              onClick={toggleMode}
+              size="xs"
+              type="button"
+              variant="outline"
             >
-              {STATUS_LABELS[resolved.status]}
-            </span>
-          ) : null}
-          {resolved.statSummary ? (
-            <span className="text-muted-foreground text-xs" data-testid="diff-stat-summary">
-              <span aria-hidden="true">
-                +{resolved.statSummary.additions} −{resolved.statSummary.deletions}
-              </span>
-              <span className="sr-only">
-                {resolved.statSummary.additions}{' '}
-                {resolved.statSummary.additions === 1 ? 'addition' : 'additions'},{' '}
-                {resolved.statSummary.deletions}{' '}
-                {resolved.statSummary.deletions === 1 ? 'deletion' : 'deletions'}
-              </span>
-            </span>
-          ) : null}
-          {/* Tint is deliberately raw amber-500/15, not bg-warning/15: the
-              warning token is a deep amber that darkens the surface toward the
-              text, so text-warning composites to 4.64:1 here but 4.24:1 on
-              bg-warning/15. Re-measure these badges if --bs-warning is retuned. */}
-          {presentation.kind === 'hunks-only' ? (
-            <span
-              className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
-              data-testid="diff-over-cap-note"
-            >
-              {presentation.sideNote}
-            </span>
-          ) : null}
-          {oversizeNote === 'sliced' ? (
-            <span
-              className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
-              data-testid="diff-sliced-note"
-            >
-              File too large to diff in full — showing changed regions with surrounding context
-            </span>
-          ) : null}
-          {/* Shown only when there was no usable slice — the honest "we
-              cannot locate the changes" state (no hunk ranges, or a slice
-              still too large to diff interactively), never a
-              silently-degraded stand-in for the sliced view. */}
-          {oversizeNote === 'unsliceable' ? (
-            <span
-              className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
-              data-testid="diff-too-large-note"
-            >
-              File too large to diff inline — showing content without change highlighting
-            </span>
-          ) : null}
-          {truncatedNoteVisible ? (
-            <span
-              className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
-              data-testid="diff-truncated-note"
-            >
-              diff truncated
-            </span>
+              {mode === 'split' ? 'Inline' : 'Side by side'}
+            </Button>
           ) : null}
         </div>
-        {modeTogglable ? (
-          <Button
-            aria-label={mode === 'split' ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
-            aria-pressed={mode === 'unified'}
-            onClick={toggleMode}
-            size="xs"
-            type="button"
-            variant="outline"
-          >
-            {mode === 'split' ? 'Inline' : 'Side by side'}
-          </Button>
-        ) : null}
-      </div>
+      ) : null}
       {/* The CodeMirror MergeView / EditorView is imperatively mounted here for
           `text`/`hunks-only` content. The labelled region groups the diff
           content for assistive tech — always this `<section>`, even for
@@ -1039,10 +1140,15 @@ export function DiffView({
           `aria-label` would override its own visible text as the accessible
           name (an element with `aria-label` ignores its text content for
           that computation), and `role="status"` would wrongly turn static
-          content into a live region. */}
+          content into a live region.
+
+          `.cm-mergeView` is the split view's own scroller (the package sets
+          its overflow), but its height is the host's to give: left at auto it
+          grows to the whole document and this section clips everything past
+          its bottom edge, out of reach. */}
       <section
         aria-label={ariaLabel}
-        className="min-h-0 flex-1 overflow-hidden"
+        className="min-h-0 flex-1 overflow-hidden [&_.cm-mergeView]:h-full"
         key={renderKey}
         ref={hostRef}
       >

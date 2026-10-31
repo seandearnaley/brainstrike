@@ -94,6 +94,13 @@ it('says the later turns leave the conversation for their branch, before and aft
     )
   ).toBeInTheDocument();
   expect(screen.queryByText(/hidden|deleted/iu)).not.toBeInTheDocument();
+  // With no files to preview, the preview region says why instead of standing empty.
+  expect(screen.getByTestId('rewind-conversation-only')).toHaveTextContent(
+    'Only the conversation can be restored'
+  );
+  expect(screen.getByTestId('rewind-files-scope-refusal')).toHaveTextContent(
+    "This message's turn predates workspace snapshots"
+  );
 
   await user.click(screen.getByTestId('rewind-confirm'));
   expect(port.apply).toHaveBeenCalledWith({
