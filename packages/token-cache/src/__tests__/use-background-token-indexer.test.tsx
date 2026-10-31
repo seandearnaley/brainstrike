@@ -1859,8 +1859,9 @@ describe('useBackgroundTokenIndexer', () => {
         .mockResolvedValue(new Map()),
       set: vi.fn(async () => {}),
     };
+    const onFileError = vi.fn();
     const { result } = renderHook(() =>
-      useBackgroundTokenIndexer({ mode: 'accurate', onFileError: vi.fn(), store })
+      useBackgroundTokenIndexer({ mode: 'accurate', onFileError, store })
     );
     const crashed = mockWorkers[0]!;
     await markSpecificWorkerReady(crashed);
@@ -1910,6 +1911,9 @@ describe('useBackgroundTokenIndexer', () => {
       } as MessageEvent);
     });
     await expect(freshIndexing).resolves.toBeUndefined();
+    // A recovered restart reports no terminal error, as for the batches the crash carried.
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockLogger.error).not.toHaveBeenCalled();
   });
 
   it('settles a startup still waiting for ready with the retirement and cancels its readiness timeout', async () => {
