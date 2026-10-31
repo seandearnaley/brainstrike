@@ -1,4 +1,4 @@
-import { Predicate } from 'effect';
+import { Predicate, Schema } from 'effect';
 
 export const TOOL_OUTPUT_ARTIFACT_CODE = 'tool_output_artifact' as const;
 export const TOOL_OUTPUT_ARTIFACT_VERSION = 1 as const;
@@ -10,12 +10,10 @@ export const TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES = 4;
 /** How long a settled tool output stays readable through its artifact reference. */
 export const TOOL_OUTPUT_ARTIFACT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-const ARTIFACT_ID_MAX_CHARS = 128;
 const CURSOR_MAX_CHARS = 2048;
 const HINT_MAX_CHARS = 2000;
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
 const TEXT_ENCODER = new TextEncoder();
-const ARTIFACT_REFERENCE_KEYS = new Set(['byteLength', 'expiresAt', 'format', 'id']);
 const ARTIFACT_ENVELOPE_KEYS = new Set([
   'artifactRef',
   'code',
@@ -45,7 +43,6 @@ const ARTIFACT_PAGE_KEYS = new Set([
 ]);
 const ARTIFACT_PAGE_REQUIRED_KEYS = new Set(['artifactRef', 'content', 'endByte', 'offsetByte']);
 
-export type ToolOutputArtifactFormat = 'json' | 'text';
 export type ToolOutputArtifactContentEncoding = typeof TOOL_OUTPUT_ARTIFACT_JSON_STRING_ENCODING;
 
 /**
@@ -54,12 +51,31 @@ export type ToolOutputArtifactContentEncoding = typeof TOOL_OUTPUT_ARTIFACT_JSON
  * The identifier deliberately cannot encode a path, URL, thread id, or storage
  * location. Resolution must happen through the current request scope.
  */
-export interface ToolOutputArtifactReference {
-  readonly byteLength: number;
-  readonly expiresAt: string;
-  readonly format: ToolOutputArtifactFormat;
-  readonly id: string;
-}
+export const ToolOutputArtifactReferenceSchema = Schema.Struct({
+  byteLength: Schema.Int.check(
+    Schema.isGreaterThanOrEqualTo(0),
+    Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
+  ),
+  expiresAt: Schema.String.check(
+    Schema.isMinCodePoints(1),
+    Schema.isMaxCodePoints(64),
+    Schema.makeFilter((value: string) => {
+      const parsed = Date.parse(value);
+      return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+    })
+  ),
+  format: Schema.Literals(['json', 'text']),
+  id: Schema.String.check(
+    Schema.isMinCodePoints(1),
+    Schema.isMaxCodePoints(128),
+    Schema.isPattern(/^[A-Za-z0-9_-]+$/u)
+  ),
+});
+export type ToolOutputArtifactReference = typeof ToolOutputArtifactReferenceSchema.Type;
+export type ToolOutputArtifactFormat = ToolOutputArtifactReference['format'];
+
+const ARTIFACT_REFERENCE_KEYS = new Set(Object.keys(ToolOutputArtifactReferenceSchema.fields));
+const isReferenceShape = Schema.is(ToolOutputArtifactReferenceSchema);
 
 /**
  * Bounded provider-facing result returned after complete output is retained.
@@ -115,14 +131,6 @@ function isNonEmptyBoundedString(value: unknown, maximum: number): value is stri
 
 function isOpaqueToken(value: unknown, maximum: number): value is string {
   return isNonEmptyBoundedString(value, maximum) && /^[A-Za-z0-9_-]+$/u.test(value);
-}
-
-function isIsoInstant(value: unknown): value is string {
-  if (!isNonEmptyBoundedString(value, 64)) {
-    return false;
-  }
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
 }
 
 function utf8ByteLength(value: string): number {
@@ -333,16 +341,11 @@ export function isToolOutputArtifactCursor(value: unknown): value is string {
 export function isToolOutputArtifactReference(
   value: unknown
 ): value is ToolOutputArtifactReference {
-  if (!(Predicate.isObject(value) && hasOnlyKeys(value, ARTIFACT_REFERENCE_KEYS))) {
-    return false;
-  }
+  // Own keys only: the schema alone would accept inherited or extra fields.
   return (
-    isOpaqueToken(value['id'], ARTIFACT_ID_MAX_CHARS) &&
-    (value['format'] === 'json' || value['format'] === 'text') &&
-    typeof value['byteLength'] === 'number' &&
-    Number.isSafeInteger(value['byteLength']) &&
-    value['byteLength'] >= 0 &&
-    isIsoInstant(value['expiresAt'])
+    Predicate.isObject(value) &&
+    hasOnlyKeys(value, ARTIFACT_REFERENCE_KEYS) &&
+    isReferenceShape(value)
   );
 }
 
