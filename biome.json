@@ -157,9 +157,7 @@
         "packages/agent/src/__tests__/tool-model-output.spec.ts",
         "apps/desktop/src/__tests__/assistant-server/tool-execute-support.test.ts",
         "apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts",
-        "apps/desktop/src/__tests__/assistant-server/manage-task-list-tool.test.ts",
-        "scripts/__tests__/agent-quality-lint*",
-        "scripts/__tests__/isolated/agent-quality-lint*"
+        "apps/desktop/src/__tests__/assistant-server/manage-task-list-tool.test.ts"
       ],
       "linter": {
         "rules": {
@@ -277,8 +275,7 @@
         "apps/desktop/src/__tests__/assistant-server/agent-ignore-boundary-holes.test.ts",
         "apps/desktop/src/__tests__/assistant-server/workspace-file-walk-agent-layers.test.ts",
         "apps/desktop/src/__tests__/assistant-server/agent-ignore-mutation-boundary.integration.test.ts",
-        "apps/desktop/src/__tests__/assistant-server/native-tool-error-causes.test.ts",
-        "apps/desktop/src/__tests__/assistant-server/agent-quality-lint*/**"
+        "apps/desktop/src/__tests__/assistant-server/native-tool-error-causes.test.ts"
       ],
       "linter": {
         "rules": {

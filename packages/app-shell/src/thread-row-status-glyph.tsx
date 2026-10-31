@@ -43,8 +43,8 @@ const DOT_PRESENTATION = {
     testId: 'thread-failed-glyph',
   },
   'needs-you': {
-    // The shared semantic token is contrast-graded against both row surfaces
-    // in `warning-theme-contract.test.mjs`; consumers never choose raw amber.
+    // The shared semantic token was contrast-graded against both row surfaces;
+    // re-measure when it changes. Consumers never choose raw amber.
     className: 'bg-warning',
     testId: 'thread-needs-you-glyph',
   },

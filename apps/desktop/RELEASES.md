@@ -119,9 +119,8 @@ it searched.
    `ubicloud-standard-4-arm`) and asserts its runner is its target. Each leg
    names its AppImage `Brainstrike-<version>-linux-<arch>.AppImage`, overriding
    `linux.artifactName`, whose x64 literal exists because electron-builder's
-   `${arch}` names an x64 AppImage `x86_64`. The contract test pins one release
-   leg per Native Package Matrix target and checks that the manifest names
-   every leg's asset.
+   `${arch}` names an x64 AppImage `x86_64`. Keep one release leg per Native
+   Package Matrix target, and make sure the manifest names every leg's asset.
 3. Sign the final macOS DMGs' apps and notarize them; Windows ships unsigned
    until Authenticode (Azure Trusted Signing) lands; Linux publishes a SHA-256
    digest. Once signing credentials are configured, the pipeline fails if

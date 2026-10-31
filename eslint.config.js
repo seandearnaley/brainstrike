@@ -97,10 +97,9 @@ export default [
       // be limited to unnecessary dependencies.
       'react-hooks/memo-dependencies': 'warn',
       'react-hooks/rules-of-hooks': 'error',
-      // Fast Refresh module-boundary contract (BST-1220, #2372). This ESLint rule
-      // is the enforcer. react-doctor's own `only-export-components` is live (in
-      // the separate oxlint-plugin-react-doctor package) but warn-only and gates
-      // nothing, so the many source comments citing it described no real gate.
+      // Fast Refresh module-boundary contract (BST-1220, #2372). This rule reports
+      // boundary breaks as warnings and gates nothing; neither does react-doctor's
+      // own `only-export-components` (oxlint-plugin-react-doctor, warn-only).
       // See the REACT DOCTOR section in docs/agents/ci-quality.md.
       //
       // Semantics deliberately match @vitejs/plugin-react's runtime check
