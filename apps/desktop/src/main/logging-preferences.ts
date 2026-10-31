@@ -57,17 +57,17 @@ export interface DesktopLoggingPreferencesDeps {
 }
 
 export interface DesktopLoggingPreferencesController {
+  /**
+   * After `app.ready`, once the settings store and the log path exist: applies the
+   * stored preferences over the real defaults and returns the active log file, or null.
+   */
+  readonly applyAfterReady: () => string | null;
   readonly applyAndPersist: (preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>;
   /** Apply + persist the initial set (the module-scope boot step). */
   readonly applyInitial: () => void;
   /** `initializeLogging` options for the initial set (file transport when enabled). */
   readonly createInitializeLoggingOptions: () => InitializeLoggingOptions;
   readonly current: LoggingPreferences;
-  /**
-   * After `app.ready`, when file logging was off ONLY because no log path was
-   * known at module load: enables it and returns the resolved path, else null.
-   */
-  readonly enableFileLoggingAfterReady: () => string | null;
   readonly getSettingsPayload: () => LoggingSettingsPayload;
   readonly initial: LoggingPreferences;
   readonly openDestination: (target: string | null) => Promise<boolean>;
@@ -386,8 +386,9 @@ export function createDesktopLoggingPreferencesController(
   function getSettingsPayload(): LoggingSettingsPayload {
     return cloneLoggingSettingsPayload({
       capabilities: getLoggingCapabilities(),
-      // Restore Defaults commits these through applyAndPersist, which sanitizes them.
-      defaults: defaultPreferences,
+      // Built per request: the log path exists only once the app is ready. Restore
+      // Defaults commits them through applyAndPersist, which sanitizes them.
+      defaults: createDesktopDefaultPreferences(),
       preferences: currentLoggingPreferences,
     });
   }
@@ -504,24 +505,17 @@ export function createDesktopLoggingPreferencesController(
     }
   }
 
-  function enableFileLoggingAfterReady(): string | null {
-    // At module load time, app.isReady() is false so getLogFilePath()
-    // returns null and file logging defaults to disabled.
-    if (disableFileLogs || currentLoggingPreferences.file.enabled) {
-      return null;
-    }
-    const resolvedLogPath = getLogFilePath();
-    if (!resolvedLogPath) {
-      return null;
-    }
-    currentLoggingPreferences = {
-      ...currentLoggingPreferences,
-      file: {
-        ...currentLoggingPreferences.file,
-        destination: resolvedLogPath,
-        enabled: true,
-      },
-    };
+  /**
+   * The settings store and the log path open only once the app is ready, so the
+   * set chosen at module load is defaults without a file. Now resolve what the
+   * user stored over the real defaults, and return the active log file.
+   */
+  function applyAfterReady(): string | null {
+    currentLoggingPreferences = sanitizeDesktopPreferences(
+      mergeStoredPreferences(createDesktopDefaultPreferences(), readStoredLoggingPreferences())
+    );
+    const { destination, enabled } = currentLoggingPreferences.file;
+    const logFile = enabled && destination ? destination : null;
     applyLoggingPreferences(
       withConsoleLevelOverride(currentLoggingPreferences, consoleLevelOverride),
       'electron-main',
@@ -529,24 +523,24 @@ export function createDesktopLoggingPreferencesController(
         baseBindings: {
           arch: process.arch,
           electron: process.versions.electron,
-          logFile: resolvedLogPath,
+          logFile,
           node: process.versions.node,
           platform: process.platform,
         },
         fileTransport: createMainLogTransportConfig(),
       }
     );
-    return resolvedLogPath;
+    return logFile;
   }
 
   return {
+    applyAfterReady,
     applyAndPersist,
     applyInitial,
     createInitializeLoggingOptions,
     get current() {
       return currentLoggingPreferences;
     },
-    enableFileLoggingAfterReady,
     getSettingsPayload,
     initial: initialLoggingPreferences,
     openDestination,

@@ -408,7 +408,10 @@ function FileLoggingCard({
   );
 }
 
-/** A draft of the comma-separated list, committed when the field loses focus or on Enter. */
+/**
+ * A draft of the comma-separated list, committed when the field loses focus or on Enter.
+ * A changed list remounts it through its key; a failed or no-op commit returns it to the held list.
+ */
 function RedactPathsInput({
   committed,
   disabled,
@@ -421,7 +424,7 @@ function RedactPathsInput({
   const [draft, setDraft] = useState(committed);
   const commitDraft = () => {
     if (draft !== committed) {
-      void onCommit(draft);
+      void onCommit(draft).finally(() => setDraft(committed));
     }
   };
   return (

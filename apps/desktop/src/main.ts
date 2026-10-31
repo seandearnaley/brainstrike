@@ -1107,8 +1107,8 @@ if (singleInstanceLockAcquired) {
         app.dock?.hide();
       }
 
-      // Re-initialize file logging now that app.getPath() is available.
-      const enabledLogFile = loggingPreferences.enableFileLoggingAfterReady();
+      // The settings store and app.getPath() are available now: apply the stored preferences.
+      const enabledLogFile = loggingPreferences.applyAfterReady();
       if (enabledLogFile) {
         logger.debug('File logging enabled after app.ready', { logFile: enabledLogFile });
       }

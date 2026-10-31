@@ -10,7 +10,7 @@ interface LoggingCapabilities {
 
 export interface LoggingSettingsPayload {
   capabilities: LoggingCapabilities;
-  /** What Restore Defaults commits: Main's defaults, sanitized as a commit would be. */
+  /** What Restore Defaults commits: Main's defaults, raw; the commit sanitizes them. */
   defaults: LoggingPreferences;
   preferences: LoggingPreferences;
 }

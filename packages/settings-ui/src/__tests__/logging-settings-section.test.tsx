@@ -251,6 +251,19 @@ describe('LoggingSettingsSection', () => {
     expect(consoleSwitch).toBeEnabled();
   });
 
+  it('returns redacted fields to what the writer holds when their commit fails', async () => {
+    renderWithWriter({}, async () => {
+      throw new Error('simulated failure');
+    });
+    const redactInput = screen.getByLabelText(/redacted fields/iu);
+
+    fireEvent.change(redactInput, { target: { value: 'token' } });
+    fireEvent.blur(redactInput);
+
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByLabelText(/redacted fields/iu)).toHaveValue(''));
+  });
+
   it('leaves the log source and its export to the Logs page', () => {
     renderWithWriter({ runtime: 'browser' });
 
