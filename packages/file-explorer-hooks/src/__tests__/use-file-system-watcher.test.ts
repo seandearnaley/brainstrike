@@ -323,9 +323,8 @@ describe('useFileSystemWatcher', () => {
   });
 
   it('changing onChanges identity does NOT restart existing watchers', () => {
-    // This tests the useEventCallback pattern: the diff effect depends on the
-    // identity-stable `emitChanges` wrapper rather than the raw onChanges, so a
-    // new callback object must not cause any watcher to restart.
+    // `emitChanges` is an Effect Event and is left out of the diff effect's
+    // deps, so a new callback object must not cause any watcher to restart.
     const adapter = makeAdapter();
     const handleA = makeHandle('root-a');
 
