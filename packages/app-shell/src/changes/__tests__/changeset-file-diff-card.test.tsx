@@ -263,28 +263,18 @@ describe('ChangesetFileDiffCard', () => {
     expect(screen.getByTestId('diff-view-stub')).toHaveAttribute('data-new-content', 'newest\n');
   });
 
-  it('reserves the loaded diff height while a diff is loading, and the short box for a known binary file', () => {
+  it('reserves the loaded diff height while a diff is loading', () => {
     const loadFileDiff = vi.fn<() => Promise<GitResult<StructuredFileDiff>>>(
       () => new Promise(() => undefined)
     );
-    const { rerender } = render(
+    render(
       <ChangesetFileDiffCard
         changesetKind="git-scope"
-        entry={makeEntry()}
+        entry={makeEntry({ additions: null, deletions: null, path: 'new-file.ts' })}
         loadFileDiff={loadFileDiff}
       />
     );
     expect(screen.getByTestId('changeset-file-diff-card-loading')).toHaveClass('h-[420px]');
-
-    rerender(
-      <ChangesetFileDiffCard
-        changesetKind="git-scope"
-        entry={makeEntry({ additions: null, deletions: null, path: 'logo.png' })}
-        key="binary"
-        loadFileDiff={loadFileDiff}
-      />
-    );
-    expect(screen.getByTestId('changeset-file-diff-card-loading')).toHaveClass('h-40');
   });
 
   it('a reloadToken change before the first intersection does NOT force an eager load (stays lazy)', () => {

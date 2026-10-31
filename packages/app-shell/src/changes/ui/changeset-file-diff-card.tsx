@@ -73,20 +73,6 @@ export interface ChangesetFileDiffCardProps {
 }
 
 const BODY_CLASS_NAME = 'h-[420px] min-h-0';
-const BINARY_BODY_CLASS_NAME = 'h-40';
-
-/**
- * The body's height, fixed before the diff loads so loading and loaded take
- * the same box. A git-scope entry with no line counts is binary (numstat
- * reports `-`), so its short explanation box is known upfront; journal-backed
- * changesets never carry line counts, so their entries reserve the diff box.
- */
-function bodyClassName(changesetKind: Changeset['kind'], entry: ChangedFileEntry): string {
-  return changesetKind === 'git-scope' && entry.additions === null && entry.deletions === null
-    ? BINARY_BODY_CLASS_NAME
-    : BODY_CLASS_NAME;
-}
-
 type LoadState =
   | { readonly diff: StructuredFileDiff; readonly kind: 'loaded' }
   | { readonly kind: 'idle' }
@@ -139,10 +125,10 @@ function CardHeader({ entry }: { readonly entry: ChangedFileEntry }): ReactEleme
   );
 }
 
-function LoadingBody({ className }: { readonly className: string }): ReactElement {
+function LoadingBody(): ReactElement {
   return (
     <div
-      className={`text-muted-foreground flex items-center justify-center text-xs ${className}`}
+      className={`text-muted-foreground flex items-center justify-center text-xs ${BODY_CLASS_NAME}`}
       data-testid="changeset-file-diff-card-loading"
       role="status"
     >
@@ -151,10 +137,10 @@ function LoadingBody({ className }: { readonly className: string }): ReactElemen
   );
 }
 
-function BinaryBody({ className }: { readonly className: string }): ReactElement {
+function BinaryBody(): ReactElement {
   return (
     <div
-      className={`text-muted-foreground flex flex-col items-center justify-center gap-1 px-6 text-center text-sm ${className}`}
+      className={`text-muted-foreground flex flex-col items-center justify-center gap-1 px-6 text-center text-sm ${BODY_CLASS_NAME}`}
       data-testid="changeset-file-diff-card-binary"
     >
       <span>Binary file — no textual diff available.</span>
@@ -187,21 +173,19 @@ function ErrorBody({
  * Journal-backed changesets (`agent-run`/`run-range`) flow through here
  * exactly like git-scope changesets; see this module's doc comment. */
 function LoadedBody({
-  className,
   diff,
   entry,
   onLineComment,
 }: {
-  readonly className: string;
   readonly diff: StructuredFileDiff;
   readonly entry: ChangedFileEntry;
   readonly onLineComment: ChangesetFileDiffCardProps['onLineComment'];
 }): ReactElement {
   if (diff.content.kind === 'binary') {
-    return <BinaryBody className={className} />;
+    return <BinaryBody />;
   }
   return (
-    <div className={className} data-testid="changeset-file-diff-card-diff-view">
+    <div className={BODY_CLASS_NAME} data-testid="changeset-file-diff-card-diff-view">
       <DiffView
         ariaLabel={`Diff for ${entry.path}`}
         filename={entry.path}
@@ -213,10 +197,11 @@ function LoadedBody({
 }
 
 export function ChangesetFileDiffCard({
-  // Journal-backed changesets are deliberately NOT special-cased (see this
-  // module's doc comment); the kind only decides whether null stats mean a
-  // binary entry when the body's height is reserved.
-  changesetKind,
+  // Part of the fixed cross-task prop contract (BST-1114 W4) but not read
+  // here: journal-backed changesets are deliberately NOT special-cased (see
+  // this module's doc comment) — the only journal-specific handling is the
+  // generic null-stat rendering every changeset already goes through.
+  changesetKind: _changesetKind,
   entry,
   loadFileDiff,
   onLineComment,
@@ -302,22 +287,13 @@ export function ChangesetFileDiffCard({
     void runLoad();
   }, [runLoad]);
 
-  const bodyClass = bodyClassName(changesetKind, entry);
-
   return (
     <div data-testid="changeset-file-diff-card" ref={containerRef}>
       <CardHeader entry={entry} />
-      {state.kind === 'idle' || state.kind === 'loading' ? (
-        <LoadingBody className={bodyClass} />
-      ) : null}
+      {state.kind === 'idle' || state.kind === 'loading' ? <LoadingBody /> : null}
       {state.kind === 'error' ? <ErrorBody message={state.message} onRetry={retry} /> : null}
       {state.kind === 'loaded' ? (
-        <LoadedBody
-          className={bodyClass}
-          diff={state.diff}
-          entry={entry}
-          onLineComment={onLineComment}
-        />
+        <LoadedBody diff={state.diff} entry={entry} onLineComment={onLineComment} />
       ) : null}
     </div>
   );
