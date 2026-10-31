@@ -6,6 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { WorktreeExternalTool } from '@brainstrike/types';
 import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/utils';
 
@@ -169,7 +170,9 @@ export function assertWorktreeTargetOutsideRoots(
     ) {
       continue;
     }
-    throw new Error(
+    throw refusalError(
+      'input',
+      'worktree.path-refused',
       `Managed worktrees must not live inside the granted folder "${rootPath}" — change the location in Settings → Workspace.`
     );
   }

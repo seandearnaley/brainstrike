@@ -50,8 +50,8 @@ export function AgentWorkspaceLayout({
 }: AgentWorkspaceLayoutProps): ReactElement {
   // The left header row is a slot the sidebar fills with its own toolbar.
   const [sidebarHeader, setSidebarHeader] = useState<HTMLDivElement | null>(null);
-  // Stable chrome identity so IdeLayout's React.memo keeps protecting the
-  // subtree even if a future edit re-parents this JSX under a chatty provider.
+  // Stable chrome identity so the compiler's cached <IdeLayout> element keeps
+  // protecting the subtree when this component re-renders with the same props.
   const leftPanelChrome = {
     ...AGENT_LEFT_PANEL_CHROME,
     headerContent: <div className="flex min-w-0 flex-1" ref={setSidebarHeader} />,
