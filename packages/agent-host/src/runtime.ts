@@ -242,8 +242,8 @@ function composeHostRoot(
       let store: StateStore;
       try {
         store = await StateStore.open(root, {
-          // The writer worker imports this module itself, outside any
-          // transform: it has this module's extension, TypeScript source
+          // The memory calculator worker imports this module itself, outside
+          // any transform: it has this module's extension, TypeScript source
           // run by Node or the desktop bundle's emitted JS beside it.
           memoryCalculatorModule: fileURLToPath(
             new URL(

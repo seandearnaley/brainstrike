@@ -43,6 +43,7 @@ export type {
   McpTaskScopeWire,
   McpTaskStatusWire,
 } from './mcp-task-types.ts';
+export { MemoryCalculatorError } from './memory-calculator.ts';
 export type {
   MemoryCalculation,
   MemoryDomainPort,
