@@ -66,8 +66,8 @@ R2 exception: not ours to wait on):
   owner is refused at it. The handshake gets no tighter bound: loaded runners
   slow it by orders of magnitude, and shorter bounds refused healthy hosts. It
   never bounds the start or attach of the launch's own host.
-- The caller's `signal` (quit) ends either wait at once with its own reason
- : quit has no deadline of its own to bound them (ADR-0026).
+- The caller's `signal` (quit) ends either wait at once with its own reason:
+  quit has no deadline of its own to bound them (ADR-0026).
 - **The Node (CLI) starter** keeps its own ladder, an R2 exception on the
   external CLI path this redesign did not convert: readiness 90 s
   (`HOST_STARTER_READY_TIMEOUT_MS`), then `cancel-startup`, then SIGKILL (the
