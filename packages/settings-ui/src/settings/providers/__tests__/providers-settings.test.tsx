@@ -8,6 +8,7 @@ import type {
   ProviderVerificationSnapshot,
   ProviderVerificationStatus,
 } from '@brainstrike/assistant-contract';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -276,6 +277,29 @@ describe('ProvidersSettings — test connection', () => {
 
     expect(await screen.findByTestId('provider-verification-detail-openrouter')).toHaveTextContent(
       '4.20 credits remaining'
+    );
+  });
+
+  it("shows a host refusal's remedy beside its reason, so a probe the host declines says what to fix", async () => {
+    installSecretsBridge(() => Promise.resolve([{ provider: 'openai', source: 'stored' }]));
+    const verifyProvider = (): Promise<ProviderVerificationSnapshot> =>
+      Promise.reject(
+        refusalError(
+          'configuration',
+          'provider.credential-unsupported',
+          'The stored credential is not an API key, so it cannot be verified.',
+          'Replace it with an API key in Providers.'
+        )
+      );
+    const user = userEvent.setup();
+
+    render(<ProvidersSettings verifyProvider={verifyProvider} />);
+
+    await user.click(await screen.findByTestId('provider-card-toggle-openai'));
+    await user.click(screen.getByTestId('provider-test-connection-openai'));
+
+    expect(await screen.findByTestId('provider-verification-error-openai')).toHaveTextContent(
+      'The stored credential is not an API key, so it cannot be verified. Replace it with an API key in Providers.'
     );
   });
 
