@@ -2,7 +2,17 @@
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
     "noEmit": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "apiStabilityLeak": "error",
+          "experimentalApiUsage": "error",
+          "unstableApiUsage": "error"
+        }
+      }
+    ]
   },
   "include": [
     "src/**/*"
