@@ -414,7 +414,6 @@
         "apps/desktop/e2e/file-explorer-selection-restore.desktop.test.ts",
         "apps/desktop/e2e/file-explorer-selection.shared.ts",
         "apps/desktop/e2e/utils/electron-helpers.mts",
-        "apps/desktop/scripts/__tests__/start-agent-devtools-session.test.mjs",
         "apps/desktop/src/__tests__/assistant-server/assistant-tools-read.integration.test.ts",
         "apps/desktop/src/__tests__/assistant-server/git-service.integration.test.ts",
         "apps/desktop/src/__tests__/llm-host-manager.test.ts",
@@ -495,8 +494,7 @@
         "packages/ui/src/__tests__/tree-table.test.tsx",
         "packages/assistant-ui/src/assistant-ui-panel.tsx",
         "packages/ui/src/layout/ide-layout.tsx",
-        "packages/ui/src/tree-table/tree-table.tsx",
-        "scripts/__tests__/check-ci-parity.test.mjs"
+        "packages/ui/src/tree-table/tree-table.tsx"
       ],
       "linter": {
         "rules": {
