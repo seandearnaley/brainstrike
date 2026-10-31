@@ -25,8 +25,11 @@ import { MCP_APPS_SPEC_VERSION } from './capabilities.ts';
 import { parseMcpAppResourceMeta } from './metadata.ts';
 import { MCP_APPS_STABLE_METHODS, type McpAppStableMethod } from './stable-contract.ts';
 import {
+  type CanonicalSchema,
+  describeSchemaIssue,
   expectEncodedSize,
   expectExactKeys,
+  expectNoStrippedFields,
   expectRecord,
   MCP_APP_MAX_MESSAGE_BYTES,
   type UnknownRecord,
@@ -46,42 +49,29 @@ export interface McpAppMessage {
 
 const STABLE_METHOD_SET = new Set<string>(MCP_APPS_STABLE_METHODS);
 
-interface CanonicalMessageSchema {
-  safeParse(value: unknown):
-    | { readonly data: { readonly params?: unknown }; readonly success: true }
-    | {
-        readonly error: {
-          readonly issues: readonly {
-            readonly message: string;
-            readonly path: readonly PropertyKey[];
-          }[];
-        };
-        readonly success: false;
-      };
-}
-
-const CANONICAL_MESSAGE_SCHEMAS: Readonly<Record<McpAppStableMethod, CanonicalMessageSchema>> =
-  Object.freeze({
-    'notifications/message': LoggingMessageNotificationSchema,
-    ping: PingRequestSchema,
-    'resources/read': ReadResourceRequestSchema,
-    'tools/call': CallToolRequestSchema,
-    'ui/initialize': McpUiInitializeRequestSchema,
-    'ui/message': McpUiMessageRequestSchema,
-    'ui/notifications/host-context-changed': McpUiHostContextChangedNotificationSchema,
-    'ui/notifications/initialized': McpUiInitializedNotificationSchema,
-    'ui/notifications/sandbox-proxy-ready': McpUiSandboxProxyReadyNotificationSchema,
-    'ui/notifications/sandbox-resource-ready': McpUiSandboxResourceReadyNotificationSchema,
-    'ui/notifications/size-changed': McpUiSizeChangedNotificationSchema,
-    'ui/notifications/tool-cancelled': McpUiToolCancelledNotificationSchema,
-    'ui/notifications/tool-input': McpUiToolInputNotificationSchema,
-    'ui/notifications/tool-input-partial': McpUiToolInputPartialNotificationSchema,
-    'ui/notifications/tool-result': McpUiToolResultNotificationSchema,
-    'ui/open-link': McpUiOpenLinkRequestSchema,
-    'ui/request-display-mode': McpUiRequestDisplayModeRequestSchema,
-    'ui/resource-teardown': McpUiResourceTeardownRequestSchema,
-    'ui/update-model-context': McpUiUpdateModelContextRequestSchema,
-  });
+const CANONICAL_MESSAGE_SCHEMAS: Readonly<
+  Record<McpAppStableMethod, CanonicalSchema<{ readonly params?: unknown }>>
+> = Object.freeze({
+  'notifications/message': LoggingMessageNotificationSchema,
+  ping: PingRequestSchema,
+  'resources/read': ReadResourceRequestSchema,
+  'tools/call': CallToolRequestSchema,
+  'ui/initialize': McpUiInitializeRequestSchema,
+  'ui/message': McpUiMessageRequestSchema,
+  'ui/notifications/host-context-changed': McpUiHostContextChangedNotificationSchema,
+  'ui/notifications/initialized': McpUiInitializedNotificationSchema,
+  'ui/notifications/sandbox-proxy-ready': McpUiSandboxProxyReadyNotificationSchema,
+  'ui/notifications/sandbox-resource-ready': McpUiSandboxResourceReadyNotificationSchema,
+  'ui/notifications/size-changed': McpUiSizeChangedNotificationSchema,
+  'ui/notifications/tool-cancelled': McpUiToolCancelledNotificationSchema,
+  'ui/notifications/tool-input': McpUiToolInputNotificationSchema,
+  'ui/notifications/tool-input-partial': McpUiToolInputPartialNotificationSchema,
+  'ui/notifications/tool-result': McpUiToolResultNotificationSchema,
+  'ui/open-link': McpUiOpenLinkRequestSchema,
+  'ui/request-display-mode': McpUiRequestDisplayModeRequestSchema,
+  'ui/resource-teardown': McpUiResourceTeardownRequestSchema,
+  'ui/update-model-context': McpUiUpdateModelContextRequestSchema,
+});
 const REQUEST_METHODS = new Set<McpAppStableMethod>([
   'ui/initialize',
   'ui/open-link',
@@ -238,35 +228,6 @@ export function parseMcpAppJsonValue(value: unknown, label: string): JsonValue {
   return cloneJsonValue(value, label);
 }
 
-/**
- * The pinned schemas strip a field they don't define. The host refuses it
- * instead, so a frame cannot send what the stable contract leaves out.
- */
-function expectNoStrippedFields(input: JsonValue, output: unknown, label: string): void {
-  if (input === output || typeof input !== 'object' || input === null) {
-    return;
-  }
-  if (typeof output !== 'object' || output === null) {
-    throw new TypeError(`${label} does not match its canonical schema`);
-  }
-  if (Array.isArray(input)) {
-    input.forEach((entry, index) => {
-      expectNoStrippedFields(entry, Reflect.get(output, index), `${label}[${index}]`);
-    });
-    return;
-  }
-  for (const key of Object.keys(input)) {
-    if (!Object.hasOwn(output, key)) {
-      throw new TypeError(`${label} contains unsupported field "${key}"`);
-    }
-    expectNoStrippedFields(
-      (input as Readonly<UnknownRecord>)[key] as JsonValue,
-      Reflect.get(output, key),
-      `${label}.${key}`
-    );
-  }
-}
-
 function expectExternalUrl(url: unknown, label: string): void {
   let parsed: URL;
   try {
@@ -343,14 +304,7 @@ function parseParams(
   const result = CANONICAL_MESSAGE_SCHEMAS[method].safeParse({ method, params });
   if (!result.success) {
     // An issue's path starts at the `{ method, params }` envelope.
-    const [issue] = result.error.issues;
-    const path =
-      issue?.path
-        .slice(1)
-        .map((key) => `.${String(key)}`)
-        .join('') ?? '';
-    const detail = issue === undefined ? '' : `: ${issue.message}`;
-    throw new TypeError(`${label}${path} does not match its canonical schema${detail}`);
+    throw new TypeError(describeSchemaIssue(result.error.issues, label, 1));
   }
   expectNoStrippedFields(params, result.data.params, label);
   PARAMS_POLICIES[method]?.(params, label);
