@@ -2,7 +2,6 @@ import { constants } from 'node:fs';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import type { ElectronApplication } from 'playwright';
@@ -85,23 +84,28 @@ test('MCP Apps bridge is quiescent in genuinely packaged Electron', {
   // The harness lives in the disposable user-data directory (never in a
   // published dist/). The host package has bare runtime dependencies
   // (@modelcontextprotocol/*) that a raw browser import cannot resolve, so the
-  // built module is bundled into a single ESM file first and imported by
-  // absolute file URL.
+  // built module is bundled into one script inside the harness page. Packaged
+  // builds give `file://` pages no extra privileges (BST-2357), so the page
+  // cannot fetch a second file.
   const harnessPath = path.join(userDataDir, 'bst-1570-packaged-verifier.html');
-  const bridgeBundlePath = path.join(userDataDir, 'bridge-bundle.js');
-  await build({
+  const bridgeBundle = await build({
     bundle: true,
     entryPoints: [bridgeModulePath],
-    format: 'esm',
+    format: 'iife',
+    globalName: '__mcpAppBridgeModule',
     logLevel: 'silent',
-    outfile: bridgeBundlePath,
     platform: 'browser',
     target: 'chrome136',
+    write: false,
   });
-  const bridgeModuleUrl = pathToFileURL(bridgeBundlePath).href;
+  const [bridgeOutput] = bridgeBundle.outputFiles;
+  if (!bridgeOutput) {
+    throw new Error('esbuild wrote no bridge bundle');
+  }
+  const bridgeScript = bridgeOutput.text.replaceAll('</script', '<\\/script');
   await writeFile(
     harnessPath,
-    `<!doctype html><script type='module'>import(${JSON.stringify(bridgeModuleUrl)}).then(bridgeModule=>{globalThis.__mcpAppBridgeModule=bridgeModule},error=>{globalThis.__mcpAppBridgeModuleError=error instanceof Error?error.message:String(error)})</script>`,
+    `<!doctype html><script>try{${bridgeScript}}catch(error){globalThis.__mcpAppBridgeModuleError=error instanceof Error?error.message:String(error)}</script>`,
     'utf8'
   );
   let electronApp: ElectronApplication | undefined;
