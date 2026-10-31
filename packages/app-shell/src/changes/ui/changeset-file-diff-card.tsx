@@ -36,7 +36,8 @@
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ChangedFileEntry, Changeset, StructuredFileDiff } from '@brainstrike/types';
-import { Button, type DiffLineComment, DiffView, type DiffViewMode } from '@brainstrike/ui';
+import { Button, type DiffLineComment, type DiffViewMode } from '@brainstrike/ui';
+import { DiffView } from '@brainstrike/ui/diff-view';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { GitFailureDetails } from '../../git-failure-details';
 import { ChangedFilePath } from './changed-file-path';

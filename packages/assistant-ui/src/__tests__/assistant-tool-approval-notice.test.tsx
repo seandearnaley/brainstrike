@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -37,6 +37,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
       data-value={value}
     />
   ),
+}));
+
+vi.mock('@brainstrike/ui/diff-view', () => ({
   DiffView: ({
     original,
     modified,
@@ -69,6 +72,13 @@ beforeAll(() => {
   window.HTMLElement.prototype.scrollIntoView = () => {};
 });
 
+/** Lets the lazy DiffView load, so an absence assertion cannot pass only because it is still loading. */
+async function settleLazyPreviews(): Promise<void> {
+  await act(async () => {
+    await import('@brainstrike/ui/diff-view');
+  });
+}
+
 function renderNotice(data: unknown) {
   const Comp = AssistantToolApprovalNotice as unknown as (p: { data: unknown }) => ReactElement;
   return render(<Comp data={data} />);
@@ -80,7 +90,7 @@ const baseRequest = {
 };
 
 describe('AssistantToolApprovalNotice diff preview', () => {
-  it('renders a real diff for stringReplaceWorkspaceFile approvals', () => {
+  it('renders a real diff for stringReplaceWorkspaceFile approvals', async () => {
     renderNotice({
       ...baseRequest,
       args: {
@@ -92,7 +102,7 @@ describe('AssistantToolApprovalNotice diff preview', () => {
       toolName: 'brainstrike.stringReplaceWorkspaceFile',
     });
 
-    const diff = screen.getByTestId('approval-diff-view');
+    const diff = await screen.findByTestId('approval-diff-view');
     expect(diff.getAttribute('data-original')).toBe('const answer = 0;');
     expect(diff.getAttribute('data-modified')).toBe('const answer = 42;');
     expect(diff.getAttribute('data-filename')).toBe('src/answer.ts');
@@ -145,31 +155,33 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     expect(rootValue).toHaveAttribute('title', longRoot);
   });
 
-  it('falls back to a visible note when file-tool args fail narrowing', () => {
+  it('falls back to a visible note when file-tool args fail narrowing', async () => {
     renderNotice({
       ...baseRequest,
       // Missing `newStr` — cannot render a diff.
       args: { oldStr: 'const answer = 0;', path: 'src/answer.ts' },
       toolName: 'brainstrike.stringReplaceWorkspaceFile',
     });
+    await settleLazyPreviews();
 
     expect(screen.queryByTestId('approval-diff-view')).toBeNull();
     expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
   });
 
-  it('leaves non-file tools with the plain JSON args view (no preview)', () => {
+  it('leaves non-file tools with the plain JSON args view (no preview)', async () => {
     renderNotice({
       ...baseRequest,
       args: { query: 'hello' },
       toolName: 'brainstrike.queryEmbeddingSpace',
     });
+    await settleLazyPreviews();
 
     expect(screen.queryByTestId('approval-diff-view')).toBeNull();
     expect(screen.queryByTestId('approval-write-preview')).toBeNull();
     expect(screen.queryByTestId('approval-preview-parse-error')).toBeNull();
   });
 
-  it('does not show a truncation note for previews under the cap', () => {
+  it('does not show a truncation note for previews under the cap', async () => {
     renderNotice({
       ...baseRequest,
       args: {
@@ -180,11 +192,13 @@ describe('AssistantToolApprovalNotice diff preview', () => {
       toolName: 'brainstrike.stringReplaceWorkspaceFile',
     });
 
-    expect(screen.getByTestId('approval-diff-view').getAttribute('data-truncated')).toBe('false');
+    expect((await screen.findByTestId('approval-diff-view')).getAttribute('data-truncated')).toBe(
+      'false'
+    );
     expect(screen.queryByTestId('approval-preview-truncated-note')).toBeNull();
   });
 
-  it('caps an oversized diff preview before it reaches DiffView', () => {
+  it('caps an oversized diff preview before it reaches DiffView', async () => {
     const bigOld = 'a'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 500);
     const bigNew = 'b'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 10);
     renderNotice({
@@ -197,7 +211,7 @@ describe('AssistantToolApprovalNotice diff preview', () => {
       toolName: 'brainstrike.stringReplaceWorkspaceFile',
     });
 
-    const diff = screen.getByTestId('approval-diff-view');
+    const diff = await screen.findByTestId('approval-diff-view');
     expect(diff.getAttribute('data-original')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
     expect(diff.getAttribute('data-modified')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
     expect(diff.getAttribute('data-truncated')).toBe('true');

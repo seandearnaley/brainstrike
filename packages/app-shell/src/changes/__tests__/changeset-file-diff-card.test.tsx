@@ -9,8 +9,8 @@ import { ChangesetFileDiffCard } from '../ui/changeset-file-diff-card';
 
 // Stub the heavy CodeMirror DiffView (covered by its own suite) — surface the
 // `source` prop so the card→DiffView wiring is asserted without mounting CM6.
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/ui')>();
+vi.mock('@brainstrike/ui/diff-view', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/ui/diff-view')>();
   return {
     ...original,
     // The textarea stands in for a half-written line comment: its text lives
