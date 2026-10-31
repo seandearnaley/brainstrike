@@ -4,7 +4,6 @@
 import { createHash } from 'node:crypto';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
-import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import { Schema } from 'effect';
 import type {
   CanonicalCatalogFile,
@@ -151,14 +150,12 @@ function assertIdentity(actual: CanonicalFileIdentity, expected: CanonicalFileId
 }
 async function loadRecords(
   catalog: SourceCatalogPort,
-  files: readonly { readonly fileId: string }[],
-  maxContentBytes?: number
+  files: readonly { readonly fileId: string }[]
 ): Promise<readonly SourceCatalogRecord[]> {
   assertBatch(files);
   const result = await catalog.sourceCatalog({
     fileIds: files.map((file) => file.fileId),
     operation: 'read',
-    ...(maxContentBytes === undefined ? {} : { maxContentBytes }),
   });
   decodeNativeCanonicalCatalogRecords(result.files);
   const byId = new Map(result.files.map((file) => [file.fileId, file]));
@@ -225,11 +222,8 @@ export function createNativeCanonicalCatalog<Profile>(
         decodeStat(file.stat);
       }
       const authority = await authorize(request.scope, context);
-      const records = await loadRecords(
-        dependencies.catalog,
-        request.files,
-        Math.max(0, ...request.files.map((file) => utf8ByteLength(file.content)))
-      );
+      // The replacement's stale check compares metadata, never the prior bytes: no content read.
+      const records = await loadRecords(dependencies.catalog, request.files);
       checkCurrent(authority, context);
       const files = records.map((record, index) => {
         const file = request.files[index];

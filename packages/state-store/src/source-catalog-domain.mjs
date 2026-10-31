@@ -20,15 +20,18 @@ function record(row) {
     stat: { mtimeMs, size },
   };
 }
-/** @param {import('better-sqlite3').Database} db @param {string} id @returns {Record} */
-function read(db, id) {
-  const row = /** @type {Row | undefined} */ (
-    db.prepare(`SELECT ${projection} FROM file_records WHERE id=?`).get(id)
-  );
-  if (!row) {
-    throw new Error('Canonical source identity is missing');
-  }
-  return record(row);
+// better-sqlite3 does not cache prepared statements: each request prepares a statement once,
+// never per row.
+/** @param {import('better-sqlite3').Database} db @returns {(id: string) => Record} */
+function reader(db) {
+  const select = db.prepare(`SELECT ${projection} FROM file_records WHERE id=?`);
+  return (id) => {
+    const row = /** @type {Row | undefined} */ (select.get(id));
+    if (!row) {
+      throw new Error('Canonical source identity is missing');
+    }
+    return record(row);
+  };
 }
 /** @param {Input} source */
 function assertSource(source) {
@@ -50,14 +53,14 @@ function assertBatch(files) {
     throw new Error('Canonical catalog batch exceeds 250 files');
   }
 }
-/** @param {import('better-sqlite3').Database} db @param {readonly Record[]} expected */
-function assertExpected(db, expected) {
+/** @param {(id: string) => Record} read @param {readonly Record[]} expected */
+function assertExpected(read, expected) {
   assertBatch(expected);
   if (new Set(expected.map((file) => file.fileId)).size !== expected.length) {
     throw new Error('Canonical catalog batch contains duplicate identities');
   }
   for (const file of expected) {
-    const current = read(db, file.fileId);
+    const current = read(file.fileId);
     if (
       current.contentHash !== file.contentHash ||
       current.rootId !== file.rootId ||
@@ -69,19 +72,23 @@ function assertExpected(db, expected) {
     }
   }
 }
-/** @param {import('better-sqlite3').Database} db @param {string} id @param {Input} source */
-function replace(db, id, source) {
-  db.prepare(`UPDATE file_records SET content_hash=?, mtime_ms=?, size=?, updated_at=?,
+/** @param {import('better-sqlite3').Database} db @returns {(id: string, source: Input) => void} */
+function replacer(db) {
+  const update =
+    db.prepare(`UPDATE file_records SET content_hash=?, mtime_ms=?, size=?, updated_at=?,
     chunks_processed=CASE WHEN content_hash=? THEN chunks_processed ELSE 0 END,
-    chunks_count=CASE WHEN content_hash=? THEN chunks_count ELSE NULL END WHERE id=?`).run(
-    source.contentHash,
-    source.stat.mtimeMs,
-    source.stat.size,
-    new Date().toISOString(),
-    source.contentHash,
-    source.contentHash,
-    id
-  );
+    chunks_count=CASE WHEN content_hash=? THEN chunks_count ELSE NULL END WHERE id=?`);
+  return (id, source) => {
+    update.run(
+      source.contentHash,
+      source.stat.mtimeMs,
+      source.stat.size,
+      new Date().toISOString(),
+      source.contentHash,
+      source.contentHash,
+      id
+    );
+  };
 }
 /** @param {import('better-sqlite3').Database} db @param {string|null} id */
 function assertCollection(db, id) {
@@ -104,20 +111,25 @@ function prepare(db, request, blobs) {
   for (const source of request.files) {
     assertSource(source);
   }
+  const read = reader(db);
+  const replace = replacer(db);
+  const select = db.prepare(
+    'SELECT id FROM file_records WHERE root_id=? AND embedding_set_id IS ? AND path=?'
+  );
+  const insert =
+    db.prepare(`INSERT INTO file_records (id,root_id,embedding_set_id,path,name,content_hash,mtime_ms,size,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`);
   return request.files.map((source) => {
     const existing = /** @type {{id:string}|undefined} */ (
-      db
-        .prepare('SELECT id FROM file_records WHERE root_id=? AND embedding_set_id IS ? AND path=?')
-        .get(request.rootId, request.embeddingSetId, source.path)
+      select.get(request.rootId, request.embeddingSetId, source.path)
     );
     const id = existing?.id ?? crypto.randomUUID();
     blobs.put(source.contentHash, source.content);
     if (existing) {
-      replace(db, id, source);
+      replace(id, source);
     } else {
       const now = new Date().toISOString();
-      db.prepare(`INSERT INTO file_records (id,root_id,embedding_set_id,path,name,content_hash,mtime_ms,size,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+      insert.run(
         id,
         request.rootId,
         request.embeddingSetId,
@@ -130,7 +142,7 @@ function prepare(db, request, blobs) {
         now
       );
     }
-    return read(db, id);
+    return read(id);
   });
 }
 /** @param {import('better-sqlite3').Database} db
@@ -142,9 +154,10 @@ function readSources(db, request, blobs) {
   if (max !== undefined && (!Number.isSafeInteger(max) || max < 0)) {
     throw new Error('Canonical source read requires a nonnegative byte bound');
   }
+  const read = reader(db);
   return {
     files: request.fileIds.map((id) => {
-      const current = read(db, id);
+      const current = read(id);
       return max === undefined
         ? current
         : { ...current, content: blobs.read(current.contentHash, max) };
@@ -156,8 +169,9 @@ function readSources(db, request, blobs) {
  * @param {import('./source-catalog-types.ts').SourceCatalogRequest & {operation:'replace'}} request
  * @param {Blobs} blobs @returns {import('./source-catalog-types.ts').SourceCatalogReply} */
 function replaceSources(db, request, blobs) {
+  const read = reader(db);
   assertExpected(
-    db,
+    read,
     request.files.map((file) => file.expected)
   );
   for (const { expected, source } of request.files) {
@@ -166,31 +180,31 @@ function replaceSources(db, request, blobs) {
       throw new Error('Canonical source replacement changes its retained identity');
     }
   }
+  const replace = replacer(db);
   for (const { expected, source } of request.files) {
     blobs.put(source.contentHash, source.content);
-    replace(db, expected.fileId, source);
+    replace(expected.fileId, source);
   }
-  return { files: request.files.map((file) => read(db, file.expected.fileId)) };
+  return { files: request.files.map((file) => read(file.expected.fileId)) };
 }
 
 /** @param {import('better-sqlite3').Database} db
  * @param {import('./source-catalog-types.ts').SourceCatalogRequest & {operation:'complete'}} request
  * @returns {import('./source-catalog-types.ts').SourceCatalogReply} */
 function completeSources(db, request) {
+  const read = reader(db);
   assertExpected(
-    db,
+    read,
     request.files.map((file) => file.expected)
   );
+  const update = db.prepare('UPDATE file_records SET chunks_count=?,chunks_processed=1 WHERE id=?');
   for (const { expected, chunkCount } of request.files) {
     if (!Number.isSafeInteger(chunkCount) || chunkCount < 0) {
       throw new Error('Canonical completion requires a nonnegative chunk count');
     }
-    db.prepare('UPDATE file_records SET chunks_count=?,chunks_processed=1 WHERE id=?').run(
-      chunkCount,
-      expected.fileId
-    );
+    update.run(chunkCount, expected.fileId);
   }
-  return { files: request.files.map((file) => read(db, file.expected.fileId)) };
+  return { files: request.files.map((file) => read(file.expected.fileId)) };
 }
 
 /** @param {import('better-sqlite3').Database} db
@@ -223,12 +237,14 @@ export function executeSourceCatalogRequest(db, request, blobs) {
         return replaceSources(db, request, blobs);
       case 'complete':
         return completeSources(db, request);
-      case 'remove':
-        assertExpected(db, request.files);
+      case 'remove': {
+        assertExpected(reader(db), request.files);
+        const remove = db.prepare('DELETE FROM file_records WHERE id=?');
         for (const file of request.files) {
-          db.prepare('DELETE FROM file_records WHERE id=?').run(file.fileId);
+          remove.run(file.fileId);
         }
         return { files: request.files };
+      }
       default:
         throw new Error('Unknown canonical source operation');
     }
