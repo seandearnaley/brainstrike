@@ -64,8 +64,7 @@ jobs:
     # shard's fixed setup is under a minute, and with eight the slowest shard
     # (4.3-6.4 min) was the gate's longest job (queue runs 40661149145 and
     # 40706754618). Each shard runs two tests at once on the runner's 4 vCPUs
-    # (the GitHub Actions worker count in
-    # packages/config/src/playwright-environment.ts).
+    # (Playwright's default worker count, half the logical cores).
     # apps/desktop/e2e/file-shards.ts spreads whole files by their measured
     # time: with Playwright's own contiguous shards, one shard held every slow
     # delegated, dev-profile and durable-state spec (7.1 min of tests against
