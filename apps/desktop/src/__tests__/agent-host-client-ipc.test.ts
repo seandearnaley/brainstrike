@@ -208,6 +208,39 @@ describe('a renderer client of the agent host', () => {
     await ipc.close();
   });
 
+  it('keeps one client per document across reloads, and tells only the current one', async () => {
+    const { host, ipc } = setup();
+    const frame = rendererFrame();
+    const requests: string[] = [];
+    for (let load = 0; load < 5; load += 1) {
+      // Each reload commits a new document, whose page connects again.
+      frame.sender.emit('did-navigate');
+      const requestId = crypto.randomUUID();
+      requests.push(requestId);
+      await invokeDesktopIpcFrom(
+        ipcMain,
+        frame.event,
+        DESKTOP_IPC_CHANNELS.agent.hostConnect,
+        requestId
+      );
+    }
+    open.push(...host.ports, ...frame.pushes.flatMap((push) => (push.port ? [push.port] : [])));
+    expect(frame.sender.listenerCount('did-navigate')).toBe(1);
+
+    host.lose();
+    await vi.waitFor(() =>
+      expect(
+        frame.pushes.filter((push) => push.method === DESKTOP_IPC_CHANNELS.agent.hostDisconnected)
+      ).toEqual([
+        {
+          method: DESKTOP_IPC_CHANNELS.agent.hostDisconnected,
+          payload: { requestId: requests.at(-1) },
+        },
+      ])
+    );
+    await ipc.close();
+  });
+
   it('reaches a host this app did not launch over its public socket', async () => {
     // A CLI `host start`: Main holds no private channel to it, only its socket endpoint.
     const dir = await mkdtemp(join(tmpdir(), 'bs-external-host-'));

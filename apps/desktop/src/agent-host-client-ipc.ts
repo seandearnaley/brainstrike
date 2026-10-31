@@ -1,7 +1,7 @@
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
-import { ipcMain } from 'electron';
+import { ipcMain, type WebContents, type WebFrameMain } from 'electron';
 import type { AgentHostPrivateClientPort } from './agent-host-private-clients';
 import { type AgentHostSocketRelay, openAgentHostSocketRelay } from './agent-host-socket-relay';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -9,6 +9,12 @@ import { pushToFrame } from './platform/desktop-ipc-push';
 import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
 
 const CONNECT_FAILURE = { category: 'availability', code: 'agent-host-connect-failed' } as const;
+
+/** A client Main must tell when its host goes. */
+interface Attached {
+  readonly frame: WebFrameMain;
+  readonly hostGone: Promise<unknown>;
+}
 
 /**
  * Visible clients borrow the profile's existing lease; they never acquire another root.
@@ -29,6 +35,48 @@ export function registerAgentHostClientIpc(
   const relays = new Set<AgentHostSocketRelay>();
   const pending = new Set<Promise<void>>();
   let closing: Promise<void> | undefined;
+  /**
+   * Main holds neither end of a transferred port, so it keeps who to tell when a host goes:
+   * each window's current document's clients, by request id. A navigation or a destroyed
+   * window drops them, so nothing outlives the document that asked.
+   */
+  const documents = new Map<WebContents, Map<string, Attached>>();
+  /** One listener per host-gone signal, however many clients share it. */
+  const watched = new WeakSet<Promise<unknown>>();
+  const tellGone = (hostGone: Promise<unknown>): void => {
+    for (const clients of documents.values()) {
+      for (const [requestId, attached] of clients) {
+        if (attached.hostGone !== hostGone) {
+          continue;
+        }
+        clients.delete(requestId);
+        try {
+          pushToFrame(attached.frame, DESKTOP_IPC_CHANNELS.agent.hostDisconnected, { requestId });
+        } catch {
+          /* A detached frame already lost its port with its document. */
+        }
+      }
+    }
+  };
+  const track = (sender: WebContents, requestId: string, attached: Attached): void => {
+    let clients = documents.get(sender);
+    if (!clients) {
+      const current = new Map<string, Attached>();
+      clients = current;
+      documents.set(sender, current);
+      const forget = (): void => current.clear();
+      sender.on('did-navigate', forget);
+      sender.on('render-process-gone', forget);
+      sender.once('destroyed', () => documents.delete(sender));
+    }
+    clients.set(requestId, attached);
+    // The listener holds the signal only, never a frame.
+    const { hostGone } = attached;
+    if (!watched.has(hostGone)) {
+      watched.add(hostGone);
+      void hostGone.then(() => tellGone(hostGone));
+    }
+  };
   const openFramePort = async (
     record: HostRecord
   ): Promise<AgentHostPrivateClientPort & { readonly relay?: AgentHostSocketRelay }> => {
@@ -37,6 +85,8 @@ export function registerAgentHostClientIpc(
       return direct;
     }
     const relay = await openAgentHostSocketRelay(record);
+    // Also settles when the frame closes its own port; that frame has dropped its listener
+    // for this request id, so the report reaches nobody.
     return { hostGone: relay.closed, port: relay.port, relay };
   };
   registry.handle(
@@ -76,17 +126,7 @@ export function registerAgentHostClientIpc(
           relays.add(relay);
           void relay.closed.then(() => relays.delete(relay));
         }
-        void hostGone.then(() => {
-          if (event.sender.isDestroyed()) {
-            return;
-          }
-          try {
-            // A later document of this frame ignores a request id it never sent.
-            pushToFrame(frame, DESKTOP_IPC_CHANNELS.agent.hostDisconnected, { requestId: id });
-          } catch {
-            /* A detached frame already lost its port with its document. */
-          }
-        });
+        track(event.sender, id, { frame, hostGone });
       })();
       pending.add(operation);
       operation.then(

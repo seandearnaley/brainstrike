@@ -5,7 +5,10 @@ import type { DesktopHostChild } from './host-lease-manager';
 
 /** One end of a channel whose other end the launched host holds as a desktop-origin client. */
 export interface AgentHostPrivateClientPort {
-  /** Settles once Main holds that host as gone (its lifetime channel closed, or its exit). */
+  /**
+   * Settles once Main holds that host as gone (its lifetime channel closed, or its exit).
+   * Every port to one host shares this promise.
+   */
   readonly hostGone: Promise<unknown>;
   /** Kept by Main for its own client, or transferred whole to a renderer frame. */
   readonly port: MessagePortMain;
