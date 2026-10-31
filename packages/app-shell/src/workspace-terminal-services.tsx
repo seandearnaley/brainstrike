@@ -7,7 +7,6 @@ export type {
   CommandSessionIdentityParams,
   CommandSessionInfo,
   CommandSessionReadPage,
-  CommandSessionResult,
 } from './terminal-panel/command-session-bridge';
 export type {
   TerminalBridge,

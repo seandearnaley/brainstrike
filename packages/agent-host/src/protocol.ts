@@ -151,9 +151,10 @@ export * from './workspace-wire.ts';
 // v14 (2026-10-26): `forge/*` and the git history, staging, pull and diff methods are gone.
 // Additions since: `canvas/list` and `canvas/read` (the Artifacts gallery), and workspace trust
 // (`workspace/trust`, `workspace/trust/read`, `workspace/trust/list`; ADR-0032), new methods.
-// v15 (2026-10-31): `terminal/*` results are the one boundary envelope: a failure is a
-// `BoundaryFailure` instead of a string, and `terminal/write`, `terminal/resize` and
-// `terminal/destroy` answer `value: null`. The required field is why this is a version bump.
+// v15 (2026-10-31): `terminal/*` and `command-sessions/*` results are the one boundary
+// envelope: a failure is a `BoundaryFailure` instead of a string or a `{ code, message }` pair,
+// and a call with nothing to return answers `value: null`. The required field is why this is a
+// version bump.
 export const AGENT_HOST_PROTOCOL_VERSION = 15;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));

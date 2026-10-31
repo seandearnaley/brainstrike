@@ -10,7 +10,6 @@ import type {
   CommandSessionBridge,
   CommandSessionInfo,
   CommandSessionReadPage,
-  CommandSessionResult,
 } from '../terminal-panel/command-session-bridge';
 import { CommandSessionInventory } from '../terminal-panel/command-session-inventory';
 import type {
@@ -186,7 +185,7 @@ function installCommandSessionBridge(
   const full: CommandSessionBridge = {
     list: vi.fn(
       async (): Promise<
-        CommandSessionResult<{ rootId: string; sessions: readonly CommandSessionInfo[] }>
+        BoundaryResult<{ rootId: string; sessions: readonly CommandSessionInfo[] }>
       > => ({
         ok: true,
         value: {
@@ -205,7 +204,7 @@ function installCommandSessionBridge(
       })
     ),
     read: vi.fn(
-      async (): Promise<CommandSessionResult<CommandSessionReadPage>> => ({
+      async (): Promise<BoundaryResult<CommandSessionReadPage>> => ({
         ok: true,
         value: {
           bufferStartCursor: 0,
@@ -225,9 +224,9 @@ function installCommandSessionBridge(
         },
       })
     ),
-    remove: vi.fn(async () => ({ ok: true }) as CommandSessionResult),
-    stop: vi.fn(async () => ({ ok: true }) as CommandSessionResult),
-    write: vi.fn(async () => ({ ok: true }) as CommandSessionResult),
+    remove: vi.fn(async () => ({ ok: true, value: null }) as BoundaryResult<null>),
+    stop: vi.fn(async () => ({ ok: true, value: null }) as BoundaryResult<null>),
+    write: vi.fn(async () => ({ ok: true, value: null }) as BoundaryResult<null>),
     ...bridge,
   };
   services = { ...services, commandSessions: full };
@@ -616,16 +615,14 @@ describe('TerminalPanel', () => {
       rootId: 'root-1',
       status: 'running',
     };
-    let resolveFirstRead:
-      | ((value: CommandSessionResult<CommandSessionReadPage>) => void)
-      | undefined;
-    const firstRead = new Promise<CommandSessionResult<CommandSessionReadPage>>((resolve) => {
+    let resolveFirstRead: ((value: BoundaryResult<CommandSessionReadPage>) => void) | undefined;
+    const firstRead = new Promise<BoundaryResult<CommandSessionReadPage>>((resolve) => {
       resolveFirstRead = resolve;
     });
     const commandSessions = installCommandSessionBridge({
       list: vi.fn(
         async (): Promise<
-          CommandSessionResult<{ rootId: string; sessions: readonly CommandSessionInfo[] }>
+          BoundaryResult<{ rootId: string; sessions: readonly CommandSessionInfo[] }>
         > => ({
           ok: true,
           value: { rootId: 'root-1', sessions: [firstSession, secondSession] },
@@ -638,7 +635,7 @@ describe('TerminalPanel', () => {
           readonly cursor?: number;
           readonly rootId: string;
           readonly sessionId: string;
-        }): Promise<CommandSessionResult<CommandSessionReadPage>> => {
+        }): Promise<BoundaryResult<CommandSessionReadPage>> => {
           if (sessionId === firstSession.id) {
             return firstRead;
           }
