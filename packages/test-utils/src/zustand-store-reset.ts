@@ -2,12 +2,15 @@
  * Zustand's testing guide (https://zustand.docs.pmnd.rs/learn/guides/testing):
  * every store returns to its initial state after each test. The creators are
  * wrapped so each store registers its own reset, and persisted stores lose what
- * they wrote, because `localStorage` is cleared after the stores reset.
+ * they wrote, because `localStorage` is cleared after the stores reset. A store
+ * a test left untouched is not reset, so no persisted store writes to storage
+ * it never used.
  */
 import { afterEach, vi } from 'vitest';
 
 interface ResettableStore<State> {
   getInitialState(): State;
+  getState(): State;
   setState(state: State, replace: true): void;
 }
 
@@ -33,7 +36,11 @@ vi.mock('zustand/traditional', async (importOriginal) => {
 
 function registerReset<Store extends ResettableStore<unknown>>(store: Store): Store {
   const initialState = store.getInitialState();
-  storeResets.add(() => store.setState(initialState, true));
+  storeResets.add(() => {
+    if (store.getState() !== initialState) {
+      store.setState(initialState, true);
+    }
+  });
   return store;
 }
 
