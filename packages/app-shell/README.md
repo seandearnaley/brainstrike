@@ -1,14 +1,10 @@
 # @brainstrike/app-shell
 
-Shared React layout and feature composition for the Brainstrike desktop app.
-The shell integrates UI with injected platform capabilities; it is not a second
-agent runtime or canonical storage owner.
+Shared React layout and feature composition for the desktop app. It wires UI to injected platform capabilities; it is not a second agent runtime or storage owner. Package rules: [`AGENTS.md`](AGENTS.md).
 
-## Compose the layout
+## Layout
 
-`AppLayout` accepts `AppShellConfig`, routing callbacks and content. The public
-shape lives in [`types.ts`](src/types.ts), with defaults in
-[`app-config.tsx`](src/app-config.tsx).
+`AppLayout` takes an `AppShellConfig`, routing callbacks and content. Types: [`types.ts`](src/types.ts); defaults: [`app-config.tsx`](src/app-config.tsx).
 
 ```tsx
 import { AppLayout, createAppConfig } from '@brainstrike/app-shell';
@@ -18,50 +14,26 @@ const config = createAppConfig({ title: 'Workspace' });
 
 export function Shell({ navigate }: { navigate: (path: string) => void }) {
   return (
-    <AppLayout
-      config={config}
-      currentPath="/"
-      onNavigationClick={navigate}
-      onOpenSettings={() => navigate('/settings')}
-    >
+    <AppLayout config={config} currentPath="/" onNavigationClick={navigate} onOpenSettings={() => navigate('/settings')}>
       <main>Workspace content</main>
     </AppLayout>
   );
 }
 ```
 
-Use the exported roots/subpaths in [`package.json`](package.json). Do not infer
-feature flags, provider APIs or runtime ownership from the layout config.
-Versions and dependencies belong to installed manifests and workspace catalogs.
+- Subpaths are in [`package.json`](package.json). Don't infer feature flags, provider APIs or runtime ownership from the layout config.
 
 ## Runtime integration
 
-The desktop composition in
-[`root-layout-content.tsx`](../../apps/desktop/src/renderer/components/root-layout-content.tsx)
-attaches host-owned conversations and capabilities. Shared assistant presentation
-uses the host's public run/thread IDs; it does not persist a second transcript or
-own inference. Closing a panel releases presentation; Stop and deletion use the
-existing host cancellation/retirement owner.
-
-Desktop canonical catalog/conversations and native indexing use their existing
-host/index owners. Select capabilities at the platform composition boundary rather
-than importing a provider or engine into a UI wrapper.
-
-Transient palette, visible-thread and checkout intent live in
-[`src/stores`](src/stores/README.md). Persistent client preferences/layout state
-belong to [`@brainstrike/app-state`](../app-state/README.md); settings presentation
-belongs to `@brainstrike/settings-ui`. New persistent state participates in reset.
-
-Reuse TreeTable, TabStrip and context actions. Preserve accessible keyboard/focus
-behavior and keep secrets out of UI, logs and serialized preferences. Relevant
-contracts: [UI](../../docs/agents/ui-conventions.md),
-[persistence](../../docs/agents/assistant-persistence.md) and
-[reset](../../docs/agents/platform-contracts.md).
-
-## Development
-
-Use this package's `build`, `type-check`, `test` and `test:integration` scripts for
-the affected boundary. **CI is disabled due to cost; validation must run locally.**
-Follow `pnpm check`.
+- Desktop composition lives in [`root-layout-content.tsx`](../../apps/desktop/src/renderer/components/root-layout-content.tsx); it attaches host-owned conversations and capabilities.
+- Assistant presentation uses the host's public run/thread IDs; it never persists a transcript or runs inference.
+- Closing a panel releases presentation only; Stop and deletion go through the host's cancellation/retirement owner.
+- Select capabilities at the platform composition boundary; never import a provider or engine into a UI wrapper.
+- State:
+  - Transient palette, visible-thread and checkout intent: [`src/stores`](src/stores/README.md).
+  - Persistent preferences and layout: [`@brainstrike/app-state`](../app-state/README.md). Settings UI: `@brainstrike/settings-ui`.
+  - New persistent state joins reset.
+- Keep secrets out of UI, logs and serialized preferences.
+- Contracts: [UI](../../docs/agents/ui-conventions.md), [persistence](../../docs/agents/assistant-persistence.md), [reset](../../docs/agents/platform-contracts.md).
 
 ISC. See the repository [LICENSE](../../LICENSE).

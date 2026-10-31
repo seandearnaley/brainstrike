@@ -75,7 +75,7 @@ approves it for that task. Choose one route:
    disabled and its own tool set. The wrapper builds the app and runs the
    desktop E2E in record mode with only the shell's basics and that one key,
    under `BRAINSTRIKE_PROVIDER_CASSETTE_RECORDER_KEY`: E2E global setup strips
-   every inherited provider credential (BST-1931). The test takes the key out of
+   every inherited provider credential. The test takes the key out of
    its environment before the app launches, so only the disposable profile's
    credential store holds it. The recording must replay in the app to the same
    committed shape. The host lane

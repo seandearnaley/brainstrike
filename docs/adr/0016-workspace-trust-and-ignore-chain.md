@@ -34,8 +34,8 @@ development database were copies under `.claude/worktrees`.
 
 ## Consequences
 
-- Workspace instructions and skills stay deferred on web, which lacks a workspace-tool
-  bridge (ADR-0008).
+- Workspace instructions and skills were deferred on web, which lacked a workspace-tool
+  bridge (ADR-0008). The web app has since been removed.
 - File mutation tools refuse agent-ignored and credential paths with the read paths'
   refusal: write, edit and delete refuse the target, and rename refuses either end, so
   a protected file can be neither clobbered nor moved somewhere readable (BST-1433).

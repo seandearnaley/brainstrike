@@ -1,18 +1,8 @@
 # @brainstrike/file-import
 
-Canonical chunk publication helpers. The package composes existing owners; it
-does not choose a new storage engine or run inference in Electron main.
+Canonical chunk publication helpers. Composes existing owners; chooses no storage engine and runs no inference in Electron main.
 
-## Chunking
-
-Publication preserves the canonical producer's original chunks, hashes,
-line/offset spans, token metadata, symbols and references.
-
-Keep source/input identity through atomic chunk/job publication. Desktop native
-ingestion owns storage. See the [indexer contract](../../docs/agents/indexer.md).
-
-## Public surface and development
-
-[`package.json`](package.json) owns root and narrow subpath exports, including
-canonical publication helpers. Declare local dependencies with `workspace:*` and
-use the existing package scripts. Follow `pnpm check`.
+- Publication forwards the canonical producer's chunks unchanged: hashes, line/offset spans, token metadata, symbols and references.
+- Keep source/input identity through atomic chunk/job publication; desktop native ingestion owns storage.
+- Subpaths: `/canonical-index-publication`, `/canonical-symbol-inserts`.
+- Contract: [indexer](../../docs/agents/indexer.md).

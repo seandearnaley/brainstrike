@@ -1,15 +1,13 @@
 Ticket: BST-###
 
-The merge queue is the gate: it runs every check on each batch. Run the checks
-for what you changed before this PR is ready: Mergify queues a ready PR by
-itself once Claude Review has run and every review thread is resolved. To run
-the whole gate on it first, keep it a draft with the `full-check` label.
+<!-- The merge queue runs every check. Run the checks for what you changed before marking this ready; Mergify queues it once Claude Review has run and every thread is resolved. For the whole gate first, keep it a draft with the `full-check` label. -->
 
 ## Change
 
-Describe the problem, resulting behavior, and related Linear identifier.
+- Problem:
+- Resulting behavior:
 
 ## Local validation
 
-List the exact commands run on this PR head and their results. State any skipped
-checks, platform limitations, or checks that remain unverified.
+- Commands run on this head, with results:
+- Skipped or unverified checks and platform limits:

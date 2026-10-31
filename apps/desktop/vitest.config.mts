@@ -31,8 +31,8 @@ export function resolveDesktopTestShard(
 
 /**
  * Integration files whose SQLite query child shares advanced (structured-clone)
- * IPC with the test process, which needs Electron's V8 on both sides
- * (docs/agents/agent-self-query/scoped-caller-profile.md). scripts/run-integration.mjs
+ * IPC with the test process, which needs Electron's V8 on both sides.
+ * scripts/run-integration.mjs
  * runs them in its Electron pass (ELECTRON_RUN_AS_NODE=1); every Node run leaves
  * them to that pass, so the two passes partition the suite.
  */

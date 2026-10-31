@@ -1,26 +1,12 @@
-# Canonical chunking
+# @brainstrike/chunking-worker
 
-`@brainstrike/chunking-worker/node` executes the portable canonical algorithm.
-`createNodeChunker` requires an explicit OXC/Babel choice;
-Python always uses the shipped vendored tree-sitter grammar, with no separate
-Python configuration option. It runs in the utility/CLI owner; Electron main is
-refused. It includes no inference runtime or catalog persistence.
+The portable canonical chunking algorithm (AST-aware splitting and token counting), executed by `@brainstrike/chunking-worker/node`.
 
-Node parser/graph failures reject the file. Required Python grammar assets must
-load successfully; the Node API cannot claim Python while omitting its parser.
-Other languages retain their existing canonical strategy.
-Chunk indices, hashes, source offsets/lines, token/type/size metadata, symbols
-and references are forwarded unchanged. No second splitting algorithm exists.
-
-Browser output builds before the separate Node bundle, so parent/nested output
-cleanup cannot race. The existing accurate tokenization owner selects its Node
-runtime. Python uses the same shipped vendored grammar.
-
-`pnpm test` exercises source behavior. `pnpm test:integration` starts plain Node
-against the built public export and compares a recorded desktop result. Through
-Turbo, integration testing depends explicitly on this package's build. This
-proof does not qualify utility runtime wiring, actual source discovery/watch,
-visible-window closure, inference, packaging or other platforms.
-
-Exports/build scripts belong to [`package.json`](package.json).
-[Shared contribution and validation policy](../../AGENTS.md) applies.
+- `createNodeChunker` requires an explicit OXC or Babel choice.
+- Python always uses the shipped vendored tree-sitter grammar (`grammars/python.wasm`); there is no Python option.
+- Runs in the utility process or CLI; Electron main is refused. No inference runtime, no catalog persistence.
+- Failures:
+  - Node parser/graph failures reject the file.
+  - Missing Python grammar assets fail; the Node API never claims Python without its parser.
+- Chunk indices, hashes, source offsets/lines, token/type/size metadata, symbols and references pass through unchanged. There is no second splitting algorithm.
+- The `web-tree-sitter` pin is qualified for the Python grammar; see the note in [`package.json`](package.json) before bumping it.

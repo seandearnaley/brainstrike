@@ -1,6 +1,7 @@
 # ADR-0008: Features are gated by injected capabilities, never by platform checks
 
-- **Status:** Accepted
+- **Status:** Accepted. The web app named below has since been removed; the rule now applies to
+  desktop windows and the CLI host.
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914
 
