@@ -274,6 +274,40 @@
    * and smooth transitions on all interactive elements.
    */
 
+  /*
+   * Window drag regions. On macOS the desktop window has no native title bar,
+   * so the app's top row moves the window: mark each top-row container
+   * `app-window-drag`. A draggable region swallows every pointer event, so the
+   * controls inside it opt back out. Browsers and framed windows ignore
+   * `app-region`.
+   * https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#custom-draggable-regions
+   */
+  .app-window-drag {
+    app-region: drag;
+    user-select: none;
+  }
+
+  .app-window-drag
+    :is(
+      button,
+      a[href],
+      input,
+      select,
+      textarea,
+      summary,
+      label,
+      [contenteditable],
+      [tabindex]:not([tabindex="-1"]),
+      [role="button"],
+      [role="tab"],
+      [role="menuitem"],
+      [role="combobox"],
+      [role="switch"],
+      [role="checkbox"]
+    ) {
+    app-region: no-drag;
+  }
+
   /* Ensure all clickable elements have pointer cursor */
   button,
   [role="button"],

@@ -1162,7 +1162,7 @@ export function IdeLayout({
               >
                 <div className="flex h-full flex-col overflow-hidden [contain:layout_paint_style]">
                   <div
-                    className={`border-border bg-muted/30 flex h-9 shrink-0 items-center justify-between border-b ${
+                    className={`app-window-drag border-border bg-muted/30 flex h-9 shrink-0 items-center justify-between border-b ${
                       resolvedLeftPanelChrome.headerContent ? 'pr-2 pl-0' : 'px-2'
                     }`}
                     data-testid="left-panel-header"
@@ -1317,7 +1317,7 @@ export function IdeLayout({
               >
                 <div className="flex h-full flex-col [contain:layout_paint_style]">
                   <div
-                    className={`border-border bg-muted/30 flex h-9 shrink-0 items-center justify-between border-b ${
+                    className={`app-window-drag border-border bg-muted/30 flex h-9 shrink-0 items-center justify-between border-b ${
                       resolvedRightPanelChrome.headerContent ? 'pr-2 pl-0' : 'px-2'
                     }`}
                     data-testid="right-panel-header"

@@ -228,9 +228,14 @@ function DesktopStartupFailure({
 }) {
   return (
     <div
-      className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 py-10 text-[#eef2ff]"
+      className="relative flex min-h-screen items-center justify-center bg-[#0b1020] px-6 py-10 text-[#eef2ff]"
       data-testid="desktop-startup-failure"
     >
+      {/* No app shell here, so this strip is the macOS title bar: it moves the window. */}
+      <div
+        aria-hidden="true"
+        className="app-window-drag absolute inset-x-0 top-0 h-[env(titlebar-area-height,0px)]"
+      />
       <div className="w-full max-w-3xl rounded-xl border border-red-400/30 bg-[#111827] p-6 shadow-2xl">
         <h1 className="text-2xl font-semibold">Desktop startup failed</h1>
         <p className="mt-3 text-sm text-slate-200">{validation.message}</p>
