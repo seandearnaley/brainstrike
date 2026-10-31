@@ -30,22 +30,13 @@
  * possibly TWO snapshot diffs sharing the same relative path across
  * different mounted roots (MULTI-ROOT IDENTITY, BST-1113 review finding).
  *
- * Every failure is a visible, typed `{ ok: false, error }` with a stable
- * machine-readable prefix (never a silent fallback) — the authoritative
- * registry:
- * `changeset-snapshot-view.ts`: `snapshot-engine-unavailable:`,
- * `changeset-snapshot-missing:`, `changeset-snapshot-capture-failed:`,
- * `run-anchor-missing:`.
- * `changeset-git-scope.ts`: `outside-roots-unsupported:`, `base-ref-unresolved:`,
- * `head-unborn:`, `commit-id-unresolved:`, `unmerged-path:`.
- * (`runs-unavailable:` was retired by BST-1651 with
- * the relation probes that produced it — migrations 117/118 own those
- * relations, so an absent one is an unmigrated database, not a state this
- * dispatch can describe.)
- * (`journal-content-expired:` / `journal-path-collision:` are no longer
- * producible from this dispatch; they die with the journal fold in T4.)
+ * Every failure is a visible, typed `{ ok: false, error }` whose stable
+ * `changeset.*` code (never a silent fallback) is set where it is produced:
+ * `changeset-snapshot-view.ts`, `changeset-snapshot-targets.ts` and
+ * `changeset-git-scope.ts`.
  */
-import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { Changeset, ChangesetView, StructuredFileDiff } from '@brainstrike/types';
 import type { RootCwdResult } from '../workspace-root-cwd';
 import { resolveGitScopeChangesetView, resolveGitScopeFileDiff } from './changeset-git-scope';
 import type { HostThreadTurns } from './changeset-host-turns';
@@ -53,7 +44,8 @@ import {
   createSnapshotChangesetResolver,
   type SnapshotChangesetResolver,
 } from './changeset-snapshot-view';
-import { type GitCommandRunner, toErrorMessage } from './git-service';
+import { gitRefused, gitThrew } from './git-failure';
+import type { GitCommandRunner } from './git-service';
 import type { SnapshotService } from './snapshot-service';
 
 /** W7 snapshot-engine wiring (threaded from main.ts via the changes IPC options). */
@@ -78,17 +70,21 @@ export interface ChangesetDiffService {
     rootId: unknown,
     changeset: Changeset,
     path: string
-  ) => Promise<GitResult<StructuredFileDiff>>;
+  ) => Promise<BoundaryResult<StructuredFileDiff>>;
   readonly resolveView: (
     rootId: unknown,
     changeset: Changeset
-  ) => Promise<GitResult<ChangesetView>>;
+  ) => Promise<BoundaryResult<ChangesetView>>;
 }
 
-const SNAPSHOT_DEPS_UNWIRED_ERROR =
-  'snapshot-engine-unavailable: this changes service was constructed without the workspace ' +
-  'snapshot engine, so agent-run/run-range changesets cannot be resolved. This is a wiring ' +
-  'bug, not an empty changeset.';
+const snapshotDepsUnwired = () =>
+  gitRefused(
+    'availability',
+    'changeset.snapshot-engine-unavailable',
+    'This changes service was constructed without the workspace snapshot engine, so ' +
+      'agent-run/run-range changesets cannot be resolved. This is a wiring bug, not an ' +
+      'empty changeset.'
+  );
 
 export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): ChangesetDiffService {
   const snapshotResolver: SnapshotChangesetResolver | null = deps.snapshots
@@ -105,11 +101,11 @@ export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): Chan
           return await resolveGitScopeFileDiff(deps, rootId, changeset, path);
         }
         if (!snapshotResolver) {
-          return { error: SNAPSHOT_DEPS_UNWIRED_ERROR, ok: false };
+          return snapshotDepsUnwired();
         }
         return await snapshotResolver.fileDiff(rootId, changeset, path);
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
     resolveView: async (rootId, changeset) => {
@@ -118,11 +114,11 @@ export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): Chan
           return await resolveGitScopeChangesetView(deps, rootId, changeset);
         }
         if (!snapshotResolver) {
-          return { error: SNAPSHOT_DEPS_UNWIRED_ERROR, ok: false };
+          return snapshotDepsUnwired();
         }
         return await snapshotResolver.resolveView(changeset);
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
   };

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { gitRefused } from '../../assistant-server/git-failure';
 import {
   runManageWorktree,
   type WorktreeToolCapability,
@@ -55,7 +56,9 @@ describe('host-owned worktree tool outcomes', () => {
         ok: true,
         value: { snapshotRef: 'refs/brainstrike/worktree-archive/w-1', worktree: { id: 'w-1' } },
       })
-      .mockResolvedValueOnce({ error: 'running thread owns worktree', ok: false });
+      .mockResolvedValueOnce(
+        gitRefused('conflict', 'git.command-failed', 'running thread owns worktree')
+      );
     const capability = { archive, create: vi.fn(), list: vi.fn() };
     const input = { action: 'archive' as const, worktreeId: 'w-1' };
     await expect(runManageWorktree(input, runtime, capability)).resolves.toEqual({

@@ -1,3 +1,4 @@
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { WorkspaceBarCheckout } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useState } from 'react';
@@ -134,7 +135,7 @@ export function useThreadCheckoutStatus(
             error: result.error,
           });
           setCheckout(null);
-          setFailure({ dbRootId, message: result.error });
+          setFailure({ dbRootId, message: describeBoundaryFailure(result.error) });
           setSettledForDbRootId(dbRootId);
           return;
         }

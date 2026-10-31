@@ -50,8 +50,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { execFileGitRunner } from '../git-ipc-handlers';
+import { describeFailure } from './git-failure';
 import {
-  describeFailure,
   type GitCommandRun,
   invokeGitHookFree,
   readGitHookFreeFlags,

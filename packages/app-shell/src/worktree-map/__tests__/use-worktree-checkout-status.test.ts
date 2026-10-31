@@ -9,7 +9,8 @@
  * about the pool size constant.
  */
 
-import type { GitResult, WorktreeCheckoutStatus } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { WorktreeCheckoutStatus } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { WorktreesBridge } from '../../worktrees/worktrees-bridge';
@@ -41,7 +42,7 @@ describe('useWorktreeCheckoutStatuses concurrency bound', () => {
   it('never runs more checkoutStatus calls at once than the configured bound, across 10 pending paths', async () => {
     const paths = Array.from({ length: 10 }, (_, index) => `/repo-${index}`);
     const deferredsByPath = new Map(
-      paths.map((path) => [path, deferred<GitResult<WorktreeCheckoutStatus>>()])
+      paths.map((path) => [path, deferred<BoundaryResult<WorktreeCheckoutStatus>>()])
     );
     let inFlight = 0;
     let peakInFlight = 0;

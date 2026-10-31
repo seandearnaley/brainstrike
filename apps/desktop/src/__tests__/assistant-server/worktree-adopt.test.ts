@@ -103,8 +103,10 @@ describe('adoptWorktree', () => {
     const result = await adoptWorktree(deps, { createdBy: 'user', path: '/elsewhere/wt' });
 
     expect(result).toEqual({
-      error:
-        'No worktree at "/elsewhere/wt" is visible in the workspace inventory, so it cannot be adopted.',
+      error: expect.objectContaining({
+        message:
+          'No worktree at "/elsewhere/wt" is visible in the workspace inventory, so it cannot be adopted.',
+      }),
       ok: false,
     });
     expect(insert).not.toHaveBeenCalled();
@@ -118,7 +120,7 @@ describe('adoptWorktree', () => {
     const result = await adoptWorktree(deps, { createdBy: 'user', path: '/repo/wt' });
 
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toContain('could not be verified');
+    expect(result.ok === false && result.error.message).toContain('could not be verified');
     expect(insert).not.toHaveBeenCalled();
   });
 
@@ -154,7 +156,9 @@ describe('adoptWorktree', () => {
     const result = await adoptWorktree(deps, { createdBy: 'user', path: '/tmp/wt' });
 
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toContain('Grant access to its folder first');
+    expect(result.ok === false && result.error.message).toContain(
+      'Grant access to its folder first'
+    );
     expect(insert).not.toHaveBeenCalled();
   });
 
@@ -182,7 +186,9 @@ describe('adoptWorktree', () => {
     const result = await adoptWorktree(deps, { createdBy: 'user', path: '/repo/wt' });
 
     expect(result).toEqual({
-      error: 'Brainstrike already manages the worktree at "/repo/wt".',
+      error: expect.objectContaining({
+        message: 'Brainstrike already manages the worktree at "/repo/wt".',
+      }),
       ok: false,
     });
     expect(insert).not.toHaveBeenCalled();
@@ -218,8 +224,10 @@ describe('adoptWorktree', () => {
     const result = await adoptWorktree(deps, { createdBy: 'user', path: '/repo/wt' });
 
     expect(result).toEqual({
-      error:
-        'Brainstrike archived a worktree at "/repo/wt" — restore that one instead of adopting a new checkout at the same path.',
+      error: expect.objectContaining({
+        message:
+          'Brainstrike archived a worktree at "/repo/wt" — restore that one instead of adopting a new checkout at the same path.',
+      }),
       ok: false,
     });
     expect(insert).not.toHaveBeenCalled();
@@ -233,8 +241,10 @@ describe('adoptWorktree', () => {
     const result = await adoptWorktree(deps, { createdBy: 'user', path: '/repo/wt' });
 
     expect(result).toEqual({
-      error:
-        'The worktree at "/repo/wt" is locked (maintenance) and cannot be adopted — unlock it (`git worktree unlock`) first.',
+      error: expect.objectContaining({
+        message:
+          'The worktree at "/repo/wt" is locked (maintenance) and cannot be adopted — unlock it (`git worktree unlock`) first.',
+      }),
       ok: false,
     });
     expect(insert).not.toHaveBeenCalled();
@@ -249,8 +259,10 @@ describe('adoptWorktree', () => {
     const result = await adoptWorktree(deps, { createdBy: 'user', path: '/repo' });
 
     expect(result).toEqual({
-      error:
-        'The worktree at "/repo" is the repository\'s primary checkout — use Hand off to Local instead.',
+      error: expect.objectContaining({
+        message:
+          'The worktree at "/repo" is the repository\'s primary checkout — use Hand off to Local instead.',
+      }),
       ok: false,
     });
     expect(insert).not.toHaveBeenCalled();
@@ -313,7 +325,9 @@ describe('readCheckoutStatus', () => {
     const result = await readCheckoutStatus(deps, { path: '/etc' });
 
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toContain('not visible in the workspace inventory');
+    expect(result.ok === false && result.error.message).toContain(
+      'not visible in the workspace inventory'
+    );
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -330,7 +344,7 @@ describe('readCheckoutStatus', () => {
     const result = await readCheckoutStatus(deps, { path: '/repo/wt' });
 
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toContain('could not be verified');
+    expect(result.ok === false && result.error.message).toContain('could not be verified');
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -351,7 +365,9 @@ describe('readCheckoutStatus', () => {
     const result = await readCheckoutStatus(deps, { path: '/repo/wt' });
 
     expect(result).toEqual({
-      error: 'fatal: not a git repository (or any of the parent directories): .git',
+      error: expect.objectContaining({
+        message: 'fatal: not a git repository (or any of the parent directories): .git',
+      }),
       ok: false,
     });
   });

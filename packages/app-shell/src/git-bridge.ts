@@ -7,12 +7,12 @@
  * every surface built on it is omitted — there is no `isElectron()` check.
  */
 
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   GitCommitResult,
   GitCreateBranchResult,
   GitPushPullResult,
   GitRepository,
-  GitResult,
   GitStatus,
   GitSwitchBranchResult,
 } from '@brainstrike/types';
@@ -21,17 +21,20 @@ export interface GitBridge {
   commit: (
     rootId: string,
     params: { description?: string; summary: string }
-  ) => Promise<GitResult<GitCommitResult>>;
+  ) => Promise<BoundaryResult<GitCommitResult>>;
   createBranch: (
     rootId: string,
     params: { branch: string; startPoint?: string }
-  ) => Promise<GitResult<GitCreateBranchResult>>;
-  fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
-  push: (rootId: string, params?: { remote?: string }) => Promise<GitResult<GitPushPullResult>>;
-  repository: (rootId: string) => Promise<GitResult<GitRepository>>;
-  status: (rootId: string) => Promise<GitResult<GitStatus>>;
+  ) => Promise<BoundaryResult<GitCreateBranchResult>>;
+  fetch: (rootId: string, params: { remote: string }) => Promise<BoundaryResult<GitPushPullResult>>;
+  push: (
+    rootId: string,
+    params?: { remote?: string }
+  ) => Promise<BoundaryResult<GitPushPullResult>>;
+  repository: (rootId: string) => Promise<BoundaryResult<GitRepository>>;
+  status: (rootId: string) => Promise<BoundaryResult<GitStatus>>;
   switchBranch: (
     rootId: string,
     params: { branch: string }
-  ) => Promise<GitResult<GitSwitchBranchResult>>;
+  ) => Promise<BoundaryResult<GitSwitchBranchResult>>;
 }

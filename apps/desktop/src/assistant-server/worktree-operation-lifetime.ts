@@ -2,25 +2,25 @@ import {
   BoundaryFailureError,
   isBoundaryRefusal,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import type { GitResult } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { HOST_LEASE_CLOSED } from '../desktop-shutdown-state';
-import { toErrorMessage } from './git-service';
+import { gitRefused, gitThrew } from './git-failure';
 
 /** Tracks complete service operations, including queued mutations and their final replies. */
 export class WorktreeOperationLifetime {
-  private readonly pending = new Set<Promise<GitResult<unknown> | boolean>>();
+  private readonly pending = new Set<Promise<BoundaryResult<unknown> | boolean>>();
   private readonly faults = new WeakMap<object, unknown>();
   private closing: Promise<void> | undefined;
 
-  faultResult(cause: unknown): GitResult<never> {
-    const result = { error: toErrorMessage(cause), ok: false } as const;
+  faultResult(cause: unknown): BoundaryResult<never> {
+    const result = gitThrew(cause);
     if (!isBoundaryRefusal(cause)) {
       this.faults.set(result, cause);
     }
     return result;
   }
 
-  track<T extends GitResult<unknown> | boolean>(operation: () => Promise<T>): Promise<T> {
+  track<T extends BoundaryResult<unknown> | boolean>(operation: () => Promise<T>): Promise<T> {
     if (this.closing) {
       return Promise.reject(new BoundaryFailureError(HOST_LEASE_CLOSED));
     }
@@ -33,10 +33,16 @@ export class WorktreeOperationLifetime {
     return task;
   }
 
-  admit<A extends unknown[], T>(operation: (...args: A) => Promise<GitResult<T>>) {
-    return (...args: A): Promise<GitResult<T>> =>
+  admit<A extends unknown[], T>(operation: (...args: A) => Promise<BoundaryResult<T>>) {
+    return (...args: A): Promise<BoundaryResult<T>> =>
       this.closing
-        ? Promise.resolve({ error: 'The worktree service is closing.', ok: false })
+        ? Promise.resolve(
+            gitRefused(
+              'availability',
+              'worktree.service-closing',
+              'The worktree service is closing.'
+            )
+          )
         : this.track(() => operation(...args));
   }
 
@@ -46,7 +52,7 @@ export class WorktreeOperationLifetime {
         if (result.status === 'rejected') {
           return [result.reason];
         }
-        // An ordinary GitResult refusal remains caller-owned. Only a caught
+        // An ordinary BoundaryResult refusal remains caller-owned. Only a caught
         // execution fault retains its original cause for terminal preparation.
         return typeof result.value === 'object' && this.faults.has(result.value)
           ? [this.faults.get(result.value)]

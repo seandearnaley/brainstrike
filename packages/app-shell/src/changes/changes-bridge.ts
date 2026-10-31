@@ -11,12 +11,12 @@
  */
 
 import type { AssistantRewindMode } from '@brainstrike/assistant-contract';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   Changeset,
   ChangesetView,
   ChangesInvalidationEvent,
   GitInventory,
-  GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
 
@@ -60,8 +60,8 @@ export interface ChangesBridge {
     rootId: string,
     changeset: Changeset,
     path: string
-  ) => Promise<GitResult<StructuredFileDiff>>;
-  inventory: (options?: { readonly maxAgeMs?: number }) => Promise<GitResult<GitInventory>>;
+  ) => Promise<BoundaryResult<StructuredFileDiff>>;
+  inventory: (options?: { readonly maxAgeMs?: number }) => Promise<BoundaryResult<GitInventory>>;
   onInvalidated: (listener: (event: ChangesInvalidationEvent) => void) => () => void;
-  resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
+  resolveView: (rootId: string, changeset: Changeset) => Promise<BoundaryResult<ChangesetView>>;
 }

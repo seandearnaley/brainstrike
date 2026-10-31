@@ -1,7 +1,9 @@
-import type { ChangedFileEntry, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { ChangedFileEntry, StructuredFileDiff } from '@brainstrike/types';
 import type { DiffViewSource } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { gitFailure } from '../../__tests__/helpers/git-failure';
 import { changedFileKey, useChangesStore } from '../changes-store';
 import { ChangesetDiffPane } from '../ui/changeset-diff-pane';
 
@@ -92,7 +94,7 @@ describe('ChangesetDiffPane', () => {
   it('renders every file when nothing is explicitly selected', async () => {
     const files = [makeEntry({ path: 'src/a.ts' }), makeEntry({ path: 'src/b.ts' })];
     const loadFileDiff = vi.fn(
-      async (path: string): Promise<GitResult<StructuredFileDiff>> => ({
+      async (path: string): Promise<BoundaryResult<StructuredFileDiff>> => ({
         ok: true,
         value: makeFullDiff(path),
       })
@@ -126,7 +128,7 @@ describe('ChangesetDiffPane', () => {
         ])
       );
     const loadFileDiff = vi.fn(
-      async (path: string): Promise<GitResult<StructuredFileDiff>> => ({
+      async (path: string): Promise<BoundaryResult<StructuredFileDiff>> => ({
         ok: true,
         value: makeFullDiff(path),
       })
@@ -151,12 +153,14 @@ describe('ChangesetDiffPane', () => {
 
   it('does not let one file error blank the rest of the pane', async () => {
     const files = [makeEntry({ path: 'src/a.ts' }), makeEntry({ path: 'src/b.ts' })];
-    const loadFileDiff = vi.fn(async (path: string): Promise<GitResult<StructuredFileDiff>> => {
-      if (path === 'src/a.ts') {
-        return { error: 'boom', ok: false };
+    const loadFileDiff = vi.fn(
+      async (path: string): Promise<BoundaryResult<StructuredFileDiff>> => {
+        if (path === 'src/a.ts') {
+          return gitFailure('boom');
+        }
+        return { ok: true, value: makeFullDiff(path) };
       }
-      return { ok: true, value: makeFullDiff(path) };
-    });
+    );
 
     render(
       <ChangesetDiffPane
@@ -174,7 +178,7 @@ describe('ChangesetDiffPane', () => {
   });
 
   it('distinguishes an empty changeset from an empty selection', async () => {
-    const loadFileDiff = vi.fn<() => Promise<GitResult<StructuredFileDiff>>>();
+    const loadFileDiff = vi.fn<() => Promise<BoundaryResult<StructuredFileDiff>>>();
 
     const { rerender } = render(
       <ChangesetDiffPane

@@ -1,10 +1,10 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   ChangedFileEntry,
   Changeset,
   ChangesetView,
   GitInventory,
   GitRepository,
-  GitResult,
   GitStatus,
 } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
@@ -21,7 +21,7 @@ import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
 import { ChangesetHeader } from '../ui/changeset-header';
 
-function ok<T>(value: T): Promise<GitResult<T>> {
+function ok<T>(value: T): Promise<BoundaryResult<T>> {
   return Promise.resolve({ ok: true, value });
 }
 

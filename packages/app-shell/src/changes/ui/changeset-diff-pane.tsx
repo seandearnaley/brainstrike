@@ -26,12 +26,8 @@
  * eagerly and never lets one file's failure blank the others, since each
  * card carries its own independent load state.
  */
-import type {
-  ChangedFileEntry,
-  Changeset,
-  GitResult,
-  StructuredFileDiff,
-} from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { ChangedFileEntry, Changeset, StructuredFileDiff } from '@brainstrike/types';
 import { type ReactElement, useMemo } from 'react';
 import { changedFileKey, selectRenderedFiles, useChangesStore } from '../changes-store';
 import { ChangesetFileDiffCard, type ChangesetFileDiffCardProps } from './changeset-file-diff-card';
@@ -52,7 +48,7 @@ export interface ChangesetDiffPaneProps {
   readonly loadFileDiff: (
     path: string,
     rootId: string | null
-  ) => Promise<GitResult<StructuredFileDiff>>;
+  ) => Promise<BoundaryResult<StructuredFileDiff>>;
   /** Threaded straight through to each `ChangesetFileDiffCard` (BST-2334). */
   readonly onLineComment?: ChangesetFileDiffCardProps['onLineComment'];
   /** Threaded straight through to `ChangesetFileDiffCard` — see its `reloadToken` doc comment (BST-1161). */

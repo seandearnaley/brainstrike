@@ -206,7 +206,7 @@ describe('structuredFileDiff — real-error vs absent classification (spike bug)
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/permission-denied/u);
+    expect(result.error.message).toMatch(/permission-denied/u);
   });
 
   it('treats a maxBuffer overflow on the ACTUAL blob read as a hard failure, never a truncated success', async () => {
@@ -239,7 +239,7 @@ describe('structuredFileDiff — real-error vs absent classification (spike bug)
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/buffer/iu);
+    expect(result.error.message).toMatch(/buffer/iu);
   });
 
   it('surfaces ok:false, never a fabricated empty blob, when the runner returns no stdoutBuffer on a clean exit', async () => {
@@ -270,8 +270,8 @@ describe('structuredFileDiff — real-error vs absent classification (spike bug)
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/no buffer/iu);
-    expect(result.error).toContain('nobuf.txt');
+    expect(result.error.message).toMatch(/no buffer/iu);
+    expect(result.error.message).toContain('nobuf.txt');
   });
 });
 
@@ -303,9 +303,9 @@ describe('structuredFileDiff — unmerged stage-0 (real merge conflict) classifi
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/unmerged path/u);
-    expect(result.error).toMatch(/resolve merge conflicts/u);
-    expect(result.error).toContain('conflict.txt');
+    expect(result.error.message).toMatch(/unmerged path/u);
+    expect(result.error.message).toMatch(/resolve merge conflicts/u);
+    expect(result.error.message).toContain('conflict.txt');
   });
 });
 
@@ -514,7 +514,7 @@ describe('structuredFileDiff — a maxBuffer overflow on the diff invocation for
       if (isUnifiedDiff(args)) {
         // Both sides are trivially small (2 bytes each), but the DIFF
         // INVOCATION ITSELF overflowed git's output buffer — the exact
-        // scenario `describeDiffFailure` treats as a non-failure text
+        // scenario `diffFailure` treats as a non-failure text
         // "success" (a raw execFile maxBuffer kill has exitCode null).
         return ok({
           exitCode: null,
@@ -610,7 +610,7 @@ describe('structuredFileDiff — validation', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/extra/u);
+    expect(result.error.message).toMatch(/extra/u);
   });
 
   it('rejects an invalid mode', async () => {
@@ -650,8 +650,8 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/baseRef/u);
-    expect(result.error).toMatch(/commit/u);
+    expect(result.error.message).toMatch(/baseRef/u);
+    expect(result.error.message).toMatch(/commit/u);
   });
 
   it('rejects commitId supplied on mode "range"', async () => {
@@ -672,8 +672,8 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/commitId/u);
-    expect(result.error).toMatch(/range/u);
+    expect(result.error.message).toMatch(/commitId/u);
+    expect(result.error.message).toMatch(/range/u);
   });
 
   it('rejects a missing commitId on mode "commit"', async () => {
@@ -692,7 +692,7 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/commitId/u);
+    expect(result.error.message).toMatch(/commitId/u);
   });
 
   it('rejects an empty-string commitId on mode "commit"', async () => {
@@ -712,7 +712,7 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/commitId/u);
+    expect(result.error.message).toMatch(/commitId/u);
   });
 
   it('rejects a commitId that is not a full git object id', async () => {
@@ -732,7 +732,7 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/full object id/u);
+    expect(result.error.message).toMatch(/full object id/u);
   });
 
   it('rejects a commitId starting with "-" (never let a ref be read as a git option), WITHOUT ever invoking git', async () => {
@@ -752,8 +752,8 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/commitId/u);
-    expect(result.error).toMatch(/-/u);
+    expect(result.error.message).toMatch(/commitId/u);
+    expect(result.error.message).toMatch(/-/u);
     expect(calls).toHaveLength(0);
   });
 
@@ -774,7 +774,7 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/baseRef/u);
+    expect(result.error.message).toMatch(/baseRef/u);
     expect(calls).toHaveLength(0);
   });
 
@@ -795,7 +795,7 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/baseRef/u);
+    expect(result.error.message).toMatch(/baseRef/u);
   });
 
   it('rejects a baseRef containing ":" (would corrupt the "<ref>:./<path>" spec form)', async () => {
@@ -815,7 +815,7 @@ describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/baseRef/u);
+    expect(result.error.message).toMatch(/baseRef/u);
   });
 });
 
@@ -839,8 +839,8 @@ describe('structuredFileDiff — working mode zero-numstat-entries directs to un
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/untracked/u);
-    expect(result.error).toMatch(/mode/u);
+    expect(result.error.message).toMatch(/untracked/u);
+    expect(result.error.message).toMatch(/mode/u);
   });
 
   it('returns the generic "no differences" error when the path is tracked and unchanged', async () => {
@@ -862,7 +862,7 @@ describe('structuredFileDiff — working mode zero-numstat-entries directs to un
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/no differences/u);
+    expect(result.error.message).toMatch(/no differences/u);
   });
 
   it('staged mode with zero numstat entries never checks status, just reports no differences', async () => {
@@ -905,7 +905,7 @@ describe('structuredFileDiff — "unstaged" mode (BST-1113 review finding)', () 
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/no differences/u);
+    expect(result.error.message).toMatch(/no differences/u);
   });
 
   it('rejects an unsupported extra key on mode "unstaged"', async () => {
@@ -925,8 +925,8 @@ describe('structuredFileDiff — "unstaged" mode (BST-1113 review finding)', () 
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/commitId/u);
-    expect(result.error).toMatch(/unstaged/u);
+    expect(result.error.message).toMatch(/commitId/u);
+    expect(result.error.message).toMatch(/unstaged/u);
   });
 
   it('reads the OLD side from the INDEX (:0:./<path>), never HEAD — the review-fixed bug', async () => {

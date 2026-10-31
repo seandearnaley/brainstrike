@@ -8,8 +8,9 @@
  * not just that the store produced a new object.
  */
 
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { act } from '@brainstrike/test-utils/react-act';
-import type { Changeset, ChangesetView, GitResult } from '@brainstrike/types';
+import type { Changeset, ChangesetView } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -67,7 +68,7 @@ afterEach(() => {
 describe('Last Turn live retargeting', () => {
   it('reloads the view for the NEW runId when a run finishes while the surface is on Last Turn', async () => {
     const resolveView = vi.fn(
-      async (_rootId: string, changeset: Changeset): Promise<GitResult<ChangesetView>> => {
+      async (_rootId: string, changeset: Changeset): Promise<BoundaryResult<ChangesetView>> => {
         if (changeset.kind !== 'agent-run') {
           throw new Error('expected an agent-run changeset');
         }
@@ -109,7 +110,7 @@ describe('Last Turn live retargeting', () => {
 
   it('does NOT reload the view when a git scope is pinned, even as a new run finishes', async () => {
     const resolveView = vi.fn(
-      async (_rootId: string, changeset: Changeset): Promise<GitResult<ChangesetView>> => ({
+      async (_rootId: string, changeset: Changeset): Promise<BoundaryResult<ChangesetView>> => ({
         ok: true,
         value: { changeset, files: [], totalAdditions: 0, totalDeletions: 0 },
       })
@@ -151,7 +152,7 @@ describe('Last Turn live retargeting', () => {
 
   it('does NOT reload the view for an explicitly re-pinned specific run, even if it matches the new latestRunId', async () => {
     const resolveView = vi.fn(
-      async (_rootId: string, changeset: Changeset): Promise<GitResult<ChangesetView>> => {
+      async (_rootId: string, changeset: Changeset): Promise<BoundaryResult<ChangesetView>> => {
         if (changeset.kind !== 'agent-run') {
           throw new Error('expected an agent-run changeset');
         }

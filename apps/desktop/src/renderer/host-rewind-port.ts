@@ -8,6 +8,7 @@
  * same restore: a host `run-range` from the preview's `fromRunId`, against
  * the live work-tree.
  */
+
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import type {
@@ -24,6 +25,7 @@ import type {
   RewindRootRef,
 } from '@brainstrike/app-shell/changes';
 import type { AssistantRewindMode } from '@brainstrike/assistant-contract';
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { Changeset } from '@brainstrike/types';
 
 type HostRequest = Pick<HostClient, 'request'>;
@@ -157,7 +159,7 @@ async function previewModel(
       changeset: null,
       filesScope: {
         available: false as const,
-        message: `The files this would restore could not be listed: ${view.error}`,
+        message: `The files this would restore could not be listed: ${describeBoundaryFailure(view.error)}`,
       },
       previewId: null,
       restoreRoots: null,

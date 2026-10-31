@@ -1,6 +1,8 @@
 /** The agent host's rewind projection consumed by the shared confirmation modal. */
+
 import type { AssistantRewindMode } from '@brainstrike/assistant-contract';
-import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { Changeset, ChangesetView, StructuredFileDiff } from '@brainstrike/types';
 import type { RewindPreviewPayload } from './changes-bridge';
 
 /** What a rewind does to the conversation after the target message. */
@@ -104,7 +106,7 @@ export interface RewindPort {
     readonly acknowledgeConflicts: boolean;
     readonly mode: AssistantRewindMode;
     readonly preview: ReadyRewindPreview;
-  }): Promise<GitResult<RewindApplyResult>>;
+  }): Promise<BoundaryResult<RewindApplyResult>>;
   /** What this owner's rewinds do to the later messages. */
   readonly conversation: RewindConversationEffect['kind'];
   /** A file's diff in the previewed changeset; `rootId` comes from the file entry. */
@@ -112,13 +114,13 @@ export interface RewindPort {
     changeset: Changeset,
     path: string,
     rootId: string
-  ): Promise<GitResult<StructuredFileDiff>>;
-  preview(target: RewindPreviewPayload): Promise<GitResult<RewindPreviewModel>>;
+  ): Promise<BoundaryResult<StructuredFileDiff>>;
+  preview(target: RewindPreviewPayload): Promise<BoundaryResult<RewindPreviewModel>>;
   redo(args: {
     readonly acknowledgeConflicts: boolean;
     readonly rewindId: string;
     /** The roots the rewind restored, as its apply reported them. */
     readonly roots: readonly RewindRootRef[];
     readonly threadId: string;
-  }): Promise<GitResult<RewindRedoResult>>;
+  }): Promise<BoundaryResult<RewindRedoResult>>;
 }
