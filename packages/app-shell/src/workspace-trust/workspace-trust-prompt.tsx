@@ -41,9 +41,10 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
   const [roots, setRoots] = useState<readonly WorkspaceTrustRoot[]>([]);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [readError, setReadError] = useState<string | null>(null);
+  // The cause goes to the log; the person sees what it means and can retry.
+  const [readFailed, setReadFailed] = useState(false);
   // A pull can add AGENTS.md or a skill to a mounted folder; returning to the window re-reads.
-  const [visibleCount, setVisibleCount] = useState(0);
+  const [readCount, setReadCount] = useState(0);
   // Last requested wins: a slow older read never replaces a fresher one.
   const generationRef = useRef(0);
 
@@ -58,7 +59,7 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
       .then((result) => {
         if (generation === generationRef.current) {
           setRoots(result);
-          setReadError(null);
+          setReadFailed(false);
         }
       })
       .catch((error: unknown) => {
@@ -68,13 +69,13 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
         }
         logger.error('Failed to read workspace trust', { error });
         if (generation === generationRef.current) {
-          setReadError(errorMessage(error, 'The agent host did not answer'));
+          setReadFailed(true);
         }
       });
     return () => {
       generationRef.current += 1;
     };
-  }, [discovery, activeRootIds, revision, visibleCount]);
+  }, [discovery, activeRootIds, revision, readCount]);
 
   useEffect(() => {
     if (!discovery) {
@@ -82,7 +83,7 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
     }
     const onVisible = (): void => {
       if (document.visibilityState === 'visible') {
-        setVisibleCount((count) => count + 1);
+        setReadCount((count) => count + 1);
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -90,7 +91,7 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
   }, [discovery]);
 
   const asking = roots.filter(asksForTrust);
-  if (!discovery || (asking.length === 0 && readError === null)) {
+  if (!discovery || (asking.length === 0 && !readFailed)) {
     return null;
   }
 
@@ -143,12 +144,17 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
           </div>
         </div>
       ))}
-      {readError === null ? null : (
-        <p className="text-destructive text-sm" role="alert">
-          Brainstrike could not check which folders you trust, so folder instructions and skills
-          stay off: {readError}
-        </p>
-      )}
+      {readFailed ? (
+        <div className="flex items-center justify-between gap-4" role="alert">
+          <p className="text-destructive text-sm">
+            Brainstrike couldn’t check whether an open folder’s instructions or skills need your
+            answer. Folders you already trusted are unaffected.
+          </p>
+          <Button onClick={() => setReadCount((count) => count + 1)} size="sm" variant="outline">
+            Retry
+          </Button>
+        </div>
+      ) : null}
       {actionError ? (
         <p className="text-destructive text-sm" role="alert">
           {actionError}

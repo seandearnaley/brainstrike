@@ -8,7 +8,8 @@ import type {
   WorkspaceTrustDecision,
   WorkspaceTrustRoot,
 } from '@brainstrike/settings-ui/settings/system/workspace-trust';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantHostWorkspaceDiscovery } from '../assistant-thread-host-context';
@@ -132,11 +133,16 @@ describe('WorkspaceTrustPrompt', () => {
     expect(screen.getByTestId('workspace-trust-prompt-root-cloned')).toBeInTheDocument();
   });
 
-  it('says when it cannot read which folders are trusted', async () => {
+  it('says when it cannot read trust, without the internal cause, and recovers on Retry', async () => {
+    const user = userEvent.setup();
+    const listTrust = vi
+      .fn<() => Promise<readonly WorkspaceTrustRoot[]>>()
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED /run/agent-host.sock'))
+      .mockResolvedValue([CLONED]);
     hostState.host = {
       workspaceDiscovery: {
         listCommands: () => Promise.reject(new Error('Commands are not under test')),
-        listTrust: () => Promise.reject(new Error('The agent host is not running')),
+        listTrust,
         scanSkills: () => Promise.reject(new Error('Skills are not under test')),
         setTrust: () => Promise.reject(new Error('Answers are not under test')),
       },
@@ -144,8 +150,12 @@ describe('WorkspaceTrustPrompt', () => {
     render(<WorkspaceTrustPrompt />);
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('could not check which folders you trust');
-    expect(alert).toHaveTextContent('The agent host is not running');
+    expect(alert).toHaveTextContent('couldn’t check whether an open folder’s instructions');
+    expect(alert).not.toHaveTextContent('ECONNREFUSED');
+
+    await user.click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('workspace-trust-prompt-root-cloned')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('asks about a folder that gained agent configuration when the window is shown again', async () => {
