@@ -130,6 +130,178 @@ describe('host provider services: a profile without an OpenRouter key (BST-2346)
   });
 });
 
+/** What the client receives for a provider read that failed, and what the boundary logged. */
+async function crossed(
+  read: Promise<unknown>
+): Promise<{ readonly data: unknown; readonly logged: number }> {
+  const cause = await read.then(
+    () => undefined,
+    (error: unknown) => error
+  );
+  const log = vi.fn();
+  const response = toBoundaryResponseError(cause, log);
+  return { data: response.data, logged: log.mock.calls.length };
+}
+
+function servicesWith(options: {
+  readonly env?: Record<string, string>;
+  readonly fetchImpl?: typeof fetch;
+  readonly stored?: Record<string, ProviderCredential>;
+}): ReturnType<typeof createHostProviderServices> {
+  const { credentials } = credentialsWith(options.stored ?? {});
+  return createHostProviderServices({
+    auth: { secrets: credentials.secrets },
+    env: options.env ?? {},
+    envFileFailures: [],
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+  });
+}
+
+describe('host provider services: a failure the person can fix says how (BST-2374)', () => {
+  it('tells a Bedrock key without a region to set one, and logs no error', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const services = servicesWith({
+      env: { AWS_BEARER_TOKEN_BEDROCK: 'fixture-bedrock-bearer' },
+      fetchImpl,
+    });
+
+    await expect(crossed(services.verify('bedrock', open))).resolves.toEqual({
+      data: {
+        category: 'configuration',
+        code: 'provider.region-missing',
+        kind: 'refusal',
+        message: 'No AWS region is configured for Bedrock.',
+        remedy: 'Set one in Settings or via AWS_REGION.',
+      },
+      logged: 0,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('tells a provider without a credential where to add one', async () => {
+    const services = servicesWith({});
+
+    await expect(crossed(services.verify('openai', open))).resolves.toEqual({
+      data: {
+        category: 'configuration',
+        code: 'provider.credential-missing',
+        kind: 'refusal',
+        message: 'No credential configured for provider "openai".',
+        remedy: 'Add one in Providers.',
+      },
+      logged: 0,
+    });
+  });
+
+  it('tells a rejected OpenRouter key to be replaced', async () => {
+    const services = servicesWith({
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 401 })),
+      stored: { openrouter: { key: 'fixture-rejected-key', type: 'api_key' } },
+    });
+
+    await expect(
+      crossed(services.openRouterModel('anthropic/claude-sonnet-4.6', open))
+    ).resolves.toEqual({
+      data: {
+        category: 'authorization',
+        code: 'provider.credential-rejected',
+        kind: 'refusal',
+        message: 'OpenRouter rejected the API key (HTTP 401).',
+        remedy: 'Replace the OpenRouter API key in Providers.',
+      },
+      logged: 0,
+    });
+  });
+
+  it('tells an offline machine to check its connection', async () => {
+    const services = servicesWith({
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(
+        new TypeError('fetch failed', {
+          cause: Object.assign(new Error('getaddrinfo'), { code: 'ENOTFOUND' }),
+        })
+      ),
+      stored: { openrouter: { key: 'fixture-key', type: 'api_key' } },
+    });
+
+    await expect(
+      crossed(services.openRouterModel('anthropic/claude-sonnet-4.6', open))
+    ).resolves.toEqual({
+      data: {
+        category: 'availability',
+        code: 'provider.unreachable',
+        kind: 'refusal',
+        message: 'OpenRouter could not be reached.',
+        remedy: 'Check your connection, then try again.',
+      },
+      logged: 0,
+    });
+  });
+
+  it('keeps a lookup that failed for another reason, such as TLS, a logged fault', async () => {
+    const tls = Object.assign(new Error('unable to get local issuer certificate'), {
+      code: 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+    });
+    const services = servicesWith({
+      fetchImpl: vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new TypeError('fetch failed', { cause: tls })),
+      stored: { openrouter: { key: 'fixture-key', type: 'api_key' } },
+    });
+
+    const result = await crossed(services.openRouterModel('anthropic/claude-sonnet-4.6', open));
+    expect(result.data).not.toMatchObject({ code: 'provider.unreachable' });
+    expect(result.logged).toBe(1);
+  });
+
+  it('tells a lookup OpenRouter never answered that it timed out', async () => {
+    vi.useFakeTimers();
+    try {
+      const services = servicesWith({
+        fetchImpl: vi.fn<typeof fetch>(() => new Promise<Response>(() => undefined)),
+        stored: { openrouter: { key: 'fixture-key', type: 'api_key' } },
+      });
+
+      const result = crossed(services.openRouterModel('anthropic/claude-sonnet-4.6', open));
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await expect(result).resolves.toEqual({
+        data: {
+          category: 'timeout',
+          code: 'provider.timeout',
+          kind: 'refusal',
+          message: 'OpenRouter Models API request timed out after 10000ms.',
+          remedy: 'Check your connection, then try again.',
+        },
+        logged: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['stored', { stored: { openrouter: { key: '   ', type: 'api_key' } as const } }],
+    ['env', { env: { OPENROUTER_API_KEY: '  \t ' } }],
+  ])('reads a whitespace-only %s OpenRouter key as no key', async (_source, setup) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const services = servicesWith({ ...setup, fetchImpl });
+
+    await expect(
+      crossed(services.openRouterModel('anthropic/claude-sonnet-4.6', open))
+    ).resolves.toEqual({
+      data: {
+        category: 'configuration',
+        code: 'provider.credential-missing',
+        kind: 'refusal',
+        message: 'No API key configured for provider "openrouter".',
+        remedy: 'Add an OpenRouter API key in Providers.',
+      },
+      logged: 0,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe('host provider services: one configured OpenRouter origin', () => {
   it('sends the model metadata lookup where the key probe goes, from the host env', async () => {
     // The ambient process env names another origin; the host's own env decides.
@@ -152,7 +324,7 @@ describe('host provider services: one configured OpenRouter origin', () => {
 
       await services.verify('openrouter', open);
       await expect(services.openRouterModel('anthropic/claude-sonnet-4.6', open)).rejects.toThrow(
-        'OpenRouter Models API returned status 401'
+        'OpenRouter rejected the API key (HTTP 401).'
       );
 
       expect(urls).toEqual([

@@ -2,6 +2,10 @@ import type {
   ProviderVerificationLookup,
   ProviderVerificationSnapshot,
 } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const MAX_VISIBLE_ERROR_CHARS = 300;
@@ -41,7 +45,11 @@ export interface ProviderVerificationState {
   readonly verify: () => void;
 }
 
+/** A host refusal reads with its remedy, as the host sent it. */
 function toVisibleError(error: unknown): string {
+  if (error instanceof BoundaryFailureError) {
+    return describeBoundaryFailure(error.failure).slice(0, MAX_VISIBLE_ERROR_CHARS);
+  }
   const message = error instanceof Error ? error.message : 'Provider verification failed';
   return message.slice(0, MAX_VISIBLE_ERROR_CHARS);
 }
