@@ -46,10 +46,10 @@ vi.mock('electron', () => ({
           listeners.set(event, set);
         },
         pid: 1234,
-        postMessage: (request: { id: number; kind: string }) => {
+        postMessage: (request: { id: number; method: string }) => {
           messages.push(request);
-          if (!mocks.heldStartup && request.kind === 'open-native-coverage') {
-            queueMicrotask(() => emit('message', { id: request.id, kind: 'ready' }));
+          if (!mocks.heldStartup && request.method === 'openNativeCoverage') {
+            queueMicrotask(() => emit('message', { id: request.id, jsonrpc: '2.0', result: null }));
           }
         },
       };
@@ -138,14 +138,16 @@ it('reads coverage from a reader slower to start and to answer than any former d
   const child = mocks.children[0];
   const open = child?.messages[0] as { readonly id: number } | undefined;
   expect(open).toBeDefined();
-  child?.receive({ id: open?.id, kind: 'ready' });
+  child?.receive({ id: open?.id, jsonrpc: '2.0', result: null });
+  await vi.advanceTimersByTimeAsync(0);
   const reader = await acquisition;
 
   const read = reader.nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }]);
   read.catch(() => undefined);
   await vi.advanceTimersByTimeAsync(6000);
   const request = child?.messages[1] as { readonly id: number } | undefined;
-  child?.receive({ id: request?.id, kind: 'nativeCoverage', result: [] });
+  child?.receive({ id: request?.id, jsonrpc: '2.0', result: [] });
+  await vi.advanceTimersByTimeAsync(0);
   await expect(read).resolves.toEqual([]);
   expect(child?.kill).not.toHaveBeenCalled();
   await reader.close();

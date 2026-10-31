@@ -316,8 +316,8 @@ async function sqliteExitUnderRead(): Promise<unknown> {
       return () => undefined;
     },
     postMessage: (request) => {
-      if (request.kind === 'open') {
-        queueMicrotask(() => reply({ id: request.id, kind: 'ready' }));
+      if ('method' in request && request.method === 'open' && 'id' in request) {
+        queueMicrotask(() => reply({ id: request.id, jsonrpc: '2.0', result: null }));
       } else {
         posted.resolve();
       }

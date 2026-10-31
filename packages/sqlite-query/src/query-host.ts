@@ -1,15 +1,19 @@
-import { createQueryHost } from './host-core.ts';
+import { createMessageConnection, IPCMessageReader, IPCMessageWriter } from 'vscode-jsonrpc/node';
+import { serveQueryHost } from './host-core.ts';
 
 if (!process.send) {
   throw new Error('Node SQLite query host must have a parent IPC channel.');
 }
-const send = process.send.bind(process);
-process.on(
-  'message',
-  createQueryHost((response) => {
-    send(response);
-  })
+const connection = createMessageConnection(
+  new IPCMessageReader(process),
+  new IPCMessageWriter(process)
 );
+// A malformed parent protocol cannot be served safely.
+connection.onError(() => {
+  process.exit(1);
+});
+serveQueryHost(connection);
+connection.listen();
 process.on('disconnect', (): void => {
   process.exit(0);
 });
