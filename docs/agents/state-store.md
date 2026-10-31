@@ -55,9 +55,8 @@ Failures retain the owner and data needed for retry.
 
 Clear and Factory Reset use the existing profile barrier/reset lease; consumers
 must stop writes and retire durable view references before content destruction.
-Export/import validate the supported current format and retain canonical identity
-and authority constraints; unsupported developer data is not silently converted,
-repaired or deleted.
+The store has no export or import; unsupported developer data is not silently
+converted, repaired or deleted.
 
 Decisions: [ADR-0011](../adr/0011-run-log-and-state-store.md) and
 [ADR-0020](../adr/0020-greenfield-data-lifecycle.md).

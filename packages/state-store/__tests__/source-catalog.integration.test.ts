@@ -166,53 +166,6 @@ test('event erasure retains bytes still owned by a canonical source', async () =
   }
 });
 
-test('current-format export and import retain canonical source-only bytes', async () => {
-  const directory = freshDir('source-catalog-export');
-  const indexer = new TruthIndexer(directory);
-  const store = await StateStore.open(directory, { indexer });
-  const original = source('Source-only content, with no transcript reference.');
-  try {
-    await store.workspaceRoots({
-      operation: 'register',
-      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
-    });
-    const prepared = await store.sourceCatalog({
-      embeddingSetId: null,
-      files: [original],
-      operation: 'prepare',
-      rootId: 'root-alpha',
-    });
-    const bundle = join(freshDir('source-catalog-bundle'), 'snapshot');
-    const manifest = await store.exportTo(bundle);
-    expect(
-      manifest.files.find((file) => file.path === `${BLOBS_DIR}/${original.contentHash}`)
-    ).toMatchObject({ bytes: original.stat.size, sha256: original.contentHash });
-    const importedRoot = freshDir('source-catalog-import');
-    StateStore.importBundle(bundle, importedRoot);
-    const imported = await StateStore.open(importedRoot, { onForeignLock: () => true });
-    try {
-      const file = prepared.files[0];
-      if (!file) {
-        throw new Error('Canonical source was not committed');
-      }
-      expect(
-        (
-          await imported.sourceCatalog({
-            fileIds: [file.fileId],
-            maxContentBytes: original.stat.size,
-            operation: 'read',
-          })
-        ).files[0]?.content
-      ).toBe(original.content);
-    } finally {
-      await imported.close();
-    }
-  } finally {
-    await store.close();
-    indexer.close();
-  }
-});
-
 test('a held source deletion survives reopen and physical cleanup rejoins the existing collector', async () => {
   const directory = freshDir('source-catalog-held-delete');
   const firstIndexer = new TruthIndexer(directory);
