@@ -21,7 +21,6 @@
   },
   "private": true,
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   }

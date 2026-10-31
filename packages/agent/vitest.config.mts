@@ -1,10 +1,5 @@
-import { resolve } from 'node:path';
-import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { defineConfig } from 'vitest/config';
-
-const coverageEnabled =
-  process.env['COVERAGE'] !== 'false' &&
-  (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
+import { sharedConfig } from '@brainstrike/test-utils/vitest.base';
+import { defineConfig, mergeConfig } from 'vitest/config';
 
 export function resolveAgentTestShard(
   environment: NodeJS.ProcessEnv = process.env
@@ -28,35 +23,16 @@ export function resolveAgentTestShard(
 
 const agentTestShard = resolveAgentTestShard();
 
-export default defineConfig({
-  coverage: {
-    enabled: coverageEnabled,
-    include: ['src/**/*.{ts,tsx}'],
-    provider: 'v8',
-    reporter: ['text', 'json', 'lcov'],
-  },
-  resolve: {
-    alias: [
-      {
-        find: /^@brainstrike\/agent\/tool-guard-deadline$/u,
-        replacement: resolve(import.meta.dirname, 'src/tool-guard-deadline.ts'),
-      },
-      {
-        find: '@brainstrike/agent/mcp-client',
-        replacement: resolve(import.meta.dirname, 'src/mcp-client.ts'),
-      },
-    ],
-  },
-  test: {
-    // One module cache per package, so parallel lanes never clear a shared one.
-    fsModuleCachePath: 'node_modules/.vitest-cache',
-    ...(agentTestShard ? { shard: agentTestShard } : {}),
-    environment: 'node',
-    hookTimeout: 15_000,
-    include: ['src/**/__tests__/*.spec.ts'],
-    reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['./vitest.setup.ts'],
-    // Longer timeout for MCP/Mastra integration tests under parallel load
-    testTimeout: 30_000,
-  },
-});
+export default mergeConfig(
+  sharedConfig,
+  defineConfig({
+    test: {
+      ...(agentTestShard ? { shard: agentTestShard } : {}),
+      hookTimeout: 15_000,
+      include: ['src/**/__tests__/*.spec.ts'],
+      setupFiles: ['./vitest.setup.ts'],
+      // Longer timeout for MCP/Mastra integration tests under parallel load
+      testTimeout: 30_000,
+    },
+  })
+);

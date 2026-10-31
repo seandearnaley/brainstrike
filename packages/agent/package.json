@@ -71,10 +71,8 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.spec.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts --no-file-parallelism",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false

@@ -1,14 +1,11 @@
-import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { defineConfig } from 'vitest/config';
+import { sharedConfig } from '@brainstrike/test-utils/vitest.base';
+import { defineConfig, mergeConfig } from 'vitest/config';
 
-export default defineConfig({
-  test: {
-    environment: 'node',
-    exclude: ['node_modules', 'dist'],
-    // One module cache per package, so parallel lanes never clear a shared one.
-    fsModuleCachePath: 'node_modules/.vitest-cache',
-    globals: true,
-    include: ['src/**/__tests__/**/*.test.ts'],
-    reporters: ['default', new LostTestFileReporter()],
-  },
-});
+export default mergeConfig(
+  sharedConfig,
+  defineConfig({
+    test: {
+      include: ['src/**/__tests__/**/*.test.ts'],
+    },
+  })
+);

@@ -2,9 +2,9 @@
 /// <reference types="@testing-library/jest-dom" />
 
 import path from 'node:path';
-import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { sharedConfig } from '@brainstrike/test-utils/vitest.base';
 import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, mergeConfig } from 'vitest/config';
 
 // CI splits this lane into native Vitest shards (the Unit app-shell rows in
 // .github/workflows/test.yml).
@@ -30,136 +30,35 @@ export function resolveAppShellTestShard(
 
 const appShellTestShard = resolveAppShellTestShard();
 
-export default defineConfig({
-  plugins: [reactCompiler()],
-  // Preserve real module URLs: source-boundary tests read files relative to them.
-  // Vitest 5 applies define replacements to test modules too (BST-1689).
-  resolve: {
-    alias: [
-      {
-        find: /^@brainstrike\/indexing-contract$/u,
-        replacement: path.resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
-      },
-      {
-        find: /^@brainstrike\/assistant-contract\/(.*)$/u,
-        replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
-      },
-      {
-        find: /^@brainstrike\/assistant-contract$/u,
-        replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
-      },
-      {
-        find: 'electron',
-        replacement: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
-      },
-      {
-        // Anchored: a bare-string find would also capture the
-        // './commands' subpath export, which the registry spread resolves.
-        find: /^@brainstrike\/context-actions$/u,
-        replacement: path.resolve(import.meta.dirname, '../context-actions/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/workspace-search/chunk-selection-store',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../workspace-search/src/bridge/chunk-selection-store.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/workspace-search/workspace-search-store',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../workspace-search/src/core/workspace-search-store.ts'
-        ),
-      },
-      {
-        find: /^@brainstrike\/workspace-search$/u,
-        replacement: path.resolve(import.meta.dirname, '../workspace-search/src/index.ts'),
-      },
-      {
-        find: /^@brainstrike\/db$/u,
-        replacement: path.resolve(import.meta.dirname, '../db/src/index.ts'),
-      },
-      {
-        find: /^@brainstrike\/file-explorer-ui\/(.*)$/u,
-        replacement: path.resolve(import.meta.dirname, '../file-explorer-ui/src/$1'),
-      },
-      {
-        find: '@brainstrike/text-splitter/chunking-core',
-        replacement: path.resolve(import.meta.dirname, '../text-splitter/src/chunking-core.ts'),
-      },
-      {
-        find: /^@brainstrike\/text-splitter$/u,
-        replacement: path.resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/assistant-ui/context-usage-store',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../assistant-ui/src/context-usage-store.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/assistant-ui/follow-up-queue-store',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../assistant-ui/src/follow-up-queue-store.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/assistant-ui/rewind-composer-store',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../assistant-ui/src/rewind-composer-store.ts'
-        ),
-      },
-      {
-        // Root aliases must be anchored because this package has subpath exports.
-        find: /^@brainstrike\/assistant-ui$/u,
-        replacement: path.resolve(import.meta.dirname, '../assistant-ui/src/index.ts'),
-      },
-      {
-        find: /^@brainstrike\/ui$/u,
-        replacement: path.resolve(import.meta.dirname, '../ui/src/index.ts'),
-      },
-      {
-        find: /^@brainstrike\/utils$/u,
-        replacement: path.resolve(import.meta.dirname, '../utils/src'),
-      },
-      {
-        find: '@brainstrike/utils/crypto',
-        replacement: path.resolve(import.meta.dirname, '../utils/src/crypto.ts'),
-      },
-      {
-        find: /^@brainstrike\/utils\/(.*)$/u,
-        replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
-      },
-      {
-        find: '@brainstrike/workers/file-content-worker',
-        replacement: path.resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
-      },
-    ],
-  },
-  server: {
-    fs: {
-      allow: ['.'],
+export default mergeConfig(
+  sharedConfig,
+  defineConfig({
+    plugins: [reactCompiler()],
+    resolve: {
+      alias: [
+        {
+          find: 'electron',
+          replacement: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
+        },
+      ],
     },
-  },
-  test: {
-    environment: 'happy-dom',
-    exclude: ['**/node_modules/**', '**/dist/**'],
-    // One module cache per package, so parallel lanes never clear a shared one.
-    fsModuleCachePath: 'node_modules/.vitest-cache',
-    ...(appShellTestShard ? { shard: appShellTestShard } : {}),
-    globals: true,
-    hookTimeout: 30_000,
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
-    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
-    reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['./vitest.setup.ts'],
-    testTimeout: 30_000,
-    unstubGlobals: true,
-    // Coverage consolidated at root vitest.config.mts
-  },
-});
+    server: {
+      fs: {
+        allow: ['.'],
+      },
+    },
+    test: {
+      environment: 'happy-dom',
+      exclude: ['**/node_modules/**', '**/dist/**'],
+      ...(appShellTestShard ? { shard: appShellTestShard } : {}),
+      hookTimeout: 30_000,
+      include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+      // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+      maxWorkers: process.env['CI'] ? '50%' : '100%',
+      setupFiles: ['./vitest.setup.ts'],
+      testTimeout: 30_000,
+      unstubGlobals: true,
+      // Coverage consolidated at root vitest.config.mts
+    },
+  })
+);

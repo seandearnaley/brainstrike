@@ -28,10 +28,8 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:browser": "vitest run --config vitest.browser.config.mts",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,

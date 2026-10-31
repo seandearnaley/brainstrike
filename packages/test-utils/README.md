@@ -4,13 +4,13 @@ Shared test configuration, explicit mocks, render-wrapper composition, recorded 
 
 ## Configuration
 
-- `/vitest.base` exports `testBase`, a **test-options** object:
+- `/vitest.base` exports `sharedConfig`, merged into every package's Vitest config with Vitest's `mergeConfig`, plus `integrationLane` and `coverageEnabled`:
 
   ```ts
-  import { testBase } from '@brainstrike/test-utils/vitest.base';
-  import { defineConfig } from 'vitest/config';
+  import { sharedConfig } from '@brainstrike/test-utils/vitest.base';
+  import { defineConfig, mergeConfig } from 'vitest/config';
 
-  export default defineConfig({ test: { ...testBase } });
+  export default mergeConfig(sharedConfig, defineConfig({ test: { include: ['src/**/*.test.ts'] } }));
   ```
 
 - Setup entries for unit, DOM-aware and browser environments are separate subpaths (`/vitest.setup`, `/vitest.dom-aware.setup`, `/vitest.browser.setup`, ...).
