@@ -23,8 +23,7 @@ function focusPush(focused: boolean) {
 
 /**
  * BST-1864: main publishes the host BrowserWindow's native focus to its own
- * renderer. Verified in Electron 44 (probe recorded in
- * docs/agents/assistant-persistence/thread-groups-and-folders.md): focusing a
+ * renderer. Verified in Electron 44: focusing a
  * child `WebContentsView` or docked DevTools emits no `blur` on the window and
  * `isFocused()` stays true, so `focus`/`blur` here IS the OS window's focus.
  */

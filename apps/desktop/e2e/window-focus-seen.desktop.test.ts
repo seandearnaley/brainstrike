@@ -31,9 +31,8 @@ import { startThread } from './utils/new-thread';
  * focus, the completion reads as seen, and the first assertion fails. What
  * Playwright's forced focus hides is the bug's own symptom, keyboard focus in a
  * child `WebContentsView` making the renderer's `document.hasFocus()` false
- * while the window keeps native focus. That is pinned by the unit tests and by
- * the Electron 44 probe recorded in
- * docs/agents/assistant-persistence/thread-groups-and-folders.md.
+ * while the window keeps native focus. That is pinned by the unit tests and an
+ * Electron 44 probe.
  *
  * RED: `BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES=windowFocus` (the harness
  * default); GREEN: unset, which this spec turns into an opt-in.

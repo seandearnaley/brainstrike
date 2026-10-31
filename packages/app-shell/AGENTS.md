@@ -1,6 +1,6 @@
 # App shell
 
-Follow root instructions. This package composes shared UI; it does not become a
+This package composes shared UI; it does not become a
 second agent runtime or durable storage owner.
 
 - Select desktop/web behavior through available capabilities. Optional bridges

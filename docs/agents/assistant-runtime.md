@@ -1,7 +1,7 @@
 # Assistant runtime
 
-Use this contract when changing run execution, stream recovery, approvals, hooks,
-plan mode or tracing. Desktop and CLI share the Electron-free agent host; each root or child
+Covers run execution, stream recovery, approvals, hooks, plan mode and tracing.
+Desktop and CLI share the Electron-free agent host; each root or child
 run uses the host-owned AI SDK loop. Mastra supplies memory, not a second loop,
 permission engine or transcript writer. See [ADR-0012](../adr/0012-ai-sdk-loop-mastra-memory-library.md)
 and [ADR-0017](../adr/0017-cli-first-agent-host.md).
@@ -10,30 +10,28 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
 
 - Compose instructions from explicit inputs and the injected host clock. Tool
   descriptions and schemas must describe the admitted executable capability.
-- The stream watchdog never judges a running tool. The AI SDK's
-  `onToolExecutionStart`/`onToolExecutionEnd` bracket each execution, and while
-  any runs the watchdog has no window, as the SDK's own `chunkMs` never runs
-  during tool execution. Each tool is bounded by its own guard, and a delegated
-  child by its own run's watchdog and `maxChildRuntimeMs`. Otherwise it
-  distinguishes first provider output, reasoning activity and provider
-  silence; SDK scaffolding does not count as provider output, and reasoning
-  alone is not an answer.
-- An expired tool guard cancels the work belonging to that tool call. A provider
-  timeout aborts the provider attempt.
-- An MCP tool's guard is an inactivity budget (BST-1779). Each progress
-  notification restarts its window (the resilience `toolTimeoutMs`, 60 s), up
-  to the transport's own total (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`, 600 s). A
-  silent server ends at the window and a chatty one at the total. The timeout
-  text says which, and the call is cancelled on the wire either way. The guard
-  alone ends a silent call: such a request (`callerGuardsInactivity`) keeps the
-  total as its SDK idle timeout, because the SDK re-arms its own 60 s timer on
-  progress before the guard does and would otherwise end the call first, as an
-  unexplained failure. A server's own `toolTimeoutMs` (1 s to 10 min) replaces
-  the window for its tools, for servers that work long in silence; it also
-  bounds that server's unguarded requests. The ceiling is the transport's
-  default total. An MCP Tasks settlement wait fits in three quarters
-  of what the call's guard has left once the task is tracked
-  (`readToolGuardRemainingMs`). Native tools keep their flat guard.
+- The stream watchdog never judges a running tool.
+  - AI SDK `onToolExecutionStart`/`onToolExecutionEnd` bracket each execution;
+    while any runs the watchdog has no window (the SDK's `chunkMs` also pauses).
+  - Each tool is bounded by its own guard; a delegated child by its own run's
+    watchdog and `maxChildRuntimeMs`.
+  - Otherwise it distinguishes first provider output, reasoning activity and
+    provider silence. SDK scaffolding is not provider output; reasoning alone is
+    not an answer.
+- An expired tool guard cancels that tool call's work. A provider timeout aborts
+  the provider attempt.
+- Native tools have a flat guard. An MCP tool's guard is an inactivity budget:
+  - each progress notification restarts the window (resilience `toolTimeoutMs`,
+    60 s), up to the transport total (`DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS`, 600 s)
+  - a silent server ends at the window, a chatty one at the total; the timeout text
+    says which, and the call is cancelled on the wire either way
+  - the guard alone ends a silent call: guarded requests (`callerGuardsInactivity`)
+    use the total as the SDK idle timeout, because the SDK re-arms its own 60 s
+    timer first and would otherwise end the call as an unexplained failure
+  - a server's own `toolTimeoutMs` (1 s to 10 min) replaces the window for its
+    tools and bounds its unguarded requests; the ceiling is the transport total
+  - an MCP Tasks settlement wait fits in three quarters of the guard's remaining
+    time once the task is tracked (`readToolGuardRemainingMs`)
 - Failed or abnormal finishes produce failed durable outcomes. Recoverable
   attempts are recorded before retry, stay on the committed branch, and never
   repeat a step that streamed tool input or a call. Context-overflow recovery
@@ -74,7 +72,7 @@ delegation's task or delivered child results are not the person's words. Its app
 runs the call as the SDK's automatic approval; a flag or any review failure
 asks the user, and the card shows the reviewer's reason.
 
-Browser origins (BST-1178): the first `browserNavigate` call to each origin
+Browser origins: the first `browserNavigate` call to each origin
 (scheme, host, port) raises a `network` consent that names it, whatever the
 policy or access mode. Allow once runs that call. Always allow and Don't allow are
 saved by the host in its StateStore (`permissions/browser-origins`, wiped by
@@ -128,16 +126,10 @@ A set but unusable endpoint, protocol or content setting fails host startup.
 - Prompts, responses and tool payloads are excluded unless
   `BRAINSTRIKE_OTEL_RECORD_CONTENT=1`. Error messages are still recorded.
 - Memory observer and reflector calls run inside Mastra and are not traced.
+- Desktop and the CLI host read the same variables; any local OTLP/HTTP collector
+  (e.g. Jaeger on port 4318) works.
 
-To view a run locally, start Jaeger and launch desktop with the endpoint set:
-
-```sh
-docker run --rm -p 16686:16686 -p 4318:4318 cr.jaegertracing.io/jaegertracing/jaeger:2.22.0
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 pnpm --filter @brainstrike/desktop dev
-```
-
-Open <http://localhost:16686> and pick `brainstrike-agent-host`. The CLI host
-reads the same variables. Owner: [host tracing](../../packages/agent-host/src/telemetry/otel.ts).
+Owner: [host tracing](../../packages/agent-host/src/telemetry/otel.ts).
 
 ## Clients and retirement
 

@@ -26,7 +26,7 @@ compaction or branch rules. A result the fold can't read shows as unmapped, and 
 unmeasured request as "not measured", never as zero. It is desktop-only: web has
 no committed run log.
 
-A thread's direct subagents are lanes of its Context tab (BST-2021). The host
+A thread's direct subagents are lanes of its Context tab. The host
 lists the children; a child's lane appears from the parent turn whose run started
 it, on the displayed branch. Each lane reads the child's own committed log through
 the host and folds it with the same fold and branch rules as the child's own view,

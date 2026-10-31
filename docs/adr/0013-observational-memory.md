@@ -41,7 +41,7 @@ In the spikes OM wrote no transcript messages, so it is not a second writer.
   host commits no receipt for these and warns once per hosted model, so a hosted gap
   is visible. An embedder without an official catalog price (`gemini-embedding-001`)
   reads "cost unavailable", never $0.
-- On the lighter web version, memory features are desktop-only.
+- Memory features were desktop-only on the web version (since removed).
 
 ## Sources
 

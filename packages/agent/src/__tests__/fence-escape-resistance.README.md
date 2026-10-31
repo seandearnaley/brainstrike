@@ -140,15 +140,7 @@ srt's macOS profile generator re-emits a nested deny when
 `allowRead: ['/Users']` and `allowRead: [$HOME]` were **not** affected — the
 re-emission works for every ancestor short of the root.
 
-**Linux was not affected.** bubblewrap masks denied directories with `tmpfs` and
-only punches holes for allow paths *under* the deny, so `/` never re-opened
-anything. CI is Linux and would never have caught this. That asymmetry is why
-the fix lives in our policy layer rather than in a platform check — and it is
-the durable reason, independent of what CI happens to run. (Two earlier
-revisions of this note leaned on CI instead: first "CI runs on Linux", then
-"CI does not even RUN this suite". The second was true when written and is no
-longer — see [Getting the two platforms](#getting-the-two-platforms). The
-asymmetry argument never depended on either.)
+**Linux was not affected:** bubblewrap masks denied directories with `tmpfs` and only re-opens allow paths *under* the deny. That asymmetry is why the fix lives in our policy layer, not in a platform check.
 
 **Fix:** `buildSandboxRuntimeConfig` now refuses a root-wide `allowRead` with a
 `FencePolicyError` — refused, never narrowed, per the no-silent-fallback rule.
@@ -165,8 +157,8 @@ platforms.
 
 A green security test that stays green when its guard is removed is decoration.
 Every mechanism below was weakened, the named test was re-run, and it had to go
-red. **16/16 killed.** Reproduce with the harness recorded in the BST-1071 PR
-description.
+red. **16/16 killed** (last full run at srt 0.0.73; later bumps re-ran the
+srt-sensitive subset).
 
 | # | Mechanism weakened | Test that must go red | Result |
 | --- | --- | --- | --- |
@@ -265,313 +257,26 @@ security test is worse than none.
 
 ## This suite is pinned to an exact srt version
 
-`@anthropic-ai/sandbox-runtime` is pinned to **0.0.80** in the workspace
-catalog, and a test in this file asserts the installed version matches.
+`@anthropic-ai/sandbox-runtime` is pinned to **0.0.80** in the workspace catalog, and `PINNED_SRT_VERSION` in the spec asserts the installed version. The fence's guarantees are srt's guarantees, and a patch bump can change them silently.
 
-That is deliberate. The fence's guarantees *are* srt's guarantees, and the live
-finding above was an off-by-one inside srt's own profile generation — the kind
-of thing a patch bump can introduce or remove silently.
+**Bumping srt requires re-greening this suite; do not just update the constant.**
 
-**Bumping srt requires re-greening this suite. Do not just update the constant.**
-
-1. Run the full suite on **macOS and Linux** (the root-`allowRead` finding was
-   macOS-only; a Linux-only run proves nothing about it — and the converse
-   holds for the write-grant finding, non-guarantee 5). **CI supplies the Linux
-   half as of BST-1316**; before that it did not, and the bump log's 0.0.73
-   entry is what a bump reads like without it. See
-   [Getting the two platforms](#getting-the-two-platforms) for where each half
-   comes from and how to confirm the Linux one actually ran. Either way the
-   bump log must say which platforms actually ran rather than which ones were
-   assumed to be covered.
-2. Re-read srt's README security sections and reconcile the non-guarantee list
-   above with whatever changed.
-3. Re-run the mutation table — a bump can make a guard redundant, which shows up
-   as a mutation that stops killing.
-4. Only then update `PINNED_SRT_VERSION` and
-   `docs/agents/code-execution.md`.
+1. Run the full suite on **macOS and Linux**. The root-`allowRead` finding is macOS-only and the write-grant finding (non-guarantee 5) is Linux-only, so one platform proves nothing about the other.
+2. Re-read srt's README security sections and reconcile the non-guarantee list.
+3. Re-run at least the srt-sensitive mutations (M2, M3, M4, M12, M13) on both platforms; a bump can make a guard redundant.
+4. Only then update `PINNED_SRT_VERSION` and `docs/agents/code-execution.md`.
+5. Record in the PR which platforms actually ran, with test counts and skips.
 
 ### Getting the two platforms
 
-**macOS: run it yourself.** Seatbelt needs nothing installed.
-
-```bash
-pnpm --filter @brainstrike/agent test:integration
-```
-
-**Linux: CI supplies it — as of 2026-08-16.** Do not read a green Unit check as
-the Linux half without confirming the suite actually RAN. It did not, for the
-whole life of this suite before that date: `checkDependenciesAsync()` requires
-`bwrap`, `socat` and `rg` on Linux, no workflow installed them, and all three
-real-fence suites skipped themselves — loudly in the log, green in the check
-(`32 tests | 27 skipped`, with only the ungated version pin actually running).
-The `unit-shard` job in `.github/workflows/test.yml` now installs the three
-binaries and lifts `kernel.apparmor_restrict_unprivileged_userns`, which the
-Ubuntu 24.04 runner image sets and without which bubblewrap cannot create a
-namespace at all (`bwrap: setting up uid map: Permission denied`) — the
-dependency check passes and every fenced run still produces nothing.
-`docs/agents/code-execution.md` carries the measurements.
-
-A bump PR reaches that lane on its own: the pin lives in `pnpm-workspace.yaml`,
-so the lockfile change puts `@brainstrike/agent` in turbo's affected set.
-
-What to check on the bump PR, in order:
-
-1. `Unit (rest)` is green **and** its integration step shows this file with **no
-   skips attributable to the host gate**. A `SUITE SKIPPED —` line in that log
-   means the Linux half did not happen, whatever the check says.
-2. The network cases ran (no `NETWORK CASES SKIPPED —` line). Runner egress is
-   open, so a skip there is a signal, not weather.
-
-If the lane ever cannot supply it — a runner image that blocks user namespaces
-outright, say — the honest fallback is a documented manual run recorded in the
-bump PR the way the macOS half is, **not** a green check. The 0.0.73 entry in
-the bump log below is the worked example: a `--privileged` `node:24-bookworm`
-container, and an explicit statement of which cases it could and could not
-reach. Note what it could not: srt's vendored `apply-seccomp` cannot run under
-Docker Desktop's LinuxKit kernel, so the network, unix-socket and process-tree
-cases stayed unrun there. **The CI lane has no such hole** — it runs on a real
-kernel with seccomp active (`checkDependenciesAsync()` returns no warnings), so
-those cases now execute for the first time.
-
-What any such host has to prove first, before a suite result from it counts, is
-the thing this lane learned the hard way: that bubblewrap can actually build a
-namespace there. `bwrap --ro-bind / / --dev /dev --unshare-all /bin/echo ok`
-exiting 0 is that proof; the dependency check passing is not, since it only
-looks for binaries on `PATH`.
-
-**A skip can no longer go quiet.** The Unit integration steps set
-`BRAINSTRIKE_FENCE_DEPS_REQUIRED=1`, and `fixtures/fence-host-gate.ts` throws
-rather than skips when it is set — so a runner that stops meeting the
-prerequisites fails the lane instead of reporting a security suite it never
-ran. The variable is deliberately unset on developer machines and in the
-coverage lanes, which install nothing and keep the loud-skip behaviour.
-
-**Every suite-wide reason escalates, not just the missing-dependency one.** The
-escalation sits at `refuseToSkipInAPromisedLane`, the choke point that sees the
-final reason, rather than inside the dependency check. Scoping it to
-dependencies alone (this PR's first shape, caught in review) still left a
-promised lane able to go green having proven nothing: a missing interpreter
-skips all three suites, and an unreachable probe host skips `fence-executor`
-and `run-python-tool` *entirely* — filesystem and process-tree proofs included.
-The NETWORK-cases gate in this file escalates for the same reason: dropping the
-raw-socket, DNS and allow-list proofs quietly is the same broken promise as
-dropping the file.
-
----
+- **macOS:** run `pnpm --filter @brainstrike/agent test:integration` locally. Seatbelt needs nothing installed.
+- **Linux:** CI's unit shards in `.github/workflows/test.yml` install `bwrap`, `socat` and `rg`, lift `kernel.apparmor_restrict_unprivileged_userns`, and set `BRAINSTRIKE_FENCE_DEPS_REQUIRED=1`. A bump PR reaches that lane automatically because the pin change puts `@brainstrike/agent` in turbo's affected set.
+  - Confirm the suite ran: the integration step must show this file with no `SUITE SKIPPED —` or `NETWORK CASES SKIPPED —` lines. A green check alone is not proof.
+- With `BRAINSTRIKE_FENCE_DEPS_REQUIRED=1`, `refuseToSkipInAPromisedLane` in `fixtures/fence-host-gate.ts` turns every suite-wide skip (missing dependency, interpreter or probe host) and the network-cases skip into a failure. Developer machines and coverage lanes leave it unset and keep the loud skip.
+- Any other Linux host must first prove bubblewrap can build a namespace: `bwrap --ro-bind / / --dev /dev --unshare-all /bin/echo ok` must exit 0. The dependency check only looks for binaries on `PATH`.
 
 ### Bump log
 
-- **0.0.75 → 0.0.80 (BST-2029, 2026-10-18).** Published tarballs were
-  integrity-verified. Both existing integration files passed 47/47 on the
-  baseline on macOS arm64 and Ubuntu 26.04 x64. Before changing the version
-  assertion, the candidate passed all 46 macOS behavior cases and all 47 Linux
-  behavior cases; only the old version assertion failed. The additional Linux
-  case calls `unshare(CLONE_NEWUSER)` through the real executor: baseline allowed
-  it, candidate returns `EPERM`. The same syscall must first succeed under
-  bare Bubblewrap on the selected host path; host policy cannot count as a
-  fence denial. An omitted-fence mutation fails the denial assertion.
-  That Linux-specific case is intentionally not
-  executed on macOS; no network/host prerequisite cases were skipped.
-
-  M2, M3, M4, M12 and M13 were each removed temporarily on **both platforms**;
-  all five selected policy tests failed assertions, then the original source
-  was restored. As in the previous bump, the other eleven historical mutation
-  cases were not repeated: their executor mechanisms are unchanged. Their
-  ordinary behavior cases did run. This is five policy mutation kills per
-  platform, not a new claim of 16/16 mutation qualification.
-
-  The Ubuntu host uses the dedicated root-owned distro Bubblewrap copy and
-  application-specific AppArmor profile described in `docs/agents/code-execution.md`.
-  The ordinary distro profile and global namespace restriction remain enabled.
-  Both versions were tested with this same setup and disposable homes. The
-  Linux source checkout was installed frozen and its 18 build prerequisites
-  built locally; hosted CI was not used.
-
-  Keep all Brainstrike policy refusals. Upstream adds stricter nested-namespace
-  and write-deny enforcement; `allowNestedUserNamespaces` and other weakening
-  options remain unset. The prior root-read vulnerability description below
-  records the old releases, not a claim that the same vendor implementation
-  remains in 0.0.80. Refusing whole-root reads is still our tested policy.
-  Callback changes do not need an adapter: this executor calls `initialize`
-  without an ask callback and supplies explicit domain lists. The new Node
-  >=22.12 engine requirement is covered by the repository's Node >=24.20 floor.
-  Packaged desktop artifacts, Linux arm64 and Windows were not qualified by
-  these integration runs. Forge remains an accepted unresolved dependency
-  advisory; this upgrade does not claim to clear it.
-
-- **0.0.73 → 0.0.75 (BST-1669, 2026-09-07).** Two upstream releases.
-  **Platforms that actually ran: macOS locally (Step 3) and Linux in CI
-  (Step 5).** Both are cited below with counts; neither is assumed.
-
-  **Step 1 — what changed upstream, with a verdict per platform.** Diffed the
-  published 0.0.73 and 0.0.75 tarballs rather than reading 0.0.75 alone.
-
-  - *macOS — `macos-sandbox-utils`, the layer this suite's live finding lives
-    in.* Literal deny paths are now folded into generated anchored regexes
-    instead of one `subpath` filter per path (`groupLiteralDenyPaths`,
-    `SBPL_STRING_MAX_BYTES = 900`, `MIN_DENY_GROUP_SIZE = 4`).
-  - *Linux — `generate-seccomp-filter`.* The **only** change is
-    `function getGlobalNpmPaths()` becoming `export function
-    getGlobalNpmPaths()`. A visibility change; not one filter rule moved.
-  - *Linux — `linux-sandbox-utils`.* All 15 changed lines are the new JVM proxy
-    agent: an import, `javaAgentJarPath` added to the params destructure, and a
-    guarded block that pushes `--setenv JAVA_TOOL_OPTIONS`. Nothing touches
-    bind, tmpfs, unshare, deny or allow handling. `buildJavaToolOptions` is
-    passed `unsetEnvVars`, so it respects the denied-env list.
-  - *Both — the JVM agent* (`javaAgentJarPath`, opt-in). It does not reach this
-    fence, which runs Python and Node and never a JVM. The env-isolation case
-    (`lets NO host environment value cross the fence…`) passes on both
-    platforms regardless.
-
-  srt's README security sections are otherwise **identical** — no guarantee
-  added or withdrawn.
-
-  **Step 2 — the root-`allowRead` finding survives.** The re-emission test
-  `literalAllowDirs.some(a => deny.path.startsWith(a + '/'))` is byte-identical
-  between the two tarballs (0.0.73 line 154, 0.0.75 line 155): for an allow of
-  `/` the prefix is `//`, which no real path starts with, so the deny is still
-  dropped. Treat that as corroboration, not proof — 0.0.75 rewrote the code
-  *around* this line, so the load-bearing evidence is the live pass of `REFUSES
-  a root-wide allowRead …` on both platforms. Non-guarantee 8 rides on the same
-  logic and is unchanged for the same reason.
-
-  **Step 3 — full macOS run, zero skips.** macOS 26.6.2, arm64, real Seatbelt:
-  **31 passed, 1 failed**, the single failure being the version-pin test itself
-  while the constant still read `0.0.73` — the intended order, since it proves
-  every substantive case was exercised *before* the pin moved. No
-  `SUITE SKIPPED` and no `NETWORK CASES SKIPPED`. With the pin updated: 32/32.
-
-  **The new deny-grouping path was genuinely exercised, and both of its
-  branches were.** `ALWAYS_DENY_READ_PATHS` is 10 literal entries; 8 of them
-  (`.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.netrc`, `.npmrc`, `.pypirc`)
-  share the grandparent srt groups on, clearing `MIN_DENY_GROUP_SIZE = 4`, so
-  they emit as a folded regex; the two `.config/*` entries do not reach four and
-  fall to `rest` as literals. So a macOS pass here is evidence about the new
-  folding, not merely evidence that nothing changed for us.
-
-  **The 900-byte cap cannot silently drop a deny.** `groupLiteralDenyPaths`
-  filters over-long names out of a group, drops the group entirely if it then
-  falls under `MIN_DENY_GROUP_SIZE`, and returns
-  `rest: normalizedPaths.filter(p => !grouped.has(p))` — so anything excluded
-  from a regex is still emitted as a literal filter. The cap degrades to the
-  old per-path behaviour, which is the safe direction.
-
-  **Step 4 — mutation re-run, srt-sensitive subset: 5/5 still KILLED.** M2
-  (glob refusal), M3 (root refusal), M4 (`ALWAYS_DENY_READ_PATHS` dropped), M12
-  (allowWrite store containment) and M13 (exact collision) were each weakened
-  and each named test went red. These are the five whose guards could have been
-  made **redundant** by srt learning to deny on its own — the failure mode a
-  bump introduces. The remaining eleven (M1, M5–M11b) guard process-lifecycle
-  and env behaviour in our own executor, which srt's profile generation cannot
-  make redundant; they were **not** re-run, and this entry says so rather than
-  claiming 16/16.
-
-  **Step 5 — Linux, from CI, confirmed as executed rather than green.** Job
-  **`Unit (rest)`**, step *Pull request affected integration tests*, in the
-  `Test` run for head `f9041db8`
-  (<https://github.com/seandearnaley/brainstrike/actions/runs/34143026519>):
-
-  ```
-  ✓ src/__tests__/fence-escape-resistance.integration.spec.ts (32 tests) 22288ms
-  ```
-
-  **32 tests, zero skips** — no `SUITE SKIPPED`, no `NETWORK CASES SKIPPED`, no
-  "sandbox-runtime dependencies are missing". That is the whole point of the
-  check: a green `Unit` alone would have been consistent with 27 quiet skips.
-
-  On citing a run at all: a bump log can never name the run for its own final
-  head, because writing the citation creates a new head. The evidence of record
-  is therefore the run for the commit that **moved the pin** — everything after
-  it in the PR is prose, and prose cannot change sandbox behaviour. Re-confirmed
-  anyway on the following head `e0554f73` (run 34144370721, same job and step):
-  `✓ fence-escape-resistance.integration.spec.ts (32 tests) 22120ms`, zero
-  skips. A future bumper should cite the pin-moving commit and stop there.
-
-  One honest caveat the Linux run itself logged, twice: `~/.ssh does not exist
-  on this host, so the allowWrite/allowRead containment refusal was proven only
-  as "refused"`, not as "refused *for re-opening a store*". The CI runner has no
-  credential stores, so those two containment cases are weaker on Linux than on
-  a developer machine — and the macOS half, where `~/.ssh` exists, is what
-  supplies their full-strength form. The two platforms are complementary here,
-  not redundant.
-
-- **0.0.67 → 0.0.73 (BST-1285).** Six upstream releases, all with published
-  release notes. Nothing in them weakens a restriction this suite relies on;
-  the two macOS filesystem changes (the profile compaction in 0.0.71 and the
-  glob-deny fix in 0.0.72) are respectively text-only and deny-only, and srt's
-  seccomp filter generator is byte-identical across the whole range.
-
-  **Step 1 — macOS: full suite, 32/32 against real Seatbelt. Linux: the full
-  suite did NOT run.** No lane installs srt's Linux dependencies, so the host
-  gate skips it; this bump's own CI logged `SUITE SKIPPED — sandbox-runtime
-  dependencies are missing on this linux host: ripgrep (rg) not found,
-  bubblewrap (bwrap) not installed, socat not installed` (32 tests, 27 skipped,
-  2ms). Do not record "Linux is covered by CI" — it is not, and was not here.
-
-  What WAS measured on Linux, by execution rather than by reading the source:
-  the two PLATFORM-ASYMMETRIC findings, in a bubblewrap container
-  (`node:24-bookworm`, linux/arm64, Docker `--privileged`, srt 0.0.73 from npm,
-  a synthetic 9-entry `~/.ssh`, entry COUNTS only):
-
-  | arm | config handed to srt | `~/.ssh` entries |
-  | --- | --- | --- |
-  | unsandboxed control | — | 9 |
-  | root read grant (the macOS leak) | `allowRead: ['/']` | 0 |
-  | ancestor read grant (control) | `allowRead: [$HOME]` | 0 |
-  | write grant on the store (M12) | `allowWrite: ['~/.ssh']` | **9** |
-  | write grant elsewhere (control) | `allowWrite: [$HOME/plain]` | 0 |
-
-  So at 0.0.73 Linux still HOLDS against the root-`allowRead` hole (tmpfs
-  masking) and still LEAKS a read-denied store through a write grant. Both
-  platform asymmetries this suite documents are re-earned at this version, and
-  the M12 refusal is exactly as load-bearing on Linux as M3 is on macOS.
-
-  That container is not a substitute for the suite: srt's vendored
-  `apply-seccomp` helper cannot run under Docker Desktop's LinuxKit kernel (its
-  `uid_map` write is refused), so it was removed and srt degraded to its
-  documented "seccomp not available" warning. The arms above are bwrap
-  mount-namespace behavior and do not depend on it — the network, unix-socket
-  and process-tree cases do, and they remain UNRUN on Linux at 0.0.73.
-
-  **Step 2 — the root-`allowRead` finding** was re-measured against 0.0.73 on
-  macOS and is **unchanged**: handing srt the config our policy layer refuses
-  (`allowRead: ['/']` plus the credential denies) let sandboxed python list 9
-  entries in `~/.ssh`, while the same probe under a normal non-root ancestor
-  allow (`$HOME/Documents`) listed 0. So the M3 guard did NOT become redundant
-  — dropping it would re-open the stores today.
-
-  **Step 3 — mutation table re-run on macOS at 0.0.73: 16/16 still KILLED.**
-  Every row was re-applied to the source and the named test re-run; a row only
-  counts as killed when that one test is the one that failed (`Tests 1 failed |
-  31 skipped` in every case). A `-t` filter matching nothing also exits
-  non-zero, so a bare non-zero exit is not evidence — one row initially
-  reported `32 skipped` because vitest reads `-t` as a REGEX and `execute()`
-  matched no title; it kills once the pattern is regex-safe. Two rows the
-  release range put in question:
-
-  - **M2 (glob refusal).** 0.0.72 #465 strengthened the DENY side — macOS now
-    re-emits glob `denyRead` entries inside an `allowRead` region. Our refusal
-    is about globs in `allowRead`, which srt would expand into paths the
-    containment guard never compared, so nothing about it became redundant.
-  - **M7 (network allow-list).** 0.0.68's `:port` suffixes cannot be expressed
-    through `policyDomainSchema` (`DOMAIN_PATTERN` has no `:`), and a port-less
-    pattern still matches every port
-    (`matchesDomainPatternWithPort`), so the allow-list means exactly what it
-    meant at 0.0.67.
-
-  New upstream surface (`:port` domain suffixes, `deniedDomainReasons`,
-  `commandId` attribution, Windows credential-store relocation) is additive and
-  unreachable from `ExecPolicy`.
-
-  **Postscript (BST-1316, one day later): the Linux gap this entry documents is
-  closed.** The `unit-shard` job now installs `bwrap`/`socat`/ripgrep and lifts
-  `kernel.apparmor_restrict_unprivileged_userns`, and the full suite runs on
-  Linux at 0.0.73 — 53 tests, **zero skips**, the same 53 macOS runs. The cases
-  this entry had to leave unrun (network, unix-socket, process-tree) execute
-  there on a real kernel with seccomp active, which the `--privileged` container
-  could not offer. One assertion needed fixing rather than the fence: the
-  child-write case in `fence-executor` matched only Seatbelt's wording, while
-  bubblewrap masks paths outside the write grant by re-mounting them read-only
-  (`OSError: [Errno 30] Read-only file system`). Everything this entry measured
-  by hand still stands; the next bump gets it from CI instead.
-
+- **0.0.75 → 0.0.80 (BST-2029, 2026-10-18).** Baseline 47/47 on macOS arm64 and Ubuntu 26.04 x64; the candidate passed every behavior case before the pin moved. New Linux case: `unshare(CLONE_NEWUSER)` through the executor now returns `EPERM` (and must succeed under bare bubblewrap on the host first). M2, M3, M4, M12, M13 killed on both platforms. Ubuntu used the dedicated Bubblewrap copy and AppArmor profile in `docs/agents/code-execution.md`. Not qualified: packaged artifacts, Linux arm64, Windows. `allowNestedUserNamespaces` and other weakening options stay unset.
+- **0.0.73 → 0.0.75 (BST-1669, 2026-09-07).** macOS 32/32 locally; Linux 32/32 with zero skips in CI. macOS deny paths are now folded into regex groups; the 900-byte cap falls back to literal filters, so no deny is dropped. The root-`allowRead` re-emission check is unchanged upstream. M2, M3, M4, M12, M13 killed.
+- **0.0.67 → 0.0.73 (BST-1285).** macOS 32/32 and 16/16 mutations killed. Linux measured by hand in a privileged container: still holds against root `allowRead`, still leaks a read-denied store through a write grant (M12 stays load-bearing). Linux CI coverage arrived the next day (BST-1316).
