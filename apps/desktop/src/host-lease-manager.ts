@@ -111,7 +111,14 @@ export interface DesktopHostLeaseOptions {
 }
 export interface DesktopHostChild {
   readonly exited: Promise<number>;
+  /**
+   * Settles when its lifetime channel closes unasked (BST-2004): the host is gone, often
+   * before Electron reports its exit, at the moment its clients' ports close.
+   */
+  readonly lost: Promise<void>;
   postClientPort(port: MessagePortMain): void;
+  /** The record its ready report carried: which host this is. */
+  readonly record: HostRecord;
   /**
    * Asks this child to close for a user's restart over its own control port (no socket),
    * and joins its exit under the lease's one close ladder. Its channel's close takes the
@@ -486,7 +493,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           stall.unref();
           const settled = (): void => clearTimeout(stall);
           ready.then(settled, settled);
+          const lost = Promise.withResolvers<void>();
           await ownLifetime(scope, options, child, () => {
+            lost.resolve();
             // A lost host leaves its native processes to Main (ADR-0017).
             lostTail = nativeChildren?.retire();
             // A child lost before ready fails its acquisition instead.
@@ -503,7 +512,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           child.ready = true;
           options.onChildReady?.({
             exited: child.exited,
+            lost: lost.promise,
             postClientPort: (port) => child.handle.postMessage({ event: 'client-port' }, [port]),
+            record,
             stopForRelaunch: () => {
               // This child's own exit reads it: a later child's crash still warns.
               child.relaunchRequested = true;

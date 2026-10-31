@@ -153,8 +153,8 @@ export function createDesktopHostConnection(
         case 'connecting':
           return attempt ?? Promise.reject(new Error('The agent host connection has no attempt'));
         case 'idle':
-          // The actual frame owns this client. Main joins its relay on navigation,
-          // renderer loss and shutdown; React presentation replay owns no transport.
+          // The actual frame owns this client and its port to the host, which closes
+          // with the document; React presentation replay owns no transport.
           window.addEventListener('beforeunload', () => void close(), { once: true });
           return start(false);
         case 'failed':
