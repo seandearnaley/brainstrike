@@ -55,7 +55,7 @@ export function ActiveConversationInputProvider({
       interrupted.reject(failure);
       controller.abort(failure);
     };
-    try {
+    const attempt = async () => {
       const deliver = async () => {
         const input = await captureChildInputDraft(
           request.current?.id ?? crypto.randomUUID(),
@@ -74,23 +74,26 @@ export function ActiveConversationInputProvider({
         }
         // Admission settings belong to the receipt, not the live controls. An
         // unconfirmed retry reuses the complete original request exactly.
-        request.current ??= prepare ? prepare(input) : input;
+        request.current = request.current ?? (prepare ? prepare(input) : input);
         await onSend(request.current, controller.signal);
       };
       await Promise.race([deliver(), interrupted.promise]);
       await clearAcknowledgedChildDraft(aui, text, attachments);
       request.current = undefined;
-    } catch (failure) {
-      setError(
-        failure instanceof Error && failure.message.trim()
-          ? failure.message
-          : 'Child input delivery was not confirmed.'
-      );
-    } finally {
-      cancelWait.current = undefined;
-      inFlight.current = false;
-      setBusy(false);
-    }
+    };
+    return attempt()
+      .catch((failure: unknown) => {
+        setError(
+          failure instanceof Error && failure.message.trim()
+            ? failure.message
+            : 'Child input delivery was not confirmed.'
+        );
+      })
+      .finally(() => {
+        cancelWait.current = undefined;
+        inFlight.current = false;
+        setBusy(false);
+      });
   };
   const discard = () => {
     if (inFlight.current) {

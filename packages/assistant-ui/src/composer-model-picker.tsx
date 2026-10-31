@@ -241,14 +241,12 @@ export function ComposerModelPicker({
       }
       const token = selectionTokenRef.current;
       setPendingKey(entry.compositeKey);
-      let committed: boolean;
-      try {
-        committed = await onEnableModel(entry.providerId, entry.modelId);
-      } finally {
+      const enable = async () => onEnableModel(entry.providerId, entry.modelId);
+      const committed = await enable().finally(() => {
         // Always clear, even when the host violates its contract and rejects;
         // the rejection itself still propagates.
         setPendingKey(null);
-      }
+      });
       // A false result was already reported by the host (destructive toast);
       // the selection deliberately stays where it was. A newer pick or a
       // close since the request abandons only the selection — the enable

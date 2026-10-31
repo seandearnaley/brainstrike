@@ -236,7 +236,7 @@ function useCommittedMessageQueue(
       // The first settled view after mounting is the run end this queue
       // missed while the thread was off screen, if it shows the thread idle.
       const catchUp = observation.settled && !caughtUp.current;
-      caughtUp.current ||= observation.settled;
+      caughtUp.current = caughtUp.current || observation.settled;
       queue.observe({ ...observation, catchUp });
     }
   };
