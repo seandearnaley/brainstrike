@@ -345,14 +345,16 @@ export class ScopedIndex {
         .all(plan.snapshot.fileId)
     );
     const byId = new Map(plan.chunks.map((chunk) => [chunk.chunkId, chunk]));
-    const keep = new Set(byId.keys());
-    for (const chunk of old) {
-      const next = byId.get(chunk.chunkId);
-      if (!next || next.contentHash !== chunk.contentHash) {
-        this.deleteVectors(chunk.pk);
-      }
-      if (!keep.has(chunk.chunkId)) {
-        this.db.prepare('DELETE FROM file_chunks WHERE pk=?').run(chunk.pk);
+    this.deleteVectors(
+      old.flatMap((chunk) =>
+        byId.get(chunk.chunkId)?.contentHash === chunk.contentHash ? [] : [chunk.pk]
+      )
+    );
+    const removed = old.filter((chunk) => !byId.has(chunk.chunkId));
+    if (removed.length > 0) {
+      const deleteChunk = this.db.prepare('DELETE FROM file_chunks WHERE pk=?');
+      for (const chunk of removed) {
+        deleteChunk.run(chunk.pk);
       }
     }
     return new Map(old.map((chunk) => [chunk.chunkId, chunk]));
@@ -439,20 +441,27 @@ export class ScopedIndex {
       })
     );
   }
-  private deleteVectors(chunkPk: number): void {
-    const vectors = decodeVectors(
-      this.db
-        .prepare(
-          'SELECT pk,chunk_pk AS chunkPk,profile_hash AS profileHash,dimensions FROM scoped_vectors WHERE chunk_pk=?'
-        )
-        .all(chunkPk)
-    );
-    for (const vector of vectors) {
-      this.db
-        .prepare(`DELETE FROM ${vectorTable(vector.dimensions)} WHERE id=?`)
-        .run(BigInt(vector.pk));
+  /** Each statement is prepared once per call: better-sqlite3 does not cache them. */
+  private deleteVectors(chunkPks: readonly number[]): void {
+    if (chunkPks.length === 0) {
+      return;
     }
-    this.db.prepare('DELETE FROM scoped_vectors WHERE chunk_pk=?').run(chunkPk);
+    const select = this.db.prepare(
+      'SELECT pk,chunk_pk AS chunkPk,profile_hash AS profileHash,dimensions FROM scoped_vectors WHERE chunk_pk=?'
+    );
+    const deleteRows = this.db.prepare('DELETE FROM scoped_vectors WHERE chunk_pk=?');
+    const deleteCoarse = new Map<number, Database.Statement>();
+    for (const chunkPk of chunkPks) {
+      for (const vector of decodeVectors(select.all(chunkPk))) {
+        let statement = deleteCoarse.get(vector.dimensions);
+        if (!statement) {
+          statement = this.db.prepare(`DELETE FROM ${vectorTable(vector.dimensions)} WHERE id=?`);
+          deleteCoarse.set(vector.dimensions, statement);
+        }
+        statement.run(BigInt(vector.pk));
+      }
+      deleteRows.run(chunkPk);
+    }
   }
   remove(input: unknown): boolean {
     const request = decoder(scopedRemoveSchema)(input);
@@ -463,9 +472,7 @@ export class ScopedIndex {
       const rows = decoder(Schema.Array(Schema.Struct({ pk: integer })))(
         this.db.prepare('SELECT pk FROM file_chunks WHERE file_record_id=?').all(request.fileId)
       );
-      for (const row of rows) {
-        this.deleteVectors(row.pk);
-      }
+      this.deleteVectors(rows.map((row) => row.pk));
       const removed =
         this.db.prepare('DELETE FROM file_records WHERE id=?').run(request.fileId).changes > 0;
       return removed;
