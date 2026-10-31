@@ -3,6 +3,12 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { InspectCommandSessionsInputSchema } from '../schemas/schemas-execution.ts';
 
 export const inspectCommandSessions = defineNativeTool({
+  activity: {
+    active: 'Inspecting sessions',
+    done: 'Inspected sessions',
+    family: 'run',
+    request: 'Inspect sessions',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 283,

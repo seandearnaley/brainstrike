@@ -7,6 +7,7 @@ import { RunPythonInputSchema } from '../schemas/schemas-execution.ts';
 // read. 'execute' also keeps it out of plan mode — plan-mode-tool-gate.ts
 // pins that with brainstrike.runPython as its fixture (BST-1073).
 export const runPython = defineNativeTool({
+  activity: { active: 'Running', done: 'Ran', family: 'run', request: 'Run' },
   defaults: {
     category: 'action',
     estimatedTokens: 190,

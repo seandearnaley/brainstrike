@@ -1,3 +1,4 @@
+import type { VerbFamily } from '@brainstrike/assistant-contract';
 import {
   FileText,
   GitBranch,
@@ -17,7 +18,6 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { ActivityStepState } from './activity-trace-model';
-import type { VerbFamily } from './activity-verbs';
 
 /** Verb-family icon, keyed alphabetically by `VerbFamily` member. */
 export const FAMILY_ICONS: Readonly<Record<VerbFamily, LucideIcon>> = {

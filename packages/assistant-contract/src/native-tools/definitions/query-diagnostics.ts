@@ -7,6 +7,7 @@ import { QueryDiagnosticsInputSchema } from '../schemas/schemas-diagnostics.ts';
 // workspace files, and must remain available under the normal read policy
 // without being mistaken for arbitrary SQL.
 export const queryDiagnostics = defineNativeTool({
+  activity: { active: 'Inspecting', done: 'Inspected', family: 'search', request: 'Inspect' },
   defaults: {
     category: 'analysis',
     estimatedTokens: 351,

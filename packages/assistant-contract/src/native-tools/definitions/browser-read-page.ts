@@ -3,6 +3,7 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { BrowserReadPageInputSchema } from '../schemas/schemas-browser.ts';
 
 export const browserReadPage = defineNativeTool({
+  activity: { active: 'Reading page', done: 'Read page', family: 'web', request: 'Read page' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 140,

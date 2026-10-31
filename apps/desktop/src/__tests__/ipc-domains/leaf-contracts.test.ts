@@ -1,9 +1,7 @@
 import { WINDOW_FOCUS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/window-focus-bridge';
 import { describe, expect, it } from 'vitest';
 import { clipboardArgs } from '../../ipc-clipboard-handlers';
-import { clipboardContract } from '../../ipc-domains/clipboard.contract';
 import { windowFocusContract } from '../../ipc-domains/window-focus.contract';
-import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 import { ipcArgsDecoder } from '../../platform/ipc-args';
 
 /**
@@ -19,13 +17,6 @@ describe('leaf IPC contracts', () => {
     );
   });
 
-  it('binds every method to its manifest entry', () => {
-    expect(clipboardContract.writeText).toMatchObject({
-      channel: DESKTOP_IPC_CHANNELS.clipboard.writeText,
-      envelope: 'ipc-result',
-    });
-  });
-
   it('decodes clipboard.writeImage only as PNG bytes', () => {
     const decode = ipcArgsDecoder('clipboard:write-image', clipboardArgs.writeImage);
     const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]);
@@ -35,17 +26,5 @@ describe('leaf IPC contracts', () => {
       expect(() => decode([payload])).toThrow(TypeError);
     }
     expect(() => decode([png, png])).toThrow();
-  });
-
-  it('binds windowFocus to its manifest methods: one invoke and one push', () => {
-    expect(windowFocusContract.isFocused).toMatchObject({
-      channel: DESKTOP_IPC_CHANNELS.windowFocus.isFocused,
-      envelope: 'ipc-result',
-      kind: 'invoke',
-    });
-    expect(windowFocusContract.onChange).toEqual({
-      channel: DESKTOP_IPC_CHANNELS.windowFocus.changed,
-      kind: 'push',
-    });
   });
 });

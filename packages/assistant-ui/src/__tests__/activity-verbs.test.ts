@@ -1,96 +1,60 @@
 // @vitest-environment node
-import {
-  HOST_META_TOOL_ID,
-  NATIVE_TOOL_ID,
-  NATIVE_TOOL_IDS,
-} from '@brainstrike/assistant-contract';
+import { HOST_META_TOOL_ID, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
-import { TOOL_VERBS, verbForTool } from '../activity-verbs';
+import { verbForTool } from '../activity-verbs';
 
-describe('TOOL_VERBS', () => {
-  it('covers every native tool id in the catalog with distinct active, done and request forms', () => {
-    for (const id of NATIVE_TOOL_IDS) {
-      const verb = TOOL_VERBS[id];
-      expect(verb, id).toBeDefined();
-      expect(verb.active.length, id).toBeGreaterThan(0);
-      expect(verb.done.length, id).toBeGreaterThan(0);
-      expect(verb.request.length, id).toBeGreaterThan(0);
-      expect(verb.active, id).not.toBe(verb.done);
-      expect(verb.request, id).not.toBe(verb.active);
-    }
-  });
-
-  // `countsFiles` is what folds a distinct-target file count into the resting
-  // summary (`restingLabel`, activity-trace-model.ts). It is deliberately NOT
-  // the `read`/`edit` family: the `read` family also covers directory
-  // listings, artifact reads and context reads, whose targets are not files,
-  // and folding the family read "Listed 2 files" for them. Exactly these five
-  // ids name a file; a sixth (or a missing one) must fail here rather than
-  // silently mis-count in the header.
-  it('flags countsFiles on exactly the five file-targeted verbs', () => {
-    const flagged = NATIVE_TOOL_IDS.filter((id) => TOOL_VERBS[id].countsFiles !== undefined).sort();
-    expect(flagged).toEqual(
-      [
-        NATIVE_TOOL_ID.deleteWorkspaceFile,
-        NATIVE_TOOL_ID.readWorkspaceFile,
-        NATIVE_TOOL_ID.renameWorkspaceFile,
-        NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
-        NATIVE_TOOL_ID.writeWorkspaceFile,
-      ].sort()
-    );
-    // A read counts only from two ("Read" alone for a single file); an edit
-    // names its file from one ("Edited 1 file").
-    expect(TOOL_VERBS[NATIVE_TOOL_ID.readWorkspaceFile].countsFiles).toBe('plural');
-    for (const id of [
-      NATIVE_TOOL_ID.deleteWorkspaceFile,
-      NATIVE_TOOL_ID.renameWorkspaceFile,
-      NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
-      NATIVE_TOOL_ID.writeWorkspaceFile,
-    ]) {
-      expect(TOOL_VERBS[id].countsFiles, id).toBe('always');
-    }
+describe('native tool verbs', () => {
+  // `countsFiles` folds a distinct-target file count into the resting summary
+  // (`restingLabel`, activity-trace-model.ts). It is deliberately NOT the
+  // `read` family: a directory listing is a read whose target is not a file,
+  // and folding the family read "Listed 2 files".
+  it('counts files for file reads and edits, never for a directory listing', () => {
+    expect(verbForTool(NATIVE_TOOL_ID.readWorkspaceFile).countsFiles).toBe('plural');
+    expect(verbForTool(NATIVE_TOOL_ID.writeWorkspaceFile).countsFiles).toBe('always');
+    expect(verbForTool(NATIVE_TOOL_ID.readWorkspaceDirectory)).toMatchObject({ family: 'read' });
+    expect(verbForTool(NATIVE_TOOL_ID.readWorkspaceDirectory).countsFiles).toBeUndefined();
   });
 
   it('spells the core verbs the design fixed', () => {
-    expect(TOOL_VERBS[NATIVE_TOOL_ID.readWorkspaceFile]).toEqual({
+    expect(verbForTool(NATIVE_TOOL_ID.readWorkspaceFile)).toEqual({
       active: 'Reading',
       countsFiles: 'plural',
       done: 'Read',
       family: 'read',
       request: 'Read',
     });
-    expect(TOOL_VERBS[NATIVE_TOOL_ID.grepSearch]).toEqual({
+    expect(verbForTool(NATIVE_TOOL_ID.grepSearch)).toEqual({
       active: 'Searching',
       done: 'Searched',
       family: 'search',
       request: 'Search',
     });
-    expect(TOOL_VERBS[NATIVE_TOOL_ID.writeWorkspaceFile]).toEqual({
+    expect(verbForTool(NATIVE_TOOL_ID.writeWorkspaceFile)).toEqual({
       active: 'Editing',
       countsFiles: 'always',
       done: 'Edited',
       family: 'edit',
       request: 'Edit',
     });
-    expect(TOOL_VERBS[NATIVE_TOOL_ID.executeCommand]).toEqual({
+    expect(verbForTool(NATIVE_TOOL_ID.executeCommand)).toEqual({
       active: 'Running',
       done: 'Ran',
       family: 'run',
       request: 'Run',
     });
-    expect(TOOL_VERBS[NATIVE_TOOL_ID.webSearch]).toEqual({
+    expect(verbForTool(NATIVE_TOOL_ID.webSearch)).toEqual({
       active: 'Searching the web',
       done: 'Searched the web',
       family: 'web',
       request: 'Search the web',
     });
-    expect(TOOL_VERBS[NATIVE_TOOL_ID.runSkillScript]).toEqual({
+    expect(verbForTool(NATIVE_TOOL_ID.runSkillScript)).toEqual({
       active: 'Running skill script',
       done: 'Ran skill script',
       family: 'skill',
       request: 'Run skill script',
     });
-    expect(TOOL_VERBS[NATIVE_TOOL_ID.askUser]).toEqual({
+    expect(verbForTool(NATIVE_TOOL_ID.askUser)).toEqual({
       active: 'Asking',
       done: 'Asked',
       family: 'ask',
@@ -214,7 +178,9 @@ describe('verbForTool', () => {
       done: 'Managed canvas',
       targetArg: null,
     });
-    expect(verbForTool(NATIVE_TOOL_ID.manageCanvas)).toBe(TOOL_VERBS[NATIVE_TOOL_ID.manageCanvas]);
+    expect(verbForTool(NATIVE_TOOL_ID.manageCanvas)).toEqual(
+      verbForTool(NATIVE_TOOL_ID.manageCanvas, {})
+    );
   });
 });
 

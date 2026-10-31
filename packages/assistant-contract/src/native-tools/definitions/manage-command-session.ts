@@ -3,6 +3,7 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { ManageCommandSessionInputSchema } from '../schemas/schemas-execution.ts';
 
 export const manageCommandSession = defineNativeTool({
+  activity: { active: 'Running', done: 'Ran', family: 'run', request: 'Run' },
   defaults: {
     category: 'action',
     estimatedTokens: 482,

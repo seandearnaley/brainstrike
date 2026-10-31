@@ -12,6 +12,15 @@ import { ManageCanvasInputSchema } from '../schemas/schemas-workspace.ts';
 // signal anyway), and the read-only 'list' action rides the mutation
 // classification until a split is warranted.
 export const manageCanvas = defineNativeTool({
+  // The reading before the call's action has streamed; the trace reads each
+  // action's own verb once it has.
+  activity: {
+    active: 'Managing canvas',
+    done: 'Managed canvas',
+    family: 'canvas',
+    request: 'Manage canvas',
+    targetArg: null,
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 220,

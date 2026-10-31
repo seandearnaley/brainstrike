@@ -55,20 +55,6 @@ export const HybridSearchInputSchema = Schema.Struct({
 });
 export type HybridSearchInput = typeof HybridSearchInputSchema.Type;
 
-export const QueryFileTreeInputSchema = Schema.Struct({
-  includeHidden: Schema.optionalKey(
-    Schema.Boolean.annotate({ description: 'Include hidden files/directories' })
-  ),
-  maxDepth: Schema.optionalKey(positiveInt(10, 'Maximum depth to traverse')),
-  path: Schema.optionalKey(
-    Schema.String.annotate({ description: 'Directory path to query (defaults to root)' })
-  ),
-  pattern: Schema.optionalKey(
-    Schema.String.annotate({ description: 'Glob pattern to filter files' })
-  ),
-});
-export type QueryFileTreeInput = typeof QueryFileTreeInputSchema.Type;
-
 export const RetrievalContextInputSchema = Schema.Struct({
   embeddingSetId: Schema.optionalKey(nonempty()),
   filePaths: Schema.optionalKey(Schema.Array(nonempty()).check(Schema.isMaxLength(5000))),

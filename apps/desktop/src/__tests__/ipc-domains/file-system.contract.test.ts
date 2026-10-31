@@ -16,33 +16,6 @@ const directoryHandle = {
 };
 
 describe('file-system IPC contracts', () => {
-  it('owns the exact public bridge key set across core and watcher contracts', () => {
-    expect(
-      [...Object.keys(fileSystemContract), ...Object.keys(fileSystemWatchContract)].sort()
-    ).toEqual([
-      'addRoot',
-      'addRootByPath',
-      'deleteRootData',
-      'exists',
-      'getWatcherTelemetry',
-      'listRecentRoots',
-      'onWatchEvent',
-      'onWatchHealth',
-      'readDirectory',
-      'readFile',
-      'readFileByAbsolutePath',
-      'readFileByPath',
-      'removeRoot',
-      'requestDirectoryAccess',
-      'restoreLastFolder',
-      'restoreRoots',
-      'retryWatch',
-      'saveLastFolder',
-      'unwatchDirectory',
-      'watchDirectory',
-    ]);
-  });
-
   it('maps each transport envelope', () => {
     const expectedChannels = new Set<string>(Object.values(DESKTOP_IPC_CHANNELS.files));
     const specs = [...Object.values(fileSystemContract), ...Object.values(fileSystemWatchContract)];

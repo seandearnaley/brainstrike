@@ -1,8 +1,8 @@
+import type { VerbFamily } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 import { StepFamilyIcon, type StepGlyphState, StepStateGlyph } from './activity-step-icons';
-import type { VerbFamily } from './activity-verbs';
 import { useIsLastRunningStep } from './use-is-last-running-step';
 
 export interface StepRowHeaderProps {

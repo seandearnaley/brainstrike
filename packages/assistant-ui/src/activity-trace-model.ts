@@ -407,8 +407,9 @@ function verbSummary(steps: readonly ActivityStep[]): string | null {
   const targetsByVerb = new Map<string, Set<string>>();
   // Keyed on `verb.done` alone: assumes no `done` string is shared by two
   // families (e.g. two distinct native tools both reading "Read"). True
-  // today by inspection of TOOL_VERBS — if that ever changes, key on
-  // `${family}:${done}` instead so unrelated families don't merge counts.
+  // today by inspection of the tool definitions' `activity` verbs — if that
+  // ever changes, key on `${family}:${done}` instead so unrelated families
+  // don't merge counts.
   const verbByDone = new Map<string, ActivityVerb>();
   for (const step of settled) {
     const key = step.verb.done;

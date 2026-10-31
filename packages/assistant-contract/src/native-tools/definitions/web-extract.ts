@@ -9,6 +9,7 @@ import { WebExtractInputSchema } from '../schemas/schemas-search.ts';
 // server-side first (http/https only, no credentials, no private/loopback/
 // link-local hosts) so an internal URL never leaves the machine.
 export const webExtract = defineNativeTool({
+  activity: { active: 'Fetching', done: 'Fetched', family: 'web', request: 'Fetch' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 130,

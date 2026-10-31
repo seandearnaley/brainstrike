@@ -6,6 +6,12 @@ import { GlobWorkspaceInputSchema } from '../schemas/schemas-search.ts';
 // risk bucket (it is also derivable from retrieval + no-approval) so the
 // permission engine allows it by default, like the other workspace readers.
 export const globWorkspace = defineNativeTool({
+  activity: {
+    active: 'Finding files',
+    done: 'Found files',
+    family: 'search',
+    request: 'Find files',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 130,
