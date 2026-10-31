@@ -1,8 +1,10 @@
 import path from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  plugins: [reactCompiler()],
   resolve: {
     alias: [
       {

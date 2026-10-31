@@ -226,6 +226,8 @@ describe('IdeLayout', () => {
   ): PanelLayoutState => ({ showConsole, showLeftPanel, showRightPanel, sizes });
 
   function PanelStateOwner({ children }: { children: ReactNode }) {
+    // Reads the mutable `panelState` on every render, so the compiler must not cache it.
+    'use no memo';
     return (
       <PanelLayoutProvider controlledState={{ ...panelState }} onChange={setPanelLayout}>
         {children}

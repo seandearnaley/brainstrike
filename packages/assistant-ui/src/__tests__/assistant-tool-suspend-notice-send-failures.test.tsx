@@ -1,4 +1,5 @@
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
+import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,16 +17,28 @@ const threadMessagesMock = vi.hoisted(
     }>
 );
 
+// Re-renders its subscribers on publish with a fresh messages array, as the
+// vendor's thread store does on a change.
+const useThreadRevision = await vi.hoisted(async () => {
+  const { create } = await import('zustand');
+  return create(() => ({ revision: 0 }));
+});
+function publishThreadState(): void {
+  act(() => useThreadRevision.setState(({ revision }) => ({ revision: revision + 1 })));
+}
+
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({ thread: () => ({ append: appendMessageMock }) }),
   useAuiState: (
     selector: (state: {
       thread: { isRunning: boolean; messages: typeof threadMessagesMock };
     }) => unknown
-  ) =>
-    selector({
-      thread: { isRunning: threadRunningMock.isRunning, messages: threadMessagesMock },
-    }),
+  ) => {
+    useThreadRevision((thread) => thread.revision);
+    return selector({
+      thread: { isRunning: threadRunningMock.isRunning, messages: [...threadMessagesMock] },
+    });
+  },
 }));
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -140,7 +153,7 @@ describe('AssistantToolSuspendNotice send failures', () => {
       throw new Error('append failed');
     });
     const user = userEvent.setup();
-    const view = render(<AssistantToolSuspendNotice data={planRequest} />);
+    render(<AssistantToolSuspendNotice data={planRequest} />);
     await user.click(screen.getByRole('button', { name: /approve/iu }));
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
 
@@ -151,7 +164,7 @@ describe('AssistantToolSuspendNotice send failures', () => {
       role: 'user',
     });
     threadMessagesMock.push({ role: 'assistant', status: { type: 'running' } });
-    view.rerender(<AssistantToolSuspendNotice data={planRequest} />);
+    publishThreadState();
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /approve/iu })).toBeDisabled();
