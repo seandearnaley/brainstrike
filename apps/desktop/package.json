@@ -106,6 +106,7 @@
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "catalog:",
     "@ai-sdk/anthropic": "catalog:",
+    "@ai-sdk/cohere": "catalog:",
     "@ai-sdk/google": "catalog:",
     "@ai-sdk/openai": "catalog:",
     "@ai-sdk/otel": "catalog:",
@@ -122,7 +123,6 @@
     "@brainstrike/canonical-ingestion": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",
-    "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
@@ -191,6 +191,7 @@
     "typescript-language-server": "^6.0.2",
     "vscode-jsonrpc": "catalog:",
     "vscode-languageserver-protocol": "^3.18.5",
+    "voyage-ai-provider": "catalog:",
     "web-tree-sitter": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:",

@@ -193,6 +193,8 @@ catalog:
   "@codemirror/language": ^6.13.1
   "@codemirror/view": ^6.43.15
   "@ai-sdk/anthropic": 4.0.82
+  # BST-2385: same provider-utils release as the openai and google pins, so one copy installs.
+  "@ai-sdk/cohere": 4.0.63
   "@ai-sdk/google": 4.0.99
   "@ai-sdk/openai": 4.0.96
   "@atlaskit/pragmatic-drag-and-drop": ^4.0.0
@@ -208,6 +210,8 @@ catalog:
   strip-ansi: 7.2.0
   tree-kill: 1.2.2
   tsx: ^4.23.15
+  # BST-2385: the AI SDK community provider for Voyage embeddings (listed in the AI SDK docs).
+  voyage-ai-provider: 5.0.0
   web-tree-sitter: 0.27.1
 overrides:
   # Tailwind scans the direct Streamdown install; its adapter must use the same

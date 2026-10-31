@@ -1,10 +1,12 @@
 // A collection's vector profile and the hosted provider that produces its vectors: desktop's native
 // index embeds through these owners.
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import { parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { vectorProfileHash } from '@brainstrike/indexer';
-import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
+import {
+  type EmbeddingProviderType,
+  parseEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import type { CollectionPort } from '@brainstrike/state-store';
 import type { CollectionRecord } from '@brainstrike/types';
 import { Schema } from 'effect';
@@ -47,7 +49,7 @@ export interface NativeCanonicalProfile {
 /** Pure resolution. Reading a profile neither enables vectors nor changes saved choices. */
 export function resolveNativeCanonicalProfile(input: ProfileMetadata): NativeCanonicalProfile {
   const metadata = decodeMetadata(input);
-  const parsed = parseProviderModelKey(metadata.modelKey);
+  const parsed = parseEmbeddingProviderModelKey(metadata.modelKey);
   if (!parsed) {
     throw new Error('Canonical profile requires an explicit saved provider/model key.');
   }
