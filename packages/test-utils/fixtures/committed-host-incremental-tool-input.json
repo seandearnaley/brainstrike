@@ -1,47 +1,47 @@
 [
   {
     "event": {
-      "commandId": "d99cd575-cad4-45cc-aada-a687d27ec3b0",
+      "commandId": "b7fa101f-698c-485e-9185-1f64f1f4a7a8",
       "method": "thread/start",
       "payload": {
-        "commandId": "d99cd575-cad4-45cc-aada-a687d27ec3b0"
+        "commandId": "b7fa101f-698c-485e-9185-1f64f1f4a7a8"
       },
       "result": {
-        "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c"
+        "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77"
       },
       "type": "command.accepted"
     },
     "seq": 1,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217115
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435395995
   },
   {
     "event": {
-      "commandId": "d99cd575-cad4-45cc-aada-a687d27ec3b0",
+      "commandId": "b7fa101f-698c-485e-9185-1f64f1f4a7a8",
       "type": "thread.started"
     },
     "seq": 2,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217115
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435395995
   },
   {
     "event": {
-      "commandId": "f21abe0b-15bd-4b46-97cd-03bd779bd340",
+      "commandId": "70cadaed-696b-4a26-bbb4-989236973e1a",
       "method": "run/start",
       "payload": {
-        "commandId": "f21abe0b-15bd-4b46-97cd-03bd779bd340",
-        "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
+        "commandId": "70cadaed-696b-4a26-bbb4-989236973e1a",
+        "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
         "modelId": "scripted",
         "prompt": "Read the fixture, then report it."
       },
       "result": {
-        "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3"
+        "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f"
       },
       "type": "command.accepted"
     },
     "seq": 3,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217129
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396005
   },
   {
     "event": {
@@ -49,13 +49,13 @@
       "type": "thread.selection.updated"
     },
     "seq": 4,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217129
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396005
   },
   {
     "event": {
       "type": "run.started",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "modelId": "scripted",
       "parentMessageId": null,
       "prompt": "Read the fixture, then report it.",
@@ -68,25 +68,25 @@
       }
     },
     "seq": 5,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217129
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396005
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "start"
       }
     },
     "seq": 6,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217138
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396024
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "start-step",
         "request": {},
@@ -94,13 +94,13 @@
       }
     },
     "seq": 7,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217166
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396050
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "id": "call_incremental_1",
         "toolName": "read_fixture",
@@ -109,68 +109,26 @@
       }
     },
     "seq": 8,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217321
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396202
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
-      "chunk": {
-        "delta": "",
-        "id": "call_incremental_1",
-        "type": "tool-input-delta"
-      }
-    },
-    "seq": 9,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217347
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
-      "chunk": {
-        "delta": "{",
-        "id": "call_incremental_1",
-        "type": "tool-input-delta"
-      }
-    },
-    "seq": 10,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217372
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
-      "chunk": {
-        "delta": "\"path\":\"README.md\"}",
-        "id": "call_incremental_1",
-        "type": "tool-input-delta"
-      }
-    },
-    "seq": 11,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217397
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "id": "call_incremental_1",
         "type": "tool-input-end"
       }
     },
-    "seq": 12,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217423
+    "seq": 9,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396304
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "tool-call",
         "toolCallId": "call_incremental_1",
@@ -180,17 +138,17 @@
         }
       }
     },
-    "seq": 13,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217449
+    "seq": 10,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396331
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "tool-approval-request",
-        "approvalId": "aitxt-vQHvOx19VnrZurET9RCUlDw3",
+        "approvalId": "aitxt-MmnR2kXuSJrEMyNDllRGJQQk",
         "toolCall": {
           "type": "tool-call",
           "toolCallId": "call_incremental_1",
@@ -202,17 +160,17 @@
         "isAutomatic": true
       }
     },
-    "seq": 14,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217450
+    "seq": 11,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396332
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "tool-approval-response",
-        "approvalId": "aitxt-vQHvOx19VnrZurET9RCUlDw3",
+        "approvalId": "aitxt-MmnR2kXuSJrEMyNDllRGJQQk",
         "approved": true,
         "toolCall": {
           "type": "tool-call",
@@ -224,14 +182,14 @@
         }
       }
     },
-    "seq": 15,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217451
+    "seq": 12,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396333
   },
   {
     "event": {
       "type": "effect.started",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "input": {
         "path": "README.md"
       },
@@ -239,28 +197,28 @@
       "toolId": "read_fixture",
       "toolIdentity": "native-fixture-generation-1"
     },
-    "seq": 16,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217478
+    "seq": 13,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396359
   },
   {
     "event": {
       "type": "effect.finished",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "output": {
         "content": "hello",
         "path": "README.md"
       },
       "toolCallId": "call_incremental_1"
     },
-    "seq": 17,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217480
+    "seq": 14,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396361
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "tool-result",
         "toolCallId": "call_incremental_1",
@@ -275,14 +233,14 @@
         "dynamic": false
       }
     },
-    "seq": 18,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217492
+    "seq": 15,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396363
   },
   {
     "event": {
       "type": "model.step",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "messages": [
         {
           "role": "assistant",
@@ -305,7 +263,7 @@
             },
             {
               "type": "tool-approval-request",
-              "approvalId": "aitxt-vQHvOx19VnrZurET9RCUlDw3",
+              "approvalId": "aitxt-MmnR2kXuSJrEMyNDllRGJQQk",
               "toolCallId": "call_incremental_1",
               "isAutomatic": true
             }
@@ -316,7 +274,7 @@
           "content": [
             {
               "type": "tool-approval-response",
-              "approvalId": "aitxt-vQHvOx19VnrZurET9RCUlDw3",
+              "approvalId": "aitxt-MmnR2kXuSJrEMyNDllRGJQQk",
               "approved": true
             },
             {
@@ -354,14 +312,14 @@
         "totalTokens": 3
       }
     },
-    "seq": 19,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217494
+    "seq": 16,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396371
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "finish-step",
         "finishReason": "tool-calls",
@@ -381,54 +339,54 @@
           "totalTokens": 3
         },
         "performance": {
-          "stepTimeMs": 343.05554200000006,
+          "stepTimeMs": 339.43986500000005,
           "toolExecutionMs": {
-            "call_incremental_1": 3.0194999999999936
+            "call_incremental_1": 3.1416079999999056
           },
-          "responseTimeMs": 336.88195800000005,
-          "effectiveOutputTokensPerSecond": 5.936797600778608,
-          "outputTokensPerSecond": 7.053220359880904,
-          "inputTokensPerSecond": 18.753443249389615,
-          "effectiveTotalTokensPerSecond": 8.905196401167911,
-          "timeToFirstOutputMs": 53.32354099999998,
+          "responseTimeMs": 331.21295499999997,
+          "effectiveOutputTokensPerSecond": 6.038411148501122,
+          "outputTokensPerSecond": 7.137334018888541,
+          "inputTokensPerSecond": 19.60927307620728,
+          "effectiveTotalTokensPerSecond": 9.057616722751682,
+          "timeToFirstOutputMs": 50.996280999999954,
           "timeBetweenOutputChunksMs": {
-            "min": 25.237792000000013,
-            "p10": 25.237792000000013,
-            "median": 51.77612499999998,
-            "avg": 64.05352100000002,
-            "p90": 102.81441700000005,
-            "max": 102.81441700000005
+            "min": 26.038901000000124,
+            "p10": 26.038901000000124,
+            "median": 51.56784599999992,
+            "avg": 63.42388975,
+            "p90": 99.5567289999999,
+            "max": 99.5567289999999
           }
         },
         "response": {
-          "id": "aitxt-hsSbeYQi9N8q5hmk9mWSeEg2",
-          "timestamp": "2026-10-16T07:53:37.139Z",
+          "id": "aitxt-2dC9oWbv4UyqrtzziXBrIznn",
+          "timestamp": "2026-10-31T08:29:56.025Z",
           "modelId": "mock-model-id"
         }
       }
     },
-    "seq": 20,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217503
+    "seq": 17,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396374
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "start-step",
         "request": {},
         "warnings": []
       }
     },
-    "seq": 21,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217532
+    "seq": 18,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396403
   },
   {
     "event": {
       "type": "model.step",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "messages": [
         {
           "role": "assistant",
@@ -460,14 +418,14 @@
         "totalTokens": 3
       }
     },
-    "seq": 22,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217611
+    "seq": 19,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396480
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "finish-step",
         "finishReason": "stop",
@@ -487,30 +445,30 @@
           "totalTokens": 3
         },
         "performance": {
-          "stepTimeMs": 105.89608400000009,
+          "stepTimeMs": 103.42703299999994,
           "toolExecutionMs": {},
-          "responseTimeMs": 105.23441700000001,
-          "effectiveOutputTokensPerSecond": 19.005189148337276,
-          "outputTokensPerSecond": 38.242440898745556,
-          "inputTokensPerSecond": 18.89055755480622,
-          "effectiveTotalTokensPerSecond": 28.507783722505916,
-          "timeToFirstOutputMs": 52.936500000000024
+          "responseTimeMs": 101.93509700000004,
+          "effectiveOutputTokensPerSecond": 19.620327628667475,
+          "outputTokensPerSecond": 39.53341165297519,
+          "inputTokensPerSecond": 19.476101440728993,
+          "effectiveTotalTokensPerSecond": 29.430491443001216,
+          "timeToFirstOutputMs": 51.34497800000008
         },
         "response": {
-          "id": "aitxt-HjPQ1Xitmy8G9u6IeQx2hftX",
-          "timestamp": "2026-10-16T07:53:37.505Z",
+          "id": "aitxt-JxnSSRbFodKV4Lfnt6FCUs5v",
+          "timestamp": "2026-10-31T08:29:56.377Z",
           "modelId": "mock-model-id"
         }
       }
     },
-    "seq": 23,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217617
+    "seq": 20,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396481
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "chunk": {
         "type": "finish",
         "finishReason": "stop",
@@ -531,18 +489,18 @@
         }
       }
     },
-    "seq": 24,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217622
+    "seq": 21,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396483
   },
   {
     "event": {
       "type": "run.finished",
-      "runId": "9599b442-1e9a-49d2-879e-1e1fd57b77e3",
+      "runId": "027734d5-37ea-4cae-8f71-828f8bc2127f",
       "outcome": "completed"
     },
-    "seq": 25,
-    "threadId": "544cfb0d-c798-4e9d-bfe5-669a7f3c096c",
-    "ts": 1792137217624
+    "seq": 22,
+    "threadId": "f1aa462f-b058-4e14-9870-452c676a7d77",
+    "ts": 1793435396486
   }
 ]

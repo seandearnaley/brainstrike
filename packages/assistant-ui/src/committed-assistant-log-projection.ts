@@ -29,7 +29,7 @@ import {
   isToolRiskCategory,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { parsePartialJsonObject } from 'assistant-stream/utils';
+import { readToolTelemetryOmission } from '@brainstrike/assistant-contract/tool-telemetry';
 import { activityTraceShowsEnd } from './assistant-activity-grouping';
 import { committedApprovalOptions } from './committed-approval-options';
 import { committedFileNotices } from './committed-file-notices';
@@ -52,11 +52,10 @@ import {
   liveOverlayEntry,
   liveOverlayTarget,
   MODEL_STREAM_TYPES,
-  mergeProviderMetadata,
-  providerMetadata,
   withIndexedPart,
   withoutIndexedPart,
 } from './committed-step-text';
+import { projectToolPart, withLiveInputDelta } from './committed-tool-part';
 import {
   committedHostCompaction,
   HOST_CONTEXT_COMPACTED_DATA_NAME,
@@ -131,6 +130,11 @@ const AWAITING_INTERACTION: MessageStatus = { reason: 'interrupt', type: 'requir
 interface ProjectedRun {
   readonly authoritativeInputs: Set<string>;
   readonly authoritativeResults: Set<string>;
+  /**
+   * Calls live input deltas no longer grow: their committed `tool-call` owns the
+   * input, or a late view's replay dropped their first deltas.
+   */
+  readonly closedInputs: Set<string>;
   readonly createdAt: Date;
   /** A refused call's reason, from its approval response, until its denial settles it. */
   readonly denialReasons: Map<string, string>;
@@ -153,75 +157,6 @@ type ProjectedRunEvent = Pick<
   AssistantRunEvent,
   'detail' | 'durationMs' | 'kind' | 'label' | 'metadata' | 'status'
 >;
-
-function toolOwnership(
-  prior: ToolPart | undefined,
-  input: Readonly<Record<string, unknown>>,
-  authoritative: boolean,
-  retainInput: boolean
-): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
-  if (authoritative && typeof input['toolIdentity'] === 'string') {
-    return {
-      toolIdentity: input['toolIdentity'],
-      ...(typeof input['toolId'] === 'string' ? { toolId: input['toolId'] } : {}),
-    };
-  }
-  return retainInput
-    ? Object.fromEntries(
-        Object.entries(prior?.providerMetadata?.['brainstrike'] ?? {}).filter(
-          ([key]) => key === 'toolIdentity' || key === 'toolId'
-        )
-      )
-    : undefined;
-}
-
-function projectToolPart(
-  prior: ToolPart | undefined,
-  input: Readonly<Record<string, unknown>>,
-  id: string,
-  authoritative: boolean,
-  retainInput: boolean
-): ToolPart {
-  // The user-facing catalog ID when the host committed one; older rows keep
-  // the provider-facing name they actually carry.
-  const name = [input['toolCatalogId'], input['toolId'], input['toolName']].find(
-    (value) => typeof value === 'string'
-  );
-  if (typeof name !== 'string' && !prior) {
-    throw new Error('Committed tool call has no tool name.');
-  }
-  const argsText =
-    retainInput || input['input'] === undefined
-      ? (prior?.argsText ?? '')
-      : JSON.stringify(input['input']);
-  const metadata = mergeProviderMetadata(
-    prior?.providerMetadata,
-    providerMetadata(input['providerMetadata']),
-    toolOwnership(prior, input, authoritative, retainInput)
-  );
-  const toolName = retainInput
-    ? (prior?.toolName ?? '')
-    : typeof name === 'string'
-      ? name
-      : (prior?.toolName ?? '');
-  if (
-    prior &&
-    prior.providerMetadata === metadata &&
-    prior.argsText === argsText &&
-    prior.toolName === toolName
-  ) {
-    return prior;
-  }
-  return {
-    ...prior,
-    args: argsText === prior?.argsText ? prior.args : (parsePartialJsonObject(argsText) ?? {}),
-    argsText,
-    ...(metadata ? { providerMetadata: metadata } : {}),
-    toolCallId: id,
-    toolName,
-    type: 'tool-call',
-  };
-}
 
 /** The ID a permission names a tool by: its catalog ID, else its recorded tool ID. */
 function committedToolCatalogId(event: Readonly<Record<string, unknown>>): string {
@@ -624,6 +559,7 @@ export class CommittedAssistantLogProjection {
     this.runs.set(runId, {
       authoritativeInputs: new Set(),
       authoritativeResults: new Set(),
+      closedInputs: new Set(),
       createdAt: identity.createdAt,
       denialReasons: new Map(),
       messageId: message.id,
@@ -647,15 +583,36 @@ export class CommittedAssistantLogProjection {
   }
 
   /**
-   * The open step's live text and reasoning, from uncommitted `run/telemetry`.
-   * It shows while the step streams and is replaced by the step's committed
-   * parts at its `model.step` (or a Stop's partial). Text is never folded from
-   * deltas into the committed transcript (ADR-0011 amendment).
+   * The open step's live text and tool input, from uncommitted `run/telemetry`,
+   * until its committed `model.step` (or a Stop's partial) and `tool-call`
+   * replace them. Neither is folded from deltas (ADR-0011 amendment).
    */
   acceptLive(runId: string, chunk: unknown): CommittedAssistantLogView {
     const run = this.failure ? undefined : this.runs.get(runId);
-    const entry = run?.stepOpen && !run.terminal ? liveOverlayEntry(run.step, chunk) : undefined;
-    if (run && entry) {
+    if (!run?.stepOpen || run.terminal) {
+      return this.view;
+    }
+    const live = record(chunk);
+    if (live?.['type'] === 'tool-input-delta') {
+      const id = requiredString(live, 'id');
+      this.updateTool(run, id, (part) =>
+        run.closedInputs.has(id) ? part : withLiveInputDelta(part, requiredText(live, 'delta'))
+      );
+      return this.view;
+    }
+    const omission = readToolTelemetryOmission(live);
+    if (omission && omission.toolCallId === undefined) {
+      // A replay that dropped the step's oldest telemetry may have dropped a
+      // started call's first deltas: its tail is no input, so the call waits
+      // for its committed `tool-call`.
+      for (const key of run.partIndexes.keys()) {
+        if (key.startsWith('tool:')) {
+          run.closedInputs.add(key.slice('tool:'.length));
+        }
+      }
+    }
+    const entry = liveOverlayEntry(run.step, chunk);
+    if (entry) {
       const target = liveOverlayTarget(run, entry, this.message(run).content);
       run.overlay.set(entry.key, target);
       this.part(run, target.key, entry.part);
@@ -768,21 +725,11 @@ export class CommittedAssistantLogProjection {
     } else if (type === 'tool-input-start') {
       this.tool(run, { ...chunk, toolCallId: chunk['id'] });
       return;
-    } else if (type === 'tool-input-delta') {
-      const id = requiredString(chunk, 'id');
-      this.tool(run, { ...chunk, toolCallId: id });
-      if (!run.authoritativeInputs.has(id)) {
-        this.updateTool(run, id, (part) => {
-          const argsText = part.argsText + requiredText(chunk, 'delta');
-          return { ...part, args: parsePartialJsonObject(argsText) ?? {}, argsText };
-        });
-      }
-      return;
     } else if (type === 'tool-input-end') {
       this.tool(run, { ...chunk, toolCallId: chunk['id'] });
       return;
     } else if (type === 'tool-call') {
-      this.tool(run, chunk);
+      run.closedInputs.add(this.tool(run, chunk));
       return;
     } else if (type === 'tool-result' || type === 'tool-error') {
       const id = this.tool(run, chunk);

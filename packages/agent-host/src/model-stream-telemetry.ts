@@ -9,14 +9,17 @@ type ModelStreamPart = Extract<
       | 'reasoning-start'
       | 'text-delta'
       | 'text-end'
-      | 'text-start';
+      | 'text-start'
+      | 'tool-input-delta';
   }
 >;
 
 /**
- * Whether a fullStream part is the model's text or reasoning stream. It goes to
- * subscribers as uncommitted `run/telemetry`; the step's committed `model.step`
- * messages own the text (ADR-0011 amendment). Step and tool parts still commit.
+ * Whether a fullStream part is the model's text, reasoning or tool-input
+ * stream. It goes to subscribers as uncommitted `run/telemetry`: the step's
+ * committed `model.step` messages own the text, and the committed `tool-call`
+ * owns the input (ADR-0011 amendment). Step parts, a call's `tool-input-start`
+ * and `tool-input-end`, and every other tool part still commit.
  */
 export function isModelStreamTelemetry(chunk: TextStreamPart<ToolSet>): chunk is ModelStreamPart {
   switch (chunk.type) {
@@ -26,6 +29,7 @@ export function isModelStreamTelemetry(chunk: TextStreamPart<ToolSet>): chunk is
     case 'reasoning-start':
     case 'reasoning-delta':
     case 'reasoning-end':
+    case 'tool-input-delta':
       return true;
     default:
       return false;
