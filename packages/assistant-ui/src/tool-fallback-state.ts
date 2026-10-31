@@ -211,24 +211,36 @@ function expandNestedJson(value: unknown): unknown {
   return value;
 }
 
+function stringifyIndented(value: unknown, fallback: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(fallback);
+  } catch {
+    return String(fallback);
+  }
+}
+
 /**
- * Formats a tool's arguments or result for the details pane: JSON (including
- * JSON held in strings) is indented two spaces; text that is not JSON, such
- * as shell output or arguments still streaming, is shown as it arrived.
+ * Formats the arguments the model sent for the details pane: complete JSON is
+ * re-indented with every value, string or not, kept as sent, so a string that
+ * holds JSON still reads as a string. Arguments still streaming show as they
+ * arrived.
  */
-export const formatToolPayload = (payload: unknown): string => {
-  if (payload === undefined) {
+export const formatToolArguments = (argsText: string): string => {
+  const parsed = parseJsonContainer(argsText);
+  return parsed === undefined ? argsText : stringifyIndented(parsed, argsText);
+};
+
+/**
+ * Formats a tool's result for the details pane: JSON, including JSON held in
+ * strings, is indented two spaces; text that is not JSON, such as shell
+ * output, is shown as it arrived.
+ */
+export const formatToolResult = (result: ToolResult): string => {
+  if (result === undefined) {
     return '';
   }
-  const expanded = expandNestedJson(payload);
-  if (typeof expanded === 'string') {
-    return expanded;
-  }
-  try {
-    return JSON.stringify(expanded, null, 2) ?? String(payload);
-  } catch {
-    return String(payload);
-  }
+  const expanded = expandNestedJson(result);
+  return typeof expanded === 'string' ? expanded : stringifyIndented(expanded, result);
 };
 
 export function extractResolvedRootName(result: ToolResult): string | undefined {

@@ -6,7 +6,7 @@ import { LiveShellOutputPane } from './live-shell-output-pane';
 import { RunPythonResultSurface } from './run-python-result';
 import type { RunPythonDisplayResult } from './run-python-result-model';
 import { useShellOutput } from './shell-output-context';
-import { formatToolPayload, type ToolResult } from './tool-fallback-state';
+import { formatToolArguments, formatToolResult, type ToolResult } from './tool-fallback-state';
 
 /**
  * Everything the tool card renders BELOW its step row, in DOM order: the
@@ -176,11 +176,11 @@ function ToolDetailsPane({
   readonly toolName: string;
 }) {
   const formattedArgs = useMemo(
-    () => (argsText ? formatToolPayload(argsText) : undefined),
+    () => (argsText ? formatToolArguments(argsText) : undefined),
     [argsText]
   );
   const formattedResult = useMemo(
-    () => (hasResult ? formatToolPayload(result) : undefined),
+    () => (hasResult ? formatToolResult(result) : undefined),
     [hasResult, result]
   );
   return (
