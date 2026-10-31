@@ -36,20 +36,18 @@ function createHarness(): Harness {
   const invalidateDirectories = vi.fn();
   const store = { invalidateDirectories } as unknown as FileRowMetadataStore;
   const controller = createDeferredRollupController({
-    resolvedRef: {
-      current: {
-        displayNodeByPath: new Map(),
-        params: {
-          fileTree: [],
-          filteredPathSet: null,
-          folderId: FOLDER,
-          normalizedTreeContext: null,
-          rowStructureRevision: 1,
-          visibleAggregates: null,
-        },
+    resolved: {
+      displayNodeByPath: new Map(),
+      params: {
+        fileTree: [],
+        filteredPathSet: null,
+        folderId: FOLDER,
+        normalizedTreeContext: null,
+        rowStructureRevision: 1,
+        visibleAggregates: null,
       },
     },
-    storeRef: { current: store },
+    store,
   });
   return {
     controller,

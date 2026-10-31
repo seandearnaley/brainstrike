@@ -312,8 +312,15 @@ describe('optimized file tree selection counts', () => {
       status: 'ready',
     };
 
+    // The store hands the hook the same Set until the selection changes.
+    const selectedFilePaths = new Set<string>();
     const { result } = renderHook(() =>
-      useSelectedDirectoryCounts(new Set(), folderId, selectionModel, querySelectionManifest)
+      useSelectedDirectoryCounts(
+        selectedFilePaths,
+        folderId,
+        selectionModel,
+        querySelectionManifest
+      )
     );
 
     expect(result.current).toEqual(queryDirectoryCounts);

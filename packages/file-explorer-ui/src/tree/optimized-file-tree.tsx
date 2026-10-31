@@ -193,6 +193,26 @@ interface IOptimizedFileTreeProps {
 const logger = createLogger('OptimizedFileTree');
 
 /**
+ * Aggregates over the paths a filter leaves visible, or null when nothing is
+ * hidden. The normalized tree lives in a mutable ref, and the context value is
+ * replaced on each tree version, so a caller memoizing on the context
+ * recomputes exactly when the tree changes.
+ */
+function resolveVisibleAggregates(
+  normalizedTreeContext: ReturnType<typeof useOptionalFileTreeNormalizedContext>,
+  filteredPathSet: ReadonlySet<string> | null
+): VisibleDirectoryAggregates | null {
+  if (!(normalizedTreeContext && filteredPathSet)) {
+    return null;
+  }
+  const normalizedTree = normalizedTreeContext.normalizedTreeRef.current;
+  if (filteredPathSet.size >= normalizedTree.nodeByPath.size) {
+    return null;
+  }
+  return buildVisibleDirectoryAggregates(normalizedTree, filteredPathSet);
+}
+
+/**
  * A click on a FILE checkbox. Adding a single file at the cap is a genuine
  * no-op — the checkbox is disabled with a tooltip; the guard here is its
  * keyboard backstop. (Directory clicks are never cap-blocked: deselect must
@@ -546,22 +566,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // flags, and folder-click selection must all come from the VISIBLE set.
     // Null when no filter is active (the display tree covers the whole
     // normalized tree) — raw O(1) maps apply then.
-    const normalizedTreeVersion = normalizedTreeContext?.version;
-    const visibleAggregates = useMemo<VisibleDirectoryAggregates | null>(() => {
-      // The normalized tree lives in a mutable ref; `normalizedTreeVersion` is
-      // its only change signal, so reading it here is what keys recomputation.
-      void normalizedTreeVersion;
-      if (!(normalizedTreeContext && filteredPathSet)) {
-        return null;
-      }
-      if (filteredPathSet.size >= normalizedTreeContext.normalizedTreeRef.current.nodeByPath.size) {
-        return null;
-      }
-      return buildVisibleDirectoryAggregates(
-        normalizedTreeContext.normalizedTreeRef.current,
-        filteredPathSet
-      );
-    }, [filteredPathSet, normalizedTreeContext, normalizedTreeVersion]);
+    const visibleAggregates = resolveVisibleAggregates(normalizedTreeContext, filteredPathSet);
 
     const explorerSort = useOptionalExplorerSort();
     const sortState = explorerSort?.sortState ?? null;
@@ -874,12 +879,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
 
-        pendingChildLoadPathsRef.current.add(node.path);
+        // try/catch rather than try/finally, which the compiler cannot lower.
+        const pendingChildLoadPaths = pendingChildLoadPathsRef.current;
+        pendingChildLoadPaths.add(node.path);
         try {
           await onLoadChildren(node.path);
-        } finally {
-          pendingChildLoadPathsRef.current.delete(node.path);
+        } catch (error) {
+          pendingChildLoadPaths.delete(node.path);
+          throw error;
         }
+        pendingChildLoadPaths.delete(node.path);
       },
       [onLoadChildren]
     );
@@ -1098,111 +1107,94 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       ]
     );
 
-    const handleNodeSelection = useCallback(
-      (rowData: FileTreeRowData) => {
-        if (!folderId) {
-          return;
-        }
-        if (isLoadingForSelection) {
-          logger.warn('selection click ignored: recursive selection in progress', {
-            path: rowData.fileNode.path,
-          });
-          return;
-        }
-
-        const node = rowData.fileNode;
-        // Pseudo-nodes never participate in selection — their checkbox is
-        // disabled, but a defensive guard here keeps a stray click from
-        // mutating selectedFilePaths with a synthetic marker path that has
-        // no backing file.
-        if (isPseudoFileNodeType(node.type)) {
-          return;
-        }
-        const selectionState = getNodeSelectionState(rowData);
-
-        if (node.type !== 'directory') {
-          runFileSelectionClick({
-            addMultipleSelectedFiles,
-            folderId,
-            maxSelectionCount,
-            nodePath: node.path,
-            removeMultipleSelectedFiles,
-            selectedCount,
-            selectionMode: selectionModel.mode,
-            selectionState,
-            toggleSelectedFile,
-          });
-          return;
-        }
-
-        const directoryNode = normalizedTreeContext?.materializeSubtree(node.path) ?? node;
-        const selectedDescendantPaths = getSelectedDescendantPathsForDirectory({
-          directoryPath: node.path,
-          folderId,
-          querySelectionManifest,
-          selectedFilePaths,
-          selectionModel,
+    // The compiler keys this on everything it reads, including the query
+    // selection inputs a hand-written dependency list had left out.
+    const handleNodeSelection = (rowData: FileTreeRowData) => {
+      if (!folderId) {
+        return;
+      }
+      if (isLoadingForSelection) {
+        logger.warn('selection click ignored: recursive selection in progress', {
+          path: rowData.fileNode.path,
         });
+        return;
+      }
 
-        // Mixed-parent click policy (decision D1, docs/explorer-tristate-spike
-        // -2026-07-11.md §5): only a fully CHECKED folder deselects on click.
-        // An indeterminate folder click COMPLETES the selection — the native-
-        // checkbox and file-picker idiom — by falling through to the add path
-        // (or the recursive selector when the subtree still needs loading).
-        // The mutation resolver still deselects when nothing remains to add.
-        if (selectionState.checkboxState === true && selectedDescendantPaths.length > 0) {
-          removeMultipleSelectedFiles(folderId, selectedDescendantPaths);
-          return;
-        }
+      const node = rowData.fileNode;
+      // Pseudo-nodes never participate in selection — their checkbox is
+      // disabled, but a defensive guard here keeps a stray click from
+      // mutating selectedFilePaths with a synthetic marker path that has
+      // no backing file.
+      if (isPseudoFileNodeType(node.type)) {
+        return;
+      }
+      const selectionState = getNodeSelectionState(rowData);
 
-        if (shouldLoadDirectoryRecursively(directoryNode) && onSelectFolderRecursively) {
-          void onSelectFolderRecursively(directoryNode);
-          return;
-        }
-
-        // Decision D2: the click's selectable universe is the VISIBLE set.
-        // The fallback (web) path's directoryNode already comes from the
-        // filtered display tree; the normalized (desktop) path enumerates the
-        // raw tree, so restrict it to the visible paths when a filter is on.
-        const rawFilePaths = normalizedTreeContext
-          ? normalizedTreeContext.getDescendantFilePaths(node.path)
-          : fileExplorer.getAllFilePathsInDirectory(directoryNode);
-        const visibleFilePaths =
-          normalizedTreeContext && filteredPathSet && visibleAggregates
-            ? rawFilePaths.filter((path) => filteredPathSet.has(path))
-            : rawFilePaths;
-
-        runLoadedDirectorySelectionMutation({
+      if (node.type !== 'directory') {
+        runFileSelectionClick({
           addMultipleSelectedFiles,
           folderId,
-          fullSweepSelectedPaths: selectedDescendantPaths,
           maxSelectionCount,
           nodePath: node.path,
           removeMultipleSelectedFiles,
           selectedCount,
-          selectedFilePaths,
-          showToast,
-          visibleFilePaths,
+          selectionMode: selectionModel.mode,
+          selectionState,
+          toggleSelectedFile,
         });
-      },
-      [
+        return;
+      }
+
+      const directoryNode = normalizedTreeContext?.materializeSubtree(node.path) ?? node;
+      const selectedDescendantPaths = getSelectedDescendantPathsForDirectory({
+        directoryPath: node.path,
         folderId,
-        getNodeSelectionState,
-        toggleSelectedFile,
-        onSelectFolderRecursively,
+        querySelectionManifest,
         selectedFilePaths,
-        removeMultipleSelectedFiles,
-        maxSelectionCount,
+        selectionModel,
+      });
+
+      // Mixed-parent click policy (decision D1, docs/explorer-tristate-spike
+      // -2026-07-11.md §5): only a fully CHECKED folder deselects on click.
+      // An indeterminate folder click COMPLETES the selection — the native-
+      // checkbox and file-picker idiom — by falling through to the add path
+      // (or the recursive selector when the subtree still needs loading).
+      // The mutation resolver still deselects when nothing remains to add.
+      if (selectionState.checkboxState === true && selectedDescendantPaths.length > 0) {
+        removeMultipleSelectedFiles(folderId, selectedDescendantPaths);
+        return;
+      }
+
+      if (shouldLoadDirectoryRecursively(directoryNode) && onSelectFolderRecursively) {
+        void onSelectFolderRecursively(directoryNode);
+        return;
+      }
+
+      // Decision D2: the click's selectable universe is the VISIBLE set.
+      // The fallback (web) path's directoryNode already comes from the
+      // filtered display tree; the normalized (desktop) path enumerates the
+      // raw tree, so restrict it to the visible paths when a filter is on.
+      const rawFilePaths = normalizedTreeContext
+        ? normalizedTreeContext.getDescendantFilePaths(node.path)
+        : fileExplorer.getAllFilePathsInDirectory(directoryNode);
+      const visibleFilePaths =
+        normalizedTreeContext && filteredPathSet && visibleAggregates
+          ? rawFilePaths.filter((path) => filteredPathSet.has(path))
+          : rawFilePaths;
+
+      runLoadedDirectorySelectionMutation({
         addMultipleSelectedFiles,
-        normalizedTreeContext,
+        folderId,
+        fullSweepSelectedPaths: selectedDescendantPaths,
+        maxSelectionCount,
+        nodePath: node.path,
+        removeMultipleSelectedFiles,
         selectedCount,
-        isLoadingForSelection,
-        selectionModel.mode,
+        selectedFilePaths,
         showToast,
-        filteredPathSet,
-        visibleAggregates,
-      ]
-    );
+        visibleFilePaths,
+      });
+    };
     const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);
 
     // Keyboard parity (APG): Space on the focused row toggles the export
@@ -1292,13 +1284,18 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // all visible rows from re-rendering on every checkbox toggle. The only
     // legitimate rebuild trigger is the visible-column set changing.
     const { columnWidths, visibleMetadataColumnIds } = useExplorerColumns();
-    const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(() => {
+    const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(
+      () =>
+        buildFileTreeColumns({
+          onSelectionChange: handleNodeSelectionEvent,
+          visibleMetadataColumnIds,
+        }),
+      [handleNodeSelectionEvent, visibleMetadataColumnIds]
+    );
+    useEffect(() => {
+      void columns;
       fileTreeTelemetry.columnsRebuildCount++;
-      return buildFileTreeColumns({
-        onSelectionChange: handleNodeSelectionEvent,
-        visibleMetadataColumnIds,
-      });
-    }, [handleNodeSelectionEvent, visibleMetadataColumnIds]);
+    }, [columns]);
     const treeTableSortState = useMemo(
       () =>
         sortState
