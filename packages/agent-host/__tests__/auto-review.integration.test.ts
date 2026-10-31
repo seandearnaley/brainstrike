@@ -79,9 +79,18 @@ function shippedPersonApproval(): HostTool['personApproval'] {
   return Object.values(tools)[0]?.personApproval;
 }
 
+type CommandPolicy = ReturnType<HostPlatform['readPermissionPolicy']>;
+
+const AUTO_POLICY = {
+  autoReview: { model: 'auto' },
+  policies: { ...DEFAULT_PERMISSION_POLICIES },
+  yolo: false,
+} satisfies CommandPolicy;
+
 async function runCommand(
   reviewModel: (target: string) => Promise<LanguageModel>,
-  input: Readonly<Record<string, unknown>> = { command: 'pnpm test' }
+  input: Readonly<Record<string, unknown>> = { command: 'pnpm test' },
+  policy: CommandPolicy = AUTO_POLICY
 ): Promise<{ events: HostEvent[]; executed: unknown[]; targets: string[] }> {
   const executed: unknown[] = [];
   const targets: string[] = [];
@@ -119,11 +128,7 @@ async function runCommand(
       tools,
     }),
     close: async () => undefined,
-    readPermissionPolicy: () => ({
-      autoReview: { model: 'auto' },
-      policies: { ...DEFAULT_PERMISSION_POLICIES },
-      yolo: false,
-    }),
+    readPermissionPolicy: () => policy,
   };
   const core = await HostCore.open(store, platform, () => () => undefined);
   cleanup.push(async () => {
@@ -228,6 +233,55 @@ test('a command run outside the sandbox asks the user, and the quick model is ne
   );
 });
 
+const ESCAPE = { command: 'curl https://example.com', dangerouslyDisableSandbox: true };
+const ESCAPE_REASON = 'This command runs outside the sandbox, so only you can approve it.';
+
+test.each([
+  {
+    name: 'an Always allow on commands',
+    policy: { ...AUTO_POLICY, perToolOverrides: { 'brainstrike.executeCommand': 'allow' } },
+  },
+  { name: 'commands allowed this session', policy: { ...AUTO_POLICY, sessionGrants: ['execute'] } },
+  {
+    name: 'Ask mode with commands allowed',
+    policy: {
+      policies: { ...DEFAULT_PERMISSION_POLICIES, execute: 'allow' },
+      yolo: false,
+    },
+  },
+] satisfies { name: string; policy: CommandPolicy }[])(
+  'a command run outside the sandbox still asks the user under $name',
+  async ({ policy }) => {
+    const { events, executed } = await runCommand(
+      async () =>
+        reviewer(
+          { decision: 'approve', rationale: 'Fine.', risk: 'low', userAuthorization: 'high' },
+          []
+        ),
+      ESCAPE,
+      policy
+    );
+
+    expect(executed).toEqual([]);
+    expect(requested(events)?.reason).toBe(ESCAPE_REASON);
+  }
+);
+
+test('Full access runs a command outside the sandbox without asking', async () => {
+  const { events, executed } = await runCommand(
+    async () =>
+      reviewer(
+        { decision: 'approve', rationale: 'Fine.', risk: 'low', userAuthorization: 'high' },
+        []
+      ),
+    ESCAPE,
+    { policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: true }
+  );
+
+  expect(requested(events)).toBeUndefined();
+  expect(executed).toEqual([ESCAPE]);
+});
+
 test('a review that fails asks the user instead of approving', async () => {
   const { events, executed } = await runCommand(async () => {
     throw new Error('No quick model is known for this provider');
@@ -304,4 +358,63 @@ test("a delegated child's review sees the person's request, and its task never r
   const childReview = prompts.find((prompt) => prompt.includes('Tool: write_file'));
   expect(childReview).toContain('USER: Write the release notes.');
   expect(childReview).not.toContain('CHILD_TASK');
+});
+
+test("Full access runs a subagent's command outside the sandbox without asking", async () => {
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const answered = call.prompt.some((message) => message.role === 'tool');
+      if (userTexts(call).some((input) => input.includes('CHILD_TASK'))) {
+        return stream(
+          answered
+            ? text('Child ran it.')
+            : toolCall('run_command', { command: 'curl https://example.com' }, 'command-1')
+        );
+      }
+      if (!toolNames(call).includes('agent-worker') || answered) {
+        return stream(text('Parent continues.'));
+      }
+      return stream(
+        toolCall(
+          'agent-worker',
+          { _background: { disposition: 'awaited', enabled: true }, prompt: 'CHILD_TASK: fetch.' },
+          'delegate-1'
+        )
+      );
+    },
+  });
+  const harness = await setupChildRunHost(
+    model,
+    cleanup,
+    {
+      personas: [worker],
+      policy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: true }),
+    },
+    (platform) => async (request) => {
+      const admission = await recordingAdmission([])(platform)?.(request);
+      const command = admission?.tools['run_command'];
+      if (!(admission && command)) {
+        throw new Error('No admission');
+      }
+      // Every call of this fixture command stands for a sandbox escape.
+      return {
+        ...admission,
+        tools: {
+          ...admission.tools,
+          run_command: { ...command, personApproval: () => ESCAPE_REASON },
+        },
+      };
+    }
+  );
+
+  const rootRunId = await harness.start('Fetch the page.');
+  const rows = await rowsUntil(
+    harness,
+    harness.threadId,
+    finished(rootRunId),
+    getAdjustedTimeout('integration')
+  );
+
+  expect(rows.find(finished(rootRunId))?.event).toMatchObject({ outcome: 'completed' });
+  expect(harness.writes).toEqual([JSON.stringify({ command: 'curl https://example.com' })]);
 });
