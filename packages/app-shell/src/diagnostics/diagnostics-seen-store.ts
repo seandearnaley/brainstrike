@@ -8,8 +8,7 @@ import { create } from 'zustand';
  * Main owns where a launch begins: `getUnseenCounts` counts nothing from before
  * Main's process started. So an error Main logs before this window loads still
  * counts, and retained rows from earlier launches (up to 20k, per the retention
- * cap) never come back as unread on a restart. Session-only; registered with
- * factory reset in `register-factory-reset-session-stores.ts`.
+ * cap) never come back as unread on a restart. Session-only.
  */
 export interface DiagnosticsSeenState {
   lastSeenAtMs: number;

@@ -118,12 +118,6 @@ describe('root-registration-events', () => {
     expect(rootRegistrationSeq('/ws/docs')).toBe(2);
   });
 
-  // This is the SAME shape a post-factory-reset re-add takes (a stale `since`
-  // must not be satisfied by a registration that predates it) — see
-  // `register-factory-reset-session-stores.test.ts` for the test that drives
-  // the REAL reset pipeline end to end and confirms this module's counters
-  // are untouched by it, which is what makes a stale `since` here honestly
-  // "pre-reset" rather than just "earlier this test".
   it('does NOT resolve a waiter whose since already reflects the current generation — the exact membership-set bug', async () => {
     // First registration (models the original Add folder).
     notifyRootRegistered(['/ws/docs']);

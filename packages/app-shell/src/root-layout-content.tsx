@@ -86,8 +86,8 @@ import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
 import { useToolApprovalGrantHandlers } from './use-tool-approval-grant-handlers';
 import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
+
 // Side-effect: register session-only stores with the factory-reset pipeline.
-import './register-factory-reset-session-stores';
 
 interface DebouncedPanelLayoutState {
   readonly showConsole: boolean;

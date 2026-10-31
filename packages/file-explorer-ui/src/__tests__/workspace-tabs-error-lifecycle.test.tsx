@@ -1,4 +1,3 @@
-import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, waitFor } from '@testing-library/react';
@@ -147,19 +146,5 @@ describe('workspace tab file-content error ownership', () => {
     expect(retainedErrors.size).toBe(20);
     expect(retainedErrors.has(evictedKey ?? '')).toBe(false);
     expect([...retainedErrors.keys()]).toEqual(allKeys.slice(1));
-  });
-
-  it('clears retained open-tab errors during factory reset', async () => {
-    const compositeKey = openTab(1);
-    renderHarness();
-    act(() => recordErrors([compositeKey]));
-    expect(getAuthority().getErrorsSnapshot().has(compositeKey)).toBe(true);
-
-    await act(async () => {
-      const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
-      expect(result.success).toBe(true);
-    });
-
-    expect(getAuthority().getErrorsSnapshot().size).toBe(0);
   });
 });

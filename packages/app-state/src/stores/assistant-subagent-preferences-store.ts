@@ -7,9 +7,8 @@
  * coercion — AGENTS.md). Persisted hydration sanitizes an invalid payload back
  * to the defaults. Sent to the host as `runtimeData.subagentSettings`.
  *
- * Factory reset: persisted slice wiped by `clearPersistentUiState`, live store
- * reset via `resetAssistantSubagentPreferencesStoreToDefaults` (FACTORY RESET
- * CONTRACT, docs/agents/platform-contracts.md).
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 
 import {
@@ -137,8 +136,8 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
   )
 );
 
-/** Live reset + persisted slice clear; invoked by the factory-reset pipeline. */
-export function resetAssistantSubagentPreferencesStoreToDefaults(): void {
+/** Test-only reset helper. */
+export function __resetAssistantSubagentPreferencesStoreForTests(): void {
   try {
     const persistApi = (
       useAssistantSubagentPreferencesStore as typeof useAssistantSubagentPreferencesStore & {
@@ -150,9 +149,4 @@ export function resetAssistantSubagentPreferencesStoreToDefaults(): void {
     // Best effort: storage errors must not block the reset of in-memory state.
   }
   useAssistantSubagentPreferencesStore.setState(defaultData());
-}
-
-/** Test-only reset helper. */
-export function __resetAssistantSubagentPreferencesStoreForTests(): void {
-  resetAssistantSubagentPreferencesStoreToDefaults();
 }

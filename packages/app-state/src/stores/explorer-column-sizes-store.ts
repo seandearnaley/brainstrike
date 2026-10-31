@@ -13,11 +13,8 @@
  * for both the persisted values and the `TreeTableColumn` definitions — a
  * mismatch would let the store clamp a width the column renderer would not.
  *
- * Factory reset clears BOTH layers. `clearPersistentUiState`'s
- * `localStorage.clear()` removes the persisted slice, but the live singleton
- * survives a web reset (which does not force a reload), so
- * `resetExplorerColumnSizesStoreToDefault` is wired in alongside it — the same
- * shape the Explorer sort and column-visibility stores use.
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 import {
   createSingletonColumnSizesStore,
@@ -41,10 +38,5 @@ export const useExplorerColumnSizesStore = createSingletonColumnSizesStore(GLOBA
   storeName: STORE_NAME,
   version: STORE_VERSION,
 });
-
-/** FACTORY RESET CONTRACT; see the module comment. */
-export function resetExplorerColumnSizesStoreToDefault(): void {
-  useExplorerColumnSizesStore.getState().reset();
-}
 
 export type { TreeTableColumnSizesStoreState };

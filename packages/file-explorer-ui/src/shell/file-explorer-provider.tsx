@@ -1,4 +1,3 @@
-import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
@@ -11,7 +10,6 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   useSyncExternalStore,
 } from 'react';
 import type { StoreApi } from 'zustand';
@@ -425,7 +423,6 @@ export function FileExplorerProvider({
   fileSystemAdapter,
   children,
 }: FileExplorerProviderProps) {
-  const [fileContentResetRevision, setFileContentResetRevision] = useState(0);
   const { fileContentLoadAuthority, store } = createFileExplorerLifecycle(storageAdapter);
 
   useLayoutEffect(
@@ -461,29 +458,7 @@ export function FileExplorerProvider({
     };
   }, [store]);
 
-  // Factory reset clears chunk selections via the session-store registry, but
-  // search also selects containing files in this live store. Without clearing
-  // those file selections, "no chunk subset + file selected" reads as a
-  // whole-file selection after reset (docs/agents/explorer-search-context-map.md search bridge invariant).
-  // Persist keys are wiped by localStorage.clear(); this drains the in-memory
-  // instance for reset paths that do not immediately reload.
-  useEffect(
-    () =>
-      registerFactoryResetSessionStore(() => {
-        const state = store.getState();
-        fileContentLoadAuthority.invalidateAll();
-        state.clearAllFileContents();
-        state.clearSelectedFiles();
-        state.resetSelectionToExplicit();
-        for (const folderId of Object.keys(state.folderStates)) {
-          state.setFolderSelection(folderId, []);
-        }
-        setFileContentResetRevision((revision) => revision + 1);
-      }),
-    [fileContentLoadAuthority, store]
-  );
-
-  const fileContentLifecycleKey = `${fileContentLoadAuthority.lifecycleId}:${fileContentResetRevision}`;
+  const fileContentLifecycleKey = fileContentLoadAuthority.lifecycleId;
 
   return (
     <FileExplorerStoreContext.Provider value={store}>

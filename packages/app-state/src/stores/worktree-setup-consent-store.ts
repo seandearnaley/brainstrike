@@ -188,16 +188,11 @@ export async function ensureWorktreeSetupConsentHydrated(): Promise<void> {
   }
 }
 
-export function resetWorktreeSetupConsentStoreToDefaults(): void {
+export function __resetWorktreeSetupConsentStoreForTests(): void {
   try {
     void useWorktreeSetupConsentStore.persist.clearStorage();
   } catch {
-    // The factory reset's blanket storage clear remains authoritative; reset the
-    // live state even when this best-effort targeted removal fails.
+    // Storage may be unavailable under jsdom; the in-memory reset still stands.
   }
   useWorktreeSetupConsentStore.setState(defaultData());
-}
-
-export function __resetWorktreeSetupConsentStoreForTests(): void {
-  resetWorktreeSetupConsentStoreToDefaults();
 }

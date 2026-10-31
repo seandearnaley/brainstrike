@@ -1,25 +1,9 @@
 import '@testing-library/jest-dom/vitest';
-import type { ClearPersistentUiStateResult } from '@brainstrike/app-state/factory-reset';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockPrepareFactoryReset = vi.fn<() => Promise<void>>(async () => {});
-const mockClearPersistentUiState = vi.fn<() => Promise<ClearPersistentUiStateResult>>(() =>
-  Promise.resolve({
-    failures: [],
-    success: true,
-  })
-);
-const mockClearPersistentUiStateIncompleteError = class extends Error {
-  readonly result: ClearPersistentUiStateResult;
-
-  constructor(result: ClearPersistentUiStateResult) {
-    super('Factory reset storage cleanup incomplete');
-    this.name = 'ClearPersistentUiStateIncompleteError';
-    this.result = result;
-  }
-};
 
 // Mock dependencies
 vi.mock('@brainstrike/ui', () => ({
@@ -34,8 +18,6 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 vi.mock('@brainstrike/app-state/factory-reset', () => ({
-  ClearPersistentUiStateIncompleteError: mockClearPersistentUiStateIncompleteError,
-  clearPersistentUiStateWithResult: mockClearPersistentUiState,
   prepareFactoryReset: mockPrepareFactoryReset,
 }));
 
@@ -85,10 +67,6 @@ describe('FactoryResetPanel', () => {
 
     // Reset default mocks
     mockPrepareFactoryReset.mockResolvedValue(undefined);
-    mockClearPersistentUiState.mockResolvedValue({
-      failures: [],
-      success: true,
-    });
 
     // Setup window.confirm mock
     mockConfirm = vi.fn<(message?: string) => boolean>();
@@ -116,11 +94,10 @@ describe('FactoryResetPanel', () => {
     fireEvent.click(screen.getByTestId('factory-reset-button'));
     expect(mockConfirm).not.toHaveBeenCalled();
     expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
-    expect(mockClearPersistentUiState).not.toHaveBeenCalled();
     expect(resetLocal).not.toHaveBeenCalled();
   });
 
-  it('joins renderer preparation before clearing stores or calling desktop reset', async () => {
+  it('joins renderer preparation before calling desktop reset', async () => {
     const preparation = Promise.withResolvers<void>();
     mockPrepareFactoryReset.mockReturnValueOnce(preparation.promise);
     const resetLocal = vi.fn(async () => ({ success: true }));
@@ -131,11 +108,9 @@ describe('FactoryResetPanel', () => {
     });
     render(<FactoryResetPanel />);
     fireEvent.click(screen.getByTestId('factory-reset-button'));
-    expect(mockClearPersistentUiState).not.toHaveBeenCalled();
     expect(resetLocal).not.toHaveBeenCalled();
     preparation.resolve();
     await waitFor(() => expect(resetLocal).toHaveBeenCalledOnce());
-    expect(mockClearPersistentUiState).toHaveBeenCalledOnce();
   });
 
   it('reloads without deleting storage when renderer preparation fails', async () => {
@@ -149,7 +124,6 @@ describe('FactoryResetPanel', () => {
     render(<FactoryResetPanel />);
     fireEvent.click(screen.getByTestId('factory-reset-button'));
     await waitFor(() => expect(mockReload).toHaveBeenCalledOnce());
-    expect(mockClearPersistentUiState).not.toHaveBeenCalled();
     expect(resetLocal).not.toHaveBeenCalled();
   });
 
@@ -242,27 +216,23 @@ describe('FactoryResetPanel', () => {
       });
     });
 
-    it('clears renderer storage before the desktop reset bridge purges userData', async () => {
-      const resetLocal = vi.fn().mockResolvedValue({ success: true });
+    it("clears this window's session storage before Main resets the profile", async () => {
+      window.sessionStorage.setItem('assistant-composer-drafts.v1', '{"state":{}}');
+      let storedAtReset: string | null = 'unset';
+      const resetLocal = vi.fn(async () => {
+        storedAtReset = window.sessionStorage.getItem('assistant-composer-drafts.v1');
+        return { success: true };
+      });
       installDesktopReset(resetLocal);
-
       render(<FactoryResetPanel />);
 
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
-      await waitFor(() => {
-        expect(resetLocal).toHaveBeenCalled();
-        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-      });
-      const clearOrder = mockClearPersistentUiState.mock.invocationCallOrder[0];
-      const resetOrder = resetLocal.mock.invocationCallOrder[0];
-      if (clearOrder === undefined || resetOrder === undefined) {
-        throw new Error('Expected clear and reset invocation order to be recorded');
-      }
-      expect(clearOrder).toBeLessThan(resetOrder);
+      await waitFor(() => expect(resetLocal).toHaveBeenCalledOnce());
+      expect(storedAtReset).toBeNull();
     });
 
-    it('reloads after a desktop reset bridge failure once renderer storage has already cleared', async () => {
+    it('reloads after a desktop reset bridge failure', async () => {
       installDesktopReset(
         vi.fn().mockResolvedValue({
           message: 'desktop reset failed',
@@ -277,48 +247,6 @@ describe('FactoryResetPanel', () => {
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
       });
-
-      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-    });
-
-    it('attempts the desktop reset bridge before failing incomplete renderer storage cleanup', async () => {
-      const resetLocal = vi.fn().mockResolvedValue({ success: true });
-      const noteReloadIntent = vi.fn().mockResolvedValue(undefined);
-      mockClearPersistentUiState.mockResolvedValue({
-        failures: [
-          {
-            error: new Error('IndexedDB deletion was blocked for renderer-db'),
-            name: 'renderer-db',
-            operation: 'delete',
-            target: 'indexed-db',
-          },
-        ],
-        success: false,
-      });
-      installDesktopReset(resetLocal);
-      Object.defineProperty(window, 'desktopLifecycle', {
-        configurable: true,
-        value: { noteReloadIntent },
-        writable: true,
-      });
-
-      render(<FactoryResetPanel />);
-
-      fireEvent.click(screen.getByTestId('factory-reset-button'));
-
-      await waitFor(() => {
-        expect(mockReload).toHaveBeenCalled();
-      });
-
-      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-      expect(resetLocal).toHaveBeenCalled();
-      const clearOrder = mockClearPersistentUiState.mock.invocationCallOrder[0];
-      const resetOrder = resetLocal.mock.invocationCallOrder[0];
-      if (clearOrder === undefined || resetOrder === undefined) {
-        throw new Error('Expected clear and reset invocation order to be recorded');
-      }
-      expect(clearOrder).toBeLessThan(resetOrder);
-      expect(noteReloadIntent).toHaveBeenCalledWith('factory-reset-failed-after-renderer-clear');
     });
 
     it('reloads the page after successful reset', async () => {
@@ -364,19 +292,6 @@ describe('FactoryResetPanel', () => {
         expect(mockReload).toHaveBeenCalled();
       });
     });
-
-    it('reloads when clearing renderer storage fails after reset work starts', async () => {
-      installDesktopReset(vi.fn().mockResolvedValue({ success: true }));
-      mockClearPersistentUiState.mockRejectedValue(new Error('Failed to clear UI state'));
-
-      render(<FactoryResetPanel />);
-
-      fireEvent.click(screen.getByTestId('factory-reset-button'));
-
-      await waitFor(() => {
-        expect(mockReload).toHaveBeenCalled();
-      });
-    });
   });
 
   describe('reset flow without a desktop reset bridge', () => {
@@ -386,7 +301,6 @@ describe('FactoryResetPanel', () => {
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       expect(mockConfirm).not.toHaveBeenCalled();
-      expect(mockClearPersistentUiState).not.toHaveBeenCalled();
       expect(mockReload).not.toHaveBeenCalled();
     });
   });

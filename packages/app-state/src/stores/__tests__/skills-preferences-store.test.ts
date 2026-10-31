@@ -9,7 +9,6 @@ import type { PersistApi } from '../../__tests__/persist-api-test-helper.ts';
 import {
   __resetSkillsPreferencesStoreForTests,
   buildSkillsContextRequest,
-  resetSkillsPreferencesStoreToDefaults,
   useSkillsPreferencesStore,
 } from '../skills-preferences-store.ts';
 
@@ -96,15 +95,5 @@ describe('skills preferences store', () => {
       'global:disabled': true,
     });
     expect(useSkillsPreferencesStore.getState().masterEnabled).toBe(true);
-  });
-
-  it('factory reset restores defaults', () => {
-    const { setMasterEnabled, setSkillDisabled } = useSkillsPreferencesStore.getState();
-    setSkillDisabled('global:x', true);
-    setMasterEnabled(false);
-    resetSkillsPreferencesStoreToDefaults();
-    const state = useSkillsPreferencesStore.getState();
-    expect(state.masterEnabled).toBe(true);
-    expect(state.disabledSkillKeys).toEqual({});
   });
 });

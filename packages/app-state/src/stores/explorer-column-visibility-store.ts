@@ -12,8 +12,8 @@
  * rewrites visibility and a toggle never rewrites widths (the sizes store
  * deliberately preserves entries for columns that are currently hidden).
  *
- * Factory reset is implicit, as for the sizes store: `clearPersistentUiState`
- * performs a `localStorage.clear()`.
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -119,13 +119,3 @@ if (!isValidStore(singleton)) {
 }
 
 export const useExplorerColumnVisibilityStore = singleton as BoundStore;
-
-/**
- * FACTORY RESET CONTRACT. `localStorage.clear()` drops the persisted slice but
- * not the LIVE singleton, and the web reset path does not force a reload — so
- * without this the grid kept whatever columns the user had hidden right through
- * a factory reset (whole-branch review F6).
- */
-export function resetExplorerColumnVisibilityStoreToDefault(): void {
-  useExplorerColumnVisibilityStore.getState().reset();
-}

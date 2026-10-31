@@ -15,7 +15,7 @@
  * this pattern.
  *
  * Structure mirrors permission-policy-store.ts (create + persist + migrate +
- * partialize + factory-reset helper).
+ * partialize).
  */
 
 import type { SubagentPersonasAvailabilityRequest } from '@brainstrike/assistant-contract';
@@ -135,24 +135,6 @@ export const useSubagentPersonasStore = create<SubagentPersonasStore>()(
   )
 );
 
-/**
- * Resets the live store to defaults AND clears its persisted slice (FACTORY
- * RESET CONTRACT — invoked from factory-reset-helpers.clearBrowserStorage).
- */
-export function resetSubagentPersonasStoreToDefaults(): void {
-  try {
-    const persistApi = (
-      useSubagentPersonasStore as typeof useSubagentPersonasStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  }
-  useSubagentPersonasStore.setState(defaultData());
-}
-
 export const subagentPersonasSelectors = {
   delegationEnabled: (store: SubagentPersonasStore): boolean => store.delegationEnabled,
   disabledPersonaIds: (store: SubagentPersonasStore): readonly string[] => store.disabledPersonaIds,
@@ -188,5 +170,15 @@ export function getSubagentPersonasAvailabilityRequest():
 
 /** Test-only reset helper. */
 export function __resetSubagentPersonasStoreForTests(): void {
-  resetSubagentPersonasStoreToDefaults();
+  try {
+    const persistApi = (
+      useSubagentPersonasStore as typeof useSubagentPersonasStore & {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {
+    // Best effort: storage errors must not block the reset of in-memory state.
+  }
+  useSubagentPersonasStore.setState(defaultData());
 }
