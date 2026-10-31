@@ -31,6 +31,10 @@ declare global {
     };
     /** Desktop-only recovery actions for a damaged state store (BST-1880). */
     agentHostRecovery?: TransportBridge<typeof agentHostRecoveryContract>;
+    /** Desktop-only: the app menu's Settings… item. */
+    appMenu?: {
+      onOpenSettings: (callback: () => void) => () => void;
+    };
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no
      * preload) — consumers MUST capability-check `window.assistantPersonas`.

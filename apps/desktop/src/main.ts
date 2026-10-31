@@ -28,6 +28,14 @@ import { restartLaunchedAgentHost } from './agent-host-restart';
 import { checkForAppUpdate, clearAppUpdateForReset } from './app-update';
 import { isAppWindowSender } from './app-windows';
 import { buildFileMenuTemplate } from './application-file-menu';
+import {
+  buildAboutPanelOptions,
+  buildFileMenuClosingItems,
+  buildHelpMenuTemplate,
+  buildMacAppMenuTemplate,
+  buildMacWindowMenuTemplate,
+  releaseNotesUrl,
+} from './application-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
@@ -1174,12 +1182,12 @@ if (singleInstanceLockAcquired) {
       setupSecurity();
       logger.debug('Security setup complete');
 
-      // Application menu with developer utilities
-      const menuTemplate: Electron.MenuItemConstructorOptions[] = [
-        {
-          label: 'Application',
-          submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }],
-        },
+      // The application menu (BST-2355) follows each platform: macOS has its app
+      // and Window menus, Windows and Linux end File with Settings… and Quit, and
+      // the Developer utilities ship only in unpackaged builds.
+      const isMac = process.platform === 'darwin';
+      app.setAboutPanelOptions(buildAboutPanelOptions(app.name, app.getVersion()));
+      const editAndViewMenus: Electron.MenuItemConstructorOptions[] = [
         {
           label: 'Edit',
           submenu: [
@@ -1236,6 +1244,8 @@ if (singleInstanceLockAcquired) {
             { role: 'togglefullscreen' },
           ],
         },
+      ];
+      const developerMenus: Electron.MenuItemConstructorOptions[] = [
         {
           label: 'Developer',
           submenu: [
@@ -1347,14 +1357,41 @@ if (singleInstanceLockAcquired) {
         pushToRenderer(targetWindow.webContents, channel, payload);
       };
 
+      const openSettingsFromMenu = (targetWindow?: Electron.BaseWindow): void => {
+        pushToMenuTargetWindow(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined, targetWindow);
+      };
+      const helpMenu = buildHelpMenuTemplate({
+        includeAbout: !isMac,
+        onOpenReleaseNotes: () => {
+          const url = releaseNotesUrl(app.getVersion());
+          shell.openExternal(url).catch((error: unknown) => {
+            logger.warn('Failed to open the release notes', { error, url });
+          });
+        },
+        onShowLogs: () => {
+          const logsPath = app.getPath('logs');
+          shell
+            .openPath(logsPath)
+            .then((failure) => {
+              if (failure !== '') {
+                logger.warn('Failed to show the logs folder', { failure, logsPath });
+              }
+            })
+            .catch((error: unknown) => {
+              logger.warn('Failed to show the logs folder', { error, logsPath });
+            });
+        },
+      });
+
       let applicationMenuRebuildScheduled = false;
       const rebuildApplicationMenu = async (): Promise<void> => {
         const recents = await listWorkspaceRecentRootPaths();
-        const template = [...menuTemplate];
-        template.splice(
-          1,
-          template[1]?.label === 'File' ? 1 : 0,
+        const template: Electron.MenuItemConstructorOptions[] = [
+          ...(isMac
+            ? [buildMacAppMenuTemplate({ appName: app.name, onOpenSettings: openSettingsFromMenu })]
+            : []),
           buildFileMenuTemplate({
+            closingItems: isMac ? [] : buildFileMenuClosingItems(openSettingsFromMenu),
             onOpenFolder: (targetWindow) => {
               pushToMenuTargetWindow(
                 DESKTOP_IPC_CHANNELS.workspace.openFolderPicker,
@@ -1373,8 +1410,12 @@ if (singleInstanceLockAcquired) {
               );
             },
             recentPaths: recents,
-          })
-        );
+          }),
+          ...editAndViewMenus,
+          ...(isMac ? [buildMacWindowMenuTemplate()] : []),
+          ...(app.isPackaged ? [] : developerMenus),
+          helpMenu,
+        ];
         Menu.setApplicationMenu(Menu.buildFromTemplate(template));
       };
 
