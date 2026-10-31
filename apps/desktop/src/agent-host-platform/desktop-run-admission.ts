@@ -15,6 +15,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import {
   DEFAULT_PERMISSION_POLICIES,
   isPermissionDenied,
+  NATIVE_TOOL_ID,
   refusalError,
 } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
@@ -315,6 +316,9 @@ async function readDesktopNativeAdmission(
     configurationRoots
   );
   const descriptors = await desktopToolDescriptors({
+    // Only a run that enables run_python asks: the check loads the sandbox runtime.
+    codeFence:
+      intent.enabledNativeToolIds.includes(NATIVE_TOOL_ID.runPython) && (await hostFencesCode()),
     enabledNativeToolIds: intent.enabledNativeToolIds,
     retrieval: await desktopRetrievalAdmitted(reads, roots, request.signal),
     skills: workspaceSkills !== undefined,
@@ -331,6 +335,11 @@ async function readDesktopNativeAdmission(
     runtime,
     ...(workspaceSkills ? { workspaceSkills } : {}),
   };
+}
+/** BST-2360: the fence run_python's executor itself requires, from the same check. */
+async function hostFencesCode(): Promise<boolean> {
+  const { isFenceSupported } = await import('@brainstrike/agent/fence-executor');
+  return isFenceSupported();
 }
 /**
  * ADR 0026: the retrieval lane is optional, so an index that cannot answer

@@ -6,7 +6,10 @@ All assistant code execution enters the CodeExecutor seam after its existing
 permission decision. An explicit `vm` request requires an available VM capability;
 never downgrade it to an OS fence. Unsupported platforms or unrepresentable
 policy refuse visibly. [ADR-0003](../adr/0003-mode-two-full-isolation-vm.md) records
-the VM decision, not proof that every platform implements it.
+the VM decision, not proof that every platform implements it. run_python runs only
+in the fence, so a run is offered it only where the executor's own fence check
+passes; Windows and WSL 1 never offer it, rather than asking the person to approve
+a call that cannot run.
 
 The fence owns the pinned runtime, validated helper/assets and OS enforcement.
 Missing helper, unsupported policy or failed confinement is a refusal, not a
