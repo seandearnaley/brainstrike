@@ -146,8 +146,8 @@ describe('ChangesetDiffPane', () => {
     const cards = await screen.findAllByTestId('changeset-file-diff-card');
     expect(cards).toHaveLength(2);
     // Changeset order (a.ts before c.ts), not selection-insertion order.
-    expect(within(cards[0] as HTMLElement).getByText('src/a.ts')).toBeInTheDocument();
-    expect(within(cards[1] as HTMLElement).getByText('src/c.ts')).toBeInTheDocument();
+    expect(within(cards[0] as HTMLElement).getByTitle('src/a.ts')).toBeInTheDocument();
+    expect(within(cards[1] as HTMLElement).getByTitle('src/c.ts')).toBeInTheDocument();
     expect(screen.queryByText('src/b.ts')).not.toBeInTheDocument();
   });
 

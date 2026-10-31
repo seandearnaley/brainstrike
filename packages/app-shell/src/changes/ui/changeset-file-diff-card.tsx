@@ -36,9 +36,10 @@
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ChangedFileEntry, Changeset, StructuredFileDiff } from '@brainstrike/types';
-import { Button, type DiffLineComment, DiffView } from '@brainstrike/ui';
+import { Button, type DiffLineComment, DiffView, type DiffViewMode } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { GitFailureDetails } from '../../git-failure-details';
+import { ChangedFilePath } from './changed-file-path';
 
 export interface ChangesetFileDiffCardProps {
   readonly changesetKind: Changeset['kind'];
@@ -54,6 +55,8 @@ export interface ChangesetFileDiffCardProps {
     path: string,
     rootId: string | null
   ) => Promise<BoundaryResult<StructuredFileDiff>>;
+  /** Side by side or inline; the pane holds one mode for every card. */
+  readonly mode?: DiffViewMode | undefined;
   /** Takes a comment on this file's diff lines (BST-2334); without it the diff takes none. */
   readonly onLineComment?:
     | ((entry: ChangedFileEntry, comment: DiffLineComment) => boolean)
@@ -91,10 +94,6 @@ const STATUS_LABELS: Record<ChangedFileEntry['status'], string> = {
   untracked: 'Untracked',
 };
 
-function displayPath(entry: ChangedFileEntry): string {
-  return entry.oldPath ? `${entry.oldPath} → ${entry.path}` : entry.path;
-}
-
 function CardHeader({ entry }: { readonly entry: ChangedFileEntry }): ReactElement {
   return (
     <div
@@ -104,9 +103,7 @@ function CardHeader({ entry }: { readonly entry: ChangedFileEntry }): ReactEleme
       <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">
         {STATUS_LABELS[entry.status]}
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs" title={displayPath(entry)}>
-        {displayPath(entry)}
-      </span>
+      <ChangedFilePath className="flex-1 font-mono text-xs" entry={entry} />
       <span
         className="text-muted-foreground shrink-0 text-xs"
         data-testid="changeset-file-diff-card-stats"
@@ -172,10 +169,12 @@ function ErrorBody({
 function LoadedBody({
   diff,
   entry,
+  mode,
   onLineComment,
 }: {
   readonly diff: StructuredFileDiff;
   readonly entry: ChangedFileEntry;
+  readonly mode: DiffViewMode | undefined;
   readonly onLineComment: ChangesetFileDiffCardProps['onLineComment'];
 }): ReactElement {
   if (diff.content.kind === 'binary') {
@@ -186,7 +185,10 @@ function LoadedBody({
       <DiffView
         ariaLabel={`Diff for ${entry.path}`}
         filename={entry.path}
+        mode={mode}
         onLineComment={onLineComment && ((comment) => onLineComment(entry, comment))}
+        // The card header above already names the file, its status and counts.
+        showFileSummary={false}
         source={{ diff, kind: 'structured' }}
       />
     </div>
@@ -201,6 +203,7 @@ export function ChangesetFileDiffCard({
   changesetKind: _changesetKind,
   entry,
   loadFileDiff,
+  mode,
   onLineComment,
   reloadToken,
 }: ChangesetFileDiffCardProps): ReactElement {
@@ -290,7 +293,7 @@ export function ChangesetFileDiffCard({
       {state.kind === 'idle' || state.kind === 'loading' ? <LoadingBody /> : null}
       {state.kind === 'error' ? <ErrorBody message={state.message} onRetry={retry} /> : null}
       {state.kind === 'loaded' ? (
-        <LoadedBody diff={state.diff} entry={entry} onLineComment={onLineComment} />
+        <LoadedBody diff={state.diff} entry={entry} mode={mode} onLineComment={onLineComment} />
       ) : null}
     </div>
   );
