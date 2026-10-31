@@ -1,7 +1,6 @@
 // @vitest-environment node
 
 import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
-import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
 import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
@@ -26,7 +25,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   storedKey.value = 'test-key';
-  clearHostedProviderApiKeyCache();
 });
 describe.each(existing)('existing $provider dispatch', (selected) => {
   it.each(['document', 'query'] as const)(
@@ -39,9 +37,11 @@ describe.each(existing)('existing $provider dispatch', (selected) => {
       const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
         const payload =
           selected.provider === 'google'
-            ? { embeddings: vectors.map((values) => ({ values })) }
+            ? vectors.length === 1
+              ? { embedding: { values: vectors[0] } }
+              : { embeddings: vectors.map((values) => ({ values })) }
             : selected.provider === 'cohere'
-              ? { embeddings: { float: vectors } }
+              ? { embeddings: { float: vectors }, meta: { billed_units: { input_tokens: 1 } } }
               : { data: vectors.map((embedding, index) => ({ embedding, index })) };
         expect(init?.signal).toBe(signal);
         return new Response(JSON.stringify(payload), {
@@ -65,6 +65,18 @@ describe.each(existing)('existing $provider dispatch', (selected) => {
       if (selected.provider === 'voyage') {
         expect(body['input_type']).toBe(purpose);
       }
+      // A tunable model is asked for the index's size; a fixed one is not.
+      const requested =
+        selected.provider === 'google'
+          ? ((body['requests'] as Record<string, unknown>[] | undefined)?.[0] ?? body)[
+              'outputDimensionality'
+            ]
+          : (body['dimensions'] ?? body['output_dimension']);
+      expect(requested).toBe(
+        selected.provider === 'openai' || selected.provider === 'google'
+          ? selected.dimensions
+          : undefined
+      );
     }
   );
 });
@@ -88,7 +100,7 @@ it('preserves a provider failure that settles independently after cancellation',
       signal: controller.signal,
       texts: ['query'],
     })
-  ).rejects.toMatchObject({ cause: { originalError: failure, type: 'network_error' } });
+  ).rejects.toBe(failure);
 });
 it('preserves the exact owned cancellation after provider settlement', async () => {
   const controller = new AbortController();
@@ -157,7 +169,9 @@ describe('typed hosted embedding refusals', () => {
   });
 
   it('maps a transport failure to network and keeps the provider error as its cause', async () => {
-    const failure = new TypeError('fetch failed');
+    const failure = new TypeError('fetch failed', {
+      cause: new Error('getaddrinfo ENOTFOUND api.openai.com'),
+    });
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
@@ -166,10 +180,8 @@ describe('typed hosted embedding refusals', () => {
     );
     const error = await refusal();
     expect(error).toBeInstanceOf(HostedEmbeddingError);
-    expect(error).toMatchObject({
-      cause: { originalError: failure, type: 'network_error' },
-      kind: 'network',
-    });
+    expect(error).toMatchObject({ kind: 'network' });
+    expect(JSON.stringify((error as Error).cause)).toContain('getaddrinfo ENOTFOUND');
   });
 
   it.each(['google', 'cohere', 'voyage'] as const)(
@@ -177,7 +189,6 @@ describe('typed hosted embedding refusals', () => {
     async (provider) => {
       for (const name of providerEnvKeys(provider)) {
         vi.stubEnv(name, '');
-        vi.stubEnv(`VITE_${name}`, '');
       }
       storedKey.value = null;
       const fetch = vi.fn();

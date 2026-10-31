@@ -114,20 +114,6 @@ export default defineConfig({
       // map; they pin renamed entry files and stay first so a registry change
       // cannot silently retarget them).
       {
-        find: '@brainstrike/embeddings/factory',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/factory-entry.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/provider-core',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/provider-core.ts'
-        ),
-      },
-      {
         find: '@brainstrike/file-explorer-ui/indexing',
         replacement: path.resolve(
           import.meta.dirname,
