@@ -14,7 +14,7 @@ interface ClipboardIpcDependencies {
 /**
  * Main-side handlers for the clipboard contract. Input validation lives in
  * the contract's `parseArgs` (a malformed payload never reaches here); a
- * clipboard write rejection settles as the `IpcResult` failure taxonomy.
+ * clipboard write rejection settles as the boundary failure taxonomy.
  */
 export function createClipboardIpcHandlers({
   clipboard,

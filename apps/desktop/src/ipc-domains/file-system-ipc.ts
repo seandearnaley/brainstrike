@@ -6,6 +6,7 @@ import {
   isStateStoreReadOnly,
   refusalError,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import {
   isFileNotFoundError,
   isWorkspaceRootRegistryDisposed,
@@ -41,7 +42,6 @@ import {
   registerDomain,
   settleIpcResult,
 } from '../platform/desktop-ipc-registry';
-import type { IpcResult } from '../platform/ipc-contract';
 import { fileSystemContract } from './file-system.contract';
 import type { ManagedWorktreeAuthorizer } from './workspace-recent-roots';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
@@ -129,7 +129,7 @@ const logger = createLogger('FileSystemIpc');
 function settleFileSystemResult<T>(
   failure: { readonly category: string; readonly code: string },
   run: () => T | Promise<T>
-): Promise<IpcResult<T>> {
+): Promise<BoundaryResult<T>> {
   return settleIpcResult(failure, async () => {
     try {
       return await run();

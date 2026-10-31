@@ -23,7 +23,7 @@ import {
  * preload under a mocked `electron` and reads the exposed objects back,
  * replacing the per-domain source-regex pins. The same load proves each
  * method rides the one invoke channel under its manifest method name and
- * applies the ONE `IpcResult` unwrap.
+ * applies the ONE `BoundaryResult` unwrap.
  */
 type PushListener = (event: { ports: readonly unknown[] }, push: DesktopIpcPush) => void;
 const mockExposeInMainWorld = vi.fn<(key: string, api: unknown) => void>();
