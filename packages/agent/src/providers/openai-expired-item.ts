@@ -1,3 +1,4 @@
+import { Predicate } from 'effect';
 /** BST-1927 / ADR-0014: an expired stored item requires an explicit user decision. */
 export class OpenAIStoredItemExpiredError extends Error {
   static readonly publicMessage =
@@ -12,10 +13,6 @@ export class OpenAIStoredItemExpiredError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function readErrorEnvelope(value: Record<string, unknown>): unknown {
   const body = value['responseBody'];
   if (typeof body !== 'string' || (value['statusCode'] !== 400 && value['statusCode'] !== 404)) {
@@ -23,7 +20,7 @@ function readErrorEnvelope(value: Record<string, unknown>): unknown {
   }
   try {
     const envelope: unknown = JSON.parse(body);
-    return isRecord(envelope) ? envelope['error'] : undefined;
+    return Predicate.isObject(envelope) ? envelope['error'] : undefined;
   } catch {
     return;
   }
@@ -33,7 +30,7 @@ function readErrorEnvelope(value: Record<string, unknown>): unknown {
 export function isOpenAIStoredItemExpiredError(error: unknown): boolean {
   const visited = new WeakSet<object>();
   function visit(value: unknown): boolean {
-    if (!isRecord(value) || visited.has(value)) {
+    if (!Predicate.isObject(value) || visited.has(value)) {
       return false;
     }
     visited.add(value);

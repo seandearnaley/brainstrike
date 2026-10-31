@@ -1,5 +1,6 @@
 import type { LoggingPreferences } from '@brainstrike/logging';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
+import { Predicate } from 'effect';
 import { DESKTOP_IPC_CHANNELS } from './desktop-ipc-channels';
 
 export const LOGGING_API_CHANNELS = DESKTOP_IPC_CHANNELS.logging;
@@ -16,10 +17,6 @@ const VALID_LOG_LEVELS = new Set<unknown>([
 const MAX_LOGGING_DESTINATION_LENGTH = 1024;
 const MAX_REDACT_PATHS = 256;
 const MAX_REDACT_PATH_LENGTH = 512;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function assertLogLevel(value: unknown, message: string): LogLevel {
   if (!VALID_LOG_LEVELS.has(value)) {
@@ -132,21 +129,21 @@ export function mergeLoggingPreferencesPatch(
   current: LoggingPreferences,
   patch: unknown
 ): LoggingPreferences {
-  if (!isRecord(patch)) {
+  if (!Predicate.isObject(patch)) {
     throw new Error('Logging preferences patch must be an object.');
   }
   const file = patch['file'];
-  if (file !== undefined && !isRecord(file)) {
+  if (file !== undefined && !Predicate.isObject(file)) {
     throw new Error('Logging file preferences must be an object.');
   }
   return assertLoggingPreferences({ ...current, ...patch, file: { ...current.file, ...file } });
 }
 
 export function assertLoggingPreferences(value: unknown): LoggingPreferences {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     throw new Error('Logging preferences must be an object.');
   }
-  if (!isRecord(value['file'])) {
+  if (!Predicate.isObject(value['file'])) {
     throw new Error('Logging file preferences must be an object.');
   }
 
