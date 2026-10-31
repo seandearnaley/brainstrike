@@ -12,6 +12,11 @@
  * against a stale resolve, so a slow first load can never clobber a newer
  * one (e.g. a Retry fired while the original request was still in flight).
  *
+ * A reload keeps the loaded diff on screen until its result arrives, and the
+ * body box is the same height whether it is waiting or loaded (BST-2369), so a
+ * live refresh neither collapses a card nor shifts the cards below it, and an
+ * unchanged diff keeps its `DiffView` (and any half-written line comment).
+ *
  * Every render branch is honest — never blank:
  * - `loading` / not-yet-visible: a real per-card loading affordance.
  * - `binary` content: an explanatory card, never an empty `DiffView`.
@@ -68,6 +73,19 @@ export interface ChangesetFileDiffCardProps {
 }
 
 const BODY_CLASS_NAME = 'h-[420px] min-h-0';
+const BINARY_BODY_CLASS_NAME = 'h-40';
+
+/**
+ * The body's height, fixed before the diff loads so loading and loaded take
+ * the same box. A git-scope entry with no line counts is binary (numstat
+ * reports `-`), so its short explanation box is known upfront; journal-backed
+ * changesets never carry line counts, so their entries reserve the diff box.
+ */
+function bodyClassName(changesetKind: Changeset['kind'], entry: ChangedFileEntry): string {
+  return changesetKind === 'git-scope' && entry.additions === null && entry.deletions === null
+    ? BINARY_BODY_CLASS_NAME
+    : BODY_CLASS_NAME;
+}
 
 type LoadState =
   | { readonly diff: StructuredFileDiff; readonly kind: 'loaded' }
@@ -121,10 +139,10 @@ function CardHeader({ entry }: { readonly entry: ChangedFileEntry }): ReactEleme
   );
 }
 
-function LoadingBody(): ReactElement {
+function LoadingBody({ className }: { readonly className: string }): ReactElement {
   return (
     <div
-      className="text-muted-foreground flex h-40 items-center justify-center text-xs"
+      className={`text-muted-foreground flex items-center justify-center text-xs ${className}`}
       data-testid="changeset-file-diff-card-loading"
       role="status"
     >
@@ -133,10 +151,10 @@ function LoadingBody(): ReactElement {
   );
 }
 
-function BinaryBody(): ReactElement {
+function BinaryBody({ className }: { readonly className: string }): ReactElement {
   return (
     <div
-      className="text-muted-foreground flex h-40 flex-col items-center justify-center gap-1 px-6 text-center text-sm"
+      className={`text-muted-foreground flex flex-col items-center justify-center gap-1 px-6 text-center text-sm ${className}`}
       data-testid="changeset-file-diff-card-binary"
     >
       <span>Binary file — no textual diff available.</span>
@@ -169,19 +187,21 @@ function ErrorBody({
  * Journal-backed changesets (`agent-run`/`run-range`) flow through here
  * exactly like git-scope changesets; see this module's doc comment. */
 function LoadedBody({
+  className,
   diff,
   entry,
   onLineComment,
 }: {
+  readonly className: string;
   readonly diff: StructuredFileDiff;
   readonly entry: ChangedFileEntry;
   readonly onLineComment: ChangesetFileDiffCardProps['onLineComment'];
 }): ReactElement {
   if (diff.content.kind === 'binary') {
-    return <BinaryBody />;
+    return <BinaryBody className={className} />;
   }
   return (
-    <div className={BODY_CLASS_NAME} data-testid="changeset-file-diff-card-diff-view">
+    <div className={className} data-testid="changeset-file-diff-card-diff-view">
       <DiffView
         ariaLabel={`Diff for ${entry.path}`}
         filename={entry.path}
@@ -193,11 +213,10 @@ function LoadedBody({
 }
 
 export function ChangesetFileDiffCard({
-  // Part of the fixed cross-task prop contract (BST-1114 W4) but not read
-  // here: journal-backed changesets are deliberately NOT special-cased (see
-  // this module's doc comment) — the only journal-specific handling is the
-  // generic null-stat rendering every changeset already goes through.
-  changesetKind: _changesetKind,
+  // Journal-backed changesets are deliberately NOT special-cased (see this
+  // module's doc comment); the kind only decides whether null stats mean a
+  // binary entry when the body's height is reserved.
+  changesetKind,
   entry,
   loadFileDiff,
   onLineComment,
@@ -215,7 +234,9 @@ export function ChangesetFileDiffCard({
   const runLoad = useCallback(async (): Promise<void> => {
     generationRef.current += 1;
     const generation = generationRef.current;
-    setState({ kind: 'loading' });
+    // A reload keeps the loaded diff on screen until its result arrives;
+    // only a first load or a retry after an error shows the loading body.
+    setState((current) => (current.kind === 'loaded' ? current : { kind: 'loading' }));
     try {
       const result = await loadFileDiff(entry.path, entry.rootId);
       if (generation !== generationRef.current) {
@@ -281,13 +302,22 @@ export function ChangesetFileDiffCard({
     void runLoad();
   }, [runLoad]);
 
+  const bodyClass = bodyClassName(changesetKind, entry);
+
   return (
     <div data-testid="changeset-file-diff-card" ref={containerRef}>
       <CardHeader entry={entry} />
-      {state.kind === 'idle' || state.kind === 'loading' ? <LoadingBody /> : null}
+      {state.kind === 'idle' || state.kind === 'loading' ? (
+        <LoadingBody className={bodyClass} />
+      ) : null}
       {state.kind === 'error' ? <ErrorBody message={state.message} onRetry={retry} /> : null}
       {state.kind === 'loaded' ? (
-        <LoadedBody diff={state.diff} entry={entry} onLineComment={onLineComment} />
+        <LoadedBody
+          className={bodyClass}
+          diff={state.diff}
+          entry={entry}
+          onLineComment={onLineComment}
+        />
       ) : null}
     </div>
   );

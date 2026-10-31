@@ -187,6 +187,42 @@ test('a comment being written survives scrolling its line out of view and back',
   );
 });
 
+test('a comment being written survives a refresh that brings the same diff', async () => {
+  // A live refresh hands DiffView a fresh source object with equal content.
+  const diff = (): StructuredFileDiff => ({
+    additions: 1,
+    content: { kind: 'full', newContent: MODIFIED, oldContent: ORIGINAL },
+    deletions: 1,
+    hunks: [{ newLines: 3, newStart: 1, oldLines: 3, oldStart: 1 }],
+    path: 'src/answer.ts',
+    status: 'modified',
+  });
+  const view = () => (
+    <div style={{ height: 400 }}>
+      <DiffView
+        defaultMode="unified"
+        language="plain"
+        // A fresh handler each render, as the Changes card passes one.
+        onLineComment={() => true}
+        source={{ diff: diff(), kind: 'structured' }}
+        testId="diff"
+      />
+    </div>
+  );
+  const { rerender } = render(view());
+  await userEvent.click(
+    screen.getByRole('button', { hidden: true, name: 'Comment on new line 2' })
+  );
+  await userEvent.type(
+    await screen.findByRole('textbox', { name: 'Comment on new line 2' }),
+    'Half a thought'
+  );
+  rerender(view());
+  expect(screen.getByRole('textbox', { name: 'Comment on new line 2' })).toHaveValue(
+    'Half a thought'
+  );
+});
+
 test('Escape closes the box and hands nothing over', async () => {
   const onLineComment = renderDiff('unified');
   await userEvent.click(
