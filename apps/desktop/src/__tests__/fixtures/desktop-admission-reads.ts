@@ -64,7 +64,7 @@ export function capturedIntent(options: {
 export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): DesktopAdmissionReads {
   return {
     acquireWorkspace: () => Promise.reject(new Error('This scenario binds no workspace')),
-    catalogModel: async ({ provider }) => ({ isEnabled: true, providerId: provider }),
+    catalogModel: async ({ provider }) => ({ isEnabled: true, providerId: provider, type: 'llm' }),
     enabledObservers: async () => [],
     indexStatus: async () => ({ kind: 'unavailable', reason: 'This scenario has no index.' }),
     liveWorkspaceRoots: async () => [],

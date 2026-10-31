@@ -35,7 +35,13 @@ test('shows actual host persona issues and refreshes an edited profile @smoke', 
     )
     .toBe('live');
   await homePage.openSettings();
-  await new SettingsPage(window).openCategory(/Subagents/iu, 'subagents');
+  const settings = new SettingsPage(window);
+  // ADR-0032: a folder's personas are listed, as runs load them, once the person trusts it.
+  const trust = await settings.openCategory(/Workspace trust/iu, 'workspace-trust');
+  const row = trust.getByRole('listitem').filter({ hasText: path.basename(root) });
+  await row.getByRole('button', { exact: true, name: 'Trust' }).click();
+  await expect(row).toContainText('Trusted');
+  await settings.openCategory(/Subagents/iu, 'subagents');
   // Settings is keep-mounted; refresh after root reconciliation completed.
   await window.getByRole('button', { name: 'Refresh personas and host checks' }).click();
   const availability = window.getByTestId('subagent-persona-availability-availability-proof');

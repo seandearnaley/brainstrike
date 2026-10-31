@@ -23,6 +23,7 @@
     "./windows-command-wrapper": "./src/windows-command-wrapper.ts",
     "./native-tools": "./src/native-tools/index.ts",
     "./platform": "./src/platform.ts",
+    "./workspace-context": "./src/workspace-context/index.ts",
     "./agent-ignore-guard": "./src/native-tools/agent-ignore-guard.ts",
     "./extract-url-refusal": "./src/native-tools/extract-url-refusal.ts",
     "./grep-search-result-contract": "./src/native-tools/grep-search-result-contract.ts",
@@ -53,7 +54,9 @@
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
+    "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
@@ -71,7 +74,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",

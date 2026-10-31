@@ -120,15 +120,13 @@ describe('registerDomain', () => {
 describe('settleIpcResult', () => {
   it('wraps a resolved value in ok:true', async () => {
     await expect(
-      settleIpcResult({ category: 'contextFiles', code: 'scan_failed' }, () =>
-        Promise.resolve(['x'])
-      )
+      settleIpcResult({ category: 'clipboard', code: 'write_failed' }, () => Promise.resolve(['x']))
     ).resolves.toEqual({ ok: true, value: ['x'] });
   });
 
   it('turns a throw into the failure taxonomy instead of rejecting across IPC', async () => {
     await expect(
-      settleIpcResult({ category: 'contextFiles', code: 'scan_failed' }, () =>
+      settleIpcResult({ category: 'clipboard', code: 'write_failed' }, () =>
         Promise.reject(new Error('database unavailable'))
       )
     ).resolves.toEqual({

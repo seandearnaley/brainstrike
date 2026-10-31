@@ -32,6 +32,8 @@ import {
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
+import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
+import { hostWorkspaceDiscovery } from '@brainstrike/host-capabilities/workspace-context';
 import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
@@ -47,7 +49,6 @@ import {
   type DesktopRunSelection,
 } from './desktop-run-admission';
 import { createDesktopTerminals } from './desktop-terminals';
-import { desktopWorkspaceDiscovery } from './desktop-workspace-discovery';
 import { forwardHostDiagnostics } from './host-diagnostics';
 import {
   disposeHostTools,
@@ -531,9 +532,23 @@ export async function createDesktopHostConfiguration(
       })(await request('platform/workspace/validate', { binding, threadId }, signal));
     },
     // ADR-0029 stage 2: Settings and the "/" menu read these here, not from Main.
-    workspaceDiscovery: desktopWorkspaceDiscovery(
-      (signal) => admissionReads.liveWorkspaceRoots(signal),
-      startup.store
-    ),
+    workspaceDiscovery: hostWorkspaceDiscovery({
+      // Settings' persona checks read Main's model catalog, this host's MCP tools and its store.
+      personaAvailability: {
+        catalogModel: async (target, signal) => await admissionReads.catalogModel(target, signal),
+        mcpTools: async () =>
+          new Map(
+            Object.values(await mcpHost.settings.tools())
+              .flat()
+              .map((tool) => [tool.id, tool.enabled])
+          ),
+        readCredential: createProviderCredentialReader(
+          { getCredential: (provider) => host.auth.secrets().getCredential(provider) },
+          process.env
+        ),
+      },
+      roots: (signal) => admissionReads.liveWorkspaceRoots(signal),
+      trust: startup.store,
+    }),
   };
 }

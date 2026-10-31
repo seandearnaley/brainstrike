@@ -1,13 +1,11 @@
 import Module from 'node:module';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
-import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { databasePathContract } from '../ipc-domains/database.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
 import { storageContract } from '../ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
-import { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import {
@@ -40,9 +38,7 @@ const moduleWithLoader = Module as unknown as { _load: ModuleLoader };
 const originalLoad = moduleWithLoader._load;
 
 const CONTRACT_BRIDGES = {
-  assistantPersonas: userPersonasContract,
   clipboard: clipboardContract,
-  contextFiles: contextFilesContract,
   indexSearch: indexSearchContract,
   threadGroups: threadGroupsContract,
   viewFilterPresets: viewFilterPresetsContract,
@@ -272,17 +268,6 @@ describe('preload contract-derived bridges', () => {
     }
   );
 
-  it.each([
-    ['assistantPersonas', 'list', DESKTOP_IPC_CHANNELS.userPersonas.list],
-    ['contextFiles', 'scan', DESKTOP_IPC_CHANNELS.contextFiles.scan],
-  ])('%s.%s invokes %s and transports the envelope', async (name, method, channelName) => {
-    mockInvoke.mockResolvedValueOnce({ ok: true, value: { marker: name } });
-    await expect(exposedApi(name)[method]?.()).resolves.toEqual({
-      ok: true,
-      value: { marker: name },
-    });
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_INVOKE_CHANNEL, channelName);
-  });
   it('forwards retained diagnostic read filters without exposing SQL', async () => {
     const bridge = exposedApi('desktopDiagnostics');
     mockInvoke.mockResolvedValueOnce([]);

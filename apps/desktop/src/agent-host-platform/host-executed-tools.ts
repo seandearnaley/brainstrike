@@ -4,37 +4,35 @@ import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID, scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
+  CONTEXT_READ_TOOL_IDS,
   type CommandSandbox,
+  contextReadExecutors,
   executeCommandExecutor,
   grepSearchExecutor,
   INSPECTION_TOOL_EXECUTORS,
   isSharedNativeToolId,
   type NativeToolExecutor,
   type ShellCorrelationDependencies,
+  skillToolExecutors,
 } from '@brainstrike/host-capabilities/native-tools';
+import {
+  admittedWorkspaceSkills,
+  createSecureSkillsFs,
+} from '@brainstrike/host-capabilities/workspace-context';
 import {
   type BrowserToolRunner,
   browserToolExecutors,
 } from '../assistant-server/native-tool-executors-browser';
 import {
-  CONTEXT_READ_TOOL_IDS,
-  contextReadExecutors,
-} from '../assistant-server/native-tool-executors-context';
-import {
   type CodeExecutionHost,
   runPythonExecutor,
+  runSkillScriptExecutor,
 } from '../assistant-server/native-tool-executors-python';
 import { retrievalToolExecutors } from '../assistant-server/native-tool-executors-retrieval';
 import { selfInspectionExecutors } from '../assistant-server/native-tool-executors-self';
 import { commandSessionExecutors } from '../assistant-server/native-tool-executors-sessions';
-import {
-  runSkillScriptExecutor,
-  skillToolExecutors,
-} from '../assistant-server/native-tool-executors-skills';
 import { worktreeToolExecutors } from '../assistant-server/native-tool-executors-worktree';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
-import { admittedWorkspaceSkills } from '../assistant-server/request-skills';
-import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { nativeWorkspaceIndexSummary } from '../assistant-server/workspace-index-summary';
 import {
   type DesktopWorktreeServices,
@@ -234,7 +232,7 @@ function hostCommandSandbox(appPaths: HostAppPaths | undefined): CommandSandbox 
 }
 
 /**
- * The skills Main admitted for this run, never rescanned here: their
+ * The skills this run's admission scanned, never rescanned here: their
  * references, scripts and assets are read through this host's own secure fs.
  */
 function hostSkillExecutors(
