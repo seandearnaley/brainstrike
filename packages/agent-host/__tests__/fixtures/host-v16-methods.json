@@ -1,7 +1,6 @@
 {
-  "version": 15,
+  "version": 16,
   "methods": [
-    "auth/clear",
     "auth/credential/delete",
     "auth/credential/set",
     "auth/login",

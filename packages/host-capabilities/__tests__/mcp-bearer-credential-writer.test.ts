@@ -62,15 +62,4 @@ describe('MCP bearer credential writer', () => {
       'MCP bearer credential could not be removed'
     );
   });
-
-  it("is swept by the factory reset's clearAll with every other secret", async () => {
-    const { host, memory } = credentials();
-    const reference = await createSecretsMcpBearerCredentialWriter(host.secrets(), () => ID).create(
-      TOKEN
-    );
-
-    await expect(host.secrets().clearAll()).resolves.toBe(true);
-
-    expect(memory.entries.has(mcpBearerCredentialStorageKey(reference))).toBe(false);
-  });
 });

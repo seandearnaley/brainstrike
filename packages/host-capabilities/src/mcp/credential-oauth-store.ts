@@ -4,13 +4,11 @@ import type {
   McpOAuthStore,
   McpOAuthStoreIdentity,
 } from './oauth-client-provider.ts';
-import { registerMcpOAuthStore } from './oauth-client-provider.ts';
 
 /** The injected object is the same credential authority used by provider auth. */
 export interface McpOAuthCredentialStorage {
   delete(account: string, signal?: AbortSignal): Promise<boolean>;
   join(): Promise<void>;
-  listAccounts(signal?: AbortSignal): Promise<readonly string[]>;
   read(account: string, signal?: AbortSignal): Promise<string | null>;
   write(account: string, value: string, signal?: AbortSignal): Promise<void>;
 }
@@ -30,14 +28,11 @@ export interface CredentialMcpOAuthStoreOptions {
 
 export interface CredentialMcpOAuthStore extends McpOAuthStore {
   clear(identity: McpOAuthStoreIdentity, signal?: AbortSignal): Promise<void>;
-  clearAll(signal?: AbortSignal): Promise<void>;
   join(): Promise<void>;
   read(
     identity: McpOAuthStoreIdentity,
     signal?: AbortSignal
   ): Promise<Readonly<Record<string, McpOAuthPersistedState>>>;
-  /** Release reset registration after the owning runtime has joined shutdown. */
-  unregister(): void;
   write(
     identity: McpOAuthStoreIdentity,
     records: Readonly<Record<string, McpOAuthPersistedState>>,
@@ -83,26 +78,6 @@ export function createCredentialMcpOAuthStore(
         await options.credentials.delete(target, signal);
       }, signal);
     },
-    async clearAll(signal) {
-      await enqueue(async () => {
-        const accounts = await options.credentials.listAccounts(signal);
-        const failures: unknown[] = [];
-        for (const target of accounts) {
-          signal?.throwIfAborted();
-          if (options.ownsAccount(target)) {
-            try {
-              await options.credentials.delete(target, signal);
-            } catch (error) {
-              signal?.throwIfAborted();
-              failures.push(error);
-            }
-          }
-        }
-        if (failures.length > 0) {
-          throw new AggregateError(failures, 'MCP OAuth credential cleanup failed.');
-        }
-      }, signal);
-    },
     async join() {
       await completionTail;
       await options.credentials.join();
@@ -117,9 +92,6 @@ export function createCredentialMcpOAuthStore(
         return records;
       }, signal);
     },
-    unregister() {
-      unregister();
-    },
     async write(identity, records, signal) {
       const target = account(identity);
       await enqueue(async () => {
@@ -130,6 +102,5 @@ export function createCredentialMcpOAuthStore(
       }, signal);
     },
   };
-  const unregister = registerMcpOAuthStore(result);
   return result;
 }

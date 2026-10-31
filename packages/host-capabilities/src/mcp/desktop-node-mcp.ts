@@ -186,11 +186,7 @@ export async function createDesktopNodeMcpHost(
     try {
       return await owned.close();
     } finally {
-      try {
-        await oauthStore.join();
-      } finally {
-        oauthStore.unregister();
-      }
+      await oauthStore.join();
     }
   };
   const diagnostics = createDesktopMcpDiagnostics(request);
@@ -217,7 +213,6 @@ export async function createDesktopNodeMcpHost(
       startup,
     });
   } catch (cause) {
-    oauthStore.unregister();
     try {
       await diagnostics.drain();
     } catch (delivery) {

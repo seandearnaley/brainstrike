@@ -379,7 +379,6 @@ describe('DesktopMcpHostRuntime', () => {
         }
         await backingStore.clear(identity);
       }),
-      clearAll: async () => await backingStore.clearAll(),
       read: async (identity) => await backingStore.read(identity),
       write: async (identity, records) => await backingStore.write(identity, records),
     };
@@ -448,7 +447,6 @@ describe('DesktopMcpHostRuntime', () => {
     const backingStore = createInMemoryMcpOAuthStore();
     const store: McpOAuthStore = {
       clear: async (identity) => await backingStore.clear(identity),
-      clearAll: async () => await backingStore.clearAll(),
       read: vi.fn(async () => {
         throw new Error('safeStorage unavailable');
       }),

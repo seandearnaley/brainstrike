@@ -401,31 +401,11 @@ describe('provider projection over the shared credential authority', () => {
     await store.close();
   });
 
-  it('lists and clears provider accounts without deleting MCP credentials', async () => {
+  it('lists provider accounts without MCP credentials', async () => {
     const { secrets, store, values } = providerFixture();
     values.set('fixture-oauth:server', '{}');
     await secrets.saveKey('openai', 'fixture-key');
     await expect(secrets.listProviders()).resolves.toEqual(['openai']);
-    await expect(secrets.clearAll()).resolves.toBe(true);
-    expect(values.has('fixture-oauth:server')).toBe(true);
-    await expect(secrets.listProviders()).resolves.toEqual([]);
-    await store.close();
-  });
-
-  it('reports partial reset failure through the existing false result and attempts remaining accounts', async () => {
-    const { backend, secrets, store, values } = providerFixture();
-    values.set('fixture-provider:first', 'fixture-first');
-    values.set('fixture-provider:second', 'fixture-second');
-    backend.createEntry.mockResolvedValueOnce({
-      deleteCredential: async () => {
-        throw new Error('fixture-delete-denied');
-      },
-      getPassword: async () => undefined,
-      setPassword: async () => undefined,
-    });
-    await expect(secrets.clearAll()).resolves.toBe(false);
-    expect(values.has('fixture-provider:first')).toBe(true);
-    expect(values.has('fixture-provider:second')).toBe(false);
     await store.close();
   });
 
