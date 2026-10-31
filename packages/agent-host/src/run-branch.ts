@@ -15,7 +15,7 @@ import {
   AssistantAttachmentValidationError,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract/assistant-attachments';
-import { type ModelMessage, modelMessageSchema, type UserModelMessage } from 'ai';
+import type { ModelMessage, UserModelMessage } from 'ai';
 import { Schema } from 'effect';
 import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.ts';
 import {
@@ -31,7 +31,7 @@ import {
   recordHostConversationId,
 } from './core-state.ts';
 import { foldHostHookContextEvent } from './hook-context.ts';
-import { storedJson } from './json-value.ts';
+import { type Json, storedJson } from './json-value.ts';
 import {
   HOST_RESULT_SCHEMAS,
   type HostChildDelivery,
@@ -270,6 +270,16 @@ export function startedHostRun(
   }
   return run;
 }
+/**
+ * Both writers parse their messages with the SDK's `modelMessageSchema` before
+ * Core commits them (`modelStepFields`, `commitHostModelMessages`). So a stored
+ * row's messages are read as committed, not walked again, as `storedJson` reads
+ * a stored row's JSON (ADR-0011). Re-parsing them was most of host open's fold
+ * time. The SDK validates a prompt's messages again when a run sends them.
+ */
+function committedModelMessages(messages: readonly Json[]): ModelMessage[] {
+  return messages as ModelMessage[];
+}
 /** Pure transcript fold into the run that committed it; HostCore owns the runs. */
 function foldHostConversationMessages(
   runs: ReadonlyMap<string, HostRunState>,
@@ -284,7 +294,7 @@ function foldHostConversationMessages(
   if (!run) {
     throw new Error('Committed model messages reference an unknown run');
   }
-  const messages = event.messages.map((message) => modelMessageSchema.parse(message));
+  const messages = committedModelMessages(event.messages);
   foldHostRunMessages(run, event, messages, hostRunContext(runs, run).length);
   run.messages.push(...messages);
 }
