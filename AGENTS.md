@@ -90,16 +90,21 @@ regression. Do not repeat that gate locally before a PR.
   and tests of the packages you touched (`pnpm test:affected`), plus the E2E
   specs for the feature you changed. Report exactly what ran.
 - Open the PR ready for review once those checks pass. Mergify queues a ready
-  PR from this repository by itself, and the automated review runs while the
-  queue does. Confirm Mergify reports the PR queued (its Merge Queue check is in
-  progress); an unqueued PR with green CI never merges. To queue by hand, as for
-  a fork PR, tick "Queue this pull request" in Mergify's comment, or comment
-  `@mergifyio queue`. Agents posting through the GitHub connector or API must
-  tick boxes (edit Mergify's comment so `- [ ]` becomes `- [x]`): their queue
-  comment arrives defanged (`·@·m·ergifyio q·ueue`) and Mergify ignores it.
-- Never wait for the automated review. If it reports a real defect before the
-  PR merges, convert the PR to a draft (that dequeues it), fix it and mark it
-  ready again.
+  PR from this repository by itself once Claude Review has run on its head and
+  every review thread is resolved (the merge protections in `.mergify.yml`).
+  Confirm Mergify reports the PR queued (its Merge Queue check is in progress);
+  an unqueued PR with green CI never merges, and its Mergify Merge Protections
+  check names what it is waiting for. To queue by hand, as for a fork PR, tick
+  "Queue this pull request" in Mergify's comment, or comment `@mergifyio queue`.
+  Agents posting through the GitHub connector or API must tick boxes (edit
+  Mergify's comment so `- [ ]` becomes `- [x]`): their queue comment arrives
+  defanged (`·@·m·ergifyio q·ueue`) and Mergify ignores it.
+- Address every review thread, from Claude, Codex or a person. Fix it with a
+  push, or reply with why it stands, then resolve the thread; a reply alone
+  doesn't resolve it. Claude's follow-up review resolves its own thread when it
+  judges the push fixed it. A thread posted after the PR queued holds the merge
+  the same way, so a fix never needs a draft. A failed Claude Review holds the
+  PR too: report it to the owner with its run, don't rerun it.
 - Keep a PR a draft, which holds it out of the queue, only while it depends on
   another open PR. Mergify orders, batches and speculatively checks the rest.
 - For a large or risky change, open the PR as a draft with the `full-check`
