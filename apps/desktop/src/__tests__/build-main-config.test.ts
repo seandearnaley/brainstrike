@@ -86,7 +86,9 @@ describe('Node-side bundle config', () => {
     // service scans inside archives and rejects python-build-standalone's
     // ad-hoc-signed Mach-O files, so the interpreter is unpacked at build
     // time and copied as loose files that osx-sign signs with our identity.
+    // Beside them, only the precompiled app icon catalog (RELEASES.md).
     expect(packageJson.build?.mac?.extraResources).toEqual([
+      { from: 'build/Assets.car', to: 'Assets.car' },
       { filter: ['manifest.json'], from: 'resources/python-runtime', to: 'python-runtime' },
       {
         // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder macro, expanded by its FileMatcher

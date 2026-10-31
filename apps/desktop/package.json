@@ -39,13 +39,20 @@
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.icon",
+      "icon": "build/icon.icns",
+      "extendInfo": {
+        "CFBundleIconName": "Icon"
+      },
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "signing/entitlements.mac.plist",
       "entitlementsInherit": "signing/entitlements.mac.plist",
       "notarize": true,
       "extraResources": [
+        {
+          "from": "build/Assets.car",
+          "to": "Assets.car"
+        },
         {
           "from": "resources/python-runtime",
           "to": "python-runtime",

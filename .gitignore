@@ -148,8 +148,8 @@ performance-benchmarks/
 # Desktop builder resources: the committed icon set under apps/desktop/build
 # (an Icon Composer asset, ico/pngs + an SVG master) is a deliberate input to
 # the release pipeline, not a generated artifact — CI packaging needs it.
-# icon.icon is the macOS icon: electron-builder compiles it with Xcode 26's
-# actool into Assets.car (macOS 26 and later) and a fallback icon.icns.
+# icon.icon is the macOS icon's source; Assets.car (macOS 26 and later) and
+# icon.icns (older macOS) are compiled from it once on a Mac (RELEASES.md).
 # icon-square.svg is the master for icon.ico and icons/*.png.
 # Only legacy locally generated variants stay ignored.
 apps/desktop/build/icon-light.*
