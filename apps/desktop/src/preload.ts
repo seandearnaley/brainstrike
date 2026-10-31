@@ -11,6 +11,7 @@ import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/ma
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
+import { appUpdatesContract } from './ipc-domains/app-updates.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
@@ -373,6 +374,11 @@ if (shouldExposeBridge('windowFocus')) {
 // app launched, and show the profile's data folder. Desktop-only.
 if (shouldExposeBridge('agentHostRecovery')) {
   exposeBridge('agentHostRecovery', agentHostRecoveryContract);
+}
+
+// Settings › Updates (BST-2367, desktop-only): whether update checks offer betas.
+if (shouldExposeBridge('appUpdates')) {
+  exposeBridge('appUpdates', appUpdatesContract);
 }
 
 // File-export save bridge (desktop-only): writes export bytes into the OS
