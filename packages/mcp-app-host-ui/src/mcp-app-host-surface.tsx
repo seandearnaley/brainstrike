@@ -36,9 +36,23 @@ function focus(element: HTMLElement | null): void {
   element?.focus();
 }
 
-function LoadingState({ appName, onCancel }: Pick<McpAppHostSurfaceProps, 'appName' | 'onCancel'>) {
+/**
+ * The app's box, the same while it loads and once its frame is live, so a
+ * result does not grow when the app appears. The frame does not follow the
+ * app's `size-changed` notifications, so this is the frame's whole height.
+ */
+const APP_BOX_CLASS_NAME = 'h-64';
+
+/** The loading box; also what a result shows before its app session exists. */
+export function McpAppLoadingState({
+  appName,
+  onCancel,
+}: Pick<McpAppHostSurfaceProps, 'appName' | 'onCancel'>) {
   return (
-    <section aria-label={appName} className="border-border bg-card rounded-lg border p-4">
+    <section
+      aria-label={appName}
+      className={`border-border bg-card rounded-lg border p-4 ${APP_BOX_CLASS_NAME}`}
+    >
       <div className="flex items-center justify-between gap-3">
         <span aria-live="polite" role="status">
           Loading {appName}…
@@ -193,7 +207,7 @@ export function McpAppHostSurface({
   };
 
   if (state.phase === 'loading') {
-    return <LoadingState appName={appName} {...(onCancel ? { onCancel } : {})} />;
+    return <McpAppLoadingState appName={appName} {...(onCancel ? { onCancel } : {})} />;
   }
 
   if (state.phase === 'error') {
@@ -215,9 +229,16 @@ export function McpAppHostSurface({
   }
 
   return (
-    <section aria-label={appName} className="border-border bg-card relative rounded-lg border">
-      <div aria-hidden={approval ? true : undefined} inert={approval ? true : undefined}>
-        <div className="min-h-24">{children}</div>
+    <section
+      aria-label={appName}
+      className={`border-border bg-card relative rounded-lg border ${APP_BOX_CLASS_NAME}`}
+    >
+      <div
+        aria-hidden={approval ? true : undefined}
+        className="h-full"
+        inert={approval ? true : undefined}
+      >
+        {children}
         {onCancel ? (
           <Button
             aria-label={`Cancel ${appName}`}
