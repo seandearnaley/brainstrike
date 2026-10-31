@@ -1,11 +1,11 @@
 import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { describe, expect, it } from 'vitest';
 import {
   type Bridge,
   type Contract,
   channel,
   type Handlers,
-  type IpcResult,
   ipcFailure,
   ipcOk,
   parseNoArgs,
@@ -71,8 +71,8 @@ describe('IPC contract module', () => {
   });
 
   it('builds result envelopes that carry the fixed failure taxonomy', () => {
-    const ok: IpcResult<number> = ipcOk(1);
-    const failed: IpcResult<number> = ipcFailure(
+    const ok: BoundaryResult<number> = ipcOk(1);
+    const failed: BoundaryResult<number> = ipcFailure(
       refusal({ category: 'input', code: 'validation.bad-input', message: 'Input was bad' })
     );
     expect(ok).toEqual({ ok: true, value: 1 });

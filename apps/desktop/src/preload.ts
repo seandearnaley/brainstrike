@@ -1,3 +1,4 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type { DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
 import type {
@@ -32,7 +33,6 @@ import {
   createDesktopIpcTransport,
   createIpcBridge,
 } from './platform/ipc-bridge';
-import type { IpcResult } from './platform/ipc-contract';
 import {
   assertDesktopElectronApiKeyParity,
   type VisibleDesktopElectronApi,
@@ -64,7 +64,7 @@ const frameClosePreparations = new Set<() => Promise<void>>();
 const describeCloseFailure = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 contextBridge.exposeInMainWorld('agentHost', {
-  connect: (requestId: string): Promise<IpcResult<void>> =>
+  connect: (requestId: string): Promise<BoundaryResult<void>> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId),
   onPrepareClose: (prepare: () => Promise<void>): (() => void) => {
     frameClosePreparations.add(prepare);
@@ -217,9 +217,9 @@ contextBridge.exposeInMainWorld('mcp', {
 
 if (shouldExposeBridge('logging')) {
   contextBridge.exposeInMainWorld('logging', {
-    getBufferedLogs: (): Promise<IpcResult<LogRecord[]>> =>
+    getBufferedLogs: (): Promise<BoundaryResult<LogRecord[]>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getBufferedLogs),
-    getPreferences: (): Promise<IpcResult<LoggingSettingsPayload>> =>
+    getPreferences: (): Promise<BoundaryResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getPreferences),
     onDurableRecord: (listener: (record: LogRecord) => void) => {
       const ipcListener = (_event: unknown, record: LogRecord) => listener(record);
@@ -235,11 +235,13 @@ if (shouldExposeBridge('logging')) {
         ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.logging.preferencesUpdated, listener);
       };
     },
-    openDestination: (target: string | null): Promise<IpcResult<boolean>> =>
+    openDestination: (target: string | null): Promise<BoundaryResult<boolean>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.openDestination, target ?? null),
-    selectDestination: (): Promise<IpcResult<string | null>> =>
+    selectDestination: (): Promise<BoundaryResult<string | null>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.selectDestination),
-    setPreferences: (preferences: LoggingPreferences): Promise<IpcResult<LoggingSettingsPayload>> =>
+    setPreferences: (
+      preferences: LoggingPreferences
+    ): Promise<BoundaryResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.setPreferences, preferences),
   });
 }
@@ -254,21 +256,23 @@ if (shouldExposeBridge('desktopDiagnostics')) {
         fingerprint,
         sinceMs,
       }),
-    getSnapshot: (): Promise<IpcResult<DesktopPlatformDiagnosticsSnapshot>> =>
+    getSnapshot: (): Promise<BoundaryResult<DesktopPlatformDiagnosticsSnapshot>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot),
     getUnseenCounts: (
       sinceMs: number
     ): ReturnType<typeof mainDiagnosticEventsReader.getUnseenCounts> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts, sinceMs),
-    listCrashDumps: (): Promise<IpcResult<CrashDumpListing>> =>
+    listCrashDumps: (): Promise<BoundaryResult<CrashDumpListing>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.listCrashDumps),
     queryEvents: (
       filter: DiagnosticEventsQueryFilter
     ): ReturnType<DiagnosticEventsReader['queryEvents']> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.queryEvents, filter),
-    readMainLogWindow: (request: MainLogWindowRequest): Promise<IpcResult<MainLogWindowResult>> =>
+    readMainLogWindow: (
+      request: MainLogWindowRequest
+    ): Promise<BoundaryResult<MainLogWindowResult>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow, request),
-    readProcessCounters: (): Promise<IpcResult<ProcessCounterSnapshot>> =>
+    readProcessCounters: (): Promise<BoundaryResult<ProcessCounterSnapshot>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters),
   });
 }

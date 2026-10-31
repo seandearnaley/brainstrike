@@ -163,7 +163,7 @@ describe('window-focus IPC handler', () => {
   it.each([
     ['has no BrowserWindow', null],
     ['is destroyed', liveWindow(true, true)],
-  ])('fails with the IpcResult taxonomy when the sender %s', async (_label, window) => {
+  ])('fails with the boundary failure taxonomy when the sender %s', async (_label, window) => {
     const event = createTrustedInvokeEvent(7302);
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as never);
 

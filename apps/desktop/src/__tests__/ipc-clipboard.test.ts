@@ -28,7 +28,7 @@ describe('clipboard IPC handlers', () => {
     expect(result).toEqual({ ok: true, value: undefined });
   });
 
-  it('surfaces a clipboard write throw as the IpcResult failure taxonomy', async () => {
+  it('surfaces a clipboard write throw as the boundary failure taxonomy', async () => {
     const clipboard = makeClipboard();
     clipboard.writeText.mockImplementation(() => {
       throw new Error('clipboard locked');
@@ -41,7 +41,7 @@ describe('clipboard IPC handlers', () => {
     });
   });
 
-  it('awaits a rejected clipboard write and returns the IpcResult failure taxonomy', async () => {
+  it('awaits a rejected clipboard write and returns the boundary failure taxonomy', async () => {
     const clipboard = makeClipboard();
     clipboard.writeText.mockImplementation(() => Promise.reject(new Error('clipboard locked')));
     const handlers = createClipboardIpcHandlers({ clipboard });
@@ -61,7 +61,7 @@ describe('clipboard IPC handlers', () => {
     expect(result).toEqual({ ok: true, value: undefined });
   });
 
-  it('surfaces a rejected image write as the IpcResult failure taxonomy', async () => {
+  it('surfaces a rejected image write as the boundary failure taxonomy', async () => {
     const clipboard = makeClipboard();
     clipboard.writeImage.mockRejectedValue(new Error('clipboard locked'));
     const handlers = createClipboardIpcHandlers({ clipboard });
