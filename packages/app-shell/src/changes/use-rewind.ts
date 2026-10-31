@@ -106,10 +106,9 @@ export function useRewind(port: RewindPort, target: RewindPreviewPayload): UseRe
         setPreview(null);
         setError(describeBoundaryError(caught));
       }
-    } finally {
-      if (isCurrent()) {
-        setLoading(false);
-      }
+    }
+    if (isCurrent()) {
+      setLoading(false);
     }
   }, [port, stableTarget]);
 

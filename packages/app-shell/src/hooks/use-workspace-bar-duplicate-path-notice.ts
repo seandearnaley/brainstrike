@@ -49,9 +49,8 @@ function groupAdapterRootIdsByPath(
 export function useDuplicatePathNotice(
   rootDescriptors: Readonly<Record<string, WorkspaceBarRootDescriptor>> | undefined
 ): void {
-  const warnedPathsRef = useRef<Set<string> | null>(null);
+  const warnedPathsRef = useRef(new Set<string>());
   useEffect(() => {
-    warnedPathsRef.current ??= new Set<string>();
     const warnedPaths = warnedPathsRef.current;
     // Filtered to NEWLY-seen collisions before the loop (rather than an
     // `if`-guarded `continue` inside it) so the loop body is unconditional —

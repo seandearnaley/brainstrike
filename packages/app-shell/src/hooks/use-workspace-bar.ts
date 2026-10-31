@@ -261,12 +261,11 @@ function useUnmappedPrimaryRootNotice(
   primaryRootPath: string | undefined,
   primaryAdapterRootId: string | null
 ): void {
-  const loggedPathsRef = useRef<Set<string> | null>(null);
+  const loggedPathsRef = useRef(new Set<string>());
   useEffect(() => {
     if (!primaryRootPath || primaryAdapterRootId) {
       return;
     }
-    loggedPathsRef.current ??= new Set<string>();
     const loggedPaths = loggedPathsRef.current;
     if (loggedPaths.has(primaryRootPath)) {
       return;
@@ -407,7 +406,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const mainRootPath = currentMainRoot?.path;
   const mainRootDisplayName = currentMainRoot?.displayName;
   const [mainRootRow, setMainRootRow] = useState<MainRootRow | null>(null);
-  const warnedMainRootPathsRef = useRef<Set<string> | null>(null);
+  const warnedMainRootPathsRef = useRef(new Set<string>());
   // Exhausting the retry budget must not be terminal for the session: the same
   // reconciliation signal the checkout chip refetches on re-triggers the
   // resolve, so a row written after the budget ran out is still picked up.
@@ -432,7 +431,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       }
       if (lookup.kind === 'unresolved') {
         setMainRootRow({ path: mainRootPath, rootId: null });
-        warnedMainRootPathsRef.current ??= new Set<string>();
         const warnedPaths = warnedMainRootPathsRef.current;
         if (!warnedPaths.has(mainRootPath)) {
           warnedPaths.add(mainRootPath);

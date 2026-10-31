@@ -275,10 +275,7 @@ export function useTokenCache({
         return;
       }
 
-      pendingRequests.current.add(key);
-      setLoadingCount((c) => c + 1);
-
-      try {
+      const resolve = async (): Promise<void> => {
         // Check persistent cache
         const cached = await store.get(folderId, normalizedFilePath);
         if (cached) {
@@ -327,13 +324,18 @@ export function useTokenCache({
         fileSizeCache.current.set(key, entry.fileSize);
         debouncedSetVersion();
         onTokenResolved?.(folderId, normalizedFilePath, result.tokenCount);
+      };
+
+      pendingRequests.current.add(key);
+      setLoadingCount((c) => c + 1);
+      try {
+        await resolve();
       } catch (error) {
         // Log error but don't crash - token count will show as loading
         logger.error('Failed to count tokens', { error, filePath: normalizedFilePath, folderId });
-      } finally {
-        pendingRequests.current.delete(key);
-        setLoadingCount((c) => c - 1);
       }
+      pendingRequests.current.delete(key);
+      setLoadingCount((c) => c - 1);
     },
     [store, hasher, workerPool, countingMode, onTokenResolved, debouncedSetVersion]
   );
