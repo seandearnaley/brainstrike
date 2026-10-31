@@ -663,6 +663,35 @@ export async function hostRunToolDecision(
 ): Promise<'allow' | 'ask' | 'deny'> {
   return (await hostToolPolicy(platform, run, hostRunTools(run), toolId)).decision;
 }
+/**
+ * Whether the live policy answers this call with no person: it allows the tool
+ * and the call is not the person's own to approve, which only Full runs
+ * unasked (BST-2373).
+ */
+export async function hostRunPolicyAnswers(
+  platform: HostPlatform,
+  run: HostRunState,
+  call: { readonly input: unknown; readonly toolId: string }
+): Promise<boolean> {
+  const tools = hostRunTools(run);
+  const { decision, yolo } = await hostToolPolicy(platform, run, tools, call.toolId);
+  return decision === 'allow' && (yolo === true || !isPersonOnly(tools[call.toolId], call.input));
+}
+function isPersonOnly(registered: HostTool | undefined, input: unknown): boolean {
+  return registered?.personApproval?.(input) !== undefined;
+}
+/**
+ * The policy's ask, or a call that is the person's own to approve: that asks
+ * even where a grant or override allows its tool, and only Full runs it.
+ */
+function asksPerson(
+  decision: 'allow' | 'ask',
+  yolo: boolean | undefined,
+  registered: HostTool,
+  input: unknown
+): boolean {
+  return decision === 'ask' || (yolo !== true && isPersonOnly(registered, input));
+}
 /** `tools` is passed because admission decides before it retains the run's tools. */
 async function hostToolDecision(
   platform: HostPlatform,
@@ -681,6 +710,7 @@ async function hostToolPolicy(
 ): Promise<{
   readonly autoReview?: PermissionToolGateSnapshot['autoReview'];
   readonly decision: 'allow' | 'ask' | 'deny';
+  readonly yolo?: boolean;
 }> {
   const registered = tools[toolId];
   if (!registered) {
@@ -707,6 +737,8 @@ async function hostToolPolicy(
       registered.risk,
       registered.permissionToolId ?? toolId
     ),
+    // The ceiling folds Full into its decisions; the mode itself is the live root's.
+    ...(live.yolo ? { yolo: true } : {}),
   };
 }
 /**
@@ -791,7 +823,7 @@ async function hostAskDecision(
   const reviewModel = run.admission?.reviewModel;
   const personOnly = registered.personApproval?.(call.input);
   let reviewed: HostAutoReviewOutcome | undefined;
-  if (autoReview && step.prior === undefined && personOnly !== undefined) {
+  if (step.prior === undefined && personOnly !== undefined) {
     reviewed = { reason: personOnly, type: 'user-approval' };
   } else if (autoReview && step.prior === undefined) {
     reviewed = reviewModel
@@ -875,7 +907,7 @@ export async function decideHostSdkApproval(
     run.permits.set(call.toolCallId, action);
     return 'approved';
   }
-  const { autoReview, decision } = await hostToolPolicy(
+  const { autoReview, decision, yolo } = await hostToolPolicy(
     platform,
     run,
     hostRunTools(run),
@@ -917,7 +949,7 @@ export async function decideHostSdkApproval(
   if (consented) {
     return consented;
   }
-  if (decision === 'ask' && prior?.decision !== 'approve') {
+  if (asksPerson(decision, yolo, registered, call.input) && prior?.decision !== 'approve') {
     return await hostAskDecision(run, registered, call, action, autoReview, { prior, runs });
   }
   run.permits.set(call.toolCallId, action);
