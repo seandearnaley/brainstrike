@@ -59,12 +59,14 @@ describe('logging-ipc', () => {
       getBufferedLogs: () => [],
       getState: () => ({
         capabilities: { canOpenDestination: true },
+        defaults: basePreferences,
         preferences: basePreferences,
       }),
       openDestination: async () => true,
       selectDestination: async () => '/tmp',
       setPreferences: (prefs: LoggingPreferences) => ({
         capabilities: { canOpenDestination: true },
+        defaults: basePreferences,
         preferences: prefs,
       }),
     };
@@ -96,6 +98,7 @@ describe('logging-ipc', () => {
         capabilities: {
           canOpenDestination: true,
         } as unknown as LoggingSettingsPayload['capabilities'],
+        defaults: basePreferences,
         preferences: basePreferences,
       }),
       openDestination: async () => true,
@@ -104,6 +107,7 @@ describe('logging-ipc', () => {
         capabilities: {
           canOpenDestination: true,
         } as unknown as LoggingSettingsPayload['capabilities'],
+        defaults: basePreferences,
         preferences: prefs,
       }),
     });
@@ -122,12 +126,14 @@ describe('logging-ipc', () => {
       getBufferedLogs: () => [],
       getState: () => ({
         capabilities: { canOpenDestination: true },
+        defaults: basePreferences,
         preferences: basePreferences,
       }),
       openDestination: async () => true,
       selectDestination: async () => '/tmp',
       setPreferences: (prefs: LoggingPreferences) => ({
         capabilities: { canOpenDestination: true },
+        defaults: basePreferences,
         preferences: prefs,
       }),
     };
@@ -168,12 +174,14 @@ describe('logging-ipc', () => {
       getBufferedLogs: () => [],
       getState: () => ({
         capabilities: { canOpenDestination: true },
+        defaults: basePreferences,
         preferences: basePreferences,
       }),
       openDestination: async () => true,
       selectDestination: async () => '/tmp',
       setPreferences: (prefs: LoggingPreferences) => ({
         capabilities: { canOpenDestination: true },
+        defaults: basePreferences,
         preferences: prefs,
       }),
     };
@@ -207,12 +215,14 @@ describe('logging-ipc', () => {
       getBufferedLogs: () => [],
       getState: () => ({
         capabilities: { canOpenDestination: true },
+        defaults: basePreferences,
         preferences: basePreferences,
       }),
       openDestination: async () => true,
       selectDestination: async () => '/tmp',
       setPreferences: (prefs: LoggingPreferences) => ({
         capabilities: { canOpenDestination: true },
+        defaults: basePreferences,
         preferences: prefs,
       }),
     };
@@ -246,6 +256,7 @@ describe('logging-ipc', () => {
   it('clones logging settings payloads deeply', () => {
     const payload = {
       capabilities: { canOpenDestination: true },
+      defaults: basePreferences,
       preferences: basePreferences,
     };
 
@@ -275,6 +286,7 @@ describe('logging-ipc', () => {
         capabilities: {
           canOpenDestination: true,
         } as unknown as LoggingSettingsPayload['capabilities'],
+        defaults: basePreferences,
         preferences,
       }));
 
@@ -284,6 +296,7 @@ describe('logging-ipc', () => {
         capabilities: {
           canOpenDestination: true,
         } as unknown as LoggingSettingsPayload['capabilities'],
+        defaults: basePreferences,
         preferences: basePreferences,
       }),
       openDestination: async () => true,
@@ -310,6 +323,7 @@ describe('logging-ipc', () => {
       capabilities: {
         canOpenDestination: true,
       } as unknown as LoggingSettingsPayload['capabilities'],
+      defaults: basePreferences,
       preferences: firstPreferences,
     });
     await firstCall;

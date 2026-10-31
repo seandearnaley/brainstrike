@@ -1,4 +1,4 @@
-import type { LoggingPreferences } from '@brainstrike/logging';
+import type { LoggingPreferences, LoggingPreferencesPatch } from '@brainstrike/logging';
 
 export interface DurableNdjsonExportResult {
   readonly exportedCount: number;
@@ -20,11 +20,11 @@ export interface FileCapabilities {
  * the diagnostic repository into settings-ui would create.
  */
 export interface LoggingSettingsSectionProps {
-  busy?: boolean;
+  /** Main's defaults, which Restore Defaults commits. */
+  defaults: LoggingPreferences;
   fileCapabilities?: FileCapabilities;
-  onCommitPreferences?: (
-    preferences: LoggingPreferences
-  ) => Promise<LoggingPreferences | undefined>;
+  /** Commits a change to the preferences' one writer, which merges it into the record it holds. */
+  onCommitPreferences: (patch: LoggingPreferencesPatch) => Promise<void>;
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
   /** Opens the Logs workspace tab, where the log viewer lives (BST-1791). */
   onOpenLogs?: () => void;
@@ -33,8 +33,9 @@ export interface LoggingSettingsSectionProps {
    * remain visible and only the "Purge now" row is omitted.
    */
   onPurgeNow?: () => Promise<number>;
-  onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
   onSelectLogDestination?: () => Promise<string | null>;
+  /** The preferences as their writer holds them. */
+  preferences: LoggingPreferences;
   runtime: 'browser' | 'electron-renderer';
   /** Shown above the retention settings, which describe the durable sink. */
   sinkHealthReason?: string | null;

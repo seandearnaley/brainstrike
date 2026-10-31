@@ -25,11 +25,11 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { FolderOpen, RefreshCw, ScrollText, Trash2 } from 'lucide-react';
-import { type ReactNode, useMemo } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { DiagnosticSinkHealthBanner } from './diagnostic-sink-health-banner';
 import type { FileCapabilities, LoggingSettingsSectionProps } from './logging-settings-types';
 import { useDiagnosticsPurgeAction } from './use-diagnostics-purge-action';
-import { useLoggingPreferencesSync } from './use-logging-preferences-sync';
+import { useLoggingPreferenceActions } from './use-logging-preference-actions';
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.TRACE,
@@ -70,14 +70,14 @@ function deriveDestinationLabel(
 
 export function LoggingSettingsSection({
   runtime,
+  defaults,
   fileCapabilities,
-  busy = false,
   onCommitPreferences,
   onSelectLogDestination,
   onOpenLogDestination,
-  onResetPreferences,
   onOpenLogs,
   onPurgeNow,
+  preferences,
   sinkHealthReason,
 }: LoggingSettingsSectionProps) {
   const { toast } = useToast();
@@ -88,17 +88,16 @@ export function LoggingSettingsSection({
     handleRedactChange,
     handleReset,
     handleSelectDestination,
-    isSyncing,
-    preferences,
-  } = useLoggingPreferencesSync({
+    isSyncing: pending,
+  } = useLoggingPreferenceActions({
+    defaults,
     onCommitPreferences,
     onOpenLogDestination,
-    onResetPreferences,
     onSelectLogDestination,
+    preferences,
     toast,
   });
   const { handlePurgeNow, isPurgingNow } = useDiagnosticsPurgeAction({ onPurgeNow, toast });
-  const pending = busy || isSyncing;
 
   const logLevelItems = useMemo(
     () =>
@@ -409,6 +408,42 @@ function FileLoggingCard({
   );
 }
 
+/**
+ * A draft of the comma-separated list, committed when the field loses focus or on Enter.
+ * A changed list remounts it through its key; a failed or no-op commit returns it to the held list.
+ */
+function RedactPathsInput({
+  committed,
+  disabled,
+  onCommit,
+}: {
+  committed: string;
+  disabled: boolean;
+  onCommit: (value: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(committed);
+  const commitDraft = () => {
+    if (draft !== committed) {
+      void onCommit(draft).finally(() => setDraft(committed));
+    }
+  };
+  return (
+    <Input
+      disabled={disabled}
+      id="redact-paths"
+      onBlur={commitDraft}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commitDraft();
+        }
+      }}
+      placeholder="apiKey, password, token"
+      value={draft}
+    />
+  );
+}
+
 interface AdvancedLoggingCardProps {
   onRedactChange: (value: string) => Promise<void>;
   onReset: () => Promise<void>;
@@ -433,12 +468,12 @@ function AdvancedLoggingCard({
       <CardContent className="space-y-3">
         <div className="space-y-2">
           <Label htmlFor="redact-paths">Redacted Fields</Label>
-          <Input
+          <RedactPathsInput
+            committed={preferences.redactPaths.join(', ')}
             disabled={pending}
-            id="redact-paths"
-            onChange={(event) => onRedactChange(event.target.value)}
-            placeholder="apiKey, password, token"
-            value={preferences.redactPaths.join(', ')}
+            // A new committed list starts a new draft.
+            key={preferences.redactPaths.join(', ')}
+            onCommit={onRedactChange}
           />
           <p className="text-muted-foreground text-xs">
             Comma-separated list of keys to redact from structured logs in addition to built-in

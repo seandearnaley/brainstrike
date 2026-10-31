@@ -30,6 +30,7 @@ function createMockPayload(overrides?: Partial<LoggingPreferences>): LoggingSett
       fileLoggingSupported: true,
       runtime: 'electron',
     },
+    defaults: createMockPreferences(),
     preferences: createMockPreferences(overrides),
   };
 }
@@ -161,6 +162,29 @@ describe('logging-ipc', () => {
 
       // Both should have completed
       expect(callOrder).toHaveLength(2);
+    });
+
+    it("set-preferences merges each window's change into what Main holds, so neither reverts the other", async () => {
+      let held = createMockPreferences();
+      const handlers = createMockHandlers({
+        getState: vi.fn(() => createMockPayload(held)),
+        setPreferences: vi.fn(async (prefs: LoggingPreferences) => {
+          await new Promise((r) => setTimeout(r, 5));
+          held = prefs;
+          return createMockPayload(prefs);
+        }),
+      });
+      cleanup = registerLoggingIpcHandlers(handlers);
+
+      await Promise.all([
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', { redactPaths: ['token'] }),
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', {
+          file: { destination: '/tmp/picked.log', enabled: true },
+        }),
+      ]);
+
+      expect(held.redactPaths).toEqual(['token']);
+      expect(held.file).toMatchObject({ destination: '/tmp/picked.log', enabled: true });
     });
 
     it('set-preferences queue recovers from a rejection', async () => {
