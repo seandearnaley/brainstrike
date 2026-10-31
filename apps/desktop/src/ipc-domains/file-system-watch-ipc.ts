@@ -23,6 +23,7 @@ import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { pushToRenderer } from '../platform/desktop-ipc-push';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { fileSystemWatchContract } from './file-system.contract';
+import { fileSystemWatchArgs } from './file-system-args';
 import { isMockFileSystemIpcPath, resolveFileSystemIpcPath } from './file-system-ipc';
 
 const logger = createLogger('FileSystemWatchIpc');
@@ -530,11 +531,11 @@ export function registerFileSystemWatchIpcHandlers({
   registry.handle(
     'files',
     fileSystemWatchContract.watchDirectory.channel,
-    async (event, ...raw): Promise<FileSystemWatchRegistration> => {
-      const [handle] = fileSystemWatchContract.watchDirectory.parseArgs(raw);
+    fileSystemWatchArgs.watchDirectory,
+    async (event, handle): Promise<FileSystemWatchRegistration> => {
       const owner = event.sender;
-      const requestedPath = handle?.path;
-      if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
+      const requestedPath = handle.path;
+      if (requestedPath.length === 0) {
         throw new Error('fs:watch requires a directory handle with a non-empty path.');
       }
       if (owner.isDestroyed()) {
@@ -593,8 +594,8 @@ export function registerFileSystemWatchIpcHandlers({
   registry.handle(
     'files',
     fileSystemWatchContract.retryWatch.channel,
-    async (event, ...raw): Promise<FileSystemWatchRetryResult> => {
-      const [watchId] = fileSystemWatchContract.retryWatch.parseArgs(raw);
+    fileSystemWatchArgs.retryWatch,
+    async (event, watchId): Promise<FileSystemWatchRetryResult> => {
       const entry = liveWatchersById.get(watchId);
       // Unknown and non-owner produce IDENTICAL results — no ownership oracle.
       if (!entry || entry.ownerId !== event.sender.id) {
@@ -648,20 +649,18 @@ export function registerFileSystemWatchIpcHandlers({
   registry.handle(
     'files',
     fileSystemWatchContract.getWatcherTelemetry.channel,
-    (_event, ...raw) => {
-      fileSystemWatchContract.getWatcherTelemetry.parseArgs(raw);
-      return {
-        activeWatchers: liveWatchersBySubscription.size,
-        ...telemetry,
-      };
-    }
+    fileSystemWatchArgs.getWatcherTelemetry,
+    () => ({
+      activeWatchers: liveWatchersBySubscription.size,
+      ...telemetry,
+    })
   );
 
   registry.handle(
     'files',
     fileSystemWatchContract.unwatchDirectory.channel,
-    async (event, ...raw): Promise<void> => {
-      const [watchId] = fileSystemWatchContract.unwatchDirectory.parseArgs(raw);
+    fileSystemWatchArgs.unwatchDirectory,
+    async (event, watchId): Promise<void> => {
       const entry = liveWatchersById.get(watchId);
       if (!entry) {
         // Disposal races with the destroyed-owner reaper are normal; log only.

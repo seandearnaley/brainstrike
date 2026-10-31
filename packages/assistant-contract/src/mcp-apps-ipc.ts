@@ -148,20 +148,8 @@ export function parseMcpAppExecuteResult(value: unknown): McpAppExecuteResult {
     onExcessProperty: 'error',
   })(value);
 }
-export function parseMcpAppShellPrepareRequest(value: unknown): McpAppShellPrepareRequest {
-  return Schema.decodeUnknownSync(McpAppShellPrepareRequestSchema, {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(value);
-}
 export function parseMcpAppShellPrepareResult(value: unknown): McpAppShellPrepareResult {
   return Schema.decodeUnknownSync(McpAppShellPrepareResultSchema, {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(value);
-}
-export function parseMcpAppShellReleaseRequest(value: unknown): McpAppShellReleaseRequest {
-  return Schema.decodeUnknownSync(McpAppShellReleaseRequestSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })(value);

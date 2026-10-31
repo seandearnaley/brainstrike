@@ -25,8 +25,9 @@ already run, so a bare plugin entry lets a stable export expose an unstable
 Effect type and still type-check.
 
 Effect stays out of preloads and their value-import graph. Shared IPC contracts
-retain their pure preload parser surface; host, renderer, main and worker
-receiving boundaries may use Schema without importing Effect into preload. Do not move a stream,
+are type-only, and Main decodes each desktop invoke's arguments with the Schema it
+registers for that method; host, renderer, main and worker receiving boundaries
+may use Schema without importing Effect into preload. Do not move a stream,
 watchdog, persistence drain or ordering-sensitive queue to fibers merely because
 another subsystem uses them.
 
@@ -118,7 +119,7 @@ their order are in [the migration plan](effect-schema-migration.md).
 
 Decode runtime payloads, worker messages and database rows at their receiving
 boundary; derive types and check cross-field invariants rather than asserting a
-shape. Preserve the established error class/cause and pure preload parser surface.
+shape. Preserve the established error class and cause.
 Type-only brands do not add a runtime producer or identity alias.
 
 Use typed Schema decoders for authored or already validated inputs, preserving

@@ -1,15 +1,18 @@
 import type { LoggingPreferences } from '@brainstrike/logging';
 import { addLogListener, createLogger, LogLevel, type LogRecord } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import { ipcMain, webContents } from 'electron';
 import { isAppWindowSender } from './app-windows';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
+import { NoArgs } from './platform/ipc-args';
 import {
   assertBufferedLogRecord,
-  assertLoggingOpenDestinationTarget,
   LOGGING_API_CHANNELS,
+  LoggingPreferencesPatchSchema,
   mergeLoggingPreferencesPatch,
+  OpenDestinationArgs,
 } from './platform/logging-api-contract';
 
 const logger = createLogger('LoggingIPC');
@@ -88,7 +91,7 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     handlers.recordDurableLog?.(validated);
   });
 
-  registry.handle('logging', LOGGING_API_CHANNELS.getPreferences, () =>
+  registry.handle('logging', LOGGING_API_CHANNELS.getPreferences, NoArgs, () =>
     settleIpcResult({ category: 'logging', code: 'logging.read-failed' }, () => handlers.getState())
   );
 
@@ -96,38 +99,46 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
 
   // Each patch merges into the record Main holds once the updates queued before it have
   // applied, so a change from one window never reverts another window's change.
-  registry.handle('logging', LOGGING_API_CHANNELS.setPreferences, (_event, patch: unknown) =>
-    settleIpcResult({ category: 'logging', code: 'logging.write-failed' }, async () => {
-      const runUpdate = async (): Promise<LoggingSettingsPayload> => {
-        const preferences = mergeLoggingPreferencesPatch(handlers.getState().preferences, patch);
-        const payload = await handlers.setPreferences(preferences);
-        broadcastLoggingPreferences(payload.preferences);
-        return payload;
-      };
+  registry.handle(
+    'logging',
+    LOGGING_API_CHANNELS.setPreferences,
+    Schema.Tuple([LoggingPreferencesPatchSchema]),
+    (_event, patch) =>
+      settleIpcResult({ category: 'logging', code: 'logging.write-failed' }, async () => {
+        const runUpdate = async (): Promise<LoggingSettingsPayload> => {
+          const preferences = mergeLoggingPreferencesPatch(handlers.getState().preferences, patch);
+          const payload = await handlers.setPreferences(preferences);
+          broadcastLoggingPreferences(payload.preferences);
+          return payload;
+        };
 
-      const queuedUpdate = preferencesUpdateQueue.then(runUpdate, runUpdate);
-      preferencesUpdateQueue = queuedUpdate.then(
-        () => undefined,
-        () => undefined
-      );
+        const queuedUpdate = preferencesUpdateQueue.then(runUpdate, runUpdate);
+        preferencesUpdateQueue = queuedUpdate.then(
+          () => undefined,
+          () => undefined
+        );
 
-      return queuedUpdate;
-    })
+        return queuedUpdate;
+      })
   );
 
-  registry.handle('logging', LOGGING_API_CHANNELS.selectDestination, () =>
+  registry.handle('logging', LOGGING_API_CHANNELS.selectDestination, NoArgs, () =>
     settleIpcResult({ category: 'logging', code: 'logging.select-destination-failed' }, () =>
       handlers.selectDestination()
     )
   );
 
-  registry.handle('logging', LOGGING_API_CHANNELS.openDestination, (_event, target: unknown) =>
-    settleIpcResult({ category: 'logging', code: 'logging.open-destination-failed' }, () =>
-      handlers.openDestination(assertLoggingOpenDestinationTarget(target))
-    )
+  registry.handle(
+    'logging',
+    LOGGING_API_CHANNELS.openDestination,
+    OpenDestinationArgs,
+    (_event, target) =>
+      settleIpcResult({ category: 'logging', code: 'logging.open-destination-failed' }, () =>
+        handlers.openDestination(target)
+      )
   );
 
-  registry.handle('logging', LOGGING_API_CHANNELS.getBufferedLogs, () =>
+  registry.handle('logging', LOGGING_API_CHANNELS.getBufferedLogs, NoArgs, () =>
     settleIpcResult({ category: 'logging', code: 'logging.records-failed' }, () =>
       handlers.getBufferedLogs()
     )

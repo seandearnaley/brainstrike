@@ -1,12 +1,7 @@
-import type {
-  CreateViewFilterPresetInput,
-  UpdateViewFilterPresetInput,
-  ViewFilterPresetIcon,
-  ViewFilterPresetRequest,
-} from '../index.ts';
-import { assertSupportedKeys, parseRecord } from './structural.ts';
+import { Schema } from 'effect';
+import type { ViewFilterPresetRequest } from '../view-filter-preset-types.ts';
 
-const icons: readonly ViewFilterPresetIcon[] = [
+const Icon = Schema.Literals([
   'file',
   'file-code',
   'file-text',
@@ -23,95 +18,45 @@ const icons: readonly ViewFilterPresetIcon[] = [
   'palette',
   'flask-conical',
   'test-tube',
-];
-function text(value: unknown): string {
-  if (typeof value !== 'string') {
-    throw new Error('Preset text must be a string');
-  }
-  return value;
-}
-function patterns(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    throw new Error('Preset patterns must be an array');
-  }
-  return value.map(text);
-}
-function input(value: unknown): UpdateViewFilterPresetInput {
-  const row = parseRecord(value, 'View filter preset');
-  assertSupportedKeys(
-    row,
-    ['name', 'description', 'icon', 'includes', 'excludes', 'useRegex', 'sortOrder'],
-    'View filter preset'
-  );
-  const result: UpdateViewFilterPresetInput = {};
-  if (row['name'] !== undefined) {
-    result.name = text(row['name']);
-  }
-  if (row['description'] !== undefined) {
-    result.description = row['description'] === null ? null : text(row['description']);
-  }
-  if (row['includes'] !== undefined) {
-    result.includes = patterns(row['includes']);
-  }
-  if (row['excludes'] !== undefined) {
-    result.excludes = patterns(row['excludes']);
-  }
-  if (row['icon'] !== undefined) {
-    const icon = icons.find((candidate) => candidate === row['icon']);
-    if (!icon) {
-      throw new Error('Unsupported preset icon');
-    }
-    result.icon = icon;
-  }
-  if (row['useRegex'] !== undefined) {
-    if (typeof row['useRegex'] !== 'boolean') {
-      throw new Error('Invalid regex flag');
-    }
-    result.useRegex = row['useRegex'];
-  }
-  if (row['sortOrder'] !== undefined) {
-    if (typeof row['sortOrder'] !== 'number' || !Number.isSafeInteger(row['sortOrder'])) {
-      throw new Error('Invalid preset order');
-    }
-    result.sortOrder = row['sortOrder'];
-  }
-  return result;
-}
-export function parseViewFilterPresetRequest(value: unknown): ViewFilterPresetRequest {
-  const row = parseRecord(value, 'Preset request');
-  if (row['operation'] === 'list') {
-    assertSupportedKeys(row, ['operation'], 'Preset list');
-    return { operation: 'list' };
-  }
-  if (row['operation'] === 'delete') {
-    assertSupportedKeys(row, ['operation', 'id'], 'Preset delete');
-    return { id: text(row['id']), operation: 'delete' };
-  }
-  if (row['operation'] === 'update') {
-    assertSupportedKeys(row, ['operation', 'id', 'input'], 'Preset update');
-    return { id: text(row['id']), input: input(row['input']), operation: 'update' };
-  }
-  if (row['operation'] !== 'create') {
-    throw new Error('Unknown preset operation');
-  }
-  assertSupportedKeys(row, ['operation', 'input'], 'Preset create');
-  const parsed = input(row['input']);
-  if (
-    parsed.name === undefined ||
-    parsed.includes === undefined ||
-    parsed.excludes === undefined ||
-    parsed.description === null ||
-    parsed.sortOrder !== undefined
-  ) {
-    throw new Error('Invalid preset creation');
-  }
-  const created: CreateViewFilterPresetInput = {
-    excludes: parsed.excludes,
-    includes: parsed.includes,
-    name: parsed.name,
-    ...(parsed.description === undefined ? {} : { description: parsed.description }),
-    ...(parsed.icon === undefined ? {} : { icon: parsed.icon }),
-    ...(parsed.useRegex === undefined ? {} : { useRegex: parsed.useRegex }),
-  };
-  return { input: created, operation: 'create' };
-}
+]);
+const Patterns = Schema.mutable(Schema.Array(Schema.String));
+
+/** One view filter preset request, decoded wherever it crosses a process boundary. */
+export const ViewFilterPresetRequestSchema: Schema.Decoder<ViewFilterPresetRequest> = Schema.Union([
+  Schema.Struct({ operation: Schema.Literal('list') }),
+  Schema.Struct({
+    input: Schema.Struct({
+      description: Schema.optionalKey(Schema.String),
+      excludes: Patterns,
+      icon: Schema.optionalKey(Icon),
+      includes: Patterns,
+      name: Schema.String,
+      useRegex: Schema.optionalKey(Schema.Boolean),
+    }),
+    operation: Schema.Literal('create'),
+  }),
+  Schema.Struct({
+    id: Schema.String,
+    input: Schema.Struct({
+      description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      excludes: Schema.optionalKey(Patterns),
+      icon: Schema.optionalKey(Icon),
+      includes: Schema.optionalKey(Patterns),
+      name: Schema.optionalKey(Schema.String),
+      sortOrder: Schema.optionalKey(
+        Schema.Int.check(
+          Schema.isGreaterThanOrEqualTo(Number.MIN_SAFE_INTEGER),
+          Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
+        )
+      ),
+      useRegex: Schema.optionalKey(Schema.Boolean),
+    }),
+    operation: Schema.Literal('update'),
+  }),
+  Schema.Struct({ id: Schema.String, operation: Schema.Literal('delete') }),
+]);
+
+export const parseViewFilterPresetRequest = Schema.decodeUnknownSync(
+  ViewFilterPresetRequestSchema,
+  { onExcessProperty: 'error' }
+);

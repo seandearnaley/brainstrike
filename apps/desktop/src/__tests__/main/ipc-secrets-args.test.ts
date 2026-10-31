@@ -1,10 +1,14 @@
 import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import {
-  decodeProviderArgs,
-  decodeProviderCredentialArgs,
-  decodeProviderValueArgs,
-} from '../../ipc-secrets-args';
+import { ProviderArgs, ProviderCredentialArgs, ProviderValueArgs } from '../../ipc-secrets-args';
+import { ipcArgsDecoder } from '../../platform/ipc-args';
+
+const decodeProviderArgs = ipcArgsDecoder('secrets:get', ProviderArgs);
+const decodeProviderValueArgs = ipcArgsDecoder('secrets:save', ProviderValueArgs);
+const decodeProviderCredentialArgs = ipcArgsDecoder(
+  'secrets:saveCredential',
+  ProviderCredentialArgs
+);
 
 const SECRET = 'sk-never-echo-4242';
 
@@ -17,7 +21,7 @@ function thrownBy(decode: () => unknown): unknown {
   return null;
 }
 
-describe('secrets IPC argument decoders', () => {
+describe('secrets IPC argument schemas', () => {
   it('accepts well-formed argument lists', () => {
     expect(decodeProviderArgs(['openai'])).toEqual(['openai']);
     expect(decodeProviderValueArgs(['openai', SECRET])).toEqual(['openai', SECRET]);
@@ -33,7 +37,7 @@ describe('secrets IPC argument decoders', () => {
     ['an over-long id', 'x'.repeat(257)],
   ])('rejects a provider id with %s', (_label, provider) => {
     expect(() => decodeProviderArgs([provider])).toThrow(
-      /^secrets IPC provider must be a non-empty string/u
+      /secrets IPC provider must be a non-empty string/u
     );
   });
 

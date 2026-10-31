@@ -1,6 +1,7 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
+import type { Schema } from 'effect';
 import type { ipcMain as ElectronIpcMain, IpcMainInvokeEvent } from 'electron';
 import { isAppWindowSender } from '../app-windows';
 import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
@@ -11,6 +12,7 @@ import {
   isAllowedDesktopIpcSenderFrameUrl,
   resolveDesktopIpcSenderFrameAllowlist,
 } from './desktop-ipc-sender-frame';
+import { type ContractArgs, ipcArgsDecoder } from './ipc-args';
 import { type Contract, type Handlers, ipcFailure, ipcOk } from './ipc-contract';
 
 export type DesktopIpcDomain =
@@ -50,9 +52,12 @@ export interface DesktopIpcChannelRegistration {
   readonly domain: DesktopIpcDomain;
 }
 
+/** A decoded argument tuple, writable so a handler may name its parameters. */
+type HandlerArgs<Args extends readonly unknown[]> = { -readonly [K in keyof Args]: Args[K] };
+
 type DesktopIpcHandler<Args extends readonly unknown[] = readonly unknown[], Result = unknown> = (
   event: IpcMainInvokeEvent,
-  ...args: Args
+  ...args: HandlerArgs<Args>
 ) => Promise<Result> | Result;
 
 interface DesktopIpcMainLike {
@@ -73,21 +78,24 @@ interface DesktopIpcRegistryOptions {
 export interface DesktopIpcRegistry {
   readonly getSnapshot: () => DesktopIpcChannelRegistration[];
   /**
-   * Serves one method on the desktop's one IPC connection. Before the handler
-   * receives or parses any renderer-controlled argument, the dispatcher checks
-   * both sender factors: `event.sender.id` must be a tracked app window, and
+   * Serves one method on the desktop's one IPC connection. Before any
+   * renderer-controlled argument is read, the dispatcher checks both sender
+   * factors: `event.sender.id` must be a tracked app window, and
    * `event.senderFrame.url` must match the launch-mode allowlist (a null or
-   * missing frame is rejected).
+   * missing frame is rejected). It then decodes the arguments with `args`
+   * and hands the handler the decoded tuple.
    */
   readonly handle: <Args extends readonly unknown[], Result>(
     domain: DesktopIpcDomain,
     method: string,
+    args: Schema.Decoder<Args>,
     handler: DesktopIpcHandler<Args, Result>
   ) => void;
   readonly unregisterAll: () => void;
 }
 
 interface DesktopIpcRoute extends DesktopIpcChannelRegistration {
+  readonly decodeArgs: (raw: readonly unknown[]) => readonly unknown[];
   readonly handler: DesktopIpcHandler;
 }
 
@@ -175,7 +183,17 @@ function openConnection(
     if (!route) {
       throw new Error(`No desktop IPC handler for ${method}.`);
     }
-    return await route.handler(event, ...args);
+    let decoded: readonly unknown[];
+    try {
+      decoded = route.decodeArgs(args);
+    } catch (error) {
+      logger.warn('Rejected desktop IPC invoke: invalid arguments', {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        method,
+      });
+      throw error;
+    }
+    return await route.handler(event, ...decoded);
   });
   return connection;
 }
@@ -192,14 +210,19 @@ export function createDesktopIpcRegistry({
       [...owned.values()]
         .map(({ channel, domain }) => ({ channel, domain }))
         .sort((left, right) => left.channel.localeCompare(right.channel)),
-    handle: (domain, method, handler) => {
+    handle: (domain, method, args, handler) => {
       if (method.trim().length === 0 || method.includes('\0')) {
         throw new Error('Desktop IPC method must be a non-empty string without null bytes.');
       }
       if (connection.routes.has(method)) {
         throw new Error(`Desktop IPC method already registered: ${method}`);
       }
-      const route = { channel: method, domain, handler: handler as DesktopIpcHandler };
+      const route: DesktopIpcRoute = {
+        channel: method,
+        decodeArgs: ipcArgsDecoder(method, args),
+        domain,
+        handler: handler as DesktopIpcHandler,
+      };
       connection.routes.set(method, route);
       owned.set(method, route);
     },
@@ -216,8 +239,9 @@ export function createDesktopIpcRegistry({
 
 /**
  * Registers every invoke method of a pure contract (BST-1648). Per call, the
- * dispatcher's authorization runs first (both factors), then `spec.parseArgs`
- * in main (throws on malformed input), then the handler with the parsed tuple. Push events are
+ * dispatcher's authorization runs first (both factors), then the channel's
+ * argument schema from `args` (rejects malformed input), then the handler with
+ * the decoded tuple. Push events are
  * never registered here: a main→renderer push is `pushToRenderer`, not a handler. A contract key
  * without a handler, or a handler without a contract key, is a registration
  * error (fail closed, never a silently dead channel).
@@ -226,9 +250,11 @@ export function registerDomain<C extends Contract>(
   registry: Pick<DesktopIpcRegistry, 'handle'>,
   domain: DesktopIpcDomain,
   contract: C,
+  args: ContractArgs<C>,
   handlers: Handlers<C>
 ): void {
   const handlerMap = handlers as Record<string, ((...args: never[]) => unknown) | undefined>;
+  const argsMap = args as Record<string, Schema.Decoder<readonly unknown[]> | undefined>;
   const invokeKeys = Object.entries(contract).filter(([, spec]) => spec.kind === 'invoke');
   for (const key of Object.keys(handlerMap)) {
     if (!invokeKeys.some(([contractKey]) => contractKey === key)) {
@@ -242,15 +268,19 @@ export function registerDomain<C extends Contract>(
     if (typeof handler !== 'function' || spec.kind !== 'invoke') {
       throw new Error(`Desktop IPC domain ${domain} has no handler for contract key "${key}".`);
     }
-    return { invoke: handler as (...args: unknown[]) => unknown, spec };
+    const argsSchema = argsMap[key];
+    if (argsSchema === undefined) {
+      throw new Error(`Desktop IPC domain ${domain} has no argument schema for "${key}".`);
+    }
+    return { argsSchema, invoke: handler as (...decoded: unknown[]) => unknown, spec };
   });
-  for (const { invoke, spec } of registrations) {
-    registry.handle(domain, spec.channel, (_event, ...raw: readonly unknown[]) => {
+  for (const { argsSchema, invoke, spec } of registrations) {
+    registry.handle(domain, spec.channel, argsSchema, (_event, ...decoded) => {
       if (spec.envelope === 'raw') {
-        return invoke(...spec.parseArgs(raw));
+        return invoke(...decoded);
       }
       return settleIpcResult({ category: domain, code: spec.channel }, () =>
-        invoke(...spec.parseArgs(raw))
+        invoke(...decoded)
       ).then((result) => (result.ok ? result.value : result));
     });
   }

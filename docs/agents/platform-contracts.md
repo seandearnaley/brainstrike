@@ -12,9 +12,13 @@ Built renderers, visible and hidden, load one exact document on the bundled
 confined protocol handler (`renderer-protocol.ts`); loaders, navigation and the
 sender-frame allowlist derive it from the same target and never admit the old
 `file://` document. Browser storage, Cache Storage models included, belongs to
-that origin. Shared IPC contracts and preload value imports
-remain pure; Node/runtime validation belongs on the main side. Bundles expose only
-the declared capability graph, not arbitrary bridges.
+that origin. Shared IPC contracts are type-only (channel names, argument and
+result types), and preload value imports stay pure. Main registers an Effect
+Schema for every invoke's argument tuple (`platform/ipc-args.ts`); the one
+dispatcher decodes it after authorizing the sender and before the handler runs,
+and rejects extra arguments and undeclared fields. A semantic check that needs
+Main state (root identity, path containment, the credential guard) stays in its
+owner. Bundles expose only the declared capability graph, not arbitrary bridges.
 
 Native modules, utility entries, Python/CLI helpers and runtime assets are
 resolved from the actual packaged layout. Missing or incompatible assets refuse;

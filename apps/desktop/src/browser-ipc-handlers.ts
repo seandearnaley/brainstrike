@@ -1,17 +1,17 @@
 /**
  * Main-process handlers for the desktop `browser` IPC domain (BST-1174).
  *
- * Every renderer-supplied argument arrives as `unknown` (the IPC boundary is
- * untrusted) and is structurally narrowed here before it reaches the
- * `BrowserViewManager`. Malformed payloads return a typed
- * `{ ok: false, error }` result — never a thrown bare Error, never a silent
- * coercion — mirroring `changes-ipc-handlers.ts`.
+ * The dispatcher decodes every renderer argument with `browserArgs` before
+ * these handlers run. An unknown tab and a manager throw return a typed
+ * `{ ok: false, error }` result, never a thrown bare Error.
  *
  * The manager itself is injected (resolved lazily from main once the visible
  * window exists) so these handlers are unit-testable with a fake.
  */
 import { createLogger } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import type { BrowserTabState, PaneRect } from './browser/browser-view-manager';
+import { NoArgs } from './platform/ipc-args';
 
 const logger = createLogger('BrowserIpc');
 
@@ -38,17 +38,36 @@ export interface BrowserManagerLike {
 }
 
 export interface BrowserIpcHandlers {
-  closeTab(tabId: unknown): BrowserResult;
-  createTab(threadId: unknown, url: unknown): BrowserResult<string>;
-  goBack(tabId: unknown): BrowserResult;
-  goForward(tabId: unknown): BrowserResult;
+  closeTab(tabId: string): BrowserResult;
+  createTab(threadId: string, url?: string): BrowserResult<string>;
+  goBack(tabId: string): BrowserResult;
+  goForward(tabId: string): BrowserResult;
   listTabs(): BrowserResult<readonly BrowserTabState[]>;
-  navigate(tabId: unknown, url: unknown): BrowserResult;
-  reload(tabId: unknown): BrowserResult;
-  setBounds(rect: unknown): BrowserResult;
-  setOccluded(occluded: unknown): BrowserResult;
-  showTab(tabId: unknown): BrowserResult;
+  navigate(tabId: string, url: string): BrowserResult;
+  reload(tabId: string): BrowserResult;
+  setBounds(rect: PaneRect): BrowserResult;
+  setOccluded(occluded: boolean): BrowserResult;
+  showTab(tabId: string): BrowserResult;
 }
+
+const NonEmptyString = Schema.String.check(Schema.isNonEmpty());
+const TabId = Schema.Tuple([NonEmptyString]);
+const Finite = Schema.Finite;
+const Extent = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+
+/** The renderer arguments of each browser method; `x`/`y` may be negative (a scrolled pane). */
+export const browserArgs = {
+  closeTab: TabId,
+  createTab: Schema.Tuple([NonEmptyString, Schema.optional(Schema.String)]),
+  goBack: TabId,
+  goForward: TabId,
+  listTabs: NoArgs,
+  navigate: Schema.Tuple([NonEmptyString, NonEmptyString]),
+  reload: TabId,
+  setBounds: Schema.Tuple([Schema.Struct({ height: Extent, width: Extent, x: Finite, y: Finite })]),
+  setOccluded: Schema.Tuple([Schema.Boolean]),
+  showTab: TabId,
+} satisfies Record<keyof BrowserIpcHandlers, Schema.Top>;
 
 function ok<T>(value: T): BrowserResult<T> {
   return { ok: true, value };
@@ -59,53 +78,16 @@ function fail(error: string): BrowserResult<never> {
   return { error, ok: false };
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
-/**
- * A rect is 4 finite numbers with non-negative width/height and nothing else.
- * `x`/`y` MAY be negative — a partially scrolled-offscreen pane is valid.
- */
-function validateRect(value: unknown): PaneRect | null {
-  if (typeof value !== 'object' || value === null) {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  const { height, width, x, y } = record;
-  if (![height, width, x, y].every(isFiniteNumber)) {
-    return null;
-  }
-  if ((width as number) < 0 || (height as number) < 0) {
-    return null;
-  }
-  // Reject extra keys so a malformed payload can't smuggle fields through.
-  const extra = Object.keys(record).filter((key) => !['height', 'width', 'x', 'y'].includes(key));
-  if (extra.length > 0) {
-    return null;
-  }
-  return { height: height as number, width: width as number, x: x as number, y: y as number };
-}
-
 export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIpcHandlers {
-  const tabAction = (tabId: unknown, verb: string, run: (id: string) => boolean): BrowserResult => {
-    if (!isNonEmptyString(tabId)) {
-      return fail(`${verb} requires a non-empty tabId`);
-    }
+  const tabAction = (tabId: string, run: (id: string) => boolean): BrowserResult =>
     // A well-formed but UNKNOWN tab id is a real desync, not a success —
     // surface it (NO SILENT FALLBACKS) so the renderer can resync.
-    return run(tabId) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
-  };
-  // The structured-result contract holds in BOTH directions: validation
-  // failures AND executor throws (live 2026-08-07: a native attach TypeError
+    run(tabId) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
+  // The structured-result contract holds for unknown tabs AND executor throws (live 2026-08-07: a native attach TypeError
   // propagated to the renderer as a raw invoke rejection). Errors stay fully
   // visible — logged + returned — never swallowed.
   const guard =
-    <A extends unknown[], T>(
+    <A extends never[], T>(
       verb: string,
       handler: (...args: A) => BrowserResult<T>
     ): ((...args: A) => BrowserResult<T>) =>
@@ -120,52 +102,36 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
     };
   const handlers: BrowserIpcHandlers = {
     closeTab(tabId) {
-      return tabAction(tabId, 'closeTab', (id) => manager.closeTab(id));
+      return tabAction(tabId, (id) => manager.closeTab(id));
     },
     createTab(threadId, url) {
-      if (!isNonEmptyString(threadId)) {
-        return fail('createTab requires the threadId whose workspace shows the page');
-      }
-      if (url !== undefined && typeof url !== 'string') {
-        return fail('createTab url must be a string or omitted');
-      }
       return ok(manager.createTab(threadId, url));
     },
     goBack(tabId) {
-      return tabAction(tabId, 'goBack', (id) => manager.goBack(id));
+      return tabAction(tabId, (id) => manager.goBack(id));
     },
     goForward(tabId) {
-      return tabAction(tabId, 'goForward', (id) => manager.goForward(id));
+      return tabAction(tabId, (id) => manager.goForward(id));
     },
     listTabs() {
       return ok(manager.listTabs());
     },
     navigate(tabId, url) {
-      if (!isNonEmptyString(url)) {
-        return fail('navigate requires a url string');
-      }
-      return tabAction(tabId, 'navigate', (id) => manager.navigate(id, url));
+      return tabAction(tabId, (id) => manager.navigate(id, url));
     },
     reload(tabId) {
-      return tabAction(tabId, 'reload', (id) => manager.reload(id));
+      return tabAction(tabId, (id) => manager.reload(id));
     },
     setBounds(rect) {
-      const validated = validateRect(rect);
-      if (!validated) {
-        return fail('setBounds requires finite x/y and non-negative width/height');
-      }
-      manager.setBounds(validated);
+      manager.setBounds(rect);
       return ok(undefined);
     },
     setOccluded(occluded) {
-      if (typeof occluded !== 'boolean') {
-        return fail('setOccluded requires a boolean');
-      }
       manager.setOccluded(occluded);
       return ok(undefined);
     },
     showTab(tabId) {
-      return tabAction(tabId, 'showTab', (id) => manager.showTab(id));
+      return tabAction(tabId, (id) => manager.showTab(id));
     },
   };
   // Wrap BY CONSTRUCTION — every key of the implementation object is guarded,
@@ -173,7 +139,7 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
   // type-checks even when a key is wired through bare).
   const wrapped = {} as Record<keyof BrowserIpcHandlers, unknown>;
   for (const key of Object.keys(handlers) as (keyof BrowserIpcHandlers)[]) {
-    wrapped[key] = guard(key, handlers[key] as (...args: unknown[]) => BrowserResult<unknown>);
+    wrapped[key] = guard(key, handlers[key] as (...args: never[]) => BrowserResult<unknown>);
   }
   return wrapped as BrowserIpcHandlers;
 }

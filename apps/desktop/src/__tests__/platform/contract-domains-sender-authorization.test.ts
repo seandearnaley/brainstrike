@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { untrackAppWindow } from '../../app-windows';
 import { registerClipboardIpcHandlers } from '../../ipc-clipboard';
@@ -5,6 +6,7 @@ import { registerContextFilesIpcHandlers } from '../../ipc-context-files';
 import { mcpAppsContract, mcpPathSelectionContract } from '../../ipc-domains/mcp.contract';
 import { registerUserPersonasIpcHandlers } from '../../ipc-user-personas';
 import { createDesktopIpcRegistry, registerDomain } from '../../platform/desktop-ipc-registry';
+import type { ContractArgs } from '../../platform/ipc-args';
 import type { Contract, Handlers } from '../../platform/ipc-contract';
 import {
   createAllowlistedSenderFrame,
@@ -16,8 +18,8 @@ import { mockIpcMain } from '../helpers/electron-main-test-harness';
 
 /**
  * BST-1648: every contract-registered leaf domain is sender-authorized BY
- * CONSTRUCTION: the one dispatcher authorizes each call before any handler
- * or `parseArgs` runs.
+ * CONSTRUCTION: the one dispatcher authorizes each call before it decodes
+ * arguments or runs a handler.
  */
 interface ContractDomainCase {
   readonly domain: string;
@@ -61,6 +63,13 @@ const DOMAIN_CASES: readonly ContractDomainCase[] = [
   },
 ];
 
+/** Well-formed arguments for each method, so an authorized call reaches its handler. */
+const VALID_ARGS: Readonly<Record<string, readonly unknown[]>> = {
+  'clipboard:write-text': ['text'],
+  'context-files:scan': [],
+  'user-personas:list': [],
+};
+
 let dispose: (() => void) | undefined;
 
 afterEach(() => {
@@ -77,7 +86,12 @@ describe('contract-registered leaf domains are app-window-only by construction (
       dispose = register(SENTINEL);
 
       await expect(
-        invokeDesktopIpcFrom(mockIpcMain, createTrustedInvokeEvent(APP_SENDER_ID), method, 'text')
+        invokeDesktopIpcFrom(
+          mockIpcMain,
+          createTrustedInvokeEvent(APP_SENDER_ID),
+          method,
+          ...(VALID_ARGS[method] ?? [])
+        )
       ).resolves.toMatchObject({ ok: true });
     });
 
@@ -127,7 +141,10 @@ describe('contract-registered MCP invokes are app-window-only by construction (B
           .filter(([, spec]) => spec.kind === 'invoke')
           .map(([key]) => [key, vi.fn(() => SENTINEL)])
       ) as Handlers<Contract>;
-      registerDomain(registry, 'mcp', contract, handlers);
+      const anyArgs = Object.fromEntries(
+        Object.keys(handlers).map((key) => [key, Schema.Array(Schema.Unknown)])
+      ) as ContractArgs<Contract>;
+      registerDomain(registry, 'mcp', contract, anyArgs, handlers);
       const event = {
         sender: { id: UNTRACKED_SENDER_ID },
         senderFrame: createAllowlistedSenderFrame(),

@@ -5,15 +5,13 @@
  * profile's data folder. PURE — bundled into the preload and imported by main.
  */
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { type Contract, channel, parseNoArgs } from '../platform/ipc-contract';
+import { type Contract, channel } from '../platform/ipc-contract';
 
 export const agentHostRecoveryContract = {
   restartHost: channel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.agent.hostRestart,
-    parseArgs: parseNoArgs,
   }),
   showDataFolder: channel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.agent.showDataFolder,
-    parseArgs: parseNoArgs,
   }),
 } satisfies Contract;

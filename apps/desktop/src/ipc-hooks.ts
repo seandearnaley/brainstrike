@@ -1,6 +1,5 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { ipcMain } from 'electron';
@@ -32,9 +31,9 @@ async function loadDbRoots(workspaceRoots: WorkspaceRootPort): Promise<DbRootLit
 /** The mounted root containing `absPath`; trust names that root, never a renderer id. */
 async function containingDbRoot(
   workspaceRoots: WorkspaceRootPort,
-  absPath: unknown
+  absPath: string
 ): Promise<DbRootLite> {
-  if (typeof absPath !== 'string' || !isAbsolute(absPath.trim())) {
+  if (!isAbsolute(absPath.trim())) {
     throw new Error('root path must be a non-empty absolute path');
   }
   const dbRoot = resolveDbRootForPath(
@@ -57,7 +56,8 @@ export function registerHooksIpcHandlers(
   registry.handle(
     'hooks',
     DESKTOP_IPC_CHANNELS.hooks.getProjectHooksForReview,
-    async (_event, rootId: unknown, absPath: unknown): Promise<ProjectHooksReview> => {
+    Schema.Tuple([Schema.String, Schema.String]),
+    async (_event, rootId, absPath): Promise<ProjectHooksReview> => {
       const dbRoots = await loadDbRoots(workspaceRoots);
       const review = getProjectHooksForReview(rootId, absPath, {
         resolveDbRoot: (path) => resolveDbRootForPath(path, dbRoots, realpathSync),
@@ -75,20 +75,18 @@ export function registerHooksIpcHandlers(
   registry.handle(
     'hooks',
     DESKTOP_IPC_CHANNELS.hooks.trustProjectHooks,
-    async (_event, absPath: unknown, sha256: unknown): Promise<void> => {
+    Schema.Tuple([Schema.String, Sha256Schema]),
+    async (_event, absPath, sha256): Promise<void> => {
       const dbRoot = await containingDbRoot(workspaceRoots, absPath);
-      await hookTrust.trust({
-        path: dbRoot.path,
-        rootId: dbRoot.id,
-        sha256: wireDecoder(Sha256Schema, { errors: 'all', onExcessProperty: 'error' })(sha256),
-      });
+      await hookTrust.trust({ path: dbRoot.path, rootId: dbRoot.id, sha256 });
     }
   );
 
   registry.handle(
     'hooks',
     DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks,
-    async (_event, absPath: unknown): Promise<void> => {
+    Schema.Tuple([Schema.String]),
+    async (_event, absPath): Promise<void> => {
       await hookTrust.untrust((await containingDbRoot(workspaceRoots, absPath)).id);
     }
   );

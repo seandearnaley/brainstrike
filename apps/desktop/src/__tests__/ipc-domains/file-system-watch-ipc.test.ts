@@ -329,7 +329,7 @@ describe('file-system watch IPC domain', () => {
       const owner = new FakeWebContents(1);
 
       await expect(invokeFrom(invokeEventFor(owner), channel, { malformed: true })).rejects.toThrow(
-        /requires a string/u
+        /invalid arguments/u
       );
     }
   );

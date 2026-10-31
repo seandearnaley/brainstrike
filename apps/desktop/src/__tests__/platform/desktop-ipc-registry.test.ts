@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { untrackAppWindow } from '../../app-windows';
 import {
@@ -23,6 +24,7 @@ const RENDERER_TARGET = createDesktopRendererTarget({
   launchMode: 'built',
 });
 const SENDER_FRAME_ALLOWLIST = createDesktopIpcSenderFrameAllowlist(RENDERER_TARGET);
+const AnyArgs = Schema.Array(Schema.Unknown);
 
 function createMockIpcMain() {
   return { handle: vi.fn() };
@@ -50,9 +52,9 @@ describe('desktop IPC registry', () => {
     const shell = createRegistry(ipcMain);
     const secrets = createRegistry(ipcMain);
 
-    shell.handle('shell', 'shell:open-path', vi.fn());
-    shell.handle('shell', 'shell:open-external', vi.fn());
-    secrets.handle('preferences', 'secrets:get', vi.fn());
+    shell.handle('shell', 'shell:open-path', AnyArgs, vi.fn());
+    shell.handle('shell', 'shell:open-external', AnyArgs, vi.fn());
+    secrets.handle('preferences', 'secrets:get', AnyArgs, vi.fn());
 
     expect(ipcMain.handle).toHaveBeenCalledExactlyOnceWith(
       DESKTOP_IPC_INVOKE_CHANNEL,
@@ -69,7 +71,7 @@ describe('desktop IPC registry', () => {
     const ipcMain = createMockIpcMain();
     const registry = createRegistry(ipcMain);
     const handler = vi.fn((_event: unknown, payload: string) => `accepted:${payload}`);
-    registry.handle('preferences', 'secrets:get', handler);
+    registry.handle('preferences', 'secrets:get', Schema.Tuple([Schema.String]), handler);
     const event = appWindowEvent(8101);
 
     await expect(invokeDesktopIpcFrom(ipcMain, event, 'secrets:get', 'openai')).resolves.toBe(
@@ -81,7 +83,7 @@ describe('desktop IPC registry', () => {
 
   it('refuses an unknown method from an authorized sender', async () => {
     const ipcMain = createMockIpcMain();
-    createRegistry(ipcMain).handle('shell', 'shell:open-path', vi.fn());
+    createRegistry(ipcMain).handle('shell', 'shell:open-path', AnyArgs, vi.fn());
 
     await expect(
       invokeDesktopIpcFrom(ipcMain, appWindowEvent(8102), 'shell:format-disk')
@@ -97,8 +99,8 @@ describe('desktop IPC registry', () => {
     const shell = vi.fn();
     const secrets = vi.fn();
     const registry = createRegistry(ipcMain);
-    registry.handle('shell', 'shell:open-external', shell);
-    registry.handle('preferences', 'secrets:get', secrets);
+    registry.handle('shell', 'shell:open-external', AnyArgs, shell);
+    registry.handle('preferences', 'secrets:get', AnyArgs, secrets);
     const untracked = { sender: { id: 8103 }, senderFrame: { url: BUILT_RENDERER_URL } };
 
     for (const method of ['shell:open-external', 'secrets:get', 'shell:format-disk']) {
@@ -118,7 +120,7 @@ describe('desktop IPC registry', () => {
   ])('refuses a spoofed sender frame (%s) from a tracked app window', async (_label, url) => {
     const ipcMain = createMockIpcMain();
     const handler = vi.fn();
-    createRegistry(ipcMain).handle('shell', 'shell:open-external', handler);
+    createRegistry(ipcMain).handle('shell', 'shell:open-external', AnyArgs, handler);
 
     for (const method of ['shell:open-external', 'shell:format-disk']) {
       await expect(
@@ -135,7 +137,7 @@ describe('desktop IPC registry', () => {
   ])('fails closed when senderFrame is %s', async (_label, senderFrame) => {
     const ipcMain = createMockIpcMain();
     const handler = vi.fn();
-    createRegistry(ipcMain).handle('shell', 'shell:open-external', handler);
+    createRegistry(ipcMain).handle('shell', 'shell:open-external', AnyArgs, handler);
     trackTestAppWindow(8105);
     const event =
       senderFrame === undefined ? { sender: { id: 8105 } } : { sender: { id: 8105 }, senderFrame };
@@ -150,7 +152,7 @@ describe('desktop IPC registry', () => {
   it('fails closed with the curated error when the sender frame url getter throws (disposed frame)', async () => {
     const ipcMain = createMockIpcMain();
     const handler = vi.fn();
-    createRegistry(ipcMain).handle('shell', 'shell:open-path', handler);
+    createRegistry(ipcMain).handle('shell', 'shell:open-path', AnyArgs, handler);
     trackTestAppWindow(8106);
     const disposedFrame = {
       get url(): string {
@@ -176,6 +178,7 @@ describe('desktop IPC registry', () => {
     createDesktopIpcRegistry({ ipcMain: ipcMain as never }).handle(
       'shell',
       'shell:open-path',
+      AnyArgs,
       handler
     );
 
@@ -192,6 +195,7 @@ describe('desktop IPC registry', () => {
     createDesktopIpcRegistry({ ipcMain: ipcMain as never }).handle(
       'shell',
       'shell:open-path',
+      AnyArgs,
       vi.fn(() => 'opened')
     );
 
@@ -204,7 +208,7 @@ describe('desktop IPC registry', () => {
   it('logs a main-process warning naming the method and the rejected frame URL', async () => {
     const ipcMain = createMockIpcMain();
     const handler = vi.fn();
-    createRegistry(ipcMain).handle('shell', 'shell:open-path', handler);
+    createRegistry(ipcMain).handle('shell', 'shell:open-path', AnyArgs, handler);
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       captured.push(record);
@@ -242,11 +246,11 @@ describe('desktop IPC registry', () => {
   it('refuses a method that another registry on the same ipcMain already serves', async () => {
     const ipcMain = createMockIpcMain();
     const first = vi.fn(() => 'first');
-    createRegistry(ipcMain).handle('db', 'db:clearAll', first);
+    createRegistry(ipcMain).handle('db', 'db:clearAll', AnyArgs, first);
 
-    expect(() => createRegistry(ipcMain).handle('diagnostics', 'db:clearAll', vi.fn())).toThrow(
-      'Desktop IPC method already registered: db:clearAll'
-    );
+    expect(() =>
+      createRegistry(ipcMain).handle('diagnostics', 'db:clearAll', AnyArgs, vi.fn())
+    ).toThrow('Desktop IPC method already registered: db:clearAll');
     await expect(invokeDesktopIpcFrom(ipcMain, appWindowEvent(8110), 'db:clearAll')).resolves.toBe(
       'first'
     );
@@ -256,10 +260,10 @@ describe('desktop IPC registry', () => {
   it('rejects invalid method names before registration', () => {
     const registry = createRegistry(createMockIpcMain());
 
-    expect(() => registry.handle('db', '  ', vi.fn())).toThrow(
+    expect(() => registry.handle('db', '  ', AnyArgs, vi.fn())).toThrow(
       'Desktop IPC method must be a non-empty string without null bytes.'
     );
-    expect(() => registry.handle('db', 'db:\0query', vi.fn())).toThrow(
+    expect(() => registry.handle('db', 'db:\0query', AnyArgs, vi.fn())).toThrow(
       'Desktop IPC method must be a non-empty string without null bytes.'
     );
     expect(registry.getSnapshot()).toEqual([]);
@@ -272,11 +276,13 @@ describe('desktop IPC registry', () => {
     shell.handle(
       'shell',
       'shell:open-path',
+      AnyArgs,
       vi.fn(() => 'opened')
     );
     secrets.handle(
       'preferences',
       'secrets:get',
+      AnyArgs,
       vi.fn(() => 'secret')
     );
     const event = appWindowEvent(8111);
@@ -293,10 +299,43 @@ describe('desktop IPC registry', () => {
     replacement.handle(
       'shell',
       'shell:open-path',
+      AnyArgs,
       vi.fn(() => 'reopened')
     );
     await expect(invokeDesktopIpcFrom(ipcMain, event, 'shell:open-path')).resolves.toBe('reopened');
     expect(ipcMain.handle).toHaveBeenCalledTimes(1);
     untrackAppWindow(8111);
+  });
+
+  it('refuses arguments that do not match the method schema before the handler runs', async () => {
+    const ipcMain = createMockIpcMain();
+    const handler = vi.fn();
+    createRegistry(ipcMain).handle(
+      'preferences',
+      'secrets:get',
+      Schema.Tuple([Schema.String]),
+      handler
+    );
+    const event = appWindowEvent(8112);
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      captured.push(record);
+    });
+
+    try {
+      for (const args of [[], [42], ['openai', 'extra']]) {
+        await expect(invokeDesktopIpcFrom(ipcMain, event, 'secrets:get', ...args)).rejects.toThrow(
+          'Desktop IPC secrets:get received invalid arguments'
+        );
+      }
+    } finally {
+      unsubscribe();
+      untrackAppWindow(8112);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(
+      captured.filter((entry) => entry.scope === 'DesktopIpcRegistry' && entry.level === 'warn')
+    ).toHaveLength(3);
   });
 });

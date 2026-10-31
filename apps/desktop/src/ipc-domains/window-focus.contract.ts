@@ -15,14 +15,12 @@ import {
   type BridgeMatches,
   type Contract,
   channel,
-  parseNoArgs,
   pushEvent,
 } from '../platform/ipc-contract';
 
 export const windowFocusContract = {
   isFocused: channel<[], boolean>({
     channel: DESKTOP_IPC_CHANNELS.windowFocus.isFocused,
-    parseArgs: parseNoArgs,
   }),
   onChange: pushEvent<boolean>({ channel: DESKTOP_IPC_CHANNELS.windowFocus.changed }),
 } satisfies Contract;

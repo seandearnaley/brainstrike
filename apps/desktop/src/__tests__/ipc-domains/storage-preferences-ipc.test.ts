@@ -96,7 +96,7 @@ describe('storage preferences IPC domain', () => {
   it('rejects non-string renderer values at the IPC boundary', async () => {
     await expect(
       invoke('storage:setItem', 'assistant-preferences.v1', { invalid: true })
-    ).rejects.toThrow('storage setItem requires two string arguments.');
+    ).rejects.toThrow('Desktop IPC storage:setItem received invalid arguments');
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 

@@ -1,8 +1,9 @@
 import {
-  parseMcpAppShellPrepareRequest,
+  McpAppShellPrepareRequestSchema,
+  McpAppShellReleaseRequestSchema,
   parseMcpAppShellPrepareResult,
-  parseMcpAppShellReleaseRequest,
 } from '@brainstrike/assistant-contract';
+import { Schema } from 'effect';
 import { mcpAppsContract } from '../ipc-domains/mcp.contract';
 import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import type { McpAppShellRegistry } from './apps-shell-protocol';
@@ -36,22 +37,25 @@ export function attachMcpAppShellBridge(
     });
   };
 
-  ipc.handle('mcp', mcpAppsContract.prepareShell.channel, async (event, ...raw: unknown[]) => {
-    const [value] = mcpAppsContract.prepareShell.parseArgs(raw);
-    const sender: McpAppShellSender = event.sender;
-    if (sender.isDestroyed()) {
-      throw new Error('MCP App shell registration from a destroyed WebContents');
+  ipc.handle(
+    'mcp',
+    mcpAppsContract.prepareShell.channel,
+    Schema.Tuple([McpAppShellPrepareRequestSchema]),
+    async (event, request) => {
+      const sender: McpAppShellSender = event.sender;
+      if (sender.isDestroyed()) {
+        throw new Error('MCP App shell registration from a destroyed WebContents');
+      }
+      const lease = registry.register(sender.id, request);
+      track(sender);
+      return parseMcpAppShellPrepareResult(lease);
     }
-    const lease = registry.register(sender.id, parseMcpAppShellPrepareRequest(value));
-    track(sender);
-    return parseMcpAppShellPrepareResult(lease);
-  });
+  );
   ipc.handle(
     'mcp',
     mcpAppsContract.releaseShell.channel,
-    async (event, ...raw: unknown[]): Promise<void> => {
-      const [value] = mcpAppsContract.releaseShell.parseArgs(raw);
-      const { token } = parseMcpAppShellReleaseRequest(value);
+    Schema.Tuple([McpAppShellReleaseRequestSchema]),
+    async (event, { token }): Promise<void> => {
       if (!registry.release(event.sender.id, token)) {
         throw new Error('MCP App shell is not registered to this sender');
       }

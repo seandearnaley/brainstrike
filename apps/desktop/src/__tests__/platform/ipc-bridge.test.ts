@@ -13,24 +13,12 @@ import {
   createIpcBridge,
   type IpcPushEvent,
 } from '../../platform/ipc-bridge';
-import {
-  type Contract,
-  channel,
-  parseNoArgs,
-  pushEvent,
-  rawChannel,
-} from '../../platform/ipc-contract';
+import { type Contract, channel, pushEvent, rawChannel } from '../../platform/ipc-contract';
 
 const contract = {
   changed: pushEvent<{ readonly id: number }>({ channel: 'fixture:changed' }),
-  list: rawChannel<[], { readonly ok: boolean }>({
-    channel: 'fixture:list',
-    parseArgs: parseNoArgs,
-  }),
-  writeText: channel<[text: string], number>({
-    channel: 'fixture:write-text',
-    parseArgs: ([text]) => [String(text)],
-  }),
+  list: rawChannel<[], { readonly ok: boolean }>({ channel: 'fixture:list' }),
+  writeText: channel<[text: string], number>({ channel: 'fixture:write-text' }),
 } satisfies Contract;
 
 /** Electron's `ipcRenderer` as the preload sees it: Main's pushes arrive through `push`. */

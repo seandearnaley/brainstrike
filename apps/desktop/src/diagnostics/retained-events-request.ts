@@ -1,4 +1,3 @@
-import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import type { DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
 import { Schema } from 'effect';
 
@@ -25,8 +24,15 @@ const query = Schema.Struct({
 );
 const count = Schema.Struct({ fingerprint: identifier, sinceMs: instant });
 
-export function assertRetainedEventsQuery(input: unknown): DiagnosticEventsQueryFilter {
-  const value = wireDecoder(query, { errors: 'all', onExcessProperty: 'error' })(input);
+/** The retained-events reader's renderer arguments. */
+export const retainedEventsArgs = {
+  countByFingerprint: Schema.Tuple([count]),
+  getUnseenCounts: Schema.Tuple([instant]),
+  queryEvents: Schema.Tuple([query]),
+};
+
+/** The reader's filter: a decoded query without its absent keys. */
+export function toRetainedEventsFilter(value: (typeof query)['Type']): DiagnosticEventsQueryFilter {
   return {
     ...(value.fingerprint === undefined ? {} : { fingerprint: value.fingerprint }),
     ...(value.limit === undefined ? {} : { limit: value.limit }),
@@ -36,14 +42,4 @@ export function assertRetainedEventsQuery(input: unknown): DiagnosticEventsQuery
     ...(value.threadId === undefined ? {} : { threadId: value.threadId }),
     ...(value.untilMs === undefined ? {} : { untilMs: value.untilMs }),
   };
-}
-export function assertRetainedFingerprintCount(input: unknown): {
-  fingerprint: string;
-  sinceMs: number;
-} {
-  return wireDecoder(count, { errors: 'all', onExcessProperty: 'error' })(input);
-}
-
-export function assertUnseenDiagnosticsWatermark(input: unknown): number {
-  return wireDecoder(instant, { errors: 'all', onExcessProperty: 'error' })(input);
 }

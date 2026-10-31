@@ -9,7 +9,7 @@ function makeClipboard() {
   };
 }
 
-// Payload validation lives in the contract's parseArgs (leaf-contracts.test.ts):
+// Payload validation lives in the clipboard argument schemas (leaf-contracts.test.ts):
 // these handlers only ever see a string.
 describe('clipboard IPC handlers', () => {
   it('writes a string payload to the system clipboard', async () => {

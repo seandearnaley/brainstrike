@@ -2,7 +2,11 @@
   "name": "@brainstrike/types",
   "description": "Shared TypeScript types for Brainstrike monorepo",
   "version": "0.1.0",
+  "dependencies": {
+    "effect": "catalog:"
+  },
   "devDependencies": {
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -23,7 +27,7 @@
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "type": "module"
 }

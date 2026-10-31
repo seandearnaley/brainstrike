@@ -63,6 +63,23 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
   },
 ];
 
+/** Well-formed arguments for each method, so an authorized call reaches its handler. */
+const VALID_ARGS: Readonly<Record<string, readonly unknown[]>> = {
+  'browser:closeTab': ['tab-1'],
+  'browser:createTab': ['thread-1', 'https://example.com'],
+  'browser:goBack': ['tab-1'],
+  'browser:goForward': ['tab-1'],
+  'browser:listTabs': [],
+  'browser:navigate': ['tab-1', 'https://example.com'],
+  'browser:reload': ['tab-1'],
+  'browser:setBounds': [{ height: 10, width: 20, x: 0, y: 0 }],
+  'browser:setOccluded': [true],
+  'browser:showTab': ['tab-1'],
+  'shell:open-external': ['https://example.com'],
+  'shell:open-path': ['/tmp/file.txt'],
+  'shell:show-item-in-folder': ['/tmp/file.txt'],
+};
+
 let dispose: (() => void) | undefined;
 
 afterEach(() => {
@@ -81,7 +98,7 @@ describe('privileged desktop IPC domains are app-window-only (BST-1641)', () => 
       const event = createTrustedInvokeEvent(APP_SENDER_ID);
 
       await expect(
-        invokeDesktopIpcFrom(mockIpcMain, event, method, { rootId: 'r1' })
+        invokeDesktopIpcFrom(mockIpcMain, event, method, ...(VALID_ARGS[method] ?? []))
       ).resolves.toEqual({ ok: true });
       expect(calls).toHaveBeenCalledTimes(1);
     });

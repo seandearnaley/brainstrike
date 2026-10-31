@@ -141,3 +141,10 @@ enumerated in [schema ownership](../agents/effect-schema-migration.md).
 [The qualification receipt](../archive/effect-4-adoption-2026-10-17.md) records the
 completed waves; [ADR-0024](0024-effect-adoption-service-and-rpc-boundaries.md)
 records the remaining service/RPC choices.
+
+**Desktop IPC (2026-10-31, BST-2383).** The owner chose to split IPC contracts:
+a `*.contract.ts` carries only channel names and types, so preloads still import
+no Effect, and Main registers an Effect Schema for every invoke. The desktop IPC
+dispatcher decodes it, with `onExcessProperty: 'error'`, after sender
+authorization and before the handler. The hand-written `parseArgs` parsers are
+retired.
