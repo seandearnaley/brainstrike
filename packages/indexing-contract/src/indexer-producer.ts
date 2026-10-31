@@ -4,17 +4,23 @@ import type {
   IndexerRootReadiness,
   IndexerStatus,
 } from './indexer-client.ts';
+import type {
+  IndexerCommitResult,
+  IndexerFileSyntax,
+  IndexerManifestFile,
+  IndexerManifestRequest,
+  IndexerProvidedChunk,
+} from './indexer-producer-schema.ts';
+
+export type {
+  IndexerCommitResult,
+  IndexerFileSyntax,
+  IndexerManifestFile,
+  IndexerManifestRequest,
+  IndexerProvidedChunk,
+};
 
 /** Browser-safe write DTOs. Database paths, process policy and SQL stay in the main owner. */
-export interface IndexerManifestFile {
-  readonly contentHash: string;
-  readonly fileId: string;
-  readonly relativePath: string;
-}
-export interface IndexerManifestRequest {
-  readonly files: readonly IndexerManifestFile[];
-  readonly rootId: string;
-}
 export interface IndexerIdentity {
   readonly embedding: IndexerEmbeddingState;
   readonly storeId: string;
@@ -26,46 +32,12 @@ export interface IndexerManifestResult extends IndexerIdentity {
   readonly rootId: string;
   readonly unexpected: readonly IndexerManifestFile[];
 }
-export interface IndexerProvidedChunk {
-  readonly chunkIndex: number;
-  readonly chunkSize: number;
-  readonly chunkType: 'text' | 'sentence' | 'recursive';
-  readonly content: string;
-  readonly contentHash: string;
-  readonly endLine: number;
-  readonly endOffset: number;
-  readonly startLine: number;
-  readonly startOffset: number;
-  readonly tokenCount: number;
-}
 export interface IndexerCanonicalSnapshot {
   readonly content: string;
   readonly fileId: string;
   readonly providedChunks: readonly IndexerProvidedChunk[];
   readonly relativePath: string;
   readonly rootId: string;
-}
-export interface IndexerFileSyntax {
-  readonly refs: readonly {
-    readonly fileRecordId: string;
-    readonly fromSymbolSeq?: number;
-    readonly kind: 'call' | 'extends' | 'implements' | 'import';
-    readonly line: number;
-    readonly module?: string;
-    readonly name: string;
-    readonly seq: number;
-  }[];
-  readonly symbols: readonly {
-    readonly endLine: number;
-    readonly endOffset: number;
-    readonly exported: boolean;
-    readonly fileRecordId: string;
-    readonly kind: 'class' | 'enum' | 'function' | 'interface' | 'method' | 'type' | 'variable';
-    readonly name: string;
-    readonly seq: number;
-    readonly startLine: number;
-    readonly startOffset: number;
-  }[];
 }
 export interface IndexerTextPublication extends IndexerCanonicalSnapshot {
   readonly scanTicket?: IndexerScanTicket;
@@ -93,14 +65,6 @@ export interface IndexerVectorPublication {
   readonly profile: IndexerEmbeddingProfile;
   readonly scanTicket?: IndexerScanTicket;
   readonly syntax?: IndexerFileSyntax;
-}
-export interface IndexerCommitResult {
-  readonly reusedEmbeddings: number;
-  readonly syntaxStatus: 'replaced' | 'retained' | 'not-provided';
-  readonly unchanged: boolean;
-  readonly writtenChunks: number;
-  readonly writtenRefs: number;
-  readonly writtenSymbols: number;
 }
 export interface IndexerScanStart {
   readonly mode: 'full' | 'paths';
