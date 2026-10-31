@@ -1,28 +1,15 @@
-<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <!-- macOS app icon: Apple grid — 824px squircle centered in a 1024 canvas. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    macOS app icon on Apple's grid: an 824 tile at 100,100 with corner radius 185 on a
+    transparent 1024 canvas, with a soft shadow below the tile. The mark is the identity
+    master's compound path (circle r434 with the bolt as an even-odd cutout) scaled by
+    824/1024, so the circle keeps the master's proportion to its square.
+  -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#141816" />
-      <stop offset="0.55" stop-color="#0a0d0c" />
-      <stop offset="1" stop-color="#060807" />
-    </linearGradient>
-    <radialGradient id="glow" cx="0.32" cy="0.78" r="0.9">
-      <stop offset="0" stop-color="#ff5533" stop-opacity="0.14" />
-      <stop offset="0.5" stop-color="#ff5533" stop-opacity="0.04" />
-      <stop offset="1" stop-color="#ff5533" stop-opacity="0" />
-    </radialGradient>
-    <clipPath id="squircle">
-      <rect x="100" y="100" width="824" height="824" rx="186" />
-    </clipPath>
+    <filter id="tile-shadow" x="0" y="0" width="1024" height="1024" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="5" flood-color="#000000" flood-opacity="0.3" />
+    </filter>
   </defs>
-  <g clip-path="url(#squircle)">
-    <rect x="100" y="100" width="824" height="824" fill="url(#bg)" />
-    <rect x="100" y="100" width="824" height="824" fill="url(#glow)" />
-  </g>
-  <rect x="100" y="100" width="824" height="824" rx="186" fill="none" stroke="#2a332f" stroke-width="2" opacity="0.6" />
-  <!-- Brand mark from apps/site/public/favicon.svg, 48-unit grid scaled 11.6x -->
-  <g transform="translate(233.6 233.6) scale(11.6)">
-    <path d="M35 6c-3-2-7-3-11-3C13 3 4 12 4 23c0 6 2 11 6 14l1 7h10" fill="none" stroke="#ff5533" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter" />
-    <path d="m29 4-15 23h11L20 44l16-25H25L34 5" fill="none" stroke="#fffdf2" stroke-width="3.4" stroke-linejoin="miter" />
-  </g>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#000CDE" filter="url(#tile-shadow)" />
+  <path transform="translate(100 100) scale(0.8046875)" fill="#D0FB07" fill-rule="evenodd" clip-rule="evenodd" d="M512 78 A434 434 0 1 1 512 946 A434 434 0 1 1 512 78 Z M618 128 L251 558 L493 558 L358 892 L734 440 L524 440 Z" />
 </svg>

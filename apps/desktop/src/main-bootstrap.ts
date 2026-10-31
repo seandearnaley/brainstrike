@@ -16,7 +16,7 @@ function reportBootstrapFailure(error: unknown, quitting = isDesktopShuttingDown
     // An early quit failure must exit after reporting, not wait indefinitely
     // for acknowledgement of a modal startup dialog while shutdown is in flight.
     if (!quitting) {
-      dialog.showErrorBox('BrainStrike Desktop failed to start', message);
+      dialog.showErrorBox('Brainstrike failed to start', message);
     }
   } finally {
     app.exit(1);

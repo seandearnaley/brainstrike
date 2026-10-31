@@ -1,4 +1,4 @@
-# Third-Party Notices — BrainStrike Desktop
+# Third-Party Notices — Brainstrike
 
 Hand-maintained notices for third-party components BUNDLED into the packaged
 desktop app outside the npm dependency graph (npm dependencies carry their own

@@ -34,15 +34,15 @@ function packagedExecutablePath(): string {
     return path.join(
       releaseRoot,
       outputDirectory,
-      'BrainStrike Desktop.app',
+      'Brainstrike.app',
       'Contents',
       'MacOS',
-      'BrainStrike Desktop'
+      'Brainstrike'
     );
   }
   if (process.platform === 'win32') {
     const outputDirectory = process.arch === 'arm64' ? 'win-arm64-unpacked' : 'win-unpacked';
-    return path.join(releaseRoot, outputDirectory, 'BrainStrike Desktop.exe');
+    return path.join(releaseRoot, outputDirectory, 'Brainstrike.exe');
   }
   if (process.platform === 'linux') {
     const outputDirectory = process.arch === 'arm64' ? 'linux-arm64-unpacked' : 'linux-unpacked';

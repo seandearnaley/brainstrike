@@ -7,9 +7,9 @@ test('the window title follows the route on screen, after Settings stays mounted
   homePage,
   window,
 }) => {
-  await expect(window).toHaveTitle('BrainStrike Desktop - Home');
+  await expect(window).toHaveTitle('Brainstrike - Home');
   await homePage.openSettings();
-  await expect(window).toHaveTitle('BrainStrike Desktop - Settings');
+  await expect(window).toHaveTitle('Brainstrike - Settings');
   await homePage.leaveSettings();
-  await expect(window).toHaveTitle('BrainStrike Desktop - Home');
+  await expect(window).toHaveTitle('Brainstrike - Home');
 });

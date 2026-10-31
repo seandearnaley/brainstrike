@@ -8,7 +8,7 @@
  */
 import type { DocumentMetaByRoute } from '@brainstrike/app-shell/use-document-title';
 
-const PRODUCT = 'BrainStrike Desktop';
+const PRODUCT = 'Brainstrike';
 
 export const DESKTOP_DOCUMENT_META: DocumentMetaByRoute = {
   artifacts: { description: `${PRODUCT} Artifacts`, title: `${PRODUCT} - Artifacts` },

@@ -6,7 +6,7 @@
     "appImage": {
       "executableArgs": []
     },
-    "productName": "BrainStrike Desktop",
+    "productName": "Brainstrike",
     "directories": {
       "output": "release"
     },

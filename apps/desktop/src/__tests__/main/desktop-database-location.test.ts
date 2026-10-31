@@ -188,7 +188,7 @@ describe('resolveDesktopDatabaseLocation', () => {
     setPlatform('linux');
     const linux = await load();
     expect(linux.resolveDesktopDatabaseLocation().rootPath).toBe(
-      path.posix.join('/xdg/share', 'BrainStrike Desktop', 'data')
+      path.posix.join('/xdg/share', 'Brainstrike', 'data')
     );
 
     vi.resetModules();
@@ -205,7 +205,7 @@ describe('resolveDesktopDatabaseLocation', () => {
 
     expect(resolveDesktopDatabaseLocation()).toEqual({
       profile: 'default',
-      rootPath: 'C:\\Users\\me\\AppData\\Local\\BrainStrike Desktop\\data',
+      rootPath: 'C:\\Users\\me\\AppData\\Local\\Brainstrike\\data',
       source: 'packaged',
     });
   });

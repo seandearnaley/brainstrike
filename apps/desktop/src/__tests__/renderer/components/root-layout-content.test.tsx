@@ -272,11 +272,11 @@ describe('RootLayoutContent', () => {
       usePanelLayoutStore.setState({ activeTab: 'explorer' });
     });
     render(<RootLayoutContent />);
-    expect(document.title).toBe('BrainStrike Desktop - Home');
+    expect(document.title).toBe('Brainstrike - Home');
     act(() => {
       usePanelLayoutStore.getState().setActiveTab('settings');
     });
-    expect(document.title).toBe('BrainStrike Desktop - Settings');
+    expect(document.title).toBe('Brainstrike - Settings');
   });
 
   it('does not configure the removed full-frame prompts route', () => {

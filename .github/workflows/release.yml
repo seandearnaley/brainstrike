@@ -375,7 +375,7 @@ jobs:
           ls -la ./*.dmg
           DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
           [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
-          # The volume is "BrainStrike Desktop <version>": every path below
+          # The volume is "Brainstrike <version>": every path below
           # is quoted or passed as a value, never word-split.
           ATTACH=$(hdiutil attach "$DMG" -nobrowse -readonly)
           MOUNT=$(awk -F'\t' '/\/Volumes\//{print $NF}' <<<"$ATTACH" | tail -1)
@@ -478,7 +478,7 @@ jobs:
           if (-not $proc.WaitForExit(300000)) { Write-Error "silent install timed out"; exit 1 }
           if ($proc.ExitCode -ne 0) { Write-Error "silent install exited $($proc.ExitCode)"; exit 1 }
           $App = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Recurse -Filter "*.exe" |
-            Where-Object { $_.Name -match "BrainStrike|Brainstrike" } | Select-Object -First 1
+            Where-Object { $_.Name -eq "Brainstrike.exe" } | Select-Object -First 1
           if (-not $App) { Write-Error "installed executable not found under LOCALAPPDATA\Programs"; exit 1 }
           Write-Host "installed app: $($App.FullName)"
 
