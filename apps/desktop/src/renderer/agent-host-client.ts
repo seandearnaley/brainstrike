@@ -47,7 +47,10 @@ export async function connectDesktopAgentHost(): Promise<HostClient> {
     // Main's refusal (a profile closed for reset or quit) arrives typed.
     await callBoundary(() => bridge.connect(requestId));
     const { port, record } = await received.promise;
-    return await attachBrowserHost(port, record, closed.promise);
+    const client = await attachBrowserHost(port, record, closed.promise);
+    // Main's host-exit report matters only while this client is open.
+    void client.closed.then(() => window.removeEventListener('message', receive));
+    return client;
   } catch (cause) {
     window.removeEventListener('message', receive);
     closed.resolve();
