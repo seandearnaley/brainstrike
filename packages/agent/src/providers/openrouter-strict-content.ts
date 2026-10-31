@@ -4,6 +4,7 @@ import type {
   ProviderConfig,
 } from '@mastra/core/llm';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { Predicate } from 'effect';
 import { getProviderEnvKeys } from './registry.ts';
 
 /**
@@ -43,10 +44,6 @@ export function openRouterModelRequiresStringContent(modelId: string): boolean {
   return STRICT_CONTENT_MODEL_PREFIXES.some((prefix) => modelId.startsWith(prefix));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function normalizeStrictContentBody(init: RequestInit | undefined): RequestInit | undefined {
   if (!init || typeof init.body !== 'string') {
     return;
@@ -58,7 +55,7 @@ function normalizeStrictContentBody(init: RequestInit | undefined): RequestInit 
     return;
   }
   if (
-    !isRecord(parsed) ||
+    !Predicate.isObject(parsed) ||
     typeof parsed['model'] !== 'string' ||
     !openRouterModelRequiresStringContent(parsed['model']) ||
     !Array.isArray(parsed['messages'])
@@ -68,7 +65,7 @@ function normalizeStrictContentBody(init: RequestInit | undefined): RequestInit 
   let changed = false;
   const messages = parsed['messages'].map((message) => {
     if (
-      isRecord(message) &&
+      Predicate.isObject(message) &&
       message['role'] === 'assistant' &&
       (message['content'] === null || message['content'] === undefined)
     ) {

@@ -13,6 +13,7 @@ import {
   TOOL_SUSPEND_DATA_NAME,
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import { Predicate } from 'effect';
 import { readDelegatedTaskTerminalError } from './delegated-terminal-status';
 
 /**
@@ -23,10 +24,6 @@ import { readDelegatedTaskTerminalError } from './delegated-terminal-status';
  * component and Fast Refresh can preserve state across edits
  * (`react-refresh/only-export-components`). Nothing here touches JSX or hooks.
  */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 /**
  * Run-event rows that must surface even when background activity is hidden
@@ -138,7 +135,7 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
 }
 
 export function getMessageParts(message: unknown): readonly unknown[] {
-  if (!isRecord(message)) {
+  if (!Predicate.isObject(message)) {
     return [];
   }
   const content = message['content'];
@@ -180,11 +177,11 @@ export interface AssistantRunEventRows {
  * a caller shape we refuse to interpret rather than a signal.
  */
 function isSettledMessage(message: unknown): boolean {
-  if (!isRecord(message)) {
+  if (!Predicate.isObject(message)) {
     return false;
   }
   const status = message['status'];
-  if (!isRecord(status)) {
+  if (!Predicate.isObject(status)) {
     return false;
   }
   return status['type'] === 'complete' || status['type'] === 'incomplete';
@@ -192,7 +189,7 @@ function isSettledMessage(message: unknown): boolean {
 
 /** A failed child receiver leaves its last pause card in a terminally incomplete message. */
 function isTerminallyIncompleteMessage(message: unknown): boolean {
-  if (!(isRecord(message) && isRecord(message['status']))) {
+  if (!(Predicate.isObject(message) && Predicate.isObject(message['status']))) {
     return false;
   }
   const status = message['status'];
@@ -223,7 +220,7 @@ function isTerminallyIncompleteMessage(message: unknown): boolean {
  * answered lives in later messages and is never consulted here.
  */
 function pendingPauseToolCallIdFromPart(part: unknown): string | null {
-  if (!isRecord(part) || part['type'] !== 'data') {
+  if (!Predicate.isObject(part) || part['type'] !== 'data') {
     return null;
   }
   const name = part['name'];
@@ -231,7 +228,9 @@ function pendingPauseToolCallIdFromPart(part: unknown): string | null {
     return null;
   }
   const data = part['data'];
-  return isRecord(data) && typeof data['toolCallId'] === 'string' ? data['toolCallId'] : null;
+  return Predicate.isObject(data) && typeof data['toolCallId'] === 'string'
+    ? data['toolCallId']
+    : null;
 }
 
 /** Single-pass collection of every pending pause's `toolCallId`, for the per-event resolution path. */
@@ -420,7 +419,7 @@ function collectIndexedRunEvents(messages: readonly unknown[]): {
         ownerSettled.push(settled);
         continue;
       }
-      if (isRecord(part) && part['type'] === 'tool-call') {
+      if (Predicate.isObject(part) && part['type'] === 'tool-call') {
         const toolCallId = part['toolCallId'];
         if (typeof toolCallId === 'string') {
           toolCallIds.add(toolCallId);
@@ -782,7 +781,10 @@ export function hasToolCallPartForEvent(
   }
   return messages.some((message) =>
     getMessageParts(message).some(
-      (part) => isRecord(part) && part['type'] === 'tool-call' && part['toolCallId'] === toolCallId
+      (part) =>
+        Predicate.isObject(part) &&
+        part['type'] === 'tool-call' &&
+        part['toolCallId'] === toolCallId
     )
   );
 }

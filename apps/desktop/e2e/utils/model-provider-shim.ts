@@ -41,6 +41,7 @@ import type {
   ProviderCassetteExchange,
   ProviderCassetteReplay,
 } from '@brainstrike/test-utils/provider-cassette';
+import { Predicate } from 'effect';
 import {
   type CassetteRouteScript,
   cassetteReplayFor,
@@ -317,10 +318,6 @@ export function closeModelProviderShimWithProcess(
   appProcess.once('exit', close);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function sseChunk(payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
@@ -344,7 +341,7 @@ async function readJsonBody(
     };
   }
   const parsed: unknown = JSON.parse(raw);
-  if (!isRecord(parsed)) {
+  if (!Predicate.isObject(parsed)) {
     throw new Error('Model provider shim expected a JSON object request body.');
   }
   const items = parsed[wire === 'responses' ? 'input' : 'messages'];
@@ -370,15 +367,16 @@ function countToolResultMessages(
 ): number {
   const history = messages ?? [];
   const lastUserIndex = history.reduce<number>(
-    (found, message, index) => (isRecord(message) && message['role'] === 'user' ? index : found),
+    (found, message, index) =>
+      Predicate.isObject(message) && message['role'] === 'user' ? index : found,
     -1
   );
   return history
     .slice(lastUserIndex + 1)
     .filter((message) =>
       wire === 'responses'
-        ? isRecord(message) && message['type'] === 'function_call_output'
-        : isRecord(message) &&
+        ? Predicate.isObject(message) && message['type'] === 'function_call_output'
+        : Predicate.isObject(message) &&
           (message['role'] === 'tool' || typeof message['tool_call_id'] === 'string')
     ).length;
 }
@@ -826,7 +824,7 @@ function messageRoles(
   wire: ModelProviderWire
 ): readonly string[] {
   return (messages ?? []).map((message) => {
-    if (!isRecord(message)) {
+    if (!Predicate.isObject(message)) {
       return 'unknown';
     }
     if (wire === 'responses' && typeof message['type'] === 'string' && !message['role']) {
@@ -840,7 +838,9 @@ function messageRoles(
     }
     const names = calls
       .map((call) =>
-        isRecord(call) && isRecord(call['function']) && typeof call['function']['name'] === 'string'
+        Predicate.isObject(call) &&
+        Predicate.isObject(call['function']) &&
+        typeof call['function']['name'] === 'string'
           ? call['function']['name']
           : 'unknown'
       )
@@ -851,13 +851,13 @@ function messageRoles(
 
 function toolNames(tools: readonly unknown[] | undefined, wire: ModelProviderWire): string[] {
   return (tools ?? []).flatMap((tool) => {
-    if (!isRecord(tool)) {
+    if (!Predicate.isObject(tool)) {
       return [];
     }
     if (wire === 'responses') {
       return tool['type'] === 'function' && typeof tool['name'] === 'string' ? [tool['name']] : [];
     }
-    return isRecord(tool['function']) && typeof tool['function']['name'] === 'string'
+    return Predicate.isObject(tool['function']) && typeof tool['function']['name'] === 'string'
       ? [tool['function']['name']]
       : [];
   });
@@ -911,7 +911,7 @@ export async function startModelProviderShim(
         reason,
         requestIndex: requestOrdinal,
         route,
-        stream: isRecord(body) ? body['stream'] === true : null,
+        stream: Predicate.isObject(body) ? body['stream'] === true : null,
       };
       refusals.push(refusal);
       writeRefusal(response, refusal);

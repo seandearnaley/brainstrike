@@ -19,7 +19,7 @@ import {
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { assertSafeRegexSource } from '@brainstrike/utils';
-import { Schema, SchemaIssue } from 'effect';
+import { Predicate, Schema, SchemaIssue } from 'effect';
 import {
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
@@ -364,12 +364,8 @@ function buildModelPage(
  * the model sees a shorter byte-exact prefix and a recomputed cursor. The raw
  * page remains unchanged for display and persistence.
  */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isToolOutputArtifactSearchResult(value: unknown): value is ToolOutputArtifactSearchResult {
-  if (!(isRecord(value) && value['type'] === 'artifact_search')) {
+  if (!(Predicate.isObject(value) && value['type'] === 'artifact_search')) {
     return false;
   }
   const matches = value['matches'];
@@ -380,7 +376,7 @@ function isToolOutputArtifactSearchResult(value: unknown): value is ToolOutputAr
     Array.isArray(matches) &&
     matches.every(
       (match) =>
-        isRecord(match) &&
+        Predicate.isObject(match) &&
         Number.isSafeInteger(match['line']) &&
         (match['line'] as number) > 0 &&
         typeof match['lineText'] === 'string' &&

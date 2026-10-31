@@ -15,6 +15,8 @@
  * FIELD NAME (`feature`/`setting`, `details`/`message`), which keeps an unknown
  * type readable.
  */
+
+import { Predicate } from 'effect';
 import { type AssistantRunEventMetadata, boundRunEventReason } from './run-events.ts';
 
 export interface ProviderCallWarningOrigin {
@@ -52,10 +54,6 @@ const MAX_PROVIDER_CALL_WARNING_ORIGIN_CHARS = 80;
 /** The shared provider-text truncation marker. */
 const TRUNCATION_MARKER = '… [truncated]';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function readString(source: Record<string, unknown>, keys: readonly string[]): string | undefined {
   for (const key of keys) {
     const value = source[key];
@@ -85,7 +83,7 @@ export function readProviderCallWarning(value: unknown): ProviderCallWarning {
   if (typeof value === 'string' && value.length > 0) {
     return { detail: boundRunEventReason(value), type: UNRECOGNIZED_PROVIDER_WARNING_TYPE };
   }
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return { type: UNRECOGNIZED_PROVIDER_WARNING_TYPE };
   }
   const type = value['type'];

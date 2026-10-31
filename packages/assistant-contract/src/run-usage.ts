@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 /**
  * Run-usage attribution contract (BST-953).
  *
@@ -68,10 +70,6 @@ export interface AssistantChildRunUsage {
   readonly source: AssistantChildRunUsageSource;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
@@ -84,7 +82,7 @@ export function isAssistantDelegatedUsageIdentity(
   value: unknown
 ): value is AssistantDelegatedUsageIdentity {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     ['parentRuntimeRunId', 'parentToolCallId', 'resourceId', 'threadId'].every((key) => {
       const raw = value[key];
       return typeof raw === 'string' && raw.trim().length > 0;
@@ -95,7 +93,7 @@ export function isAssistantDelegatedUsageIdentity(
 /** True when the value is a well-formed {@link AssistantChildRunUsage}. */
 export function isAssistantChildRunUsage(value: unknown): value is AssistantChildRunUsage {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     (ASSISTANT_RUN_USAGE_KINDS as readonly string[]).includes(String(value['source'])) &&
     value['source'] !== 'chat' &&
     typeof value['estimated'] === 'boolean' &&

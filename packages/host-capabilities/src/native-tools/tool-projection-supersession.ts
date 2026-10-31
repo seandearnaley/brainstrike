@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { Schema } from 'effect';
+import { Predicate, Schema } from 'effect';
 import {
   type GrepToolResult,
   grepProjectionHeaderPrefix,
@@ -84,10 +84,6 @@ export interface PersistedToolInvocation {
  */
 export type LegacyGrepReprojection = (result: unknown) => string;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 /**
  * BST-1248: toolCallIds that have already emitted a malformed-record warning.
  * Supersession detection re-scans the full thread history on EVERY subsequent
@@ -152,7 +148,7 @@ export function setMalformedWarnMemoCapForTests(value?: number): void {
 }
 
 export function parseReadProjectionResult(value: unknown): ReadProjectionResult | undefined {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return;
   }
   const { ambiguousRootNames, endLine, openRoots, path, rootId, rootName, startLine, totalLines } =
@@ -334,7 +330,7 @@ function normalizeGrepKey(
   // executed grep succeeded. Treat only that representation as omission;
   // required fields and other malformed history still fail schema validation.
   const historyArgs =
-    isRecord(candidate) && candidate['filePaths'] === null
+    Predicate.isObject(candidate) && candidate['filePaths'] === null
       ? Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== 'filePaths'))
       : candidate;
   const parsed = decodeGrepHistory(historyArgs);
@@ -364,7 +360,7 @@ function normalizeGrepKey(
 export function parseFileIdentity(
   value: unknown
 ): Pick<ReadProjectionResult, 'path' | 'rootId' | 'rootName'> | undefined {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return;
   }
   const { path, rootId, rootName } = value;
@@ -471,7 +467,7 @@ function prepareInvocation(
         : undefined,
     invocation,
     read,
-    readIsDedup: isRecord(invocation.result) && invocation.result['dedup'] === true,
+    readIsDedup: Predicate.isObject(invocation.result) && invocation.result['dedup'] === true,
   };
 }
 

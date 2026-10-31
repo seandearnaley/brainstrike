@@ -1,3 +1,4 @@
+import { Predicate } from 'effect';
 import {
   decodeMcpTaskAuthorityRow,
   decodeMcpTaskBlockedDiagnostic,
@@ -143,10 +144,6 @@ export class McpTaskMetadataTooLargeError extends TypeError {
     this.sha256 = sha256;
     this.name = 'McpTaskMetadataTooLargeError';
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function requireText(value: unknown, field: string, maxBytes: number): string {
@@ -537,7 +534,7 @@ export class McpTaskStore {
       resultMetadataJson,
       MCP_TASK_METADATA_MAX_BYTES
     );
-    if (!isRecord(row)) {
+    if (!Predicate.isObject(row)) {
       throw new TypeError('MCP task metadata size query returned an invalid row.');
     }
     for (const [field, bytesColumn, digestColumn] of [

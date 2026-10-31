@@ -1,3 +1,4 @@
+import { Predicate } from 'effect';
 import type { DelegatedRunIdentity } from './delegated-conversation-stream.ts';
 
 export const ASSISTANT_TOOL_ACTION_ID_MAX_CHARS = 512;
@@ -22,8 +23,6 @@ const IDENTITY_KEYS = new Set<PropertyKey>([
   'personaId',
 ]);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 const isIdentifier = (value: unknown): value is string =>
   typeof value === 'string' &&
   value.trim().length > 0 &&
@@ -31,7 +30,7 @@ const isIdentifier = (value: unknown): value is string =>
 
 function isRunIdentity(value: unknown): value is DelegatedRunIdentity {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     Reflect.ownKeys(value).every((key) => IDENTITY_KEYS.has(key)) &&
     [...IDENTITY_KEYS].every((key) =>
       typeof key === 'string' ? Object.hasOwn(value, key) && isIdentifier(value[key]) : false
@@ -44,7 +43,7 @@ export function isDelegatedToolActionIdentity(
 ): value is DelegatedToolActionIdentity {
   if (
     !(
-      isRecord(value) &&
+      Predicate.isObject(value) &&
       Reflect.ownKeys(value).every((key) => key === 'path' || key === 'toolCallId') &&
       Object.hasOwn(value, 'path') &&
       Object.hasOwn(value, 'toolCallId') &&
@@ -137,7 +136,7 @@ export function getToolActionIdentityKey(request: ToolActionCoordinates): string
 }
 
 export function isMatchingToolAction(value: unknown, request: ToolActionCoordinates): boolean {
-  if (!(isRecord(value) && hasValidDelegatedToolActionTarget(value))) {
+  if (!(Predicate.isObject(value) && hasValidDelegatedToolActionTarget(value))) {
     return false;
   }
   const target = getToolActionTarget(request);

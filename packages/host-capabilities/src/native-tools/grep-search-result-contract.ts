@@ -1,6 +1,7 @@
 import { ToolProjectionInputRejectedError } from '@brainstrike/agent';
 import type { GrepMatch } from '@brainstrike/assistant-contract';
 import type { GrepContentDelivery } from '@brainstrike/assistant-contract/context-provenance';
+import { Predicate } from 'effect';
 
 /**
  * One grep match as the model and the thread context map receive it. Grep reads
@@ -94,10 +95,6 @@ void grepDeliveryHolds;
  */
 export function grepProjectionHeaderPrefix(outputMode: GrepToolResult['outputMode']): string {
   return `grep ${outputMode} `;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -203,7 +200,7 @@ function requireGrepBase(record: Record<string, unknown>): void {
 
 function requireGrepFileSummary(value: unknown, index: number): void {
   const path = `files[${index}]`;
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     rejectField(path, 'object', value);
   }
   if (!isPositiveInteger(value['firstLine'])) {
@@ -231,7 +228,7 @@ function requireStringArray(value: unknown, path: string): void {
 
 function requireGrepMatch(value: unknown, index: number): void {
   const path = `matches[${index}]`;
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     rejectField(path, 'object', value);
   }
   requireStringArray(value['after'], `${path}.after`);
@@ -250,7 +247,7 @@ function requireGrepMatch(value: unknown, index: number): void {
 }
 
 export function parseGrepToolResult(output: unknown): GrepToolResult {
-  if (!isRecord(output)) {
+  if (!Predicate.isObject(output)) {
     rejectField('result', 'object', output);
   }
   requireGrepBase(output);

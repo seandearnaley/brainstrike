@@ -4,6 +4,7 @@ import type {
   ProcessLLMRequestResult,
   Processor,
 } from '@mastra/core/processors';
+import { Predicate } from 'effect';
 
 const logger = createLogger('OpenAIToolSearchHistoryCompat');
 const OPENAI_NAMESPACE = 'openai';
@@ -12,22 +13,18 @@ type Prompt = ProcessLLMRequestArgs['prompt'];
 type AssistantMessage = Extract<Prompt[number], { role: 'assistant' }>;
 type AssistantPart = AssistantMessage['content'][number];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function readOpenAIItemId(value: unknown, fieldName: string): string | undefined {
   if (value === undefined) {
     return;
   }
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     throw new TypeError(`${fieldName} must be an object`);
   }
   const openAIOptions = value[OPENAI_NAMESPACE];
   if (openAIOptions === undefined) {
     return;
   }
-  if (!isRecord(openAIOptions)) {
+  if (!Predicate.isObject(openAIOptions)) {
     throw new TypeError(`${fieldName}.openai must be an object`);
   }
   const itemId = openAIOptions['itemId'];
@@ -66,7 +63,7 @@ function canonicalizeToolSearchCall(part: AssistantPart): AssistantPart {
   }
   const supportedItemId = readOpenAIItemId(part.providerOptions, 'providerOptions');
   const persistedItemId = readOpenAIItemId(
-    isRecord(part) ? part['providerMetadata'] : undefined,
+    Predicate.isObject(part) ? part['providerMetadata'] : undefined,
     'providerMetadata'
   );
   const hasCanonicalItemId =
@@ -77,8 +74,10 @@ function canonicalizeToolSearchCall(part: AssistantPart): AssistantPart {
   if (hasCanonicalItemId && !hasConflictingItemId) {
     return part;
   }
-  const existingProviderOptions = isRecord(part.providerOptions) ? part.providerOptions : {};
-  const existingOpenAIOptions = isRecord(existingProviderOptions[OPENAI_NAMESPACE])
+  const existingProviderOptions = Predicate.isObject(part.providerOptions)
+    ? part.providerOptions
+    : {};
+  const existingOpenAIOptions = Predicate.isObject(existingProviderOptions[OPENAI_NAMESPACE])
     ? existingProviderOptions[OPENAI_NAMESPACE]
     : {};
   return {
@@ -130,7 +129,7 @@ function assertToolSearchResultItemId(
   }
   const supportedItemId = readOpenAIItemId(part.providerOptions, 'providerOptions');
   const persistedItemId = readOpenAIItemId(
-    isRecord(part) ? part['providerMetadata'] : undefined,
+    Predicate.isObject(part) ? part['providerMetadata'] : undefined,
     'providerMetadata'
   );
   if (supportedItemId && persistedItemId && supportedItemId !== persistedItemId) {

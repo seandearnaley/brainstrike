@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 export const COMPACTION_SUMMARY_METADATA_KEY = 'brainstrikeCompactionSummary';
 
 export interface CompactionSummaryPayload {
@@ -18,10 +20,6 @@ const COMPACTION_SUMMARY_PAYLOAD_KEYS = new Set<PropertyKey>([
   'rewriteId',
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
@@ -29,7 +27,7 @@ function isNonEmptyString(value: unknown): value is string {
 /** Strict recognizer for the durable compaction-summary metadata marker. */
 export function isCompactionSummaryPayload(value: unknown): value is CompactionSummaryPayload {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     Reflect.ownKeys(value).every((key) => COMPACTION_SUMMARY_PAYLOAD_KEYS.has(key)) &&
     Object.hasOwn(value, 'createdAt') &&
     Object.hasOwn(value, 'fallbackKind') &&

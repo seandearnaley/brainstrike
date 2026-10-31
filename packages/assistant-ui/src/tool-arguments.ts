@@ -1,17 +1,15 @@
+import { Predicate } from 'effect';
+
 export interface ToolArguments {
   readonly args: unknown;
   readonly argsText?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function hasStructuredArguments(value: unknown): boolean {
   if (Array.isArray(value)) {
     return value.length > 0;
   }
-  if (isRecord(value)) {
+  if (Predicate.isObject(value)) {
     return Object.keys(value).length > 0;
   }
   return value !== undefined && value !== null;
@@ -33,11 +31,11 @@ export function collectToolArgumentsByCallId(
 ): ReadonlyMap<string, ToolArguments> {
   const byCallId = new Map<string, ToolArguments>();
   for (const message of messages) {
-    if (!(isRecord(message) && Array.isArray(message['content']))) {
+    if (!(Predicate.isObject(message) && Array.isArray(message['content']))) {
       continue;
     }
     for (const part of message['content']) {
-      if (!(isRecord(part) && part['type'] === 'tool-call')) {
+      if (!(Predicate.isObject(part) && part['type'] === 'tool-call')) {
         continue;
       }
       const toolCallId = part['toolCallId'];

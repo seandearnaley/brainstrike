@@ -1,6 +1,7 @@
 import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { Badge, CodeSurface, DiffView } from '@brainstrike/ui';
+import { Predicate } from 'effect';
 import {
   type ApprovalPreviewSubject,
   narrowRunPythonArgs,
@@ -48,10 +49,6 @@ const RUN_SKILL_SCRIPT_ARG_KEYS = new Set([
   'timeoutMs',
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 interface StringReplaceApprovalArgs {
   newStr: string;
   oldStr: string;
@@ -98,7 +95,10 @@ function isCanonicalRelativePath(value: string): boolean {
 }
 
 function narrowRunSkillScriptArgs(value: unknown): RunSkillScriptApprovalArgs | null {
-  if (!isRecord(value) || Object.keys(value).some((key) => !RUN_SKILL_SCRIPT_ARG_KEYS.has(key))) {
+  if (
+    !Predicate.isObject(value) ||
+    Object.keys(value).some((key) => !RUN_SKILL_SCRIPT_ARG_KEYS.has(key))
+  ) {
     return null;
   }
   const { args, cwd, root, runtime, scriptPath, skillName, timeoutMs } = value;
@@ -149,7 +149,7 @@ function narrowRunSkillScriptArgs(value: unknown): RunSkillScriptApprovalArgs | 
  * field and rejects unknown keys instead of guessing what will execute.
  */
 function narrowExecuteCommandArgs(value: unknown): ExecuteCommandApprovalArgs | null {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return null;
   }
   if (Object.keys(value).some((key) => !EXECUTE_COMMAND_ARG_KEYS.has(key))) {
@@ -196,7 +196,7 @@ function narrowExecuteCommandArgs(value: unknown): ExecuteCommandApprovalArgs | 
  * JSON view with a visible note — never a confidently-wrong empty diff.
  */
 function narrowStringReplaceArgs(value: unknown): StringReplaceApprovalArgs | null {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return null;
   }
   const { path, oldStr, newStr, root } = value;
@@ -214,7 +214,7 @@ function narrowStringReplaceArgs(value: unknown): StringReplaceApprovalArgs | nu
 
 /** Structural guard mirroring the agent-package `WriteWorkspaceFileInput` shape. */
 function narrowWriteFileArgs(value: unknown): WriteFileApprovalArgs | null {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return null;
   }
   const { path, content, root } = value;

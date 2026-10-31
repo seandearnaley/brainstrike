@@ -3,6 +3,7 @@ import type { Socket } from 'node:net';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
+import { Predicate } from 'effect';
 import type { McpLabSession } from '../../../../packages/mcp-test-lab/src/index.ts';
 
 interface PendingInputWireRecord {
@@ -28,10 +29,6 @@ export interface PendingInputFixture {
   readonly url: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 async function readBody(request: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let bytes = 0;
@@ -51,17 +48,19 @@ function wireRecord(body: Buffer, sequence: number): PendingInputWireRecord | un
     return undefined;
   }
   const parsed: unknown = JSON.parse(body.toString('utf8'));
-  if (!isRecord(parsed) || typeof parsed['method'] !== 'string') {
+  if (!Predicate.isObject(parsed) || typeof parsed['method'] !== 'string') {
     throw new Error('BST-1948 fixture expects one JSON-RPC request');
   }
   const params = parsed['params'];
   return {
     method: parsed['method'],
     sequence,
-    ...(isRecord(params) && typeof params['taskId'] === 'string'
+    ...(Predicate.isObject(params) && typeof params['taskId'] === 'string'
       ? { taskId: params['taskId'] }
       : {}),
-    ...(isRecord(params) && typeof params['name'] === 'string' ? { toolName: params['name'] } : {}),
+    ...(Predicate.isObject(params) && typeof params['name'] === 'string'
+      ? { toolName: params['name'] }
+      : {}),
   };
 }
 

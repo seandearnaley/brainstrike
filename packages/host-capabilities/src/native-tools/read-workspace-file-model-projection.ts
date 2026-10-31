@@ -3,12 +3,12 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import { Predicate } from 'effect';
 import {
   decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
-  isRecord,
   makeWorkspaceTextModelOutput,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers.ts';
@@ -34,7 +34,7 @@ export interface ReadWorkspaceFileProjectionResult {
 function parseReadWorkspaceFileResult(output: unknown): ReadWorkspaceFileProjectionResult {
   if (
     !(
-      isRecord(output) &&
+      Predicate.isObject(output) &&
       typeof output['content'] === 'string' &&
       isPositiveInteger(output['endLine']) &&
       (output['nextCursor'] === null || typeof output['nextCursor'] === 'string') &&
@@ -61,10 +61,10 @@ function parseReadWorkspaceFileResult(output: unknown): ReadWorkspaceFileProject
 
 function unwrapLegacyJsonProjection(output: unknown): unknown {
   if (
-    isRecord(output) &&
+    Predicate.isObject(output) &&
     Object.keys(output).length === 2 &&
     output['type'] === 'json' &&
-    isRecord(output['value'])
+    Predicate.isObject(output['value'])
   ) {
     return output['value'];
   }
@@ -112,7 +112,7 @@ export function projectReadWorkspaceFileModelOutput(
   domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): ReadWorkspaceFileTextModelOutput {
   if (
-    isRecord(output) &&
+    Predicate.isObject(output) &&
     Reflect.ownKeys(output).length === 2 &&
     Object.hasOwn(output, 'type') &&
     Object.hasOwn(output, 'value') &&

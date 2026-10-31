@@ -2,6 +2,7 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import { Predicate } from 'effect';
 import type {
   InspectLocation,
   LspInspectionResult,
@@ -14,7 +15,6 @@ import {
   decodedWorkspaceTextModelOutputChars as decodedChars,
   isNonNegativeInteger,
   isPositiveInteger,
-  isRecord,
   makeWorkspaceTextModelOutput as makeTextModelOutput,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
@@ -72,7 +72,7 @@ function isUnavailableReason(value: unknown): value is LspUnavailableReason {
 }
 
 function isSymbolMatch(value: unknown): value is SymbolMatchResult {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   return (
@@ -89,7 +89,7 @@ function isSymbolMatch(value: unknown): value is SymbolMatchResult {
 function parseFindWorkspaceSymbolResult(output: unknown): FindWorkspaceSymbolResult {
   if (
     !(
-      isRecord(output) &&
+      Predicate.isObject(output) &&
       Array.isArray(output['matches']) &&
       output['matches'].every(isSymbolMatch) &&
       typeof output['path'] === 'string' &&
@@ -107,7 +107,7 @@ function parseFindWorkspaceSymbolResult(output: unknown): FindWorkspaceSymbolRes
 }
 
 function isDiagnostic(value: unknown): value is EditDiagnostic {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   return (
@@ -123,7 +123,7 @@ function isDiagnostic(value: unknown): value is EditDiagnostic {
 }
 
 function isQueryFailure(value: unknown): value is LspQueryFailure {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   return (
@@ -137,7 +137,7 @@ function isQueryFailure(value: unknown): value is LspQueryFailure {
 }
 
 function isInspectLocation(value: unknown): value is InspectLocation {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   return (
@@ -159,7 +159,7 @@ function hasOptionalArray(
 function parseLspInspectResult(output: unknown): LspInspectResult {
   if (
     !(
-      isRecord(output) &&
+      Predicate.isObject(output) &&
       typeof output['available'] === 'boolean' &&
       typeof output['path'] === 'string' &&
       typeof output['rootName'] === 'string' &&

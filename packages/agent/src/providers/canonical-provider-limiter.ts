@@ -1,16 +1,13 @@
 import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
+import { Predicate } from 'effect';
 
 type Message = LanguageModelV4Prompt[number];
 type Part = Exclude<Message, { role: 'system' }>['content'][number];
 type LegacyPrompt = ProcessLLMRequestArgs['prompt'];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function countingFile(part: { data: unknown; mediaType: string }): unknown {
-  if (!isRecord(part.data)) {
+  if (!Predicate.isObject(part.data)) {
     return { ...part, type: 'file' };
   }
   switch (part.data['type']) {

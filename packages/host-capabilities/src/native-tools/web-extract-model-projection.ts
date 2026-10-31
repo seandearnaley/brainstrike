@@ -2,6 +2,7 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import { Predicate } from 'effect';
 import { refuseExtractUrl } from './extract-url-refusal.ts';
 import type { WebExtractToolResult } from './web-extract-tool.ts';
 import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers.ts';
@@ -18,10 +19,6 @@ export interface WebExtractTextModelOutput {
  */
 export const WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS = 2400;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
@@ -32,7 +29,7 @@ function isOptionalString(value: unknown): value is string | undefined {
 
 function isResultItem(value: unknown): boolean {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['content'] === 'string' &&
     typeof value['url'] === 'string' &&
     value['url'].length > 0 &&
@@ -42,7 +39,7 @@ function isResultItem(value: unknown): boolean {
 
 function isFailedItem(value: unknown): boolean {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['reason'] === 'string' &&
     value['reason'].length > 0 &&
     typeof value['url'] === 'string' &&
@@ -53,7 +50,7 @@ function isFailedItem(value: unknown): boolean {
 function parseWebExtractResult(raw: unknown): WebExtractToolResult {
   if (
     !(
-      isRecord(raw) &&
+      Predicate.isObject(raw) &&
       typeof raw['available'] === 'boolean' &&
       isNonNegativeInteger(raw['count']) &&
       isOptionalString(raw['error']) &&

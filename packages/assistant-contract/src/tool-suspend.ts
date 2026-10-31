@@ -4,6 +4,7 @@ import {
   hasValidDelegatedDecisionState,
   hasValidDelegatedToolActionTarget,
 } from './delegated-tool-actions.ts';
+
 /**
  * Tool SUSPEND transport contract — the wire vocabulary for the two suspending
  * native tools (`submitPlan`, `askUser`). This PARALLELS the tool-APPROVAL
@@ -22,6 +23,7 @@ import {
  * and forward-compatible with it.
  */
 
+import { Predicate } from 'effect';
 import { NATIVE_TOOL_ID } from './native-tool-catalog.ts';
 import type { AssistantRunEventKind } from './run-events.ts';
 import {
@@ -166,7 +168,7 @@ export interface SuspendedRunsResponse extends SuspendedApprovalsResponse {
 
 export function isRediscoveredToolSuspend(value: unknown): value is RediscoveredToolSuspend {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS) &&
@@ -214,10 +216,6 @@ const TOOL_RESUME_ACTION_OWN_KEYS = new Set<PropertyKey>([
   'toolName',
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function isBoundedIdentifier(value: unknown, maxChars: number): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= maxChars;
 }
@@ -231,7 +229,7 @@ function isBoundedIdentifier(value: unknown, maxChars: number): value is string 
  */
 export function isAssistantToolResumeAction(value: unknown): value is AssistantToolResumeAction {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     Reflect.ownKeys(value).every((key) => TOOL_RESUME_ACTION_OWN_KEYS.has(key)) &&
     hasValidDelegatedToolActionTarget(value) &&
     Object.hasOwn(value, 'resumeData') &&
@@ -258,11 +256,11 @@ export function isAssistantToolResumeAction(value: unknown): value is AssistantT
 export function readToolResumeRunConfigAction(
   runConfig: unknown
 ): ToolResumeRunConfigActionReadResult | undefined {
-  if (!isRecord(runConfig)) {
+  if (!Predicate.isObject(runConfig)) {
     return;
   }
   const custom = runConfig['custom'];
-  if (!isRecord(custom)) {
+  if (!Predicate.isObject(custom)) {
     return;
   }
   const rawAction = custom[TOOL_SUSPEND_RUN_CONFIG_KEY];

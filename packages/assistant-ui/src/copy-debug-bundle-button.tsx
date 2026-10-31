@@ -1,14 +1,11 @@
 import { useAuiState } from '@assistant-ui/react';
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { Button, saveDownload } from '@brainstrike/ui';
+import { Predicate } from 'effect';
 import { ClipboardCopy, Download } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { useDebugBundleContext } from './debug-bundle-context';
 import { formatDebugBundleFilename } from './debug-bundle-download';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 /**
  * The runId of THIS message's `run.failed` event, or null. Mirrors
@@ -41,7 +38,7 @@ function selectFailedRunId(parts: readonly unknown[]): string | null {
  * public surface.
  */
 function selectHasErrorState(state: { message: unknown }): boolean {
-  const status = isRecord(state.message)
+  const status = Predicate.isObject(state.message)
     ? (state.message as { status?: { reason?: string; type?: string } }).status
     : undefined;
   return status?.type === 'incomplete' && status?.reason === 'error';
