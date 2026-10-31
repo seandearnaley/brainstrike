@@ -1,5 +1,8 @@
+import {
+  extractProviderRunError,
+  isLocalRunErrorClassification,
+} from '@brainstrike/agent/provider-runtime';
 import { type BoundaryFailure, refusal } from '@brainstrike/assistant-contract/boundary-failure';
-import type { EmbeddingProviderError } from '@brainstrike/embeddings/provider-core';
 import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 
 /** Why a hosted embedding request was refused (BST-1994). */
@@ -22,10 +25,16 @@ export const HOSTED_EMBEDDING_MISSING_KEY_MESSAGE =
 export class HostedEmbeddingError extends Error {
   override readonly name = 'HostedEmbeddingError';
   readonly kind: HostedEmbeddingErrorKind;
+  readonly httpStatus: number | undefined;
 
-  constructor(kind: HostedEmbeddingErrorKind, message: string, options?: { cause?: unknown }) {
+  constructor(
+    kind: HostedEmbeddingErrorKind,
+    message: string,
+    options?: { cause?: unknown; httpStatus?: number }
+  ) {
     super(message, options);
     this.kind = kind;
+    this.httpStatus = options?.httpStatus;
   }
 }
 
@@ -67,56 +76,48 @@ export function hostedEmbeddingFailure(error: unknown): BoundaryFailure | undefi
 }
 
 /**
- * A provider's typed failure as the refusal BST-1996 maps. Only typed facts choose the
- * kind (no message text is parsed), and the message never repeats the provider's body.
+ * A hosted embedding failure as the refusal BST-1996 maps. Only the provider's
+ * own evidence chooses the kind: an HTTP status, or a call that got no response.
+ * No message text is parsed, and the message never repeats the provider's body.
+ * A failure that never crossed to the provider has no hosted classification.
  */
 export function hostedRefusal(
   provider: EmbeddingProviderType,
-  error: EmbeddingProviderError
-): Error {
-  switch (error.type) {
-    case 'missing_api_key':
-      return new HostedEmbeddingError('missing-key', HOSTED_EMBEDDING_MISSING_KEY_MESSAGE, {
-        cause: error,
-      });
-    case 'rate_limit_exceeded':
+  cause: unknown
+): HostedEmbeddingError | undefined {
+  // The bounded diagnostic (status, message, request id, cause chain) is the
+  // cause, never the SDK error: that carries the request body, the embedded text.
+  const evidence = extractProviderRunError(cause);
+  const { code, httpStatus } = evidence;
+  if (isLocalRunErrorClassification(code)) {
+    return;
+  }
+  if (httpStatus === undefined) {
+    return new HostedEmbeddingError(
+      'network',
+      `Embedding provider ${provider} could not be reached.`,
+      { cause: evidence }
+    );
+  }
+  const options = { cause: evidence, httpStatus };
+  switch (httpStatus) {
+    case 429:
       return new HostedEmbeddingError(
         'rate-limit',
         `Embedding provider ${provider} is rate limiting requests; try again later.`,
-        { cause: error }
+        options
       );
-    case 'network_error':
+    case 413:
       return new HostedEmbeddingError(
-        'network',
-        `Embedding provider ${provider} could not be reached.`,
-        { cause: error }
+        'input-too-long',
+        `Embedding provider ${provider} refused the input as too large (HTTP 413).`,
+        options
       );
-    case 'api_error':
-      return error.statusCode === 413
-        ? new HostedEmbeddingError(
-            'input-too-long',
-            `Embedding provider ${provider} refused the input as too large (HTTP 413).`,
-            { cause: error }
-          )
-        : new HostedEmbeddingError(
-            'provider-status',
-            `Embedding provider ${provider} refused the request (HTTP ${error.statusCode}).`,
-            { cause: error }
-          );
-    case 'dimension_mismatch':
+    default:
       return new HostedEmbeddingError(
         'provider-status',
-        `Embedding provider ${provider} returned ${error.received}-dimensional vectors; ${error.expected} were requested.`,
-        { cause: error }
+        `Embedding provider ${provider} refused the request (HTTP ${httpStatus}).`,
+        options
       );
-    // Our own input: not a hosted provider refusal.
-    case 'validation_error':
-      return new Error(`Embedding provider ${provider} failed: ${error.type}`, { cause: error });
-    default:
-      return assertNever(error);
   }
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unhandled embedding provider error: ${JSON.stringify(value)}`);
 }

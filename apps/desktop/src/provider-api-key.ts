@@ -54,7 +54,7 @@ export async function readProviderSecretKey(
   }
 }
 
-/** @internal Provider credential regressions exercise environment and vault precedence. */
+/** A provider key: the environment first, then the keychain. Chat and hosted embeddings share it. */
 export async function readProviderApiKey(provider: SupportedProvider): Promise<string | undefined> {
   const envValue = resolveProviderEnvKey(provider);
   if (envValue) {
