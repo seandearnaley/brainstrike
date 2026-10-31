@@ -65,12 +65,12 @@ it('coexists with workspace storage, preserves canonical collection IDs, authori
   const search = (selected: readonly unknown[]) =>
     port.searchScopes({ limit: 10, mode: 'bm25', scopes: selected, text: 'canonical' });
   try {
-    for (const { profile: _profile, ...binding } of bindings) {
-      const plan = await port.prepareScopedFile({
+    await port.commitScopedTextFiles({
+      files: bindings.map(({ profile: _profile, ...binding }) => ({
         snapshot: { ...binding, chunkLines: 1, content: 'canonical content\n' },
-      });
-      await port.commitScopedTextFile({ plan });
-    }
+      })),
+      storeId: (await port.info()).storeId,
+    });
     await port.commitTextFile({
       plan: await port.prepareFile({
         chunkLines: 1,
@@ -170,8 +170,9 @@ it('adopts an existing canonical workspace file into scoped collection storage a
   try {
     await port.commitTextFile({ plan: await port.prepareFile(legacy) });
     const { profile: _profile, ...snapshot } = binding;
-    await port.commitScopedTextFile({
-      plan: await port.prepareScopedFile({ snapshot: { ...snapshot, ...legacy } }),
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: { ...snapshot, ...legacy } }],
+      storeId: (await port.info()).storeId,
     });
     expect((await port.searchScopes(query)).hits).toMatchObject([
       { embeddingSetId: 'a', fileId: binding.fileId, relativePath: 'source.ts', rootId: 'root' },
@@ -270,12 +271,12 @@ it('isolates full profiles and real supported dimensions before binary top100 an
     const snapshot = { ...binding, chunkLines: 1, content: 'canonical profile content\n' };
     const unchanged = await port.prepareScopedFile({ profile: reduced, snapshot });
     expect(unchanged.embeddingChunkIds).toEqual([]);
-    await port.commitScopedTextFile({ plan: await port.prepareScopedFile({ snapshot }) });
+    const { storeId } = await port.info();
+    await port.commitScopedTextFiles({ files: [{ snapshot }], storeId });
     expect((await port.searchScopes(queryA)).hits).toHaveLength(2);
-    await port.commitScopedTextFile({
-      plan: await port.prepareScopedFile({
-        snapshot: { ...snapshot, content: 'replacement canonical source\n' },
-      }),
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: { ...snapshot, content: 'replacement canonical source\n' } }],
+      storeId,
     });
     expect((await port.searchScopes(queryA)).hits.map((hit) => hit.fileId)).toEqual([
       'workspace-file',
@@ -312,7 +313,7 @@ it('isolates full profiles and real supported dimensions before binary top100 an
   }
 });
 
-it('fences prepared and queued commits after binding revocation, replacement and removal', async () => {
+it('fences queued text batches after binding revocation, commits each batch whole and removes in one batch', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-binding-revocation-'));
   const port = await openIndexer(
     {
@@ -328,27 +329,29 @@ it('fences prepared and queued commits after binding revocation, replacement and
   const request = {
     snapshot: { ...binding, chunkLines: 1, content: 'authorized canonical source\n' },
   };
+  const search = async () =>
+    (await port.searchScopes({ limit: 10, mode: 'bm25', scopes: [scopes[1]], text: 'canonical' }))
+      .hits;
   try {
-    const plan = await port.prepareScopedFile(request);
+    const { storeId } = await port.info();
     const revoke = port.replaceFileBindings([]);
-    const commit = port.commitScopedTextFile({ plan });
+    const commit = port.commitScopedTextFiles({ files: [request], storeId });
     await revoke;
     await expect(commit).rejects.toMatchObject({ code: 'file-not-authorized' });
     await port.replaceFileBindings(bindings);
-    await expect(port.commitScopedTextFile({ plan })).rejects.toMatchObject({
-      code: 'stale-file-plan',
-    });
-    const fresh = await port.prepareScopedFile(request);
-    await port.commitScopedTextFile({ plan: fresh });
-    const pending = await port.prepareScopedFile(request);
-    await port.removeScopedFile({ fileId: binding.fileId, scope: scopes[1] });
-    await expect(port.commitScopedTextFile({ plan: pending })).rejects.toMatchObject({
-      code: 'stale-file-plan',
-    });
-    expect(
-      (await port.searchScopes({ limit: 10, mode: 'bm25', scopes: [scopes[1]], text: 'canonical' }))
-        .hits
-    ).toHaveLength(0);
+    await expect(
+      port.commitScopedTextFiles({ files: [request], storeId: 'f'.repeat(64) })
+    ).rejects.toMatchObject({ code: 'stale-file-plan' });
+    const unbound = { ...request.snapshot, fileId: 'unbound-file' };
+    await expect(
+      port.commitScopedTextFiles({ files: [request, { snapshot: unbound }], storeId })
+    ).rejects.toMatchObject({ code: 'file-not-authorized' });
+    expect(await search()).toHaveLength(0);
+    const plans = await port.commitScopedTextFiles({ files: [request], storeId });
+    expect(plans.map((plan) => plan.snapshot.fileId)).toEqual([binding.fileId]);
+    expect(await search()).toHaveLength(1);
+    expect(await port.removeScopedFiles({ fileIds: [binding.fileId], scope: scopes[1] })).toBe(1);
+    expect(await search()).toHaveLength(0);
   } finally {
     await port.close();
     await rm(directory, { force: true, recursive: true });
@@ -422,15 +425,20 @@ it('preserves captured canonical parser chunks and syntax for rootless files and
       captured.result.chunks
     );
     await expect(
-      port.commitScopedTextFile({
-        plan,
-        syntax: {
-          ...syntax,
-          symbols: syntax.symbols.map((symbol) => ({ ...symbol, fileRecordId: 'other-file' })),
-        },
+      port.commitScopedTextFiles({
+        files: [
+          {
+            snapshot,
+            syntax: {
+              ...syntax,
+              symbols: syntax.symbols.map((symbol) => ({ ...symbol, fileRecordId: 'other-file' })),
+            },
+          },
+        ],
+        storeId: plan.storeId,
       })
     ).rejects.toThrow('committed file');
-    await port.commitScopedTextFile({ plan, syntax });
+    await port.commitScopedTextFiles({ files: [{ snapshot, syntax }], storeId: plan.storeId });
     const vectorPlan = await port.prepareScopedFile({ profile: reduced, snapshot });
     const vector = Array.from({ length: 384 }, (_, i) => (i === 0 ? 1 : 0));
     await port.commitScopedFile({
@@ -441,11 +449,12 @@ it('preserves captured canonical parser chunks and syntax for rootless files and
     const query = { limit: 10, mode: 'vector', profile: reduced, scopes: [scopes[1]], vector };
     const before = await port.searchScopes(query);
     expect(before.hits).toHaveLength(captured.result.chunks.length);
+    const pending = await port.prepareScopedFile({ profile: reduced, snapshot });
     await port.close();
     port = await openIndexer({ ...options, embedding: { indexMode: 'open-existing' } }, deadlines);
-    await expect(port.commitScopedTextFile({ plan })).rejects.toMatchObject({
-      code: 'stale-file-plan',
-    });
+    await expect(
+      port.commitScopedFile({ embeddings: [], plan: pending, profile: reduced })
+    ).rejects.toMatchObject({ code: 'stale-file-plan' });
     expect((await port.searchScopes(query)).hits).toEqual(before.hits);
     const db = openConnection(options.dbPath);
     expect(
@@ -547,7 +556,7 @@ it('retains vectors for two explicit profiles on one canonical file across selec
       (await port.commitScopedFile({ embeddings: [], plan: retained, profile: reduced }))
         .reusedEmbeddings
     ).toBe(1);
-    await port.commitScopedTextFile({ plan: await port.prepareScopedFile({ snapshot }) });
+    await port.commitScopedTextFiles({ files: [{ snapshot }], storeId: retained.storeId });
     await port.replaceFileBindings([{ ...file, profile: second }]);
     expect((await port.prepareScopedFile({ profile: second, snapshot })).embeddingChunkIds).toEqual(
       []

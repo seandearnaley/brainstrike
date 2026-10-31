@@ -109,14 +109,17 @@ function assertPublicationRequest(session: Session, frame: Request): void {
   }
   switch (frame.op) {
     case 'prepare-vector':
-    case 'commit-text': {
-      const input =
+    case 'commit-texts': {
+      const files =
         frame.op === 'prepare-vector'
-          ? decode(canonicalOperations['prepare-vector'].input)(frame.payload)
-          : decode(canonicalOperations['commit-text'].input)(frame.payload);
+          ? [decode(canonicalOperations['prepare-vector'].input)(frame.payload)]
+          : decode(canonicalOperations['commit-texts'].input)(frame.payload).files;
       if (
-        input.file.fileId !== input.payload.fileId ||
-        Buffer.byteLength(input.payload.content) > session.config.request.maxFileBytes
+        files.some(
+          (input) =>
+            input.file.fileId !== input.payload.fileId ||
+            Buffer.byteLength(input.payload.content) > session.config.request.maxFileBytes
+        )
       ) {
         throw new Error('Canonical publication differs from file identity or byte bound.');
       }

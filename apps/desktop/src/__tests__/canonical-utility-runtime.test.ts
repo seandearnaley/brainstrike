@@ -147,8 +147,8 @@ function workspace(published: CanonicalIndexPayload[]): TextWorkspace {
         scope,
         storeId: 'store',
       }),
-      commitTextFile: async ({ payload }) => {
-        published.push(payload);
+      commitTextFiles: async ({ files }) => {
+        published.push(...files.map(({ payload }) => payload));
       },
       finishScan: async ({ aborted, files, ticket }) => {
         if (aborted) {
@@ -158,7 +158,7 @@ function workspace(published: CanonicalIndexPayload[]): TextWorkspace {
         expect(files[0]?.contentHash).toBe(sourceHash);
         return { reason: 'complete', scanComplete: true, ticket };
       },
-      removeFile: async () => {},
+      removeFiles: async () => {},
       verifyManifest: async () => ({
         acknowledged: [],
         changed: [],
@@ -371,7 +371,7 @@ describe('actual utility canonical runtime attachment', () => {
     const publication = createNativeCanonicalPublication(
       {
         commitScopedFile: fail,
-        commitScopedTextFile: fail,
+        commitScopedTextFiles: fail,
         coverageScope: fail,
         info: async () => ({
           dbPath: '/owned/index.sqlite',
@@ -383,7 +383,7 @@ describe('actual utility canonical runtime attachment', () => {
           writerThreadId: 1,
         }),
         prepareScopedFile: fail,
-        removeScopedFile: fail,
+        removeScopedFiles: fail,
         verifyScopedManifest: async () => {
           verifying.resolve();
           await verified.promise;

@@ -59,7 +59,7 @@ export function nativeRuntimeFixture() {
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
     commitScopedFile: unused,
-    commitScopedTextFile: unused,
+    commitScopedTextFiles: unused,
     commitTextFile: unused,
     coverage: unused,
     coverageBatch: unused,
@@ -72,6 +72,7 @@ export function nativeRuntimeFixture() {
     readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile: unused,
+    removeScopedFiles: unused,
     replaceFileBindings: vi.fn(async (bindings: unknown) => {
       boundFiles = bindings as typeof boundFiles;
       events.push('bindings-replace');

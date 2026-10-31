@@ -91,7 +91,7 @@ export async function fixture(
       aborted = true;
     }),
     beginScan: vi.fn(async () => ticket),
-    commitTextFile: vi.fn(async () => {}),
+    commitTextFiles: vi.fn(async () => {}),
     finishScan: vi.fn<CanonicalPublicationPort['finishScan']>(async (request) => ({
       reason:
         aborted || request.aborted
@@ -107,7 +107,7 @@ export async function fixture(
         request.truncatedDirectories.length === 0,
       ticket,
     })),
-    removeFile: vi.fn(async () => {
+    removeFiles: vi.fn(async () => {
       order.push('native-remove');
     }),
     verifyManifest: vi.fn(async () => ({

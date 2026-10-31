@@ -209,10 +209,9 @@ export const canonicalOperations = {
     input: Schema.Struct({ requestId: identifier, scope: scopeSchema }),
     output: ticketSchema,
   },
-  'commit-text': {
+  'commit-texts': {
     input: Schema.Struct({
-      file: identitySchema,
-      payload: payloadSchema,
+      files: Schema.Array(Schema.Struct({ file: identitySchema, payload: payloadSchema })),
       ticket: ticketSchema,
     }),
     output: Schema.Null,
@@ -292,11 +291,11 @@ export const canonicalOperations = {
     input: Schema.Struct({ maxBytes: positive, relativePath: identifier }),
     output: fileReadSchema,
   },
-  'remove-file': {
-    input: Schema.Struct({ file: identitySchema, ticket: ticketSchema }),
+  'remove-files': { input: batch, output: Schema.Null },
+  'remove-published': {
+    input: Schema.Struct({ files: Schema.Array(identitySchema), ticket: ticketSchema }),
     output: Schema.Null,
   },
-  'remove-files': { input: batch, output: Schema.Null },
   'resolve-profile': { input: Schema.Struct({ scope: scopeSchema }), output: vectorProfileSchema },
   'retire-lease': { input: Schema.Null, output: Schema.Null },
   subscribe: { input: Schema.Null, output: Schema.Null },

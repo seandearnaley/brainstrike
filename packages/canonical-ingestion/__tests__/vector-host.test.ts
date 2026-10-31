@@ -116,7 +116,7 @@ async function fixture(selectedProfile: VectorProfile = profile) {
   const publication: CanonicalVectorPublicationPort = {
     abortScan: vi.fn(async () => {}),
     beginScan: vi.fn(async () => ticket),
-    commitTextFile: vi.fn(async () => {}),
+    commitTextFiles: vi.fn(async () => {}),
     commitVectorFile: vi.fn(async () => {}),
     finishScan: vi.fn<CanonicalVectorPublicationPort['finishScan']>(async (input) => ({
       reason: input.aborted ? 'aborted' : input.errors.length ? 'scan-errors' : 'complete',
@@ -124,7 +124,7 @@ async function fixture(selectedProfile: VectorProfile = profile) {
       ticket,
     })),
     prepareVectorFile: vi.fn(async (input) => makePlan(input.payload)),
-    removeFile: vi.fn(async () => {}),
+    removeFiles: vi.fn(async () => {}),
     vectorCoverage: vi.fn(async () => ({
       ...proof,
       counts: { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 },
@@ -184,7 +184,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
       source: f.source,
     });
     await host.scan({ ...f.request, forceFileIds: [f.file.fileId] });
-    expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+    expect(f.publication.commitTextFiles).toHaveBeenCalledOnce();
     expect(f.catalog.resolveProfile).not.toHaveBeenCalled();
     expect(f.inference.generate).not.toHaveBeenCalled();
     expect(f.publication.prepareVectorFile).not.toHaveBeenCalled();
@@ -196,7 +196,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     try {
       expect((await f.host.scan(f.request)).scanComplete).toBe(true);
       expect(f.source.read).toHaveBeenCalledOnce();
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       const preparation = vi.mocked(f.publication.prepareVectorFile).mock.calls[0]?.[0];
       expect(preparation?.file).toEqual(f.file);
       expect(preparation?.payload.content).toBe(f.recorded.content);
@@ -252,7 +252,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
       expect(f.publication.commitVectorFile).toHaveBeenCalledWith(
         expect.objectContaining({ profile: selected })
       );
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       await f.host.close();
     }
   );
@@ -634,7 +634,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
       // Deliberately invalid callback result models a missing reverse-RPC profile.
       vi.mocked(f.catalog.resolveProfile).mockResolvedValue(missing as never);
       await expect(f.host.scan(f.request)).rejects.toThrow();
-      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFiles).not.toHaveBeenCalled();
       expect(f.source.read).not.toHaveBeenCalled();
       expect(f.catalog.completeFiles).not.toHaveBeenCalled();
       await f.host.close();

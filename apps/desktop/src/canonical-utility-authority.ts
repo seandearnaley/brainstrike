@@ -239,6 +239,11 @@ export function recheckCallbackAuthority(
     }
     return;
   }
+  if (frame.op === 'commit-texts') {
+    const committed = decode(canonicalOperations['commit-texts'].input)(frame.payload);
+    current.files(committed.files.map(({ file }) => file));
+    return;
+  }
   if (frame.op === 'complete-files') {
     const completed = decode(canonicalOperations['complete-files'].input)(frame.payload);
     if (completed.files.some((file) => !session.files.has(file.fileId))) {
@@ -247,9 +252,14 @@ export function recheckCallbackAuthority(
     return;
   }
   if (
-    ['load-authorized', 'apply-cache', 'remove-files', 'finish-scan', 'verify-manifest'].includes(
-      frame.op
-    )
+    [
+      'load-authorized',
+      'apply-cache',
+      'remove-files',
+      'remove-published',
+      'finish-scan',
+      'verify-manifest',
+    ].includes(frame.op)
   ) {
     const batch = Schema.decodeUnknownSync(Schema.Struct({ files: Schema.Array(identitySchema) }))(
       frame.payload

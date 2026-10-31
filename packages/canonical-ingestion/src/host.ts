@@ -40,6 +40,7 @@ import {
   readCanonicalSource,
   statCacheSkip,
 } from './source-preparation.ts';
+import { textCommitGroups } from './text-commit-groups.ts';
 
 /**
  * VECTOR completion reads its manifest and coverage separately, and another
@@ -65,11 +66,12 @@ interface ActiveScan {
   readonly requestId: string;
   readonly settled: Promise<void>;
 }
-interface VectorFileInput {
+/** One chunked file a batch publishes: TEXT all at once, VECTOR after its embeddings. */
+interface ChunkedFile {
   readonly file: CanonicalFileIdentity;
   readonly payload: CanonicalIndexPayload;
 }
-interface PreparedVectorFile extends VectorFileInput {
+interface PreparedVectorFile extends ChunkedFile {
   readonly embeddings: { chunkId: string; vector: readonly number[] }[];
   readonly plan: ScopedFilePlan;
 }
@@ -504,7 +506,7 @@ export class CanonicalIngestionHost {
     reads.push(...prepared);
     manifest.push(...prepared.map((read) => ({ ...read.file, contentHash: read.contentHash })));
     const completed: { fileId: string; contentHash: string; chunkCount: number }[] = [];
-    const vectorInputs: VectorFileInput[] = [];
+    const chunked: ChunkedFile[] = [];
     const ineligible = new Set<string>();
     for (const read of reads) {
       const outcome = await chunkCanonicalRead(this.chunk, read, request);
@@ -516,12 +518,7 @@ export class CanonicalIngestionHost {
         continue;
       }
       const { payload } = outcome;
-      if (profile) {
-        vectorInputs.push({ file: read.file, payload });
-      } else {
-        await publication.commitTextFile({ file: read.file, payload, ticket });
-      }
-      context.signal.throwIfAborted();
+      chunked.push({ file: read.file, payload });
       completed.push({
         chunkCount: payload.providedChunks.length,
         contentHash: read.contentHash,
@@ -529,17 +526,22 @@ export class CanonicalIngestionHost {
       });
     }
     if (profile) {
-      vectorFiles.push(...(await this.publishVectors(vectorInputs, profile, context, ticket)));
+      vectorFiles.push(...(await this.publishVectors(chunked, profile, context, ticket)));
+    } else {
+      // One publication call per batch, split only where the batch's text is large: each call's
+      // files are acknowledged together or not at all.
+      for (const files of textCommitGroups(chunked)) {
+        await publication.commitTextFiles({ files, ticket });
+        context.signal.throwIfAborted();
+      }
     }
     if (completed.length > 0) {
       await catalog.completeFiles({ files: completed, scope: request.scope }, context);
     }
-    for (const file of removals) {
-      context.signal.throwIfAborted();
-      await publication.removeFile({ file, ticket });
-      context.signal.throwIfAborted();
-    }
     if (removals.length > 0) {
+      context.signal.throwIfAborted();
+      await publication.removeFiles({ files: removals, ticket });
+      context.signal.throwIfAborted();
       await catalog.removeFiles({ files: removals, scope: request.scope }, context);
     }
     return ineligible.size === 0
@@ -580,7 +582,7 @@ export class CanonicalIngestionHost {
     };
   }
   private async publishVectors(
-    inputs: readonly VectorFileInput[],
+    inputs: readonly ChunkedFile[],
     profile: VectorProfile,
     context: CanonicalOperationContext,
     ticket: CanonicalScanTicket

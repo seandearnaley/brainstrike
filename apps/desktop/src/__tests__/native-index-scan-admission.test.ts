@@ -41,7 +41,7 @@ function fixture() {
   const admission = createNativeScanAdmission(() => source.signal.throwIfAborted(), source.signal);
   const writer = {
     commitScopedFile: vi.fn(),
-    commitScopedTextFile: vi.fn(),
+    commitScopedTextFiles: vi.fn(),
     coverageBatch: vi.fn(),
     coverageScope: vi.fn(),
     info: vi.fn(async () => ({
@@ -54,7 +54,7 @@ function fixture() {
       writerThreadId: 1,
     })),
     prepareScopedFile: vi.fn(),
-    removeScopedFile: vi.fn(async () => true),
+    removeScopedFiles: vi.fn(async () => 1),
     verifyScopedManifest: vi.fn(
       async (request: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]) => ({
         authorityEpoch: 'epoch',
