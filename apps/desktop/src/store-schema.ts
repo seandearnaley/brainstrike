@@ -18,6 +18,10 @@ export interface DesktopSettingsStoreSchema {
   loggingPreferences?: {
     v1: LoggingPreferences;
   };
+  /** macOS: the user chose Not Now when offered the move to Applications (BST-2356). */
+  moveToApplications?: {
+    v1: { declined: boolean };
+  };
   /** Settings › Updates (BST-2367); written before the first update check. */
   updatePreferences?: {
     v1: AppUpdatePreferences;

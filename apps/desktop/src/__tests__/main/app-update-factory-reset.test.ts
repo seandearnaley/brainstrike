@@ -14,8 +14,9 @@ const updater = vi.hoisted(() => ({
 vi.mock('electron', () => ({ app: { getVersion: () => '0.1.0-beta.3', isPackaged: true } }));
 vi.mock('electron-updater', () => ({ default: { autoUpdater: updater } }));
 vi.mock('../../desktop-database-location', () => ({ isIsolatedDesktopTestRun: () => false }));
+vi.mock('../../electron-e2e-test-mode', () => ({ isElectronE2ETestMode: () => false }));
 
-const { checkForAppUpdate, clearAppUpdateForReset } = await import('../../app-update');
+const { createAppUpdates } = await import('../../app-update');
 
 const tempDirs: string[] = [];
 
@@ -35,17 +36,28 @@ it('a factory reset deletes the downloaded update and stops one still downloadin
     stopDownload = reject;
   });
   const cancel = vi.fn(() => stopDownload(new Error('cancelled')));
-  const check = Promise.resolve({ cancellationToken: { cancel }, downloadPromise });
+  const check = Promise.resolve({
+    cancellationToken: { cancel },
+    downloadPromise,
+    isUpdateAvailable: true,
+    updateInfo: { version: '0.1.0-beta.4' },
+  });
   updater.checkForUpdatesAndNotify.mockReturnValue(check);
   updater.getOrCreateDownloadHelper.mockResolvedValue({ cacheDir });
 
-  checkForAppUpdate({ get: () => undefined, set: () => undefined });
-  await check;
-  await clearAppUpdateForReset();
+  const updates = createAppUpdates();
+  updates.start({
+    publish: () => undefined,
+    settings: { get: () => undefined, set: () => undefined },
+  });
+  await vi.waitFor(() => expect(updates.status().state).toBe('downloading'));
+  await updates.clearForReset();
 
   expect(cancel).toHaveBeenCalledOnce();
   await expect(stat(cacheDir)).rejects.toMatchObject({ code: 'ENOENT' });
   // A check still in flight starts no download, and nothing installs on quit.
   expect(updater.autoDownload).toBe(false);
   expect(updater.autoInstallOnAppQuit).toBe(false);
+  // The cancelled download offers no restart.
+  expect(updates.status()).toEqual({ reason: 'reset', state: 'off' });
 });

@@ -19,8 +19,9 @@ vi.mock('electron', () => ({
 }));
 vi.mock('electron-updater', () => ({ default: { autoUpdater: updater } }));
 vi.mock('../../desktop-database-location', () => ({ isIsolatedDesktopTestRun: () => false }));
+vi.mock('../../electron-e2e-test-mode', () => ({ isElectronE2ETestMode: () => false }));
 
-const { checkForAppUpdate } = await import('../../app-update');
+const { createAppUpdates } = await import('../../app-update');
 const { readUpdatePreferences, writeUpdatePreferences } = await import(
   '../../app-update-preferences'
 );
@@ -36,10 +37,10 @@ function createSettingsStore(): UpdatePreferencesStore & { clear: () => void } {
   };
 }
 
-/** Launches the app at `version` and reports whether its update check offered betas. */
+/** Launches the app at `version` and reports whether its launch check offered betas. */
 function launch(store: UpdatePreferencesStore, version: string): boolean {
   running.version = version;
-  checkForAppUpdate(store);
+  createAppUpdates().start({ publish: () => undefined, settings: store });
   const offered = updater.offeredBetas.at(-1);
   if (offered === undefined) {
     throw new Error('The launch ran no update check');
