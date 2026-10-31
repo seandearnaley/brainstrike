@@ -596,6 +596,12 @@ export interface HostTool {
   /** Tool-owned recovery of runtime meaning that JSON cannot retain. */
   reconstructApprovalInput?(rawInput: unknown): Promise<unknown>;
   readonly risk: ToolRiskCategory;
+  /**
+   * BST-2360: whether this call would run inside the OS sandbox if approved.
+   * Core commits the answer on the call's approval request, so the card can
+   * say when a command runs with no sandbox (Windows, the standalone host).
+   */
+  readonly sandboxed?: (input: unknown) => Promise<boolean>;
   readonly strict?: boolean;
   readonly toModelOutput?: Tool<unknown, unknown>['toModelOutput'];
 }

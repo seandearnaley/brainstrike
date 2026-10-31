@@ -577,6 +577,7 @@ function hostStepInteractions(
         ? resolveRunPythonExecutionContext(part.toolCall.input)
         : undefined;
     const targetRoot = registered.approvalTarget?.(part.toolCall.input);
+    const sandboxed = run.commandSandboxes.get(part.toolCall.toolCallId);
     return [
       {
         ...(executionContext ? { executionContext: jsonValue(executionContext) } : {}),
@@ -586,6 +587,7 @@ function hostStepInteractions(
         // Auto access mode's note on why this call still asks.
         ...(part.reason ? { reason: part.reason } : {}),
         runId: run.id,
+        ...(sandboxed === undefined ? {} : { sandboxed }),
         ...(targetRoot ? { targetRoot: { ...targetRoot } } : {}),
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
@@ -847,6 +849,10 @@ async function hostAskDecision(
   if (reviewed?.type === 'approved') {
     run.permits.set(call.toolCallId, action);
     return reviewed;
+  }
+  if (registered.sandboxed) {
+    run.commandSandboxes.set(call.toolCallId, await registered.sandboxed(call.input));
+    run.controller.signal.throwIfAborted();
   }
   run.liveInputs.set(call.toolCallId, { value: call.input });
   return reviewed ?? 'user-approval';

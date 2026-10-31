@@ -22,6 +22,7 @@ import { Schema } from 'effect';
 import type { JsonSchemaFactory } from './json-value.ts';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
+import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
@@ -195,15 +196,11 @@ const RiskCategory = Schema.Literals(TOOL_RISK_CATEGORIES);
  * user's message back for a resend; any other failure may follow acceptance.
  */
 export const HOST_RUN_NOT_ADMITTED_CODE = -32_010;
-/**
- * BST-1990 (D4): the workspace folder a tool resolved for one call, so its
- * approval names the folder even when the call gave no `root`.
- */
-export const HostApprovalTargetRootSchema = Schema.Struct({
-  displayName: Schema.String.check(Schema.isMinCodePoints(1)),
-  rootId: Id,
-});
-export type HostApprovalTargetRoot = (typeof HostApprovalTargetRootSchema)['Type'];
+export {
+  type HostApprovalTargetRoot,
+  HostApprovalTargetRootSchema,
+} from './protocol-approval-facts.ts';
+
 /**
  * A grant answered with an approval: the rest of that run allows the call's
  * risk category (`session`; the client keeps it for its later runs) or the
@@ -774,7 +771,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         /** Auto access mode's note on why this call still needs the user. */
         reason: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
         risk: Schema.optional(RiskCategory),
-        targetRoot: Schema.optional(HostApprovalTargetRootSchema),
+        ...HOST_APPROVAL_FACT_FIELDS,
       }),
       Schema.StructWithRest(Schema.Struct({ type: Schema.Literal('interaction.responded') }), [
         Schema.Record(Schema.String, Schema.Unknown),

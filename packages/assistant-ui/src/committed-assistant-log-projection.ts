@@ -232,18 +232,16 @@ function committedToolCatalogId(event: Readonly<Record<string, unknown>>): strin
 
 /**
  * What the card reads beside the approval: a question or plan's kind, or an
- * approval's host facts (a code-execution context, or the folder a file call
- * targets; each validated before use). A network consent carries both: its
- * kind, and the facts when they are valid, or the browser origin it asks to
- * open (BST-1178).
+ * approval's host facts (a code-execution context, the folder a file call
+ * targets, or whether a command runs sandboxed; each validated before use). A
+ * network consent carries both: its kind, and the facts when they are valid,
+ * or the browser origin it asks to open (BST-1178).
  */
 function interactionFacts(
   kind: CommittedInteractionKind,
-  executionContext: unknown,
-  targetRoot: unknown,
-  origin: unknown,
-  reason: unknown
+  event: Readonly<Record<string, unknown>>
 ): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
+  const { executionContext, origin, reason, sandboxed, targetRoot } = event;
   const reviewNote = typeof reason === 'string' ? { reviewNote: reason } : {}; // Auto access
   if (kind === 'network') {
     const facts: Readonly<Record<string, unknown>> = {
@@ -262,11 +260,13 @@ function interactionFacts(
   // The owner has already validated JSON at the public HostLogRow boundary.
   const context = isCodeExecutionApprovalContext(executionContext);
   const target = isApprovalTargetRoot(targetRoot);
-  if (!(context || target || 'reviewNote' in reviewNote)) {
+  const sandbox = typeof sandboxed === 'boolean';
+  if (!(context || target || sandbox || 'reviewNote' in reviewNote)) {
     return;
   }
   const facts: Readonly<Record<string, unknown>> = {
     ...(context ? { executionContext } : {}),
+    ...(sandbox ? { sandboxed } : {}),
     ...(target ? { targetRoot } : {}),
     ...reviewNote,
   };
@@ -907,13 +907,7 @@ export class CommittedAssistantLogProjection {
       throw new Error('Committed interaction has an unsupported kind.');
     }
     const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
-    const facts = interactionFacts(
-      kind,
-      event['executionContext'],
-      event['targetRoot'],
-      event['origin'],
-      event['reason']
-    );
+    const facts = interactionFacts(kind, event);
     this.updateTool(run, id, (part) => ({
       ...part,
       approval: {

@@ -15,10 +15,12 @@ type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
 function previewSubject(tool: ToolProps): ApprovalPreviewSubject {
   const context: unknown = tool.providerMetadata?.['brainstrike']?.['executionContext'];
   const targetRoot: unknown = tool.providerMetadata?.['brainstrike']?.['targetRoot'];
+  const sandboxed: unknown = tool.providerMetadata?.['brainstrike']?.['sandboxed'];
   return {
     args: tool.args,
     toolName: tool.toolName,
     ...(isCodeExecutionApprovalContext(context) ? { executionContext: context } : {}),
+    ...(typeof sandboxed === 'boolean' ? { sandboxed } : {}),
     ...(isApprovalTargetRoot(targetRoot) ? { targetRoot } : {}),
   };
 }
