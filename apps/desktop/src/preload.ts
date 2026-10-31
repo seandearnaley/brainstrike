@@ -282,6 +282,18 @@ contextBridge.exposeInMainWorld('commandPalette', {
   },
 });
 
+// The app menu's Settings… item (⌘, / Ctrl+,) pushes this event to the focused
+// window so the renderer can open Settings.
+contextBridge.exposeInMainWorld('appMenu', {
+  onOpenSettings: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(DESKTOP_IPC_CHANNELS.appMenu.openSettings, listener);
+    return () => {
+      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.appMenu.openSettings, listener);
+    };
+  },
+});
+
 // Low-friction folder connection (BST-1393, spec §7): the app menu's
 // Open Folder… / Open Recent, `brainstrike <path>` argv, macOS open-file, and
 // resolving a Finder-dropped folder to an absolute path. The two `on*` members
