@@ -128,7 +128,9 @@ export function ChangesetDiffPane({
           {mode === 'split' ? 'Inline' : 'Side by side'}
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* overscroll-contain: reaching the end of the stack stops there rather
+          than carrying the scroll on to the dialog or page behind it. */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <div className="divide-border flex flex-col divide-y">
           {renderedFiles.map((entry) => (
             <ChangesetFileDiffCard

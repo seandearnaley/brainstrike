@@ -1140,10 +1140,15 @@ export function DiffView({
           `aria-label` would override its own visible text as the accessible
           name (an element with `aria-label` ignores its text content for
           that computation), and `role="status"` would wrongly turn static
-          content into a live region. */}
+          content into a live region.
+
+          `.cm-mergeView` is the split view's own scroller (the package sets
+          its overflow), but its height is the host's to give: left at auto it
+          grows to the whole document and this section clips everything past
+          its bottom edge, out of reach. */}
       <section
         aria-label={ariaLabel}
-        className="min-h-0 flex-1 overflow-hidden"
+        className="min-h-0 flex-1 overflow-hidden [&_.cm-mergeView]:h-full"
         key={renderKey}
         ref={hostRef}
       >
