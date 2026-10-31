@@ -10,7 +10,7 @@ import {
   parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
-import { Schema } from 'effect';
+import { Predicate, Schema } from 'effect';
 
 const TEXT_ENCODER = new TextEncoder();
 const CONTENT_OPERATION_DESCRIPTORS = [
@@ -131,9 +131,6 @@ function reportInternalError(
     void Promise.resolve(options.onInternalError(code, cause)).catch(() => {});
   } catch {}
 }
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 function isJsonValue(value: unknown, ancestors = new Set<object>()): boolean {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return true;
@@ -194,7 +191,7 @@ function parseSerializedRequest(request: unknown): unknown {
 }
 function parseAuthority(request: unknown): McpContentAuthority {
   try {
-    if (!(isRecord(request) && isRecord(request['authority']))) {
+    if (!(Predicate.isObject(request) && Predicate.isObject(request['authority']))) {
       throw new TypeError('MCP content request authority is invalid');
     }
     const authority = request['authority'];
@@ -231,7 +228,7 @@ function parseOperation(
   descriptor: McpContentOperationDescriptor;
   operation: McpContentHostOperation;
 } {
-  if (!isRecord(request) || Object.hasOwn(request, 'configuredServerId')) {
+  if (!Predicate.isObject(request) || Object.hasOwn(request, 'configuredServerId')) {
     throw applicationError('invalidRequest');
   }
   const operationInput = { ...request };
@@ -260,7 +257,7 @@ function readHostError(error: unknown): McpHostError | undefined {
       errors: 'all',
       onExcessProperty: 'error',
     })(
-      isRecord(error)
+      Predicate.isObject(error)
         ? { category: error['category'], code: error['code'], message: error['message'] }
         : error
     );

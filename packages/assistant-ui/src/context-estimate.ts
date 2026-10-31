@@ -13,6 +13,7 @@
  * streaming tail changes, so live re-walks during a run cost one message.
  */
 import { countTokensHeuristic } from '@brainstrike/tokenization';
+import { Predicate } from 'effect';
 import { getMessageParts } from './assistant-run-event-derivation';
 
 interface ToolTokenAttribution {
@@ -38,10 +39,6 @@ interface PerMessageCounts {
   reasoningTokens: number;
   toolTokensByName: ReadonlyMap<string, number>;
   userTextTokens: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 function safeStringify(value: unknown): string | undefined {
@@ -120,7 +117,7 @@ function accumulateToolPart(
   toolTokensByName: Map<string, number>
 ): void {
   const source =
-    part['type'] === 'tool-invocation' && isRecord(part['toolInvocation'])
+    part['type'] === 'tool-invocation' && Predicate.isObject(part['toolInvocation'])
       ? part['toolInvocation']
       : part;
   const { name, tokens } = countToolPart(source);
@@ -130,7 +127,7 @@ function accumulateToolPart(
 }
 
 function countMessage(message: unknown): PerMessageCounts {
-  const role = isRecord(message) && message['role'] === 'user' ? 'user' : 'assistant';
+  const role = Predicate.isObject(message) && message['role'] === 'user' ? 'user' : 'assistant';
   const counts: MutableMessageCounts = {
     assistantTextTokens: 0,
     attachmentsCount: 0,
@@ -139,7 +136,7 @@ function countMessage(message: unknown): PerMessageCounts {
   };
   const toolTokensByName = new Map<string, number>();
   for (const part of getMessageParts(message)) {
-    if (!isRecord(part)) {
+    if (!Predicate.isObject(part)) {
       continue;
     }
     const type = part['type'];
@@ -171,7 +168,7 @@ const messageCountCache = new WeakMap<object, CachedMessageCounts>();
  * memoizes the streaming tail, whose latest text part can grow in place.
  */
 function countMessageMemoized(message: unknown, cacheable: boolean): PerMessageCounts {
-  if (!(cacheable && isRecord(message))) {
+  if (!(cacheable && Predicate.isObject(message))) {
     return countMessage(message);
   }
   const parts = getMessageParts(message);

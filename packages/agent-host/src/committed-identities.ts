@@ -1,3 +1,4 @@
+import { Predicate } from 'effect';
 import type { HostEvent, HostLogRow } from './protocol.ts';
 
 export interface CommittedRunIdentity {
@@ -32,10 +33,6 @@ export function committedRowAddress(row: Pick<HostLogRow, 'threadId' | 'seq'>): 
   return JSON.stringify([row.threadId, row.seq]);
 }
 
-function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function startedRow(rows: readonly HostLogRow[], runId: string): StartedRow | undefined {
   return rows.find(
     (row): row is StartedRow => row.event.type === 'run.started' && row.event.runId === runId
@@ -47,7 +44,7 @@ function matchesAdmission(started: StartedRow, accepted: AcceptedRow): boolean {
   const payload = accepted.event.payload;
   const event = started.event;
   if (
-    !isObject(payload) ||
+    !Predicate.isObject(payload) ||
     payload['threadId'] !== started.threadId ||
     payload['modelId'] !== event.modelId
   ) {
@@ -114,7 +111,7 @@ export function committedRunSource(
       row.seq < started.seq &&
       row.event.type === 'command.accepted' &&
       RUN_ADMISSIONS.has(row.event.method) &&
-      isObject(row.event.result) &&
+      Predicate.isObject(row.event.result) &&
       row.event.result['runId'] === runId
   );
   const acceptance = accepted[0];
