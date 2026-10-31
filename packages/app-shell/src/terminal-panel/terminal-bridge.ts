@@ -8,11 +8,7 @@
  * none, and every surface built on it is omitted, never stubbed. There is no
  * `isElectron()` check anywhere.
  */
-
-/** Discriminated result envelope returned across the IPC boundary (never throws). */
-export type TerminalResult<T = void> =
-  | (T extends void ? { ok: true } : { ok: true; value: T })
-  | { ok: false; error: string };
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 
 export interface TerminalCreateResult {
   /** The canonical, containment-checked absolute cwd the shell started in. */
@@ -35,6 +31,7 @@ export interface TerminalExitEvent {
   readonly terminalId: string;
 }
 
+/** Every call answers in the one boundary envelope; nothing to return is `null`. */
 export interface TerminalBridge {
   create: (params: {
     rootId: string;
@@ -46,10 +43,14 @@ export interface TerminalBridge {
     cwd?: string;
     cols?: number;
     rows?: number;
-  }) => Promise<TerminalResult<TerminalCreateResult>>;
-  destroy: (params: { terminalId: string }) => Promise<TerminalResult>;
+  }) => Promise<BoundaryResult<TerminalCreateResult>>;
+  destroy: (params: { terminalId: string }) => Promise<BoundaryResult<null>>;
   onData: (callback: (event: TerminalDataEvent) => void) => () => void;
   onExit: (callback: (event: TerminalExitEvent) => void) => () => void;
-  resize: (params: { terminalId: string; cols: number; rows: number }) => Promise<TerminalResult>;
-  write: (params: { terminalId: string; data: string }) => Promise<TerminalResult>;
+  resize: (params: {
+    terminalId: string;
+    cols: number;
+    rows: number;
+  }) => Promise<BoundaryResult<null>>;
+  write: (params: { terminalId: string; data: string }) => Promise<BoundaryResult<null>>;
 }

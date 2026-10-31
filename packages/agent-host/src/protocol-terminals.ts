@@ -1,3 +1,4 @@
+import { BoundaryFailureSchema } from '@brainstrike/assistant-contract';
 import { Schema } from 'effect';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
@@ -6,23 +7,15 @@ const Dimension = Schema.Finite;
 
 // --- terminals -------------------------------------------------------------
 
-const TerminalError = Schema.Struct({ error: Text, ok: Schema.Literal(false) });
-const TerminalDoneSchema = Schema.Union(
-  [Schema.Struct({ ok: Schema.Literal(true) }), TerminalError],
-  {
+/** Terminals answer in the one `BoundaryResult` envelope, failures typed. */
+const TerminalError = Schema.Struct({ error: BoundaryFailureSchema, ok: Schema.Literal(false) });
+function terminalResult<T extends Schema.Constraint>(value: T) {
+  return Schema.Union([Schema.Struct({ ok: Schema.Literal(true), value }), TerminalError], {
     mode: 'oneOf',
-  }
-);
-const TerminalCreatedSchema = Schema.Union(
-  [
-    Schema.Struct({
-      ok: Schema.Literal(true),
-      value: Schema.Struct({ cwd: Text, terminalId: Id }),
-    }),
-    TerminalError,
-  ],
-  { mode: 'oneOf' }
-);
+  });
+}
+const TerminalDoneSchema = terminalResult(Schema.Null);
+const TerminalCreatedSchema = terminalResult(Schema.Struct({ cwd: Text, terminalId: Id }));
 
 /** One terminal's output or exit, pushed only to the connection that created it. */
 export const TERMINAL_EVENT = 'terminal/event';

@@ -1,3 +1,5 @@
+import { type BoundaryFailure, refusal } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render as renderElement, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -15,7 +17,6 @@ import type {
   TerminalBridge,
   TerminalDataEvent,
   TerminalExitEvent,
-  TerminalResult,
 } from '../terminal-panel/terminal-bridge';
 import { TerminalPanel } from '../terminal-panel/terminal-panel';
 import {
@@ -129,10 +130,12 @@ vi.mock('@xterm/addon-web-links', () => {
 });
 
 // ── Bridge fixtures ───────────────────────────────────────────────────────────
-// `TerminalResult<T>` is a conditional type (void → no `value`), so build the
-// value-carrying success shape directly rather than via the deferred generic.
 function ok<T>(value: T): { ok: true; value: T } {
   return { ok: true, value };
+}
+
+function refused(code: string, message: string): { error: BoundaryFailure; ok: false } {
+  return { error: refusal({ category: 'input', code, message }), ok: false };
 }
 
 let dataCallback: ((event: TerminalDataEvent) => void) | null = null;
@@ -160,7 +163,7 @@ function render(ui: ReactElement): ReturnType<typeof renderElement> {
 function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
   const full: TerminalBridge = {
     create: vi.fn(async () => ok({ cwd: '/abs/repo', terminalId: 'pty-1' })),
-    destroy: vi.fn(async () => ({ ok: true }) as TerminalResult),
+    destroy: vi.fn(async () => ok(null)),
     onData: vi.fn((cb: (event: TerminalDataEvent) => void) => {
       dataCallback = cb;
       return offData;
@@ -169,8 +172,8 @@ function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
       exitCallback = cb;
       return offExit;
     }),
-    resize: vi.fn(async () => ({ ok: true }) as TerminalResult),
-    write: vi.fn(async () => ({ ok: true }) as TerminalResult),
+    resize: vi.fn(async () => ok(null)),
+    write: vi.fn(async () => ok(null)),
     ...bridge,
   };
   services = { ...services, terminal: full };
@@ -352,10 +355,8 @@ describe('TerminalPanel', () => {
   it('shows an error state (not a blank panel) when create returns { ok:false }', async () => {
     installBridge({
       create: vi.fn(
-        async (): Promise<TerminalResult<{ terminalId: string; cwd: string }>> => ({
-          error: 'spawn failed',
-          ok: false,
-        })
+        async (): Promise<BoundaryResult<{ terminalId: string; cwd: string }>> =>
+          refused('terminal.start-failed', 'spawn failed')
       ),
     });
     render(<TerminalPanel />);
@@ -370,18 +371,18 @@ describe('TerminalPanel', () => {
   it('silently retries create while the workspace root has not reconciled into the DB yet', async () => {
     // Right after boot the renderer can be interactive BEFORE roots
     // reconciliation lands the workspace row in the DB; the main process then
-    // rejects create with the transient "No open folder matches root id"
-    // error. The panel must keep the starting state and retry — no dead
+    // refuses create as an unknown root (or roots not yet available). The panel must keep the starting state and retry — no dead
     // error state, no toast.
     const create = vi.fn(
-      async (): Promise<TerminalResult<{ terminalId: string; cwd: string }>> =>
+      async (): Promise<BoundaryResult<{ terminalId: string; cwd: string }>> =>
         ok({ cwd: '/abs/repo', terminalId: 'pty-1' })
     );
-    create.mockResolvedValueOnce({
-      error: 'No open folder matches root id "root-1".',
-      ok: false,
-    });
-    create.mockResolvedValueOnce({ error: 'Workspace roots are unavailable.', ok: false });
+    create.mockResolvedValueOnce(
+      refused('workspace.root-unknown', 'No open folder matches root id "root-1".')
+    );
+    create.mockResolvedValueOnce(
+      refused('workspace.roots-unavailable', 'Workspace roots are unavailable.')
+    );
     installBridge({ create: create as TerminalBridge['create'] });
     render(<TerminalPanel />);
 
@@ -439,7 +440,7 @@ describe('TerminalPanel', () => {
     // the gap between the old session's teardown and the new create resolving.
     // A holder object (not a `let`) keeps the resolver typed across the executor
     // closure — a closure-assigned `let` would be flow-narrowed to its initializer.
-    type CreateResult = TerminalResult<{ terminalId: string; cwd: string }>;
+    type CreateResult = BoundaryResult<{ terminalId: string; cwd: string }>;
     const deferred: { resolve: (result: CreateResult) => void } = {
       resolve: () => {
         throw new Error('root-2 create resolved before it was pending');

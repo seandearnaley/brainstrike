@@ -4,6 +4,7 @@
  */
 
 import { promises as fsPromises } from 'node:fs';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeLedgerPort } from '@brainstrike/state-store';
 import type {
@@ -12,7 +13,6 @@ import type {
   WorktreeSettings,
   WorktreeSetupOutcome,
 } from '@brainstrike/types';
-import type { RootCwdResult } from '../workspace-root-cwd';
 import type { GitCommandRunner } from './git-service';
 
 const logger = createLogger('WorktreeService');
@@ -53,7 +53,7 @@ export interface WorktreeServiceDeps {
    * `GitInventoryService.getSnapshot({ maxAgeMs: 0 })`.
    */
   readonly resolveInventory: (options?: { readonly forceFresh?: boolean }) => Promise<GitInventory>;
-  readonly resolveRootCwd: (rootId: string) => Promise<RootCwdResult>;
+  readonly resolveRootCwd: (rootId: string) => Promise<BoundaryResult<string>>;
   readonly resolveRootPaths: () => Promise<
     readonly { readonly id: string; readonly path: string }[]
   >;
