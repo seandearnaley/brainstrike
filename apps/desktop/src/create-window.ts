@@ -18,6 +18,7 @@ import {
 } from './desktop-renderer-target';
 import { resolveDistRoot } from './dist-root';
 import { shouldDenyMcpAppFrameNavigation } from './mcp/apps-frame-navigation';
+import { attachPageContextMenu } from './page-context-menu';
 import {
   createDesktopIpcSenderFrameAllowlist,
   isAllowedDesktopIpcSenderFrameUrl,
@@ -311,6 +312,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       : {}),
   });
   trackAppWindow(win);
+  attachPageContextMenu(win.webContents);
   // The renderer's app-active signal follows THIS window's native focus, not its
   // own `document.hasFocus()` (false while the browser pane or DevTools holds
   // keyboard focus). Attached before `show()` and before the renderer loads: the

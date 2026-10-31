@@ -1229,18 +1229,9 @@ if (singleInstanceLockAcquired) {
       const isMac = process.platform === 'darwin';
       app.setAboutPanelOptions(buildAboutPanelOptions(app.name, app.getVersion()));
       const editAndViewMenus: Electron.MenuItemConstructorOptions[] = [
-        {
-          label: 'Edit',
-          submenu: [
-            { role: 'undo' },
-            { role: 'redo' },
-            { type: 'separator' },
-            { role: 'cut' },
-            { role: 'copy' },
-            { role: 'paste' },
-            { role: 'selectAll' },
-          ],
-        },
+        // Electron's own Edit menu for the platform: Paste and Match Style and
+        // Speech on macOS, Delete everywhere.
+        { role: 'editMenu' },
         {
           label: 'View',
           submenu: [
@@ -1280,6 +1271,9 @@ if (singleInstanceLockAcquired) {
             { type: 'separator' },
             { role: 'resetZoom' },
             { role: 'zoomIn' },
+            // The role's accelerator is ⌘/Ctrl+Plus, which needs Shift on most
+            // layouts; this hidden twin takes the unshifted ⌘/Ctrl+= as well.
+            { accelerator: 'CommandOrControl+=', role: 'zoomIn', visible: false },
             { role: 'zoomOut' },
             { type: 'separator' },
             { role: 'togglefullscreen' },

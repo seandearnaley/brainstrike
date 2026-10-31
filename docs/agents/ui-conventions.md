@@ -49,6 +49,12 @@ Right-click and menu close preserve the originating focus owner. Editable contro
 keep their native interaction. Destructive thread actions enter confirmation;
 closing a tab does not delete its history.
 
+A right-click no surface claims opens main's native page menu
+(`apps/desktop/src/page-context-menu.ts`): Copy over a selection, Cut, Copy, Paste
+and Select All in a field, spelling fixes, Copy Link and Copy Image. Cancelling the
+DOM `contextmenu` event suppresses it, so a surface whose own menu covers text
+offers Copy itself.
+
 Floating layers use shared tokens: panels above their scrims, nested scrims above
 parent panels, popups above dialogs. Nesting follows lexical ownership. Do not
 transform popup anchors or manufacture dynamic Tailwind classes the scanner cannot
