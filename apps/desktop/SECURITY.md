@@ -66,8 +66,10 @@ electron-builder flips Electron's fuses in every packaged build (`electronFuses`
 in package.json, BST-2357):
 - `onlyLoadAppFromAsar` and `enableEmbeddedAsarIntegrityValidation`: Electron
   loads the app only from `app.asar` and, on macOS and Windows, refuses an
-  `app.asar` whose contents no longer match the hash electron-builder signed
-  into the app. Linux has no asar integrity check
+  `app.asar` whose contents no longer match the hash electron-builder embeds
+  in the app. The check resists tampering only in a code-signed app: Windows
+  builds are not signed yet (BST-2349), so there it catches corruption, not a
+  rewritten app. Linux has no asar integrity check
 - `enableCookieEncryption`: the cookie store is encrypted with the OS key, as
   Chrome's is. This is one-way: turning it off again corrupts existing profiles
 - `grantFileProtocolExtraPrivileges: false`: no page loads from `file://` (the
