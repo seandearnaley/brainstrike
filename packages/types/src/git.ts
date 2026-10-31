@@ -1,8 +1,5 @@
 /** Shared renderer/main contract for Brainstrike's local git operations. */
 
-/** Discriminated result envelope returned across the desktop IPC boundary. */
-export type GitResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
 /** A single changed path in the working tree or index. */
 export interface GitStatusFile {
   readonly originalPath?: string;

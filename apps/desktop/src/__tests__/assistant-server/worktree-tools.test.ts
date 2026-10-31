@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { gitRefused } from '../../assistant-server/git-failure';
 import { runListWorktrees, runManageWorktree } from '../../assistant-server/worktree-tools';
 
 const RUNTIME = {
@@ -224,7 +225,9 @@ describe('runListWorktrees', () => {
 
   it('throws the service refusal verbatim', async () => {
     const caps = capability({
-      list: vi.fn().mockResolvedValue({ error: 'inventory failed', ok: false }),
+      list: vi
+        .fn()
+        .mockResolvedValue(gitRefused('conflict', 'git.command-failed', 'inventory failed')),
     });
 
     await expect(runListWorktrees({}, RUNTIME, caps as never)).rejects.toThrow('inventory failed');
@@ -334,7 +337,11 @@ describe('runManageWorktree', () => {
 
   it('throws an archive refusal verbatim so the model sees the blocker', async () => {
     const caps = capability({
-      archive: vi.fn().mockResolvedValue({ error: 'A run is active in this worktree.', ok: false }),
+      archive: vi
+        .fn()
+        .mockResolvedValue(
+          gitRefused('conflict', 'git.command-failed', 'A run is active in this worktree.')
+        ),
     });
 
     await expect(

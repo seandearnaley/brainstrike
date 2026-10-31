@@ -40,8 +40,9 @@
  *    already uses — no special-casing needed downstream in
  *    `git-structured-diff.ts`.
  */
-import type { GitResult } from '@brainstrike/types';
-import { describeFailure, type GitCommandRun, stripLineEnding } from './git-service';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { gitCommandFailed, gitInvalid, gitUnexpected } from './git-failure';
+import { type GitCommandRun, stripLineEnding } from './git-service';
 
 /**
  * git's well-known empty-tree object id (`git hash-object -t tree
@@ -78,24 +79,22 @@ type InvokeFn = (
  * Applied to both `commitId` (further constrained by
  * {@link validateCommitId}) and `baseRef` (via {@link validateBaseRef}).
  */
-function validateRefArg(value: unknown, fieldName: string): GitResult<string> {
+function validateRefArg(value: unknown, fieldName: string): BoundaryResult<string> {
   if (typeof value !== 'string' || value.length === 0) {
-    return { error: `${fieldName} must be a non-empty string`, ok: false };
+    return gitInvalid(`${fieldName} must be a non-empty string`);
   }
   if (/\s/u.test(value)) {
-    return { error: `${fieldName} must not contain whitespace`, ok: false };
+    return gitInvalid(`${fieldName} must not contain whitespace`);
   }
   if (value.includes(':')) {
-    return {
-      error: `${fieldName} must not contain ":" (would corrupt the "<ref>:./<path>" spec form)`,
-      ok: false,
-    };
+    return gitInvalid(
+      `${fieldName} must not contain ":" (would corrupt the "<ref>:./<path>" spec form)`
+    );
   }
   if (value.startsWith('-')) {
-    return {
-      error: `${fieldName} must not start with "-" (would be read as a git option, not a ref)`,
-      ok: false,
-    };
+    return gitInvalid(
+      `${fieldName} must not start with "-" (would be read as a git option, not a ref)`
+    );
   }
   return { ok: true, value };
 }
@@ -104,13 +103,13 @@ function validateRefArg(value: unknown, fieldName: string): GitResult<string> {
  * Validate a renderer-supplied `commitId` (mode `commit`): the shared ref
  * safety rule plus the exact full-object-id shape.
  */
-export function validateCommitId(value: unknown): GitResult<string> {
+export function validateCommitId(value: unknown): BoundaryResult<string> {
   const safe = validateRefArg(value, 'commitId');
   if (!safe.ok) {
     return safe;
   }
   if (!/^[0-9a-f]{40,64}$/u.test(safe.value)) {
-    return { error: 'commitId must be a full object id returned by Git', ok: false };
+    return gitInvalid('commitId must be a full object id returned by Git');
   }
   return safe;
 }
@@ -121,7 +120,7 @@ export function validateCommitId(value: unknown): GitResult<string> {
  * branch name, tag, or the empty-tree id, never constrained to a hex
  * object id shape.
  */
-export function validateBaseRef(value: unknown): GitResult<string> {
+export function validateBaseRef(value: unknown): BoundaryResult<string> {
   return validateRefArg(value, 'baseRef');
 }
 
@@ -133,15 +132,15 @@ export function validateBaseRef(value: unknown): GitResult<string> {
  * (a future algorithm this module doesn't yet know the empty-tree id for) is
  * a visible typed error, never a silent SHA-1 guess.
  */
-export async function resolveEmptyTreeHash(invoke: InvokeFn): Promise<GitResult<string>> {
+export async function resolveEmptyTreeHash(invoke: InvokeFn): Promise<BoundaryResult<string>> {
   const run_ = await invoke(['rev-parse', '--show-object-format']);
   if (run_.exitCode !== 0) {
-    return { error: describeFailure(run_), ok: false };
+    return gitCommandFailed(run_);
   }
   const format = stripLineEnding(run_.stdout).trim();
   const hash = EMPTY_TREE_HASH_BY_FORMAT[format];
   if (!hash) {
-    return { error: `unsupported git object-format "${format}" for the empty-tree id`, ok: false };
+    return gitUnexpected(`unsupported git object-format "${format}" for the empty-tree id`);
   }
   return { ok: true, value: hash };
 }
@@ -163,20 +162,20 @@ export async function resolveEmptyTreeHash(invoke: InvokeFn): Promise<GitResult<
 export async function resolveCommitOldRef(
   invoke: InvokeFn,
   commitId: string
-): Promise<GitResult<string>> {
+): Promise<BoundaryResult<string>> {
   const run_ = await invoke(['rev-list', '--parents', '-n', '1', commitId]);
   if (run_.exitCode !== 0) {
-    return { error: describeFailure(run_), ok: false };
+    return gitCommandFailed(run_);
   }
   const [resolvedCommit, firstParent] = run_.stdout.trim().split(/\s+/u);
   if (resolvedCommit !== commitId) {
-    return { error: 'git returned mismatched commit ancestry metadata', ok: false };
+    return gitUnexpected('git returned mismatched commit ancestry metadata');
   }
   if (firstParent === undefined) {
     return await resolveEmptyTreeHash(invoke);
   }
   if (!/^[0-9a-f]{40,64}$/u.test(firstParent)) {
-    return { error: 'git returned an invalid first-parent object id', ok: false };
+    return gitUnexpected('git returned an invalid first-parent object id');
   }
   return { ok: true, value: `${commitId}^` };
 }

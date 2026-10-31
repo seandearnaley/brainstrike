@@ -17,10 +17,12 @@
  * attributing it to a run would be a temporal guess. See
  * docs/agents/assistant-persistence.md.
  */
+
 import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ShellCorrelationCapability } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import type { GitResult, ManagedWorktreeRow } from '@brainstrike/types';
+import type { ManagedWorktreeRow } from '@brainstrike/types';
 import type { WorktreeShellReconcileResult } from './worktree-adopt';
 
 const logger = createLogger('ShellWorktreeCorrelation');
@@ -37,7 +39,7 @@ export function createShellCorrelation(deps: {
   readonly reconcile: (
     rootId: string,
     precedingWorktreePaths: ReadonlySet<string> | undefined
-  ) => Promise<GitResult<WorktreeShellReconcileResult>>;
+  ) => Promise<BoundaryResult<WorktreeShellReconcileResult>>;
 }): ShellWorktreeCorrelation {
   return {
     onCommandCompleted: ({ command, precedingWorktreePaths, rootId }) => {

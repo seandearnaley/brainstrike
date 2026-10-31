@@ -11,6 +11,8 @@
  * never carry an acknowledgment it did not need, and a composer must not be
  * repopulated from a target that has no prompt.
  */
+
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
@@ -22,13 +24,13 @@ import type {
   ChangedFileEntry,
   ChangesetView,
   FileSystemAdapter,
-  GitResult,
   WatcherRootHealthEvent,
 } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { gitFailure } from '../../__tests__/helpers/git-failure';
 import { useChangesStore } from '../changes-store';
 import type {
   RewindApplyResult,
@@ -163,19 +165,19 @@ interface PortStub {
 function installPort(overrides: Partial<PortStub> = {}): PortStub {
   const stub: PortStub = {
     apply: vi.fn(
-      async (): Promise<GitResult<RewindApplyResult>> => ({
+      async (): Promise<BoundaryResult<RewindApplyResult>> => ({
         ok: true,
         value: APPLIED,
       })
     ),
     preview: vi.fn(
-      async (): Promise<GitResult<RewindPreviewModel>> => ({
+      async (): Promise<BoundaryResult<RewindPreviewModel>> => ({
         ok: true,
         value: preview(),
       })
     ),
     redo: vi.fn(
-      async (): Promise<GitResult<RewindRedoResult>> => ({
+      async (): Promise<BoundaryResult<RewindRedoResult>> => ({
         ok: true,
         value: {
           description: 'The conversation returned to its previous branch.',
@@ -189,7 +191,7 @@ function installPort(overrides: Partial<PortStub> = {}): PortStub {
   currentPort = {
     ...stub,
     conversation: 'branched',
-    fileDiff: vi.fn(async () => ({ error: 'not used', ok: false as const })),
+    fileDiff: vi.fn(async () => gitFailure('not used')),
   };
   return stub;
 }
@@ -512,7 +514,7 @@ describe('RewindConfirmDialog', () => {
     const user = userEvent.setup();
     installPort({
       apply: vi.fn(
-        async (): Promise<GitResult<RewindApplyResult>> => ({
+        async (): Promise<BoundaryResult<RewindApplyResult>> => ({
           ok: true,
           value: {
             conflicts: [],
@@ -761,7 +763,7 @@ describe('RewindConfirmDialog', () => {
     const user = userEvent.setup();
     let redoCalls = 0;
     const bridge = installPort({
-      redo: vi.fn(async (): Promise<GitResult<RewindRedoResult>> => {
+      redo: vi.fn(async (): Promise<BoundaryResult<RewindRedoResult>> => {
         redoCalls += 1;
         if (redoCalls === 1) {
           return {
@@ -882,7 +884,7 @@ describe('RewindConfirmDialog', () => {
     const user = userEvent.setup();
     installPort({
       apply: vi.fn(
-        async (): Promise<GitResult<RewindApplyResult>> => ({
+        async (): Promise<BoundaryResult<RewindApplyResult>> => ({
           ok: true,
           value: {
             conflicts: [],
@@ -974,7 +976,7 @@ describe('RewindConfirmDialog', () => {
 
   it('surfaces a transport failure distinctly from a refusal', async () => {
     installPort({
-      preview: vi.fn(async () => ({ error: 'bridge exploded', ok: false })),
+      preview: vi.fn(async () => gitFailure('bridge exploded')),
     });
     openRewind();
     renderDialog();

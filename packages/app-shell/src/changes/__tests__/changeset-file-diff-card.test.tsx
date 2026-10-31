@@ -1,8 +1,10 @@
-import type { ChangedFileEntry, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { ChangedFileEntry, StructuredFileDiff } from '@brainstrike/types';
 import type { DiffViewSource } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { gitFailure } from '../../__tests__/helpers/git-failure';
 import { ChangesetFileDiffCard } from '../ui/changeset-file-diff-card';
 
 // Stub the heavy CodeMirror DiffView (covered by its own suite) — surface the
@@ -143,10 +145,8 @@ describe('ChangesetFileDiffCard', () => {
     // dedicated journal-content-expired card was removed. Any failure —
     // including a legacy-looking prefix — renders the honest error + Retry.
     const loadFileDiff = vi.fn(
-      async (): Promise<GitResult<StructuredFileDiff>> => ({
-        error: 'changeset-snapshot-missing: no snapshot turn covers run "run-1".',
-        ok: false,
-      })
+      async (): Promise<BoundaryResult<StructuredFileDiff>> =>
+        gitFailure('changeset-snapshot-missing: no snapshot turn covers run "run-1".')
     );
 
     render(
@@ -168,7 +168,7 @@ describe('ChangesetFileDiffCard', () => {
 
   it('re-runs an already-started load when reloadToken changes (BST-1161 live refresh)', async () => {
     const loadFileDiff = vi.fn(
-      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+      async (): Promise<BoundaryResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
     );
     const { rerender } = render(
       <ChangesetFileDiffCard
@@ -196,9 +196,9 @@ describe('ChangesetFileDiffCard', () => {
 
   it('keeps the loaded diff, and a half-written comment, on screen while a reload is in flight (BST-2369)', async () => {
     const user = userEvent.setup();
-    let resolveReload: (result: GitResult<StructuredFileDiff>) => void = () => undefined;
+    let resolveReload: (result: BoundaryResult<StructuredFileDiff>) => void = () => undefined;
     const loadFileDiff = vi
-      .fn<() => Promise<GitResult<StructuredFileDiff>>>()
+      .fn<() => Promise<BoundaryResult<StructuredFileDiff>>>()
       .mockResolvedValueOnce({ ok: true, value: makeFullDiff() })
       .mockImplementationOnce(
         () =>
@@ -228,9 +228,9 @@ describe('ChangesetFileDiffCard', () => {
   });
 
   it('shows the newest reload when an older reload answers last', async () => {
-    const pending: ((result: GitResult<StructuredFileDiff>) => void)[] = [];
+    const pending: ((result: BoundaryResult<StructuredFileDiff>) => void)[] = [];
     const loadFileDiff = vi
-      .fn<() => Promise<GitResult<StructuredFileDiff>>>()
+      .fn<() => Promise<BoundaryResult<StructuredFileDiff>>>()
       .mockResolvedValueOnce({ ok: true, value: makeFullDiff() })
       .mockImplementation(
         () =>
@@ -264,7 +264,7 @@ describe('ChangesetFileDiffCard', () => {
   });
 
   it('reserves the loaded diff height while a diff is loading', () => {
-    const loadFileDiff = vi.fn<() => Promise<GitResult<StructuredFileDiff>>>(
+    const loadFileDiff = vi.fn<() => Promise<BoundaryResult<StructuredFileDiff>>>(
       () => new Promise(() => undefined)
     );
     render(
@@ -280,7 +280,7 @@ describe('ChangesetFileDiffCard', () => {
   it('a reloadToken change before the first intersection does NOT force an eager load (stays lazy)', () => {
     vi.stubGlobal('IntersectionObserver', ManualIntersectionObserver);
     const loadFileDiff = vi.fn(
-      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+      async (): Promise<BoundaryResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
     );
     const { rerender } = render(
       <ChangesetFileDiffCard
@@ -307,7 +307,7 @@ describe('ChangesetFileDiffCard', () => {
 
   it('renders the binary explanation for binary content, not an empty diff', async () => {
     const loadFileDiff = vi.fn(
-      async (): Promise<GitResult<StructuredFileDiff>> => ({
+      async (): Promise<BoundaryResult<StructuredFileDiff>> => ({
         ok: true,
         value: makeFullDiff({ additions: null, content: { kind: 'binary' }, deletions: null }),
       })
@@ -332,7 +332,7 @@ describe('ChangesetFileDiffCard', () => {
   // The card must thread the ENTRY's own rootId, not a surface-wide default.
   it("calls loadFileDiff with the entry's own rootId, not a caller-wide default", async () => {
     const loadFileDiff = vi.fn(
-      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+      async (): Promise<BoundaryResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
     );
 
     render(
@@ -349,7 +349,7 @@ describe('ChangesetFileDiffCard', () => {
 
   it('renders null additions as "—", never "0"', async () => {
     const loadFileDiff = vi.fn(
-      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+      async (): Promise<BoundaryResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
     );
 
     render(
@@ -369,8 +369,8 @@ describe('ChangesetFileDiffCard', () => {
   it('renders the message plus a Retry that calls loadFileDiff again on a generic failure', async () => {
     const user = userEvent.setup();
     const loadFileDiff = vi
-      .fn<() => Promise<GitResult<StructuredFileDiff>>>()
-      .mockResolvedValueOnce({ error: 'network is down', ok: false })
+      .fn<() => Promise<BoundaryResult<StructuredFileDiff>>>()
+      .mockResolvedValueOnce(gitFailure('network is down'))
       .mockResolvedValueOnce({ ok: true, value: makeFullDiff() });
 
     render(
@@ -395,7 +395,7 @@ describe('ChangesetFileDiffCard', () => {
 
   it('reaches DiffView with a structured source for full content', async () => {
     const loadFileDiff = vi.fn(
-      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+      async (): Promise<BoundaryResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
     );
 
     render(
@@ -412,7 +412,7 @@ describe('ChangesetFileDiffCard', () => {
   });
 
   it('shows a loading affordance while the load is in flight', () => {
-    const loadFileDiff = vi.fn<() => Promise<GitResult<StructuredFileDiff>>>(
+    const loadFileDiff = vi.fn<() => Promise<BoundaryResult<StructuredFileDiff>>>(
       () => new Promise(() => undefined)
     );
 
@@ -430,7 +430,7 @@ describe('ChangesetFileDiffCard', () => {
   it('does not fetch until the card becomes visible', async () => {
     vi.stubGlobal('IntersectionObserver', ManualIntersectionObserver);
     const loadFileDiff = vi.fn(
-      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+      async (): Promise<BoundaryResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
     );
 
     const { container } = render(

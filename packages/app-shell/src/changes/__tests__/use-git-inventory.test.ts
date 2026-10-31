@@ -2,6 +2,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { gitFailure } from '../../__tests__/helpers/git-failure';
 import {
   stubChangesBridge,
   workspaceGitWrapper,
@@ -102,7 +103,7 @@ describe('useGitInventory', () => {
 
   it('surfaces a typed bridge failure and clears the inventory', async () => {
     stubBridge({
-      inventory: vi.fn(async () => ({ error: 'inventory-unavailable', ok: false }) as const),
+      inventory: vi.fn(async () => gitFailure('inventory-unavailable')),
     });
 
     const { result } = renderHook(() => useGitInventory(), { wrapper: changesHost() });

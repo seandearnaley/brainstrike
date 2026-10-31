@@ -14,20 +14,22 @@
  *    — args array, NO shell, so a branch name / commit message / path can never
  *    inject a command. No `exec`/`execSync` anywhere.
  *
- * Every handler returns a structured `GitResult` (or a `{ ok:false }` envelope);
+ * Every handler returns a structured `BoundaryResult` (or a `{ ok:false }` envelope);
  * git failures are logged and surfaced, never thrown across IPC and never
  * silently swallowed.
  */
+
 import type { Readable } from 'node:stream';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { endTreeOnDeadline, spawnNativeChild } from '@brainstrike/state-store/native-children';
+import { gitRefused, gitThrew } from './assistant-server/git-failure';
 import {
   createGitService,
   GIT_MAX_BUFFER_BYTES,
   type GitCommandRun,
   type GitCommandRunner,
-  type GitResult,
 } from './assistant-server/git-service';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
@@ -250,18 +252,18 @@ export interface GitIpcHandlersOptions {
 export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitIpcHandlersOptions) {
   async function withService<T>(
     rootId: unknown,
-    op: (service: ReturnType<typeof createGitService>) => Promise<GitResult<T>>
-  ): Promise<GitResult<T>> {
+    op: (service: ReturnType<typeof createGitService>) => Promise<BoundaryResult<T>>
+  ): Promise<BoundaryResult<T>> {
     const cwd = await resolveRootCwd(resolver, rootId, 'git', logger);
     if (!cwd.ok) {
-      return cwd;
+      return gitRefused('input', 'workspace.root-unresolved', cwd.error);
     }
     const service = createGitService({ cwd: cwd.value, run });
     try {
       return await op(service);
     } catch (error) {
       logger.error('Unexpected git handler failure', { error });
-      return { error: error instanceof Error ? error.message : String(error), ok: false };
+      return gitThrew(error);
     }
   }
 

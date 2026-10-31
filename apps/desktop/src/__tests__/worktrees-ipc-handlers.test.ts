@@ -37,7 +37,9 @@ describe('worktrees IPC handlers', () => {
       writeSettings: (next: unknown) => Promise.resolve(next as never),
     });
     expect(await withoutService.list()).toEqual({
-      error: 'The worktree service is not available in this session.',
+      error: expect.objectContaining({
+        message: 'The worktree service is not available in this session.',
+      }),
       ok: false,
     });
   });
@@ -57,7 +59,9 @@ describe('worktrees IPC handlers', () => {
 
   it('rejects a malformed adopt payload at the boundary', async () => {
     expect(await handlers().adopt({ createdBy: 'user', path: 'relative/wt' })).toEqual({
-      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      error: expect.objectContaining({
+        message: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      }),
       ok: false,
     });
     expect(service.adopt).not.toHaveBeenCalled();
@@ -77,7 +81,10 @@ describe('worktrees IPC handlers', () => {
     'rejects a non-record adopt payload (%s) without evaluating createdBy',
     async (_label, payload) => {
       await expect(handlers().adopt(payload)).resolves.toEqual({
-        error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+        error: expect.objectContaining({
+          message:
+            'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+        }),
         ok: false,
       });
       expect(service.adopt).not.toHaveBeenCalled();
@@ -86,13 +93,17 @@ describe('worktrees IPC handlers', () => {
 
   it('rejects a structurally valid adopt payload with an invalid createdBy', async () => {
     expect(await handlers().adopt({ createdBy: 'robot', path: '/repo/wt' })).toEqual({
-      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      error: expect.objectContaining({
+        message: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      }),
       ok: false,
     });
     expect(service.adopt).not.toHaveBeenCalled();
 
     expect(await handlers().adopt({ path: '/repo/wt' })).toEqual({
-      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      error: expect.objectContaining({
+        message: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      }),
       ok: false,
     });
     expect(service.adopt).not.toHaveBeenCalled();
@@ -134,7 +145,9 @@ describe('worktrees IPC handlers', () => {
     ['an empty string', { createdBy: 'user', path: '/repo/wt', runId: '' }],
   ] as const)('rejects a present but malformed runId (%s)', async (_label, payload) => {
     expect(await handlers().adopt(payload)).toEqual({
-      error: 'worktrees:adopt runId must be a non-empty string when present.',
+      error: expect.objectContaining({
+        message: 'worktrees:adopt runId must be a non-empty string when present.',
+      }),
       ok: false,
     });
     expect(service.adopt).not.toHaveBeenCalled();
@@ -145,7 +158,9 @@ describe('worktrees IPC handlers', () => {
     ['an empty string', { createdBy: 'user', path: '/repo/wt', threadId: '' }],
   ] as const)('rejects a present but malformed threadId (%s)', async (_label, payload) => {
     expect(await handlers().adopt(payload)).toEqual({
-      error: 'worktrees:adopt threadId must be a non-empty string when present.',
+      error: expect.objectContaining({
+        message: 'worktrees:adopt threadId must be a non-empty string when present.',
+      }),
       ok: false,
     });
     expect(service.adopt).not.toHaveBeenCalled();
@@ -153,7 +168,9 @@ describe('worktrees IPC handlers', () => {
 
   it('rejects a malformed create payload at the boundary', async () => {
     expect(await handlers().create({ name: 42 })).toEqual({
-      error: 'worktrees:create requires { rootId, baseRef, name, branch, createdBy }.',
+      error: expect.objectContaining({
+        message: 'worktrees:create requires { rootId, baseRef, name, branch, createdBy }.',
+      }),
       ok: false,
     });
     expect(service.create).not.toHaveBeenCalled();
@@ -169,7 +186,9 @@ describe('worktrees IPC handlers', () => {
         rootId: 'r',
       })
     ).toEqual({
-      error: 'worktrees:create branch must be { detached: true } or { name: string }.',
+      error: expect.objectContaining({
+        message: 'worktrees:create branch must be { detached: true } or { name: string }.',
+      }),
       ok: false,
     });
   });
@@ -222,8 +241,10 @@ describe('worktrees IPC handlers', () => {
     });
 
     expect(result).toEqual({
-      error:
-        'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
+      error: expect.objectContaining({
+        message:
+          'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
+      }),
       ok: false,
     });
     expect(service.create).not.toHaveBeenCalled();
@@ -243,8 +264,10 @@ describe('worktrees IPC handlers', () => {
     });
 
     expect(result).toEqual({
-      error:
-        'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
+      error: expect.objectContaining({
+        message:
+          'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
+      }),
       ok: false,
     });
     expect(service.create).not.toHaveBeenCalled();
@@ -252,7 +275,7 @@ describe('worktrees IPC handlers', () => {
 
   it('rejects a malformed archive payload at the boundary', async () => {
     expect(await handlers().archive({ worktreeId: 42 })).toEqual({
-      error: 'worktrees:archive requires { worktreeId }.',
+      error: expect.objectContaining({ message: 'worktrees:archive requires { worktreeId }.' }),
       ok: false,
     });
     expect(service.archive).not.toHaveBeenCalled();
@@ -274,11 +297,15 @@ describe('worktrees IPC handlers', () => {
     await expect(
       handlers().archive({ confirmIgnoredEntries: true, worktreeId: 'wt-1' })
     ).resolves.toEqual({
-      error: 'worktrees:archive confirmIgnoredEntries must be a non-empty string when present.',
+      error: expect.objectContaining({
+        message: 'worktrees:archive confirmIgnoredEntries must be a non-empty string when present.',
+      }),
       ok: false,
     });
     await expect(handlers().inspectArchive({ worktreeId: 42 })).resolves.toEqual({
-      error: 'worktrees:inspectArchive requires { worktreeId }.',
+      error: expect.objectContaining({
+        message: 'worktrees:inspectArchive requires { worktreeId }.',
+      }),
       ok: false,
     });
     expect(service.archive).not.toHaveBeenCalled();
@@ -302,7 +329,9 @@ describe('worktrees IPC handlers', () => {
 
   it('rejects a malformed checkout-status payload at the boundary', async () => {
     expect(await handlers().checkoutStatus({ path: 'relative/worktree' })).toEqual({
-      error: 'worktrees:checkoutStatus requires { path: <absolute path> }.',
+      error: expect.objectContaining({
+        message: 'worktrees:checkoutStatus requires { path: <absolute path> }.',
+      }),
       ok: false,
     });
     expect(service.checkoutStatus).not.toHaveBeenCalled();
@@ -320,7 +349,9 @@ describe('worktrees IPC handlers', () => {
 
   it('rejects a malformed createBranchHere payload at the boundary', async () => {
     expect(await handlers().createBranchHere({ branch: 42, worktreeId: 'wt-1' })).toEqual({
-      error: 'worktrees:createBranchHere requires { branch, worktreeId }.',
+      error: expect.objectContaining({
+        message: 'worktrees:createBranchHere requires { branch, worktreeId }.',
+      }),
       ok: false,
     });
     expect(service.createBranchHere).not.toHaveBeenCalled();
@@ -335,7 +366,7 @@ describe('worktrees IPC handlers', () => {
 
   it('rejects a malformed createContext payload at the boundary', async () => {
     expect(await handlers().createContext({ rootId: '' })).toEqual({
-      error: 'worktrees:createContext requires { rootId }.',
+      error: expect.objectContaining({ message: 'worktrees:createContext requires { rootId }.' }),
       ok: false,
     });
     expect(service.createContext).not.toHaveBeenCalled();
@@ -357,7 +388,7 @@ describe('worktrees IPC handlers', () => {
 
   it('rejects a malformed restore payload at the boundary', async () => {
     expect(await handlers().restore({ worktreeId: 42 })).toEqual({
-      error: 'worktrees:restore requires { worktreeId }.',
+      error: expect.objectContaining({ message: 'worktrees:restore requires { worktreeId }.' }),
       ok: false,
     });
     expect(service.restore).not.toHaveBeenCalled();
@@ -372,7 +403,10 @@ describe('worktrees IPC handlers', () => {
 
   it('never lets a thrown service error cross the IPC boundary', async () => {
     service.list.mockRejectedValue(new Error('boom'));
-    expect(await handlers().list()).toEqual({ error: 'boom', ok: false });
+    expect(await handlers().list()).toEqual({
+      error: expect.objectContaining({ code: 'git.internal' }),
+      ok: false,
+    });
   });
 
   it('returns settings from the read boundary', async () => {
@@ -399,7 +433,7 @@ describe('worktrees IPC handlers', () => {
     });
 
     await expect(ipcHandlers.getSettings()).resolves.toEqual({
-      error: 'settings read failed',
+      error: expect.objectContaining({ code: 'git.internal' }),
       ok: false,
     });
   });
@@ -413,7 +447,9 @@ describe('worktrees IPC handlers', () => {
     });
 
     await expect(ipcHandlers.setSettings(null)).resolves.toEqual({
-      error: 'worktrees:setSettings requires an object payload.',
+      error: expect.objectContaining({
+        message: 'worktrees:setSettings requires an object payload.',
+      }),
       ok: false,
     });
     expect(writeSettings).not.toHaveBeenCalled();
@@ -432,7 +468,9 @@ describe('worktrees IPC handlers', () => {
       setupCommand: null,
     });
     expect(result).toEqual({
-      error: 'worktrees:setSettings managedDirectory must be an absolute path or null.',
+      error: expect.objectContaining({
+        message: 'worktrees:setSettings managedDirectory must be an absolute path or null.',
+      }),
       ok: false,
     });
     expect(writeSettings).not.toHaveBeenCalled();
@@ -448,8 +486,10 @@ describe('worktrees IPC handlers', () => {
 
     const result = await ipcHandlers.setSettings({ managedDirectory: null, setupCommand: [] });
     expect(result).toEqual({
-      error:
-        'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
+      error: expect.objectContaining({
+        message:
+          'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
+      }),
       ok: false,
     });
     expect(writeSettings).not.toHaveBeenCalled();
@@ -466,8 +506,10 @@ describe('worktrees IPC handlers', () => {
     await expect(
       ipcHandlers.setSettings({ managedDirectory: null, setupCommand: 'enabled' })
     ).resolves.toEqual({
-      error:
-        'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
+      error: expect.objectContaining({
+        message:
+          'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
+      }),
       ok: false,
     });
     expect(writeSettings).not.toHaveBeenCalled();
@@ -514,6 +556,9 @@ describe('worktrees IPC handlers', () => {
 
     await expect(
       ipcHandlers.setSettings({ managedDirectory: '/work/project/worktrees', setupCommand: null })
-    ).resolves.toEqual({ error: 'managed directory refused', ok: false });
+    ).resolves.toEqual({
+      error: expect.objectContaining({ code: 'git.internal' }),
+      ok: false,
+    });
   });
 });

@@ -33,12 +33,9 @@
  *   `0` (see `formatStatCount`).
  */
 
-import type {
-  ChangedFileEntry,
-  Changeset,
-  GitResult,
-  StructuredFileDiff,
-} from '@brainstrike/types';
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { ChangedFileEntry, Changeset, StructuredFileDiff } from '@brainstrike/types';
 import { Button, type DiffLineComment, DiffView } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { GitFailureDetails } from '../../git-failure-details';
@@ -56,7 +53,7 @@ export interface ChangesetFileDiffCardProps {
   readonly loadFileDiff: (
     path: string,
     rootId: string | null
-  ) => Promise<GitResult<StructuredFileDiff>>;
+  ) => Promise<BoundaryResult<StructuredFileDiff>>;
   /** Takes a comment on this file's diff lines (BST-2334); without it the diff takes none. */
   readonly onLineComment?:
     | ((entry: ChangedFileEntry, comment: DiffLineComment) => boolean)
@@ -230,7 +227,7 @@ export function ChangesetFileDiffCard({
       setState(
         result.ok
           ? { diff: result.value, kind: 'loaded' }
-          : { kind: 'error', message: result.error }
+          : { kind: 'error', message: describeBoundaryFailure(result.error) }
       );
     } catch (caught) {
       if (generation !== generationRef.current) {

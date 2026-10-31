@@ -25,7 +25,7 @@
  * PGlite read happens here.
  */
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
-import type { GitResult } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import {
   captureFailedError,
   type ResolvedTurnTargets,
@@ -33,6 +33,7 @@ import {
   type SnapshotAttributionRecord,
   snapshotMissingError,
 } from './changeset-snapshot-targets';
+import { gitRefused } from './git-failure';
 import { isFailedSnapshotCaptureOid } from './snapshot-repository';
 
 type HostTurnSnapshot = Extract<HostLogRow['event'], { type: 'workspace.snapshot.recorded' }>;
@@ -66,9 +67,12 @@ export interface HostThreadTurns {
   readonly rangeTargetsOf: (
     threadId: string,
     fromRunId: string
-  ) => Promise<GitResult<ResolvedTurnTargets>>;
+  ) => Promise<BoundaryResult<ResolvedTurnTargets>>;
   /** A host run's diff targets, from its thread's committed log. */
-  readonly targetsOf: (threadId: string, runId: string) => Promise<GitResult<ResolvedTurnTargets>>;
+  readonly targetsOf: (
+    threadId: string,
+    runId: string
+  ) => Promise<BoundaryResult<ResolvedTurnTargets>>;
 }
 
 function runTurn(thread: FoldedHostThread, runId: string): HostRunTurn {
@@ -105,15 +109,14 @@ function foldRow(thread: FoldedHostThread, row: HostLogRow): void {
 }
 
 /** A boundary capture that failed as a whole, or the first root whose capture failed. */
-function failedCapture(snapshot: HostTurnSnapshot): GitResult<never> | undefined {
+function failedCapture(snapshot: HostTurnSnapshot): BoundaryResult<never> | undefined {
   if (snapshot.failure !== undefined) {
-    return {
-      error:
-        `changeset-snapshot-capture-failed: the ${snapshot.boundary} workspace snapshots were ` +
-        `not captured (${snapshot.failure}); this changeset cannot be shown. ` +
-        'Partial diffs are never fabricated.',
-      ok: false,
-    };
+    return gitRefused(
+      'availability',
+      'changeset.snapshot-capture-failed',
+      `The ${snapshot.boundary} workspace snapshots were not captured (${snapshot.failure}); ` +
+        'this changeset cannot be shown. Partial diffs are never fabricated.'
+    );
   }
   const failed = snapshot.roots.find((root) => isFailedSnapshotCaptureOid(root.commitOid));
   return failed
@@ -129,7 +132,7 @@ function targetsOfHostRun(
   threadId: string,
   runId: string,
   turn: HostRunTurn | undefined
-): GitResult<ResolvedTurnTargets> {
+): BoundaryResult<ResolvedTurnTargets> {
   const start = turn?.start;
   if (!(turn && start)) {
     return snapshotMissingError(
@@ -184,7 +187,7 @@ function rangeTargetsOfHostThread(
   threadId: string,
   fromRunId: string,
   thread: FoldedHostThread
-): GitResult<ResolvedTurnTargets> {
+): BoundaryResult<ResolvedTurnTargets> {
   const turns = [...thread.runs.entries()];
   const from = turns.findIndex(([runId]) => runId === fromRunId);
   const start = turns[from]?.[1].start;

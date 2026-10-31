@@ -15,10 +15,10 @@
 
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import type {
   GitInventory,
-  GitResult,
   ManagedWorktreeRow,
   WorktreeAdoptParams,
   WorktreeCheckoutStatus,
@@ -26,12 +26,8 @@ import type {
   WorktreeListEntry,
   WorktreeSettings,
 } from '@brainstrike/types';
-import {
-  describeFailure,
-  type GitCommandRunner,
-  invokeGitHookFree,
-  parsePorcelainV2Z,
-} from './git-service';
+import { gitCommandFailed, gitRefused } from './git-failure';
+import { type GitCommandRunner, invokeGitHookFree, parsePorcelainV2Z } from './git-service';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 import type { WorktreeLedger } from './worktree-ledger';
 import { externalToolForPath } from './worktree-paths';
@@ -119,14 +115,15 @@ async function isReachableCheckout(
 async function assertReachable(
   deps: WorktreeAdoptDeps,
   descriptor: WorktreeDescriptor
-): Promise<GitResult<null>> {
+): Promise<BoundaryResult<null>> {
   if (await isReachableCheckout(deps, descriptor.path, descriptor.containment)) {
     return { ok: true, value: null };
   }
-  return {
-    error: `The worktree at "${descriptor.path}" is outside every open folder. Grant access to its folder first, then adopt it.`,
-    ok: false,
-  };
+  return gitRefused(
+    'authorization',
+    'worktree.outside-folders',
+    `The worktree at "${descriptor.path}" is outside every open folder. Grant access to its folder first, then adopt it.`
+  );
 }
 
 /**
@@ -194,35 +191,38 @@ export async function isAuthorizedWorktreeMountPath(
 export async function adoptWorktree(
   deps: WorktreeAdoptDeps,
   params: WorktreeAdoptParams
-): Promise<GitResult<ManagedWorktreeRow>> {
+): Promise<BoundaryResult<ManagedWorktreeRow>> {
   const inventory = await deps.resolveInventory();
   const located = locate(inventory, params.path);
   if (!located) {
-    return {
-      error: `No worktree at "${params.path}" is visible in the workspace inventory, so it cannot be adopted.`,
-      ok: false,
-    };
+    return gitRefused(
+      'input',
+      'worktree.not-in-inventory',
+      `No worktree at "${params.path}" is visible in the workspace inventory, so it cannot be adopted.`
+    );
   }
   const { descriptor, repoCommonDir, repositoryRoot } = located;
   if (descriptor.path === repositoryRoot) {
-    return {
-      error: `The worktree at "${params.path}" is the repository's primary checkout — use Hand off to Local instead.`,
-      ok: false,
-    };
+    return gitRefused(
+      'input',
+      'worktree.primary-checkout',
+      `The worktree at "${params.path}" is the repository's primary checkout — use Hand off to Local instead.`
+    );
   }
   if (descriptor.prunableReason !== null) {
-    return {
-      error: `The worktree at "${params.path}" is prunable (${descriptor.prunableReason}) and cannot be adopted.`,
-      ok: false,
-    };
+    return gitRefused(
+      'conflict',
+      'worktree.prunable',
+      `The worktree at "${params.path}" is prunable (${descriptor.prunableReason}) and cannot be adopted.`
+    );
   }
   if (descriptor.trust === 'unvalidated') {
-    return {
-      error:
-        descriptor.trustReason ??
-        `The worktree at "${params.path}" could not be verified against its own .git.`,
-      ok: false,
-    };
+    return gitRefused(
+      'conflict',
+      'worktree.unverified',
+      descriptor.trustReason ??
+        `The worktree at "${params.path}" could not be verified against its own .git.`
+    );
   }
   if (descriptor.lockedReason !== null) {
     // A locked worktree adopts into a row that is neither usable
@@ -230,10 +230,11 @@ export async function adoptWorktree(
     // (`git worktree remove` refuses a locked worktree even with `--force`) —
     // a dead-end row the user could only escape by unlocking out-of-band.
     // Refuse loudly instead of minting it.
-    return {
-      error: `The worktree at "${params.path}" is locked (${descriptor.lockedReason}) and cannot be adopted — unlock it (\`git worktree unlock\`) first.`,
-      ok: false,
-    };
+    return gitRefused(
+      'conflict',
+      'worktree.locked',
+      `The worktree at "${params.path}" is locked (${descriptor.lockedReason}) and cannot be adopted — unlock it (\`git worktree unlock\`) first.`
+    );
   }
   const reachable = await assertReachable(deps, descriptor);
   if (!reachable.ok) {
@@ -241,13 +242,13 @@ export async function adoptWorktree(
   }
   const existing = await deps.ledger.getByPath(descriptor.path);
   if (existing !== null) {
-    return {
-      error:
-        existing.archivedAt === null
-          ? `Brainstrike already manages the worktree at "${descriptor.path}".`
-          : `Brainstrike archived a worktree at "${descriptor.path}" — restore that one instead of adopting a new checkout at the same path.`,
-      ok: false,
-    };
+    return gitRefused(
+      'conflict',
+      'worktree.already-managed',
+      existing.archivedAt === null
+        ? `Brainstrike already manages the worktree at "${descriptor.path}".`
+        : `Brainstrike archived a worktree at "${descriptor.path}" — restore that one instead of adopting a new checkout at the same path.`
+    );
   }
   const headRun = await invokeGitHookFree(
     (args, timeoutMs = GIT_DEFAULT_TIMEOUT_MS) =>
@@ -255,7 +256,7 @@ export async function adoptWorktree(
     ['rev-parse', 'HEAD']
   );
   if (headRun.exitCode !== 0) {
-    return { error: describeFailure(headRun), ok: false };
+    return gitCommandFailed(headRun);
   }
   const row: ManagedWorktreeRow = {
     archivedAt: null,
@@ -445,7 +446,7 @@ export async function reconcileWorktreesFromShell(
     readonly runId?: string;
     readonly threadId?: string;
   }
-): Promise<GitResult<WorktreeShellReconcileResult>> {
+): Promise<BoundaryResult<WorktreeShellReconcileResult>> {
   // Force a fresh read (BST-1392 review round, W5 e2e): this call runs
   // milliseconds after the agent's own shell command exited — reliably well
   // under both the inventory's 5s TTL and the fs watcher's 300-2000ms
@@ -480,10 +481,11 @@ export async function reconcileWorktreesFromShell(
     (candidate) => candidate.identity.gitCommonDir === params.repoCommonDir
   );
   if (!repository) {
-    return {
-      error: `No repository with common dir "${params.repoCommonDir}" is in the workspace inventory.`,
-      ok: false,
-    };
+    return gitRefused(
+      'input',
+      'worktree.repository-not-in-inventory',
+      `No repository with common dir "${params.repoCommonDir}" is in the workspace inventory.`
+    );
   }
   const onDiskPaths = new Set(repository.worktrees.map((descriptor) => descriptor.path));
   const activeRows = await deps.ledger.listActive();
@@ -533,14 +535,15 @@ export async function reconcileWorktreesFromShell(
 export async function readCheckoutStatus(
   deps: WorktreeAdoptDeps,
   params: { readonly path: string }
-): Promise<GitResult<WorktreeCheckoutStatus>> {
+): Promise<BoundaryResult<WorktreeCheckoutStatus>> {
   const inventory = await deps.resolveInventory();
   const located = locate(inventory, params.path);
   if (!located) {
-    return {
-      error: `The path "${params.path}" is not visible in the workspace inventory, so its status cannot be read.`,
-      ok: false,
-    };
+    return gitRefused(
+      'input',
+      'worktree.not-in-inventory',
+      `The path "${params.path}" is not visible in the workspace inventory, so its status cannot be read.`
+    );
   }
   // The inventory deliberately retains fabricated/unvalidated descriptors for
   // visibility (a scanned worktree whose gitdir points somewhere it shouldn't
@@ -548,19 +551,19 @@ export async function readCheckoutStatus(
   // finding an entry is not proof it is safe to run git in. Mirror
   // `adoptWorktree`'s own trust gate before invoking anything.
   if (located.descriptor.trust === 'unvalidated') {
-    return {
-      error:
-        located.descriptor.trustReason ??
-        `The worktree at "${params.path}" could not be verified against its own .git.`,
-      ok: false,
-    };
+    return gitRefused(
+      'conflict',
+      'worktree.unverified',
+      located.descriptor.trustReason ??
+        `The worktree at "${params.path}" could not be verified against its own .git.`
+    );
   }
   const statusRun = await invokeGitHookFree(
     (args, timeoutMs = GIT_DEFAULT_TIMEOUT_MS) => deps.run({ args, cwd: params.path, timeoutMs }),
     ['status', '--porcelain=v2', '--branch', '-z']
   );
   if (statusRun.exitCode !== 0) {
-    return { error: describeFailure(statusRun), ok: false };
+    return gitCommandFailed(statusRun);
   }
   const parsed = parsePorcelainV2Z(statusRun.stdout);
   return {

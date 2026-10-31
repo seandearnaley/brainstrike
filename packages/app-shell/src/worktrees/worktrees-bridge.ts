@@ -5,8 +5,8 @@
  * capability-check `useWorktreesBridge()` (`workspace-git-services.tsx`), never
  * `isElectron()`.
  */
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
-  GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeAdoptParams,
@@ -21,27 +21,31 @@ import type {
 } from '@brainstrike/types';
 
 export interface WorktreesBridge {
-  adopt: (params: WorktreeAdoptParams) => Promise<GitResult<ManagedWorktreeRow>>;
+  adopt: (params: WorktreeAdoptParams) => Promise<BoundaryResult<ManagedWorktreeRow>>;
   archive: (params: {
     confirmIgnoredEntries?: string;
     force?: boolean;
     runId?: string;
     worktreeId: string;
-  }) => Promise<GitResult<WorktreeArchiveResult>>;
-  checkoutStatus: (params: { readonly path: string }) => Promise<GitResult<WorktreeCheckoutStatus>>;
-  create: (params: WorktreeCreateParams) => Promise<GitResult<WorktreeCreateResult>>;
+  }) => Promise<BoundaryResult<WorktreeArchiveResult>>;
+  checkoutStatus: (params: {
+    readonly path: string;
+  }) => Promise<BoundaryResult<WorktreeCheckoutStatus>>;
+  create: (params: WorktreeCreateParams) => Promise<BoundaryResult<WorktreeCreateResult>>;
   createBranchHere: (params: {
     branch: string;
     worktreeId: string;
-  }) => Promise<GitResult<ManagedWorktreeRow>>;
-  createContext: (params: { rootId: string }) => Promise<GitResult<WorktreeCreateContext>>;
-  getSettings: () => Promise<GitResult<WorktreeSettings>>;
-  inspectArchive: (params: { worktreeId: string }) => Promise<GitResult<WorktreeArchivePreview>>;
-  list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
-  listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
-  restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;
+  }) => Promise<BoundaryResult<ManagedWorktreeRow>>;
+  createContext: (params: { rootId: string }) => Promise<BoundaryResult<WorktreeCreateContext>>;
+  getSettings: () => Promise<BoundaryResult<WorktreeSettings>>;
+  inspectArchive: (params: {
+    worktreeId: string;
+  }) => Promise<BoundaryResult<WorktreeArchivePreview>>;
+  list: () => Promise<BoundaryResult<readonly WorktreeListEntry[]>>;
+  listManagedPaths: () => Promise<BoundaryResult<readonly ManagedWorktreePathEntry[]>>;
+  restore: (params: { worktreeId: string }) => Promise<BoundaryResult<WorktreeCreateResult>>;
   setSettings: (params: {
     managedDirectory: string | null;
     setupCommand: WorktreeSettings['setupCommand'];
-  }) => Promise<GitResult<WorktreeSettings>>;
+  }) => Promise<BoundaryResult<WorktreeSettings>>;
 }

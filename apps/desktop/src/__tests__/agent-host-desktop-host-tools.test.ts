@@ -1,3 +1,4 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { Schema } from 'effect';
 import type { MutableFixture } from './fixtures/mutable-schema-fixture';
 // @vitest-environment node
@@ -8,7 +9,7 @@ import { join } from 'node:path';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
-import type { GitResult, WorktreeCreateResult, WorktreeListEntry } from '@brainstrike/types';
+import type { WorktreeCreateResult, WorktreeListEntry } from '@brainstrike/types';
 import { afterEach, expect, test, vi } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import {
@@ -354,9 +355,9 @@ test('the desktop host runs the worktree tools on its own worktree service, unde
     trustReason: null,
     usable: true,
   } satisfies WorktreeListEntry;
-  const listed: GitResult<readonly WorktreeListEntry[]> = { ok: true, value: [primary] };
+  const listed: BoundaryResult<readonly WorktreeListEntry[]> = { ok: true, value: [primary] };
   const worktreeRoot = { displayName: 'fox', path: '/managed/fox', rootId: 'wt-root' };
-  const created: GitResult<WorktreeCreateResult & { root: typeof worktreeRoot }> = {
+  const created: BoundaryResult<WorktreeCreateResult & { root: typeof worktreeRoot }> = {
     ok: true,
     value: {
       root: worktreeRoot,

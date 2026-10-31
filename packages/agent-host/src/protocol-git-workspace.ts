@@ -1,3 +1,4 @@
+import { BoundaryFailureSchema } from '@brainstrike/assistant-contract';
 import type {
   ChangesetView,
   ChangesInvalidationEvent,
@@ -29,8 +30,8 @@ const Texts = Schema.Array(Text);
 const None = Schema.Record(Schema.String, Schema.Never);
 const RootRequest = Schema.Struct({ rootId: Id });
 
-const GitError = Schema.Struct({ error: Text, ok: Schema.Literal(false) });
-/** The git cluster keeps its `{ ok, value } | { ok: false, error }` envelope across the wire. */
+const GitError = Schema.Struct({ error: BoundaryFailureSchema, ok: Schema.Literal(false) });
+/** The git cluster keeps its `BoundaryResult` envelope across the wire, failures typed. */
 function gitResult<T extends Schema.Constraint>(value: T) {
   return Schema.Union([Schema.Struct({ ok: Schema.Literal(true), value }), GitError], {
     mode: 'oneOf',

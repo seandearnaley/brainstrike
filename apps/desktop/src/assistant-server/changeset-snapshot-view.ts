@@ -1,9 +1,9 @@
 /** Snapshot diff endpoints come exclusively from the current host log. */
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   ChangedFileEntry,
   Changeset,
   ChangesetView,
-  GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
 import type { HostThreadTurns } from './changeset-host-turns';
@@ -12,6 +12,7 @@ import {
   type RootDiffTarget,
   snapshotMissingError,
 } from './changeset-snapshot-targets';
+import { gitInvalid, gitRefused } from './git-failure';
 import type { SnapshotService } from './snapshot-service';
 
 type SnapshotChangeset = Extract<Changeset, { kind: 'agent-run' | 'run-range' }>;
@@ -25,8 +26,8 @@ export interface SnapshotChangesetResolver {
     rootId: unknown,
     changeset: SnapshotChangeset,
     path: string
-  ) => Promise<GitResult<StructuredFileDiff>>;
-  readonly resolveView: (changeset: SnapshotChangeset) => Promise<GitResult<ChangesetView>>;
+  ) => Promise<BoundaryResult<StructuredFileDiff>>;
+  readonly resolveView: (changeset: SnapshotChangeset) => Promise<BoundaryResult<ChangesetView>>;
 }
 
 /** Bounded memo for IMMUTABLE oid↔oid per-root diffs (never worktree diffs). */
@@ -60,15 +61,15 @@ export function createSnapshotChangesetResolver(
 ): SnapshotChangesetResolver {
   const diffMemo = new Map<string, readonly StructuredFileDiff[]>();
 
-  function requireService(): GitResult<SnapshotService> {
+  function requireService(): BoundaryResult<SnapshotService> {
     const service = deps.resolveService();
     if (!service) {
-      return {
-        error:
-          'snapshot-engine-unavailable: the workspace snapshot service is not running. ' +
-          'Restart the app; if this persists it is a wiring bug.',
-        ok: false,
-      };
+      return gitRefused(
+        'availability',
+        'changeset.snapshot-engine-unavailable',
+        'The workspace snapshot service is not running. ' +
+          'Restart the app; if this persists it is a wiring bug.'
+      );
     }
     return { ok: true, value: service };
   }
@@ -105,7 +106,7 @@ export function createSnapshotChangesetResolver(
 
   async function resolveTargets(
     changeset: SnapshotChangeset
-  ): Promise<GitResult<ResolvedTurnTargets>> {
+  ): Promise<BoundaryResult<ResolvedTurnTargets>> {
     const host = deps.hostThreads;
     if (!(host.knows(changeset.threadId) || (await host.owns(changeset.threadId)))) {
       return snapshotMissingError(`thread "${changeset.threadId}" is not owned by the agent host`);
@@ -114,16 +115,16 @@ export function createSnapshotChangesetResolver(
       return await host.targetsOf(changeset.threadId, changeset.runId);
     }
     if (changeset.toRunId !== undefined) {
-      return {
-        error:
-          'run-range-unsupported: host ranges resolve to the live work-tree, not a terminal run.',
-        ok: false,
-      };
+      return gitRefused(
+        'input',
+        'changeset.run-range-unsupported',
+        'Host ranges resolve to the live work-tree, not a terminal run.'
+      );
     }
     return await host.rangeTargetsOf(changeset.threadId, changeset.fromRunId);
   }
 
-  async function resolveView(changeset: SnapshotChangeset): Promise<GitResult<ChangesetView>> {
+  async function resolveView(changeset: SnapshotChangeset): Promise<BoundaryResult<ChangesetView>> {
     const serviceResult = requireService();
     if (!serviceResult.ok) {
       return serviceResult;
@@ -161,9 +162,9 @@ export function createSnapshotChangesetResolver(
     rootId: unknown,
     changeset: SnapshotChangeset,
     path: string
-  ): Promise<GitResult<StructuredFileDiff>> {
+  ): Promise<BoundaryResult<StructuredFileDiff>> {
     if (typeof rootId !== 'string' || rootId.trim().length === 0) {
-      return { error: 'snapshot fileDiff requires a non-empty rootId string.', ok: false };
+      return gitInvalid('snapshot fileDiff requires a non-empty rootId string.');
     }
     const serviceResult = requireService();
     if (!serviceResult.ok) {
@@ -177,18 +178,20 @@ export function createSnapshotChangesetResolver(
       (candidate) => candidate.rootId === rootId.trim()
     );
     if (!target) {
-      return {
-        error: `no snapshot-captured root "${rootId.trim()}" in this changeset`,
-        ok: false,
-      };
+      return gitRefused(
+        'input',
+        'changeset.not-in-snapshot',
+        `no snapshot-captured root "${rootId.trim()}" in this changeset`
+      );
     }
     const diffs = await diffTarget(serviceResult.value, target);
     const diff = diffs.find((candidate) => candidate.path === path);
     if (!diff) {
-      return {
-        error: `no snapshot-captured change for path "${path}" in root "${rootId.trim()}" for this changeset`,
-        ok: false,
-      };
+      return gitRefused(
+        'input',
+        'changeset.not-in-snapshot',
+        `no snapshot-captured change for path "${path}" in root "${rootId.trim()}" for this changeset`
+      );
     }
     return { ok: true, value: diff };
   }

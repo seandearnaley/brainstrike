@@ -13,13 +13,14 @@
  * halfway through — leaving a directory with no ledger row.
  *
  * NEVER throws across its own boundary: every failure is a typed
- * `GitResult<never>` (the `changes`/`git` domain convention).
+ * `BoundaryResult<never>` (the `changes`/`git` domain convention).
  */
+
 import { promises as fsPromises } from 'node:fs';
 import path from 'node:path';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import type {
-  GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeAdoptParams,
@@ -34,12 +35,8 @@ import type {
   WorktreeSetupOutcome,
 } from '@brainstrike/types';
 import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
-import {
-  describeFailure,
-  GIT_DEFAULT_TIMEOUT_MS,
-  invokeGitHookFree,
-  toErrorMessage,
-} from './git-service';
+import { describeFailure, gitCommandFailed, gitFault, gitRefused } from './git-failure';
+import { GIT_DEFAULT_TIMEOUT_MS, invokeGitHookFree, toErrorMessage } from './git-service';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 import {
   adoptWorktree,
@@ -97,6 +94,12 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   const ledger = createWorktreeLedger(deps.getWorktreeStore, deps.hasRunningThread);
   const serialize = createMutex();
   const lifetime = new WorktreeOperationLifetime();
+  const notActive = (worktreeId: string) =>
+    gitRefused(
+      'conflict',
+      'worktree.not-active',
+      `Managed worktree "${worktreeId}" is not active.`
+    );
 
   function adoptDeps(): WorktreeAdoptDeps {
     return {
@@ -113,10 +116,12 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       deps.run({ args, cwd, timeoutMs });
   }
 
-  async function resolveRepositoryContext(rootId: string): Promise<GitResult<RepositoryContext>> {
+  async function resolveRepositoryContext(
+    rootId: string
+  ): Promise<BoundaryResult<RepositoryContext>> {
     const cwd = await deps.resolveRootCwd(rootId);
     if (!cwd.ok) {
-      return cwd;
+      return gitRefused('input', 'workspace.root-unresolved', cwd.error);
     }
     const invoke = invokeIn(cwd.value);
     const commonDirRun = await invokeGitHookFree(invoke, [
@@ -125,11 +130,11 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       '--git-common-dir',
     ]);
     if (commonDirRun.exitCode !== 0) {
-      return { error: describeFailure(commonDirRun), ok: false };
+      return gitCommandFailed(commonDirRun);
     }
     const topLevelRun = await invokeGitHookFree(invoke, ['rev-parse', '--show-toplevel']);
     if (topLevelRun.exitCode !== 0) {
-      return { error: describeFailure(topLevelRun), ok: false };
+      return gitCommandFailed(topLevelRun);
     }
     // Realpath both: the inventory keys repositories on the realpath'd common
     // dir, and a ledger row keyed on a symlinked path would never join.
@@ -140,7 +145,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { ok: true, value: { commonDir, cwd: cwd.value, repositoryRoot } };
   }
 
-  async function assertBranchAvailable(cwd: string, branch: string): Promise<GitResult<null>> {
+  async function assertBranchAvailable(cwd: string, branch: string): Promise<BoundaryResult<null>> {
     const exists = await invokeGitHookFree(invokeIn(cwd), [
       'show-ref',
       '--verify',
@@ -148,7 +153,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       `refs/heads/${branch}`,
     ]);
     if (exists.exitCode === 0) {
-      return { error: `local branch "${branch}" already exists`, ok: false };
+      return gitRefused('conflict', 'git.branch-exists', `local branch "${branch}" already exists`);
     }
     return { ok: true, value: null };
   }
@@ -157,7 +162,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     settings: WorktreeSettings,
     context: RepositoryContext,
     name: string
-  ): Promise<GitResult<string>> {
+  ): Promise<BoundaryResult<string>> {
     const slug = repositorySlug(context.repositoryRoot, context.commonDir);
     const roots = await deps.resolveRootPaths();
     // Lexical pre-check on the RAW paths before any mkdir: a refused managed
@@ -171,7 +176,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       );
     } catch (error) {
       logger.warn('worktree create refused by path policy', { error, name });
-      return { error: toErrorMessage(error), ok: false };
+      return gitRefused('input', 'worktree.path-refused', toErrorMessage(error));
     }
     const createdDirectory = await fsPromises.mkdir(settings.managedDirectory, {
       recursive: true,
@@ -188,7 +193,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         await fsPromises.rm(createdDirectory, { recursive: true });
       }
       logger.warn('worktree create refused by path policy', { error, name });
-      return { error: toErrorMessage(error), ok: false };
+      return gitRefused('input', 'worktree.path-refused', toErrorMessage(error));
     }
     return { ok: true, value: target };
   }
@@ -269,7 +274,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 
   async function createUnserialized(
     params: WorktreeCreateParams
-  ): Promise<GitResult<WorktreeCreateResult>> {
+  ): Promise<BoundaryResult<WorktreeCreateResult>> {
     const context = await resolveRepositoryContext(params.rootId);
     if (!context.ok) {
       return context;
@@ -281,7 +286,11 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     const target = targetResult.value;
     if (await ledger.getByPath(target)) {
-      return { error: `A worktree at "${target}" already exists.`, ok: false };
+      return gitRefused(
+        'conflict',
+        'worktree.path-exists',
+        `A worktree at "${target}" already exists.`
+      );
     }
     const branchName = 'name' in params.branch ? params.branch.name : null;
     if (branchName) {
@@ -300,7 +309,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       params.baseRef,
     ]);
     if (addRun.exitCode !== 0) {
-      return { error: describeFailure(addRun), ok: false };
+      return gitCommandFailed(addRun);
     }
     const row = await insertCreatedWorktree(context.value, params, branchName, target);
     // Setup failure is VISIBLE and does NOT block using the worktree (§6.3):
@@ -330,7 +339,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
    * `provenance: 'agent-reported'`, `trust: 'unvalidated'`, reason "missing on
    * disk". Nothing is dropped.
    */
-  async function listUnserialized(): Promise<GitResult<readonly WorktreeListEntry[]>> {
+  async function listUnserialized(): Promise<BoundaryResult<readonly WorktreeListEntry[]>> {
     const [inventory, rows, roots] = await Promise.all([
       deps.resolveInventory(),
       ledger.listActive(),
@@ -373,7 +382,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { ok: true, value: entries };
   }
 
-  async function inspectArchiveRow(row: ManagedWorktreeRow): Promise<GitResult<SafetyReport>> {
+  async function inspectArchiveRow(row: ManagedWorktreeRow): Promise<BoundaryResult<SafetyReport>> {
     const inventory = await deps.resolveInventory();
     const descriptor = inventory.repositories
       .flatMap((repository) => repository.worktrees)
@@ -390,7 +399,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   async function removeArchivedWorktree(
     row: ManagedWorktreeRow,
     force: boolean
-  ): Promise<GitResult<null>> {
+  ): Promise<BoundaryResult<null>> {
     const removeRun = await invokeGitHookFree(invokeIn(row.repoCommonDir), [
       'worktree',
       'remove',
@@ -399,7 +408,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       row.path,
     ]);
     if (removeRun.exitCode !== 0) {
-      return { error: describeFailure(removeRun), ok: false };
+      return gitCommandFailed(removeRun);
     }
     return { ok: true, value: null };
   }
@@ -428,7 +437,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 
   async function archiveMissingWorktree(
     row: ManagedWorktreeRow
-  ): Promise<GitResult<WorktreeArchiveResult>> {
+  ): Promise<BoundaryResult<WorktreeArchiveResult>> {
     const snapshot = await captureMissingArchiveSnapshot({
       cwd: row.repoCommonDir,
       run: deps.run,
@@ -447,7 +456,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       'now',
     ]);
     if (pruneRun.exitCode !== 0) {
-      return { error: describeFailure(pruneRun), ok: false };
+      return gitCommandFailed(pruneRun);
     }
     try {
       const worktree = await ledger.markArchived(row.id, snapshot.value);
@@ -458,12 +467,12 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         snapshotRef: snapshot.value,
         worktreeId: row.id,
       });
-      return {
-        error: `The missing worktree registration was pruned, but its archive status could not be recorded: ${toErrorMessage(
+      return gitFault(
+        'worktree.ledger-write-failed',
+        `The missing worktree registration was pruned, but its archive status could not be recorded: ${toErrorMessage(
           error
-        )}; your snapshot is at ${snapshot.value}.`,
-        ok: false,
-      };
+        )}; your snapshot is at ${snapshot.value}.`
+      );
     }
   }
 
@@ -472,7 +481,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
    * repository with no commit, which would surface as a raw Git error
    * instead of this refusal (BST-1625).
    */
-  async function refuseNestedRepositories(row: ManagedWorktreeRow): Promise<GitResult<null>> {
+  async function refuseNestedRepositories(row: ManagedWorktreeRow): Promise<BoundaryResult<null>> {
     const nested = await findNestedRepositories({
       invoke: invokeIn(row.path),
       worktreePath: row.path,
@@ -481,17 +490,21 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       return nested;
     }
     if (nested.value.length > 0) {
-      return { error: nestedRepositoriesArchiveBlocker(nested.value), ok: false };
+      return gitRefused(
+        'conflict',
+        'worktree.archive-blocked',
+        nestedRepositoriesArchiveBlocker(nested.value)
+      );
     }
     return { ok: true, value: null };
   }
 
   async function archiveUnserialized(
     params: WorktreeArchiveParams
-  ): Promise<GitResult<WorktreeArchiveResult>> {
+  ): Promise<BoundaryResult<WorktreeArchiveResult>> {
     const row = await ledger.get(params.worktreeId);
     if (!row || row.archivedAt !== null) {
-      return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
+      return notActive(params.worktreeId);
     }
     if (!(await worktreePathExists(row.path))) {
       return await archiveMissingWorktree(row);
@@ -511,13 +524,17 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     const blocker = resolveArchiveBlocker(currentSafety.value, params.force === true);
     if (blocker !== null) {
-      return { error: blocker, ok: false };
+      return gitRefused('conflict', 'worktree.archive-blocked', blocker);
     }
     if (
       currentSafety.value.ignoredEntryCount > 0 &&
       params.confirmIgnoredEntries !== currentSafety.value.ignoredEntriesConfirmationToken
     ) {
-      return { error: ignoredEntriesArchiveBlocker(currentSafety.value), ok: false };
+      return gitRefused(
+        'conflict',
+        'worktree.ignored-entries-unconfirmed',
+        ignoredEntriesArchiveBlocker(currentSafety.value)
+      );
     }
     const removed = await removeArchivedWorktree(row, params.force === true);
     if (!removed.ok) {
@@ -532,25 +549,26 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         snapshotRef: snapshot.value,
         worktreeId: row.id,
       });
-      return {
-        error: `The worktree was removed, but its archive status could not be recorded: ${toErrorMessage(
+      return gitFault(
+        'worktree.ledger-write-failed',
+        `The worktree was removed, but its archive status could not be recorded: ${toErrorMessage(
           error
-        )}; your snapshot is at ${snapshot.value}.`,
-        ok: false,
-      };
+        )}; your snapshot is at ${snapshot.value}.`
+      );
     }
   }
 
-  async function assertRestoreTargetAvailable(target: string): Promise<GitResult<null>> {
+  async function assertRestoreTargetAvailable(target: string): Promise<BoundaryResult<null>> {
     try {
       const entries = await fsPromises.readdir(target);
       if (entries.length === 0) {
         return { ok: true, value: null };
       }
-      return {
-        error: `"${target}" already exists and is not empty — move it aside before restoring.`,
-        ok: false,
-      };
+      return gitRefused(
+        'conflict',
+        'worktree.restore-target-occupied',
+        `"${target}" already exists and is not empty — move it aside before restoring.`
+      );
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         return { ok: true, value: null };
@@ -562,7 +580,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   async function replayArchiveSnapshot(
     row: ManagedWorktreeRow,
     snapshotRef: string
-  ): Promise<GitResult<null>> {
+  ): Promise<BoundaryResult<null>> {
     // Git restore defaults to --no-overlay; that is load-bearing because paths
     // absent from the captured tree must be deleted for archive round-trips.
     const replayRun = await invokeGitHookFree(invokeIn(row.path), [
@@ -600,13 +618,13 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         worktreeId: row.id,
       });
     }
-    return { error: replayError, ok: false };
+    return gitCommandFailed(replayRun);
   }
 
   async function recordRestoredWorktree(
     row: ManagedWorktreeRow,
     snapshotRef: string
-  ): Promise<GitResult<WorktreeCreateResult>> {
+  ): Promise<BoundaryResult<WorktreeCreateResult>> {
     const setup = {
       copiedPaths: [],
       output: '',
@@ -625,12 +643,12 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         target: row.path,
         worktreeId: row.id,
       });
-      return {
-        error: `The worktree was restored to ${row.path}, but its ledger status could not be recorded: ${toErrorMessage(
+      return gitFault(
+        'worktree.ledger-write-failed',
+        `The worktree was restored to ${row.path}, but its ledger status could not be recorded: ${toErrorMessage(
           error
-        )}.`,
-        ok: false,
-      };
+        )}.`
+      );
     }
   }
 
@@ -638,7 +656,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     row: ManagedWorktreeRow,
     snapshotRef: string,
     repositoryInvoke: ReturnType<typeof invokeIn>
-  ): Promise<GitResult<readonly string[]>> {
+  ): Promise<BoundaryResult<readonly string[]>> {
     if (row.branch === null) {
       return {
         ok: true,
@@ -651,7 +669,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       `${snapshotRef}^`,
     ]);
     if (expectedTipRun.exitCode !== 0) {
-      return { error: describeFailure(expectedTipRun), ok: false };
+      return gitCommandFailed(expectedTipRun);
     }
     const branchTipRun = await invokeGitHookFree(repositoryInvoke, [
       'rev-parse',
@@ -666,31 +684,37 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       };
     }
     if (branchTipRun.exitCode !== 0) {
-      return { error: describeFailure(branchTipRun), ok: false };
+      return gitCommandFailed(branchTipRun);
     }
     const branchTip = branchTipRun.stdout.trim();
     const expectedTip = expectedTipRun.stdout.trim();
     if (branchTip !== expectedTip) {
-      return {
-        error: `"${row.branch}" has moved since this worktree was archived (now ${branchTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename or move the branch first.`,
-        ok: false,
-      };
+      return gitRefused(
+        'conflict',
+        'worktree.branch-moved',
+        `"${row.branch}" has moved since this worktree was archived (now ${branchTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename or move the branch first.`
+      );
     }
     return { ok: true, value: ['worktree', 'add', '--', row.path, row.branch] };
   }
 
   async function restoreUnserialized(params: {
     readonly worktreeId: string;
-  }): Promise<GitResult<WorktreeCreateResult>> {
+  }): Promise<BoundaryResult<WorktreeCreateResult>> {
     const row = await ledger.get(params.worktreeId);
     if (!row) {
-      return { error: `Managed worktree "${params.worktreeId}" is not in the ledger.`, ok: false };
+      return gitRefused(
+        'input',
+        'worktree.not-found',
+        `Managed worktree "${params.worktreeId}" is not in the ledger.`
+      );
     }
     if (row.archivedAt === null || row.archiveSnapshotRef === null) {
-      return {
-        error: 'That worktree is not archived — there is nothing to restore.',
-        ok: false,
-      };
+      return gitRefused(
+        'conflict',
+        'worktree.not-archived',
+        'That worktree is not archived — there is nothing to restore.'
+      );
     }
     const snapshotRef = row.archiveSnapshotRef;
     const repositoryInvoke = invokeIn(row.repoCommonDir);
@@ -700,10 +724,11 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       `${snapshotRef}^{commit}`,
     ]);
     if (verifySnapshotRun.exitCode !== 0) {
-      return {
-        error: `The archive snapshot "${snapshotRef}" no longer exists in this repository, so this worktree cannot be restored.`,
-        ok: false,
-      };
+      return gitRefused(
+        'conflict',
+        'worktree.snapshot-missing',
+        `The archive snapshot "${snapshotRef}" no longer exists in this repository, so this worktree cannot be restored.`
+      );
     }
     const verifyParentRun = await invokeGitHookFree(repositoryInvoke, [
       'rev-parse',
@@ -711,14 +736,14 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       `${snapshotRef}^`,
     ]);
     if (verifyParentRun.exitCode === 128) {
-      return {
-        error:
-          'This worktree was archived while missing on disk — there is nothing to restore. Create a new worktree instead.',
-        ok: false,
-      };
+      return gitRefused(
+        'conflict',
+        'worktree.nothing-to-restore',
+        'This worktree was archived while missing on disk — there is nothing to restore. Create a new worktree instead.'
+      );
     }
     if (verifyParentRun.exitCode !== 0) {
-      return { error: describeFailure(verifyParentRun), ok: false };
+      return gitCommandFailed(verifyParentRun);
     }
     const targetAvailable = await assertRestoreTargetAvailable(row.path);
     if (!targetAvailable.ok) {
@@ -731,7 +756,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     await fsPromises.mkdir(path.dirname(row.path), { recursive: true });
     const addRun = await invokeGitHookFree(repositoryInvoke, addArgs.value);
     if (addRun.exitCode !== 0) {
-      return { error: describeFailure(addRun), ok: false };
+      return gitCommandFailed(addRun);
     }
     const replayed = await replayArchiveSnapshot(row, snapshotRef);
     if (!replayed.ok) {
@@ -741,7 +766,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   const operations = {
-    async adopt(params: WorktreeAdoptParams): Promise<GitResult<ManagedWorktreeRow>> {
+    async adopt(params: WorktreeAdoptParams): Promise<BoundaryResult<ManagedWorktreeRow>> {
       return await serialize(async () => {
         try {
           const adopted = await adoptWorktree(adoptDeps(), params);
@@ -759,7 +784,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
      * row is marked archived only AFTER the removal succeeds — a failed
      * removal must never leave a row claiming a directory is gone.
      */
-    async archive(params: WorktreeArchiveParams): Promise<GitResult<WorktreeArchiveResult>> {
+    async archive(params: WorktreeArchiveParams): Promise<BoundaryResult<WorktreeArchiveResult>> {
       return await serialize(async () => {
         try {
           return await archiveUnserialized(params);
@@ -771,7 +796,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     },
     async checkoutStatus(params: {
       readonly path: string;
-    }): Promise<GitResult<WorktreeCheckoutStatus>> {
+    }): Promise<BoundaryResult<WorktreeCheckoutStatus>> {
       try {
         return await readCheckoutStatus(adoptDeps(), params);
       } catch (error) {
@@ -780,7 +805,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       }
     },
     /** Create a managed worktree, record it, and run its setup. */
-    async create(params: WorktreeCreateParams): Promise<GitResult<WorktreeCreateResult>> {
+    async create(params: WorktreeCreateParams): Promise<BoundaryResult<WorktreeCreateResult>> {
       return await serialize(async () => {
         try {
           return await createUnserialized(params);
@@ -794,12 +819,12 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     async createBranchHere(params: {
       readonly branch: string;
       readonly worktreeId: string;
-    }): Promise<GitResult<ManagedWorktreeRow>> {
+    }): Promise<BoundaryResult<ManagedWorktreeRow>> {
       return await serialize(async () => {
         try {
           const row = await ledger.get(params.worktreeId);
           if (!row || row.archivedAt !== null) {
-            return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
+            return notActive(params.worktreeId);
           }
           const invoke = invokeIn(row.path);
           const attachedBranchRun = await invokeGitHookFree(invoke, [
@@ -809,13 +834,14 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
             'HEAD',
           ]);
           if (attachedBranchRun.exitCode === 0) {
-            return {
-              error: `Managed worktree "${row.id}" is attached to branch "${attachedBranchRun.stdout.trim()}"; createBranchHere requires a detached worktree.`,
-              ok: false,
-            };
+            return gitRefused(
+              'conflict',
+              'worktree.attached',
+              `Managed worktree "${row.id}" is attached to branch "${attachedBranchRun.stdout.trim()}"; createBranchHere requires a detached worktree.`
+            );
           }
           if (attachedBranchRun.exitCode !== 1) {
-            return { error: describeFailure(attachedBranchRun), ok: false };
+            return gitCommandFailed(attachedBranchRun);
           }
           const exists = await invoke([
             'show-ref',
@@ -824,7 +850,11 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
             `refs/heads/${params.branch}`,
           ]);
           if (exists.exitCode === 0) {
-            return { error: `local branch "${params.branch}" already exists`, ok: false };
+            return gitRefused(
+              'conflict',
+              'git.branch-exists',
+              `local branch "${params.branch}" already exists`
+            );
           }
           const switchRun = await invokeGitHookFree(invoke, [
             'switch',
@@ -833,7 +863,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
             params.branch,
           ]);
           if (switchRun.exitCode !== 0) {
-            return { error: describeFailure(switchRun), ok: false };
+            return gitCommandFailed(switchRun);
           }
           return { ok: true, value: await ledger.updateBranch(row.id, params.branch) };
         } catch (error) {
@@ -844,7 +874,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     /** Resolve the create sheet preview from the same main-owned policy as create(). */
     async createContext(params: {
       readonly rootId: string;
-    }): Promise<GitResult<WorktreeCreateContext>> {
+    }): Promise<BoundaryResult<WorktreeCreateContext>> {
       try {
         const context = await resolveRepositoryContext(params.rootId);
         if (!context.ok) {
@@ -885,11 +915,11 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     },
     async inspectArchive(params: {
       readonly worktreeId: string;
-    }): Promise<GitResult<WorktreeArchivePreview>> {
+    }): Promise<BoundaryResult<WorktreeArchivePreview>> {
       try {
         const row = await ledger.get(params.worktreeId);
         if (!row || row.archivedAt !== null) {
-          return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
+          return notActive(params.worktreeId);
         }
         return await inspectWorktreeArchivePreviewForPath({
           inspectSafety: async () => await inspectArchiveRow(row),
@@ -914,7 +944,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     async isManagedWorktreePath(candidate: string): Promise<boolean> {
       return await isAuthorizedWorktreeMountPath(adoptDeps(), candidate);
     },
-    async list(): Promise<GitResult<readonly WorktreeListEntry[]>> {
+    async list(): Promise<BoundaryResult<readonly WorktreeListEntry[]>> {
       try {
         return await listUnserialized();
       } catch (error) {
@@ -922,7 +952,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         return lifetime.faultResult(error);
       }
     },
-    async listManagedPaths(): Promise<GitResult<readonly ManagedWorktreePathEntry[]>> {
+    async listManagedPaths(): Promise<BoundaryResult<readonly ManagedWorktreePathEntry[]>> {
       try {
         const rows = await ledger.listActive();
         return {
@@ -945,7 +975,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       readonly repoCommonDir: string;
       readonly runId?: string;
       readonly threadId?: string;
-    }): Promise<GitResult<WorktreeShellReconcileResult>> {
+    }): Promise<BoundaryResult<WorktreeShellReconcileResult>> {
       return await serialize(async () => {
         try {
           return await reconcileWorktreesFromShell(adoptDeps(), params);
@@ -965,13 +995,13 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         }
       });
     },
-    async repositoryContextForRoot(rootId: string): Promise<GitResult<RepositoryContext>> {
+    async repositoryContextForRoot(rootId: string): Promise<BoundaryResult<RepositoryContext>> {
       return await resolveRepositoryContext(rootId);
     },
     /** Recreate an archived worktree and replay its durable archive snapshot. */
     async restore(params: {
       readonly worktreeId: string;
-    }): Promise<GitResult<WorktreeCreateResult>> {
+    }): Promise<BoundaryResult<WorktreeCreateResult>> {
       return await serialize(async () => {
         try {
           return await restoreUnserialized(params);

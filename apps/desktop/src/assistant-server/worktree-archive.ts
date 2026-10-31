@@ -14,13 +14,15 @@
  * reports as ignored — including `node_modules` — is excluded from the snapshot.
  * The snapshot is the user's work, not their dependency cache.
  */
+
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { GitResult, ManagedWorktreeRow } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { ManagedWorktreeRow } from '@brainstrike/types';
+import { gitCommandFailed, gitUnexpected } from './git-failure';
 import {
-  describeFailure,
   GIT_DEFAULT_TIMEOUT_MS,
   type GitCommandRun,
   type GitCommandRunner,
@@ -150,7 +152,7 @@ export async function findNestedRepositories(input: {
   readonly worktreePath: string;
   /** `git status --porcelain=v1 -z --untracked-files=all` entries, when the caller has them. */
   readonly statusEntries?: readonly string[];
-}): Promise<GitResult<readonly string[]>> {
+}): Promise<BoundaryResult<readonly string[]>> {
   let statusEntries = input.statusEntries;
   if (statusEntries === undefined) {
     const statusRun = await invokeGitHookFree(input.invoke, [
@@ -160,13 +162,13 @@ export async function findNestedRepositories(input: {
       '--untracked-files=all',
     ]);
     if (statusRun.exitCode !== 0) {
-      return { error: describeFailure(statusRun), ok: false };
+      return gitCommandFailed(statusRun);
     }
     statusEntries = parsePorcelainV1ZStatusEntries(statusRun.stdout);
   }
   const indexRun = await invokeGitHookFree(input.invoke, ['ls-files', '--stage', '-z']);
   if (indexRun.exitCode !== 0) {
-    return { error: describeFailure(indexRun), ok: false };
+    return gitCommandFailed(indexRun);
   }
   const candidates = indexCandidatePaths(indexRun.stdout);
   for (const entry of statusEntries) {
@@ -185,7 +187,7 @@ export async function findNestedRepositories(input: {
 async function inspectUnpushedSafety(input: {
   readonly baseRef: string;
   readonly invoke: GitInvoke;
-}): Promise<GitResult<UnpushedSafety>> {
+}): Promise<BoundaryResult<UnpushedSafety>> {
   const baseRefRun = await invokeGitHookFree(input.invoke, [
     'rev-parse',
     '--verify',
@@ -202,7 +204,7 @@ async function inspectUnpushedSafety(input: {
     };
   }
   if (baseRefRun.exitCode !== 0) {
-    return { error: describeFailure(baseRefRun), ok: false };
+    return gitCommandFailed(baseRefRun);
   }
   const unpushedRun = await invokeGitHookFree(input.invoke, [
     'rev-list',
@@ -212,11 +214,11 @@ async function inspectUnpushedSafety(input: {
     '--remotes',
   ]);
   if (unpushedRun.exitCode !== 0) {
-    return { error: describeFailure(unpushedRun), ok: false };
+    return gitCommandFailed(unpushedRun);
   }
   const count = Number.parseInt(unpushedRun.stdout.trim(), 10);
   if (!Number.isFinite(count)) {
-    return { error: `git rev-list returned "${unpushedRun.stdout.trim()}"`, ok: false };
+    return gitUnexpected(`git rev-list returned "${unpushedRun.stdout.trim()}"`);
   }
   if (count === 0) {
     return { ok: true, value: { blocker: null, count } };
@@ -240,7 +242,7 @@ export async function inspectWorktreeSafety(input: {
   readonly lockedReason: string | null;
   readonly threadIsRunning: boolean;
   readonly worktree: { readonly id: string; readonly path: string };
-}): Promise<GitResult<WorktreeSafetyReport>> {
+}): Promise<BoundaryResult<WorktreeSafetyReport>> {
   const blockers: string[] = [];
   if (input.threadIsRunning) {
     blockers.push('A run is active in this worktree. Wait for it to finish, or stop it first.');
@@ -262,7 +264,7 @@ export async function inspectWorktreeSafety(input: {
     '--ignored=matching',
   ]);
   if (statusRun.exitCode !== 0) {
-    return { error: describeFailure(statusRun), ok: false };
+    return gitCommandFailed(statusRun);
   }
   const statusEntries = parsePorcelainV1ZStatusEntries(statusRun.stdout);
   const ignoredEntries: string[] = [];
@@ -334,7 +336,7 @@ export async function captureArchiveSnapshot(input: {
   readonly cwd: string;
   readonly run: GitCommandRunner;
   readonly worktree: ManagedWorktreeRow;
-}): Promise<GitResult<string>> {
+}): Promise<BoundaryResult<string>> {
   const indexPath = path.join(tmpdir(), `bst-worktree-archive-${randomUUID()}.index`);
   const env: Record<string, string> = {};
   env['GIT_INDEX_FILE'] = indexPath;
@@ -353,7 +355,7 @@ export async function captureArchiveSnapshot(input: {
       'HEAD',
     ]);
     if (headRun.exitCode !== 0 && headRun.exitCode !== 1) {
-      return { error: describeFailure(headRun), ok: false };
+      return gitCommandFailed(headRun);
     }
     // `read-tree HEAD` seeds the temp index so `add -A` records DELETIONS too;
     // an empty index would make every deleted file look untouched. Exit 1 from
@@ -362,16 +364,16 @@ export async function captureArchiveSnapshot(input: {
     if (headRun.exitCode === 0) {
       const seed = await invokeGitHookFree(invokeWithIndex, ['read-tree', 'HEAD']);
       if (seed.exitCode !== 0) {
-        return { error: describeFailure(seed), ok: false };
+        return gitCommandFailed(seed);
       }
     }
     const add = await invokeGitHookFree(invokeWithIndex, ['add', '-A']);
     if (add.exitCode !== 0) {
-      return { error: describeFailure(add), ok: false };
+      return gitCommandFailed(add);
     }
     const writeTree = await invokeGitHookFree(invokeWithIndex, ['write-tree']);
     if (writeTree.exitCode !== 0) {
-      return { error: describeFailure(writeTree), ok: false };
+      return gitCommandFailed(writeTree);
     }
     const treeOid = writeTree.stdout.trim();
     const parentArgs = headRun.exitCode === 0 ? ['-p', headRun.stdout.trim()] : [];
@@ -389,7 +391,7 @@ export async function captureArchiveSnapshot(input: {
       message,
     ]);
     if (commit.exitCode !== 0) {
-      return { error: describeFailure(commit), ok: false };
+      return gitCommandFailed(commit);
     }
     const ref = archiveSnapshotRef(input.worktree.id);
     const update = await invokeGitHookFree(invokeNoIndex, [
@@ -398,7 +400,7 @@ export async function captureArchiveSnapshot(input: {
       commit.stdout.trim(),
     ]);
     if (update.exitCode !== 0) {
-      return { error: describeFailure(update), ok: false };
+      return gitCommandFailed(update);
     }
     return { ok: true, value: ref };
   } finally {
@@ -416,7 +418,7 @@ export async function captureMissingArchiveSnapshot(input: {
   readonly cwd: string;
   readonly run: GitCommandRunner;
   readonly worktree: ManagedWorktreeRow;
-}): Promise<GitResult<string>> {
+}): Promise<BoundaryResult<string>> {
   const invoke: GitInvoke = (args, timeoutMs = GIT_DEFAULT_TIMEOUT_MS) =>
     input.run({ args, cwd: input.cwd, env: ARCHIVE_GIT_IDENTITY_ENV, timeoutMs });
   const message = JSON.stringify({
@@ -428,12 +430,12 @@ export async function captureMissingArchiveSnapshot(input: {
   });
   const commit = await invokeGitHookFree(invoke, ['commit-tree', EMPTY_TREE_OID, '-m', message]);
   if (commit.exitCode !== 0) {
-    return { error: describeFailure(commit), ok: false };
+    return gitCommandFailed(commit);
   }
   const ref = archiveSnapshotRef(input.worktree.id);
   const update = await invokeGitHookFree(invoke, ['update-ref', ref, commit.stdout.trim()]);
   if (update.exitCode !== 0) {
-    return { error: describeFailure(update), ok: false };
+    return gitCommandFailed(update);
   }
   return { ok: true, value: ref };
 }

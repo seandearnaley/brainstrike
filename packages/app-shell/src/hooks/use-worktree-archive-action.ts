@@ -1,3 +1,4 @@
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import type { WorktreeArchivePreview } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
@@ -55,7 +56,10 @@ export function useWorktreeArchiveAction(input: {
         ...(runId ? { runId } : {}),
       });
       if (!result.ok) {
-        toastFailure('Thread handed off — worktree not archived', result.error);
+        toastFailure(
+          'Thread handed off — worktree not archived',
+          describeBoundaryFailure(result.error)
+        );
         return;
       }
       await refreshList();
@@ -88,7 +92,10 @@ export function useWorktreeArchiveAction(input: {
       .inspectArchive({ worktreeId })
       .then(async (result) => {
         if (!result.ok) {
-          toastFailure('Could not inspect worktree for archive', result.error);
+          toastFailure(
+            'Could not inspect worktree for archive',
+            describeBoundaryFailure(result.error)
+          );
           return;
         }
         if (result.value.ignoredEntryCount === 0) {

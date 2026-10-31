@@ -25,9 +25,11 @@
  * to attribute the toast to. Before `settled`, an undefined menu means only
  * that this root's reads are still in flight.
  */
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { WorkspaceBarBranchMenu, WorkspaceBarCheckout } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import type { GitRepository, GitResult, GitStatusFile } from '@brainstrike/types';
+import type { GitRepository, GitStatusFile } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
@@ -164,12 +166,12 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): BranchSwitcher {
   }, [anyInvalidationNonce, bridge, dbRootId, reloadNonce]);
 
   const runMutation = useCallback(
-    async (title: string, op: () => Promise<GitResult<unknown>>): Promise<void> => {
+    async (title: string, op: () => Promise<BoundaryResult<unknown>>): Promise<void> => {
       setPending(true);
       try {
         const result = await op();
         if (!result.ok) {
-          reportFailure(title, result.error);
+          reportFailure(title, describeBoundaryFailure(result.error));
           return;
         }
         // Worktree-affecting mutation: refresh the inventory AND re-read the

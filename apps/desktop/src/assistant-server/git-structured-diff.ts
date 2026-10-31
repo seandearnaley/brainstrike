@@ -8,7 +8,7 @@
  * `cwd` plus the SAME injected `invoke`/`invokeHookFree` runners the caller
  * (`createGitService`) builds around its `execFile`-style `GitCommandRunner`.
  * There is no `exec`/`spawn shell:true` anywhere in this file, and every git
- * failure resolves into a structured `{ ok: false, error }` result rather than
+ * failure resolves into a typed `{ ok: false, error }` failure rather than
  * throwing across the IPC boundary.
  *
  * The caller (`createGitService`, or ultimately the IPC handler) remains
@@ -69,26 +69,26 @@
  * machinery as `staged`/`working`, just with its own old-side spec and `[]`
  * numstat/diff target.
  */
+
 import { lstat, open, readlink } from 'node:fs/promises';
 import path from 'node:path';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   ChangedFileStatus,
-  GitResult,
   StructuredFileDiff,
   StructuredFileDiffParams,
 } from '@brainstrike/types';
+import { gitCommandFailed, gitInvalid, gitRefused, gitThrew, gitUnexpected } from './git-failure';
 import {
   assertUntrackedDiffPathContained,
   boundOutput,
-  describeDiffFailure,
-  describeFailure,
+  diffFailure,
   GIT_DEFAULT_TIMEOUT_MS,
   type GitCommandRun,
   parsePorcelainV2Z,
   resolveContainedPathArg,
   scopeStatusPaths,
   stripLineEnding,
-  toErrorMessage,
 } from './git-service';
 import { resolveCommitOldRef, validateBaseRef, validateCommitId } from './git-structured-diff-refs';
 import {
@@ -146,19 +146,20 @@ const CAT_FILE_UNMERGED_STDERR_PATTERN = /is in the index, but not at stage/u;
  * {@link CAT_FILE_UNMERGED_STDERR_PATTERN}); an absent object is an honest
  * `ok: true` "absent"; anything else is a real error.
  */
-function classifyCatFileFailure(run: GitCommandRun, pathArg: string): GitResult<'absent'> {
+function classifyCatFileFailure(run: GitCommandRun, pathArg: string): BoundaryResult<'absent'> {
   if (run.exitCode === 128) {
     if (CAT_FILE_UNMERGED_STDERR_PATTERN.test(run.stderr)) {
-      return {
-        error: `unmerged path '${pathArg}' — resolve merge conflicts to view the staged diff`,
-        ok: false,
-      };
+      return gitRefused(
+        'conflict',
+        'git.unmerged-path',
+        `unmerged path '${pathArg}' — resolve merge conflicts to view the staged diff`
+      );
     }
     if (CAT_FILE_ABSENT_STDERR_PATTERN.test(run.stderr)) {
       return { ok: true, value: 'absent' };
     }
   }
-  return { error: describeFailure(run), ok: false };
+  return gitCommandFailed(run);
 }
 
 /**
@@ -231,12 +232,9 @@ function resolveOverCapReason(
  */
 function validateStructuredFileDiffParams(
   params: StructuredFileDiffParams
-): GitResult<StructuredFileDiffParams> {
+): BoundaryResult<StructuredFileDiffParams> {
   if (!(params && typeof params === 'object') || Array.isArray(params)) {
-    return {
-      error: 'structured diff params must be an object with an explicit mode',
-      ok: false,
-    };
+    return gitInvalid('structured diff params must be an object with an explicit mode');
   }
   const record = params as unknown as Record<string, unknown>;
   const mode = record['mode'];
@@ -248,11 +246,9 @@ function validateStructuredFileDiffParams(
     mode !== 'commit' &&
     mode !== 'range'
   ) {
-    return {
-      error:
-        'structured diff mode must be "working", "staged", "unstaged", "untracked", "commit", or "range"',
-      ok: false,
-    };
+    return gitInvalid(
+      'structured diff mode must be "working", "staged", "unstaged", "untracked", "commit", or "range"'
+    );
   }
   const allowedKeys = new Set([
     'mode',
@@ -262,13 +258,12 @@ function validateStructuredFileDiffParams(
   ]);
   const unsupportedKeys = Object.keys(record).filter((key) => !allowedKeys.has(key));
   if (unsupportedKeys.length > 0) {
-    return {
-      error: `structured diff mode "${mode}" does not accept: ${unsupportedKeys.join(', ')}`,
-      ok: false,
-    };
+    return gitInvalid(
+      `structured diff mode "${mode}" does not accept: ${unsupportedKeys.join(', ')}`
+    );
   }
   if (typeof record['path'] !== 'string' || record['path'].length === 0) {
-    return { error: 'structured diff requires a non-empty path', ok: false };
+    return gitInvalid('structured diff requires a non-empty path');
   }
   if (mode === 'commit') {
     const commitIdResult = validateCommitId(record['commitId']);
@@ -353,7 +348,7 @@ export interface StructuredDiffOpsOptions {
 /**
  * Build the `structuredFileDiff` op bound to a single, already-validated
  * `cwd` and the caller's `invoke`/`invokeHookFree` runners. Mirrors
- * `createGitService`'s contract: every method returns a `GitResult`, a git
+ * `createGitService`'s contract: every method returns a `BoundaryResult`, a git
  * failure becomes `{ ok: false, error }`, never a throw.
  */
 export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: StructuredDiffOpsOptions) {
@@ -374,7 +369,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * boundary a caller could use to detect a silent truncation (see
    * `GitCommandRun.stdoutBuffer`).
    */
-  async function readRefBlob(spec: string, pathArg: string): Promise<GitResult<SideRead>> {
+  async function readRefBlob(spec: string, pathArg: string): Promise<BoundaryResult<SideRead>> {
     const sizeRun = await invoke(['cat-file', '-s', spec]);
     if (sizeRun.exitCode !== 0) {
       const classified = classifyCatFileFailure(sizeRun, pathArg);
@@ -385,7 +380,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     }
     const size = Number.parseInt(sizeRun.stdout.trim(), 10);
     if (!Number.isFinite(size)) {
-      return { error: `git returned a non-numeric size for "${spec}"`, ok: false };
+      return gitUnexpected(`git returned a non-numeric size for "${spec}"`);
     }
     if (size > STRUCTURED_DIFF_CONTENT_CAP_BYTES) {
       return { ok: true, value: { kind: 'over-cap', size } };
@@ -393,7 +388,11 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
 
     const run_ = await invoke(['cat-file', 'blob', spec], GIT_DEFAULT_TIMEOUT_MS, true);
     if (run_.failureReason === 'maxBuffer') {
-      return { error: `reading "${spec}" exceeded the output buffer limit`, ok: false };
+      return gitRefused(
+        'input',
+        'git.blob-too-large',
+        `reading "${spec}" exceeded the output buffer limit`
+      );
     }
     if (run_.exitCode === 0) {
       // A clean exit with `binaryStdout: true` MUST carry `stdoutBuffer` per
@@ -401,7 +400,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
       // buffer here means the runner violated that contract, not that the
       // blob is empty. Never fabricate an empty blob for a contract breach.
       if (run_.stdoutBuffer === undefined) {
-        return { error: `runner returned no buffer for "${spec}"`, ok: false };
+        return gitUnexpected(`runner returned no buffer for "${spec}"`);
       }
       return { ok: true, value: { content: run_.stdoutBuffer, kind: 'present' } };
     }
@@ -448,7 +447,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * symlink integration tests), so a platform-inconsistent protection would
    * be a false sense of security rather than a real one.
    */
-  async function readWorktreeFile(pathArg: string): Promise<GitResult<SideRead>> {
+  async function readWorktreeFile(pathArg: string): Promise<BoundaryResult<SideRead>> {
     const containment = await assertUntrackedDiffPathContained(cwd, pathArg);
     if (!containment.ok) {
       return containment;
@@ -475,7 +474,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return { ok: true, value: { kind: 'absent' } };
       }
-      return { error: toErrorMessage(error), ok: false };
+      return gitThrew(error);
     }
   }
 
@@ -491,16 +490,16 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * pathspecs are always resolved relative to cwd already, independent of
    * how the OUTPUT paths are displayed.
    */
-  async function isPathUntracked(pathArg: string): Promise<GitResult<boolean>> {
+  async function isPathUntracked(pathArg: string): Promise<BoundaryResult<boolean>> {
     const [statusRun, prefixRun] = await Promise.all([
       invoke(['status', '--porcelain=v2', '--untracked-files=all', '-z', '--', pathArg]),
       invoke(['rev-parse', '--show-prefix']),
     ]);
     if (statusRun.exitCode !== 0) {
-      return { error: describeFailure(statusRun), ok: false };
+      return gitCommandFailed(statusRun);
     }
     if (prefixRun.exitCode !== 0) {
-      return { error: describeFailure(prefixRun), ok: false };
+      return gitCommandFailed(prefixRun);
     }
     const scoped = scopeStatusPaths(
       parsePorcelainV2Z(statusRun.stdout),
@@ -527,7 +526,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     target: readonly string[] | 'untracked',
     pathArg: string,
     oldPath: string | null
-  ): Promise<GitResult<UnifiedDiffRun>> {
+  ): Promise<BoundaryResult<UnifiedDiffRun>> {
     const untracked = target === 'untracked';
     const args = untracked
       ? ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', pathArg]
@@ -542,9 +541,9 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
           ...(oldPath !== null && oldPath !== pathArg ? [oldPath, pathArg] : [pathArg]),
         ];
     const run_ = await (untracked ? invoke : invokeHookFree)(args);
-    const failure = describeDiffFailure(run_, untracked);
+    const failure = diffFailure(run_, untracked);
     if (failure) {
-      return { error: failure, ok: false };
+      return failure;
     }
     return {
       ok: true,
@@ -572,7 +571,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
   async function runNumstat(
     target: readonly string[],
     pathArg: string
-  ): Promise<GitResult<NumstatEntry | null>> {
+  ): Promise<BoundaryResult<NumstatEntry | null>> {
     const numstatRun = await invoke([
       'diff',
       ...target,
@@ -584,7 +583,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
       '.',
     ]);
     if (numstatRun.exitCode !== 0) {
-      return { error: describeFailure(numstatRun), ok: false };
+      return gitCommandFailed(numstatRun);
     }
     const entries = parseNumstatZ(numstatRun.stdout);
     return { ok: true, value: entries.find((candidate) => candidate.path === pathArg) ?? null };
@@ -604,7 +603,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
   async function resolveNumstatEntry(
     mode: 'staged' | 'unstaged' | 'working',
     pathArg: string
-  ): Promise<GitResult<NumstatEntry | null>> {
+  ): Promise<BoundaryResult<NumstatEntry | null>> {
     return await runNumstat(trackedNumstatTarget(mode), pathArg);
   }
 
@@ -614,19 +613,25 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     oldRef: string,
     newRef: string,
     pathArg: string
-  ): Promise<GitResult<NumstatEntry | null>> {
+  ): Promise<BoundaryResult<NumstatEntry | null>> {
     return await runNumstat([oldRef, newRef], pathArg);
   }
 
   /** Structured diff for the `untracked` mode: no HEAD/index side, whole-file addition. */
-  async function structuredUntrackedDiff(pathArg: string): Promise<GitResult<StructuredFileDiff>> {
+  async function structuredUntrackedDiff(
+    pathArg: string
+  ): Promise<BoundaryResult<StructuredFileDiff>> {
     const worktreeRead = await readWorktreeFile(pathArg);
     if (!worktreeRead.ok) {
       return worktreeRead;
     }
     const side = worktreeRead.value;
     if (side.kind === 'absent') {
-      return { error: `no differences for '${pathArg}' in untracked scope`, ok: false };
+      return gitRefused(
+        'input',
+        'git.no-differences',
+        `no differences for '${pathArg}' in untracked scope`
+      );
     }
     if (side.kind === 'over-cap') {
       // Per the stat-size guard above, an over-cap file's bytes are NEVER
@@ -693,7 +698,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
   async function resolveTrackedEntryForPath(
     mode: 'staged' | 'unstaged' | 'working',
     pathArg: string
-  ): Promise<GitResult<NumstatEntry>> {
+  ): Promise<BoundaryResult<NumstatEntry>> {
     const entryResult = await resolveNumstatEntry(mode, pathArg);
     if (!entryResult.ok) {
       return entryResult;
@@ -711,13 +716,18 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
         return untrackedCheck;
       }
       if (untrackedCheck.value) {
-        return {
-          error: `path "${pathArg}" is untracked; use mode "untracked" instead`,
-          ok: false,
-        };
+        return gitRefused(
+          'input',
+          'git.untracked-path',
+          `path "${pathArg}" is untracked; use mode "untracked" instead`
+        );
       }
     }
-    return { error: `no differences for '${pathArg}' in ${mode} scope`, ok: false };
+    return gitRefused(
+      'input',
+      'git.no-differences',
+      `no differences for '${pathArg}' in ${mode} scope`
+    );
   }
 
   /** Read both sides of a two-sided diff and classify status — split out to
@@ -735,9 +745,9 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
   async function readDiffSides(
     oldSpec: string,
     pathArg: string,
-    newSideReader: () => Promise<GitResult<SideRead>>,
+    newSideReader: () => Promise<BoundaryResult<SideRead>>,
     oldPath: string | null
-  ): Promise<GitResult<TrackedSides>> {
+  ): Promise<BoundaryResult<TrackedSides>> {
     const oldRead = await readRefBlob(oldSpec, pathArg);
     if (!oldRead.ok) {
       return oldRead;
@@ -768,7 +778,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     mode: 'staged' | 'unstaged' | 'working',
     pathArg: string,
     oldPath: string | null
-  ): Promise<GitResult<TrackedSides>> {
+  ): Promise<BoundaryResult<TrackedSides>> {
     const oldSpec =
       mode === 'unstaged' ? `:0:./${oldPath ?? pathArg}` : `HEAD:./${oldPath ?? pathArg}`;
     return await readDiffSides(
@@ -792,10 +802,12 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * (BST-1113) — every mode's over-cap/binary/`maxBuffer` handling is
    * IDENTICAL; only how the unified diff itself gets computed differs. */
   async function assembleDiffContent(
-    computeDiff: () => Promise<GitResult<UnifiedDiffRun>>,
+    computeDiff: () => Promise<BoundaryResult<UnifiedDiffRun>>,
     entry: NumstatEntry,
     sides: Pick<TrackedSides, 'newSide' | 'oldSide'>
-  ): Promise<GitResult<Pick<StructuredFileDiff, 'additions' | 'content' | 'deletions' | 'hunks'>>> {
+  ): Promise<
+    BoundaryResult<Pick<StructuredFileDiff, 'additions' | 'content' | 'deletions' | 'hunks'>>
+  > {
     const { newSide, oldSide } = sides;
     const oldBinary = oldSide.kind === 'present' && oldSide.content.includes(0);
     const newBinary = newSide.kind === 'present' && newSide.content.includes(0);
@@ -864,7 +876,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
   async function structuredTrackedDiff(
     mode: 'staged' | 'unstaged' | 'working',
     pathArg: string
-  ): Promise<GitResult<StructuredFileDiff>> {
+  ): Promise<BoundaryResult<StructuredFileDiff>> {
     const entryResult = await resolveTrackedEntryForPath(mode, pathArg);
     if (!entryResult.ok) {
       return entryResult;
@@ -907,7 +919,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     newRef: string,
     pathArg: string,
     modeLabel: 'commit' | 'range'
-  ): Promise<GitResult<NumstatEntry>> {
+  ): Promise<BoundaryResult<NumstatEntry>> {
     const entryResult = await resolveRefNumstatEntry(oldRef, newRef, pathArg);
     if (!entryResult.ok) {
       return entryResult;
@@ -915,7 +927,11 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     if (entryResult.value) {
       return { ok: true, value: entryResult.value };
     }
-    return { error: `no differences for '${pathArg}' in ${modeLabel} scope`, ok: false };
+    return gitRefused(
+      'input',
+      'git.no-differences',
+      `no differences for '${pathArg}' in ${modeLabel} scope`
+    );
   }
 
   /**
@@ -935,7 +951,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     newRef: string,
     pathArg: string,
     modeLabel: 'commit' | 'range'
-  ): Promise<GitResult<StructuredFileDiff>> {
+  ): Promise<BoundaryResult<StructuredFileDiff>> {
     const entryResult = await resolveRefEntryForPath(oldRef, newRef, pathArg, modeLabel);
     if (!entryResult.ok) {
       return entryResult;
@@ -985,7 +1001,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
      */
     structuredFileDiff: async (
       params: StructuredFileDiffParams
-    ): Promise<GitResult<StructuredFileDiff>> => {
+    ): Promise<BoundaryResult<StructuredFileDiff>> => {
       try {
         const validated = validateStructuredFileDiffParams(params);
         if (!validated.ok) {
@@ -996,7 +1012,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
           return pathResult;
         }
         if (pathResult.value === null) {
-          return { error: 'structured diff requires a non-empty path', ok: false };
+          return gitInvalid('structured diff requires a non-empty path');
         }
         const pathArg = pathResult.value;
         const validatedParams = validated.value;
@@ -1019,7 +1035,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
         }
         return await structuredRefDiff(validatedParams.baseRef, 'HEAD', pathArg, 'range');
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
   };

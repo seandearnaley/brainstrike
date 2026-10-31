@@ -34,8 +34,8 @@
  */
 import type { ExecuteCommandInput, RuntimeData } from '@brainstrike/agent';
 import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
-import type { GitResult } from '@brainstrike/types';
 import {
   type CommandSandbox,
   type ExecuteCommandToolResult,
@@ -61,7 +61,7 @@ export interface ShellCorrelationCapability {
 
 /** The worktree listing the pre-command snapshot reads; only paths are needed. */
 export interface WorktreePathListing {
-  readonly list: () => Promise<GitResult<readonly { readonly path: string }[]>>;
+  readonly list: () => Promise<BoundaryResult<readonly { readonly path: string }[]>>;
 }
 
 /** Where a command's worktree side effects are correlated (BST-1392). */

@@ -21,7 +21,9 @@
  *    `no-adjust-state-on-prop-change`, the defect W4's navigation store exists
  *    to avoid. An acknowledgment must never survive into a different rewind.
  */
+
 import type { AssistantRewindMode } from '@brainstrike/assistant-contract';
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 // Deep subpath, not the `assistant-ui-panel` barrel: that barrel pulls the
 // whole assistant panel (and `@assistant-ui/react`) into the Changes chunk.
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
@@ -191,7 +193,7 @@ function RewindConfirmBody({
     const redone = await rewind.redo({ ...undo, acknowledgeConflicts, threadId });
     if (!redone.ok) {
       toast({
-        description: redone.error,
+        description: describeBoundaryFailure(redone.error),
         title: 'Could not undo the rewind',
         variant: 'destructive',
       });
@@ -288,7 +290,7 @@ function RewindConfirmBody({
         preview,
       });
       if (!outcome.ok) {
-        setApplyError(outcome.error);
+        setApplyError(describeBoundaryFailure(outcome.error));
         return;
       }
       if (!outcome.value.ok) {

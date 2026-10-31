@@ -8,6 +8,7 @@ import {
 import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { gitFailure } from '../../__tests__/helpers/git-failure';
 import {
   stubWorktreesBridge,
   workspaceGitWrapper,
@@ -368,7 +369,7 @@ describe('useWorktreeMap', () => {
   });
 
   it('reports a list failure as an error and never as an empty map', async () => {
-    listMock.mockResolvedValue({ error: 'The worktree service is not available.', ok: false });
+    listMock.mockResolvedValue(gitFailure('The worktree service is not available.'));
 
     const { result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
 
@@ -378,7 +379,7 @@ describe('useWorktreeMap', () => {
   });
 
   it('reports a per-card status failure as a stated reason, not as a clean checkout', async () => {
-    checkoutStatusMock.mockResolvedValue({ error: 'fatal: not a git repository', ok: false });
+    checkoutStatusMock.mockResolvedValue(gitFailure('fatal: not a git repository'));
 
     const { result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
 

@@ -3,6 +3,7 @@
  * from context and passes those seams here; this hook owns only the action
  * callbacks and their stated, user-visible error.
  */
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   AssistantMemoryThread,
   AssistantThreadCatalogRepository,
@@ -228,9 +229,9 @@ export function useWorktreeMapCardActions(
     worktrees
       .archive({ ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}), worktreeId })
       .then((result) => {
-        // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
+        // BoundaryResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
         if (!result.ok) {
-          setActionError(`Worktree not archived: ${result.error}`);
+          setActionError(`Worktree not archived: ${describeBoundaryFailure(result.error)}`);
           return;
         }
         // Unlike the mount paths (whose `roots` write lands later, in the
@@ -257,7 +258,9 @@ export function useWorktreeMapCardActions(
       .inspectArchive({ worktreeId })
       .then((result) => {
         if (!result.ok) {
-          setActionError(`Could not inspect worktree for archive: ${result.error}`);
+          setActionError(
+            `Could not inspect worktree for archive: ${describeBoundaryFailure(result.error)}`
+          );
           return;
         }
         if (result.value.ignoredEntryCount === 0) {
@@ -338,9 +341,11 @@ export function useWorktreeMapCardActions(
     worktrees
       .adopt({ createdBy: 'user', path: card.entry.path })
       .then((result) => {
-        // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
+        // BoundaryResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
         if (!result.ok) {
-          setActionError(`Could not adopt "${card.entry.name}": ${result.error}`);
+          setActionError(
+            `Could not adopt "${card.entry.name}": ${describeBoundaryFailure(result.error)}`
+          );
           return;
         }
         void refresh();

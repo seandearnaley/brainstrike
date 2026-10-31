@@ -5,6 +5,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useMemo } from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { gitFailure } from '../../__tests__/helpers/git-failure';
 import {
   stubWorktreesBridge,
   workspaceGitWrapper,
@@ -736,7 +737,7 @@ describe('WorktreeMapSurface', () => {
   // exact argument, which no `setActionError(null)` stub can satisfy.
   it('archives through the worktrees bridge with the card worktree id and states a refusal verbatim', async () => {
     const refreshMock = vi.fn();
-    archiveMock.mockResolvedValue({ error: 'worktree has uncommitted changes', ok: false });
+    archiveMock.mockResolvedValue(gitFailure('worktree has uncommitted changes'));
     setWorktreeMap({ ...BASE_STATE, refresh: refreshMock });
     render(<Surface />);
 
@@ -880,11 +881,11 @@ describe('WorktreeMapSurface', () => {
 
   it('states an adoption refusal verbatim and does not refresh', async () => {
     const refreshMock = vi.fn();
-    adoptMock.mockResolvedValue({
-      error:
-        'The worktree at "/wt" is outside every open folder. Grant access to its folder first, then adopt it.',
-      ok: false,
-    });
+    adoptMock.mockResolvedValue(
+      gitFailure(
+        'The worktree at "/wt" is outside every open folder. Grant access to its folder first, then adopt it.'
+      )
+    );
     setWorktreeMap({
       ...BASE_STATE,
       refresh: refreshMock,

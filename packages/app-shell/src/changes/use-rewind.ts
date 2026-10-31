@@ -14,8 +14,16 @@
  * which is a real answer and not an error. Storing their result here would
  * invite a component to read a stale success.
  */
+import {
+  type BoundaryFailure,
+  boundaryFailureOf,
+  describeBoundaryError,
+  describeBoundaryFailure,
+  refusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
-import type { GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type { StructuredFileDiff } from '@brainstrike/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RewindPreviewPayload } from './changes-bridge';
 import type {
@@ -36,7 +44,7 @@ export interface UseRewindResult {
    */
   readonly apply: (
     args: Parameters<RewindPort['apply']>[0]
-  ) => Promise<GitResult<RewindApplyResult>>;
+  ) => Promise<BoundaryResult<RewindApplyResult>>;
   /** Transport failure. Owner refusals live inside `preview`, not here. */
   readonly error: string | null;
   /**
@@ -48,17 +56,19 @@ export interface UseRewindResult {
   readonly fileDiff: (
     path: string,
     entryRootId: string | null
-  ) => Promise<GitResult<StructuredFileDiff>>;
+  ) => Promise<BoundaryResult<StructuredFileDiff>>;
   /** True while the preview is in flight. */
   readonly loading: boolean;
   /** The resolved preview, or `null` before one has landed. */
   readonly preview: RewindPreviewModel | null;
   /** Undo the newest rewind in the thread. One level, until the next message. */
-  readonly redo: (args: Parameters<RewindPort['redo']>[0]) => Promise<GitResult<RewindRedoResult>>;
+  readonly redo: (
+    args: Parameters<RewindPort['redo']>[0]
+  ) => Promise<BoundaryResult<RewindRedoResult>>;
 }
 
-function failure(caught: unknown): { readonly error: string; readonly ok: false } {
-  return { error: caught instanceof Error ? caught.message : String(caught), ok: false };
+function failure(caught: unknown): { readonly error: BoundaryFailure; readonly ok: false } {
+  return { error: boundaryFailureOf(caught), ok: false };
 }
 
 export function useRewind(port: RewindPort, target: RewindPreviewPayload): UseRewindResult {
@@ -88,13 +98,13 @@ export function useRewind(port: RewindPort, target: RewindPreviewPayload): UseRe
         setError(null);
       } else {
         setPreview(null);
-        setError(result.error);
+        setError(describeBoundaryFailure(result.error));
       }
     } catch (caught) {
       logger.error('Failed to load rewind preview', { error: caught });
       if (isCurrent()) {
         setPreview(null);
-        setError(failure(caught).error);
+        setError(describeBoundaryError(caught));
       }
     } finally {
       if (isCurrent()) {
@@ -110,13 +120,27 @@ export function useRewind(port: RewindPort, target: RewindPreviewPayload): UseRe
   const changeset = preview?.ok === true ? preview.changeset : null;
 
   const fileDiff = useCallback(
-    async (path: string, entryRootId: string | null): Promise<GitResult<StructuredFileDiff>> => {
+    async (
+      path: string,
+      entryRootId: string | null
+    ): Promise<BoundaryResult<StructuredFileDiff>> => {
       if (!changeset) {
-        return { error: 'rewind-preview-unavailable: no resolved changeset', ok: false };
+        return {
+          error: refusal({
+            category: 'availability',
+            code: 'rewind.preview-unavailable',
+            message: 'The rewind preview has no resolved changeset.',
+          }),
+          ok: false,
+        };
       }
       if (entryRootId === null) {
         return {
-          error: `Cannot load a diff for "${path}": the file entry carries no workspace root.`,
+          error: refusal({
+            category: 'input',
+            code: 'rewind.entry-root-missing',
+            message: `Cannot load a diff for "${path}": the file entry carries no workspace root.`,
+          }),
           ok: false,
         };
       }

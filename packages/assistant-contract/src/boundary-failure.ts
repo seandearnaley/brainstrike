@@ -203,8 +203,10 @@ export function describeBoundaryFailureForModel(failure: BoundaryFailure): strin
   const { correlationId: _reference, ...modelFacing } = failure;
   return describeBoundaryFailure(modelFacing);
 }
+/** The typed failure a thrown cause carries, or the fixed internal fault. */
+export function boundaryFailureOf(cause: unknown): BoundaryFailure {
+  return cause instanceof BoundaryFailureError ? cause.failure : INTERNAL_FAULT;
+}
 export function describeBoundaryError(cause: unknown): string {
-  return describeBoundaryFailure(
-    cause instanceof BoundaryFailureError ? cause.failure : INTERNAL_FAULT
-  );
+  return describeBoundaryFailure(boundaryFailureOf(cause));
 }

@@ -5,6 +5,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseWorktreeModeArgs } from '../hooks/use-worktree-mode';
 import { useWorktreeMode } from '../hooks/use-worktree-mode';
+import { gitFailure } from './helpers/git-failure';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
@@ -280,10 +281,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('rejects and toasts a service failure so the sheet can show it', async () => {
-    createSpy.mockResolvedValue({
-      error: 'local branch "bs/bright-fox" already exists',
-      ok: false,
-    });
+    createSpy.mockResolvedValue(gitFailure('local branch "bs/bright-fox" already exists'));
     const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
@@ -408,7 +406,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('toasts an honest failure when archiving fails after a successful hand-off', async () => {
-    archiveSpy.mockResolvedValueOnce({ error: 'worktree has uncommitted changes', ok: false });
+    archiveSpy.mockResolvedValueOnce(gitFailure('worktree has uncommitted changes'));
     const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
 
@@ -528,7 +526,7 @@ describe('useWorktreeMode', () => {
     await act(async () => {
       await result.current?.onOpenCreateSheet();
     });
-    createContextSpy.mockResolvedValueOnce({ error: 'inventory unavailable', ok: false });
+    createContextSpy.mockResolvedValueOnce(gitFailure('inventory unavailable'));
 
     await act(async () => {
       await expect(result.current?.onOpenCreateSheet()).rejects.toThrow('inventory unavailable');
@@ -873,7 +871,7 @@ describe('useWorktreeMode', () => {
         },
       ],
     });
-    createBranchHereSpy.mockResolvedValue({ error: 'branch already exists', ok: false });
+    createBranchHereSpy.mockResolvedValue(gitFailure('branch already exists'));
     const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
     act(() => result.current?.onOpenPicker());
     await waitFor(() => expect(result.current?.onCreateBranchHere).toEqual(expect.any(Function)));
@@ -988,7 +986,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('surfaces a list failure on the picker instead of an empty list', async () => {
-    listSpy.mockResolvedValue({ error: 'inventory unavailable', ok: false });
+    listSpy.mockResolvedValue(gitFailure('inventory unavailable'));
     const { result } = renderWorktreeMode(ARGS);
     act(() => {
       result.current?.onOpenPicker();

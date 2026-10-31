@@ -15,6 +15,7 @@ import { realpath as fsRealpath } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { GitInventory, GitInventoryRepository, WorktreeDescriptor } from '@brainstrike/types';
+import { describeFailure } from './git-failure';
 import {
   createNodeInventoryFs,
   createWalkSemaphore,
@@ -34,7 +35,6 @@ import {
 } from './git-inventory-watcher';
 import { parseWorktreeSummaries } from './git-repository-parsers';
 import {
-  describeFailure,
   GIT_DEFAULT_TIMEOUT_MS,
   type GitCommandRun,
   type GitCommandRunner,
@@ -168,7 +168,7 @@ async function groupByCommonDir(
     });
     if (!resolved.ok) {
       errors.push(
-        `git inventory: could not resolve "${entry.path}" (${entry.kind}): ${resolved.error}`
+        `git inventory: could not resolve "${entry.path}" (${entry.kind}): ${resolved.error.message}`
       );
       continue;
     }
@@ -236,7 +236,7 @@ async function resolveWorktreeTrust(
 ): Promise<WorktreeTrustResult> {
   const resolved = await resolveGitEntryAtWorktree({ fs, worktreePath });
   if (!resolved.ok) {
-    return { trust: 'unvalidated', trustReason: resolved.error };
+    return { trust: 'unvalidated', trustReason: resolved.error.message };
   }
   if (resolved.value !== expectedCommonDir) {
     return {

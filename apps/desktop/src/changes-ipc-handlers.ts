@@ -8,17 +8,17 @@
  * `validateChangeset`/`validatePath` structurally narrow the payload before
  * it ever reaches `ChangesetDiffService`, which only ever sees typed values.
  *
- * Every failure is a visible, typed `GitResult` — never a thrown bare
+ * Every failure is a visible, typed `BoundaryResult` — never a thrown bare
  * `Error`, never a silent coercion of a malformed payload. Unknown `kind`s
  * and unsupported/extra keys are rejected explicitly, mirroring
  * `git-structured-diff.ts`'s `validateStructuredFileDiffParams` posture.
  */
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import type {
   Changeset,
   ChangesetView,
   GitInventory,
-  GitResult,
   GitScope,
   StructuredFileDiff,
 } from '@brainstrike/types';
@@ -27,6 +27,7 @@ import {
   createChangesetDiffService,
 } from './assistant-server/changeset-diff-service';
 import type { HostThreadTurns } from './assistant-server/changeset-host-turns';
+import { gitInvalid, gitRefused, gitThrew } from './assistant-server/git-failure';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import type { GitCommandRunner } from './assistant-server/git-service';
 import type { SnapshotService } from './assistant-server/snapshot-service';
@@ -50,28 +51,27 @@ function rejectUnsupportedKeys(
   record: Record<string, unknown>,
   allowedKeys: readonly string[],
   subject: string
-): GitResult<true> {
+): BoundaryResult<true> {
   const allowed = new Set(allowedKeys);
   const unsupported = Object.keys(record).filter((key) => !allowed.has(key));
   if (unsupported.length > 0) {
-    return { error: `${subject} does not accept: ${unsupported.join(', ')}`, ok: false };
+    return gitInvalid(`${subject} does not accept: ${unsupported.join(', ')}`);
   }
   return { ok: true, value: true };
 }
 
 /** Structurally validate a `git-scope` changeset's `scope` object. */
-function validateGitScope(value: unknown): GitResult<GitScope> {
+function validateGitScope(value: unknown): BoundaryResult<GitScope> {
   if (!(value && typeof value === 'object') || Array.isArray(value)) {
-    return { error: 'git-scope changeset requires scope to be an object', ok: false };
+    return gitInvalid('git-scope changeset requires scope to be an object');
   }
   const record = value as Record<string, unknown>;
   const kind = record['kind'];
   if (!isGitScopeKind(kind)) {
     const allowed = GIT_SCOPE_KINDS.map((candidate) => `"${candidate}"`).join(', ');
-    return {
-      error: `git-scope scope.kind must be one of ${allowed} (received "${String(kind)}")`,
-      ok: false,
-    };
+    return gitInvalid(
+      `git-scope scope.kind must be one of ${allowed} (received "${String(kind)}")`
+    );
   }
 
   if (kind === 'commit') {
@@ -85,7 +85,7 @@ function validateGitScope(value: unknown): GitResult<GitScope> {
     }
     const commitId = record['commitId'];
     if (!isNonEmptyString(commitId)) {
-      return { error: 'git-scope scope kind "commit" requires a non-empty commitId', ok: false };
+      return gitInvalid('git-scope scope kind "commit" requires a non-empty commitId');
     }
     return { ok: true, value: { commitId, kind: 'commit' } };
   }
@@ -101,11 +101,9 @@ function validateGitScope(value: unknown): GitResult<GitScope> {
     }
     const baseRef = record['baseRef'];
     if (baseRef !== undefined && !isNonEmptyString(baseRef)) {
-      return {
-        error:
-          'git-scope scope kind "branch-vs-base" baseRef must be a non-empty string when present',
-        ok: false,
-      };
+      return gitInvalid(
+        'git-scope scope kind "branch-vs-base" baseRef must be a non-empty string when present'
+      );
     }
     return {
       ok: true,
@@ -124,7 +122,7 @@ function validateGitScope(value: unknown): GitResult<GitScope> {
 }
 
 /** Structurally validate an `agent-run` changeset payload. */
-function validateAgentRunChangeset(record: Record<string, unknown>): GitResult<Changeset> {
+function validateAgentRunChangeset(record: Record<string, unknown>): BoundaryResult<Changeset> {
   const keysResult = rejectUnsupportedKeys(
     record,
     ['kind', 'runId', 'threadId'],
@@ -136,16 +134,16 @@ function validateAgentRunChangeset(record: Record<string, unknown>): GitResult<C
   const runId = record['runId'];
   const threadId = record['threadId'];
   if (!isNonEmptyString(runId)) {
-    return { error: 'changeset kind "agent-run" requires a non-empty runId', ok: false };
+    return gitInvalid('changeset kind "agent-run" requires a non-empty runId');
   }
   if (!isNonEmptyString(threadId)) {
-    return { error: 'changeset kind "agent-run" requires a non-empty threadId', ok: false };
+    return gitInvalid('changeset kind "agent-run" requires a non-empty threadId');
   }
   return { ok: true, value: { kind: 'agent-run', runId, threadId } };
 }
 
 /** Structurally validate a `run-range` changeset payload. */
-function validateRunRangeChangeset(record: Record<string, unknown>): GitResult<Changeset> {
+function validateRunRangeChangeset(record: Record<string, unknown>): BoundaryResult<Changeset> {
   const keysResult = rejectUnsupportedKeys(
     record,
     ['kind', 'fromRunId', 'threadId', 'toRunId'],
@@ -158,16 +156,13 @@ function validateRunRangeChangeset(record: Record<string, unknown>): GitResult<C
   const threadId = record['threadId'];
   const toRunId = record['toRunId'];
   if (!isNonEmptyString(fromRunId)) {
-    return { error: 'changeset kind "run-range" requires a non-empty fromRunId', ok: false };
+    return gitInvalid('changeset kind "run-range" requires a non-empty fromRunId');
   }
   if (!isNonEmptyString(threadId)) {
-    return { error: 'changeset kind "run-range" requires a non-empty threadId', ok: false };
+    return gitInvalid('changeset kind "run-range" requires a non-empty threadId');
   }
   if (toRunId !== undefined && !isNonEmptyString(toRunId)) {
-    return {
-      error: 'changeset kind "run-range" toRunId must be a non-empty string when present',
-      ok: false,
-    };
+    return gitInvalid('changeset kind "run-range" toRunId must be a non-empty string when present');
   }
   return {
     ok: true,
@@ -181,7 +176,7 @@ function validateRunRangeChangeset(record: Record<string, unknown>): GitResult<C
 }
 
 /** Structurally validate a `git-scope` changeset payload (top-level fields + nested `scope`). */
-function validateGitScopeChangeset(record: Record<string, unknown>): GitResult<Changeset> {
+function validateGitScopeChangeset(record: Record<string, unknown>): BoundaryResult<Changeset> {
   const keysResult = rejectUnsupportedKeys(
     record,
     ['kind', 'repositoryRoot', 'worktreePath', 'scope'],
@@ -193,10 +188,10 @@ function validateGitScopeChangeset(record: Record<string, unknown>): GitResult<C
   const repositoryRoot = record['repositoryRoot'];
   const worktreePath = record['worktreePath'];
   if (!isNonEmptyString(repositoryRoot)) {
-    return { error: 'changeset kind "git-scope" requires a non-empty repositoryRoot', ok: false };
+    return gitInvalid('changeset kind "git-scope" requires a non-empty repositoryRoot');
   }
   if (!isNonEmptyString(worktreePath)) {
-    return { error: 'changeset kind "git-scope" requires a non-empty worktreePath', ok: false };
+    return gitInvalid('changeset kind "git-scope" requires a non-empty worktreePath');
   }
   const scopeResult = validateGitScope(record['scope']);
   if (!scopeResult.ok) {
@@ -213,9 +208,9 @@ function validateGitScopeChangeset(record: Record<string, unknown>): GitResult<C
  * `kind` ⇒ a visible error naming the received kind; unknown/extra keys per
  * kind ⇒ rejected — no silent coercion or stripping.
  */
-export function validateChangeset(value: unknown): GitResult<Changeset> {
+export function validateChangeset(value: unknown): BoundaryResult<Changeset> {
   if (!(value && typeof value === 'object') || Array.isArray(value)) {
-    return { error: 'changeset payload must be an object with an explicit kind', ok: false };
+    return gitInvalid('changeset payload must be an object with an explicit kind');
   }
   const record = value as Record<string, unknown>;
   const kind = record['kind'];
@@ -229,16 +224,15 @@ export function validateChangeset(value: unknown): GitResult<Changeset> {
   if (kind === 'git-scope') {
     return validateGitScopeChangeset(record);
   }
-  return {
-    error: `changeset kind must be "agent-run", "run-range", or "git-scope" (received "${String(kind)}")`,
-    ok: false,
-  };
+  return gitInvalid(
+    `changeset kind must be "agent-run", "run-range", or "git-scope" (received "${String(kind)}")`
+  );
 }
 
 /** Structurally validate a renderer-supplied `path` argument. */
-export function validatePath(value: unknown): GitResult<string> {
+export function validatePath(value: unknown): BoundaryResult<string> {
   if (!isNonEmptyString(value)) {
-    return { error: 'changes:fileDiff requires a non-empty path', ok: false };
+    return gitInvalid('changes:fileDiff requires a non-empty path');
   }
   return { ok: true, value };
 }
@@ -246,18 +240,18 @@ export function validatePath(value: unknown): GitResult<string> {
 // ===== Conversation Rewind (BST-1115 W5 T4) =====
 //
 // TWO LEVELS OF FAILURE, deliberately not collapsed into one:
-//   - `GitResult.ok === false` means THE CALL failed — a malformed renderer
+//   - `BoundaryResult.ok === false` means THE CALL failed — a malformed renderer
 //     payload, or an unexpected throw. Same posture as `resolveView`/
 //     `fileDiff`: a typed failure, never a thrown bare `Error`.
-//   - `GitResult.value.ok === false` means the rewind was REFUSED for a domain
+//   - `BoundaryResult.value.ok === false` means the rewind was REFUSED for a domain
 //     reason the service names (`conflicts-unacknowledged`, `message-not-found`,
 //     …). That is a real answer, not an error, and the UI must show it.
 // Flattening the two would make "your payload was garbage" indistinguishable
 // from "one file conflicts and nothing was applied".
 
-function asRecord(value: unknown, subject: string): GitResult<Record<string, unknown>> {
+function asRecord(value: unknown, subject: string): BoundaryResult<Record<string, unknown>> {
   if (!(value && typeof value === 'object') || Array.isArray(value)) {
-    return { error: `${subject} requires an object payload`, ok: false };
+    return gitInvalid(`${subject} requires an object payload`);
   }
   return { ok: true, value: value as Record<string, unknown> };
 }
@@ -273,7 +267,7 @@ function asRecord(value: unknown, subject: string): GitResult<Record<string, unk
  * service itself throws on a bad value, so accepting one here would only
  * convert a validation error into an "unexpected handler failure".
  */
-function validateInventoryOptions(value: unknown): GitResult<{ readonly maxAgeMs?: number }> {
+function validateInventoryOptions(value: unknown): BoundaryResult<{ readonly maxAgeMs?: number }> {
   const subject = 'changes:inventory';
   if (value === undefined) {
     return { ok: true, value: {} };
@@ -292,10 +286,7 @@ function validateInventoryOptions(value: unknown): GitResult<{ readonly maxAgeMs
     return { ok: true, value: {} };
   }
   if (typeof maxAgeMs !== 'number' || !Number.isInteger(maxAgeMs) || maxAgeMs < 0) {
-    return {
-      error: `${subject} requires maxAgeMs to be an integer >= 0`,
-      ok: false,
-    };
+    return gitInvalid(`${subject} requires maxAgeMs to be an integer >= 0`);
   }
   return { ok: true, value: { maxAgeMs } };
 }
@@ -305,9 +296,12 @@ export interface ChangesIpcHandlers {
     rootId: unknown,
     changeset: unknown,
     path: unknown
-  ) => Promise<GitResult<StructuredFileDiff>>;
-  readonly inventory: (options?: unknown) => Promise<GitResult<GitInventory>>;
-  readonly resolveView: (rootId: unknown, changeset: unknown) => Promise<GitResult<ChangesetView>>;
+  ) => Promise<BoundaryResult<StructuredFileDiff>>;
+  readonly inventory: (options?: unknown) => Promise<BoundaryResult<GitInventory>>;
+  readonly resolveView: (
+    rootId: unknown,
+    changeset: unknown
+  ) => Promise<BoundaryResult<ChangesetView>>;
 }
 
 export interface ChangesIpcHandlersOptions {
@@ -322,7 +316,7 @@ export interface ChangesIpcHandlersOptions {
 /**
  * Create the `changes` IPC handlers, wiring the real {@link ChangesetDiffService}.
  * Every renderer-supplied argument is `unknown`; this is the narrowing
- * boundary — validation failures return a typed `{ ok: false }` `GitResult`,
+ * boundary — validation failures return a typed `{ ok: false }` `BoundaryResult`,
  * never a thrown error, mirroring `git-ipc-handlers.ts`'s `withService`.
  */
 export function createChangesIpcHandlers(options: ChangesIpcHandlersOptions): ChangesIpcHandlers {
@@ -369,7 +363,7 @@ export function createChangesIpcHandlers(options: ChangesIpcHandlersOptions): Ch
         return await service.fileDiff(rootId, changesetResult.value, pathResult.value);
       } catch (error) {
         logger.error('Unexpected changes:fileDiff handler failure', { error });
-        return { error: error instanceof Error ? error.message : String(error), ok: false };
+        return gitThrew(error);
       }
     },
     inventory: async (options) => {
@@ -379,11 +373,11 @@ export function createChangesIpcHandlers(options: ChangesIpcHandlersOptions): Ch
       }
       const inventoryService = resolveInventoryService();
       if (!inventoryService) {
-        return {
-          error:
-            'changes:inventory is unavailable: the git inventory service is not running. Restart the app; if this persists it is a wiring bug, not an empty workspace.',
-          ok: false,
-        };
+        return gitRefused(
+          'availability',
+          'changes.inventory-unavailable',
+          'The git inventory service is not running. Restart the app; if this persists it is a wiring bug, not an empty workspace.'
+        );
       }
       try {
         const snapshot = await inventoryService.getSnapshot(optionsResult.value);
@@ -396,7 +390,7 @@ export function createChangesIpcHandlers(options: ChangesIpcHandlersOptions): Ch
         };
       } catch (error) {
         logger.error('Unexpected changes:inventory handler failure', { error });
-        return { error: error instanceof Error ? error.message : String(error), ok: false };
+        return gitThrew(error);
       }
     },
     resolveView: async (rootId, changeset) => {
@@ -408,7 +402,7 @@ export function createChangesIpcHandlers(options: ChangesIpcHandlersOptions): Ch
         return await service.resolveView(rootId, changesetResult.value);
       } catch (error) {
         logger.error('Unexpected changes:resolveView handler failure', { error });
-        return { error: error instanceof Error ? error.message : String(error), ok: false };
+        return gitThrew(error);
       }
     },
   };
