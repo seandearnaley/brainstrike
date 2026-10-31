@@ -231,10 +231,7 @@ function seedThread(metadata: Record<string, unknown>) {
 }
 
 function openSecondaryRootsGate(): { promise: Promise<void>; release: () => void } {
-  let release = (): void => undefined;
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise, resolve: release } = Promise.withResolvers<void>();
   return { promise, release };
 }
 

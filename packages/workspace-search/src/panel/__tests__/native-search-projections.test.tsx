@@ -82,10 +82,7 @@ describe('native Search projections', () => {
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
   });
   it('retains a later completed observation when an older coverage read settles last', async () => {
-    let finishOld: (batch: IndexerCoverageBatch) => void = () => {};
-    const old = new Promise<IndexerCoverageBatch>((resolve) => {
-      finishOld = resolve;
-    });
+    const { promise: old, resolve: finishOld } = Promise.withResolvers<IndexerCoverageBatch>();
     const coverageBatch = vi
       .fn<IndexSearchCapability['coverageBatch']>()
       .mockReturnValueOnce(old)

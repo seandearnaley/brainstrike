@@ -10,10 +10,7 @@ function resource(
 
 describe('MCP session cleanup ownership', () => {
   it('shares concurrent attempts and retries only resources that remain owned', async () => {
-    let releaseFirst: (() => void) | undefined;
-    const firstReleased = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
+    const { promise: firstReleased, resolve: releaseFirst } = Promise.withResolvers<void>();
     const calls: string[] = [];
     const secretResourceError = 'Bearer sk-secret-cleanup-resource';
     let failSecond = true;

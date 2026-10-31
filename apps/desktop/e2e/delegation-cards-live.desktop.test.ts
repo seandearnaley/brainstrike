@@ -28,10 +28,7 @@ test('open delegation cards follow their background children to the end without 
   const workspace = path.join(profile, 'workspace');
   await mkdir(workspace, { recursive: true });
   await Promise.all(FILES.map((file) => writeFile(path.join(workspace, file), `# ${file}\n`)));
-  let answer = (): void => undefined;
-  const answered = new Promise<void>((resolve) => {
-    answer = resolve;
-  });
+  const { promise: answered, resolve: answer } = Promise.withResolvers<void>();
   const provider = await startModelProviderShim(({ messages, toolNames }) => {
     if (toolNames.length === 0) {
       return { finalText: 'Live delegation cards' };

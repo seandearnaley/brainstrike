@@ -107,17 +107,6 @@ const rootHandle = {
   platform: 'electron',
 } as const;
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
-
 function createManifest(filePaths: string[]): QuerySelectionManifest {
   return {
     directoryCounts: new Map([['/workspace/src', filePaths.length]]),
@@ -409,7 +398,7 @@ describe('FileTreeProvider', () => {
     const normalizedTreeRef = {
       current: createNormalizedFileTreeState([directoryNode(srcPath), directoryNode(testPath)]),
     };
-    const secondReadGate = createDeferred<void>();
+    const secondReadGate = Promise.withResolvers<void>();
     const refreshDirectory = vi.fn(async (path: string) => {
       if (path === testPath) {
         await secondReadGate.promise;
@@ -562,7 +551,7 @@ describe('FileTreeProvider', () => {
     const normalizedTreeRef = {
       current: createNormalizedFileTreeState([srcNode]),
     };
-    const manualReadGate = createDeferred<void>();
+    const manualReadGate = Promise.withResolvers<void>();
     let selectedNewFile = false;
     let selectedPaths = new Set<string>();
     let selectionVersion = 0;
@@ -657,7 +646,7 @@ describe('FileTreeProvider', () => {
   });
 
   it('returns cancelled when the direct refresh authority unmounts during its root read', async () => {
-    const rawRefreshGate = createDeferred<FileTreeRefreshResult>();
+    const rawRefreshGate = Promise.withResolvers<FileTreeRefreshResult>();
     const rawRefreshTree = vi.fn(() => rawRefreshGate.promise);
     const baseFileTreeState = useFileTreeMock();
     useFileTreeMock.mockClear();
@@ -734,7 +723,7 @@ describe('FileTreeProvider', () => {
       type: 'directory',
     };
     const normalizedTreeRef = { current: createNormalizedFileTreeState([srcNode]) };
-    const refreshGate = createDeferred<void>();
+    const refreshGate = Promise.withResolvers<void>();
     const refreshDirectory = vi.fn(async (path: string) => {
       await refreshGate.promise;
       return { directoryPath: path, entries: [] };
@@ -806,7 +795,7 @@ describe('FileTreeProvider', () => {
       type: 'directory',
     };
     const normalizedTreeRef = { current: createNormalizedFileTreeState([srcNode]) };
-    const refreshGate = createDeferred<void>();
+    const refreshGate = Promise.withResolvers<void>();
     const refreshDirectory = vi.fn(async (path: string) => {
       await refreshGate.promise;
       return { directoryPath: path, entries: [] };

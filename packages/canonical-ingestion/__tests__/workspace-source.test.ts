@@ -299,10 +299,9 @@ describe('canonical workspace source', () => {
   });
 
   it('retains a late subscription and joins failed unsubscribe again before releasing its borrow', async () => {
-    let acquire: ((subscription: { close: () => Promise<void> }) => void) | undefined;
-    const held = new Promise<{ close: () => Promise<void> }>((resolve) => {
-      acquire = resolve;
-    });
+    const { promise: held, resolve: acquire } = Promise.withResolvers<{
+      close: () => Promise<void>;
+    }>();
     const borrowed = lease({ subscribe: vi.fn(() => held) });
     const source = new CanonicalWorkspaceSource({
       indexingPolicyPreset: 'balanced',

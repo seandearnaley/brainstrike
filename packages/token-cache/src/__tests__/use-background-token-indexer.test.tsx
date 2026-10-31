@@ -130,10 +130,8 @@ describe('useBackgroundTokenIndexer', () => {
       filePath: `file-${index}.ts`,
       folderId: 'folder',
     }));
-    let releaseRead!: (entries: Map<string, TokenCacheEntry>) => void;
-    const cacheRead = new Promise<Map<string, TokenCacheEntry>>((resolve) => {
-      releaseRead = resolve;
-    });
+    const { promise: cacheRead, resolve: releaseRead } =
+      Promise.withResolvers<Map<string, TokenCacheEntry>>();
     const writeReleases: Array<() => void> = [];
     const store = {
       get: vi.fn(async () => null),

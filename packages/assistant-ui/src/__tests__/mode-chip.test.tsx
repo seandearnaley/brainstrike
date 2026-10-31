@@ -200,10 +200,7 @@ describe('ModeChip', () => {
 
   it('awaits fresh create context before mounting the sheet with its live defaults', async () => {
     const user = setup();
-    let resolveContext = (): void => undefined;
-    const contextReady = new Promise<void>((resolve) => {
-      resolveContext = resolve;
-    });
+    const { promise: contextReady, resolve: resolveContext } = Promise.withResolvers<void>();
     const onOpenCreateSheet = vi.fn(() => contextReady);
     const initial = mode({
       defaultName: 'stale-current-worktree-name',

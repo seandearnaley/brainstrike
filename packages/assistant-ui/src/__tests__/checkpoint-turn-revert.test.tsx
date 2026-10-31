@@ -328,10 +328,7 @@ describe('useCheckpointTurnRevert', () => {
     // would call both synchronously. Asserting the second run has NOT fired while
     // the first is unresolved is what actually pins sequentiality — a mutation
     // back to a parallel implementation fails this, not just the final order.
-    let resolveFirst: (() => void) | undefined;
-    const firstGate = new Promise<void>((resolve) => {
-      resolveFirst = resolve;
-    });
+    const { promise: firstGate, resolve: resolveFirst } = Promise.withResolvers<void>();
     const revertRun = vi.fn((runId: string) => {
       order.push(runId);
       const result = runResult(runId, [

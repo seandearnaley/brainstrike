@@ -12,20 +12,6 @@ const ROOT = {
   platform: 'electron' as const,
 };
 
-function deferred(): {
-  promise: Promise<void>;
-  reject: (error: Error) => void;
-  resolve: () => void;
-} {
-  let resolve = (): void => undefined;
-  let reject = (_error: Error): void => undefined;
-  const promise = new Promise<void>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
-  return { promise, reject, resolve };
-}
-
 async function flushAsyncWork(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -75,7 +61,7 @@ function createInputs(
 
 describe('WorkspaceIndexingCoordinator', () => {
   it('coalesces triggers behind the active pass and replays the merged scope once', async () => {
-    const firstPass = deferred();
+    const firstPass = Promise.withResolvers<void>();
     const service = createService();
     vi.mocked(service.sync)
       .mockImplementationOnce(async () => firstPass.promise)
@@ -101,7 +87,7 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('replays each queued change once, with the last change for a path last', async () => {
-    const firstPass = deferred();
+    const firstPass = Promise.withResolvers<void>();
     const service = createService();
     vi.mocked(service.sync)
       .mockImplementationOnce(async () => firstPass.promise)
@@ -143,7 +129,7 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('updates focused-root inputs without invalidating host-owned work', async () => {
-    const activePass = deferred();
+    const activePass = Promise.withResolvers<void>();
     const service = createService();
     vi.mocked(service.sync).mockImplementation(async () => activePass.promise);
     const coordinator = new WorkspaceIndexingCoordinator();
@@ -163,7 +149,7 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('invalidates a stale multi-root pass before the next root when explicitly cancelled', async () => {
-    const firstRoot = deferred();
+    const firstRoot = Promise.withResolvers<void>();
     const service = createService();
     vi.mocked(service.sync).mockImplementationOnce(async () => firstRoot.promise);
     const coordinator = new WorkspaceIndexingCoordinator();
@@ -200,8 +186,8 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('does not let a superseded finalizer erase the replacement pass pending trigger', async () => {
-    const firstPass = deferred();
-    const replacementPass = deferred();
+    const firstPass = Promise.withResolvers<void>();
+    const replacementPass = Promise.withResolvers<void>();
     const service = createService();
     vi.mocked(service.sync)
       .mockImplementationOnce(async () => firstPass.promise)
@@ -227,8 +213,8 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('waits for restart cancellation and prevents the stale pass from reaching its next root', async () => {
-    const firstRoot = deferred();
-    const cancellation = deferred();
+    const firstRoot = Promise.withResolvers<void>();
+    const cancellation = Promise.withResolvers<void>();
     const service = createService();
     vi.mocked(service.cancel).mockImplementation(async () => cancellation.promise);
     vi.mocked(service.sync)
@@ -282,7 +268,7 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('reports a failed cancellation sweep and still starts the requested replacement', async () => {
-    const activePass = deferred();
+    const activePass = Promise.withResolvers<void>();
     const onError = vi.fn();
     const service = createService();
     vi.mocked(service.sync)
@@ -303,8 +289,8 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('does not resurrect replacement work after its cancellation sweep is superseded', async () => {
-    const activePass = deferred();
-    const restartSweep = deferred();
+    const activePass = Promise.withResolvers<void>();
+    const restartSweep = Promise.withResolvers<void>();
     const onError = vi.fn();
     const service = createService();
     vi.mocked(service.sync).mockImplementation(async () => activePass.promise);
@@ -330,7 +316,7 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('does not report stale service failures after cancellation', async () => {
-    const activePass = deferred();
+    const activePass = Promise.withResolvers<void>();
     const onError = vi.fn();
     const service = createService();
     vi.mocked(service.sync).mockImplementation(async () => activePass.promise);
@@ -347,7 +333,7 @@ describe('WorkspaceIndexingCoordinator', () => {
   });
 
   it('does not report stale target-resolution failures after cancellation', async () => {
-    const targetResolution = deferred();
+    const targetResolution = Promise.withResolvers<void>();
     const onError = vi.fn();
     const service = createService();
     const resolveTargets = vi.fn(async () => {

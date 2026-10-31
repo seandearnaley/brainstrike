@@ -9,14 +9,6 @@
 import { describe, expect, it } from 'vitest';
 import { withFileLock } from '../tools/file-write-lock';
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 describe('withFileLock', () => {
   it('serializes tasks for the SAME key (no overlap, submission order)', async () => {
     const events: string[] = [];
@@ -47,8 +39,8 @@ describe('withFileLock', () => {
   });
 
   it('runs tasks for DIFFERENT keys concurrently', async () => {
-    const gateA = deferred<void>();
-    const gateB = deferred<void>();
+    const gateA = Promise.withResolvers<void>();
+    const gateB = Promise.withResolvers<void>();
     let aStarted = false;
     let bStarted = false;
 

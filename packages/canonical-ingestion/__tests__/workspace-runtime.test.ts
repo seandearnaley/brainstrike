@@ -82,10 +82,7 @@ it('rejects invalid source bounds before catalog preflight or watcher admission'
 it('joins revoked catalog preflight without misreporting the exact mount cancellation as cleanup failure', async () => {
   const dependencies = fixture();
   const revoked = new AbortController();
-  let release = (): void => {};
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const loadFiles = vi.fn(async () => {
     await held;
     return [];

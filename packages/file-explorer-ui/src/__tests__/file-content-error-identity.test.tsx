@@ -25,10 +25,7 @@ function createWrapper() {
 it('keeps the aggregate loader error identity stable while its error snapshot is unchanged', async () => {
   const firstKey = encodeFileSelection('root-error-memo', '/first.txt');
   const secondKey = encodeFileSelection('root-error-memo', '/second.txt');
-  let releasePhysicalWork: (() => void) | undefined;
-  const physicalWork = new Promise<void>((resolve) => {
-    releasePhysicalWork = resolve;
-  });
+  const { promise: physicalWork, resolve: releasePhysicalWork } = Promise.withResolvers<void>();
   const { rerender, result } = renderHook(
     () => ({
       authority: useFileContentLoadAuthority(),

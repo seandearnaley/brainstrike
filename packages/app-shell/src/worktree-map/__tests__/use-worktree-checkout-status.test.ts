@@ -21,19 +21,6 @@ import { useWorktreeCheckoutStatuses } from '../use-worktree-checkout-status';
  * without updating this pin. */
 const EXPECTED_BOUND = 4;
 
-interface Deferred<T> {
-  readonly promise: Promise<T>;
-  readonly resolve: (value: T) => void;
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 function statusFor(path: string): WorktreeCheckoutStatus {
   return { ahead: 0, behind: 0, clean: true, path, upstream: 'origin/main' };
 }
@@ -42,7 +29,7 @@ describe('useWorktreeCheckoutStatuses concurrency bound', () => {
   it('never runs more checkoutStatus calls at once than the configured bound, across 10 pending paths', async () => {
     const paths = Array.from({ length: 10 }, (_, index) => `/repo-${index}`);
     const deferredsByPath = new Map(
-      paths.map((path) => [path, deferred<BoundaryResult<WorktreeCheckoutStatus>>()])
+      paths.map((path) => [path, Promise.withResolvers<BoundaryResult<WorktreeCheckoutStatus>>()])
     );
     let inFlight = 0;
     let peakInFlight = 0;
