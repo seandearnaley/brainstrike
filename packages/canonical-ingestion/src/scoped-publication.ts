@@ -488,7 +488,7 @@ export function createNativeCanonicalPublication(
           (profileHash !== undefined && stored.profileHash !== profileHash)
         ) {
           changed.push(file);
-        } else {
+        } else if (profileHash !== undefined) {
           acknowledged.push(stored.manifest);
         }
       }

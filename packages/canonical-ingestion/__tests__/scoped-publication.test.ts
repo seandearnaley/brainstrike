@@ -346,6 +346,12 @@ it('lets a VECTOR scan skip a file only while its acknowledged plan has that sca
   expect(
     await f.publication.verifyManifest({ files: [file], profileHash: otherProfile, scope })
   ).toMatchObject({ acknowledged: [], changed: [file], complete: false });
+  // A TEXT scan never declares a vector proof, so its reply carries no plans.
+  expect(await f.publication.verifyManifest({ files: [file], scope })).toMatchObject({
+    acknowledged: [],
+    changed: [],
+    complete: true,
+  });
 });
 
 it('preserves surviving complete proofs when an already-retired binding is acknowledged again', async () => {

@@ -144,7 +144,8 @@ export interface CanonicalScanTicket {
 export interface CanonicalManifestResult {
   /**
    * The acknowledged chunk plan of each requested file that is neither missing nor changed: what
-   * a VECTOR scan that skips the file declares for it in its vector proof.
+   * a VECTOR scan that skips the file declares for it in its vector proof. Only a request with a
+   * `profileHash` (a VECTOR scan) gets plans; a TEXT scan's reply lists none.
    */
   readonly acknowledged: readonly ScopedManifestFile[];
   readonly changed: readonly CanonicalManifestFile[];
