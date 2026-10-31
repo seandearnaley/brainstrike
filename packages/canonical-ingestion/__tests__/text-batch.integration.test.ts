@@ -171,6 +171,12 @@ it('splits a batch of large files across native writes, so each stays within one
     const { publication, receipt } = await scanFolder(port, commitScopedTextFiles, large);
     expect(receipt).toMatchObject({ reason: 'complete', scanComplete: true });
     expect(commitScopedTextFiles.mock.calls.length).toBeGreaterThan(1);
+    // Desktop carries each commit in one utility frame of at most 32 MiB of JSON.
+    for (const [batch] of commitScopedTextFiles.mock.calls) {
+      expect(Buffer.byteLength(JSON.stringify(batch), 'utf8')).toBeLessThanOrEqual(
+        32 * 1024 * 1024
+      );
+    }
     expect(await search()).toEqual(large.map((entry) => entry.file.fileId));
     expect(publication.getReadiness()[0]).toMatchObject({
       publication: { acknowledgedFiles: large.length },
