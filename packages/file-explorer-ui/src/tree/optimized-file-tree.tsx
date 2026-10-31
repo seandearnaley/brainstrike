@@ -1269,13 +1269,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     useEffect(() => {
       columnWidthsRef.current = columnWidths;
     });
-    const handleColumnSizesChange = useEventCallback((next: Record<string, number>) => {
+    const handleColumnSizesChange = (next: Record<string, number>) => {
       for (const [columnId, width] of Object.entries(next)) {
         if (columnWidthsRef.current[columnId] !== width) {
           setColumn(columnId, width);
         }
       }
-    });
+    };
 
     useEffect(() => {
       onRender?.();
