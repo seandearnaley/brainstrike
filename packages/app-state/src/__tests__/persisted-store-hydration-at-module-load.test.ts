@@ -137,7 +137,7 @@ describe('persisted store hydration at module load', () => {
         observationalMemory: { ...before.observationalMemory, messageTokens: 9999 },
       });
 
-      resolveRead?.(null);
+      resolveRead(null);
       await vi.waitFor(() =>
         expect(useAssistantMemoryPreferencesStore.getState().hasHydrated).toBe(true)
       );

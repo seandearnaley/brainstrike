@@ -167,7 +167,7 @@ describe('DiagnosticEventWriter', () => {
     writer.enqueue(makeEvent('c'));
     writer.enqueue(makeEvent('d')); // triggers another flush, but joins the drain
     // Now resolve the sink
-    resolveSink!();
+    resolveSink();
     await writer.dispose();
     // Both waves should be inserted
     expect(inserted.flat().map((event) => event.id)).toEqual(['a', 'b', 'c', 'd']);

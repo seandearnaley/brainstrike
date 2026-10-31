@@ -26,7 +26,7 @@ describe('useFileLoadingManager', () => {
     expect(result.current.loadingFiles.has('/test.txt')).toBe(true);
 
     await act(async () => {
-      resolveLoad?.();
+      resolveLoad();
       await loadPromise;
     });
 
