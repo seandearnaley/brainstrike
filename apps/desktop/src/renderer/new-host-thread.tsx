@@ -162,31 +162,29 @@ export function NewHostThread({
       }
       sending.current = true;
       const current = settings.current;
-      try {
-        return await sendNewThreadFirstMessage(
-          {
-            bind,
-            client,
-            commit: (thread) =>
-              useAssistantThreadStore.getState().commitNewThread(resourceId, thread),
-            host,
-            resourceId,
-            runSettings: () =>
-              hostRunSettings({
-                modelId: '',
-                readConfiguration: () =>
-                  current.readConfiguration(explorer.getState().currentFolderId),
-                readModelId: current.readModelId,
-                readPlanMode: current.readPlanMode,
-              }),
-            selection: current.selection.selection ?? null,
-            settleLost: (created) => settleLostSend(client, replacement, created),
-          },
-          message
-        );
-      } finally {
+      await sendNewThreadFirstMessage(
+        {
+          bind,
+          client,
+          commit: (thread) =>
+            useAssistantThreadStore.getState().commitNewThread(resourceId, thread),
+          host,
+          resourceId,
+          runSettings: () =>
+            hostRunSettings({
+              modelId: '',
+              readConfiguration: () =>
+                current.readConfiguration(explorer.getState().currentFolderId),
+              readModelId: current.readModelId,
+              readPlanMode: current.readPlanMode,
+            }),
+          selection: current.selection.selection ?? null,
+          settleLost: (created) => settleLostSend(client, replacement, created),
+        },
+        message
+      ).finally(() => {
         sending.current = false;
-      }
+      });
     };
     return { onNew: sendFirst };
   }, [client, explorer, host, replacement, resourceId]);

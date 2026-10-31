@@ -1978,7 +1978,6 @@ export function ThreadsPanelCore({
       membershipByThreadId,
       moveThreadToGroup,
       reorderGroups,
-      resourceId,
       threadFiltersActive,
       view,
     ]

@@ -352,7 +352,7 @@ export function AssistantThreadTabsCore({
       },
       localActions,
     };
-  }, [closes, createNewThread, handleReorderThreadTabs, newThreadDisabled, resourceId, threadById]);
+  }, [closes, createNewThread, handleReorderThreadTabs, newThreadDisabled, threadById]);
 
   useEffect(() => {
     if (hasFactoryResetPreparationStarted()) {
