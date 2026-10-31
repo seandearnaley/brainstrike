@@ -12,6 +12,11 @@
  * against a stale resolve, so a slow first load can never clobber a newer
  * one (e.g. a Retry fired while the original request was still in flight).
  *
+ * A reload keeps the loaded diff on screen until its result arrives, and the
+ * body box is the same height whether it is waiting or loaded (BST-2369), so a
+ * live refresh neither collapses a card nor shifts the cards below it, and an
+ * unchanged diff keeps its `DiffView` (and any half-written line comment).
+ *
  * Every render branch is honest — never blank:
  * - `loading` / not-yet-visible: a real per-card loading affordance.
  * - `binary` content: an explanatory card, never an empty `DiffView`.
@@ -68,7 +73,6 @@ export interface ChangesetFileDiffCardProps {
 }
 
 const BODY_CLASS_NAME = 'h-[420px] min-h-0';
-
 type LoadState =
   | { readonly diff: StructuredFileDiff; readonly kind: 'loaded' }
   | { readonly kind: 'idle' }
@@ -124,7 +128,7 @@ function CardHeader({ entry }: { readonly entry: ChangedFileEntry }): ReactEleme
 function LoadingBody(): ReactElement {
   return (
     <div
-      className="text-muted-foreground flex h-40 items-center justify-center text-xs"
+      className={`text-muted-foreground flex items-center justify-center text-xs ${BODY_CLASS_NAME}`}
       data-testid="changeset-file-diff-card-loading"
       role="status"
     >
@@ -136,7 +140,7 @@ function LoadingBody(): ReactElement {
 function BinaryBody(): ReactElement {
   return (
     <div
-      className="text-muted-foreground flex h-40 flex-col items-center justify-center gap-1 px-6 text-center text-sm"
+      className={`text-muted-foreground flex flex-col items-center justify-center gap-1 px-6 text-center text-sm ${BODY_CLASS_NAME}`}
       data-testid="changeset-file-diff-card-binary"
     >
       <span>Binary file — no textual diff available.</span>
@@ -215,7 +219,9 @@ export function ChangesetFileDiffCard({
   const runLoad = useCallback(async (): Promise<void> => {
     generationRef.current += 1;
     const generation = generationRef.current;
-    setState({ kind: 'loading' });
+    // A reload keeps the loaded diff on screen until its result arrives;
+    // only a first load or a retry after an error shows the loading body.
+    setState((current) => (current.kind === 'loaded' ? current : { kind: 'loading' }));
     try {
       const result = await loadFileDiff(entry.path, entry.rootId);
       if (generation !== generationRef.current) {

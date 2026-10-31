@@ -17,7 +17,11 @@ import {
   type McpAppToolRiskCategory,
 } from '@brainstrike/mcp-app-host';
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
-import { type McpAppHostState, McpAppHostSurface } from './mcp-app-host-surface';
+import {
+  type McpAppHostState,
+  McpAppHostSurface,
+  McpAppLoadingState,
+} from './mcp-app-host-surface';
 import { useMcpAppBridge } from './use-mcp-app-bridge';
 import { useMcpAppsEnabled } from './use-mcp-apps-enablement';
 
@@ -325,7 +329,11 @@ function LiveMcpApp({
   }, [bridge, hostVersion, origin, runtimePorts, threadId]);
 
   if (view === undefined) {
-    return <div className="my-1 max-w-xl" ref={recoveryRef} tabIndex={-1} />;
+    return (
+      <div className="my-1 max-w-xl" ref={recoveryRef} tabIndex={-1}>
+        <McpAppLoadingState appName={origin.toolName} />
+      </div>
+    );
   }
   return (
     <div className="my-1 max-w-xl" ref={recoveryRef} tabIndex={-1}>
@@ -339,7 +347,7 @@ function LiveMcpApp({
           // biome-ignore lint/security/useIframeSandbox: the host-authored shell needs its own origin for header-delivered CSP; it sandboxes the untrusted app frame itself (apps-session-policy.ts).
           <iframe
             aria-label={`${origin.toolName} app`}
-            className="h-64 w-full rounded-lg border-0"
+            className="h-full w-full rounded-lg border-0"
             data-mcp-app-sandbox="true"
             key={view.shellUrl}
             ref={frameRef}
