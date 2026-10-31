@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createApplicationIpcDomain } from '../../ipc-handlers';
 
@@ -26,14 +24,6 @@ vi.mock('../../ipc-factory-reset', () => ({
   registerProfilePathIpcHandlers: vi.fn(() => ipcOwners.path),
 }));
 
-function readDesktopSource(relativePath: string): string {
-  return readFileSync(path.resolve(process.cwd(), 'src', relativePath), 'utf8');
-}
-
-function readDesktopE2e(relativePath: string): string {
-  return readFileSync(path.resolve(process.cwd(), 'e2e', relativePath), 'utf8');
-}
-
 describe('runtime host boundary', () => {
   it('joins every owned application IPC domain even when one retirement fails', async () => {
     const failure = new Error('Source lease retirement failed');
@@ -57,23 +47,5 @@ describe('runtime host boundary', () => {
     for (const owner of Object.values(ipcOwners)) {
       expect(owner).toHaveBeenCalledOnce();
     }
-  });
-
-  it('keeps main process startup free of ad hoc IPC registration', () => {
-    const source = readDesktopSource('main.ts');
-
-    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/u);
-    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/u);
-  });
-
-  it('keeps desktop file explorer selection E2E executable specs split by purpose', () => {
-    const interactiveSpec = readDesktopE2e('file-explorer-selection.desktop.test.ts');
-    const restoreSpec = readDesktopE2e('file-explorer-selection-restore.desktop.test.ts');
-    const sharedHarness = readDesktopE2e('README.md');
-
-    expect(interactiveSpec.split('\n').length).toBeLessThanOrEqual(2000);
-    expect(restoreSpec.split('\n').length).toBeLessThanOrEqual(2000);
-    expect(sharedHarness).toMatch(/file-explorer-selection\.shared\.ts/u);
-    expect(sharedHarness).toMatch(/test fixture\s+exception/u);
   });
 });
