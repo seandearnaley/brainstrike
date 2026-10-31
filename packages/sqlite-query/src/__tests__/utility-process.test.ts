@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
-import type { QueryRequest } from '../protocol.js';
+import type { Message } from 'vscode-jsonrpc/node';
 import { spawnUtilityQueryProcess } from '../utility-process.js';
 
 // Same utilityProcess event/IPC boundary exercised by test/electron-utility.cjs.
@@ -8,7 +8,7 @@ function utilityHost() {
   return Object.assign(new EventEmitter(), {
     kill: vi.fn(() => true),
     pid: 123,
-    postMessage: vi.fn<(request: QueryRequest) => void>(),
+    postMessage: vi.fn<(request: Message) => void>(),
   });
 }
 
@@ -19,7 +19,12 @@ describe('utility reader ownership', () => {
     const process = spawnUtilityQueryProcess(fork);
     expect(fork).toHaveBeenCalledWith(expect.stringMatching(/utility-query-host\.ts$/u));
     expect(process.pid).toBe(host.pid);
-    const request: QueryRequest = { databasePath: '/owned/index.sqlite', id: 1, kind: 'open' };
+    const request = {
+      id: 1,
+      jsonrpc: '2.0',
+      method: 'open',
+      params: { databasePath: '/owned/index.sqlite' },
+    };
     process.postMessage(request);
     expect(host.postMessage).toHaveBeenCalledWith(request);
     const message = vi.fn();
@@ -28,7 +33,7 @@ describe('utility reader ownership', () => {
     const offMessage = process.onMessage(message);
     const offError = process.onError(error);
     const offExit = process.onExit(exit);
-    const response = { id: 1, kind: 'ready' };
+    const response = { id: 1, jsonrpc: '2.0', result: null };
     host.emit('message', response);
     expect(message).toHaveBeenCalledWith(response);
     host.emit('error', 'FatalError', 'sqlite', 'reader unavailable');

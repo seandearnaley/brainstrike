@@ -3020,6 +3020,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.1.0
+      vscode-jsonrpc:
+        specifier: 'catalog:'
+        version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
