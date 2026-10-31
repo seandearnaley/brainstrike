@@ -1,4 +1,8 @@
 import path from 'node:path';
+import type {
+  ManagedWorktreeAuthorizer,
+  MountedWorkspaceRoot,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   RootWatchRetirementError,
@@ -10,9 +14,7 @@ import type { ContentClearResult } from '@brainstrike/types';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
-import type { ManagedWorktreeAuthorizer } from './ipc-domains/workspace-recent-roots';
 import type { WorkspaceRootRegistry } from './ipc-domains/workspace-root-registry';
-import type { MountedWorkspaceRoot } from './ipc-domains/workspace-root-types';
 import {
   createWorkspaceRootWatchOwner,
   type WorkspaceRootWatchOwner,

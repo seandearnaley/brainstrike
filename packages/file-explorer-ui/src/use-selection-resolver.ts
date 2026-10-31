@@ -4,13 +4,13 @@ import {
   resolveQuerySelection,
 } from '@brainstrike/file-explorer';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { defaultCollator } from '@brainstrike/utils/collator';
 import { useEffect, useMemo, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './shell/file-explorer-provider';
-import { defaultCollator } from './utils/file-node-collator';
 import { acquireSelectionProjectionStructuralCache } from './utils/selection-projection';
 
 export interface SelectionResolverState {

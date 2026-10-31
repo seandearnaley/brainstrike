@@ -21,12 +21,12 @@ import {
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/assistant-contract';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import {
   parseToolExecuteInput,
   type ToolExecuteInput,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('WorktreeTools');
 

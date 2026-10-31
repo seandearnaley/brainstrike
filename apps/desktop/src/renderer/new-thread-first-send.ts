@@ -7,10 +7,7 @@ import type { HostRunSelection } from '@brainstrike/agent-host/protocol';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
-import {
-  type CommittedHostThreadOptions,
-  startCommittedTurn,
-} from '@brainstrike/host-conversation';
+import { type CommittedHostThreadOptions, startCommittedTurn } from './committed-host-thread';
 
 export interface NewThreadFirstSend {
   /** Commits the new thread's folder and checkout to the thread just created. */

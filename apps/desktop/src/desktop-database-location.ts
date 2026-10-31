@@ -1,5 +1,9 @@
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+  DB_PROFILE_ENV,
+  DB_ROOT_PATH_ENV,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
 import { app } from 'electron';
 import {
@@ -9,7 +13,6 @@ import {
   PACKAGED_PRODUCT_DIR_NAME,
   resolveDatabaseLocation,
 } from './database-location';
-import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV } from './db-runtime-env';
 
 const logger = createLogger('DesktopDatabaseLocation');
 

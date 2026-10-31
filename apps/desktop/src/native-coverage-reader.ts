@@ -1,3 +1,4 @@
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import {
   IndexerError,
@@ -12,7 +13,6 @@ import {
   scopedCoverageBatchRequestSchema,
 } from '@brainstrike/indexer/coverage-reader';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
-import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export type NativeCoverageReader = Pick<SqliteQueryClient, 'nativeCoverage' | 'close'>;
 

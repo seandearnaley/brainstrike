@@ -6,6 +6,11 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
+import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  listRecentRootEntries,
+  loadWorkspaceRootsFromCatalog,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import {
@@ -40,7 +45,6 @@ import {
 } from './application-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
-import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import { hasHostRunInWorktree } from './assistant-server/worktree-host-activity';
 import { createWorktreeLedger } from './assistant-server/worktree-ledger';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
@@ -121,7 +125,6 @@ import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
-import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { createApplicationIpcDomain, registerIpcHandlers } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
@@ -169,7 +172,6 @@ import {
 } from './native-index-startup-window';
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
 import { createNativeRootRegistration } from './native-root-registration';
-import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';

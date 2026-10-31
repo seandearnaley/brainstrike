@@ -234,21 +234,3 @@ export function createQueryFileTreeTool(deps: FileTreeToolDependencies): MastraT
     inputSchema: effectToolInputSchema(QueryFileTreeInputSchema),
   };
 }
-
-/**
- * Type for tools input (matching Mastra pattern).
- */
-type ToolsInput = Record<string, MastraTool>;
-
-/**
- * Builds a tools object with the file tree tool added to a base set.
- */
-export function buildToolsWithFileTree(
-  deps: FileTreeToolDependencies,
-  base: ToolsInput = {}
-): ToolsInput {
-  return {
-    ...base,
-    [QUERY_FILE_TREE_TOOL_ID]: createQueryFileTreeTool(deps),
-  };
-}

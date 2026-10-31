@@ -12,6 +12,7 @@ import {
   isGuardedToolError,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
+import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
   CommandSessionError,
@@ -21,7 +22,6 @@ import {
   type ExitedCommandSession,
   type RunningCommandSession,
 } from './command-session-manager';
-import { resolveWorkspaceRoot } from './workspace-roots';
 
 export interface CommandSessionToolDependencies {
   readonly manager: CommandSessionManager;

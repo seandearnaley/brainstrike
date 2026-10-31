@@ -6,7 +6,7 @@ import type {
 } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { ThreadContextReader } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import { committedConversationIdentity } from './committed-host-conversation';
+import { committedConversationIdentity } from './committed-host-thread';
 
 const logger = createLogger('HostThreadContext');
 

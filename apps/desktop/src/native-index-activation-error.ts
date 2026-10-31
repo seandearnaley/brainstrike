@@ -1,10 +1,10 @@
 import {
+  NativeAuthorityTransitionError,
   NativeIndexRefusalError,
   NativeIndexSetupRequiredError,
 } from '@brainstrike/assistant-service/node-native-text-services';
 import { isHostLeaseClosed, isRetirementRefusal } from './desktop-shutdown-state';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
-import { NativeAuthorityTransitionError } from './native-authority-transition';
 import { indexConfigCause } from './native-index-boundary-failure';
 import { NativeIndexEventRefusedError } from './native-index-workflow-errors';
 

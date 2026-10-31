@@ -9,12 +9,10 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
   markRootDisconnectedByPath,
   RootNotInThreadError,
-} from '@brainstrike/assistant-service/node-workspace-services';
-import { expect, test } from 'vitest';
-import {
   resolveWorkspaceRoot,
   resolveWorkspaceSearchScope,
-} from '../../assistant-server/workspace-roots';
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { expect, test } from 'vitest';
 
 // Roots resolve to native absolute paths, so the fixtures are native too.
 const ALPHA = {

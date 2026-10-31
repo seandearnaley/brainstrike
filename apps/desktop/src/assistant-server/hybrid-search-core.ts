@@ -11,6 +11,7 @@
 import { fitItemsToCharBudget, type HybridSearchInput, type RuntimeData } from '@brainstrike/agent';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { BoundaryFailureError, ToolInputError } from '@brainstrike/assistant-contract';
+import { resolveOptionalWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
 import {
   resolveAdmittedRetrievalRoots,
@@ -19,7 +20,6 @@ import {
 } from './native-assistant-retrieval';
 import { assertAdmittedRetrievalFileRoots, type RetrievalToolDependencies } from './retrieval-core';
 import type { RetrievalStore } from './retrieval-store';
-import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantHybridSearchTool');
 

@@ -11,7 +11,10 @@ import {
   type HostMethod,
 } from '@brainstrike/agent-host/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type CommittedHostThread, createCommittedHostThread } from '../committed-host-thread';
+import {
+  type CommittedHostThread,
+  createCommittedHostThread,
+} from '../../renderer/committed-host-thread';
 
 const THREAD = 'thread-1';
 const RUN = 'run-1';

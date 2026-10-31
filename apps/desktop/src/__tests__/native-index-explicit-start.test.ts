@@ -3,10 +3,12 @@
 // Only explicit owners start Main's index: boot, reset resume and host-loss
 // recovery. A read finding it idle refuses at once and starts nothing, so run
 // admission's index-status read never waits on an open (BST-2277).
-import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  createNativeScopedSearchCapability,
+  NativeAuthorityTransitionError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { textSettings, unreadableSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
 import { fixture, mocks, resetActivationFixture, unused } from './native-index-activation-fixture';

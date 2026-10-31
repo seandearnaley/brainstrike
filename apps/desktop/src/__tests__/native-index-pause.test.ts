@@ -1,7 +1,10 @@
 import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
 // @vitest-environment node
 
-import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  createNativeScopedSearchCapability,
+  NativeIndexRefusalError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
@@ -12,7 +15,6 @@ import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 import type { NativeIndexSettings } from '../native-index-settings';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { textSettings, unreadableSettings, vectorSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
 

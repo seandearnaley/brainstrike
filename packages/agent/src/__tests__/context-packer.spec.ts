@@ -1,6 +1,9 @@
+import {
+  ContextPacker,
+  type ContextPackerChunk,
+} from '@brainstrike/assistant-contract/context-packer';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { describe, expect, it } from 'vitest';
-import { ContextPacker, type ContextPackerChunk } from '../context-packer';
 
 describe('ContextPacker', () => {
   it('packs chunks in order without exceeding the budget', () => {

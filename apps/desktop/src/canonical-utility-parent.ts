@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { CanonicalOperationContext } from '@brainstrike/canonical-ingestion';
 import { CanonicalOperationCancelledError } from '@brainstrike/canonical-ingestion/cancellation';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
@@ -28,7 +29,6 @@ import {
   receiptSchema,
 } from './canonical-utility-protocol';
 import { assertCanonicalRequest } from './canonical-utility-request-authority';
-import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export type {
   CanonicalRemoteIngestion,

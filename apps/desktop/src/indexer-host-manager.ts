@@ -1,3 +1,4 @@
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { IndexerOptions, IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type { IndexerConnection, IndexerDeadlines } from '@brainstrike/indexer/transport';
@@ -13,7 +14,6 @@ import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utili
 import { forkUtility } from './fork-utility';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
-import { NativeAuthorityTransitionError } from './native-authority-transition';
 import { endExitedProcess, liveProcessIdentity, type ProcessIdentity } from './process-exit-join';
 
 const logger = createLogger('IndexerHostManager');

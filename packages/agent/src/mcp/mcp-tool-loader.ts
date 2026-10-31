@@ -1,6 +1,6 @@
 import { ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
+import type { HostToolDefinitions } from '../host-tool-definition.ts';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
 import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits.ts';
 import { sanitizeTools } from '../tool-projection/tool-sanitizer.ts';
@@ -28,7 +28,7 @@ export interface CollectCombinedToolsOptions {
   durableArtifactSettlement?: boolean;
   mcpClient: McpRuntimeClient | undefined;
   mcpConfig: McpConfig | undefined;
-  sanitizedLocalTools: ToolsInput | undefined;
+  sanitizedLocalTools: HostToolDefinitions | undefined;
   scaledDefaultTokens: number;
   timeoutOverrideMs: number | undefined;
   toolNameMap: Map<string, string>;
@@ -37,14 +37,14 @@ export interface CollectCombinedToolsOptions {
 export interface CollectCombinedToolsResult {
   /** Empty when every configured server contributed its tools. */
   readonly mcpDiscoverySkips: readonly McpDiscoverySkip[];
-  readonly tools: ToolsInput;
+  readonly tools: HostToolDefinitions;
 }
 
 type McpDiscoveryOutcome =
   | { readonly kind: 'discovered'; readonly value: McpToolsetsWithErrors }
   | { readonly kind: 'skipped'; readonly skip: McpDiscoverySkip };
 
-type McpToolsets = Record<string, ToolsInput>;
+type McpToolsets = Record<string, HostToolDefinitions>;
 
 export async function collectCombinedTools({
   durableArtifactSettlement = false,
@@ -55,7 +55,7 @@ export async function collectCombinedTools({
   toolNameMap,
   timeoutOverrideMs,
 }: CollectCombinedToolsOptions): Promise<CollectCombinedToolsResult> {
-  const combined: ToolsInput = sanitizedLocalTools ? { ...sanitizedLocalTools } : {};
+  const combined: HostToolDefinitions = sanitizedLocalTools ? { ...sanitizedLocalTools } : {};
 
   if (!mcpClient) {
     return { mcpDiscoverySkips: [], tools: combined };
@@ -111,11 +111,11 @@ export async function collectCombinedTools({
   return { mcpDiscoverySkips, tools: combined };
 }
 
-type ExecutableTool = ToolsInput[string] & {
+type ExecutableTool = HostToolDefinitions[string] & {
   execute: (...args: unknown[]) => unknown;
 };
 
-function isExecutableTool(tool: ToolsInput[string]): tool is ExecutableTool {
+function isExecutableTool(tool: HostToolDefinitions[string]): tool is ExecutableTool {
   return typeof (tool as { execute?: unknown }).execute === 'function';
 }
 
@@ -126,12 +126,12 @@ function isExecutableTool(tool: ToolsInput[string]): tool is ExecutableTool {
  * keeps the aggregate attachment ceiling plus bounded non-media metadata.
  */
 function wrapMcpToolOutputs(
-  tools: ToolsInput,
+  tools: HostToolDefinitions,
   toolNameMap: ReadonlyMap<string, string>,
   durableArtifactSettlement: boolean,
   scaledDefaultTokens: number | undefined
-): ToolsInput {
-  const wrapped: ToolsInput = {};
+): HostToolDefinitions {
+  const wrapped: HostToolDefinitions = {};
   for (const [toolId, tool] of Object.entries(tools)) {
     if (!isExecutableTool(tool)) {
       wrapped[toolId] = tool;
@@ -182,7 +182,7 @@ function selectToolsetForServer(
   toolNameMap: Map<string, string>,
   configuredServerNames: Set<string>,
   assignedToolsetNames: Set<string>
-): ToolsInput | undefined {
+): HostToolDefinitions | undefined {
   const selected = findToolsetForServer(toolsets, serverName, isSingleServer);
   if (!selected) {
     const logToolsetDrop = isSingleServer ? logger.debug : logger.warn;
@@ -242,7 +242,7 @@ function findToolsetForServer(
   toolsets: McpToolsets,
   serverName: string,
   isSingleServer: boolean
-): { matchedServerName: string; tools: ToolsInput } | undefined {
+): { matchedServerName: string; tools: HostToolDefinitions } | undefined {
   const directTools = toolsets[serverName];
   if (Object.hasOwn(toolsets, serverName)) {
     return { matchedServerName: serverName, tools: directTools ?? {} };
@@ -280,9 +280,9 @@ function normalizeMcpServerName(value: string): string {
 }
 
 function findSingleServerFallbackToolset(
-  toolsetEntries: [string, ToolsInput][],
+  toolsetEntries: [string, HostToolDefinitions][],
   isSingleServer: boolean
-): { matchedServerName: string; tools: ToolsInput } | undefined {
+): { matchedServerName: string; tools: HostToolDefinitions } | undefined {
   if (!(isSingleServer && toolsetEntries.length === 1)) {
     return;
   }
@@ -296,7 +296,10 @@ function findSingleServerFallbackToolset(
   return { matchedServerName, tools };
 }
 
-function namespaceServerTools(serverName: string, serverTools: ToolsInput): ToolsInput {
+function namespaceServerTools(
+  serverName: string,
+  serverTools: HostToolDefinitions
+): HostToolDefinitions {
   return Object.fromEntries(
     Object.entries(serverTools).map(([toolId, tool]) => [`${serverName}.${toolId}`, tool])
   );
@@ -309,9 +312,9 @@ interface McpServerToolFilter {
 
 function filterEnabledServerTools(
   server: McpServerToolFilter,
-  serverTools: ToolsInput,
+  serverTools: HostToolDefinitions,
   toolNameMap: Map<string, string>
-): ToolsInput | undefined {
+): HostToolDefinitions | undefined {
   // Discovery/registration happens upstream when the desktop client enumerates the server.
   // At runtime we only filter the already-sanitized tool set against persisted state/config.
   const enabledTools = Object.fromEntries(

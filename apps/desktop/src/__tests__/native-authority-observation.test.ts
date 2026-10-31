@@ -1,7 +1,10 @@
 import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
 // @vitest-environment node
 
-import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  createNativeScopedSearchCapability,
+  NativeIndexRefusalError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
@@ -13,7 +16,6 @@ import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { createNativeIndexActivation } from '../native-index-activation';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { invokeDesktopIpc } from './helpers/desktop-ipc-sender-test-helpers';
 import { mockIpcMain, resetElectronMainTestHarness } from './helpers/electron-main-test-harness';

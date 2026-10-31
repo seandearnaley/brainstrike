@@ -13,6 +13,7 @@
 - Discovered files without a canonical ID count against the same batch bound.
   - After the secure read/hash, `prepareManagedSourcesBatch` uses the existing identity owner and awaits trusted native binding acknowledgement.
   - Only an exact identity/hash reply is publishable; missing, extra, repeated or mismatched replies refuse before parsing.
+- `canonicalIndexPublication` forwards the canonical producer's chunks unchanged (hashes, line/offset spans, token metadata, symbols and references); invalid sources or results never fall back to line chunks.
 
 ## Lifetime
 

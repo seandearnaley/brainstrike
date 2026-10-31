@@ -1,8 +1,8 @@
-import type { FileSystemAdapter } from '@brainstrike/file-system';
 import {
   createFileContentWorker,
   type FileContentWorker,
-} from '@brainstrike/workers/file-content-worker';
+} from '@brainstrike/file-explorer-hooks/file-content-worker';
+import type { FileSystemAdapter } from '@brainstrike/file-system';
 
 export function getDefaultConcurrency(): number {
   if (navigator?.hardwareConcurrency) {

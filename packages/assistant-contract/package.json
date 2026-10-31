@@ -59,6 +59,7 @@
     "./tool-telemetry": "./src/tool-telemetry.ts",
     "./secrets-bridge": "./src/secrets-bridge.ts",
     "./subagent-settings": "./src/subagent-settings.ts",
+    "./window-focus-bridge": "./src/window-focus-bridge.ts",
     "./runtime-data": "./src/runtime-data.ts",
     "./credential-child-environment": "./src/credential-child-environment.ts",
     "./tavily-env-keys": "./src/tavily-env-keys.ts",

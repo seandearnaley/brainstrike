@@ -9,18 +9,18 @@ import fs from 'node:fs';
 import { mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
+import type {
+  DirectoryHandle,
+  FileSystemChange,
+  FileSystemWatchBatchMetadata,
+  WatcherHealthTransition,
+} from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type RootWatchFunction,
   startJoinedRootWatch,
   startRootWatch,
 } from '../adapters/root-watchers.js';
-import type {
-  DirectoryHandle,
-  FileSystemChange,
-  FileSystemWatchBatchMetadata,
-  WatcherHealthTransition,
-} from '../types.js';
 
 interface FakeWatch {
   closeCalls: number;

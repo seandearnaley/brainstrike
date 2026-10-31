@@ -7,8 +7,8 @@ import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { resolveHostDelegation } from '@brainstrike/host-capabilities/delegation';
 import { describe, expect, test } from 'vitest';
-import { resolveDesktopHostDelegation } from '../agent-host-platform/desktop-host-delegation';
 
 const reviewer: AssistantPersonaDefinition = {
   allowedToolIds: ['brainstrike.readWorkspaceFile'],
@@ -26,10 +26,10 @@ const subagents = {
   settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 2 },
 };
 
-describe('resolveDesktopHostDelegation', () => {
+describe('resolveHostDelegation', () => {
   test('built-in and scanned user personas under the user’s settings', () => {
     const scanned: unknown[] = [];
-    const delegation = resolveDesktopHostDelegation({ subagents }, roots, false, {
+    const delegation = resolveHostDelegation({ subagents }, roots, false, {
       scan: (input) => {
         scanned.push(input);
         return { personas: [reviewer] };
@@ -48,7 +48,7 @@ describe('resolveDesktopHostDelegation', () => {
   test('a disabled persona is omitted; the master switch omits all (A26)', () => {
     const scan = () => ({ personas: [] });
     expect(
-      resolveDesktopHostDelegation(
+      resolveHostDelegation(
         { subagents: { ...subagents, disabledPersonaIds: ['explore'] } },
         roots,
         false,
@@ -56,26 +56,26 @@ describe('resolveDesktopHostDelegation', () => {
       )?.personas.map((persona) => persona.id)
     ).toEqual(['analyze', 'worker']);
     expect(
-      resolveDesktopHostDelegation(
+      resolveHostDelegation(
         { subagents: { ...subagents, delegationEnabled: false } },
         roots,
         false,
         { scan }
       )
     ).toBeUndefined();
-    expect(resolveDesktopHostDelegation({}, roots, false, { scan })).toBeUndefined();
+    expect(resolveHostDelegation({}, roots, false, { scan })).toBeUndefined();
   });
 
   test('plan mode omits every persona (A26)', () => {
     expect(
-      resolveDesktopHostDelegation({ subagents }, roots, true, {
+      resolveHostDelegation({ subagents }, roots, true, {
         scan: () => ({ personas: [reviewer] }),
       })
     ).toBeUndefined();
   });
 
   test('a persona file scan failure keeps the built-ins (A27)', () => {
-    const delegation = resolveDesktopHostDelegation({ subagents }, roots, false, {
+    const delegation = resolveHostDelegation({ subagents }, roots, false, {
       scan: () => {
         throw new Error('unreadable agents directory');
       },

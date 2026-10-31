@@ -1,13 +1,13 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import type {
+  FileContentReadResult,
+  FileReadRequest,
+} from '@brainstrike/file-explorer-hooks/file-content-worker';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
-import type {
-  FileContentReadResult,
-  FileReadRequest,
-} from '@brainstrike/workers/file-content-worker';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { expect, it, vi } from 'vitest';
@@ -15,7 +15,7 @@ import { useFileContentLoadAuthority } from '../file-content-load-authority-cont
 import { FileExplorerProvider } from '../shell/file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
-vi.mock('@brainstrike/workers/file-content-worker', () => ({
+vi.mock('@brainstrike/file-explorer-hooks/file-content-worker', () => ({
   createFileContentWorker: vi.fn(),
 }));
 
@@ -70,7 +70,9 @@ it('runs queued interactive reads before bulk work while bounding bulk starvatio
   const interactive = keys.slice(6);
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
@@ -170,7 +172,9 @@ it('promotes only a queued matching background key without duplicating its physi
   const interactive2 = keyFor('interactive-2');
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
@@ -278,7 +282,9 @@ it('promotes a queued background reload for Workspace-tab Retry before its prede
   }
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
@@ -375,7 +381,9 @@ it.each([
     }
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     function Wrapper({ children }: { readonly children: ReactNode }) {
@@ -471,7 +479,9 @@ it('settles promoted tickets once on reset and permits a fresh same-key schedule
   }
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
@@ -564,7 +574,9 @@ it('preserves background intent across twenty singleton reload groups ahead of r
   );
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {

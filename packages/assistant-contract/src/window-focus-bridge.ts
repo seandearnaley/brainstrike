@@ -1,8 +1,5 @@
-import {
-  type BoundaryTransport,
-  callBoundary,
-} from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
+import { type BoundaryTransport, callBoundary } from './boundary-result.ts';
 
 /**
  * The desktop preload's native window-focus capability (BST-1864), exposed as

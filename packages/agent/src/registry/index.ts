@@ -31,4 +31,4 @@ export {
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
   type ToolSource,
-} from './tool-categories.ts';
+} from '@brainstrike/assistant-contract/tool-metadata';

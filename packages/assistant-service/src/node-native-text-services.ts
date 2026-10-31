@@ -97,6 +97,10 @@ export function createNodeNativeTextServices(
   };
 }
 
+export type {
+  NativeAcknowledgedPublication,
+  NativeScopeReadiness,
+} from '@brainstrike/canonical-ingestion';
 export {
   NATIVE_COVERAGE_OBSERVATION_INVALIDATED,
   NativeAuthorityTransitionError,
@@ -107,10 +111,6 @@ export {
   createNativeIndexSearchCapability,
   grepSnapshot,
 } from './node-native-index/index-search.ts';
-export type {
-  NativeAcknowledgedPublication,
-  NativeScopeReadiness,
-} from './node-native-index/read-contracts.ts';
 export {
   createNativeScopedSearchCapability,
   type NativeScopedRead,

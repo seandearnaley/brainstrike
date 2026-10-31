@@ -1,10 +1,10 @@
 import {
+  normalizeManageWorktreeInput,
   toToolInputJsonSchema,
   validateToolInputValue,
 } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { describe, expect, it } from 'vitest';
 import { NATIVE_TOOL_INPUT_SCHEMAS } from '../tools/schemas';
-import { normalizeManageWorktreeInput } from '../tools/schemas-worktrees';
 
 /**
  * The subject is the REGISTERED input schema — the object the desktop registry

@@ -1,4 +1,5 @@
 import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import { IndexerError } from '@brainstrike/indexer';
 import {
   type NativeIndexRefusalCause,
@@ -19,7 +20,6 @@ import { HostedEmbeddingError } from '../../hosted-embedding-error';
 import { IndexConfigApplyFailed } from '../../index-config';
 import type { NativeIndexState } from '../../native-index-lifecycle';
 import { nativeIndexStateError } from '../../native-index-lifecycle-errors';
-import { createNativeScopedSearchCapability } from '../../native-scoped-search';
 import { settleIpcResult } from '../../platform/desktop-ipc-registry';
 import { textSettings } from '../helpers/native-index-settings';
 

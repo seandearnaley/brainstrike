@@ -1,4 +1,8 @@
 import {
+  createNativeScopedSearchCapability,
+  type NativeSearchAuthority,
+} from '@brainstrike/assistant-service/node-native-text-services';
+import {
   type IndexerPort,
   type ScopedCoverageRequest,
   type ScopedIndexerPort,
@@ -7,10 +11,6 @@ import {
 } from '@brainstrike/indexer';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { vi } from 'vitest';
-import {
-  createNativeScopedSearchCapability,
-  type NativeSearchAuthority,
-} from '../native-scoped-search';
 
 export const storeId = 'a'.repeat(64);
 export const rootId = 'root-a';

@@ -494,21 +494,3 @@ export function createSystemDiagnosticsTool(deps: DiagnosticsToolDependencies): 
     inputSchema: SystemDiagnosticsInputSchema,
   };
 }
-
-/**
- * Type for tools input (matching Mastra pattern).
- */
-type ToolsInput = Record<string, MastraTool>;
-
-/**
- * Builds a tools object with the diagnostics tool added to a base set.
- */
-export function buildToolsWithDiagnostics(
-  deps: DiagnosticsToolDependencies,
-  base: ToolsInput = {}
-): ToolsInput {
-  return {
-    ...base,
-    [SYSTEM_DIAGNOSTICS_TOOL_ID]: createSystemDiagnosticsTool(deps),
-  };
-}

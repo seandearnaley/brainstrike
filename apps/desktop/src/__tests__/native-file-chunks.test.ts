@@ -1,7 +1,8 @@
 // @vitest-environment node
+
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { ScopedFileChunkBounds, ScopedIndexerPort } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { fixture, storeId } from './native-scoped-search-fixture';
 
 const rootId = 'root-1';

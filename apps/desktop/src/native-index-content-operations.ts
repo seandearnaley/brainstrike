@@ -1,4 +1,4 @@
-import { NativeAuthorityTransitionError as TransitionError } from './native-authority-transition';
+import { NativeAuthorityTransitionError as TransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { NativeIndexActivationGraph as Graph } from './native-index-graph';
 import type { NativeIndexRuntime } from './native-index-runtime';
 

@@ -10,6 +10,7 @@ import {
   type NativeCanonicalCatalogRecord,
   type NativeCanonicalProfileDependencies,
   NativeCanonicalProfileResolver,
+  vectorCollectionId,
 } from '@brainstrike/canonical-ingestion';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type {
@@ -20,7 +21,6 @@ import type {
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 import type { ApplicationIpcDomain } from './ipc-handlers';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
-import { vectorCollectionId } from './native-index-partition';
 import type { NativeIndexSettings } from './native-index-settings';
 import type { NativeIndexSources } from './native-index-source-retirement';
 

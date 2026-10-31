@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createSanitizedToolNameMap,
-  sanitizeTools,
-  type ToolsInput,
-} from '../tool-projection/tool-sanitizer';
+import type { HostToolDefinitions } from '../host-tool-definition';
+import { createSanitizedToolNameMap, sanitizeTools } from '../tool-projection/tool-sanitizer';
 
 describe('tool-sanitizer', () => {
   describe('sanitizeTools', () => {
@@ -16,7 +13,7 @@ describe('tool-sanitizer', () => {
 
     it('sanitizes tool names by replacing non-alphanumeric characters with underscores', () => {
       const map = new Map<string, string>();
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         'db@query': { description: 'query tool', id: 'db@query' },
         'file/read': { description: 'read tool', id: 'file/read' },
         'web.search': { description: 'search tool', id: 'web.search' },
@@ -35,7 +32,7 @@ describe('tool-sanitizer', () => {
 
     it('preserves already-sanitized tool names', () => {
       const map = new Map<string, string>();
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         file_read: { description: 'read', id: 'file_read' },
         web_search: { description: 'search', id: 'web_search' },
       };
@@ -53,7 +50,7 @@ describe('tool-sanitizer', () => {
 
     it('handles collision by appending hash suffix', () => {
       const map = new Map<string, string>();
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         'web.search': { description: 'first', id: 'web.search' },
         'web/search': { description: 'second', id: 'web/search' },
       };
@@ -74,7 +71,7 @@ describe('tool-sanitizer', () => {
 
     it('handles multiple collisions with incremental counter', () => {
       const map = new Map<string, string>();
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         'web-search': { description: 'third', id: 'web-search' },
         'web.search': { description: 'first', id: 'web.search' },
         'web/search': { description: 'second', id: 'web/search' },
@@ -96,8 +93,11 @@ describe('tool-sanitizer', () => {
 
     it('updates tool id to match sanitized name', () => {
       const map = new Map<string, string>();
-      const tools: ToolsInput = {
-        'web.search': { description: 'search tool', id: 'web.search' } as ToolsInput[string] & {
+      const tools: HostToolDefinitions = {
+        'web.search': {
+          description: 'search tool',
+          id: 'web.search',
+        } as HostToolDefinitions[string] & {
           extra: string;
         },
       };
@@ -106,7 +106,7 @@ describe('tool-sanitizer', () => {
 
       expect(result).toBeDefined();
       const sanitizedTool = result?.['web_search'] as
-        | (ToolsInput[string] & { id: string; extra?: string })
+        | (HostToolDefinitions[string] & { id: string; extra?: string })
         | undefined;
       expect(sanitizedTool).toBeDefined();
       expect(sanitizedTool?.id).toBe('web_search');
@@ -116,7 +116,7 @@ describe('tool-sanitizer', () => {
     it('preserves tool object when name does not change', () => {
       const map = new Map<string, string>();
       const originalTool = { description: 'search', id: 'web_search' };
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         web_search: originalTool,
       };
 
@@ -128,7 +128,7 @@ describe('tool-sanitizer', () => {
     it('clones tool object when name changes', () => {
       const map = new Map<string, string>();
       const originalTool = { description: 'search', id: 'web.search' };
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         'web.search': originalTool,
       };
 
@@ -140,7 +140,7 @@ describe('tool-sanitizer', () => {
 
     it('falls back to "tool" when sanitized name is empty or just underscores', () => {
       const map = new Map<string, string>();
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         '!!!': { description: 'special chars only', id: '!!!' },
         '###': { description: 'another special', id: '###' },
       };
@@ -166,7 +166,7 @@ describe('tool-sanitizer', () => {
       const map = new Map<string, string>();
       map.set('web_search', 'existing.tool');
 
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         'web.search': { description: 'new tool', id: 'web.search' },
       };
 
@@ -184,7 +184,7 @@ describe('tool-sanitizer', () => {
     it('handles tools with very long names', () => {
       const map = new Map<string, string>();
       const longName = `${'a'.repeat(200)}.${'b'.repeat(200)}`;
-      const tools: ToolsInput = {
+      const tools: HostToolDefinitions = {
         [longName]: { description: 'long name tool', id: longName },
       };
 
@@ -203,7 +203,7 @@ describe('tool-sanitizer', () => {
 
     it('handles empty tools object', () => {
       const map = new Map<string, string>();
-      const tools: ToolsInput = {};
+      const tools: HostToolDefinitions = {};
 
       const result = sanitizeTools(tools, map);
 
@@ -229,8 +229,8 @@ describe('tool-sanitizer', () => {
       }
 
       const customTool = new CustomTool('web.search', 'search');
-      const tools: ToolsInput = {
-        'web.search': customTool as unknown as ToolsInput[string],
+      const tools: HostToolDefinitions = {
+        'web.search': customTool as unknown as HostToolDefinitions[string],
       };
 
       const result = sanitizeTools(tools, map);

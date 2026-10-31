@@ -41,6 +41,24 @@ export {
   serializeFileMentionDirective,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
+export {
+  ContextPacker,
+  type ContextPackerChunk,
+  type ContextPackerOptions,
+  type ContextPackerResult,
+  type PackedContextChunk,
+} from '@brainstrike/assistant-contract/context-packer';
+export {
+  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
+  type RuntimeAssistantMemoryRetrievalMode,
+  type RuntimeAssistantMemoryScope,
+  type RuntimeAssistantMemorySettings,
+  type RuntimeAssistantObservationalMemorySettings,
+  type RuntimeAssistantSemanticRecallSettings,
+  resolveAutoObservationalMemoryModelTarget,
+} from '@brainstrike/assistant-contract/memory-settings';
 export type { ReadToolOutputArtifactCursorInput } from '@brainstrike/assistant-contract/native-tool-schemas';
 export {
   type AssistantPersonaDefinition,
@@ -52,6 +70,30 @@ export {
   PersonaToolRiskViolationError,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
+// Provider models and utilities (no Mastra dependencies - safe for client-side)
+export {
+  getProviderDefaultModel,
+  getProviderDisplayName,
+  getProviderModels,
+  isSupportedProvider,
+  isValidModelForProvider,
+  PROVIDER_DEFAULT_MODELS,
+  PROVIDER_DISPLAY_NAMES,
+  PROVIDER_MODELS,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract/provider-metadata';
+export {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  ASSISTANT_RUN_EVENT_KINDS,
+  ASSISTANT_RUN_EVENT_STATUSES,
+  type AssistantRunEvent,
+  type AssistantRunEventJson,
+  type AssistantRunEventKind,
+  type AssistantRunEventMetadata,
+  type AssistantRunEventStatus,
+  createAssistantRunEvent,
+  sanitizeAssistantRunEventMetadata,
+} from '@brainstrike/assistant-contract/run-events';
 export {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
@@ -114,13 +156,6 @@ export {
   resolveToolTimeoutMs,
 } from './config/resilience-config.ts';
 export {
-  ContextPacker,
-  type ContextPackerChunk,
-  type ContextPackerOptions,
-  type ContextPackerResult,
-  type PackedContextChunk,
-} from './context-packer.ts';
-export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
@@ -171,17 +206,6 @@ export {
 } from './mcp/tool-registry.ts';
 // Memory store for early development
 export { InMemoryMemoryStore } from './memory/in-memory.ts';
-export {
-  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
-  type RuntimeAssistantMemoryRetrievalMode,
-  type RuntimeAssistantMemoryScope,
-  type RuntimeAssistantMemorySettings,
-  type RuntimeAssistantObservationalMemorySettings,
-  type RuntimeAssistantSemanticRecallSettings,
-  resolveAutoObservationalMemoryModelTarget,
-} from './memory-settings.ts';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
@@ -243,18 +267,6 @@ export {
   createProvider,
   getDefaultModel,
 } from './providers/provider-factory.ts';
-// Provider models and utilities (no Mastra dependencies - safe for client-side)
-export {
-  getProviderDefaultModel,
-  getProviderDisplayName,
-  getProviderModels,
-  isSupportedProvider,
-  isValidModelForProvider,
-  PROVIDER_DEFAULT_MODELS,
-  PROVIDER_DISPLAY_NAMES,
-  PROVIDER_MODELS,
-  type SupportedProvider,
-} from './providers/types.ts';
 // Tool metadata (categories / native defaults; Mastra owns live tool assembly)
 export {
   compareByLoadPriority,
@@ -282,18 +294,6 @@ export {
   type ToolLoadingTierInfo,
   type ToolSource,
 } from './registry/index.ts';
-export {
-  ASSISTANT_RUN_EVENT_DATA_NAME,
-  ASSISTANT_RUN_EVENT_KINDS,
-  ASSISTANT_RUN_EVENT_STATUSES,
-  type AssistantRunEvent,
-  type AssistantRunEventJson,
-  type AssistantRunEventKind,
-  type AssistantRunEventMetadata,
-  type AssistantRunEventStatus,
-  createAssistantRunEvent,
-  sanitizeAssistantRunEventMetadata,
-} from './run-events.ts';
 // Agent Skills: the scan + WorkspaceSkills engine + tools (desktop wires these
 // over its SecureRoot fs adapter; web never constructs them). The Mastra
 // activation formatter and engine interface are re-exported so the desktop app
@@ -402,7 +402,6 @@ export { createSanitizedToolNameMap } from './tool-projection/tool-sanitizer.ts'
 export { ASK_USER_TOOL_ID, createAskUserTool, formatAskUserAnswer } from './tools/ask-user-tool.ts';
 // System diagnostics tool factory (Tier 3)
 export {
-  buildToolsWithDiagnostics,
   type ComponentHealth,
   createSystemDiagnosticsTool,
   type DatabaseDiagnostics,
@@ -436,7 +435,6 @@ export {
 } from './tools/file-read-state.ts';
 // File tree tool factory (Tier 2)
 export {
-  buildToolsWithFileTree,
   createQueryFileTreeTool,
   FILE_TREE_ERROR_MESSAGES,
   type FileEntry,
@@ -456,7 +454,6 @@ export {
 export { applyToolHooks } from './tools/hook-tool-wrap.ts';
 // Queue status tool factory
 export {
-  buildToolsWithQueueStatus,
   type CoverageStats,
   createQueueStatusTool,
   type LatencyStats as QueueLatencyStats,

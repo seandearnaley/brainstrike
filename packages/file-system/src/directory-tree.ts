@@ -6,13 +6,12 @@
  * significantly improving performance for large directory trees.
  */
 
-import type { IFileNode, StreamMeta } from '@brainstrike/types';
+import type { DirectoryHandle, IFileNode, StreamMeta } from '@brainstrike/types';
 import {
   type DirectoryReadCapability,
   type ParallelWalkerOptions,
   walkDirectoryParallel,
 } from './directory-tree-walker.ts';
-import type { DirectoryHandle } from './types.ts';
 
 export {
   DirectoryListingTruncatedError,
