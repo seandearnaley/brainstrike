@@ -1,31 +1,25 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
-import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
 import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
-import type { ConsoleMessage } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readIndexConfig } from './utils/index-config';
-import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { configureAssistantProvider } from './utils/assistant-mock';
+import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
-import { profileFile } from './utils/profile-files';
 import { captureResetLogs } from './utils/reset-log-capture';
 import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
 import { textReadiness } from './utils/text-search-mode';
-
-type ConfirmOverrideTarget = typeof globalThis & {
-  confirm: () => boolean;
-  __brainstrikeOriginalConfirm__?: () => boolean;
-};
+import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const FACTORY_RESET_BROWSER_CACHE_NAME = 'brainstrike-reset-e2e-cache';
 const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL = 'https://brainstrike.local/reset-e2e-cache-entry';
 const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-reset-e2e-indexed-db';
 const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:reset:e2e:local-storage';
 const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:reset:e2e:session-storage';
+const AFTER_RESET_REPLY = 'The fresh profile answers.';
 
 async function openTokenCountingSettings(
   homePage: HomePage,
@@ -35,36 +29,42 @@ async function openTokenCountingSettings(
   await settingsPage.openCategory(/Token Counting/iu, 'token-counting');
 }
 
-async function overrideNextConfirm(
-  window: import('@playwright/test').Page,
-  value: boolean
-): Promise<void> {
-  await window.evaluate((nextValue: boolean) => {
-    const target = globalThis as unknown as ConfirmOverrideTarget;
-    const originalConfirm = target.__brainstrikeOriginalConfirm__ ?? target.confirm;
-    target.__brainstrikeOriginalConfirm__ = originalConfirm;
-    // Desktop still exercises the native window.confirm reset flow here. If the
-    // product switches to a custom dialog, this helper should change with it.
-    target.confirm = () => {
-      target.confirm = originalConfirm;
-      Reflect.deleteProperty(target, '__brainstrikeOriginalConfirm__');
-      return nextValue;
-    };
-  }, value);
-}
-
-async function restoreConfirmOverride(window: import('@playwright/test').Page): Promise<void> {
+/** Answer the native reset confirmation once, then restore it. */
+async function confirmNextReset(window: Page): Promise<void> {
   await window.evaluate(() => {
-    const target = globalThis as unknown as ConfirmOverrideTarget;
-    if (!target.__brainstrikeOriginalConfirm__) {
-      return;
-    }
-    target.confirm = target.__brainstrikeOriginalConfirm__;
-    Reflect.deleteProperty(target, '__brainstrikeOriginalConfirm__');
+    const original = globalThis.confirm;
+    globalThis.confirm = () => {
+      globalThis.confirm = original;
+      return true;
+    };
   });
 }
 
-async function seedBrowserPersistentState(window: import('@playwright/test').Page): Promise<void> {
+/** The renderer's saved workspace folders: the open list and the recent list. */
+async function readFolders(window: Page): Promise<unknown[]> {
+  return await window.evaluate(async () => {
+    const storage = (
+      globalThis as typeof globalThis & {
+        electronAPI?: { storage?: { getItem: (key: string) => Promise<string | null> } };
+      }
+    ).electronAPI?.storage;
+    if (!storage) {
+      throw new Error('Desktop storage capability unavailable');
+    }
+    const values = await Promise.all(
+      ['rootsList', 'recentRootsList'].map((key) => storage.getItem(key))
+    );
+    return values.map((value): unknown => (value === null ? [] : JSON.parse(value)));
+  });
+}
+
+async function storedCredentials(window: Page): Promise<string[]> {
+  return await window.evaluate(() =>
+    (globalThis as unknown as { secrets: { listStored(): Promise<string[]> } }).secrets.listStored()
+  );
+}
+
+async function seedBrowserPersistentState(window: Page): Promise<void> {
   await window.evaluate(
     async ({ cacheEntryUrl, cacheName, dbName, localStorageKey, sessionStorageKey }) => {
       localStorage.setItem(localStorageKey, 'stale');
@@ -100,7 +100,7 @@ async function seedBrowserPersistentState(window: import('@playwright/test').Pag
   );
 }
 
-async function readBrowserPersistentState(window: import('@playwright/test').Page): Promise<{
+async function readBrowserPersistentState(window: Page): Promise<{
   cacheExists: boolean;
   dbExists: boolean | null;
   localStorageValue: string | null;
@@ -132,7 +132,7 @@ async function readBrowserPersistentState(window: import('@playwright/test').Pag
 }
 
 async function readBrowserPersistentStateOrNull(
-  window: import('@playwright/test').Page
+  window: Page
 ): Promise<Awaited<ReturnType<typeof readBrowserPersistentState>> | null> {
   try {
     return await readBrowserPersistentState(window);
@@ -144,291 +144,41 @@ async function readBrowserPersistentStateOrNull(
 }
 
 test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset', () => {
-  async function openFactoryResetSettings(
-    homePage: HomePage,
-    settingsPage: SettingsPage
-  ): Promise<void> {
-    await homePage.openSettings();
-    await settingsPage.openCategory(/Factory Reset/iu, 'factory-reset');
-  }
+  test.skip(
+    process.platform === 'win32',
+    'Windows Factory Reset is disabled for M3 by owner decision.'
+  );
 
-  test.afterEach(async ({ window }) => {
-    await restoreConfirmOverride(window).catch(() => {
-      // Some tests intentionally restart the app, which can invalidate the original page.
-    });
-  });
-
-  test('Windows refuses factory reset without changing persisted state', async ({
-    window,
-    homePage,
-    electronApp,
-  }) => {
-    test.skip(process.platform !== 'win32', 'Windows-only disabled capability.');
-    const userDataDir = await electronApp.app.evaluate(({ app }) => app.getPath('userData'));
-    const sentinel = path.join(userDataDir, 'disabled-reset-sentinel');
-    fs.writeFileSync(sentinel, 'preserve', 'utf8');
-    await window.evaluate(() => localStorage.setItem('disabled-reset-probe', 'preserve'));
-    await openFactoryResetSettings(homePage, new SettingsPage(window));
-    await expect(window.getByTestId('factory-reset-button')).toBeDisabled();
-    await expect(
-      window.getByText('Factory reset is unavailable on Windows in this version.')
-    ).toBeVisible();
-    const result = await window.evaluate(async () => {
-      const bridge = (
-        globalThis as typeof globalThis & {
-          electronAPI?: {
-            factoryReset?: { resetLocal?: () => Promise<{ success: boolean; message?: string }> };
-          };
-        }
-      ).electronAPI?.factoryReset;
-      if (!bridge?.resetLocal) {
-        throw new Error('Missing desktop reset IPC');
-      }
-      return await bridge.resetLocal();
-    });
-    expect(result).toEqual({
-      message: 'Factory reset is unavailable on Windows in this version.',
-      success: false,
-    });
-    expect(fs.readFileSync(sentinel, 'utf8')).toBe('preserve');
-    expect(await window.evaluate(() => localStorage.getItem('disabled-reset-probe'))).toBe(
-      'preserve'
-    );
-  });
-
-  test('cancel path leaves persisted state untouched', async ({ window, homePage }) => {
-    test.skip(
-      process.platform === 'win32',
-      'Windows Factory Reset is disabled for M3 by owner decision.'
-    );
-    await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
-
-    const settingsPage = new SettingsPage(window);
-    await openTokenCountingSettings(homePage, settingsPage);
-
-    const tokenToggle = window.getByTestId('token-counting-accurate-toggle');
-    await tokenToggle.click();
-    await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
-
-    await openFactoryResetSettings(homePage, settingsPage);
-    await expect(window.getByRole('switch', { name: 'Enable inline fixtures' })).toBeVisible();
-    await expect(window.getByTestId('clear-stored-folders-button')).toHaveCount(0);
-
-    await overrideNextConfirm(window, false);
-    await window.getByTestId('factory-reset-button').click();
-    await expect(window.getByTestId('settings-category-factory-reset')).toBeVisible();
-
-    const { reloadRenderer, waitForAppReady } = await loadElectronHelpers();
-    await reloadRenderer(window, 'desktop-factory-reset-cancel');
-    await waitForAppReady(window);
-
-    await openTokenCountingSettings(homePage, settingsPage);
-    await expect(window.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(
-      'aria-checked',
-      'false'
-    );
-  });
-
+  // One journey: a used profile with 2 folders, a saved key, settings, a host-kept policy and
+  // browser storage; Factory Reset clears all of it, keeps logs and the folders' own files,
+  // and the fresh profile stays fresh after a full reopen.
   test('confirm path clears persisted state and reloads cleanly', async ({
     window,
     homePage,
     electronApp,
     electronHarness,
-  }) => {
-    test.skip(
-      process.platform === 'win32',
-      'Windows Factory Reset is disabled for M3 by owner decision.'
-    );
+    modelProvider,
+  }, testInfo) => {
+    const logs = captureResetLogs();
+    logs.observeApp(electronApp.app);
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
     const userDataDir = await electronApp.app.evaluate(async ({ app }) => app.getPath('userData'));
     const staleMcpDir = path.join(userDataDir, 'mcp');
     const staleCacheDir = path.join(userDataDir, 'Cache');
     const sentinelDir = path.join(userDataDir, 'factory-reset-sentinel');
     const logsDir = path.join(userDataDir, 'logs');
-    const staleMcpFile = path.join(staleMcpDir, 'tool-preferences.json');
-    const staleCacheFile = path.join(staleCacheDir, 'stale-cache-entry');
     const sentinelFile = path.join(sentinelDir, 'stale-state');
     const diagnosticFile = path.join(logsDir, 'factory-reset-diagnostic.log');
-    fs.mkdirSync(staleMcpDir, { recursive: true });
-    fs.mkdirSync(staleCacheDir, { recursive: true });
-    fs.mkdirSync(sentinelDir, { recursive: true });
-    fs.mkdirSync(logsDir, { recursive: true });
-    fs.writeFileSync(staleMcpFile, '{}', 'utf8');
-    fs.writeFileSync(staleCacheFile, 'stale', 'utf8');
+    for (const dir of [staleMcpDir, staleCacheDir, sentinelDir, logsDir]) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(path.join(staleMcpDir, 'tool-preferences.json'), '{}', 'utf8');
+    fs.writeFileSync(path.join(staleCacheDir, 'stale-cache-entry'), 'stale', 'utf8');
     fs.writeFileSync(sentinelFile, 'stale', 'utf8');
     fs.writeFileSync(diagnosticFile, 'keep', 'utf8');
     await seedBrowserPersistentState(window);
 
-    const workspacePath = await electronApp.app.evaluate(
-      () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
-    );
-    const resetProbe = await seedNativeResetProbe(window, workspacePath);
-    expect(await readNativeResetProbe(window, resetProbe)).toEqual({
-      folders: 1,
-      retainedProbeIds: [resetProbe.indexedFileId],
-    });
-
-    const settingsPage = new SettingsPage(window);
-    await openTokenCountingSettings(homePage, settingsPage);
-
-    const tokenToggle = window.getByTestId('token-counting-accurate-toggle');
-    await tokenToggle.click();
-    await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
-    // A saved permission policy, which the agent host keeps (BST-1930 stage e).
-    await homePage.openSettings();
-    await settingsPage.openCategory(/Permissions/iu, 'permissions');
-    await window.getByTestId('permission-policy-edit').selectOption('deny');
-    await expect(window.getByTestId('permission-policy-edit')).toHaveValue('deny');
-
-    await openFactoryResetSettings(homePage, settingsPage);
-    await overrideNextConfirm(window, true);
-    // A reset is an expected terminal retirement: the renderer logs no error through it.
-    const resetErrors: string[] = [];
-    const recordError = (message: ConsoleMessage): void => {
-      if (message.type() === 'error') {
-        resetErrors.push(message.text());
-      }
-    };
-    window.on('console', recordError);
-    // The retired document stays visually ready while Main purges its stores.
-    // Join the replacement document before consulting its readiness or catalog.
-    await Promise.all([
-      window.waitForEvent('load', { predicate: (loaded) => loaded.url() !== 'about:blank' }),
-      window.getByTestId('factory-reset-button').click(),
-    ]);
-    await expect
-      .poll(() => fs.existsSync(sentinelFile), {
-        timeout: 10_000,
-      })
-      .toBe(false);
-    await expect
-      .poll(() => readBrowserPersistentStateOrNull(window), {
-        timeout: 10_000,
-      })
-      .toEqual({
-        cacheExists: false,
-        dbExists: false,
-        localStorageValue: null,
-        sessionStorageValue: null,
-      });
-    // The reset ends with its replacement renderer ready; the retired one logged nothing wrong.
-    const { waitForAppReady: waitForResetRenderer } = await loadElectronHelpers();
-    await waitForResetRenderer(window);
-    expect(await readNativeResetProbe(window, resetProbe)).toEqual({ folders: 0 });
-    window.off('console', recordError);
-    expect(resetErrors).toEqual([]);
-
-    const restarted = await electronHarness.restart();
-    const restartedWindow = restarted.window;
-    const restartedHomePage = new HomePage(restartedWindow);
-    const restartedSettingsPage = new SettingsPage(restartedWindow);
-
-    const { waitForAppReady } = await loadElectronHelpers();
-    await waitForAppReady(restartedWindow);
-    expect(await readNativeResetProbe(restartedWindow, resetProbe)).toEqual({ folders: 0 });
-
-    await openTokenCountingSettings(restartedHomePage, restartedSettingsPage);
-    await expect(restartedWindow.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(
-      'aria-checked',
-      'true'
-    );
-    await expect
-      .poll(() => readBrowserPersistentState(restartedWindow))
-      .toEqual({
-        cacheExists: false,
-        dbExists: false,
-        localStorageValue: null,
-        sessionStorageValue: null,
-      });
-    expect(fs.existsSync(sentinelFile)).toBe(false);
-    expect(fs.existsSync(diagnosticFile)).toBe(true);
-    // The reset cleared the saved policy with the host's state: the default applies again.
-    await restartedHomePage.openSettings();
-    await restartedSettingsPage.openCategory(/Permissions/iu, 'permissions');
-    await expect(restartedWindow.getByTestId('permission-policy-edit')).toHaveValue('ask');
-  });
-  // A profile saved before local embedding models were removed (#4420) holds an index file of
-  // the previous schema and a search config naming a local model. Neither opens now, so the
-  // settings cannot be read and the index never starts; Factory Reset still replaces both.
-  test('reset replaces a search index and settings saved by a previous version', async ({
-    electronHarness,
-    window,
-  }) => {
-    test.skip(
-      process.platform === 'win32',
-      'Windows Factory Reset is disabled for M3 by owner decision.'
-    );
-    await ensureMockWorkspaceOpen(window);
-    await expect
-      .poll(() => textReadiness(window), { timeout: 120_000 })
-      .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
-    const userData = electronHarness.getUserDataDir();
-    await electronHarness.closeForStateSeeding();
-    const index = new DatabaseSync(profileFile(userData, 'index.sqlite'));
-    try {
-      index.prepare('UPDATE index_metadata SET schema_version = 15').run();
-    } finally {
-      index.close();
-    }
-    const state = new DatabaseSync(profileFile(userData, 'state.db'));
-    try {
-      state
-        .prepare(
-          `INSERT INTO settings (key, value) VALUES ('index/config', ?)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-        )
-        .run(
-          JSON.stringify({
-            ...DEFAULT_INDEX_CONFIG,
-            mode: 'semantic',
-            model: {
-              dimensions: 384,
-              local: { runtime: 'onnx' },
-              modelKey: 'local::onnx-community/granite-embedding-small-english-r2-ONNX',
-            },
-          })
-        );
-    } finally {
-      state.close();
-    }
-
-    const reopened = await electronHarness.ensureWindow({ preserveState: true });
-    const homePage = new HomePage(reopened);
-    const settingsPage = new SettingsPage(reopened);
-    await homePage.openSettings();
-    const unreadable = await settingsPage.openCategory(/Search & Indexing/iu, 'search-indexing');
-    await expect(unreadable.getByRole('alert').first()).toContainText(
-      'The saved search index settings are from another version and cannot be read'
-    );
-    await openFactoryResetSettings(homePage, settingsPage);
-    await overrideNextConfirm(reopened, true);
-    // Only a reset that removed the old index replaces the renderer.
-    await Promise.all([
-      reopened.waitForEvent('framenavigated', {
-        predicate: (frame) => frame === reopened.mainFrame(),
-      }),
-      reopened.getByTestId('factory-reset-button').click(),
-    ]);
-    const { waitForAppReady } = await loadElectronHelpers();
-    await waitForAppReady(reopened);
-    expect(await readIndexConfig(reopened)).toEqual(DEFAULT_INDEX_CONFIG);
-    await homePage.openSettings();
-    const fresh = await settingsPage.openCategory(/Search & Indexing/iu, 'search-indexing');
-    await expect(fresh.getByRole('alert')).toHaveCount(0);
-  });
-  // Two folders: the first opened with the workspace, the second added from the Explorer.
-  test('reset with 2 mounted folders retires cleanly and stays fresh after reopen', async ({
-    window,
-    homePage,
-    electronApp,
-    electronHarness,
-  }, testInfo) => {
-    test.skip(
-      process.platform === 'win32',
-      'Windows Factory Reset is disabled for M3 by owner decision.'
-    );
-    const logs = captureResetLogs();
-    logs.observeApp(electronApp.app);
+    // Two folders: the first opened with the workspace, the second added from the Explorer.
     const firstRoot = await electronApp.app.evaluate(
       () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH']
     );
@@ -441,49 +191,67 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const roots = [firstRoot, secondRoot];
     try {
       for (const [index, root] of roots.entries()) {
-        const fileName = `reset-folder-${index}.txt`;
-        fs.writeFileSync(path.join(root, fileName), 'external workspace survives reset', 'utf8');
-        await electronApp.app.evaluate((_electron, rootPath) => {
-          process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = rootPath;
-        }, root);
-        if (index === 0) {
-          await ensureMockWorkspaceOpen(window);
-        } else {
-          await window
-            .getByRole('button', { exact: true, name: 'Add Folder to Workspace' })
-            .click();
-        }
-        await expect(window.getByText(fileName, { exact: true })).toBeVisible();
+        fs.writeFileSync(
+          path.join(root, `reset-folder-${index}.txt`),
+          'external workspace survives reset',
+          'utf8'
+        );
       }
-      const readFolders = async (page: import('@playwright/test').Page) =>
-        await page.evaluate(async () => {
-          const storage = (
-            globalThis as typeof globalThis & {
-              electronAPI?: { storage?: { getItem: (key: string) => Promise<string | null> } };
-            }
-          ).electronAPI?.storage;
-          if (!storage) {
-            throw new Error('Desktop storage capability unavailable');
-          }
-          const values = await Promise.all(
-            ['rootsList', 'recentRootsList'].map((key) => storage.getItem(key))
-          );
-          return values.map((value): unknown => (value === null ? [] : JSON.parse(value)));
-        });
+      const resetProbe = await seedNativeResetProbe(window, firstRoot);
+      await expect(window.getByText('reset-folder-0.txt', { exact: true })).toBeVisible();
+      await electronApp.app.evaluate((_electron, rootPath) => {
+        process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = rootPath;
+      }, secondRoot);
+      await window.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
+      await expect(window.getByText('reset-folder-1.txt', { exact: true })).toBeVisible();
+      // The Explorer is renderer state: wait for the index's own readiness of both folders,
+      // since the new folder opens the next index generation (BST-2152).
+      await expect
+        .poll(() => textReadiness(window), { timeout: 60_000 })
+        .toEqual({ folders: 2, indexMode: 'text-only', kind: 'ready' });
+      expect(await readNativeResetProbe(window, resetProbe)).toEqual({
+        folders: 2,
+        retainedProbeIds: [resetProbe.indexedFileId],
+      });
       const mounted = await readFolders(window);
       expect(mounted[0]).toHaveLength(roots.length);
       expect(mounted[1]).toHaveLength(roots.length);
-      await openFactoryResetSettings(homePage, new SettingsPage(window));
-      await overrideNextConfirm(window, true);
-      // Join the actual reload initiated by the UI reset, not another reset call.
+
+      await configureAssistantProvider(window);
+      expect(await storedCredentials(window)).toContain('openai');
+
+      const settingsPage = new SettingsPage(window);
+      await openTokenCountingSettings(homePage, settingsPage);
+      const tokenToggle = window.getByTestId('token-counting-accurate-toggle');
+      await tokenToggle.click();
+      await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
+      // A saved permission policy, which the agent host keeps (BST-1930 stage e).
+      await homePage.openSettings();
+      await settingsPage.openCategory(/Permissions/iu, 'permissions');
+      await window.getByTestId('permission-policy-edit').selectOption('deny');
+      await expect(window.getByTestId('permission-policy-edit')).toHaveValue('deny');
+
+      await homePage.openSettings();
+      await settingsPage.openCategory(/Factory Reset/iu, 'factory-reset');
+      await confirmNextReset(window);
+      // The retired document stays visually ready while Main purges its stores.
+      // Join the replacement document before consulting its readiness or catalog.
       await Promise.all([
-        window.waitForEvent('framenavigated', {
-          predicate: (frame) => frame === window.mainFrame(),
-        }),
+        window.waitForEvent('load', { predicate: (loaded) => loaded.url() !== 'about:blank' }),
         window.getByTestId('factory-reset-button').click(),
       ]);
+      await expect.poll(() => fs.existsSync(sentinelFile), { timeout: 10_000 }).toBe(false);
+      await expect
+        .poll(() => readBrowserPersistentStateOrNull(window), { timeout: 10_000 })
+        .toEqual({
+          cacheExists: false,
+          dbExists: false,
+          localStorageValue: null,
+          sessionStorageValue: null,
+        });
       const { waitForAppReady } = await loadElectronHelpers();
       await waitForAppReady(window);
+      expect(await readNativeResetProbe(window, resetProbe)).toEqual({ folders: 0 });
       await expect.poll(() => readFolders(window)).toEqual([[], []]);
       await homePage.leaveSettings();
       for (const index of roots.keys()) {
@@ -493,7 +261,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       // profile's config from Main once the profile reopens, without a restart.
       await expect(window.getByTestId('indexing-status-value')).toHaveText('Ready');
       await homePage.openSettings();
-      const searchSettings = await new SettingsPage(window).openCategory(
+      const searchSettings = await settingsPage.openCategory(
         /Search & Indexing/iu,
         'search-indexing'
       );
@@ -503,19 +271,52 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
           .getByRole('button', { name: /^Text/u })
       ).toHaveAttribute('aria-pressed', 'true');
       await expect(searchSettings).not.toContainText('The search index is closed');
-      await homePage.leaveSettings();
-      const reopened = await electronHarness.restart(logs.observeApp);
-      await waitForAppReady(reopened.window);
-      await new HomePage(reopened.window).leaveSettings();
-      expect(await readFolders(reopened.window)).toEqual([[], []]);
+
+      const restarted = (await electronHarness.restart(logs.observeApp)).window;
+      const restartedHomePage = new HomePage(restarted);
+      const restartedSettingsPage = new SettingsPage(restarted);
+      await waitForAppReady(restarted);
+      expect(await readNativeResetProbe(restarted, resetProbe)).toEqual({ folders: 0 });
+      expect(await readFolders(restarted)).toEqual([[], []]);
+      expect(await storedCredentials(restarted)).toEqual([]);
+      await restartedHomePage.leaveSettings();
       for (const [index, root] of roots.entries()) {
-        await expect(
-          reopened.window.getByText(`reset-folder-${index}.txt`, { exact: true })
-        ).toHaveCount(0);
+        await expect(restarted.getByText(`reset-folder-${index}.txt`, { exact: true })).toHaveCount(
+          0
+        );
         expect(fs.readFileSync(path.join(root, `reset-folder-${index}.txt`), 'utf8')).toBe(
           'external workspace survives reset'
         );
       }
+      await openTokenCountingSettings(restartedHomePage, restartedSettingsPage);
+      await expect(restarted.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
+      await expect
+        .poll(() => readBrowserPersistentState(restarted))
+        .toEqual({
+          cacheExists: false,
+          dbExists: false,
+          localStorageValue: null,
+          sessionStorageValue: null,
+        });
+      expect(fs.existsSync(sentinelFile)).toBe(false);
+      expect(fs.existsSync(diagnosticFile)).toBe(true);
+      // The reset cleared the saved policy with the host's state: the default applies again.
+      await restartedHomePage.openSettings();
+      await restartedSettingsPage.openCategory(/Permissions/iu, 'permissions');
+      await expect(restarted.getByTestId('permission-policy-edit')).toHaveValue('ask');
+      // The fresh profile still runs an assistant turn once a key is saved again.
+      await configureAssistantProvider(restarted);
+      modelProvider.setScript({ finalText: AFTER_RESET_REPLY });
+      await ensureAssistantShellVisible(restarted);
+      const assistant = restarted.getByRole('region', { exact: true, name: 'Assistant' });
+      await assistant.getByRole('textbox', { name: 'Message input' }).fill('Hello after reset.');
+      await assistant.getByRole('button', { exact: true, name: 'Send' }).click();
+      await expect(assistant.getByText(AFTER_RESET_REPLY, { exact: true })).toBeVisible({
+        timeout: E2E_TIMEOUTS.messageVisibility,
+      });
     } finally {
       // Capture ordinary shutdown too; a known-looking shutdown error still fails.
       try {
