@@ -18,6 +18,7 @@
   "dependencies": {
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/sqlite-native": "workspace:*",
     "@brainstrike/state-store": "workspace:*",

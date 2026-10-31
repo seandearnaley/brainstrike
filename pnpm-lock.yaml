@@ -2587,6 +2587,9 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
         version: link:../secure-fs-native
@@ -2636,10 +2639,16 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.0
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
