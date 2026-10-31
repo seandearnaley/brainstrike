@@ -11,4 +11,3 @@ export {
 } from './transport.ts';
 export * from './view-filter-preset-store.ts';
 export * from './workspace-root-store.ts';
-export * from './worktree-ledger-store.ts';

@@ -52,16 +52,16 @@ import {
   refusal,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import {
+  resolveContainedCwd,
+  resolveRootCwd,
+  type WorkspaceRootResolver,
+} from '@brainstrike/host-capabilities/workspace-root-cwd';
 import { createLogger } from '@brainstrike/logging';
 import { terminateTree, trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import type { CommandSessionManager } from '../assistant-server/command-session-manager';
-import {
-  resolveContainedCwd,
-  resolveRootCwd,
-  type WorkspaceRootResolver,
-} from '../workspace-root-cwd';
 import { createCommandSessionHandlers } from './command-session-handlers';
 
 const logger = createLogger('HostTerminals');

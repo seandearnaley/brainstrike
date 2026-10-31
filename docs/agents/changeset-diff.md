@@ -36,10 +36,15 @@ the host for live thread ownership. Unavailable ownership preserves refs and
 unreadable chains prevent reclamation. Per-edit undo and whole-turn shadow Git are
 separate restoration paths.
 
-Changes/worktree IPC uses declared visible-UI capabilities and strict envelopes;
-web omits them. Changes uses the structured diff engine, with explicit
+Changes, git and worktrees are agent-host methods refused to every client but the
+desktop's private one, with strict envelopes; web omits them. The host owns the
+worktree ledger: Main reads a live worktree through `worktrees/managed-paths`.
+The standalone CLI host composes the same worktree service over its launch roots
+(listWorktrees, manageWorktree archive, shell correlation); creating a worktree
+and turn snapshots stay desktop-only. Changes uses the structured diff engine, with explicit
 invalidation and safe failure surfaces. A worktree status still
 loading is not a clean checkout; closing UI does not mutate durable run history.
 
-Implementation: `packages/types/src/changeset.ts` and desktop changeset,
-Git-inventory, worktree and snapshot services. Decisions: ADRs 0016 and 0017.
+Implementation: `packages/types/src/changeset.ts` and
+`packages/host-capabilities/src/git-workspace` (changeset, Git-inventory,
+worktree and snapshot services). Decisions: ADRs 0016, 0017 and 0029.

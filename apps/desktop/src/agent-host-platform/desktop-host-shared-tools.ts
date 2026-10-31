@@ -3,13 +3,13 @@ import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { HostTool } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { HostWorktreeServices } from '@brainstrike/host-capabilities/git-workspace';
 import {
   createSharedNativeHostTools,
   getEditDiagnostics,
   type ReadWorkspaceFileCursorRegistry,
 } from '@brainstrike/host-capabilities/native-tools';
 import { Schema } from 'effect';
-import type { DesktopWorktreeServices } from '../assistant-server/worktree-tool-dependencies';
 import { agentNavigationTarget } from '../browser/browser-url';
 import {
   desktopHostToolExecutors,
@@ -39,7 +39,7 @@ export function desktopHostSharedTools(options: {
   /** The admission's roots, revalidated against their live owners. */
   readonly freshRoots: () => Promise<unknown>;
   /** The host's worktree services, for the worktree tools and shell correlation. */
-  readonly gitWorkspace: DesktopWorktreeServices;
+  readonly gitWorkspace: HostWorktreeServices;
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
   /** The host's own Tavily key owner, never Main's view of the store. */

@@ -13,7 +13,6 @@ import {
   serveViewFilterPresets,
 } from './view-filter-preset-store.ts';
 import { createWorkspaceRootClient, serveWorkspaceRootStore } from './workspace-root-store.ts';
-import { createWorktreeLedgerClient, serveWorktreeLedgerStore } from './worktree-ledger-store.ts';
 
 export function createHostCatalogClient(connection: MessageConnection) {
   return {
@@ -24,7 +23,6 @@ export function createHostCatalogClient(connection: MessageConnection) {
     ...createThreadGroupsClient(connection),
     ...createViewFilterPresetClient(connection),
     ...createWorkspaceRootClient(connection),
-    ...createWorktreeLedgerClient(connection),
   };
 }
 export type HostCatalog = ReturnType<typeof createHostCatalogClient>;
@@ -44,7 +42,6 @@ export function serveHostCatalog(
     serveThreadGroups(connection, store),
     serveViewFilterPresets(connection, store),
     serveWorkspaceRootStore(connection, store),
-    serveWorktreeLedgerStore(connection, store),
   ];
   let closing: Promise<void> | undefined;
   return {

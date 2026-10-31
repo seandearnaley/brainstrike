@@ -17,7 +17,6 @@ function fixture() {
     threadGroups: vi.fn<HostCatalog['threadGroups']>(unexpected),
     viewFilterPresets: vi.fn<HostCatalog['viewFilterPresets']>(unexpected),
     workspaceRoots: vi.fn<HostCatalog['workspaceRoots']>(unexpected),
-    worktreeLedger: vi.fn<HostCatalog['worktreeLedger']>(unexpected),
   };
   const closed = Promise.withResolvers<void>();
   const attachment: HostAttachment & { readonly catalog: HostCatalog } = {
@@ -38,46 +37,31 @@ function fixture() {
   return { acquire, attachment, borrower, catalog };
 }
 
-test.each(['workspaceRoots', 'worktreeLedger'] as const)(
-  'terminal close joins admitted %s through its reply and refuses new requests',
-  async (method) => {
-    const f = fixture();
-    const ack = Promise.withResolvers<void>();
-    let request: Promise<unknown>;
-    if (method === 'workspaceRoots') {
-      f.catalog.workspaceRoots.mockImplementation(async () => {
-        await ack.promise;
-        return { roots: [] };
-      });
-      request = f.borrower.workspaceRoots({ operation: 'list' });
-    } else {
-      f.catalog.worktreeLedger.mockImplementation(async () => {
-        await ack.promise;
-        return { rows: [] };
-      });
-      request = f.borrower.worktreeLedger({ operation: 'list-active' });
-    }
-    await vi.waitFor(() => expect(f.catalog[method]).toHaveBeenCalledOnce());
-    let prepared = false;
-    const closing = f.borrower.prepareClose().then(() => {
-      prepared = true;
-    });
-    expect(f.borrower.prepareClose()).toBe(f.borrower.prepareClose());
-    await expect(f.borrower.workspaceRoots({ operation: 'list' })).rejects.toMatchObject({
-      failure: HOST_LEASE_CLOSED,
-    });
-    await expect(f.borrower.worktreeLedger({ operation: 'list-active' })).rejects.toMatchObject({
-      failure: HOST_LEASE_CLOSED,
-    });
-    expect(prepared).toBe(false);
-    expect(f.acquire).toHaveBeenCalledOnce();
-    ack.resolve();
-    await request;
-    await closing;
-    expect(prepared).toBe(true);
-    expect(f.attachment.close).not.toHaveBeenCalled();
-  }
-);
+test('terminal close joins an admitted workspaceRoots request through its reply and refuses new requests', async () => {
+  const f = fixture();
+  const ack = Promise.withResolvers<void>();
+  f.catalog.workspaceRoots.mockImplementation(async () => {
+    await ack.promise;
+    return { roots: [] };
+  });
+  const request = f.borrower.workspaceRoots({ operation: 'list' });
+  await vi.waitFor(() => expect(f.catalog.workspaceRoots).toHaveBeenCalledOnce());
+  let prepared = false;
+  const closing = f.borrower.prepareClose().then(() => {
+    prepared = true;
+  });
+  expect(f.borrower.prepareClose()).toBe(f.borrower.prepareClose());
+  await expect(f.borrower.workspaceRoots({ operation: 'list' })).rejects.toMatchObject({
+    failure: HOST_LEASE_CLOSED,
+  });
+  expect(prepared).toBe(false);
+  expect(f.acquire).toHaveBeenCalledOnce();
+  ack.resolve();
+  await request;
+  await closing;
+  expect(prepared).toBe(true);
+  expect(f.attachment.close).not.toHaveBeenCalled();
+});
 
 test('a borrow admitted before terminal close finishes its acquisition and operation', async () => {
   const f = fixture();
