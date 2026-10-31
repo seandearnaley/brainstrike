@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import type { ScopedManifestFile } from '@brainstrike/indexer';
 import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import type {
+  CanonicalCatalogFile,
   CanonicalCatalogPort,
   CanonicalDiscoveredSourceFile,
   CanonicalFileIdentity,
@@ -218,4 +220,42 @@ export async function prepareDiscoveredSources(args: {
       stat: read.stat,
     };
   });
+}
+
+function isStatCacheHit(file: CanonicalSourceFile, prior: CanonicalCatalogFile): boolean {
+  return (
+    prior.chunksProcessed &&
+    prior.stat.mtimeMs !== null &&
+    file.stat.mtimeMs !== null &&
+    prior.stat.size === file.stat.size &&
+    prior.stat.mtimeMs === Math.floor(file.stat.mtimeMs)
+  );
+}
+/**
+ * An unchanged file the scan need not read: its stat matches the catalog's and the publication
+ * holds an acknowledged plan of its content. A VECTOR scan, given its profile's acknowledged plans,
+ * skips only a file with one and declares that plan in its vector proof, whose completion verifies
+ * the file's chunks and vectors are still stored.
+ */
+export function statCacheSkip(
+  file: CanonicalSourceFile,
+  prior: CanonicalCatalogFile | undefined,
+  force: ReadonlySet<string>,
+  acknowledged: ReadonlyMap<string, ScopedManifestFile> | undefined
+):
+  | { readonly contentHash: string; readonly vectorPlans: readonly ScopedManifestFile[] }
+  | undefined {
+  if (
+    !prior ||
+    force.has(file.fileId) ||
+    !isStatCacheHit(file, prior) ||
+    prior.contentHash === null
+  ) {
+    return undefined;
+  }
+  if (acknowledged === undefined) {
+    return { contentHash: prior.contentHash, vectorPlans: [] };
+  }
+  const plan = acknowledged.get(file.fileId);
+  return plan && { contentHash: prior.contentHash, vectorPlans: [plan] };
 }

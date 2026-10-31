@@ -23,9 +23,8 @@ import type {
 } from '../src/ports.js';
 
 // This suite drives the package's public source entry.
-const { CanonicalIngestionHost }: typeof CanonicalIngestion = await import(
-  new URL('../src/index.ts', import.meta.url).href
-);
+const { CanonicalIngestionHost, createNativeCanonicalPublication }: typeof CanonicalIngestion =
+  await import(new URL('../src/index.ts', import.meta.url).href);
 const { openIndexer } = await import('@brainstrike/indexer');
 const profile: VectorProfile = {
   dimensions: 1536,
@@ -138,6 +137,7 @@ it('publishes bounded cross-file VECTOR through public native scoped writer with
       await port.removeScopedFile({ fileId: removed.fileId, scope });
     },
     verifyManifest: async ({ files }) => ({
+      acknowledged: [],
       changed: [],
       complete: false,
       missing: files,
@@ -381,6 +381,7 @@ it.each([
       },
       vectorCoverage: async (request) => port.coverageScope(request),
       verifyManifest: async ({ files: requested }) => ({
+        acknowledged: [],
         changed: [],
         complete: false,
         missing: requested,
@@ -448,3 +449,144 @@ it.each([
     }
   }
 );
+
+it('rescans an unchanged VECTOR workspace without rereading it and republishes a file whose vectors are gone', async () => {
+  const scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'reopened-root' };
+  const recorded = JSON.parse(
+    await readFile(
+      new URL(
+        import.meta.resolve('@brainstrike/test-utils/fixtures/canonical-provided-chunks.json')
+      ),
+      'utf8'
+    )
+  ) as { content: string };
+  const entries = ['first', 'second'].map((name) => {
+    const content = recorded.content.replaceAll(
+      'createArtifactReaderModelProjection',
+      `createArtifactReaderModelProjection_${name}`
+    );
+    const file: CanonicalSourceFile = {
+      embeddingSetId: 'managed-set',
+      fileId: `${name}-file`,
+      fileName: `${name}.ts`,
+      relativePath: `${name}.ts`,
+      rootId: scope.rootId,
+      sourcePath: `/retained/${name}.ts`,
+      stat: { mtimeMs: 123, size: Buffer.byteLength(content) },
+    };
+    return { content, contentHash: createHash('sha256').update(content).digest('hex'), file };
+  });
+  const entryFor = (fileId: string) => {
+    const entry = entries.find((item) => item.file.fileId === fileId);
+    if (!entry) {
+      throw new Error('Unexpected canonical native file.');
+    }
+    return entry;
+  };
+  const bindings = entries.map(({ file }) => {
+    const { fileName: _name, stat: _stat, ...identity } = file;
+    return { ...identity, profile };
+  });
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-canonical-rescan-'));
+  const port: IndexerPort & ScopedIndexerPort = await openIndexer(
+    {
+      dbPath: path.join(directory, 'index.sqlite'),
+      embedding: { indexMode: 'text-only' },
+      fileBindings: bindings,
+      rootIds: [scope.rootId],
+      scopes: [{ embeddingSetId: 'managed-set', kind: 'collection' }],
+    },
+    deadlines
+  );
+  const prepareScopedFile = vi.fn((request: unknown) => port.prepareScopedFile(request));
+  const publication = createNativeCanonicalPublication({ ...port, prepareScopedFile }, [scope]);
+  const source: CanonicalSourcePort = {
+    close: async () => {},
+    async *discover() {
+      yield { files: entries.map((entry) => entry.file), removed: [] };
+      return { errors: [], full: true, truncatedDirectories: [] };
+    },
+    read: vi.fn(async (current) => {
+      const entry = entryFor(current.fileId);
+      return { content: entry.content, stat: entry.file.stat };
+    }),
+  };
+  const inference: CanonicalInferencePort<VectorProfile> = {
+    cancel: vi.fn(async () => {}),
+    generate: vi.fn<CanonicalInferencePort<VectorProfile>['generate']>(async (input) => ({
+      ...input,
+      vectors: input.chunks.map((chunk) => ({
+        chunkId: chunk.chunkId,
+        vector: Array.from({ length: profile.dimensions }, (_, index) => (index === 0 ? 1 : 0)),
+      })),
+    })),
+    join: vi.fn(async () => {}),
+  };
+  const host = new CanonicalIngestionHost({
+    catalog: {
+      applyManagedCacheBatch: async () => {},
+      completeFiles: async () => {},
+      loadAuthorizedBatch: async ({ files }) =>
+        files.map((current) => {
+          const entry = entryFor(current.fileId);
+          return { ...entry.file, chunksProcessed: true, contentHash: entry.contentHash };
+        }),
+      prepareManagedSourcesBatch: async () => [],
+      removeFiles: async () => {},
+      resolveProfile: async () => profile,
+    },
+    chunker,
+    inference,
+    managedCollectionId: 'managed-set',
+    mode: 'VECTOR',
+    publication,
+    source,
+  });
+  const scan = (requestId: string) =>
+    host.scan({
+      batchSize: 64,
+      chunkingOptions: { maxTokens: 64, strategy: 'auto', tokenTrueSizing: true },
+      maxFileBytes: 1_000_000,
+      requestId,
+      scope,
+    });
+  const readFileIds = () =>
+    vi.mocked(source.read).mock.calls.map(([file]) => ('fileId' in file ? file.fileId : null));
+  try {
+    expect((await scan('first-open')).scanComplete).toBe(true);
+    expect(readFileIds()).toEqual(['first-file', 'second-file']);
+    vi.mocked(source.read).mockClear();
+    vi.mocked(inference.generate).mockClear();
+    prepareScopedFile.mockClear();
+
+    // Nothing changed: the scan proves its vector coverage without reading or publishing a file.
+    expect((await scan('unchanged')).scanComplete).toBe(true);
+    expect(source.read).not.toHaveBeenCalled();
+    expect(prepareScopedFile).not.toHaveBeenCalled();
+    expect(inference.generate).not.toHaveBeenCalled();
+    expect(await port.coverageScope({ profile, scope })).toMatchObject({
+      counts: { missingVectors: 0 },
+      vectorCoverageComplete: true,
+    });
+
+    // One file's rows and vectors leave the index, as a binding retirement removes them.
+    const [first] = entries;
+    if (!first) {
+      throw new Error('Missing fixture file.');
+    }
+    publication.invalidateFile(first.file);
+    await port.removeScopedFile({ fileId: first.file.fileId, scope });
+    expect((await scan('vectors-gone')).scanComplete).toBe(true);
+    expect(readFileIds()).toEqual(['first-file']);
+    expect(prepareScopedFile).toHaveBeenCalledOnce();
+    expect(inference.generate).toHaveBeenCalled();
+    expect(await port.coverageScope({ profile, scope })).toMatchObject({
+      counts: { indexedFiles: 2, missingVectors: 0 },
+      vectorCoverageComplete: true,
+    });
+  } finally {
+    await host.close();
+    await port.close();
+    await rm(directory, { force: true, recursive: true });
+  }
+});

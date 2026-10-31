@@ -124,6 +124,7 @@ export async function fixture(
       order.push('native-remove');
     }),
     verifyManifest: vi.fn(async () => ({
+      acknowledged: [],
       changed: [],
       complete: false,
       missing: [{ ...file, contentHash: recorded.sourceHash }],

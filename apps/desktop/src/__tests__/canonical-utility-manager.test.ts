@@ -93,6 +93,7 @@ function workspace({
       finishScan: async ({ ticket }) => ({ reason: 'complete', scanComplete: true, ticket }),
       removeFile: async () => {},
       verifyManifest: async () => ({
+        acknowledged: [],
         changed: [],
         complete: true,
         missing: [],
