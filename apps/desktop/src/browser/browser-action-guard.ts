@@ -35,6 +35,7 @@ const TargetFactsSchema = Schema.Union([
     captcha: Schema.Boolean,
     connected: Schema.Literal(true),
     disabled: Schema.Boolean,
+    /** Its form or, on a page without one, the nearest container of other controls. */
     form: Schema.NullOr(
       Schema.Struct({
         /** The form holds a CAPTCHA widget. */
@@ -44,7 +45,7 @@ const TargetFactsSchema = Schema.Union([
         submitText: Schema.String,
       })
     ),
-    /** Clicking it submits its form. */
+    /** Clicking it submits its form, or is a button in that container. */
     submits: Schema.Boolean,
     tag: Schema.String,
     /** Its visible text or label, whitespace-collapsed. */
