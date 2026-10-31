@@ -1,11 +1,11 @@
-import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
+import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import { describe, expect, it } from 'vitest';
-import { rewriteToolProjectionPrompt } from '../mastra-processors/tool-projection-rewrite-processor';
+import { rewriteToolProjectionPrompt } from '../providers/tool-projection-rewrite.ts';
 import type { ToolProjectionRewriteEntry } from '../types';
 
 function promptWithCalls(
   calls: readonly { readonly id: string; readonly output: string }[]
-): ProcessLLMRequestArgs['prompt'] {
+): LanguageModelV4Prompt {
   return calls.flatMap((call) => [
     {
       content: [

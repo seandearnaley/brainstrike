@@ -1,15 +1,10 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
+import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import { describe, expect, it } from 'vitest';
-import {
-  buildOpenAIToolSearchHistoryCompatInputProcessor,
-  OpenAIToolSearchHistoryCompat,
-} from '../mastra-processors/openai-tool-search-history-compat';
-
 import { prepareProviderRequest } from '../provider-request';
-import { scriptedAgentModel } from '../test-fixtures/scripted-agent-model';
+import { canonicalizeOpenAIToolSearchHistory } from '../providers/openai-tool-search-history-compat.ts';
 
-type Prompt = ProcessLLMRequestArgs['prompt'];
+type Prompt = LanguageModelV4Prompt;
 type AssistantMessage = Extract<Prompt[number], { role: 'assistant' }>;
 type PersistedPart = Extract<
   AssistantMessage['content'][number],
@@ -21,28 +16,6 @@ type PersistedPrompt = { role: 'assistant'; content: PersistedPart[] }[];
 type OpenAICallOptions = Parameters<
   ReturnType<ReturnType<typeof createOpenAI>['responses']>['doGenerate']
 >[0];
-type OpenAIPrompt = OpenAICallOptions['prompt'];
-
-/** Only the call/result variants in this regression cross the V2 -> V4 seam. */
-function toOpenAIPrompt(prompt: Prompt): OpenAIPrompt {
-  return prompt.map((message) => {
-    if (message.role !== 'assistant') {
-      throw new Error('Expected assistant tool history');
-    }
-    return {
-      content: message.content.map((part) => {
-        if (part.type === 'tool-call') {
-          return { ...part };
-        }
-        if (part.type === 'tool-result' && part.output.type === 'json') {
-          return { ...part, output: { type: 'json', value: part.output.value } };
-        }
-        throw new Error('Expected tool call or JSON result');
-      }),
-      role: 'assistant',
-    };
-  });
-}
 
 const TOOL_SEARCH_CALL_ITEM_ID = 'tsc_hosted_123';
 const TOOL_SEARCH_OUTPUT_ITEM_ID = 'tso_hosted_456';
@@ -159,42 +132,13 @@ const hostedToolSearch = {
 
 function captureHostedRequestBody(prompt: Prompt): Promise<unknown> {
   return captureRequestBody({
-    prompt: toOpenAIPrompt(prompt),
+    prompt,
     providerOptions: { openai: { store: true } },
     tools: [hostedToolSearch],
   });
 }
 
-function processPrompt(
-  processor: OpenAIToolSearchHistoryCompat,
-  prompt: ProcessLLMRequestArgs['prompt']
-): ProcessLLMRequestArgs['prompt'] {
-  const abort = (reason?: string): never => {
-    throw new Error(reason ?? 'processor aborted');
-  };
-  const result = processor.processLLMRequest({
-    abort,
-    model: scriptedAgentModel(() => {
-      throw new Error('History processing must not call the model');
-    }).model,
-    prompt,
-    retryCount: 0,
-    state: {},
-    stepNumber: 1,
-    steps: [],
-  });
-  return result?.prompt ?? prompt;
-}
-
 describe('OpenAIToolSearchHistoryCompat', () => {
-  it('is installed only for OpenAI hosted requests', () => {
-    expect(buildOpenAIToolSearchHistoryCompatInputProcessor(' openAI ')?.id).toBe(
-      'openai-tool-search-history-compat'
-    );
-    expect(buildOpenAIToolSearchHistoryCompatInputProcessor('anthropic')).toBeUndefined();
-    expect(buildOpenAIToolSearchHistoryCompatInputProcessor('google')).toBeUndefined();
-  });
-
   // BST-1310 — the seam's removal condition, asserted rather than documented.
   //
   // The condition recorded in docs/agents/assistant-providers.md was "consume an
@@ -242,7 +186,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
   it('separates the call and output references Mastra hydrated onto both parts', async () => {
     const input = createMastraHydratedPrompt();
     const before = structuredClone(input);
-    const prompt = processPrompt(new OpenAIToolSearchHistoryCompat(), input);
+    const prompt = canonicalizeOpenAIToolSearchHistory(input);
     const capturedBody = await captureHostedRequestBody(prompt);
 
     expect(input).toEqual(before);
@@ -257,7 +201,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
   it('preserves distinct call and output item references after a metadata round-trip', async () => {
     const input = createPersistedPrompt();
     const before = structuredClone(input);
-    const prompt = processPrompt(new OpenAIToolSearchHistoryCompat(), input);
+    const prompt = canonicalizeOpenAIToolSearchHistory(input);
     const capturedBody = await captureHostedRequestBody(prompt);
 
     expect(input).toEqual(before);
@@ -271,9 +215,9 @@ describe('OpenAIToolSearchHistoryCompat', () => {
 
   it('preserves declared hosted identity and distinct references through the production request boundary', async () => {
     const hydrated = createMastraHydratedPrompt();
-    const prompt: OpenAIPrompt = [
+    const prompt: Prompt = [
       { content: [{ text: 'Search', type: 'text' }], role: 'user' },
-      ...toOpenAIPrompt(hydrated),
+      ...hydrated,
       { content: [{ text: 'Continue', type: 'text' }], role: 'user' },
     ];
     const before = structuredClone(prompt);
@@ -308,7 +252,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     }
     result.providerOptions = { openai: { itemId: 'tso_conflict' } };
 
-    expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
+    expect(() => canonicalizeOpenAIToolSearchHistory(prompt)).toThrow(
       /conflicting OpenAI tool-search output item IDs/u
     );
   });
@@ -331,9 +275,9 @@ describe('OpenAIToolSearchHistoryCompat', () => {
   });
 
   it('rejects an output item ID that duplicates its call item ID', () => {
-    expect(() =>
-      processPrompt(new OpenAIToolSearchHistoryCompat(), createSymmetricallyHydratedPrompt())
-    ).toThrow(/duplicates its call item ID/u);
+    expect(() => canonicalizeOpenAIToolSearchHistory(createSymmetricallyHydratedPrompt())).toThrow(
+      /duplicates its call item ID/u
+    );
   });
 
   it('rejects a duplicating output item ID recorded in providerOptions', () => {
@@ -349,7 +293,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     result.providerMetadata = undefined;
     result.providerOptions = { openai: { itemId: TOOL_SEARCH_CALL_ITEM_ID } };
 
-    expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
+    expect(() => canonicalizeOpenAIToolSearchHistory(prompt)).toThrow(
       /duplicates its call item ID/u
     );
   });
@@ -366,7 +310,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     }
     result.providerMetadata = undefined;
 
-    expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
+    expect(() => canonicalizeOpenAIToolSearchHistory(prompt)).toThrow(
       /missing its provider item ID/u
     );
   });
@@ -467,7 +411,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
     result.providerMetadata = undefined;
     const before = structuredClone(prompt);
 
-    expect(processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toBe(prompt);
+    expect(canonicalizeOpenAIToolSearchHistory(prompt)).toBe(prompt);
     expect(prompt).toEqual(before);
   });
 });

@@ -19,26 +19,31 @@ import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contra
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { type MastraDBMessage, TripWire } from '@mastra/core/agent';
-import { type ProcessLLMRequestArgs, type Processor, TokenLimiter } from '@mastra/core/processors';
-import { buildBedrockMessageHygieneInputProcessor } from './mastra-processors/bedrock-message-hygiene.ts';
-import { buildProviderHistoryCompatInputProcessor } from './mastra-processors/error-processors.ts';
-import { buildOpenAIDuplicateItemCompatInputProcessor } from './mastra-processors/openai-duplicate-item-compat.ts';
-import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './mastra-processors/openai-tool-search-history-compat.ts';
+import {
+  type ProcessLLMRequestArgs,
+  type Processor,
+  ProviderHistoryCompat,
+  TokenLimiter,
+} from '@mastra/core/processors';
 import { ProjectionSafeToolCallFilter } from './mastra-processors/projection-safe-tool-call-filter.ts';
-import { rewriteToolProjectionPrompt } from './mastra-processors/tool-projection-rewrite-processor.ts';
+import { cleanBedrockPrompt } from './providers/bedrock-message-hygiene.ts';
 import { createCanonicalLimiterView } from './providers/canonical-provider-limiter.ts';
 import {
   collectProviderCallProvenance,
   type ProviderCallProvenance,
+  stripForeignExecutedToolPairs,
 } from './providers/foreign-provider-history.ts';
 import { buildModelSettingsOption } from './providers/generation-settings.ts';
+import { canonicalizeOpenAIDuplicateItems } from './providers/openai-duplicate-item-compat.ts';
 import { classifyOpenAIStoredItemError } from './providers/openai-expired-item.ts';
+import { canonicalizeOpenAIToolSearchHistory } from './providers/openai-tool-search-history-compat.ts';
 import {
   assertProviderRequestBoundaries,
   dropAbortedOpenAIItems,
   healInterruptedToolCalls,
   ProviderRequestBoundaryError,
 } from './providers/request-history.ts';
+import { rewriteToolProjectionPrompt } from './providers/tool-projection-rewrite.ts';
 import type { SupportedProvider } from './providers/types.ts';
 import {
   createPreparedTokenMeasurement,
@@ -266,19 +271,20 @@ export class ProviderRequestContextOverflowError extends BoundaryFailureError {
 type LegacyPrompt = ProcessLLMRequestArgs['prompt'];
 
 /**
- * The shipped processors use Mastra's V2 declaration, but operate only on
- * text/reasoning/tool parts shared with V4. V4-only parts pass through intact.
- * Keep this structural bridge in one place. The read-only provenance view
- * exposes only get.all.db used by the installed signed-reasoning rule; it
- * owns no mutable MessageList or copy of the compatibility algorithms.
+ * Run one of Mastra's request processors (`ProviderHistoryCompat`,
+ * `TokenLimiter`), which are declared on its V2 prompt. They read only the
+ * text/reasoning/tool parts V2 shares with V4; V4-only parts pass through
+ * intact. The read-only provenance view exposes only `get.all.db`, which the
+ * vendor's signed-reasoning rule reads. Brainstrike's own fixes are plain V4
+ * functions and never cross here.
  */
-async function applyCanonicalProcessor(
-  processor: Processor | undefined,
-  prompt: LanguageModelV4Prompt,
+async function runMastraProcessor(
+  processor: Processor,
+  prompt: LegacyPrompt,
   model: LanguageModelV4,
   history?: readonly MastraDBMessage[]
-): Promise<LanguageModelV4Prompt> {
-  const result = await processor?.processLLMRequest?.({
+): Promise<LegacyPrompt> {
+  const result = await processor.processLLMRequest?.({
     abort: (reason) => {
       throw new Error(reason ?? 'Provider preparation aborted.');
     },
@@ -290,51 +296,41 @@ async function applyCanonicalProcessor(
           } as unknown as NonNullable<ProcessLLMRequestArgs['messageList']>,
         }
       : {}),
-    prompt: prompt as unknown as LegacyPrompt,
+    prompt,
     retryCount: 0,
     state: {},
     stepNumber: 0,
     steps: [],
   });
-  return (result?.prompt as unknown as LanguageModelV4Prompt | undefined) ?? prompt;
+  return result?.prompt ?? prompt;
 }
 
 function isOpenAI(provider: SupportedProvider): boolean {
   return provider === 'openai';
 }
 
+/**
+ * Provider fixes, after projection and stale-history filtering: those
+ * transforms can orphan reasoning even without duplicated stored item IDs.
+ */
 async function compatiblePrompt(
-  prompt: LanguageModelV4Prompt,
+  input: LanguageModelV4Prompt,
   model: LanguageModelV4,
   provider: SupportedProvider,
-  history?: readonly MastraDBMessage[],
-  provenance?: ProviderCallProvenance
+  provenance: ProviderCallProvenance,
+  history?: readonly MastraDBMessage[]
 ): Promise<LanguageModelV4Prompt> {
-  // Runs AFTER projection and stale-history filtering: those transforms can
-  // orphan reasoning even in the absence of duplicated stored item IDs.
-  let compatible = await applyCanonicalProcessor(
-    buildProviderHistoryCompatInputProcessor(provider, provenance),
-    prompt,
+  const paired = stripForeignExecutedToolPairs(input, provider, provenance);
+  let prompt = (await runMastraProcessor(
+    new ProviderHistoryCompat(),
+    paired as unknown as LegacyPrompt,
     model,
     history
-  );
+  )) as unknown as LanguageModelV4Prompt;
   if (isOpenAI(provider)) {
-    compatible = await applyCanonicalProcessor(
-      buildOpenAIToolSearchHistoryCompatInputProcessor('openai'),
-      compatible,
-      model
-    );
-    compatible = await applyCanonicalProcessor(
-      buildOpenAIDuplicateItemCompatInputProcessor('openai'),
-      compatible,
-      model
-    );
+    prompt = canonicalizeOpenAIDuplicateItems(canonicalizeOpenAIToolSearchHistory(prompt));
   }
-  return applyCanonicalProcessor(
-    buildBedrockMessageHygieneInputProcessor(provider),
-    compatible,
-    model
-  );
+  return provider === 'bedrock' ? cleanBedrockPrompt(prompt) : prompt;
 }
 
 function countRequest(
@@ -374,12 +370,12 @@ async function limitProviderPrompt(
   }
   try {
     const counting = createCanonicalLimiterView(input);
-    const limited = await applyCanonicalProcessor(
+    const limited = await runMastraProcessor(
       new TokenLimiter({ limit: promptLimit, trimMode: 'contiguous' }),
-      counting.prompt as unknown as LanguageModelV4Prompt,
+      counting.prompt,
       model
     );
-    let prompt = counting.restore(limited as unknown as LegacyPrompt);
+    let prompt = counting.restore(limited);
     // A native contiguous cut can leave an old assistant/tool group at the
     // start. Drop that prefix through the first surviving user turn, retaining
     // every system message. If no user survives, ask the host to compact.
@@ -387,7 +383,7 @@ async function limitProviderPrompt(
     if (firstUser > 0) {
       prompt = prompt.filter((message, index) => message.role === 'system' || index >= firstUser);
     }
-    prompt = await compatiblePrompt(prompt, model, context.provider, context.history, provenance);
+    prompt = await compatiblePrompt(prompt, model, context.provider, provenance, context.history);
     assertProviderRequestBoundaries(prompt);
     return prompt;
   } catch (cause) {
@@ -429,14 +425,11 @@ export async function prepareProviderRequest(
   }
   let rewrittenToolCallIds: ReadonlySet<string> = new Set();
   if (context.rewrites) {
-    const rewritten = rewriteToolProjectionPrompt(
-      prompt as unknown as LegacyPrompt,
-      context.rewrites
-    );
-    prompt = rewritten.prompt as unknown as LanguageModelV4Prompt;
+    const rewritten = rewriteToolProjectionPrompt(prompt, context.rewrites);
+    prompt = rewritten.prompt;
     rewrittenToolCallIds = rewritten.rewrittenToolCallIds;
   }
-  prompt = await compatiblePrompt(prompt, model, context.provider, context.history, provenance);
+  prompt = await compatiblePrompt(prompt, model, context.provider, provenance, context.history);
   assertProviderRequestBoundaries(prompt);
   const projectedPrompt = prompt;
   const modelSettings = buildModelSettingsOption(runtimeData).modelSettings;
