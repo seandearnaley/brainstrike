@@ -30,7 +30,8 @@ function asksForTrust(root: WorkspaceTrustRoot): boolean {
  * ADR-0032: VS Code's Restricted Mode banner, above the composer. Each mounted
  * folder that holds instructions, skills, slash commands or subagents and has
  * no answer yet says what it holds, and asks once. Nothing waits on it: until
- * the person trusts the folder, runs leave its agent configuration out.
+ * the person trusts the folder, runs leave its agent configuration out. A
+ * failed read says so, since it would otherwise hide every question.
  */
 export function WorkspaceTrustPrompt(): ReactElement | null {
   const discovery = useAssistantThreadHost()?.workspaceDiscovery;
@@ -40,6 +41,9 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
   const [roots, setRoots] = useState<readonly WorkspaceTrustRoot[]>([]);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
+  // A pull can add AGENTS.md or a skill to a mounted folder; returning to the window re-reads.
+  const [visibleCount, setVisibleCount] = useState(0);
   // Last requested wins: a slow older read never replaces a fresher one.
   const generationRef = useRef(0);
 
@@ -54,21 +58,39 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
       .then((result) => {
         if (generation === generationRef.current) {
           setRoots(result);
+          setReadError(null);
         }
       })
       .catch((error: unknown) => {
         // The reset stops the host under a read it overtook (ADR-0015).
-        if (!hasFactoryResetPreparationStarted()) {
-          logger.error('Failed to read workspace trust', { error });
+        if (hasFactoryResetPreparationStarted()) {
+          return;
+        }
+        logger.error('Failed to read workspace trust', { error });
+        if (generation === generationRef.current) {
+          setReadError(errorMessage(error, 'The agent host did not answer'));
         }
       });
     return () => {
       generationRef.current += 1;
     };
-  }, [discovery, activeRootIds, revision]);
+  }, [discovery, activeRootIds, revision, visibleCount]);
+
+  useEffect(() => {
+    if (!discovery) {
+      return;
+    }
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') {
+        setVisibleCount((count) => count + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [discovery]);
 
   const asking = roots.filter(asksForTrust);
-  if (!discovery || asking.length === 0) {
+  if (!discovery || (asking.length === 0 && readError === null)) {
     return null;
   }
 
@@ -121,6 +143,12 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
           </div>
         </div>
       ))}
+      {readError === null ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          Brainstrike could not check which folders you trust, so folder instructions and skills
+          stay off: {readError}
+        </p>
+      )}
       {actionError ? (
         <p className="text-destructive text-sm" role="alert">
           {actionError}
