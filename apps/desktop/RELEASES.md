@@ -112,8 +112,7 @@ it searched.
    runs its own signing-evidence gate and smoke test, including
    `scripts/verify-macos-addon-archs.mjs`: every Mach-O addon in the app must
    carry the DMG's arch, or name the other darwin arch with its target sibling
-   present. `scripts/__tests__/release-workflow-contract.test.mjs` pins this
-   shape.
+   present.
 
    **Linux builds x64 and arm64 AppImages, each natively (BST-2190).** Each
    leg runs on a Ubicloud runner of its arch (`ubicloud-standard-4`,

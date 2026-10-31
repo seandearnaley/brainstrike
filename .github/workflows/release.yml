@@ -23,14 +23,11 @@ name: Release
 # Runner placement: Linux packaging runs on Ubicloud per the repo's cost
 # direction. Ubicloud offers Linux (x64/arm64) only, so the macOS and Windows
 # legs stay on GitHub-hosted runners — there is no Ubicloud option for them.
-# The Ubicloud runner contract test (scripts/__tests__/
-# ubicloud-runner-contract.test.mjs) deliberately constrains test.yml only.
 # Each macOS arch builds on a runner of that arch, the Native Package Matrix's
 # darwin targets (BST-2148): pnpm installs only the host's platform packages
 # and node-gyp compiles for the host, so a cross-built x64 DMG shipped
 # arm64-only addons. Linux x64 and arm64 do the same on Ubicloud runners of
-# their arch (BST-2190). scripts/__tests__/release-workflow-contract.test.mjs
-# pins the legs, one per target, to scripts/native-package-targets.mjs.
+# their arch (BST-2190): one leg per target in scripts/native-package-targets.mjs.
 #
 # Publication ordering (deliberate, do not reorder):
 #   1. build + smoke-test + hash on every target OS

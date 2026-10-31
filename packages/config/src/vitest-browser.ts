@@ -132,8 +132,7 @@ export function resolveVisualBaselinePath(data: VisualBaselinePathData): string 
  * sanitized prefix must stay under 120 bytes; the repo's deepest browser test
  * today (assistant-ui's assistant-thread-virtualization) sits at 85, i.e. 220
  * bytes total with 35 to spare. A longer test filename or a deeper directory
- * eats that headroom, so the budget is enforced against the real tree by
- * scripts/__tests__/browser-trace-name-budget.test.mjs rather than trusted.
+ * eats that headroom.
  */
 export const MAX_TRACE_CHUNK_NAME_BYTES = 80;
 

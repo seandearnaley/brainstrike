@@ -2,40 +2,17 @@
 // Base: eslint-plugin-react-hooks v7 `recommended-latest` flat preset
 // (reactHooks.configs.flat['recommended-latest']), which ships the compiler
 // diagnostic ruleset (purity, refs, immutability, set-state-in-effect, ...).
-// The React Compiler runs in production for both apps (compilationMode
-// 'infer' via babel-plugin-react-compiler in vite.config); these rules are
-// its lint-time instrument.
+// The React Compiler runs in the desktop build through `oxc-transform-react`
+// (apps/desktop/vite.config.mts); these rules are its lint-time instrument.
 import tsParser from '@typescript-eslint/parser';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 const recommendedLatest = reactHooks.configs.flat['recommended-latest'];
 
-// Compiler diagnostics run as WARNINGS for now, budgeted PER RULE in
-// `eslint-warning-baseline.json` and enforced by
-// `scripts/verify-eslint-warning-baselines.mjs` (the root `lint:eslint`
-// script). Burning the warning wave down is downstream work (BST-575 B2-B5) —
-// do not add suppression comments to source files to dodge the ratchet.
-//
-// The budget is exact, not a ceiling: a rule that goes OVER its entry fails,
-// and a rule that goes UNDER fails too until you lower the entry. Banking every
-// burn-down is what keeps freed headroom from silently becoming budget for a
-// later regression. Re-baseline with `pnpm run lint:eslint --write-baseline`.
-//
-// This replaced a single `--max-warnings=N` scalar in #2372. That scalar could
-// not distinguish rule families: burning Fast Refresh warnings silently granted
-// the same headroom to compiler diagnostics. It had already failed once —
-// #2372 found the count at 186 under an unchanged 194 ceiling, 8 warnings of
-// invisible slack. (Prior scalar history: re-baselined 196→197 when a merge in
-// flight was measured after the fact (#1790); burned 197→194 when #1764
-// replaced render-phase ref writes in use-file-system-watcher with
-// useEventCallback, clearing 3 react-hooks/refs.)
-//
-// The measure-then-merge race is still real and the per-rule map does not fix
-// it: #2372 measured 161 Fast Refresh warnings, then #2368 landed mid-flight
-// and split file-explorer-panel-toolbar-helpers.tsx, clearing exactly 6. The
-// difference is that the map now fails loudly (rule UNDER baseline) instead of
-// absorbing the delta. Re-baseline after any rebase.
+// Compiler diagnostics run as WARNINGS: they report but gate nothing. The
+// build's own `panicThreshold: 'critical_errors'` fails the transform for an
+// Error-level skip. The rules below that are set to 'error' are the gates.
 const compilerDiagnosticsAsWarnings = Object.fromEntries(
   Object.keys(recommendedLatest.rules).map((rule) => [rule, 'warn'])
 );

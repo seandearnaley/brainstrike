@@ -25,8 +25,7 @@ Windows token defaults new objects' owner to `BUILTIN\Administrators`. So every
 Windows process entry that can create host-lease or state-store objects first
 imports `@brainstrike/secure-fs-native/default-owner`, which makes the user the
 process's default owner. Administrators is never accepted as an owner, and an
-existing root another principal owns is still refused (BST-2246; the entry list
-is in `scripts/__tests__/windows-default-owner-entry-contract.test.mjs`). Validate
+existing root another principal owns is still refused (BST-2246). Validate
 record shape, path, generation and process identity before attachment. Public
 clients receive the authenticated host protocol, not desktop-private platform
 credentials or capabilities. Authentication failure does not start another owner.

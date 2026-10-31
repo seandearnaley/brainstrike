@@ -258,9 +258,8 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  * Kept in step with the identical declaration in
  * `@brainstrike/assistant-contract` — this package is what actually hands
  * `providerOptions` to the SDK, so a narrower type here would silently fail
- * to represent what the app sends. Both this copy and that one are compared
- * against the installed provider by
- * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
+ * to represent what the app sends. Re-read both against the installed provider
+ * when it is upgraded.
  */
 type AnthropicThinkingOptions =
   | { type: 'adaptive'; display?: 'omitted' | 'summarized' | 'updates' }

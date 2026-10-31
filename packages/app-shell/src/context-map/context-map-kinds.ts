@@ -27,15 +27,12 @@ export const KIND_LABEL: Readonly<Record<ContextSpanKind, string>> = {
  * same measurement:
  *
  * - Solid (`bg-current`; the legend and lens swatches): every value clears AA
- *   (4.5:1) as a foreground on every light surface, enforced by
- *   `scripts/__tests__/source-foreground-contract.test.mjs`, which measures a
- *   `text-*` utility as text wherever it appears.
+ *   (4.5:1) as a foreground on every light surface.
  * - Hatched (`GONE_FILL_CLASS`): `opacity-70` lets 30% of the muted track
  *   through, so the rendered fill is weaker than its own utility — about 40%
- *   weaker here. Enforced by
- *   `scripts/__tests__/composited-fill-contrast-contract.test.mjs` against the
- *   real track token in all four theme modes. The tightest is 3.11:1 (`read`,
- *   high-contrast dark) against the 3:1 WCAG 1.4.11 non-text floor.
+ *   weaker here. Measured against the real track token in all four theme
+ *   modes, the tightest is 3.11:1 (`read`, high-contrast dark) against the 3:1
+ *   WCAG 1.4.11 non-text floor. Re-measure both states when a value changes.
  *
  * #3639 claimed every fill cleared 4.8:1 against the track. It measured the
  * solid swatch only: composited, `dark:text-pink-400` was 2.96:1 and
