@@ -657,12 +657,7 @@ export function createCommandSessionManager({
       rootId,
       status: 'running',
     };
-    let resolveExit = () => {
-      // Replaced synchronously by the promise constructor below.
-    };
-    const exitPromise = new Promise<void>((resolve) => {
-      resolveExit = resolve;
-    });
+    const { promise: exitPromise, resolve: resolveExit } = Promise.withResolvers<void>();
     const entry: SessionEntry = {
       abortListener: undefined,
       bufferBlocks: [],

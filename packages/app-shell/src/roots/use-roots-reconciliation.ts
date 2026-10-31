@@ -70,19 +70,6 @@ const warnedUnmappedRoots = new Set<string>();
 
 type DbRootIdMap = Map<string, string>;
 
-interface SettlingMapPromise {
-  promise: Promise<DbRootIdMap>;
-  resolve: (map: DbRootIdMap) => void;
-}
-
-function createSettlingMapPromise(): SettlingMapPromise {
-  let resolve!: (map: DbRootIdMap) => void;
-  const promise = new Promise<DbRootIdMap>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 /** The same map when every key is still mounted, so consumers don't re-render. */
 function retainMountedKeys(
   map: ReadonlyMap<string, string>,
@@ -303,9 +290,9 @@ export function useRootsReconciliation({
   // empty map on the already-logged error path — it NEVER rejects or hangs.
   // Lazily initialized so renders after the first don't allocate a throwaway
   // promise; the `resolve` function is called exactly once to settle it.
-  const settlingRef = useRef<SettlingMapPromise | null>(null);
+  const settlingRef = useRef<PromiseWithResolvers<DbRootIdMap> | null>(null);
   if (settlingRef.current === null) {
-    settlingRef.current = createSettlingMapPromise();
+    settlingRef.current = Promise.withResolvers<DbRootIdMap>();
   }
 
   // True when the boot promise was settled empty because the adapter had no
@@ -376,7 +363,7 @@ export function useRootsReconciliation({
     if (settling === null) {
       // Unreachable (the render phase always initializes the ref); recreate
       // rather than return so the "always settles" contract can't be broken.
-      settling = createSettlingMapPromise();
+      settling = Promise.withResolvers<DbRootIdMap>();
       settlingRef.current = settling;
     }
     if (!adapter.restoreRoots) {
@@ -400,7 +387,7 @@ export function useRootsReconciliation({
       // deterministically await its real mapping (dbRootIdMapRef read-through
       // would only make it eventually visible); resolveDbRootId reads the
       // ref at call time, so new waiters pick up the fresh promise.
-      settling = createSettlingMapPromise();
+      settling = Promise.withResolvers<DbRootIdMap>();
       settlingRef.current = settling;
       settledWithoutRestoreRef.current = false;
       publishReconciliationSettled(false);

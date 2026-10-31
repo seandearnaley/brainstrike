@@ -928,12 +928,11 @@ export function useBackgroundTokenIndexer({
         };
 
         const trackedCompositeKeys = requests.map((request) => request.compositeKey);
-        let resolveBatch!: () => void;
-        let rejectBatch!: (error: Error) => void;
-        const completionPromise = new Promise<void>((resolve, reject) => {
-          resolveBatch = resolve;
-          rejectBatch = reject;
-        });
+        const {
+          promise: completionPromise,
+          reject: rejectBatch,
+          resolve: resolveBatch,
+        } = Promise.withResolvers<void>();
         const tracker: PendingBatchTracker = {
           done: false,
           reject: rejectBatch,

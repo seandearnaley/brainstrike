@@ -281,10 +281,7 @@ async function acquireReadySession(
     ? AbortSignal.any([callerSignal, controller.signal])
     : controller.signal;
   signal.throwIfAborted();
-  let rejectAborted: (error: unknown) => void = () => {};
-  const interrupted = new Promise<never>((_resolve, reject) => {
-    rejectAborted = reject;
-  });
+  const { promise: interrupted, reject: rejectAborted } = Promise.withResolvers<never>();
   const onAbort = (): void => rejectAborted(signal.reason);
   signal.addEventListener('abort', onAbort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;

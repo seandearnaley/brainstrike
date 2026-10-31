@@ -205,15 +205,11 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
     priority: FileContentBatchPriority,
     epoch: number
   ): PendingFileContentBatch => {
-    let resolveScheduled: (() => void) | undefined;
-    let rejectScheduled: ((error: unknown) => void) | undefined;
-    const scheduled = new Promise<void>((resolve, reject) => {
-      resolveScheduled = resolve;
-      rejectScheduled = reject;
-    });
-    if (!(resolveScheduled && rejectScheduled)) {
-      throw new Error('Failed to initialize file-content batch settlement');
-    }
+    const {
+      promise: scheduled,
+      reject: rejectScheduled,
+      resolve: resolveScheduled,
+    } = Promise.withResolvers<void>();
     return {
       compositeKeys: [...compositeKeys],
       dependencies: new Set(),
