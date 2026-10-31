@@ -14,13 +14,13 @@ type ImageState =
   | { readonly kind: 'error'; readonly message: string };
 
 /**
- * The box an image holds until it has decoded. The resolver yields only a URL,
- * never the image's size, so this is a fixed landscape box rather than the
- * image's own shape: the page shifts once, when the image appears, instead of
- * growing from a line of text through an empty img to its full height.
+ * What an image shows until it has decoded. The resolver yields only a URL,
+ * never the image's size, so no box can match the image; a one-line chip keeps
+ * a row of inline badges on one line, and the page shifts once, when the image
+ * appears, instead of growing through an empty img first.
  */
 const PLACEHOLDER_CLASS_NAME =
-  'bg-muted text-muted-foreground flex aspect-video w-full max-w-md items-center justify-center rounded px-2 text-center text-xs';
+  'bg-muted text-muted-foreground inline-block rounded px-2 py-1 text-xs';
 
 /** Async image: resolves the raw markdown src through the injected capability.
  * Failure renders an explicit placeholder naming the path — never a broken img. */
