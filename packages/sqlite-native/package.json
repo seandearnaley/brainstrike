@@ -27,7 +27,6 @@
     "test": "node test/ensure-prebuild.cjs && vitest run",
     "test:electron": "pnpm --filter @brainstrike/desktop exec xvfb-maybe electron --no-sandbox ../../packages/sqlite-native/test/electron-smoke.cjs",
     "test:packaged": "node test/packaged-smoke.cjs",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,

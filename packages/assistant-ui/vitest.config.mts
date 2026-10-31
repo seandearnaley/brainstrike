@@ -1,11 +1,10 @@
-import { resolve } from 'node:path';
+import { createBrowserProject } from '@brainstrike/config/vitest-browser';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
-import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { sharedConfig } from '@brainstrike/test-utils/vitest.base';
 import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, mergeConfig } from 'vitest/config';
 import type { BrowserCommand, BrowserConfigOptions } from 'vitest/node';
-import { createBrowserProject } from '../config/src/vitest-browser.ts';
 
 const emulateReducedMotion: BrowserCommand<[options: { enabled: boolean | null }]> = async (
   { page },
@@ -34,100 +33,80 @@ const browserProject = createBrowserProject({
 
 const sharedBrowserOptions: BrowserConfigOptions = browserProject.test.browser;
 
-const workspaceAliases = [
-  {
-    find: /^@brainstrike\/ui$/u,
-    replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
-  },
-  {
-    // Asset export: the registry only aliases code subpaths, so without this
-    // the browser suites' globals import resolves to ui's built dist copy.
-    find: /^@brainstrike\/ui\/globals\.css$/u,
-    replacement: resolve(import.meta.dirname, '../ui/src/globals.css'),
-  },
-];
-
-export default defineConfig({
-  optimizeDeps: {
-    include: ['@testing-library/jest-dom/vitest'],
-  },
-  plugins: [tailwindcss()],
-  resolve: {
-    alias: workspaceAliases,
-  },
-  test: {
-    // One module cache per package, so parallel lanes never clear a shared one.
-    fsModuleCachePath: 'node_modules/.vitest-cache',
-    projects: [
-      {
-        plugins: [reactCompiler()],
-        resolve: {
-          alias: workspaceAliases,
+export default mergeConfig(
+  sharedConfig,
+  defineConfig({
+    optimizeDeps: {
+      include: ['@testing-library/jest-dom/vitest'],
+    },
+    plugins: [tailwindcss()],
+    test: {
+      projects: [
+        {
+          plugins: [reactCompiler()],
+          test: {
+            coverage: {
+              exclude: [
+                '**/__tests__/**',
+                '**/*.browser.test.{ts,tsx}',
+                '**/*.d.ts',
+                '**/types.ts',
+                '**/types/**',
+                '**/dist/**',
+                '**/index.ts',
+              ],
+              include: ['src/**/*.{ts,tsx}'],
+            },
+            environment: 'happy-dom',
+            exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+            globals: true,
+            include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
+            maxWorkers: process.env['CI'] ? '50%' : '100%',
+            name: 'unit',
+            sequence: {
+              groupOrder: 0,
+            },
+            setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
+          },
         },
-        test: {
-          coverage: {
-            exclude: [
-              '**/__tests__/**',
-              '**/*.browser.test.{ts,tsx}',
-              '**/*.d.ts',
-              '**/types.ts',
-              '**/types/**',
-              '**/dist/**',
-              '**/index.ts',
+        {
+          optimizeDeps: {
+            include: [
+              '@assistant-ui/react',
+              '@tanstack/react-virtual',
+              // The browser setup file imports @testing-library/dom DIRECTLY, a
+              // specifier no suite here writes. Listed so it is pre-bundled with
+              // (not discovered after, and re-optimized alongside) the copy
+              // @testing-library/react resolves — a split there would apply the
+              // async-util budget to an instance no `waitFor` reads.
+              '@testing-library/dom',
+              '@testing-library/jest-dom/vitest',
+              '@testing-library/react',
+              'react',
+              'react-dom',
+              'react-dom/client',
             ],
-            include: ['src/**/*.{ts,tsx}'],
           },
-          environment: 'happy-dom',
-          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
-          globals: true,
-          include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
-          maxWorkers: process.env['CI'] ? '50%' : '100%',
-          name: 'unit',
-          sequence: {
-            groupOrder: 0,
+          plugins: [reactCompiler()],
+          resolve: {
+            dedupe: ['react', 'react-dom'],
           },
-          setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
-        },
-      },
-      {
-        optimizeDeps: {
-          include: [
-            '@assistant-ui/react',
-            '@tanstack/react-virtual',
-            // The browser setup file imports @testing-library/dom DIRECTLY, a
-            // specifier no suite here writes. Listed so it is pre-bundled with
-            // (not discovered after, and re-optimized alongside) the copy
-            // @testing-library/react resolves — a split there would apply the
-            // async-util budget to an instance no `waitFor` reads.
-            '@testing-library/dom',
-            '@testing-library/jest-dom/vitest',
-            '@testing-library/react',
-            'react',
-            'react-dom',
-            'react-dom/client',
-          ],
-        },
-        plugins: [reactCompiler()],
-        resolve: {
-          alias: workspaceAliases,
-          dedupe: ['react', 'react-dom'],
-        },
-        test: {
-          ...browserProject.test,
-          browser: {
-            ...sharedBrowserOptions,
-            commands: {
-              ...sharedBrowserOptions.commands,
-              emulateReducedMotion,
+          test: {
+            ...browserProject.test,
+            browser: {
+              ...sharedBrowserOptions,
+              commands: {
+                ...sharedBrowserOptions.commands,
+                emulateReducedMotion,
+              },
+            },
+            globals: true,
+            sequence: {
+              groupOrder: 1,
             },
           },
-          globals: true,
-          sequence: {
-            groupOrder: 1,
-          },
         },
-      },
-    ],
-    reporters: ['default', new LostTestFileReporter()],
-  },
-});
+      ],
+    },
+  })
+);

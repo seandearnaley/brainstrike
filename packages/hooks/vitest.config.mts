@@ -1,17 +1,20 @@
-import { testBase } from '@brainstrike/test-utils/vitest.base';
-import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { sharedConfig } from '@brainstrike/test-utils/vitest.base';
 import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
-import type { InlineConfig } from 'vitest';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, mergeConfig } from 'vitest/config';
 
-export default defineConfig({
-  plugins: [reactCompiler()],
-  test: {
-    // One module cache per package, so parallel lanes never clear a shared one.
-    fsModuleCachePath: 'node_modules/.vitest-cache',
-    ...testBase,
-    exclude: ['node_modules', 'dist'],
-    include: ['src/__tests__/**/*.test.{ts,tsx}'],
-    reporters: ['default', new LostTestFileReporter()],
-  } as InlineConfig,
-});
+export default mergeConfig(
+  sharedConfig,
+  defineConfig({
+    plugins: [reactCompiler()],
+    test: {
+      clearMocks: true,
+      environment: 'happy-dom',
+      hookTimeout: 15_000,
+      include: ['src/__tests__/**/*.test.{ts,tsx}'],
+      mockReset: true,
+      restoreMocks: true,
+      setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
+      testTimeout: 10_000,
+    },
+  })
+);

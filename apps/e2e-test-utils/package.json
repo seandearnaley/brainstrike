@@ -19,9 +19,7 @@
   },
   "private": true,
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,

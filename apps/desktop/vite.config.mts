@@ -184,56 +184,12 @@ export default defineConfig({
   ],
   publicDir: 'public',
   resolve: {
-    // Array form: first match wins, so deliberate overrides/exceptions come
-    // BEFORE the shared registry spread (B3/B4 convention, #1651/#1658). Every
-    // root/subpath alias the registry emits is an EXACT specifier match
-    // (derived from each package's own `exports` map), so — unlike the old
-    // hand-maintained list's mix of exact AND blanket string-prefix roots
-    // (e.g. the `@brainstrike/utils` exact+prefix pair this replaces) —
-    // subpath vs. root ordering can no longer shadow anything; only the
-    // exceptions below need to precede it.
     alias: [
-      { find: '@', replacement: path.resolve(__dirname, './src') },
-      // Stylesheet/asset imports: the registry deliberately excludes non-code
-      // exports (css/json/icons), so these stay explicit.
-      {
-        find: '@brainstrike/app-shell/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/app-shell/styles.css'),
-      },
-      {
-        find: '@brainstrike/workspace-search/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/workspace-search/styles.css'),
-      },
-      {
-        find: '@brainstrike/file-explorer-ui/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
-      },
-      {
-        find: '@brainstrike/ui/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
-      },
-      {
-        find: '@brainstrike/assistant-ui/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/assistant-ui/styles.css'),
-      },
-      {
-        find: '@brainstrike/ui/globals.css',
-        replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
-      },
-      // @brainstrike/file-tree-worker's root `exports['.']` targets a
-      // Node-worker_threads entry (dist/index.js); the registry would derive
-      // that same Node-targeted src/index.ts. vite.ts is the deliberate
-      // browser-adapted implementation (Vite Worker URL syntax) this app
-      // needs instead, so it must precede the spread.
+      // Workspace packages resolve through their `exports`. vite.ts is file-tree-worker's
+      // Vite worker-URL entry; its root export is the Node-side one.
       {
         find: '@brainstrike/file-tree-worker',
         replacement: path.resolve(__dirname, '../../packages/file-tree-worker/src/vite.ts'),
-      },
-      // @brainstrike/workers has no `src/` dir (worker files live at the
-      // package root), so the registry skips it — alias explicitly.
-      {
-        find: '@brainstrike/workers',
-        replacement: path.resolve(__dirname, '../../packages/workers'),
       },
       {
         // Force pino to browser build to avoid dynamic require of node libs in renderer

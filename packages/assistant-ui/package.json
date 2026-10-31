@@ -69,11 +69,9 @@
     "./worktree-archive-confirmation-dialog": "./src/workspace-bar/worktree-archive-confirmation-dialog.tsx"
   },
   "scripts": {
-    "lint": "pnpm -w lint",
     "perf:streaming": "node streaming-perf.mjs",
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   }
 }

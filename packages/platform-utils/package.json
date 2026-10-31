@@ -3,6 +3,7 @@
   "description": "Platform detection utilities",
   "version": "0.1.0",
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "happy-dom": "catalog:",
@@ -14,7 +15,6 @@
   },
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "type": "module"

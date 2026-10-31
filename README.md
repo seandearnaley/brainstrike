@@ -47,6 +47,16 @@ pnpm dev --filter @brainstrike/desktop
 - Focused E2E runs: [desktop E2E guide](apps/desktop/e2e/README.md).
 - Dependency versions live in the catalogs and overrides in `pnpm-workspace.yaml`; local packages use `workspace:*`. Run `pnpm install` after version changes.
 
+### Build and test configuration
+
+- Workspace packages resolve through their `exports` (pnpm links plus Node type stripping) in TypeScript, Vite and Vitest. Vitest configs carry no `@brainstrike/*` aliases; the one left in Vite is the desktop renderer's `@brainstrike/file-tree-worker` entry.
+- A package's `vitest.config.mts` is `mergeConfig(sharedConfig, defineConfig({...}))` with `sharedConfig` from `@brainstrike/test-utils/vitest.base`; `integrationLane(config, include)` derives its `test:integration` config.
+- `turbo.jsonc`:
+  - `topo` is a transit node that no package defines. `test*` and `type-check` depend on it, so a dependency's source edit re-hashes its dependents without a build. An empty `dependsOn` would replay stale passes.
+  - Global `inputs` list only files every task reads. Turbo already hashes each package's lockfile closure and each task definition. The shared tsconfig preset is extended by raw relative path, so its glob is the only thing carrying it into hashes.
+  - Strict env mode passes only declared variables. Anything that changes a result goes in `env`; `COVERAGE` and `VITEST_MAX_WORKERS` are `passThroughEnv` so PR and push runs share cache entries.
+  - A suite that loads a native add-on declares the add-on `build` edge in its package's `turbo.json`, never an inline `pnpm build &&` (two concurrent node-gyp rebuilds race).
+
 ## License
 
 ISC. See [LICENSE](LICENSE); package-specific notices stay with each package.
