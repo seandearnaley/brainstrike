@@ -154,6 +154,7 @@ export function createAgentHostToolBindings(options: {
     const interaction = canonicalInteraction(source, canonicalId, binding.risk);
     const consent = canonicalConsent(canonicalId);
     const personApproval = canonicalPersonApproval(canonicalId);
+    const sandboxed = source.sandboxed;
     tools[name] = {
       ...(consent ? { consent } : {}),
       description: source.description,
@@ -165,6 +166,7 @@ export function createAgentHostToolBindings(options: {
       ...(personApproval ? { personApproval } : {}),
       permissionToolId: canonicalId,
       risk: binding.risk,
+      ...(sandboxed ? { sandboxed: (input: unknown) => sandboxed.call(source, input) } : {}),
       ...(strict === undefined ? {} : { strict }),
       ...(project
         ? {

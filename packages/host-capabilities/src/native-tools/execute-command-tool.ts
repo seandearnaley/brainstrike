@@ -45,6 +45,32 @@ export type WindowsCommandEntry = () => string;
  */
 export type CommandSandbox = () => Promise<FencedShell | undefined>;
 
+/**
+ * Whether this call would run inside the OS sandbox if approved, for its
+ * approval card (BST-2360): not with `dangerouslyDisableSandbox`, and not on a
+ * host that supplies no sandbox or whose platform has none (Windows, WSL 1).
+ * A sandbox that fails to load refuses the command, so nothing would run
+ * outside it: that counts as sandboxed, and the run reports the failure.
+ */
+export async function commandRunsSandboxed(
+  sandbox: CommandSandbox | undefined,
+  input: unknown
+): Promise<boolean> {
+  const outside =
+    typeof input === 'object' &&
+    input !== null &&
+    'dangerouslyDisableSandbox' in input &&
+    input.dangerouslyDisableSandbox === true;
+  if (outside || !sandbox) {
+    return false;
+  }
+  try {
+    return (await sandbox()) !== undefined;
+  } catch {
+    return true;
+  }
+}
+
 const logger = createLogger('ExecuteCommandTool');
 const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
 const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;

@@ -15,7 +15,11 @@ import {
   type ShellCorrelationDependencies,
 } from './execute-command-correlation.ts';
 import { projectExecuteCommandModelOutput } from './execute-command-model-projection.ts';
-import type { CommandSandbox, WindowsCommandEntry } from './execute-command-tool.ts';
+import {
+  type CommandSandbox,
+  commandRunsSandboxed,
+  type WindowsCommandEntry,
+} from './execute-command-tool.ts';
 import type { NativeToolBuildContext } from './executors.ts';
 import type { NativeToolExecutor } from './host-tools.ts';
 import {
@@ -80,6 +84,7 @@ export function executeCommandExecutor(shell: ExecuteCommandShell): NativeToolEx
       },
       id: NATIVE_TOOL_ID.executeCommand,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
+      sandboxed: (input: unknown) => commandRunsSandboxed(shell.sandbox, input),
       toModelOutput: (output: unknown) =>
         projectExecuteCommandModelOutput(output, resolveActiveDomainCharBudget()),
     };

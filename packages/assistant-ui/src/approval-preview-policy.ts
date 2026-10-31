@@ -31,7 +31,7 @@ const RUN_PYTHON_MAX_DOMAIN_CHARS = 253;
 /** What a preview reads from an approval: its tool, arguments and host facts. */
 export type ApprovalPreviewSubject = Pick<
   AssistantToolApprovalRequest,
-  'args' | 'executionContext' | 'targetRoot' | 'toolName'
+  'args' | 'executionContext' | 'sandboxed' | 'targetRoot' | 'toolName'
 >;
 
 interface RunPythonApprovalArgs {

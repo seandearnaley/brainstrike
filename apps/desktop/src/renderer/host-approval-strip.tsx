@@ -44,6 +44,7 @@ export function HostApprovalStrip({
         ...(approval.reason ? { reviewNote: approval.reason } : {}),
         ...(approval.risk ? { risk: approval.risk } : {}),
         runId: approval.runId,
+        ...(approval.sandboxed === undefined ? {} : { sandboxed: approval.sandboxed }),
         ...(approval.targetRoot ? { targetRoot: approval.targetRoot } : {}),
         toolCallId: approval.toolCallId,
         toolName,

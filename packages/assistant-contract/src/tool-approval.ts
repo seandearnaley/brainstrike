@@ -197,6 +197,12 @@ export interface AssistantToolApprovalRequest {
   riskCategory?: ToolRiskCategory;
   runId: string;
   /**
+   * BST-2360: for a command, whether the host runs it inside the OS sandbox.
+   * False on a host with no sandbox (Windows, the standalone host) and for a
+   * call that asks to run outside it. Absent for other tools.
+   */
+  sandboxed?: boolean;
+  /**
    * BST-1990 (D4): the workspace folder the host resolved for a file tool's
    * call, so the approval names it even when the call gave no `root`. Absent
    * for a tool that targets no folder, or a call the host could not resolve.

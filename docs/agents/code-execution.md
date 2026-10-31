@@ -38,7 +38,10 @@ workspace lease are unchanged. A readiness failure refuses the command with its
 reason and never falls back. `dangerouslyDisableSandbox` runs one command
 outside: run admission gives that call to the person in Ask and Auto (the auto
 reviewer never approves it), and Full runs it. The standalone host, Windows and
-command sessions run unsandboxed, and a result says `sandboxed: false`.
+command sessions run unsandboxed, and a result says `sandboxed: false`. An
+executeCommand approval carries the same fact (`sandboxed` on
+`interaction.requested`, from the tool's own check), so its card says a command
+will run with no sandbox before the person approves it.
 
 Every sandboxed process reads sandbox-runtime's process-wide
 `network.allowedDomains`, so it stays empty. A run_python call's approved domains
