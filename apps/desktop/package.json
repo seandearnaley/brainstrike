@@ -150,7 +150,6 @@
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
-    "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/host-capabilities": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",

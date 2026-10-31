@@ -2,8 +2,11 @@
 import { readFile } from 'node:fs/promises';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import { describe, expect, it } from 'vitest';
-import type { CanonicalChunkEvent } from '../canonical-chunk-producer';
-import { canonicalIndexPayload, canonicalIndexPublication } from '../canonical-index-publication';
+import type { CanonicalChunkEvent } from '../src/canonical-chunk-producer.ts';
+import {
+  canonicalIndexPayload,
+  canonicalIndexPublication,
+} from '../src/canonical-index-publication.ts';
 
 const capture = JSON.parse(
   await readFile(

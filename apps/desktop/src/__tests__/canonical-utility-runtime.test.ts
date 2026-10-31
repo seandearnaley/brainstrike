@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
 import {
+  type CanonicalIndexPayload,
   type CanonicalOperationContext,
   type CanonicalScanReceipt,
   type CanonicalWorkspaceLease,
   createNativeCanonicalPublication,
 } from '@brainstrike/canonical-ingestion';
-import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
