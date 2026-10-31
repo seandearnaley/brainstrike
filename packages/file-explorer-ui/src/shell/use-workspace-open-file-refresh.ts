@@ -1,9 +1,8 @@
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange } from '@brainstrike/types';
 import { normalizeFilePathForFolder } from '@brainstrike/utils/relative-file-path';
-import { useEffect } from 'react';
+import { useEffect, useEffectEvent } from 'react';
 import type { FileContentLoadIntent } from '../file-content-load-authority-context';
 import type { FileTab } from '../hooks/use-tab-manager';
 import { normalizePathForRootScope } from '../utils/root-scoped-paths';
@@ -169,7 +168,7 @@ export function useWorkspaceOpenFileRefresh({
   reloadFileContents,
   tabs,
 }: UseWorkspaceOpenFileRefreshParams): void {
-  const handleRefresh = useEventCallback((event: Event): void => {
+  const onRefresh = useEffectEvent((event: Event): void => {
     const { detail } = event as FileExplorerRefreshEvent;
     const plan = planOpenFileRefresh(tabs, detail);
     if (plan.invalidCompositeKeys.length > 0) {
@@ -189,9 +188,10 @@ export function useWorkspaceOpenFileRefresh({
   });
 
   useEffect(() => {
+    const handleRefresh = (event: Event): void => onRefresh(event);
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     return () => {
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     };
-  }, [handleRefresh]);
+  }, []);
 }

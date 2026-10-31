@@ -4,12 +4,8 @@ import type {
   FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
 } from '@brainstrike/file-system';
-import { useEventCallback } from '@brainstrike/hooks';
 import type { FileSystemChange } from '@brainstrike/types';
-import { useEffect, useRef } from 'react';
-
-/** Stable no-op so an absent `onSignal` never churns the dispatcher identity. */
-const NOOP_SIGNAL = (_rootId: string, _signal: FileSystemWatchSignal): void => {};
+import { useEffect, useEffectEvent, useRef } from 'react';
 
 export interface FileSystemWatcherRoot {
   handle: DirectoryHandle;
@@ -19,9 +15,8 @@ export interface FileSystemWatcherRoot {
 export interface UseFileSystemWatcherParams {
   adapter: FileSystemAdapter;
   /**
-   * Called whenever changes are detected in a watched root.
-   * Callers should stabilize this reference (e.g. useCallback) to avoid
-   * unnecessary watcher restarts.
+   * Called whenever changes are detected in a watched root. A new reference
+   * never restarts a watcher.
    */
   onChanges: (
     rootId: string,
@@ -32,7 +27,7 @@ export interface UseFileSystemWatcherParams {
    * Called when a watched root reports an out-of-band health signal
    * ('overflow' = events may have been missed, full refresh required;
    * 'errored' = the watch is dead and already disconnected, must be surfaced
-   * visibly). Callers should stabilize this reference (e.g. useCallback).
+   * visibly). A new reference never restarts a watcher.
    */
   onSignal?: (rootId: string, signal: FileSystemWatchSignal) => void;
   /**
@@ -69,8 +64,8 @@ export interface UseFileSystemWatcherParams {
  * than trusting this comment.
  *
  * Changing `onChanges`/`onSignal` identity does NOT restart watchers; the
- * identity-stable `useEventCallback` wrappers always dispatch to the latest
- * callback without restarting any watcher subscription.
+ * Effect Events always dispatch to the latest callback without restarting any
+ * watcher subscription.
  */
 export function useFileSystemWatcher({
   adapter,
@@ -81,19 +76,28 @@ export function useFileSystemWatcher({
   // Map<rootId, disposer> — operational infrastructure, never drives UI.
   const watchersRef = useRef<Map<string, () => void>>(new Map());
 
-  // Identity-stable dispatchers that always call the CURRENT callback, so the
-  // diff effect can omit them from its deps without restarting watchers.
+  // Effect Events always call the CURRENT callback, so the diff effect leaves
+  // them out of its deps and a new callback never restarts a watcher.
   //
-  // These MUST be commit-phase-fresh, which is exactly what useEventCallback
-  // guarantees (it syncs its ref in a layout effect). Watcher events arrive
-  // from a bridge/IPC push rather than React's scheduler, so they can land
-  // after a render commits but before passive effects flush — a plain
-  // `useEffect` ref sync would route that whole window to the PREVIOUS
+  // These MUST be commit-phase-fresh, which React guarantees for Effect Events.
+  // Watcher events arrive from a bridge/IPC push rather than React's scheduler,
+  // so they can land after a render commits but before passive effects flush —
+  // a plain `useEffect` ref sync would route that whole window to the PREVIOUS
   // callback. Covered by the "commit-phase events" regression test.
-  const emitChanges = useEventCallback(onChanges);
-  const emitSignal = useEventCallback(onSignal ?? NOOP_SIGNAL);
+  const emitChanges = useEffectEvent(
+    (rootId: string, changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => {
+      if (metadata) {
+        onChanges(rootId, changes, metadata);
+      } else {
+        onChanges(rootId, changes);
+      }
+    }
+  );
+  const emitSignal = useEffectEvent((rootId: string, signal: FileSystemWatchSignal) => {
+    onSignal?.(rootId, signal);
+  });
 
-  // Diff effect: runs whenever roots/adapter/onChanges changes.
+  // Diff effect: runs whenever roots or adapter changes.
   // Does NOT return a cleanup — disposed roots are handled inline.
   // biome-ignore lint/plugin: watcher subscription setup, not data fetching
   useEffect(() => {
@@ -120,13 +124,7 @@ export function useFileSystemWatcher({
       if (!watchers.has(rootId)) {
         const dispose = watchDirectory(
           handle,
-          (changes, metadata) => {
-            if (metadata) {
-              emitChanges(rootId, changes, metadata);
-            } else {
-              emitChanges(rootId, changes);
-            }
-          },
+          (changes, metadata) => emitChanges(rootId, changes, metadata),
           (signal) => {
             // 'errored' means the adapter already disconnected the watch; the
             // dead disposer stays in the map deliberately — no auto-restart
@@ -139,13 +137,7 @@ export function useFileSystemWatcher({
       }
     }
     // Intentionally no cleanup return — diff is handled above.
-    // emitChanges/emitSignal are listed for accuracy, not because a linter
-    // checks it (react-hooks/exhaustive-deps is off repo-wide). Their
-    // identities are fixed for the hook's lifetime, so they never actually
-    // retrigger this effect. Listing the raw onChanges/onSignal instead would
-    // restart every watcher on each callback identity change for no
-    // behavioural benefit.
-  }, [adapter, roots, emitChanges, emitSignal]);
+  }, [adapter, roots]);
 
   // Unmount-only effect: dispose ALL remaining watchers when the component
   // using this hook is torn down. Empty dep array = runs cleanup once on

@@ -39,7 +39,7 @@
  * on the identical field — that needs optimistic concurrency at the
  * persistence layer, a different ticket.
  */
-import { type RefObject, useCallback, useRef } from 'react';
+import { type RefObject, useRef } from 'react';
 import {
   changedFolderWriteIdentityFields,
   FOLDER_WRITE_IDENTITY_FIELDS,
@@ -155,11 +155,7 @@ export function useWriteTailQueue(): WriteTailQueue {
     retireWriteTailIfCaughtUp();
   };
 
-  // Stable identity, same reason as the other exports below: consumed by
-  // enqueueThreadFoldersWrite's own useCallback, so a fresh function every
-  // render would either churn that callback's identity every render (if
-  // added to its deps) or count as a real missing dependency (if not).
-  const currentRevisions = useCallback(() => liveIdentityRevisionsRef.current, []);
+  const currentRevisions = () => liveIdentityRevisionsRef.current;
 
   return {
     currentRevisions,
