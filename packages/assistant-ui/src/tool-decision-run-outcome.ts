@@ -13,16 +13,13 @@ import {
   type AssistantToolSuspendRequest,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { Predicate } from 'effect';
 
 export function isAssistantToolApprovalRequest(
   value: unknown
 ): value is AssistantToolApprovalRequest {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['runId'] === 'string' &&
     typeof value['toolCallId'] === 'string' &&
     typeof value['toolName'] === 'string' &&
@@ -57,34 +54,34 @@ function isMatchingApprovalAction(value: unknown, approval: AssistantToolApprova
 }
 
 function getMessageRole(message: unknown): unknown {
-  return isRecord(message) ? message['role'] : undefined;
+  return Predicate.isObject(message) ? message['role'] : undefined;
 }
 
 function getMessageStatus(message: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(message)) {
+  if (!Predicate.isObject(message)) {
     return;
   }
   const status = message['status'];
-  return isRecord(status) ? status : undefined;
+  return Predicate.isObject(status) ? status : undefined;
 }
 
 function getToolApprovalActionFromMessage(message: unknown): unknown {
-  if (!isRecord(message)) {
+  if (!Predicate.isObject(message)) {
     return;
   }
   const metadata = message['metadata'];
-  if (!isRecord(metadata)) {
+  if (!Predicate.isObject(metadata)) {
     return;
   }
   const custom = metadata['custom'];
-  if (!isRecord(custom)) {
+  if (!Predicate.isObject(custom)) {
     return;
   }
   return custom[TOOL_APPROVAL_RUN_CONFIG_KEY];
 }
 
 function getToolApprovalDecision(value: unknown): AssistantToolApprovalDecision | null {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return null;
   }
   const action = value['action'];
@@ -96,13 +93,17 @@ function getLiveApprovalDecisionFromMessage(
   approval: AssistantToolApprovalRequest
 ): AssistantToolApprovalDecision | null {
   if (
-    !(isRecord(message) && message['role'] === 'assistant' && Array.isArray(message['content']))
+    !(
+      Predicate.isObject(message) &&
+      message['role'] === 'assistant' &&
+      Array.isArray(message['content'])
+    )
   ) {
     return null;
   }
   for (const part of message['content']) {
     if (
-      isRecord(part) &&
+      Predicate.isObject(part) &&
       part['type'] === 'data' &&
       part['name'] === TOOL_APPROVAL_ANSWERED_DATA_NAME &&
       isAssistantToolApprovalAnswered(part['data']) &&
@@ -178,7 +179,7 @@ export function isAssistantToolSuspendRequest(
   value: unknown
 ): value is AssistantToolSuspendRequest {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['runId'] === 'string' &&
     typeof value['toolCallId'] === 'string' &&
     typeof value['toolName'] === 'string' &&
@@ -192,23 +193,25 @@ function isMatchingResumeAction(value: unknown, request: AssistantToolSuspendReq
 }
 
 function getResumeActionFromMessage(message: unknown): unknown {
-  if (!isRecord(message)) {
+  if (!Predicate.isObject(message)) {
     return;
   }
   const metadata = message['metadata'];
-  if (!isRecord(metadata)) {
+  if (!Predicate.isObject(metadata)) {
     return;
   }
   const custom = metadata['custom'];
-  return isRecord(custom) ? custom[TOOL_SUSPEND_RUN_CONFIG_KEY] : undefined;
+  return Predicate.isObject(custom) ? custom[TOOL_SUSPEND_RUN_CONFIG_KEY] : undefined;
 }
 
 function getMessageStatusType(message: unknown): string | undefined {
-  if (!isRecord(message)) {
+  if (!Predicate.isObject(message)) {
     return;
   }
   const status = message['status'];
-  return isRecord(status) && typeof status['type'] === 'string' ? status['type'] : undefined;
+  return Predicate.isObject(status) && typeof status['type'] === 'string'
+    ? status['type']
+    : undefined;
 }
 
 /**

@@ -7,6 +7,7 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
+    "./contracts": "./src/contracts.ts",
     "./transport": "./src/transport.ts",
     "./host": "./src/process-core.ts",
     "./metadata": "./src/metadata-reader.ts",

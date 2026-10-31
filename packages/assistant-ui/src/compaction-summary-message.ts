@@ -3,6 +3,7 @@ import {
   type CompactionSummaryPayload,
   isCompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
+import { Predicate } from 'effect';
 
 /** A host thread's committed `context.compacted`, as a data part of the run that made it. */
 export const HOST_CONTEXT_COMPACTED_DATA_NAME = 'brainstrike.context-compacted';
@@ -51,7 +52,7 @@ function isText(value: unknown): value is string {
 /** A recorded summarizer failure, or why it cannot be read. */
 function readSummarizerFailure(value: unknown): HostContextSummarizerFailure {
   if (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     isText(value['code']) &&
     (value['correlationId'] === undefined || isText(value['correlationId']))
   ) {
@@ -65,7 +66,11 @@ function readSummarizerFailure(value: unknown): HostContextSummarizerFailure {
 
 /** A summarizer's usage as committed (the SDK's totalUsage), or why it cannot be read. */
 function readHostCompactionUsage(usage: unknown): HostContextCompactionUsage {
-  if (isRecord(usage) && isCount(usage['inputTokens']) && isCount(usage['outputTokens'])) {
+  if (
+    Predicate.isObject(usage) &&
+    isCount(usage['inputTokens']) &&
+    isCount(usage['outputTokens'])
+  ) {
     return { inputTokens: usage['inputTokens'], outputTokens: usage['outputTokens'] };
   }
   throw new Error('Committed compaction usage has no provider-reported token counts.');
@@ -114,7 +119,7 @@ export function committedHostCompaction(
 /** The committed projection writes this part; any other shape is a projection defect. */
 export function readHostContextCompaction(data: unknown): HostContextCompaction {
   if (
-    isRecord(data) &&
+    Predicate.isObject(data) &&
     (data['kind'] === 'agentic' || data['kind'] === 'deterministic') &&
     typeof data['summary'] === 'string' &&
     isReason(data['reason']) &&
@@ -137,25 +142,21 @@ export function readHostContextCompaction(data: unknown): HostContextCompaction 
   throw new Error('Host compaction part has an unsupported shape.');
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 /**
  * True when an ordinary durable assistant message carries a structurally valid
  * compaction-summary marker. The message remains model-visible; this recognizer
  * exists only so the renderer can choose its dedicated divider/card treatment.
  */
 export function readCompactionSummaryPayload(message: unknown): CompactionSummaryPayload | null {
-  if (!isRecord(message) || message['role'] !== 'assistant') {
+  if (!Predicate.isObject(message) || message['role'] !== 'assistant') {
     return null;
   }
   const metadata = message['metadata'];
-  if (!isRecord(metadata)) {
+  if (!Predicate.isObject(metadata)) {
     return null;
   }
   const custom = metadata['custom'];
-  if (!isRecord(custom)) {
+  if (!Predicate.isObject(custom)) {
     return null;
   }
   const payload = custom[COMPACTION_SUMMARY_METADATA_KEY];

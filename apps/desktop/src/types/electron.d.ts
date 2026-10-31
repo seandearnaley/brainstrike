@@ -6,6 +6,7 @@ import type {
 } from '../assistant-server/query-diagnostics-tool';
 import type { BrowserTabState } from '../browser/browser-view-manager';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
+import type { CrashDumpListing } from '../diagnostics/crash-dumps';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
 import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
@@ -31,6 +32,10 @@ declare global {
     };
     /** Desktop-only recovery actions for a damaged state store (BST-1880). */
     agentHostRecovery?: TransportBridge<typeof agentHostRecoveryContract>;
+    /** Desktop-only: the app menu's Settings… item. */
+    appMenu?: {
+      onOpenSettings: (callback: () => void) => () => void;
+    };
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no
      * preload) — consumers MUST capability-check `window.assistantPersonas`.
@@ -73,6 +78,7 @@ declare global {
     desktopDiagnostics?: DiagnosticEventsReader & {
       getUnseenCounts: typeof mainDiagnosticEventsReader.getUnseenCounts;
       getSnapshot: () => Promise<BoundaryResult<DesktopPlatformDiagnosticsSnapshot>>;
+      listCrashDumps: () => Promise<BoundaryResult<CrashDumpListing>>;
       readMainLogWindow: (
         request: MainLogWindowRequest
       ) => Promise<BoundaryResult<MainLogWindowResult>>;

@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 /**
  * Provider credential-verification probe results (BST-1357).
  *
@@ -59,12 +61,8 @@ export type ProviderVerificationLookup =
   | { readonly snapshot: ProviderVerificationSnapshot; readonly state: 'resolved' }
   | { readonly message: string; readonly state: 'error' };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function parseResult(value: unknown): ProviderVerificationResult {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     throw new Error('Provider verification result must be an object');
   }
   const status = value['status'];
@@ -94,7 +92,7 @@ function parseResult(value: unknown): ProviderVerificationResult {
 }
 
 export function parseProviderVerificationSnapshot(value: unknown): ProviderVerificationSnapshot {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     throw new Error('Provider verification snapshot must be an object');
   }
   const freshness = value['freshness'];

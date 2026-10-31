@@ -28,6 +28,14 @@ import { restartLaunchedAgentHost } from './agent-host-restart';
 import { checkForAppUpdate, clearAppUpdateForReset } from './app-update';
 import { isAppWindowSender } from './app-windows';
 import { buildFileMenuTemplate } from './application-file-menu';
+import {
+  buildAboutPanelOptions,
+  buildFileMenuClosingItems,
+  buildHelpMenuTemplate,
+  buildMacAppMenuTemplate,
+  buildMacWindowMenuTemplate,
+  releaseNotesUrl,
+} from './application-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
@@ -68,6 +76,7 @@ import {
   isExpectedShutdownRefusal,
   markDesktopShuttingDown,
 } from './desktop-shutdown-state';
+import { listCrashDumps } from './diagnostics/crash-dumps';
 import {
   createErrorLogSink,
   ERROR_LOG_FILE_NAME,
@@ -532,6 +541,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     }
     await completeRendererReplacement(signal);
   },
+  crashDumpsPath: app.getPath('crashDumps'),
   // The durable NDJSON backstop (Flight Recorder P2a) is a plaintext mirror
   // of `brainstrike_diagnostic_events`, which factory reset already wipes —
   // without this, the mirror would survive inside the preserved `logs`
@@ -828,6 +838,9 @@ ipcDisposers.add('main', () => {
 ipcDisposers.add(
   'desktop-diagnostics',
   registerDesktopDiagnosticsIpcHandlers({
+    crashDumps: {
+      list: () => listCrashDumps(app.getPath('crashDumps')),
+    },
     crashRecovery: {
       getSnapshot: getDesktopCrashRecoverySnapshot,
     },
@@ -1174,12 +1187,12 @@ if (singleInstanceLockAcquired) {
       setupSecurity();
       logger.debug('Security setup complete');
 
-      // Application menu with developer utilities
-      const menuTemplate: Electron.MenuItemConstructorOptions[] = [
-        {
-          label: 'Application',
-          submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }],
-        },
+      // The application menu (BST-2355) follows each platform: macOS has its app
+      // and Window menus, Windows and Linux end File with Settings… and Quit, and
+      // the Developer utilities ship only in unpackaged builds.
+      const isMac = process.platform === 'darwin';
+      app.setAboutPanelOptions(buildAboutPanelOptions(app.name, app.getVersion()));
+      const editAndViewMenus: Electron.MenuItemConstructorOptions[] = [
         {
           label: 'Edit',
           submenu: [
@@ -1236,6 +1249,8 @@ if (singleInstanceLockAcquired) {
             { role: 'togglefullscreen' },
           ],
         },
+      ];
+      const developerMenus: Electron.MenuItemConstructorOptions[] = [
         {
           label: 'Developer',
           submenu: [
@@ -1347,14 +1362,46 @@ if (singleInstanceLockAcquired) {
         pushToRenderer(targetWindow.webContents, channel, payload);
       };
 
+      const openSettingsFromMenu = (targetWindow?: Electron.BaseWindow): void => {
+        pushToMenuTargetWindow(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined, targetWindow);
+      };
+      const showFolderFromMenu = (label: string, folderPath: string): void => {
+        shell
+          .openPath(folderPath)
+          .then((failure) => {
+            if (failure !== '') {
+              logger.warn(`Failed to show the ${label} folder`, { failure, folderPath });
+            }
+          })
+          .catch((error: unknown) => {
+            logger.warn(`Failed to show the ${label} folder`, { error, folderPath });
+          });
+      };
+      const helpMenu = buildHelpMenuTemplate({
+        includeAbout: !isMac,
+        onOpenReleaseNotes: () => {
+          const url = releaseNotesUrl(app.getVersion());
+          shell.openExternal(url).catch((error: unknown) => {
+            logger.warn('Failed to open the release notes', { error, url });
+          });
+        },
+        onShowCrashReports: () => {
+          showFolderFromMenu('crash reports', app.getPath('crashDumps'));
+        },
+        onShowLogs: () => {
+          showFolderFromMenu('logs', app.getPath('logs'));
+        },
+      });
+
       let applicationMenuRebuildScheduled = false;
       const rebuildApplicationMenu = async (): Promise<void> => {
         const recents = await listWorkspaceRecentRootPaths();
-        const template = [...menuTemplate];
-        template.splice(
-          1,
-          template[1]?.label === 'File' ? 1 : 0,
+        const template: Electron.MenuItemConstructorOptions[] = [
+          ...(isMac
+            ? [buildMacAppMenuTemplate({ appName: app.name, onOpenSettings: openSettingsFromMenu })]
+            : []),
           buildFileMenuTemplate({
+            closingItems: isMac ? [] : buildFileMenuClosingItems(openSettingsFromMenu),
             onOpenFolder: (targetWindow) => {
               pushToMenuTargetWindow(
                 DESKTOP_IPC_CHANNELS.workspace.openFolderPicker,
@@ -1373,8 +1420,12 @@ if (singleInstanceLockAcquired) {
               );
             },
             recentPaths: recents,
-          })
-        );
+          }),
+          ...editAndViewMenus,
+          ...(isMac ? [buildMacWindowMenuTemplate()] : []),
+          ...(app.isPackaged ? [] : developerMenus),
+          helpMenu,
+        ];
         Menu.setApplicationMenu(Menu.buildFromTemplate(template));
       };
 
@@ -1659,6 +1710,22 @@ if (singleInstanceLockAcquired) {
 // quit prepares the window first (`installDocumentUnload`). Subscribing still matters: without a
 // listener Electron itself quits whenever every window has closed.
 app.on('window-all-closed', () => undefined);
+
+// Crashpad leaves a minidump for a crashed child process; this record names the
+// process beside the dump's time (BST-2351). App windows log their own renderer
+// in create-window; any other exit is the owning manager's to report.
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason !== 'crashed' && details.reason !== 'oom') {
+    return;
+  }
+  logger.error('Child process gone', {
+    exitCode: details.exitCode,
+    name: details.name,
+    reason: details.reason,
+    serviceName: details.serviceName,
+    type: details.type,
+  });
+});
 
 // Clean shutdown
 app.on('before-quit', (event) => {

@@ -1,10 +1,11 @@
 import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { BrowserWindow, type IpcMainInvokeEvent, ipcMain, type WebContents } from 'electron';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { type IpcResult, ipcFailure, ipcOk } from './platform/ipc-contract';
+import { ipcFailure, ipcOk } from './platform/ipc-contract';
 
 /**
  * Publishes a window's NATIVE focus to its own renderer (BST-1864), so the
@@ -40,7 +41,7 @@ export function publishWindowFocus(win: BrowserWindow): void {
   });
 }
 
-function readSenderWindowFocus(sender: WebContents): IpcResult<boolean> {
+function readSenderWindowFocus(sender: WebContents): BoundaryResult<boolean> {
   const window = BrowserWindow.fromWebContents(sender);
   if (window === null || window.isDestroyed()) {
     return ipcFailure(

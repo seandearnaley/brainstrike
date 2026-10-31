@@ -136,6 +136,7 @@ const mockApp = {
   on: vi.fn(),
   quit: vi.fn(),
   requestSingleInstanceLock: vi.fn(() => true),
+  setAboutPanelOptions: vi.fn(),
   setPath: vi.fn(),
   whenReady: vi.fn(() => Promise.resolve()),
 };
@@ -152,6 +153,7 @@ vi.mock('electron', () => ({
   app: mockApp,
   BrowserWindow: mockBrowserWindow,
   clipboard: { writeText: vi.fn() },
+  crashReporter: { start: vi.fn() },
   ipcMain: mockIpcMain,
   Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
   powerMonitor: { on: vi.fn() },

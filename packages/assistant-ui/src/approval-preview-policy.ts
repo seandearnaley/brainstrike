@@ -4,6 +4,7 @@ import type {
 } from '@brainstrike/assistant-contract/tool-approval';
 import { isCodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
+import { Predicate } from 'effect';
 
 /*
  * run_python's strict argument narrowing and execution-context read, shared
@@ -33,10 +34,6 @@ export type ApprovalPreviewSubject = Pick<
   'args' | 'executionContext' | 'targetRoot' | 'toolName'
 >;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 interface RunPythonApprovalArgs {
   readonly allowedDomains?: readonly string[];
   readonly code: string;
@@ -54,7 +51,10 @@ interface RunPythonApprovalArgs {
  * understood.
  */
 export function narrowRunPythonArgs(value: unknown): RunPythonApprovalArgs | null {
-  if (!isRecord(value) || Object.keys(value).some((key) => !RUN_PYTHON_ARG_KEYS.has(key))) {
+  if (
+    !Predicate.isObject(value) ||
+    Object.keys(value).some((key) => !RUN_PYTHON_ARG_KEYS.has(key))
+  ) {
     return null;
   }
   const { allowedDomains, code, timeoutMs } = value;

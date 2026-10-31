@@ -3,6 +3,7 @@ import {
   type CommittedAssistantLogView,
 } from '@brainstrike/assistant-ui';
 import { deriveActivitySteps } from '@brainstrike/assistant-ui/activity-trace-model';
+import { Predicate } from 'effect';
 import {
   type CommittedConversationShape,
   type CommittedThread,
@@ -39,15 +40,11 @@ export interface ConversationShape {
 type Message = CommittedAssistantLogView['repository']['messages'][number]['message'];
 type Part = Message['content'][number];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isStepStart(part: Part): boolean {
   return (
     part.type === 'data' &&
     part.name === 'brainstrike.host-stream' &&
-    isRecord(part.data) &&
+    Predicate.isObject(part.data) &&
     part.data['type'] === 'start-step'
   );
 }
@@ -71,7 +68,7 @@ function partStatus(message: Message, index: number, part: Part): unknown {
     return part.result === undefined ? message.status : { type: 'complete' };
   }
   const status = message.status;
-  if (status?.type === 'running' && 'status' in part && isRecord(part.status)) {
+  if (status?.type === 'running' && 'status' in part && Predicate.isObject(part.status)) {
     return part.status;
   }
   if (status?.type === 'requires-action') {
@@ -136,7 +133,9 @@ function groupsOf(message: Message): string[] {
       groups.push('text');
     } else if (part.type === 'data' && part.name === 'brainstrike.run-event') {
       flush();
-      groups.push(`notice:${isRecord(part.data) ? String(part.data['kind']) : 'unknown'}`);
+      groups.push(
+        `notice:${Predicate.isObject(part.data) ? String(part.data['kind']) : 'unknown'}`
+      );
     }
   }
   flush();

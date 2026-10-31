@@ -1,3 +1,4 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { ipcMain as ElectronIpcMain, IpcMainInvokeEvent } from 'electron';
@@ -10,7 +11,7 @@ import {
   isAllowedDesktopIpcSenderFrameUrl,
   resolveDesktopIpcSenderFrameAllowlist,
 } from './desktop-ipc-sender-frame';
-import { type Contract, type Handlers, type IpcResult, ipcFailure, ipcOk } from './ipc-contract';
+import { type Contract, type Handlers, ipcFailure, ipcOk } from './ipc-contract';
 
 export type DesktopIpcDomain =
   | 'threadGroups'
@@ -256,14 +257,14 @@ export function registerDomain<C extends Contract>(
 
 /**
  * Runs a throw-style operation inside a contract handler and settles it as
- * an `IpcResult`: a throw becomes `{ ok: false, error: { category, code,
+ * a `BoundaryResult`: a throw becomes `{ ok: false, error: { category, code,
  * message } }` (logged here, in main, with the cause) instead of rejecting
  * across IPC as Electron's formatted string.
  */
 export async function settleIpcResult<T>(
   failure: { readonly category: string; readonly code: string },
   run: () => T | Promise<T>
-): Promise<IpcResult<T>> {
+): Promise<BoundaryResult<T>> {
   try {
     return ipcOk(await run());
   } catch (error) {

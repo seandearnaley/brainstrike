@@ -25,6 +25,7 @@ import type {
   WorktreeSettings,
   WorktreeSetupCommand,
 } from '@brainstrike/types';
+import { Predicate } from 'effect';
 import type { WorktreeService } from './assistant-server/worktree-service';
 
 const logger = createLogger('WorktreesIpc');
@@ -55,10 +56,6 @@ export interface WorktreesIpcHandlersOptions {
 
 const SERVICE_UNAVAILABLE = 'The worktree service is not available in this session.';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
@@ -66,7 +63,7 @@ function nonEmptyString(value: unknown): value is string {
 function validateAdopt(payload: unknown): GitResult<WorktreeAdoptParams> {
   if (
     !(
-      isRecord(payload) &&
+      Predicate.isObject(payload) &&
       nonEmptyString(payload['path']) &&
       path.isAbsolute(payload['path'] as string)
     ) ||
@@ -105,7 +102,13 @@ function validateAdopt(payload: unknown): GitResult<WorktreeAdoptParams> {
 }
 
 function validateCheckoutStatus(payload: unknown): GitResult<{ readonly path: string }> {
-  if (!(isRecord(payload) && nonEmptyString(payload['path']) && path.isAbsolute(payload['path']))) {
+  if (
+    !(
+      Predicate.isObject(payload) &&
+      nonEmptyString(payload['path']) &&
+      path.isAbsolute(payload['path'])
+    )
+  ) {
     return { error: 'worktrees:checkoutStatus requires { path: <absolute path> }.', ok: false };
   }
   return { ok: true, value: { path: payload['path'] } };
@@ -114,7 +117,7 @@ function validateCheckoutStatus(payload: unknown): GitResult<{ readonly path: st
 function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
   if (
     !(
-      isRecord(payload) &&
+      Predicate.isObject(payload) &&
       nonEmptyString(payload['rootId']) &&
       nonEmptyString(payload['baseRef']) &&
       nonEmptyString(payload['name'])
@@ -127,8 +130,8 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
     };
   }
   const branch = payload['branch'];
-  const detached = isRecord(branch) && branch['detached'] === true;
-  const named = isRecord(branch) && nonEmptyString(branch['name']);
+  const detached = Predicate.isObject(branch) && branch['detached'] === true;
+  const named = Predicate.isObject(branch) && nonEmptyString(branch['name']);
   if (!(detached || named)) {
     return {
       error: 'worktrees:create branch must be { detached: true } or { name: string }.',
@@ -139,7 +142,7 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
   if (
     repositorySetupDecision !== undefined &&
     !(
-      isRecord(repositorySetupDecision) &&
+      Predicate.isObject(repositorySetupDecision) &&
       nonEmptyString(repositorySetupDecision['repositoryId']) &&
       nonEmptyString(repositorySetupDecision['scriptSha256']) &&
       (repositorySetupDecision['decision'] === 'approved' ||
@@ -162,7 +165,7 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
       createdBy: payload['createdBy'],
       name: payload['name'],
       rootId: payload['rootId'],
-      ...(isRecord(repositorySetupDecision)
+      ...(Predicate.isObject(repositorySetupDecision)
         ? {
             repositorySetupDecision: {
               decision: repositorySetupDecision['decision'] as 'approved' | 'denied',
@@ -185,7 +188,7 @@ function validateArchive(payload: unknown): GitResult<{
   readonly runId?: string;
   readonly worktreeId: string;
 }> {
-  if (!(isRecord(payload) && nonEmptyString(payload['worktreeId']))) {
+  if (!(Predicate.isObject(payload) && nonEmptyString(payload['worktreeId']))) {
     return { error: 'worktrees:archive requires { worktreeId }.', ok: false };
   }
   if (payload['force'] !== undefined && typeof payload['force'] !== 'boolean') {
@@ -216,7 +219,7 @@ function validateArchive(payload: unknown): GitResult<{
 }
 
 function validateInspectArchive(payload: unknown): GitResult<{ readonly worktreeId: string }> {
-  if (!(isRecord(payload) && nonEmptyString(payload['worktreeId']))) {
+  if (!(Predicate.isObject(payload) && nonEmptyString(payload['worktreeId']))) {
     return { error: 'worktrees:inspectArchive requires { worktreeId }.', ok: false };
   }
   return { ok: true, value: { worktreeId: payload['worktreeId'] } };
@@ -228,7 +231,7 @@ function validateCreateBranchHere(payload: unknown): GitResult<{
 }> {
   if (
     !(
-      isRecord(payload) &&
+      Predicate.isObject(payload) &&
       nonEmptyString(payload['branch']) &&
       nonEmptyString(payload['worktreeId'])
     )
@@ -241,7 +244,7 @@ function validateCreateBranchHere(payload: unknown): GitResult<{
 function validateCreateContext(payload: unknown): GitResult<{
   readonly rootId: string;
 }> {
-  if (!(isRecord(payload) && nonEmptyString(payload['rootId']))) {
+  if (!(Predicate.isObject(payload) && nonEmptyString(payload['rootId']))) {
     return { error: 'worktrees:createContext requires { rootId }.', ok: false };
   }
   return { ok: true, value: { rootId: payload['rootId'] } };
@@ -250,7 +253,7 @@ function validateCreateContext(payload: unknown): GitResult<{
 function validateRestore(payload: unknown): GitResult<{
   readonly worktreeId: string;
 }> {
-  if (!(isRecord(payload) && nonEmptyString(payload['worktreeId']))) {
+  if (!(Predicate.isObject(payload) && nonEmptyString(payload['worktreeId']))) {
     return { error: 'worktrees:restore requires { worktreeId }.', ok: false };
   }
   return { ok: true, value: { worktreeId: payload['worktreeId'] } };
@@ -355,7 +358,7 @@ export function createWorktreesIpcHandlers(
       return await withService('worktrees:restore', (service) => service.restore(params.value));
     },
     setSettings: async (payload) => {
-      if (!isRecord(payload)) {
+      if (!Predicate.isObject(payload)) {
         return { error: 'worktrees:setSettings requires an object payload.', ok: false };
       }
       const managedDirectory = payload['managedDirectory'];

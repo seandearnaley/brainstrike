@@ -195,6 +195,12 @@ export interface FileRowMetadataStore {
    * useSyncExternalStore.
    */
   peekSnapshot: (compositeKey: string) => FileRowMetadata;
+  /**
+   * Replace the read accessors, for an owner whose underlying data changes
+   * identity (React props, context). Reads nothing and notifies nobody: follow
+   * with `invalidate`/`invalidateAll` for keys whose values moved.
+   */
+  setSources: (next: FileRowMetadataSources) => void;
   subscribe: (compositeKey: string, listener: () => void) => () => void;
   /**
    * One notification per invalidation batch that touches this root. Explorer
@@ -279,11 +285,13 @@ const PARTIAL_PENDING_METADATA: FileRowDirectoryRollup = {
 };
 
 /**
- * @param sources - Read accessors, held by reference. Callers whose underlying
- *   data changes identity (React props, context) should pass closures that read
- *   the latest values, then `invalidate` the affected keys.
+ * @param initialSources - Read accessors, held by reference until `setSources`
+ *   replaces them.
  */
-export function createFileRowMetadataStore(sources: FileRowMetadataSources): FileRowMetadataStore {
+export function createFileRowMetadataStore(
+  initialSources: FileRowMetadataSources
+): FileRowMetadataStore {
+  let sources = initialSources;
   const listenersByKey = new Map<string, Set<() => void>>();
   const listenersByFolder = new Map<string, Set<() => void>>();
   const revisionByFolder = new Map<string, number>();
@@ -570,6 +578,9 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
       refreshKeys([], directoryKeys, []);
     },
     peekSnapshot: peekFileMetadata,
+    setSources: (next) => {
+      sources = next;
+    },
     subscribe: (compositeKey, listener) => {
       const listeners = listenersByKey.get(compositeKey) ?? new Set<() => void>();
       listeners.add(listener);

@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 /**
  * BST-1070: the non-component half of the `run_python` result surface —
  * display-result narrowing and the shared formatters. Split from
@@ -61,10 +63,6 @@ export type RunPythonDisplayResult =
     }
   | { readonly detail: string; readonly kind: 'unavailable'; readonly reason: string };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 interface OmittedByteFields {
   readonly stderrOmittedBytes: number;
   readonly stdoutOmittedBytes: number;
@@ -111,7 +109,7 @@ function readStringArray(value: unknown): readonly string[] | null {
 }
 
 export function narrowRunPythonDisplayResult(value: unknown): RunPythonDisplayResult | null {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return null;
   }
   switch (value['kind']) {

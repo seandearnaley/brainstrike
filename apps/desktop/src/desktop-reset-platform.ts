@@ -32,6 +32,8 @@ export interface CreateDesktopFactoryResetHandlerOptions {
    * renderer-ready acknowledgement. MCP admission remains closed while this
    * promise is pending. Terminal quit cancels readiness through the signal. */
   readonly completeSuccessfulReset: (signal: AbortSignal) => Promise<void>;
+  /** Crashpad's live database; reset keeps it in place and deletes its reports. */
+  readonly crashDumpsPath?: string;
   /** Every on-disk path the durable NDJSON error-log backstop (Flight
    * Recorder P2a) can occupy — forwarded to `resetDesktopApplicationData` so
    * factory reset purges it alongside the database, even though it lives
@@ -164,6 +166,7 @@ async function stopDesktopResetRuntimes(
 export function createDesktopFactoryResetHandler({
   clearRetainedContent,
   completeSuccessfulReset,
+  crashDumpsPath,
   errorLogFilePaths,
   logger,
   prepareDatabaseProfileReset,
@@ -191,6 +194,7 @@ export function createDesktopFactoryResetHandler({
         cleared = await clearRetainedContent();
       } else {
         await resetDesktopApplicationData({
+          ...(crashDumpsPath === undefined ? {} : { crashDumpsPath }),
           ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
           getProtectedPaths: () => {
             if (!profileResetLease || profileResetLease.isReleased) {

@@ -592,14 +592,6 @@ jobs:
       # script), phase 2 runs the uncached env-sensitive `test:integration`
       # lanes capped at --concurrency=2 so at most two real-subsystem suites run
       # at once. See the PR-path comment above for the starvation rationale.
-      #
-      # @brainstrike/embeddings is NO LONGER excluded (Series A4, #1629): its
-      # env-sensitive files now carry the `*.integration.test.*` suffix and run
-      # in the uncached `test:integration` lane, so its pure `test` lane is
-      # cacheable and is finally CI-covered on push. The manual model-download
-      # tier stays out of CI by FILENAME (`*.models.test.*`, selected only by
-      # `test:models` via vitest.models.config.mts) — not by this package
-      # filter — so dropping the filter cannot pull model downloads into CI.
       - name: Push and manual unit tests
         if: github.event_name != 'push' || !inputs.merge-queue
         env:

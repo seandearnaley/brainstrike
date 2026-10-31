@@ -388,6 +388,9 @@ export function unavailableRepositoryReason(statusFailure: string | null): strin
 }
 
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
+  // Plain function locals: the React Compiler memoizes a call through `args.`
+  // on the whole `args` object, which is fresh on every render.
+  const { onHandOffToLocal: handOffToLocal, onSelectWorktree } = args;
   const bridge = useWorktreesBridge();
   const platform = useMemo(() => resolvePlatformBridge(), []);
   const terminalAvailable = useTerminalBridge() !== null;
@@ -608,7 +611,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         );
         await mountWorktree(addRootDirectoryByPath, worktree.path);
         try {
-          await args.onSelectWorktree({
+          await onSelectWorktree({
             branch: worktree.branch,
             path: worktree.path,
             worktreeId: worktree.id,
@@ -635,7 +638,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     [
       addRootDirectoryByPath,
       args.firstRequestState,
-      args.onSelectWorktree,
+      onSelectWorktree,
       args.primaryRootId,
       args.runId,
       bridge,
@@ -663,7 +666,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           return option.worktreeId;
         })
         .then((worktreeId) =>
-          args.onSelectWorktree({ branch: option.branch, path: option.path, worktreeId })
+          onSelectWorktree({ branch: option.branch, path: option.path, worktreeId })
         )
         .then(async () => {
           setPickerOpen(false);
@@ -678,12 +681,12 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           setPending(false);
         });
     },
-    [addRootDirectoryByPath, args.onSelectWorktree, refreshList]
+    [addRootDirectoryByPath, onSelectWorktree, refreshList]
   );
 
   const { archiveConfirmation, onArchive } = useWorktreeArchiveAction({
     bridge,
-    onHandOffToLocal: args.onHandOffToLocal,
+    onHandOffToLocal: handOffToLocal,
     refreshList,
     runId: args.runId,
     setPending,
@@ -694,15 +697,14 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
 
   const onHandOffToLocal = useCallback((): void => {
     setPending(true);
-    void args
-      .onHandOffToLocal()
+    void handOffToLocal()
       .catch((error: unknown) => {
         toastFailure('Could not hand off to Local', errorMessage(error));
       })
       .finally(() => {
         setPending(false);
       });
-  }, [args.onHandOffToLocal]);
+  }, [handOffToLocal]);
 
   const onCreateBranchHere = useCallback(
     async (branch: string): Promise<void> => {

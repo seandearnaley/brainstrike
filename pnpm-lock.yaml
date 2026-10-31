@@ -170,6 +170,9 @@ catalogs:
     '@ai-sdk/anthropic':
       specifier: 4.0.82
       version: 4.0.82
+    '@ai-sdk/cohere':
+      specifier: 4.0.63
+      version: 4.0.63
     '@ai-sdk/google':
       specifier: 4.0.99
       version: 4.0.99
@@ -491,6 +494,9 @@ catalogs:
     vitest:
       specifier: ^5.0.5
       version: 5.0.5
+    voyage-ai-provider:
+      specifier: 5.0.0
+      version: 5.0.0
     vscode-jsonrpc:
       specifier: 10.0.0
       version: 10.0.0
@@ -631,6 +637,9 @@ importers:
       '@ai-sdk/anthropic':
         specifier: 'catalog:'
         version: 4.0.82(zod@4.6.7)
+      '@ai-sdk/cohere':
+        specifier: 'catalog:'
+        version: 4.0.63(zod@4.6.7)
       '@ai-sdk/google':
         specifier: 'catalog:'
         version: 4.0.99(zod@4.6.7)
@@ -679,9 +688,6 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../../packages/effect-kit
-      '@brainstrike/embeddings':
-        specifier: workspace:*
-        version: link:../../packages/embeddings
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../../packages/file-explorer-hooks
@@ -880,6 +886,9 @@ importers:
       typescript-language-server:
         specifier: ^6.0.2
         version: 6.0.2
+      voyage-ai-provider:
+        specifier: 'catalog:'
+        version: 5.0.0(zod@4.6.7)
       vscode-jsonrpc:
         specifier: 'catalog:'
         version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
@@ -1443,9 +1452,6 @@ importers:
       '@types/react-dom':
         specifier: 'catalog:'
         version: 19.3.0(@types/react@19.3.0)
-      '@vitejs/plugin-react':
-        specifier: 'catalog:'
-        version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.9)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.9))(@babel/runtime@7.29.7)(rolldown@1.2.15)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
@@ -1769,9 +1775,6 @@ importers:
       '@types/react-dom':
         specifier: 'catalog:'
         version: 19.3.0(@types/react@19.3.0)
-      '@vitejs/plugin-react':
-        specifier: 'catalog:'
-        version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.9)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.9))(@babel/runtime@7.29.7)(rolldown@1.2.15)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/browser-playwright':
         specifier: 'catalog:'
         version: 5.0.5(playwright@1.64.1)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)
@@ -1829,9 +1832,6 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
-      '@brainstrike/embeddings':
-        specifier: workspace:*
-        version: link:../embeddings
       '@brainstrike/file-import':
         specifier: workspace:*
         version: link:../file-import
@@ -1972,37 +1972,6 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.1.0
-    devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@effect/tsgo':
-        specifier: 'catalog:'
-        version: 0.63.0
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.2
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.4)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-
-  packages/embeddings:
-    dependencies:
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../assistant-contract
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
-      '@brainstrike/types':
-        specifier: workspace:*
-        version: link:../types
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
@@ -3156,6 +3125,9 @@ importers:
       '@types/react':
         specifier: 'catalog:'
         version: 19.3.0
+      '@vitejs/plugin-react':
+        specifier: 'catalog:'
+        version: 6.1.2(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.9)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.9))(@babel/runtime@7.29.7)(rolldown@1.2.15)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(babel-plugin-react-compiler@1.0.0)(oxc-transform-react@0.152.0)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
@@ -3709,6 +3681,12 @@ packages:
 
   '@ai-sdk/anthropic@4.0.82':
     resolution: {integrity: sha512-1HvCBHdBsfG/OTDOmo3R+rwKtVofnPCWKyMKqOa75yieQEC8V7leB40EaG6uQ1wKnqeXdc31s7tNyq+OnKV/mg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/cohere@4.0.63':
+    resolution: {integrity: sha512-J4f5Dru6KWUe2y4rDiks+WDkbGOjdyr7C6niqUTtlM5CLGVWKh2vg7klIEnc+hCIi6HUJJ7aaaSvXBi4VKEn/Q==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -10243,6 +10221,15 @@ packages:
       jsdom:
         optional: true
 
+  voyage-ai-provider@5.0.0:
+    resolution: {integrity: sha512-zlPsDr8R3IkECM+rQoXVSFjpypXQ2YPMgZxnKjXb1bs7lwMw/OrFJFYKvP5TLvkXE2GwgUF2lQaK27lXrneRCg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+    peerDependenciesMeta:
+      zod:
+        optional: true
+
   vscode-jsonrpc@10.0.0:
     resolution: {integrity: sha512-USSfxg0vDIpTQqlQBGxF3mBARyoS8cU7LHLpbYNh6dOJt32dlskxPWB0Irrh5TllTmyf7oNLAvqDqzklbwwnpA==}
     engines: {node: '>=14.17.0'}
@@ -10496,6 +10483,12 @@ snapshots:
       zod: 4.6.7
 
   '@ai-sdk/anthropic@4.0.82(zod@4.6.7)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.29
+      '@ai-sdk/provider-utils': 5.0.62(zod@4.6.7)
+      zod: 4.6.7
+
+  '@ai-sdk/cohere@4.0.63(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 4.0.29
       '@ai-sdk/provider-utils': 5.0.62(zod@4.6.7)
@@ -17724,6 +17717,13 @@ snapshots:
       jsdom: 30.1.3(@noble/hashes@1.8.0)
     transitivePeerDependencies:
       - msw
+
+  voyage-ai-provider@5.0.0(zod@4.6.7):
+    dependencies:
+      '@ai-sdk/provider': 4.0.29
+      '@ai-sdk/provider-utils': 5.0.62(zod@4.6.7)
+    optionalDependencies:
+      zod: 4.6.7
 
   vscode-jsonrpc@10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4): {}
 

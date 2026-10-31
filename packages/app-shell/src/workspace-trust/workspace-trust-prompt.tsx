@@ -30,7 +30,8 @@ function asksForTrust(root: WorkspaceTrustRoot): boolean {
  * ADR-0032: VS Code's Restricted Mode banner, above the composer. Each mounted
  * folder that holds instructions, skills, slash commands or subagents and has
  * no answer yet says what it holds, and asks once. Nothing waits on it: until
- * the person trusts the folder, runs leave its agent configuration out.
+ * the person trusts the folder, runs leave its agent configuration out. A
+ * failed read says so, since it would otherwise hide every question.
  */
 export function WorkspaceTrustPrompt(): ReactElement | null {
   const discovery = useAssistantThreadHost()?.workspaceDiscovery;
@@ -40,6 +41,10 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
   const [roots, setRoots] = useState<readonly WorkspaceTrustRoot[]>([]);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The cause goes to the log; the person sees what it means and can retry.
+  const [readFailed, setReadFailed] = useState(false);
+  // A pull can add AGENTS.md or a skill to a mounted folder; returning to the window re-reads.
+  const [readCount, setReadCount] = useState(0);
   // Last requested wins: a slow older read never replaces a fresher one.
   const generationRef = useRef(0);
 
@@ -54,21 +59,39 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
       .then((result) => {
         if (generation === generationRef.current) {
           setRoots(result);
+          setReadFailed(false);
         }
       })
       .catch((error: unknown) => {
         // The reset stops the host under a read it overtook (ADR-0015).
-        if (!hasFactoryResetPreparationStarted()) {
-          logger.error('Failed to read workspace trust', { error });
+        if (hasFactoryResetPreparationStarted()) {
+          return;
+        }
+        logger.error('Failed to read workspace trust', { error });
+        if (generation === generationRef.current) {
+          setReadFailed(true);
         }
       });
     return () => {
       generationRef.current += 1;
     };
-  }, [discovery, activeRootIds, revision]);
+  }, [discovery, activeRootIds, revision, readCount]);
+
+  useEffect(() => {
+    if (!discovery) {
+      return;
+    }
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') {
+        setReadCount((count) => count + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [discovery]);
 
   const asking = roots.filter(asksForTrust);
-  if (!discovery || asking.length === 0) {
+  if (!discovery || (asking.length === 0 && !readFailed)) {
     return null;
   }
 
@@ -94,13 +117,15 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
         >
           <ShieldQuestion aria-hidden className="size-4 shrink-0 text-amber-600" />
           <div className="min-w-0 flex-1 text-sm">
-            <p className="font-medium">Trust the files in {root.displayName}?</p>
+            <p className="font-medium [overflow-wrap:anywhere]">
+              Trust the files in {root.displayName}?
+            </p>
             <p className="text-muted-foreground">
               This folder has {describeWorkspaceAgentConfiguration(root.agentConfiguration)}, which
               can steer the assistant. Brainstrike loads them only from folders you trust.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               disabled={busyPath === root.path}
               onClick={() => void decide(root, 'trusted')}
@@ -119,6 +144,17 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
           </div>
         </div>
       ))}
+      {readFailed ? (
+        <div className="flex items-center justify-between gap-4" role="alert">
+          <p className="text-destructive text-sm">
+            Brainstrike couldn’t check whether an open folder’s instructions or skills need your
+            answer. Folders you already trusted are unaffected.
+          </p>
+          <Button onClick={() => setReadCount((count) => count + 1)} size="sm" variant="outline">
+            Retry
+          </Button>
+        </div>
+      ) : null}
       {actionError ? (
         <p className="text-destructive text-sm" role="alert">
           {actionError}

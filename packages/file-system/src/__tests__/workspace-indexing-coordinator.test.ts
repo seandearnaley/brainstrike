@@ -100,6 +100,48 @@ describe('WorkspaceIndexingCoordinator', () => {
     expect(resolveTargets.mock.calls[1]?.[0]).toEqual({ mode: 'full' });
   });
 
+  it('replays each queued change once, with the last change for a path last', async () => {
+    const firstPass = deferred();
+    const service = createService();
+    vi.mocked(service.sync)
+      .mockImplementationOnce(async () => firstPass.promise)
+      .mockResolvedValue(undefined);
+    const inputs = createInputs(service);
+    const resolveTargets = vi.fn(inputs.resolveTargets);
+    const coordinator = new WorkspaceIndexingCoordinator();
+    coordinator.updateInputs({ ...inputs, resolveTargets });
+    const added = (path: string) => ({ kind: 'file' as const, path, type: 'added' as const });
+    const removed = (path: string) => ({ kind: 'file' as const, path, type: 'removed' as const });
+
+    coordinator.trigger({ mode: 'full' });
+    await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(1));
+    coordinator.trigger({
+      mode: 'paths',
+      roots: [{ changes: [added('/r/a.ts'), added('/r/b.ts')], rootId: 'root-1' }],
+    });
+    coordinator.trigger({
+      mode: 'paths',
+      roots: [
+        { changes: [removed('/r/a.ts'), added('/r/b.ts')], rootId: 'root-1' },
+        { changes: [added('/s/c.ts')], fullResync: true, rootId: 'root-2' },
+      ],
+    });
+    coordinator.trigger({
+      mode: 'paths',
+      roots: [{ changes: [added('/r/a.ts'), added('/r/b.ts')], rootId: 'root-1' }],
+    });
+
+    firstPass.resolve();
+    await vi.waitFor(() => expect(service.sync).toHaveBeenCalledTimes(2));
+    expect(resolveTargets.mock.calls[1]?.[0]).toEqual({
+      mode: 'paths',
+      roots: [
+        { changes: [removed('/r/a.ts'), added('/r/a.ts'), added('/r/b.ts')], rootId: 'root-1' },
+        { changes: [added('/s/c.ts')], fullResync: true, rootId: 'root-2' },
+      ],
+    });
+  });
+
   it('updates focused-root inputs without invalidating host-owned work', async () => {
     const activePass = deferred();
     const service = createService();

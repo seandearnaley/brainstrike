@@ -42,6 +42,12 @@ export function registerDesktopDiagnosticsIpcHandlers(
     )
   );
 
+  registry.handle('diagnostics', DESKTOP_IPC_CHANNELS.diagnostics.listCrashDumps, () =>
+    settleIpcResult({ category: 'diagnostics', code: 'diagnostics.crash-dumps-failed' }, () =>
+      providers.crashDumps.list()
+    )
+  );
+
   registry.handle(
     'diagnostics',
     DESKTOP_IPC_CHANNELS.diagnostics.queryEvents,

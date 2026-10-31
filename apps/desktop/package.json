@@ -40,12 +40,19 @@
         "zip"
       ],
       "icon": "build/icon.icns",
+      "extendInfo": {
+        "CFBundleIconName": "Icon"
+      },
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "signing/entitlements.mac.plist",
       "entitlementsInherit": "signing/entitlements.mac.plist",
       "notarize": true,
       "extraResources": [
+        {
+          "from": "build/Assets.car",
+          "to": "Assets.car"
+        },
         {
           "from": "resources/python-runtime",
           "to": "python-runtime",
@@ -106,6 +113,7 @@
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "catalog:",
     "@ai-sdk/anthropic": "catalog:",
+    "@ai-sdk/cohere": "catalog:",
     "@ai-sdk/google": "catalog:",
     "@ai-sdk/openai": "catalog:",
     "@ai-sdk/otel": "catalog:",
@@ -122,7 +130,6 @@
     "@brainstrike/canonical-ingestion": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",
-    "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
@@ -191,6 +198,7 @@
     "typescript-language-server": "^6.0.2",
     "vscode-jsonrpc": "catalog:",
     "vscode-languageserver-protocol": "^3.18.5",
+    "voyage-ai-provider": "catalog:",
     "web-tree-sitter": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:",

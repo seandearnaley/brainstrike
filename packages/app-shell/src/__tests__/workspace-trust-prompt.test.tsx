@@ -8,6 +8,7 @@ import type {
   WorkspaceTrustDecision,
   WorkspaceTrustRoot,
 } from '@brainstrike/settings-ui/settings/system/workspace-trust';
+import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -130,5 +131,50 @@ describe('WorkspaceTrustPrompt', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The agent host is not running');
     expect(screen.getByTestId('workspace-trust-prompt-root-cloned')).toBeInTheDocument();
+  });
+
+  it('says when it cannot read trust, without the internal cause, and recovers on Retry', async () => {
+    const user = userEvent.setup();
+    const listTrust = vi
+      .fn<() => Promise<readonly WorkspaceTrustRoot[]>>()
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED /run/agent-host.sock'))
+      .mockResolvedValue([CLONED]);
+    hostState.host = {
+      workspaceDiscovery: {
+        listCommands: () => Promise.reject(new Error('Commands are not under test')),
+        listTrust,
+        scanSkills: () => Promise.reject(new Error('Skills are not under test')),
+        setTrust: () => Promise.reject(new Error('Answers are not under test')),
+      },
+    };
+    render(<WorkspaceTrustPrompt />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('couldn’t check whether an open folder’s instructions');
+    expect(alert).not.toHaveTextContent('ECONNREFUSED');
+
+    await user.click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('workspace-trust-prompt-root-cloned')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('asks about a folder that gained agent configuration when the window is shown again', async () => {
+    const roots: WorkspaceTrustRoot[] = [
+      root({ agentConfiguration: { commands: 0, instructions: null, personas: 0, skills: 0 } }),
+    ];
+    const { listTrust } = setHost(roots);
+    render(<WorkspaceTrustPrompt />);
+    await waitFor(() => expect(listTrust).toHaveBeenCalled());
+    expect(screen.queryByTestId('workspace-trust-prompt-root-cloned')).not.toBeInTheDocument();
+
+    // A git pull brings AGENTS.md while the person is in another window.
+    roots[0] = CLONED;
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(await screen.findByTestId('workspace-trust-prompt-root-cloned')).toHaveTextContent(
+      'This folder has AGENTS.md'
+    );
   });
 });

@@ -45,18 +45,24 @@ describe('assistant composer history hydration', () => {
     );
     const historyAdapter: ThreadHistoryAdapter = { append, load };
     const firstCommitDisabled = vi.fn<(disabled: boolean) => void>();
-    const InitialCommitProbe = ({ children }: { children: ReactNode }) => {
+    const InitialCommitProbe = ({
+      children,
+      onCommit,
+    }: {
+      children: ReactNode;
+      onCommit: (disabled: boolean) => void;
+    }) => {
       useLayoutEffect(() => {
         const input = document.querySelector<HTMLTextAreaElement>(
           'textarea[aria-label="Message input"]'
         );
-        firstCommitDisabled(Boolean(input?.disabled));
-      }, []);
+        onCommit(Boolean(input?.disabled));
+      }, [onCommit]);
       return children;
     };
 
     render(
-      <InitialCommitProbe>
+      <InitialCommitProbe onCommit={firstCommitDisabled}>
         <LocalConversationPanel adapter={NOOP_ADAPTER} history={historyAdapter} />
       </InitialCommitProbe>,
       { wrapper: TooltipProvider }

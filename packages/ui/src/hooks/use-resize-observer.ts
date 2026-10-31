@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef } from 'react';
 
 /**
  * Options for the useResizeObserver hook.
@@ -53,9 +53,8 @@ export function useResizeObserver<T extends Element>(
   options?: UseResizeObserverOptions
 ): void {
   const { disabled = false } = options ?? {};
-  // Store the latest callback in a ref to avoid recreating the observer
-  const callbackRef = useRef(onResize);
-  callbackRef.current = onResize;
+  // The observer calls the latest callback without being recreated for it.
+  const handleResize = useEffectEvent(onResize);
   const resizeRafIdRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const observedElementRef = useRef<T | null>(null);
@@ -102,7 +101,7 @@ export function useResizeObserver<T extends Element>(
         // Only process the last entry since we're observing a single element
         const entry = entries.at(-1);
         if (entry) {
-          callbackRef.current(entry);
+          handleResize(entry);
         }
       });
     });

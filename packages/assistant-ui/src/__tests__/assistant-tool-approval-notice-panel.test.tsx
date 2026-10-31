@@ -1,4 +1,5 @@
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
+import { act } from '@brainstrike/test-utils/react-act';
 import { screen, waitFor } from '@testing-library/react';
 import type { UserEvent } from '@testing-library/user-event';
 import { userEvent } from '@testing-library/user-event';
@@ -23,6 +24,17 @@ const threadMessagesMock = vi.hoisted(
       status?: { error?: unknown; reason?: string; type: string };
     }>
 );
+// The thread store hands out a new messages array when its contents change and
+// re-renders its subscribers, as the vendor's does. Tests push into the source
+// array, then publish.
+const threadMessagesSnapshot = vi.hoisted(() => ({ messages: [] as unknown[] }));
+const useThreadRevision = await vi.hoisted(async () => {
+  const { create } = await import('zustand');
+  return create(() => ({ revision: 0 }));
+});
+function publishThreadState(): void {
+  act(() => useThreadRevision.setState(({ revision }) => ({ revision: revision + 1 })));
+}
 const useAuiStateSelectorResults = vi.hoisted(() => [] as unknown[]);
 const threadRunningMock = vi.hoisted(() => ({ isRunning: false }));
 
@@ -41,10 +53,18 @@ vi.mock('@assistant-ui/react', async (importOriginal) => ({
       };
     }) => unknown
   ) => {
+    useThreadRevision((thread) => thread.revision);
+    const snapshot = threadMessagesSnapshot.messages;
+    if (
+      snapshot.length !== threadMessagesMock.length ||
+      threadMessagesMock.some((message, index) => message !== snapshot[index])
+    ) {
+      threadMessagesSnapshot.messages = [...threadMessagesMock];
+    }
     const state = {
       thread: {
         isRunning: threadRunningMock.isRunning,
-        messages: threadMessagesMock,
+        messages: threadMessagesSnapshot.messages as typeof threadMessagesMock,
       },
     };
     const firstResult = selector(state);
@@ -281,7 +301,7 @@ describe('AssistantToolApprovalNotice', () => {
 
   it('reenables approval actions when the appended approval run errors', async () => {
     const user = userEvent.setup();
-    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     await expandApprovalRow(user);
@@ -298,7 +318,7 @@ describe('AssistantToolApprovalNotice', () => {
         type: 'incomplete',
       },
     });
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled()
@@ -313,7 +333,7 @@ describe('AssistantToolApprovalNotice', () => {
 
   it('reenables approval actions when the appended approval run is interrupted', async () => {
     const user = userEvent.setup();
-    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
 
@@ -324,7 +344,7 @@ describe('AssistantToolApprovalNotice', () => {
         type: 'incomplete',
       },
     });
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled()
@@ -384,7 +404,7 @@ describe('AssistantToolApprovalNotice', () => {
   // good. The outcome key must identify WHICH decision it describes.
   it('reenables approval actions when the retried run fails the same way', async () => {
     const user = userEvent.setup();
-    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
     const failTheRun = (): void => {
       threadMessagesMock.push({
         role: 'assistant',
@@ -394,7 +414,7 @@ describe('AssistantToolApprovalNotice', () => {
           type: 'incomplete',
         },
       });
-      view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+      publishThreadState();
     };
 
     await user.click(await approveButton(user));
@@ -456,7 +476,7 @@ describe('AssistantToolApprovalNotice', () => {
       throw new Error('append failed');
     });
     const user = userEvent.setup();
-    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
@@ -476,7 +496,7 @@ describe('AssistantToolApprovalNotice', () => {
       },
       role: 'user',
     });
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
     await expandApprovalRow(user);
 
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
@@ -488,7 +508,7 @@ describe('AssistantToolApprovalNotice', () => {
       throw new Error('append failed');
     });
     const user = userEvent.setup();
-    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     threadMessagesMock.push({
@@ -504,14 +524,14 @@ describe('AssistantToolApprovalNotice', () => {
       },
       role: 'user',
     });
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
 
     // That run fails, so the card unlocks again — with no stale failure text.
     threadMessagesMock.push({
       role: 'assistant',
       status: { error: 'resume_failed', reason: 'error', type: 'incomplete' },
     });
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled()
@@ -543,7 +563,7 @@ describe('AssistantToolApprovalNotice', () => {
       throw new Error('append failed');
     });
     const user = userEvent.setup();
-    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
@@ -552,9 +572,9 @@ describe('AssistantToolApprovalNotice', () => {
     // returns the outcome to the very action/state the failure was stamped
     // with. The message is two attempts old and must stay gone.
     threadMessagesMock.push(decisionMessage);
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
     threadMessagesMock.push(failedRun);
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled()
@@ -597,7 +617,7 @@ describe('AssistantToolApprovalNotice', () => {
 
   it('does not reenable approval actions after the matching run completes successfully', async () => {
     const user = userEvent.setup();
-    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     await expandApprovalRow(user);
@@ -606,7 +626,7 @@ describe('AssistantToolApprovalNotice', () => {
       role: 'assistant',
       status: { type: 'complete' },
     });
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
@@ -619,7 +639,7 @@ describe('AssistantToolApprovalNotice', () => {
         type: 'incomplete',
       },
     });
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeDisabled();
@@ -707,7 +727,7 @@ describe('AssistantToolApprovalNotice', () => {
 
   it('does not reenable approval actions for a different approval run error', async () => {
     const user = userEvent.setup();
-    const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     await expandApprovalRow(user);
@@ -733,7 +753,7 @@ describe('AssistantToolApprovalNotice', () => {
         type: 'incomplete',
       },
     });
-    view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
+    publishThreadState();
 
     expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeDisabled();

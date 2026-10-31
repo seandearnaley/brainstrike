@@ -25,6 +25,11 @@ export const DESKTOP_IPC_CHANNELS = {
     prepareClose: 'agent:prepare-close',
     showDataFolder: 'agent:show-data-folder',
   },
+  appMenu: {
+    // One-way main→renderer push: the app menu's Settings… item (⌘, / Ctrl+,)
+    // triggers this on the FOCUSED window so the renderer opens Settings.
+    openSettings: 'app-menu:open-settings',
+  },
   // Embedded browser (BST-1174). Invoke methods drive the main-process
   // BrowserViewManager; `tabsChanged` is a main→renderer push.
   browser: {
@@ -61,6 +66,7 @@ export const DESKTOP_IPC_CHANNELS = {
     countByFingerprint: 'desktop-diagnostics:count-by-fingerprint',
     getSnapshot: 'desktop-diagnostics:get-snapshot',
     getUnseenCounts: 'desktop-diagnostics:get-unseen-counts',
+    listCrashDumps: 'desktop-diagnostics:list-crash-dumps',
     queryEvents: 'desktop-diagnostics:query-events',
     readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
     readProcessCounters: 'desktop-diagnostics:read-process-counters',

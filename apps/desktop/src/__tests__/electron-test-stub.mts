@@ -40,9 +40,14 @@ export const app = {
   quit: noop,
   removeListener: makeFn(),
   requestSingleInstanceLock: () => true,
+  setAboutPanelOptions: noop,
   setName: noop,
   setPath: noop,
   whenReady: () => Promise.resolve(),
+};
+
+export const crashReporter = {
+  start: noop,
 };
 
 export const BrowserWindow = class {

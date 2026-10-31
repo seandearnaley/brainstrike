@@ -10,7 +10,7 @@ import {
   highlightSpecialChars,
   lineNumbers,
 } from '@codemirror/view';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../button';
 import { resolveCodeSurfaceLanguage } from '../code-surface/language';
 import { appSyntaxHighlighting } from '../code-surface/syntax-highlighting';
@@ -734,18 +734,9 @@ export function DiffView({
   const { presentation } = resolved;
   const effectiveFilename = filename ?? resolved.filenameFallback;
 
-  // Memoized on the underlying primitives (`language`, `effectiveFilename` —
-  // both strings), NOT recomputed as a fresh object every render: this keeps
-  // `resolvedLanguage`'s object identity stable when neither actually
-  // changes, which the build effect below relies on (see its dependency-
-  // array comment — the same object-identity-vs-value-identity trap that
-  // motivates depending on the scalar `textOriginal`/`textModified`/
-  // `hunkText` fields instead of `presentation` itself, just for a
-  // different input).
-  const resolvedLanguage = useMemo(
-    () => resolveCodeSurfaceLanguage({ language, path: effectiveFilename }),
-    [language, effectiveFilename]
-  );
+  // The render reads only the label; the build effect resolves the language
+  // again from the same two strings, keeping its dependency array scalar.
+  const languageLabel = resolveCodeSurfaceLanguage({ language, path: effectiveFilename }).label;
 
   const truncatedNoteVisible = resolveTruncatedNoteVisible(presentation);
 
@@ -791,8 +782,7 @@ export function DiffView({
   //      dependencies trace back through `extractTextDocs`/`resolveDiffView`
   //      to one object the compiler cannot prove is never mutated, so it
   //      bails on optimizing the whole component rather than keeping the
-  //      memo — the same bail the pre-existing `resolvedLanguage` memo
-  //      takes on `effectiveFilename`.
+  //      memo.
   //
   // `resolveSlicedDiff` is pure, so the render's answer and the effect's are
   // necessarily the same: the note can never claim a sliced view the effect
@@ -809,7 +799,7 @@ export function DiffView({
   // threshold) are handled by the build effect's own teardown/rebuild (via
   // `textOriginal`/`textModified`/`hunkText`/`oversizedDoc` above) without
   // needing to blow away the host DOM node.
-  const renderKey = `${mode}:${resolvedLanguage.label}:${contentKind}`;
+  const renderKey = `${mode}:${languageLabel}:${contentKind}`;
 
   const toggleMode = useCallback(() => {
     setMode((current) => (current === 'split' ? 'unified' : 'split'));
@@ -822,6 +812,7 @@ export function DiffView({
     }
 
     let disposed = false;
+    const resolvedLanguage = resolveCodeSurfaceLanguage({ language, path: effectiveFilename });
     let mergeView: MergeView | null = null;
     let editorView: EditorView | null = null;
 
@@ -920,7 +911,7 @@ export function DiffView({
     };
     // Deliberately depends on the SCALAR content fields (`contentKind`,
     // `textOriginal`, `textModified`, `hunkText`, `oversizedDoc`) plus
-    // `mode`/`resolvedLanguage` — never on `resolved`/`presentation`/
+    // `mode`/`language`/`effectiveFilename` — never on `resolved`/`presentation`/
     // `source` object identity, and the effect body above reads ONLY these
     // same scalars (never `presentation` itself), so every dependency this
     // effect actually uses is listed here — an honest, exhaustive-deps-
@@ -948,14 +939,15 @@ export function DiffView({
     oversizedDoc,
     hunksKey,
     mode,
-    resolvedLanguage,
+    language,
+    effectiveFilename,
     comments,
   ]);
 
   return (
     <div
       className={cn('bg-background text-foreground flex h-full min-h-0 flex-col', className)}
-      data-language={resolvedLanguage.label}
+      data-language={languageLabel}
       data-mode={modeTogglable ? mode : undefined}
       data-testid={testId}
     >

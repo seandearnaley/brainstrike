@@ -41,6 +41,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -366,9 +367,11 @@ export function TokenCacheProvider({
   const providerDisposedRef = useRef(false);
   const workerReadyRef = useRef(workerReady);
   const workerInitErrorRef = useRef(workerInitError);
-
-  workerReadyRef.current = workerReady;
-  workerInitErrorRef.current = workerInitError;
+  // Published at commit for ensureWorker, which runs after render.
+  useLayoutEffect(() => {
+    workerReadyRef.current = workerReady;
+    workerInitErrorRef.current = workerInitError;
+  }, [workerReady, workerInitError]);
 
   // Get counting mode preference
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);

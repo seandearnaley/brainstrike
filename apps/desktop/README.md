@@ -74,9 +74,9 @@ launches include `--no-sandbox`, so they do not demonstrate Chromium sandboxing.
 
 ## Testing and debugging
 
-**CI is disabled due to cost; validation must run locally.** Use
-`pnpm check` and the
-[desktop E2E guide](e2e/README.md) to select appropriate checks.
+The merge queue runs every lane on hosted runners, so before a PR run only the
+narrow checks for what changed (see the root `AGENTS.md`). Use the
+[desktop E2E guide](e2e/README.md) to pick the specs.
 
 `pnpm dev:agent-debug` is an opt-in disposable debugging session. Never use Sean's
 protected profile for automated debugging or reset. Debugging does not belong in

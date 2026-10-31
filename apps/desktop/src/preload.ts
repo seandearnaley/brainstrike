@@ -1,3 +1,4 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type { DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
 import type {
@@ -5,6 +6,7 @@ import type {
   mainDiagnosticEventsReader,
 } from './assistant-server/query-diagnostics-tool';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
+import type { CrashDumpListing } from './diagnostics/crash-dumps';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
@@ -31,7 +33,6 @@ import {
   createDesktopIpcTransport,
   createIpcBridge,
 } from './platform/ipc-bridge';
-import type { IpcResult } from './platform/ipc-contract';
 import {
   assertDesktopElectronApiKeyParity,
   type VisibleDesktopElectronApi,
@@ -40,8 +41,8 @@ import {
 // Electron preload script. `electron` is the ONE runtime require a sandboxed
 // preload can resolve; every import above is either type-only (erased)
 // or a PURE relative module that `scripts/build-main-config.mjs` inlines into
-// dist/preload.js (BST-1648). preload-sandbox-imports.test.ts walks that
-// graph, and build-main.mjs refuses a bundle that requires anything else.
+// dist/preload.js (BST-1648). build-main.mjs refuses a bundle that requires
+// anything else.
 const electron = require('electron');
 const { contextBridge, webUtils } = electron;
 
@@ -63,7 +64,7 @@ const frameClosePreparations = new Set<() => Promise<void>>();
 const describeCloseFailure = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 contextBridge.exposeInMainWorld('agentHost', {
-  connect: (requestId: string): Promise<IpcResult<void>> =>
+  connect: (requestId: string): Promise<BoundaryResult<void>> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId),
   onPrepareClose: (prepare: () => Promise<void>): (() => void) => {
     frameClosePreparations.add(prepare);
@@ -216,9 +217,9 @@ contextBridge.exposeInMainWorld('mcp', {
 
 if (shouldExposeBridge('logging')) {
   contextBridge.exposeInMainWorld('logging', {
-    getBufferedLogs: (): Promise<IpcResult<LogRecord[]>> =>
+    getBufferedLogs: (): Promise<BoundaryResult<LogRecord[]>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getBufferedLogs),
-    getPreferences: (): Promise<IpcResult<LoggingSettingsPayload>> =>
+    getPreferences: (): Promise<BoundaryResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getPreferences),
     onDurableRecord: (listener: (record: LogRecord) => void) => {
       const ipcListener = (_event: unknown, record: LogRecord) => listener(record);
@@ -234,11 +235,13 @@ if (shouldExposeBridge('logging')) {
         ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.logging.preferencesUpdated, listener);
       };
     },
-    openDestination: (target: string | null): Promise<IpcResult<boolean>> =>
+    openDestination: (target: string | null): Promise<BoundaryResult<boolean>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.openDestination, target ?? null),
-    selectDestination: (): Promise<IpcResult<string | null>> =>
+    selectDestination: (): Promise<BoundaryResult<string | null>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.selectDestination),
-    setPreferences: (preferences: LoggingPreferences): Promise<IpcResult<LoggingSettingsPayload>> =>
+    setPreferences: (
+      preferences: LoggingPreferences
+    ): Promise<BoundaryResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.setPreferences, preferences),
   });
 }
@@ -253,19 +256,23 @@ if (shouldExposeBridge('desktopDiagnostics')) {
         fingerprint,
         sinceMs,
       }),
-    getSnapshot: (): Promise<IpcResult<DesktopPlatformDiagnosticsSnapshot>> =>
+    getSnapshot: (): Promise<BoundaryResult<DesktopPlatformDiagnosticsSnapshot>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot),
     getUnseenCounts: (
       sinceMs: number
     ): ReturnType<typeof mainDiagnosticEventsReader.getUnseenCounts> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts, sinceMs),
+    listCrashDumps: (): Promise<BoundaryResult<CrashDumpListing>> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.listCrashDumps),
     queryEvents: (
       filter: DiagnosticEventsQueryFilter
     ): ReturnType<DiagnosticEventsReader['queryEvents']> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.queryEvents, filter),
-    readMainLogWindow: (request: MainLogWindowRequest): Promise<IpcResult<MainLogWindowResult>> =>
+    readMainLogWindow: (
+      request: MainLogWindowRequest
+    ): Promise<BoundaryResult<MainLogWindowResult>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow, request),
-    readProcessCounters: (): Promise<IpcResult<ProcessCounterSnapshot>> =>
+    readProcessCounters: (): Promise<BoundaryResult<ProcessCounterSnapshot>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters),
   });
 }
@@ -278,6 +285,18 @@ contextBridge.exposeInMainWorld('commandPalette', {
     ipcRenderer.on(DESKTOP_IPC_CHANNELS.commandPalette.open, listener);
     return () => {
       ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.commandPalette.open, listener);
+    };
+  },
+});
+
+// The app menu's Settings… item (⌘, / Ctrl+,) pushes this event to the focused
+// window so the renderer can open Settings.
+contextBridge.exposeInMainWorld('appMenu', {
+  onOpenSettings: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(DESKTOP_IPC_CHANNELS.appMenu.openSettings, listener);
+    return () => {
+      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.appMenu.openSettings, listener);
     };
   },
 });

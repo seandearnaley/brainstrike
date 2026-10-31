@@ -182,7 +182,7 @@ describe('adoptWorktree', () => {
     const result = await adoptWorktree(deps, { createdBy: 'user', path: '/repo/wt' });
 
     expect(result).toEqual({
-      error: 'BrainStrike already manages the worktree at "/repo/wt".',
+      error: 'Brainstrike already manages the worktree at "/repo/wt".',
       ok: false,
     });
     expect(insert).not.toHaveBeenCalled();
@@ -219,7 +219,7 @@ describe('adoptWorktree', () => {
 
     expect(result).toEqual({
       error:
-        'BrainStrike archived a worktree at "/repo/wt" — restore that one instead of adopting a new checkout at the same path.',
+        'Brainstrike archived a worktree at "/repo/wt" — restore that one instead of adopting a new checkout at the same path.',
       ok: false,
     });
     expect(insert).not.toHaveBeenCalled();

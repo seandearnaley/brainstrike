@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 interface McpContentPart {
   readonly data?: unknown;
   readonly mimeType?: unknown;
@@ -7,10 +9,6 @@ interface McpContentPart {
 
 interface McpMultimodalOutput {
   readonly content: readonly McpContentPart[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 export function isMcpMediaPart(part: McpContentPart): boolean {
@@ -25,7 +23,7 @@ export function readMcpMultimodalOutput(output: unknown): McpMultimodalOutput | 
   if (!Array.isArray(content)) {
     return;
   }
-  const parts = content.filter((part): part is McpContentPart => isRecord(part));
+  const parts = content.filter((part): part is McpContentPart => Predicate.isObject(part));
   if (!parts.some(isMcpMediaPart)) {
     return;
   }

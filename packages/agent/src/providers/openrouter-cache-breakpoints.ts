@@ -23,6 +23,7 @@
  * `promptCaching: 'openrouter-breakpoints'`, selected in `prompt-caching.ts`.
  */
 
+import { Predicate } from 'effect';
 import {
   type PromptMessageLike,
   type PromptParamsLike,
@@ -36,17 +37,16 @@ const SYSTEM_ROLE = 'system';
 const USER_ROLE = 'user';
 const USER_BREAKPOINTS = 2;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function hasCacheControl(options: unknown): boolean {
-  if (!isRecord(options)) {
+  if (!Predicate.isObject(options)) {
     return false;
   }
   return CACHE_CONTROL_NAMESPACES.some((namespace) => {
     const scoped = options[namespace];
-    return isRecord(scoped) && (scoped['cacheControl'] ?? scoped['cache_control']) !== undefined;
+    return (
+      Predicate.isObject(scoped) &&
+      (scoped['cacheControl'] ?? scoped['cache_control']) !== undefined
+    );
   });
 }
 
@@ -57,7 +57,9 @@ function hasExplicitBreakpoint(message: PromptMessageLike): boolean {
   }
   return (
     Array.isArray(message.content) &&
-    message.content.some((part) => isRecord(part) && hasCacheControl(part['providerOptions']))
+    message.content.some(
+      (part) => Predicate.isObject(part) && hasCacheControl(part['providerOptions'])
+    )
   );
 }
 

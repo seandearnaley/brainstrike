@@ -142,9 +142,11 @@ describe('CodeBlockBody', () => {
       </ThemeProvider>
     );
     await screen.findByText('echo hi');
-    // The provider shows the block after its async load, outside act, so the
-    // block's observer effect can still be pending once its text is on screen.
-    await waitFor(() => expect(observers.flatMap(({ targets }) => targets)).not.toHaveLength(0));
+    // The theme loads outside act, so the block's observer attaches in a later
+    // passive effect than the commit that shows its text.
+    await waitFor(() => {
+      expect(observers.some(({ targets }) => targets.length > 0)).toBe(true);
+    });
     enterViewport();
 
     expect(mocks.capturedShikiProps.at(-1)?.theme).toEqual({

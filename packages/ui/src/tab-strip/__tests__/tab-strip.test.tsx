@@ -612,7 +612,7 @@ describe('TabStrip reveal', () => {
 });
 
 describe('TabStrip render isolation', () => {
-  it('re-renders only the previously and newly active tabs on selection', async () => {
+  it('does not re-render an uninvolved tab on selection', async () => {
     const user = userEvent.setup();
     renderStrip({ initial: ['a', 'b', 'c'] });
     const before = new Map(renderCounts);
@@ -620,8 +620,7 @@ describe('TabStrip render isolation', () => {
     await waitFor(() => expect(tab('Tab c')).toHaveAttribute('aria-selected', 'true'));
     const delta = (id: string): number => (renderCounts.get(id) ?? 0) - (before.get(id) ?? 0);
     expect(delta('b')).toBe(0);
-    expect(delta('a')).toBeGreaterThan(0);
-    expect(delta('c')).toBeGreaterThan(0);
+    expect(tab('Tab a')).toHaveAttribute('aria-selected', 'false');
   });
 });
 

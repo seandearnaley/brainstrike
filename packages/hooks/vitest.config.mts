@@ -1,9 +1,11 @@
 import { testBase } from '@brainstrike/test-utils/vitest.base';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import type { InlineConfig } from 'vitest';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  plugins: [reactCompiler()],
   test: {
     // One module cache per package, so parallel lanes never clear a shared one.
     fsModuleCachePath: 'node_modules/.vitest-cache',

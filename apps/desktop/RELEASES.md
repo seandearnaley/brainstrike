@@ -32,6 +32,33 @@ repository. The first release has a one-line body. The release body is the
 notes' only home; edit it on GitHub after publishing if a line needs a human
 touch.
 
+## App icon
+
+`apps/desktop/build/icon.icon` is the source of the macOS icon, an Icon
+Composer asset: the identity mark (`Assets/01-foreground.svg`) on the
+ultramarine fill, with Liquid Glass translucency. Compiling it needs macOS 26
+or later as well as Xcode 26's `actool`; on the macOS 15 release runners
+`actool` crashes, and there is no Intel macOS 26 runner. So it is compiled once
+on a Mac and both outputs are committed: `build/Assets.car`, which macOS 26 and
+later show (`CFBundleIconName`, from `mac.extendInfo`), and `build/icon.icns`
+for older macOS (`mac.icon`). Packaging copies them and needs no Xcode.
+
+After changing `icon.icon`, rebuild both on macOS 26 or later with Xcode 26 or
+later, from `apps/desktop`. The copy is named `Icon.icon` because `--app-icon`
+names the icon by its file name:
+
+```sh
+OUT=$(mktemp -d) && cp -R build/icon.icon "$OUT/Icon.icon" && mkdir "$OUT/out"
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun actool "$OUT/Icon.icon" \
+  --compile "$OUT/out" --output-partial-info-plist "$OUT/out/info.plist" --app-icon Icon \
+  --include-all-app-icons --enable-on-demand-resources NO --development-region en \
+  --target-device mac --minimum-deployment-target 26.0 --platform macosx
+cp "$OUT/out/Assets.car" build/Assets.car && cp "$OUT/out/Icon.icns" build/icon.icns
+```
+
+Windows and Linux use `icon.ico` and `icons/*.png`, rendered from
+`icon-square.svg`.
+
 ## In-app updates
 
 A packaged install checks `seandearnaley/brainstrike-releases` once per launch

@@ -11,12 +11,21 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
+    // The textarea stands in for a half-written line comment: its text lives
+    // only as long as the mounted DiffView does.
     DiffView: (props: { filename?: string; source: DiffViewSource }) => (
       <div
         data-filename={props.filename}
+        data-new-content={
+          props.source.kind === 'structured' && props.source.diff.content.kind === 'full'
+            ? props.source.diff.content.newContent
+            : undefined
+        }
         data-source-kind={props.source.kind}
         data-testid="diff-view-stub"
-      />
+      >
+        <textarea aria-label="Line comment" />
+      </div>
     ),
   };
 });
@@ -183,6 +192,89 @@ describe('ChangesetFileDiffCard', () => {
       />
     );
     await waitFor(() => expect(loadFileDiff).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps the loaded diff, and a half-written comment, on screen while a reload is in flight (BST-2369)', async () => {
+    const user = userEvent.setup();
+    let resolveReload: (result: GitResult<StructuredFileDiff>) => void = () => undefined;
+    const loadFileDiff = vi
+      .fn<() => Promise<GitResult<StructuredFileDiff>>>()
+      .mockResolvedValueOnce({ ok: true, value: makeFullDiff() })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveReload = resolve;
+          })
+      );
+    const card = (reloadToken: number) => (
+      <ChangesetFileDiffCard
+        changesetKind="git-scope"
+        entry={makeEntry()}
+        loadFileDiff={loadFileDiff}
+        reloadToken={reloadToken}
+      />
+    );
+    const { rerender } = render(card(0));
+    await user.type(await screen.findByRole('textbox', { name: 'Line comment' }), 'Why 42?');
+
+    rerender(card(1));
+    await waitFor(() => expect(loadFileDiff).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('changeset-file-diff-card-loading')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Line comment' })).toHaveValue('Why 42?');
+
+    resolveReload({ ok: true, value: makeFullDiff() });
+    await waitFor(() => expect(screen.getByTestId('diff-view-stub')).toBeInTheDocument());
+    expect(screen.getByRole('textbox', { name: 'Line comment' })).toHaveValue('Why 42?');
+  });
+
+  it('shows the newest reload when an older reload answers last', async () => {
+    const pending: ((result: GitResult<StructuredFileDiff>) => void)[] = [];
+    const loadFileDiff = vi
+      .fn<() => Promise<GitResult<StructuredFileDiff>>>()
+      .mockResolvedValueOnce({ ok: true, value: makeFullDiff() })
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            pending.push(resolve);
+          })
+      );
+    const card = (reloadToken: number) => (
+      <ChangesetFileDiffCard
+        changesetKind="git-scope"
+        entry={makeEntry()}
+        loadFileDiff={loadFileDiff}
+        reloadToken={reloadToken}
+      />
+    );
+    const { rerender } = render(card(0));
+    await screen.findByTestId('diff-view-stub');
+    rerender(card(1));
+    rerender(card(2));
+    await waitFor(() => expect(pending).toHaveLength(2));
+
+    const full = (newContent: string) =>
+      makeFullDiff({ content: { kind: 'full', newContent, oldContent: 'old\n' } });
+    pending[1]?.({ ok: true, value: full('newest\n') });
+    await waitFor(() =>
+      expect(screen.getByTestId('diff-view-stub')).toHaveAttribute('data-new-content', 'newest\n')
+    );
+    pending[0]?.({ ok: true, value: full('stale\n') });
+    await Promise.resolve();
+    expect(screen.getByTestId('diff-view-stub')).toHaveAttribute('data-new-content', 'newest\n');
+  });
+
+  it('reserves the loaded diff height while a diff is loading', () => {
+    const loadFileDiff = vi.fn<() => Promise<GitResult<StructuredFileDiff>>>(
+      () => new Promise(() => undefined)
+    );
+    render(
+      <ChangesetFileDiffCard
+        changesetKind="git-scope"
+        entry={makeEntry({ additions: null, deletions: null, path: 'new-file.ts' })}
+        loadFileDiff={loadFileDiff}
+      />
+    );
+    expect(screen.getByTestId('changeset-file-diff-card-loading')).toHaveClass('h-[420px]');
   });
 
   it('a reloadToken change before the first intersection does NOT force an eager load (stays lazy)', () => {

@@ -267,7 +267,17 @@ jobs:
           APPLE_API_ISSUER: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_API_ISSUER || '' }}
           APPLE_TEAM_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_TEAM_ID || '' }}
         # The zip is electron-updater's macOS payload; the DMG is the download.
-        run: pnpm --filter @brainstrike/desktop run dist --mac dmg zip --"$ARCH" --publish never
+        # electron-builder takes a defined but empty CSC_LINK as a certificate
+        # path (the working directory), so the unsigned posture unsets the
+        # empty credentials instead of passing them.
+        run: |
+          set -euo pipefail
+          for NAME in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_TEAM_ID; do
+            if [[ -z "${!NAME}" ]]; then
+              unset "$NAME"
+            fi
+          done
+          pnpm --filter @brainstrike/desktop run dist --mac dmg zip --"$ARCH" --publish never
 
       - name: Remove the notarization key
         if: always() && steps.signing.outputs.signed == 'true'
@@ -481,6 +491,20 @@ jobs:
             Where-Object { $_.Name -eq "Brainstrike.exe" } | Select-Object -First 1
           if (-not $App) { Write-Error "installed executable not found under LOCALAPPDATA\Programs"; exit 1 }
           Write-Host "installed app: $($App.FullName)"
+          # main-bootstrap.ts answers --version and exits before any GUI or host
+          # work, so a package that cannot start fails here, as on the other legs.
+          $Out = Join-Path $env:RUNNER_TEMP "brainstrike-version.out"
+          $Err = Join-Path $env:RUNNER_TEMP "brainstrike-version.err"
+          $run = Start-Process -FilePath $App.FullName -ArgumentList "--version" -NoNewWindow -PassThru `
+            -RedirectStandardOutput $Out -RedirectStandardError $Err
+          if (-not $run.WaitForExit(60000)) { $run.Kill(); Write-Error "installed app did not answer --version within 60 s"; exit 1 }
+          $Reported = "$(Get-Content -Raw $Out)".Trim()
+          Write-Host "installed app --version => $Reported"
+          if ($Reported -notlike "*$Version*") {
+            Get-Content $Err -Tail 40
+            Write-Error "installed app did not report version $Version"
+            exit 1
+          }
 
       - name: Record asset metadata
         shell: bash

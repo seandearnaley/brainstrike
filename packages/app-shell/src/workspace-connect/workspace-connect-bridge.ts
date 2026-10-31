@@ -64,7 +64,7 @@ const WORKSPACE_OPEN_ORIGINS = Object.keys(
 export const WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE =
   'Folder was never granted in this app; use Add Folder to grant it.' as const;
 export const WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE =
-  'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.' as const;
+  'Folder was never granted in this app and is not a Brainstrike-managed worktree; use Add Folder to grant it.' as const;
 export const WORKSPACE_ROOT_NEVER_GRANTED_MESSAGES: readonly string[] = [
   WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE,
   WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE,

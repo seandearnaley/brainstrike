@@ -15,7 +15,7 @@ const STATE_STORE_READ_ONLY = refusal({
   category: 'availability',
   code: STATE_STORE_READ_ONLY_CODE,
   message:
-    'BrainStrike’s conversation store is damaged, so it opened read-only and this change was not saved.',
+    'Brainstrike’s conversation store is damaged, so it opened read-only and this change was not saved.',
   remedy:
     'Your conversations can still be read. The notice at the top of the window has the details.',
 });

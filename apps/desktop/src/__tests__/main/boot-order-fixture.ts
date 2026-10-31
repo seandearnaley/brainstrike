@@ -50,6 +50,7 @@ const mockApp = {
   on: vi.fn(),
   quit: vi.fn(),
   requestSingleInstanceLock: vi.fn(() => true),
+  setAboutPanelOptions: vi.fn(),
   setPath: vi.fn(),
   whenReady: vi.fn(() => Promise.resolve()),
 };
@@ -57,6 +58,7 @@ const mockApp = {
 const electronServices = {
   app: mockApp,
   clipboard: { writeText: vi.fn() },
+  crashReporter: { start: vi.fn() },
   ipcMain: {
     handle: vi.fn(),
   },

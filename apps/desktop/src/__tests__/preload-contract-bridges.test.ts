@@ -23,7 +23,7 @@ import {
  * preload under a mocked `electron` and reads the exposed objects back,
  * replacing the per-domain source-regex pins. The same load proves each
  * method rides the one invoke channel under its manifest method name and
- * applies the ONE `IpcResult` unwrap.
+ * applies the ONE `BoundaryResult` unwrap.
  */
 type PushListener = (event: { ports: readonly unknown[] }, push: DesktopIpcPush) => void;
 const mockExposeInMainWorld = vi.fn<(key: string, api: unknown) => void>();
@@ -206,6 +206,19 @@ describe('preload contract-derived bridges', () => {
     unsubscribe();
     pushFromMain(DESKTOP_IPC_CHANNELS.windowFocus.changed, true);
     expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('delivers the app menu Settings… push to onOpenSettings until it unsubscribes', () => {
+    const callback = vi.fn();
+    const unsubscribe = exposedApi('appMenu')['onOpenSettings']?.(callback) as () => void;
+
+    pushFromMain(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined);
+    pushFromMain(DESKTOP_IPC_CHANNELS.commandPalette.open, undefined);
+    expect(callback).toHaveBeenCalledOnce();
+
+    unsubscribe();
+    pushFromMain(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined);
+    expect(callback).toHaveBeenCalledOnce();
   });
 
   it('omits the retired PostgreSQL integrity owner from the visible preload', () => {

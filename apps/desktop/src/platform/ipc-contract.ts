@@ -11,32 +11,20 @@
  * a handler. See `docs/agents/platform-contracts.md`.
  */
 import type { BoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 
 export type IpcChannelName = `${string}:${string}`;
 
-/**
- * The ONE failure taxonomy that crosses IPC as data (first written for MCP
- * content IPC, now an agent-host method). `ipcMain.handle` replies to a thrown Error with
- * Electron's formatted string, main-process stack included, so failures
- * travel as an envelope and the preload rebuilds a clean Error carrying
- * exactly these three fields.
- */
-export type IpcFailure = BoundaryFailure;
-
-export type IpcResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly error: IpcFailure; readonly ok: false };
-
-export function ipcOk<T>(value: T): IpcResult<T> {
+export function ipcOk<T>(value: T): BoundaryResult<T> {
   return { ok: true, value };
 }
 
-export function ipcFailure<T = never>(error: IpcFailure): IpcResult<T> {
+export function ipcFailure<T = never>(error: BoundaryFailure): BoundaryResult<T> {
   return { error, ok: false };
 }
 
 /**
- * `ipc-result`: the handler returns `IpcResult<Result>`; the preload transports the envelope;
+ * `ipc-result`: the handler returns `BoundaryResult<Result>`; the preload transports the envelope;
  * the renderer capability decodes it into `Promise<Result>`.
  * `raw`: the handler's return value crosses untouched — for domains whose
  * consumers already read a typed envelope of their own (`GitResult`,
@@ -103,7 +91,7 @@ type InvokeKeys<C extends Contract> = {
 export type Handlers<C extends Contract> = {
   [K in InvokeKeys<C>]: C[K] extends IpcChannel<infer Args, infer Result, infer Envelope>
     ? Envelope extends 'ipc-result'
-      ? (...args: Args) => IpcResult<Result> | Promise<IpcResult<Result>>
+      ? (...args: Args) => BoundaryResult<Result> | Promise<BoundaryResult<Result>>
       : (...args: Args) => Promise<Result> | Result
     : never;
 };
@@ -120,7 +108,7 @@ export type Bridge<C extends Contract> = {
 /** Actual preload transport: invoke results remain envelopes across contextBridge. */
 export type TransportBridge<C extends Contract> = {
   [K in keyof C]: C[K] extends IpcChannel<infer Args, infer Result, infer Envelope>
-    ? (...args: Args) => Promise<Envelope extends 'ipc-result' ? IpcResult<Result> : Result>
+    ? (...args: Args) => Promise<Envelope extends 'ipc-result' ? BoundaryResult<Result> : Result>
     : C[K] extends IpcEvent<infer Payload>
       ? (callback: (payload: Payload) => void) => () => void
       : never;

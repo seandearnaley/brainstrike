@@ -114,13 +114,31 @@ export const ComposerAttachmentsBar = () => (
   </div>
 );
 
+/**
+ * One box for a sent image, the same while its preview loads and once it
+ * shows, so the message does not grow when the image arrives. The image sits
+ * inside at its own size up to the box (never enlarged), so a small icon
+ * stays small and a large screenshot is scaled down whole.
+ */
+const ATTACHMENT_BOX_CLASS_NAME =
+  'bg-muted/40 flex h-48 w-64 max-w-full items-center justify-center overflow-hidden rounded-lg';
+
 const UserMessageAttachmentImage = () => {
   const attachment = useAuiState((s) => s.attachment);
   const preview = useAttachmentPreviewUrl(attachment);
   // URL-keyed for the same instance-reuse reason as the composer chip.
   const [failedUrl, setFailedUrl] = useState<string | undefined>(undefined);
   if (preview.status === 'loading') {
-    return null;
+    return (
+      <span
+        className={ATTACHMENT_BOX_CLASS_NAME}
+        data-testid="assistant-user-message-attachment-loading"
+      >
+        <span className="sr-only" role="status">
+          Loading {attachment.name}
+        </span>
+      </span>
+    );
   }
   if (preview.status === 'error' || preview.url === failedUrl) {
     // Mirrors markdown-image.tsx: a failed read or load is promoted to an
@@ -137,15 +155,17 @@ const UserMessageAttachmentImage = () => {
     );
   }
   return (
-    // biome-ignore lint/correctness/useImageSize: user-attached image has unknown intrinsic dimensions; max-h-64/max-w-full constrain layout (mirrors markdown-image.tsx)
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: onError is a media-load event on img, not a user interaction
-    <img
-      alt={attachment.name}
-      className="max-h-64 max-w-full rounded-lg object-contain"
-      data-testid="assistant-user-message-attachment"
-      onError={() => setFailedUrl(preview.url)}
-      src={preview.url}
-    />
+    <span className={ATTACHMENT_BOX_CLASS_NAME}>
+      {/* biome-ignore lint/correctness/useImageSize: user-attached image has unknown intrinsic dimensions; the fixed box around it holds the layout */}
+      {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: onError is a media-load event on img, not a user interaction */}
+      <img
+        alt={attachment.name}
+        className="max-h-full max-w-full object-contain"
+        data-testid="assistant-user-message-attachment"
+        onError={() => setFailedUrl(preview.url)}
+        src={preview.url}
+      />
+    </span>
   );
 };
 

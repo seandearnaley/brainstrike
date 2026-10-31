@@ -97,7 +97,7 @@ describe('useConnectFolder', () => {
     const [call] = toastMock.mock.calls;
     expect(call?.[0]).toMatchObject({
       persistent: true,
-      title: 'BrainStrike has not been granted access to this folder',
+      title: 'Brainstrike has not been granted access to this folder',
       variant: 'destructive',
     });
     expect(String(call?.[0]?.description)).toContain('/w/new');

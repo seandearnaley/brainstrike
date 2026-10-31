@@ -119,6 +119,27 @@ describe('desktop diagnostics IPC', () => {
     }
   });
 
+  it('lists the profile crash dumps and returns a read failure as typed data', async () => {
+    const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
+    const listing = { directory: '/profile/Crashpad', dumps: [], totalCount: 0 };
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(listing)
+      .mockRejectedValueOnce(new Error('EACCES: /private/profile/Crashpad'));
+    const unregister = registerDesktopDiagnosticsIpcHandlers({
+      crashDumps: { list },
+    } as unknown as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]);
+    const method = DESKTOP_IPC_CHANNELS.diagnostics.listCrashDumps;
+    try {
+      await expect(invoke(method)).resolves.toEqual({ ok: true, value: listing });
+      const failed = await invoke(method);
+      expect(failed).toMatchObject({ error: { kind: 'fault' }, ok: false });
+      expect(JSON.stringify(failed)).not.toContain('/private/profile');
+    } finally {
+      unregister();
+    }
+  });
+
   it('validates the main-log window before touching the provider and forwards a valid one', async () => {
     const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
     const readWindow = vi.fn().mockResolvedValue({ lines: [] });

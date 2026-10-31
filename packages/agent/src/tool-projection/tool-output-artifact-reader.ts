@@ -17,9 +17,10 @@ import {
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
   type ToolOutputArtifactPage,
   type ToolOutputArtifactReference,
+  ToolOutputArtifactReferenceSchema,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { assertSafeRegexSource } from '@brainstrike/utils';
-import { Schema, SchemaIssue } from 'effect';
+import { Predicate, Schema, SchemaIssue } from 'effect';
 import {
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
@@ -33,20 +34,6 @@ import {
 
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_ENCODER = new TextEncoder();
-
-const ToolOutputArtifactReferenceSchema = Schema.Struct({
-  byteLength: Schema.Int.check(
-    Schema.isGreaterThanOrEqualTo(0),
-    Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-  ),
-  expiresAt: Schema.String.check(Schema.isMinCodePoints(1), Schema.isMaxCodePoints(64)),
-  format: Schema.Literals(['json', 'text']),
-  id: Schema.String.check(
-    Schema.isMinCodePoints(1),
-    Schema.isMaxCodePoints(128),
-    Schema.isPattern(/^[A-Za-z0-9_-]+$/u)
-  ),
-});
 
 export const ReadToolOutputArtifactInputSchema = Schema.Struct({
   artifactRef: Schema.optionalKey(ToolOutputArtifactReferenceSchema),
@@ -364,12 +351,8 @@ function buildModelPage(
  * the model sees a shorter byte-exact prefix and a recomputed cursor. The raw
  * page remains unchanged for display and persistence.
  */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isToolOutputArtifactSearchResult(value: unknown): value is ToolOutputArtifactSearchResult {
-  if (!(isRecord(value) && value['type'] === 'artifact_search')) {
+  if (!(Predicate.isObject(value) && value['type'] === 'artifact_search')) {
     return false;
   }
   const matches = value['matches'];
@@ -380,7 +363,7 @@ function isToolOutputArtifactSearchResult(value: unknown): value is ToolOutputAr
     Array.isArray(matches) &&
     matches.every(
       (match) =>
-        isRecord(match) &&
+        Predicate.isObject(match) &&
         Number.isSafeInteger(match['line']) &&
         (match['line'] as number) > 0 &&
         typeof match['lineText'] === 'string' &&
@@ -858,7 +841,7 @@ function resolveReadPosition(input: ReadToolOutputArtifactInput): {
   readonly offsetByte: number;
 } {
   if (input.mode === 'artifact') {
-    if (!(input.artifactRef && isToolOutputArtifactReference(input.artifactRef))) {
+    if (!input.artifactRef) {
       throw new ToolOutputArtifactReadError('invalid_input');
     }
     return { artifactRef: input.artifactRef, offsetByte: 0 };

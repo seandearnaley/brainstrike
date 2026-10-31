@@ -51,7 +51,11 @@ The application implements a comprehensive Content Security Policy that differs 
 - `nodeIntegration: false`: Disables Node.js in renderer
 - `contextIsolation: true`: Isolates context between main and renderer
 - `webSecurity: true`: Enables web security features
-- `sandbox: false`: Disabled to allow IPC communication
+- `sandbox: true`: The Chromium renderer sandbox is on in packaged builds. Test
+  runs turn it off, because Playwright's Electron driver cannot launch a
+  sandboxed app in CI (`create-window.ts`), and the `dev:electron`, `start` and
+  `start:dev` scripts launch Electron with `--no-sandbox`, which turns it off for
+  every process
 - `allowRunningInsecureContent: false`: Blocks mixed content
 - `experimentalFeatures: false`: Disables experimental web features
 - `safeDialogs: true`: Enables safe dialog handling
@@ -89,6 +93,10 @@ The application implements a comprehensive Content Security Policy that differs 
 - Local storage adapter with validation
 - No sensitive data stored in plain text
 - Proper cleanup of temporary data
+- Crash reports stay on the machine (BST-2351): Crashpad writes a minidump for
+  a crashed process into `<userData>/Crashpad` with upload off. A minidump can
+  hold memory from the crashed process, so the thread debug pack lists only
+  names, times and sizes, and factory reset deletes every report
 
 ### Credential storage
 - Provider keys, MCP bearer tokens and MCP OAuth records live in one private
@@ -396,15 +404,17 @@ download offline. The DMG container itself is deliberately unsigned
 ## Development vs Production
 
 ### Development Mode
-- More permissive CSP for development tools
-- DevTools enabled for debugging
+- More permissive CSP for the Vite dev server and HMR
 - Console logging for security configuration
 
 ### Production Mode
 - Strict CSP without development exceptions
-- DevTools disabled
-- No debug logging
-- Signed application bundles
+- Logging at `info` unless `LOG_LEVEL` or Settings › Logging says otherwise
+- macOS bundles signed and notarized; Windows unsigned until Authenticode lands
+  (BST-2349)
+
+### Both
+- DevTools open from View › Toggle Developer Tools in every build
 
 ## Security Checklist
 
@@ -423,8 +433,7 @@ download offline. The DMG container itself is deliberately unsigned
 ## Monitoring and Updates
 
 ### Security Monitoring
-- Regular dependency updates via Dependabot
-- Security audit with `npm audit`
+- Renovate opens dependency and Electron updates (`.github/renovate.json5`)
 - Electron security warnings monitoring
 
 ### Update Process

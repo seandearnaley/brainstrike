@@ -49,7 +49,7 @@ describe('StateStoreDamageNotice', () => {
 
     const notice = await screen.findByTestId('state-store-damage-notice');
     expect(notice).toHaveTextContent(
-      'BrainStrike’s conversation store is damaged, so it opened read-only.'
+      'Brainstrike’s conversation store is damaged, so it opened read-only.'
     );
     expect(notice).toHaveTextContent('Nothing was deleted or replaced.');
     expect(notice).toHaveTextContent(DAMAGED.stateDamage as string);
@@ -86,7 +86,7 @@ describe('StateStoreDamageNotice', () => {
     const user = userEvent.setup();
     const store = capability([DAMAGED]);
     vi.mocked(store.restartHost).mockRejectedValueOnce(
-      new Error('The agent host was started outside BrainStrike, so it was not restarted.')
+      new Error('The agent host was started outside Brainstrike, so it was not restarted.')
     );
     render(<StateStoreDamageNotice capability={store} />);
 
@@ -94,7 +94,7 @@ describe('StateStoreDamageNotice', () => {
 
     expect(
       await screen.findByText(
-        'Couldn’t restart the agent host: The agent host was started outside BrainStrike, so it was not restarted.'
+        'Couldn’t restart the agent host: The agent host was started outside Brainstrike, so it was not restarted.'
       )
     ).toBeVisible();
     expect(screen.getByTestId('state-store-damage-notice')).toBeVisible();
@@ -124,7 +124,7 @@ describe('StateStoreDamageNotice', () => {
     render(<StateStoreDamageNotice capability={capability([new Error('host unreachable')])} />);
 
     expect(await screen.findByTestId('state-store-damage-notice')).toHaveTextContent(
-      'BrainStrike couldn’t check its conversation store: host unreachable'
+      'Brainstrike couldn’t check its conversation store: host unreachable'
     );
   });
 });

@@ -10,6 +10,7 @@ import {
   hasValidDelegatedDecisionState,
   isDelegatedToolDecisionState,
 } from '@brainstrike/assistant-contract';
+import { Predicate } from 'effect';
 
 export type RediscoveredPauseDisplay =
   | {
@@ -31,13 +32,9 @@ export const DELEGATED_DECISION_STATUS_LABELS = {
   invalid: 'Decision status unavailable',
 } as const;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 /** The rediscovery fields off a data-part payload, or null for a live pause. */
 export function readRediscoveredPauseDisplay(data: unknown): RediscoveredPauseDisplay | null {
-  if (!isRecord(data)) {
+  if (!Predicate.isObject(data)) {
     return null;
   }
   if ('decisionState' in data) {

@@ -4,10 +4,7 @@
  * model identity.
  */
 import { readFileSync } from 'node:fs';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { Predicate } from 'effect';
 
 /**
  * Recorded public OpenRouter Models API responses, fetched without credentials:
@@ -35,7 +32,10 @@ function readRecordedMetadata(): ReadonlyMap<string, Buffer> {
   for (const fixture of RECORDED_OPENROUTER_METADATA) {
     const body = readFileSync(fixture);
     const parsed: unknown = JSON.parse(body.toString('utf8'));
-    const id = isRecord(parsed) && isRecord(parsed['data']) ? parsed['data']['id'] : undefined;
+    const id =
+      Predicate.isObject(parsed) && Predicate.isObject(parsed['data'])
+        ? parsed['data']['id']
+        : undefined;
     if (typeof id !== 'string') {
       throw new Error(
         `The recorded OpenRouter metadata fixture ${fixture.pathname} has no data.id.`

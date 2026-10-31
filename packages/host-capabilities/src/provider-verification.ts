@@ -56,6 +56,7 @@ import {
   type ProviderVerificationResult,
   type ProviderVerificationSnapshot,
   type ProviderVerificationStatus,
+  refusalError,
 } from '@brainstrike/assistant-contract';
 import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-credential-projection';
 import { runWithTimeout } from '@brainstrike/effect-kit';
@@ -87,36 +88,12 @@ class ProviderProbeTimeoutError extends Error {
   }
 }
 
-/** The provider id is not verifiable here (not in the registry, not tavily). */
-export class UnknownVerificationProviderError extends Error {
-  constructor() {
-    super('Provider id is not a verifiable provider.');
-    this.name = 'UnknownVerificationProviderError';
-  }
-}
-
-/** The provider is known but has no configured credential to verify. */
-export class MissingProviderCredentialError extends Error {
-  readonly providerId: string;
-
-  constructor(providerId: string) {
-    super(`No credential configured for provider "${providerId}".`);
-    this.name = 'MissingProviderCredentialError';
-    this.providerId = providerId;
-  }
-}
-
-/**
- * The stored credential's shape does not match any probe for the provider's
- * authType (e.g. an oauth credential on an api_key probe). Static message by
- * contract — never echoes credential fields.
+/*
+ * A request this service declines is a typed refusal with its remedy: the
+ * person can fix a missing key or region, so it is never logged as a host
+ * error (BST-2374). Messages are static by contract and never echo credential
+ * fields.
  */
-export class UnsupportedVerificationCredentialError extends Error {
-  constructor(detail: string) {
-    super(`Stored credential cannot be verified: ${detail}.`);
-    this.name = 'UnsupportedVerificationCredentialError';
-  }
-}
 
 export interface ProviderVerificationTarget {
   readonly authType: ProviderAuthType;
@@ -292,12 +269,20 @@ function buildAwsBearerProbe(bearerKey: string, region: string): ProbeRequest {
     // DISTINCT from a malformed region: nothing is configured at all. Say so,
     // because the fix is different (set one) and because reporting "invalid
     // region name" for an absent region misdiagnoses the problem.
-    throw new UnsupportedVerificationCredentialError(
-      'no AWS region is configured for Bedrock — set one in Settings or via AWS_REGION'
+    throw refusalError(
+      'configuration',
+      'provider.region-missing',
+      'No AWS region is configured for Bedrock.',
+      'Set one in Settings or via AWS_REGION.'
     );
   }
   if (!AWS_REGION_PATTERN.test(region)) {
-    throw new UnsupportedVerificationCredentialError('the AWS region is not a valid region name');
+    throw refusalError(
+      'configuration',
+      'provider.region-invalid',
+      'The AWS region for Bedrock is not a valid region name.',
+      'Set a region such as us-east-1 in Settings or via AWS_REGION.'
+    );
   }
   return bearerProbe(`https://bedrock.${region}.amazonaws.com/foundation-models`, bearerKey);
 }
@@ -355,16 +340,18 @@ function resolveProbe(
   }
 
   if (credential.type !== 'api_key') {
-    throw new UnsupportedVerificationCredentialError(
-      'only api_key credentials are verifiable for this provider'
+    throw refusalError(
+      'configuration',
+      'provider.credential-unsupported',
+      'The stored credential is not an API key, so it cannot be verified.',
+      'Replace it with an API key in Providers.'
     );
   }
   const buildProbe = findApiKeyProbe(providerId);
   if (!buildProbe) {
-    // NO SILENT FALLBACKS: a provider without a declared probe is a loud gap.
-    throw new UnsupportedVerificationCredentialError(
-      'no verification probe is declared for this provider'
-    );
+    // NO SILENT FALLBACKS: a provider without a declared probe is a defect,
+    // not a setting, so it crosses as the logged internal fault.
+    throw new Error(`No verification probe is declared for provider "${providerId}".`);
   }
   return buildProbe(credential.key, env);
 }
@@ -530,11 +517,21 @@ export function createProviderVerificationService(
     async verify(providerId: string, signal?: AbortSignal): Promise<ProviderVerificationSnapshot> {
       const target = findProvider(providerId);
       if (!target) {
-        throw new UnknownVerificationProviderError();
+        throw refusalError(
+          'input',
+          'provider.unknown',
+          'Provider id is not a verifiable provider.',
+          'Choose a provider listed in Providers.'
+        );
       }
       const credential = await leaveOnAbort(() => readCredential(providerId), signal);
       if (!credential) {
-        throw new MissingProviderCredentialError(providerId);
+        throw refusalError(
+          'configuration',
+          'provider.credential-missing',
+          `No credential configured for provider "${providerId}".`,
+          'Add one in Providers.'
+        );
       }
       const probe = resolveProbe(providerId, target, credential, env);
 

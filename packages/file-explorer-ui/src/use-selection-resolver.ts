@@ -25,15 +25,16 @@ const EMPTY_RELATIVE_PATHS: string[] = [];
 export const QUERY_SELECTION_LOADING_PROMOTION_MS = 100;
 
 function buildMaterializedFallbackPaths(args: {
-  descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
+  excludedPaths: readonly string[];
+  includedPaths: readonly string[];
   materializedPaths: Set<string> | null;
 }): string[] {
-  const { descriptor, materializedPaths } = args;
+  const { excludedPaths, includedPaths, materializedPaths } = args;
   const nextPaths = new Set(materializedPaths ?? []);
-  for (const excludedPath of descriptor.excludedPaths) {
+  for (const excludedPath of excludedPaths) {
     nextPaths.delete(excludedPath);
   }
-  for (const includedPath of descriptor.includedPaths) {
+  for (const includedPath of includedPaths) {
     nextPaths.add(includedPath);
   }
 
@@ -369,22 +370,20 @@ export function useSelectionResolver(): SelectionResolverState {
     return acquireSelectionProjectionStructuralCache();
   }, [ownsSelectionProjectionCache]);
 
+  // Reads only the descriptor's path lists, so an unrelated descriptor change keeps the result.
+  const excludedPaths = selectionModel.queryDescriptor?.excludedPaths;
+  const includedPaths = selectionModel.queryDescriptor?.includedPaths;
   const queryMaterializedFallbackPaths = useMemo(() => {
-    const descriptor = selectionModel.queryDescriptor;
-    if (!(selectionModel.mode === 'query' && descriptor)) {
+    if (!(selectionModel.mode === 'query' && excludedPaths && includedPaths)) {
       return EMPTY_RELATIVE_PATHS;
     }
 
     return buildMaterializedFallbackPaths({
-      descriptor,
+      excludedPaths,
+      includedPaths,
       materializedPaths: selectionModel.materializedPaths,
     });
-  }, [
-    selectionModel.materializedPaths,
-    selectionModel.mode,
-    selectionModel.queryDescriptor?.includedPaths,
-    selectionModel.queryDescriptor?.excludedPaths,
-  ]);
+  }, [excludedPaths, includedPaths, selectionModel.materializedPaths, selectionModel.mode]);
 
   const effectiveRelativePaths = useMemo(() => {
     if (selectionModel.mode === 'query') {

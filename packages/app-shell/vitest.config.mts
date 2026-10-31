@@ -3,11 +3,11 @@
 
 import path from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import { defineConfig } from 'vitest/config';
 
 // CI splits this lane into native Vitest shards (the Unit app-shell rows in
-// .github/workflows/test.yml). vitest.compiled.config.mts spreads this test
-// block, so the compiled lane is sharded the same way.
+// .github/workflows/test.yml).
 export function resolveAppShellTestShard(
   environment: NodeJS.ProcessEnv = process.env
 ): string | undefined {
@@ -31,6 +31,7 @@ export function resolveAppShellTestShard(
 const appShellTestShard = resolveAppShellTestShard();
 
 export default defineConfig({
+  plugins: [reactCompiler()],
   // Preserve real module URLs: source-boundary tests read files relative to them.
   // Vitest 5 applies define replacements to test modules too (BST-1689).
   resolve: {
@@ -146,8 +147,7 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    // `*.compiled.test.*` suites run in vitest.compiled.config.mts.
-    exclude: ['**/node_modules/**', '**/dist/**', '**/*.compiled.test.{ts,tsx}'],
+    exclude: ['**/node_modules/**', '**/dist/**'],
     // One module cache per package, so parallel lanes never clear a shared one.
     fsModuleCachePath: 'node_modules/.vitest-cache',
     ...(appShellTestShard ? { shard: appShellTestShard } : {}),

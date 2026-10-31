@@ -1,9 +1,11 @@
 /// <reference types="vitest" />
 import { resolve } from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  plugins: [reactCompiler()],
   resolve: {
     alias: [
       // @brainstrike/workers has no src/ dir (worker files live at the package

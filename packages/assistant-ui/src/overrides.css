@@ -762,10 +762,11 @@ span.bs-composer-chip {
 }
 
 /* Below the textarea: attach, plan, access, model and effort on the left;
-   Controls and the send/stop cluster on the right. ONE line at every width:
-   as the composer narrows, chips shed their secondary words, then their
-   chevrons, then shrink to icons, and the model label truncates last. The
-   send cluster never shrinks. Collapsed words stay in the accessible name. */
+   Controls and the send/stop cluster on the right. ONE line while the
+   composer is wider than 22rem: as it narrows, chips shed their secondary
+   words, then their chevrons, and the model label truncates. At 22rem and
+   below, chips shrink to icons and wrap onto a second line. The send cluster
+   never shrinks. Collapsed words stay in the accessible name. */
 .bs-composer-input-frame {
   container: bs-composer / inline-size;
 }
@@ -843,6 +844,25 @@ span.bs-composer-chip {
     position: absolute;
     white-space: nowrap;
     width: 1px;
+  }
+
+  /* Icon-only, the controls still outgrow the narrowest composer: they wrap
+     onto a second line instead of running under Send, which stays on the
+     bottom line. A wrapping row breaks before it shrinks anything, so the
+     model slot starts at its status dot and grows back to its label. */
+  .bs-composer-footer {
+    align-items: flex-end;
+  }
+
+  .bs-composer-footer-start {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+
+  .bs-composer-model-slot {
+    flex: 1 1 1.75rem;
+    max-width: max-content;
+    min-width: 1.75rem;
   }
 }
 
@@ -2493,7 +2513,7 @@ span.bs-composer-chip {
      (0,3,0), so the plain `.bs-thinking-shimmer` entry in this same list —
      (0,2,0) — cannot reach it however late the block is declared. Drop either
      and exactly one element keeps shimmering under a reduced-motion
-     preference (pinned in assistant-ui-panel-architecture.test.ts). */
+     preference. */
   .assistant-ui-panel .bs-thinking-pulse,
   .assistant-ui-panel .bs-thinking-core,
   .assistant-ui-panel .bs-thinking-shimmer,
@@ -2652,13 +2672,22 @@ span.bs-composer-chip {
 
 .assistant-ui-panel .aui-md blockquote {
   margin-block: 0.8em;
-  padding: 0.7rem 0.9rem;
-  /* Streamdown's quote classes add a left bar and italicize the whole quote. */
-  border-left: 0;
-  border-radius: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  /* One quiet bar in place of Streamdown's, which also italicizes the quote. */
+  border-left: 3px solid color-mix(in oklab, var(--border) 85%, var(--muted-foreground));
+  border-radius: 0 0.5rem 0.5rem 0;
   background: color-mix(in oklab, var(--color-muted) 45%, transparent);
   color: var(--muted-foreground);
   font-style: normal;
+}
+
+/* The box's padding is the quote's only inset; its paragraphs add none. */
+.assistant-ui-panel .aui-md blockquote > :first-child {
+  margin-top: 0;
+}
+
+.assistant-ui-panel .aui-md blockquote > :last-child {
+  margin-bottom: 0;
 }
 
 /* Footnote references and other super/subscripts keep their small size

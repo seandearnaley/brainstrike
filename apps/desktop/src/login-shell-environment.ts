@@ -9,7 +9,8 @@
  * so the agent host and every command it runs inherit it.
  *
  * Unlike the reference, a shell that prints no environment is a failure the
- * caller reports, never an empty result.
+ * caller reports, never an empty result. Like the reference, a shell that has
+ * not printed within ten seconds is stopped with everything it started.
  */
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -34,7 +35,12 @@ export interface ResolveLoginShellEnvironmentOptions {
   /** Electron's binary, run as Node to print the environment the shell built. */
   readonly execPath: string;
   readonly platform: NodeJS.Platform;
+  /** How long the shell may take to print its environment. */
+  readonly timeoutMs?: number;
 }
+
+/** VS Code's bound for resolving the shell environment. */
+const LOGIN_SHELL_TIMEOUT_MS = 10_000;
 
 /** Set while the shell runs so rc files can skip work (VS Code: VSCODE_RESOLVING_ENVIRONMENT). */
 const RESOLVING_ENVIRONMENT = 'BRAINSTRIKE_RESOLVING_ENVIRONMENT';
@@ -73,6 +79,9 @@ export async function resolveLoginShellEnvironment(
   const mark = randomUUID().replaceAll('-', '');
   const printEnvironment = `'${options.execPath}' -p '"${mark}" + JSON.stringify(process.env) + "${mark}"'`;
   const started = performance.now();
+  const timeoutMs = options.timeoutMs ?? LOGIN_SHELL_TIMEOUT_MS;
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const printedEnvironment = new RegExp(`${mark}(\\{.*\\})${mark}`, 'u');
   return await new Promise<LoginShellEnvironment>((resolve) => {
     // Detached: the shell gets no controlling terminal, so a prompt reads EOF.
     const child = spawn(shell, shellArguments(shell, printEnvironment), {
@@ -80,32 +89,41 @@ export async function resolveLoginShellEnvironment(
       env: { ...options.env, [RESOLVING_ENVIRONMENT]: '1', [RUN_AS_NODE]: '1' },
       stdio: ['ignore', 'pipe', 'ignore'],
     });
-    const stdout: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.on('error', (error) => {
-      resolve(failed(shell, `The login shell ${shell} could not start: ${error.message}`));
-    });
-    child.on('close', (code, signal) => {
-      if (signal !== null) {
-        resolve(failed(shell, `The login shell ${shell} was stopped by ${signal}.`));
-        return;
+    const settle = (result: LoginShellEnvironment): void => {
+      deadline.removeEventListener('abort', stop);
+      resolve(result);
+    };
+    // The shell leads its own process group, so stopping the group also stops
+    // whatever its rc files started and left holding the output pipe.
+    const stop = (): void => {
+      try {
+        process.kill(-(child.pid ?? 0), 'SIGKILL');
+      } catch {
+        /* The group already exited. */
       }
-      if (code !== 0) {
-        resolve(
-          failed(
-            shell,
-            `The login shell ${shell} exited with code ${code} before printing its environment.`
-          )
-        );
-        return;
-      }
-      const printed = new RegExp(`${mark}(\\{.*\\})${mark}`, 'u').exec(
-        Buffer.concat(stdout).toString('utf8')
-      )?.[1];
+      settle(
+        failed(
+          shell,
+          `The login shell ${shell} did not print its environment within ${timeoutMs / 1000} s.`
+        )
+      );
+    };
+    if (child.pid !== undefined) {
+      deadline.addEventListener('abort', stop, { once: true });
+    }
+    let output = '';
+    child.stdout.setEncoding('utf8');
+    // The closing mark ends the environment. A job the rc files started in the
+    // background can hold the pipe open long after that, so the pipe's close
+    // is not waited for, and the job is left running.
+    child.stdout.on('data', (chunk: string) => {
+      output += chunk;
+      const printed = printedEnvironment.exec(output)?.[1];
       if (printed === undefined) {
-        resolve(failed(shell, `The login shell ${shell} exited without printing its environment.`));
         return;
       }
+      child.stdout.destroy();
+      child.unref();
       const env = JSON.parse(printed) as NodeJS.ProcessEnv;
       delete env[RESOLVING_ENVIRONMENT];
       // The child ran as Node; Main's own children must not.
@@ -114,12 +132,30 @@ export async function resolveLoginShellEnvironment(
       } else {
         env[RUN_AS_NODE] = options.env[RUN_AS_NODE];
       }
-      resolve({
+      settle({
         durationMs: Math.round(performance.now() - started),
         env,
         shell,
         status: 'resolved',
       });
+    });
+    child.on('error', (error) => {
+      settle(failed(shell, `The login shell ${shell} could not start: ${error.message}`));
+    });
+    // A shell that ends before its closing mark failed; after it, this settles nothing.
+    child.on('close', (code, signal) => {
+      if (signal !== null) {
+        settle(failed(shell, `The login shell ${shell} was stopped by ${signal}.`));
+      } else if (code === 0) {
+        settle(failed(shell, `The login shell ${shell} exited without printing its environment.`));
+      } else {
+        settle(
+          failed(
+            shell,
+            `The login shell ${shell} exited with code ${code} before printing its environment.`
+          )
+        );
+      }
     });
   });
 }

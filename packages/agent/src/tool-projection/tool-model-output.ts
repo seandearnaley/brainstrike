@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
+import { Predicate } from 'effect';
 import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
 import {
   isMcpMediaPart,
@@ -170,10 +171,6 @@ function isExecutableTool(tool: unknown): tool is ExecutableToolWithModelOutput 
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function stringifyJsonSafe(value: unknown): string {
   const serialized = JSON.stringify(toJsonSafe(value));
   if (serialized === undefined) {
@@ -220,7 +217,7 @@ function createMcpMultimodalModelOutput(
     .filter((part) => !isMcpMediaPart(part))
     .map(stringifyMcpTextPart);
   const textSegments: string[] = [];
-  if (isRecord(output) && output['structuredContent'] !== undefined) {
+  if (Predicate.isObject(output) && output['structuredContent'] !== undefined) {
     textSegments.push(`Structured content: ${stringifyJsonSafe(output['structuredContent'])}`);
   }
   textSegments.push(...companionTextSegments);
@@ -309,11 +306,13 @@ export function wouldTruncateMcpModelOutput(
 }
 
 function isModelContentOutput(output: unknown): output is ModelContentOutput {
-  return isRecord(output) && output['type'] === 'content' && Array.isArray(output['value']);
+  return (
+    Predicate.isObject(output) && output['type'] === 'content' && Array.isArray(output['value'])
+  );
 }
 
 function isModelPreservedContentPart(part: unknown): part is Record<string, unknown> {
-  if (!isRecord(part)) {
+  if (!Predicate.isObject(part)) {
     return false;
   }
   switch (part['type']) {
@@ -326,7 +325,7 @@ function isModelPreservedContentPart(part: unknown): part is Record<string, unkn
       return typeof part['url'] === 'string';
     case 'file-id':
     case 'image-file-id':
-      return typeof part['fileId'] === 'string' || isRecord(part['fileId']);
+      return typeof part['fileId'] === 'string' || Predicate.isObject(part['fileId']);
     case 'custom':
       return true;
     default:
@@ -469,7 +468,11 @@ function boundProjectedModelOutput(
       defaultBudget
     );
   }
-  if (isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string') {
+  if (
+    Predicate.isObject(output) &&
+    output['type'] === 'text' &&
+    typeof output['value'] === 'string'
+  ) {
     return fitTextModelOutput(
       toolName,
       output['value'],
@@ -478,7 +481,7 @@ function boundProjectedModelOutput(
       defaultBudget
     );
   }
-  if (isRecord(output) && output['type'] === 'json') {
+  if (Predicate.isObject(output) && output['type'] === 'json') {
     const projected = {
       type: 'json',
       value: boundToolOutputForModel(toolName, output['value'], modelTokenBudget).output,
@@ -559,13 +562,13 @@ export function assertDomainProjectionWithinBudget(
   budget: ModelProjectionBudget
 ): DomainProjectionAssertion {
   const isGenuineTextProjection =
-    isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string';
+    Predicate.isObject(output) && output['type'] === 'text' && typeof output['value'] === 'string';
   let normalized: Record<string, unknown>;
   if (isModelContentOutput(output)) {
     normalized = output as unknown as Record<string, unknown>;
   } else if (isGenuineTextProjection) {
     normalized = { type: 'text', value: (output as { value: string }).value };
-  } else if (isRecord(output) && output['type'] === 'json') {
+  } else if (Predicate.isObject(output) && output['type'] === 'json') {
     normalized = { type: 'json', value: toJsonSafe(output['value']) };
   } else {
     normalized = {
@@ -589,7 +592,11 @@ interface HookProjectionComposition {
 }
 
 function readHookProjectionComposition(output: unknown): HookProjectionComposition {
-  if (isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string') {
+  if (
+    Predicate.isObject(output) &&
+    output['type'] === 'text' &&
+    typeof output['value'] === 'string'
+  ) {
     const domainText = output['value'];
     return {
       build: (context) => ({
@@ -609,7 +616,7 @@ function readHookProjectionComposition(output: unknown): HookProjectionCompositi
       }),
     };
   }
-  if (isRecord(output) && output['type'] === 'json') {
+  if (Predicate.isObject(output) && output['type'] === 'json') {
     const domainText = stringifyJsonSafe(output['value']);
     return {
       build: (context) => ({
@@ -768,7 +775,7 @@ function summarizeProjectionValueShape(value: unknown): Record<string, unknown> 
     keyCount: Object.keys(value).length,
     keys: summarizeShapeKeys(value),
     kind: 'object',
-    ...(isRecord(nestedOutput) ? { outputKeys: summarizeShapeKeys(nestedOutput) } : {}),
+    ...(Predicate.isObject(nestedOutput) ? { outputKeys: summarizeShapeKeys(nestedOutput) } : {}),
   };
 }
 
