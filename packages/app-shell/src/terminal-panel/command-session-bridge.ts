@@ -6,28 +6,7 @@
  * `WorkspaceTerminalServicesProvider` (ADR-0029); a tree without a provider has
  * none, and the inventory is omitted, never stubbed.
  */
-
-type CommandSessionErrorCode =
-  | 'aborted'
-  | 'cursor-out-of-range'
-  | 'cwd-not-found'
-  | 'cwd-outside-root'
-  | 'internal'
-  | 'invalid-buffer'
-  | 'invalid-input'
-  | 'root-unavailable'
-  | 'session-exited'
-  | 'session-id-collision'
-  | 'session-not-found'
-  | 'start-failed'
-  | 'workspace-busy';
-
-export type CommandSessionResult<T = void> =
-  | (T extends void ? { readonly ok: true } : { readonly ok: true; readonly value: T })
-  | {
-      readonly error: { readonly code: CommandSessionErrorCode; readonly message: string };
-      readonly ok: false;
-    };
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 
 interface CommandSessionBase {
   readonly createdAt: number;
@@ -63,17 +42,17 @@ export interface CommandSessionIdentityParams {
 
 export interface CommandSessionBridge {
   readonly list: (params: { readonly rootId: string }) => Promise<
-    CommandSessionResult<{
+    BoundaryResult<{
       readonly rootId: string;
       readonly sessions: readonly CommandSessionInfo[];
     }>
   >;
   readonly read: (
     params: CommandSessionIdentityParams & { readonly cursor?: number }
-  ) => Promise<CommandSessionResult<CommandSessionReadPage>>;
-  readonly remove: (params: CommandSessionIdentityParams) => Promise<CommandSessionResult>;
-  readonly stop: (params: CommandSessionIdentityParams) => Promise<CommandSessionResult>;
+  ) => Promise<BoundaryResult<CommandSessionReadPage>>;
+  readonly remove: (params: CommandSessionIdentityParams) => Promise<BoundaryResult<null>>;
+  readonly stop: (params: CommandSessionIdentityParams) => Promise<BoundaryResult<null>>;
   readonly write: (
     params: CommandSessionIdentityParams & { readonly data: string }
-  ) => Promise<CommandSessionResult>;
+  ) => Promise<BoundaryResult<null>>;
 }

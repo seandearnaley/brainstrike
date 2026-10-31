@@ -1,3 +1,10 @@
+import { randomUUID } from 'node:crypto';
+import {
+  type BoundaryFailureCategory,
+  fault,
+  refusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
@@ -10,15 +17,20 @@ import {
 
 const logger = createLogger('HostCommandSessions');
 
-type CommandSessionResult<T = void> =
-  | (T extends void ? { readonly ok: true } : { readonly ok: true; readonly value: T })
-  | {
-      readonly error: {
-        readonly code: CommandSessionErrorCode | 'internal';
-        readonly message: string;
-      };
-      readonly ok: false;
-    };
+type CommandSessionResult<T = null> = BoundaryResult<T>;
+
+/** How each manager refusal reads at the boundary; the rest are faults whose cause stays here. */
+const REFUSAL_CATEGORIES: Partial<Record<CommandSessionErrorCode, BoundaryFailureCategory>> = {
+  aborted: 'availability',
+  'cursor-out-of-range': 'input',
+  'cwd-not-found': 'input',
+  'cwd-outside-root': 'input',
+  'invalid-input': 'input',
+  'root-unavailable': 'availability',
+  'session-exited': 'conflict',
+  'session-not-found': 'input',
+  'workspace-busy': 'conflict',
+};
 
 interface CommandSessionIdentityParams {
   readonly rootId: string;
@@ -59,21 +71,35 @@ export interface CommandSessionHandlers {
 }
 
 function success(): CommandSessionResult {
-  return { ok: true };
+  return { ok: true, value: null };
 }
 
 function failure(error: unknown): CommandSessionResult<never> {
-  if (error instanceof CommandSessionError) {
-    return { error: { code: error.code, message: error.message }, ok: false };
+  const category =
+    error instanceof CommandSessionError ? REFUSAL_CATEGORIES[error.code] : undefined;
+  if (error instanceof CommandSessionError && category !== undefined) {
+    return {
+      error: refusal({ category, code: `command-session.${error.code}`, message: error.message }),
+      ok: false,
+    };
   }
-  logger.error('Unexpected command-session failure', {
+  const correlationId = randomUUID();
+  logger.error('Command-session call failed', {
+    code: error instanceof CommandSessionError ? error.code : undefined,
+    correlationId,
+    error: error instanceof Error ? error.message : String(error),
     errorName: error instanceof Error ? error.name : 'UnknownError',
   });
   return {
-    error: {
-      code: 'internal',
-      message: error instanceof Error ? error.message : 'Unknown command-session failure.',
-    },
+    error: fault({
+      category: 'internal',
+      code:
+        error instanceof CommandSessionError
+          ? `command-session.${error.code}`
+          : 'command-session.internal',
+      correlationId,
+      message: 'The command session failed unexpectedly.',
+    }),
     ok: false,
   };
 }

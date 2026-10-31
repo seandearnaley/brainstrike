@@ -4,7 +4,6 @@ export type {
   TerminalCreateResult,
   TerminalDataEvent,
   TerminalExitEvent,
-  TerminalResult,
 } from './terminal-bridge';
 export { TerminalPanel } from './terminal-panel';
 export { useActiveRootId } from './use-active-root-id';
