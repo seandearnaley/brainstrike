@@ -2,8 +2,8 @@ Ticket: BST-###
 
 The merge queue is the gate: it runs every check on each batch. Run the checks
 for what you changed before this PR is ready: Mergify queues a ready PR by
-itself. To run the whole gate on it first, keep it a draft with the `full-check`
-label.
+itself once Claude Review has run and every review thread is resolved. To run
+the whole gate on it first, keep it a draft with the `full-check` label.
 
 ## Change
 

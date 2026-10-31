@@ -16,15 +16,40 @@ merge_queue:
   # never fewer. A red batch reruns only the batches built on it.
   max_parallel_checks: 3
 
-# Queue each pull request once it matches these conditions, without anyone
-# ticking Mergify's box. This needs Merge Protections activated for the
-# repository in Mergify's dashboard (done 2026-10-28). Drafts stay out, so a
-# draft is how a PR is held back. Fork PRs stay out because the gate runs their
-# code with this repository's secrets; queue those by hand after reading them.
+# Queue each pull request once it matches these conditions and passes the merge
+# protections below, without anyone ticking Mergify's box. This needs Merge
+# Protections activated for the repository in Mergify's dashboard (done
+# 2026-10-28). Drafts stay out, so a draft is how a PR is held back. Fork PRs
+# stay out because the gate runs their code with this repository's secrets;
+# queue those by hand after reading them.
 merge_protections_settings:
   auto_merge_conditions:
     - -draft
     - -from-fork
+
+# Review findings are addressed before a PR merges (owner decision 2026-10-30).
+# A ready PR queues only once both rules pass, and Mergify merges nothing while
+# one fails, so a thread posted after the PR queued holds it too. The Mergify
+# Merge Protections check on the PR names the rule it waits for.
+merge_protections:
+  - name: Claude Review finished
+    description: Claude Review has run on the PR's head commit.
+    # The workflow skips forks and bot PRs (Renovate's, Mergify's own batches),
+    # so those never wait for it. A failed review holds the PR until it reruns.
+    if:
+      - base = main
+      - -from-fork
+      - -author ~= \[bot\]$
+    success_conditions:
+      - check-success = @github-actions/Claude Review
+  - name: Review threads resolved
+    description: >-
+      Every review thread, from Claude, Codex or a person, is resolved: fixed by
+      a push, or answered and resolved. A reply alone does not resolve it.
+    if:
+      - base = main
+    success_conditions:
+      - "#review-threads-unresolved = 0"
 
 queue_rules:
   - name: default

@@ -1,5 +1,7 @@
 # Claude reviews a ready pull request once in full, then reviews only what each
-# later push adds. It comments; it never approves, blocks or gates the queue.
+# later push adds. It comments and never fails on a finding. The merge
+# protections in .mergify.yml queue a PR only after this job has succeeded on
+# its head and every review thread is resolved.
 #
 # - The first non-draft run posts one PR review with every finding inline.
 # - A later push gets a follow-up limited to the lines its commits changed. It
@@ -25,8 +27,11 @@ on:
     types: [ opened, ready_for_review, reopened, synchronize ]
 
 # A newer push supersedes a review still running; that push's run takes over.
+# Drafts get their own group: a push to a draft skips the review, and its run
+# must not cancel the ready_for_review run of the same commit, as it did on
+# #4718, which left that head unreviewed.
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
+  group: claude-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.draft && 'draft' || 'ready' }}
   cancel-in-progress: true
 
 permissions:
