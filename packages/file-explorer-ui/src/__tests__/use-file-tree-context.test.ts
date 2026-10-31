@@ -153,20 +153,6 @@ function createWorkerDirectoryNode(
   };
 }
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  reject: (error: unknown) => void;
-  resolve: (value: T) => void;
-} {
-  let resolve: (value: T) => void = () => {};
-  let reject: (error: unknown) => void = () => {};
-  const promise = new Promise<T>((promiseResolve, promiseReject) => {
-    resolve = promiseResolve;
-    reject = promiseReject;
-  });
-  return { promise, reject, resolve };
-}
-
 async function mockWorkerExpandAllThroughLoadRequests(): Promise<{
   patches: AccumulatedFileTreePatchMessage[];
   expandedPaths: string[];
@@ -516,7 +502,7 @@ describe('useFileTree (lazy loading version)', () => {
           path: refreshedDirectoryPath,
         },
       ];
-      const expandAllDeferred = createDeferred<{
+      const expandAllDeferred = Promise.withResolvers<{
         expandedPaths: string[];
         loadedCount: number;
         patches: AccumulatedFileTreePatchMessage[];
@@ -857,10 +843,8 @@ describe('useFileTree (lazy loading version)', () => {
       }
 
       const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
-      let releaseFirstParentRead: (() => void) | null = null;
-      const firstParentReadGate = new Promise<void>((resolve) => {
-        releaseFirstParentRead = resolve;
-      });
+      const { promise: firstParentReadGate, resolve: releaseFirstParentRead } =
+        Promise.withResolvers<void>();
       let parentReadCount = 0;
       vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(async (...args) => {
         if (args[0].path === parentPath) {
@@ -1403,8 +1387,8 @@ describe('useFileTree (lazy loading version)', () => {
       mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
       const handle = await mockAdapter.requestDirectoryAccess();
       const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
-      const firstReadCaptured = createDeferred<void>();
-      const firstReadGate = createDeferred<void>();
+      const firstReadCaptured = Promise.withResolvers<void>();
+      const firstReadGate = Promise.withResolvers<void>();
       let rootReadCount = 0;
       const readDirectoryStreamingSpy = vi
         .spyOn(mockAdapter, 'readDirectoryStreaming')
@@ -1471,8 +1455,8 @@ describe('useFileTree (lazy loading version)', () => {
       });
 
       const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
-      const staleReadCaptured = createDeferred<void>();
-      const staleReadGate = createDeferred<void>();
+      const staleReadCaptured = Promise.withResolvers<void>();
+      const staleReadGate = Promise.withResolvers<void>();
       let refreshReadCount = 0;
       const readDirectoryStreamingSpy = vi
         .spyOn(mockAdapter, 'readDirectoryStreaming')
@@ -1542,10 +1526,10 @@ describe('useFileTree (lazy loading version)', () => {
         }
 
         const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
-        const childReadCaptured = createDeferred<void>();
-        const childReadGate = createDeferred<void>();
-        const rootRefreshStarted = createDeferred<void>();
-        const rootRefreshGate = createDeferred<void>();
+        const childReadCaptured = Promise.withResolvers<void>();
+        const childReadGate = Promise.withResolvers<void>();
+        const rootRefreshStarted = Promise.withResolvers<void>();
+        const rootRefreshGate = Promise.withResolvers<void>();
         let parentReadCount = 0;
         vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(
           async (directoryHandle, onBatch, options) => {
@@ -2011,7 +1995,7 @@ describe('useFileTree (lazy loading version)', () => {
       mockAdapter.setMockFileSystem(mockFS);
 
       const handle = await mockAdapter.requestDirectoryAccess();
-      const expandAllDeferred = createDeferred<{
+      const expandAllDeferred = Promise.withResolvers<{
         expandedPaths: string[];
         loadedCount: number;
         patches: AccumulatedFileTreePatchMessage[];
@@ -2232,7 +2216,7 @@ describe('useFileTree (lazy loading version)', () => {
       mockAdapter.setMockFileSystem(nestedFS);
 
       const handle = await mockAdapter.requestDirectoryAccess();
-      const loadPathsDeferred = createDeferred<{
+      const loadPathsDeferred = Promise.withResolvers<{
         expandedPaths: string[];
         loadedCount: number;
         patches: AccumulatedFileTreePatchMessage[];
@@ -2327,10 +2311,7 @@ describe('useFileTree (lazy loading version)', () => {
       );
       expect(parentDir?.type).toBe('directory');
 
-      let releaseChildLoad: (() => void) | undefined;
-      const childLoadGate = new Promise<void>((resolve) => {
-        releaseChildLoad = resolve;
-      });
+      const { promise: childLoadGate, resolve: releaseChildLoad } = Promise.withResolvers<void>();
       let parentLoadAttempts = 0;
       const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
       vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(async (...args) => {
@@ -2539,10 +2520,7 @@ describe('useFileTree (lazy loading version)', () => {
       }
 
       const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
-      let releaseStaleRead!: () => void;
-      const staleReadGate = new Promise<void>((resolve) => {
-        releaseStaleRead = resolve;
-      });
+      const { promise: staleReadGate, resolve: releaseStaleRead } = Promise.withResolvers<void>();
       let staleReadCaptured: (() => void) | null = null;
       const staleReadCapturedPromise = new Promise<void>((resolve) => {
         staleReadCaptured = resolve;
@@ -2655,8 +2633,8 @@ describe('useFileTree (lazy loading version)', () => {
       }
 
       const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
-      const staleReadCaptured = createDeferred<void>();
-      const staleReadGate = createDeferred<void>();
+      const staleReadCaptured = Promise.withResolvers<void>();
+      const staleReadGate = Promise.withResolvers<void>();
       let parentReadCount = 0;
       vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(
         async (directoryHandle, onBatch, options) => {
@@ -2792,7 +2770,7 @@ describe('useFileTree (lazy loading version)', () => {
         throw new Error('Expected a rehydratable stale worker child');
       }
 
-      const staleWorkerResult = createDeferred<{
+      const staleWorkerResult = Promise.withResolvers<{
         expandedPaths: string[];
         loadedCount: number;
         patches: AccumulatedFileTreePatchMessage[];
@@ -2934,7 +2912,7 @@ describe('useFileTree (lazy loading version)', () => {
           return originalReadDirectoryStreaming(directoryHandle, onBatch, options);
         }
       );
-      const workerRestoration = createDeferred<{
+      const workerRestoration = Promise.withResolvers<{
         expandedPaths: string[];
         loadedCount: number;
         patches: AccumulatedFileTreePatchMessage[];
@@ -3013,7 +2991,7 @@ describe('useFileTree (lazy loading version)', () => {
           return originalReadDirectoryStreaming(directoryHandle, onBatch, options);
         }
       );
-      const firstWorkerResult = createDeferred<{
+      const firstWorkerResult = Promise.withResolvers<{
         expandedPaths: string[];
         loadedCount: number;
         patches: AccumulatedFileTreePatchMessage[];

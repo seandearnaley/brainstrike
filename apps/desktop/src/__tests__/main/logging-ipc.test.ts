@@ -19,18 +19,6 @@ import {
   setMockWebContents,
 } from '../helpers/electron-main-test-harness';
 
-function createDeferred<T>() {
-  let resolve: (value: T | PromiseLike<T>) => void = () => {};
-  let reject: (reason?: unknown) => void = () => {};
-
-  const promise = new Promise<T>((promiseResolve, promiseReject) => {
-    resolve = promiseResolve;
-    reject = promiseReject;
-  });
-
-  return { promise, reject, resolve };
-}
-
 const LOGGING_METHODS = [
   'logging:get-preferences',
   'logging:set-preferences',
@@ -276,7 +264,7 @@ describe('logging-ipc', () => {
   });
 
   it('serializes async logging preference updates to preserve call order', async () => {
-    const firstDeferred = createDeferred<LoggingSettingsPayload>();
+    const firstDeferred = Promise.withResolvers<LoggingSettingsPayload>();
     const setPreferences = vi
       .fn<(_preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>>()
       .mockImplementationOnce(async (preferences: LoggingPreferences) => {

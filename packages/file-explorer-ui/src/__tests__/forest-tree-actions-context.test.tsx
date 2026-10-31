@@ -186,10 +186,7 @@ describe('ForestTreeActionsProvider expand-all progress aggregation', () => {
     expect(progressRef.current).toEqual({ loaded: 9, total: 9 });
 
     // Gate the section so the run stays in flight while we assert.
-    let releaseSection = () => {};
-    const sectionGate = new Promise<void>((resolve) => {
-      releaseSection = resolve;
-    });
+    const { promise: sectionGate, resolve: releaseSection } = Promise.withResolvers<void>();
     act(() => {
       actionsRef.current?.register(
         'root-a',

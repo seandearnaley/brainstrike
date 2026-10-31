@@ -430,18 +430,11 @@ describe('actual utility canonical runtime attachment', () => {
       const published: CanonicalIndexPayload[] = [];
       const base = workspace(published);
       const { parent } = connected();
-      let resolveReceipt!: (receipt: CanonicalScanReceipt) => void;
-      const completed = new Promise<CanonicalScanReceipt>((resolve) => {
-        resolveReceipt = resolve;
-      });
-      let releaseRetirement!: () => void;
-      const retirementHeld = new Promise<void>((resolve) => {
-        releaseRetirement = resolve;
-      });
-      let enteredRetirement!: () => void;
-      const retirementEntered = new Promise<void>((resolve) => {
-        enteredRetirement = resolve;
-      });
+      const { promise: completed, resolve: resolveReceipt } =
+        Promise.withResolvers<CanonicalScanReceipt>();
+      const { promise: retirementHeld, resolve: releaseRetirement } = Promise.withResolvers<void>();
+      const { promise: retirementEntered, resolve: enteredRetirement } =
+        Promise.withResolvers<void>();
       let failed = false;
       const unsubscribe = vi.fn(async () => {
         enteredRetirement();

@@ -718,10 +718,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     const resolvePredecessors: Array<() => void> = [];
     for (const compositeKey of compositeKeys) {
-      let resolvePredecessor: (() => void) | undefined;
-      const predecessor = new Promise<void>((resolve) => {
-        resolvePredecessor = resolve;
-      });
+      const { promise: predecessor, resolve: resolvePredecessor } = Promise.withResolvers<void>();
       let trackedPredecessor: Promise<void>;
       trackedPredecessor = predecessor.finally(() => {
         result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);
@@ -834,10 +831,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     );
     const resolvePredecessors: Array<() => void> = [];
     for (const compositeKey of compositeKeys) {
-      let resolvePredecessor: (() => void) | undefined;
-      const predecessor = new Promise<void>((resolve) => {
-        resolvePredecessor = resolve;
-      });
+      const { promise: predecessor, resolve: resolvePredecessor } = Promise.withResolvers<void>();
       let trackedPredecessor: Promise<void>;
       trackedPredecessor = predecessor.finally(() => {
         result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);

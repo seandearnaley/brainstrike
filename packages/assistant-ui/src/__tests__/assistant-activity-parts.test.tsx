@@ -40,10 +40,7 @@ function tool(toolCallId: string, extra: Record<string, unknown> = {}) {
  * or the generator — and the test — hangs.
  */
 function createDeferred(): { readonly promise: Promise<void>; readonly release: () => void } {
-  let release: (() => void) | undefined;
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise, resolve: release } = Promise.withResolvers<void>();
   return {
     promise,
     release: () => {

@@ -113,10 +113,9 @@ describe('useFileExplorerToasts', () => {
     });
 
     it('should set isRefreshing during refresh operation', async () => {
-      let resolveRefresh: (result: { status: 'completed' }) => void;
-      const refreshPromise = new Promise<{ status: 'completed' }>((resolve) => {
-        resolveRefresh = resolve;
-      });
+      const { promise: refreshPromise, resolve: resolveRefresh } = Promise.withResolvers<{
+        status: 'completed';
+      }>();
       const refreshFileExplorer = vi.fn().mockReturnValue(refreshPromise);
       const mockHandle = { name: 'test-folder' };
       const params = createMockParams({

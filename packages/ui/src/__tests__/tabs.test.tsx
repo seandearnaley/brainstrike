@@ -436,10 +436,7 @@ describe('Tabs', () => {
     ] as const)(
       'renders an incoming %s panel inside the transition',
       async (_label, keepMounted) => {
-        let resolveTwo: () => void = () => undefined;
-        const twoReady = new Promise<void>((resolve) => {
-          resolveTwo = resolve;
-        });
+        const { promise: twoReady, resolve: resolveTwo } = Promise.withResolvers<void>();
         function SlowTwo(): ReactElement {
           use(twoReady);
           return <div>Two content</div>;

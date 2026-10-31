@@ -74,10 +74,7 @@ test('a long Luna run reads as one activity group: folded reads, its failure fir
   window: page,
 }, testInfo) => {
   test.setTimeout(300_000);
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
   try {
     await seedRoot(page, root, {
       disableBackgroundIndexing: true,

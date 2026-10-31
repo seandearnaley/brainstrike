@@ -318,10 +318,7 @@ describe.skipIf(!supported)('readiness failure lifetime', () => {
   it.each(['initialize', 'wrapWithSandboxArgv'] as const)(
     'bounds a stalled %s and holds the session lock until late cleanup',
     async (stage) => {
-      let release: (() => void) | undefined;
-      const stalled = new Promise<void>((resolve) => {
-        release = resolve;
-      });
+      const { promise: stalled, resolve: release } = Promise.withResolvers<void>();
       if (stage === 'initialize') {
         sandbox.initialize.mockImplementationOnce(() => stalled);
       } else {

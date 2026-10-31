@@ -13,17 +13,6 @@ import type { FileTreeDirectorySnapshot, FileTreeRefreshResult } from '../use-la
 const ROOT_PATH = '/workspace';
 const ROOT_ID = 'root-uuid-1';
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
-
 function directoryNode(path: string): IFileNode {
   return {
     children: [],
@@ -81,7 +70,7 @@ describe('useFileTreeRefreshEvents full-refresh coalescing', () => {
   });
 
   it('coalesces a full-refresh burst into one trailing physical refresh with truthful joined outcomes', async () => {
-    const activeRefresh = createDeferred<FileTreeRefreshResult>();
+    const activeRefresh = Promise.withResolvers<FileTreeRefreshResult>();
     refreshTree
       .mockImplementationOnce(() => activeRefresh.promise)
       .mockResolvedValue({ status: 'cancelled' });
@@ -125,7 +114,7 @@ describe('useFileTreeRefreshEvents full-refresh coalescing', () => {
   });
 
   it('does not coalesce full refreshes across an incremental mutation boundary', async () => {
-    const activeRefresh = createDeferred<FileTreeRefreshResult>();
+    const activeRefresh = Promise.withResolvers<FileTreeRefreshResult>();
     refreshTree
       .mockImplementationOnce(() => activeRefresh.promise)
       .mockResolvedValue({ status: 'completed' });
@@ -176,7 +165,7 @@ describe('useFileTreeRefreshEvents full-refresh coalescing', () => {
   });
 
   it('settles active and trailing direct full callers as cancelled after provider cleanup', async () => {
-    const activeRefresh = createDeferred<FileTreeRefreshResult>();
+    const activeRefresh = Promise.withResolvers<FileTreeRefreshResult>();
     refreshTree.mockImplementationOnce(() => activeRefresh.promise);
     const { result, unmount } = renderHook(() => useFileTreeRefreshEvents(params));
 
@@ -200,7 +189,7 @@ describe('useFileTreeRefreshEvents full-refresh coalescing', () => {
   });
 
   it('retires coalesced work for an old durable root before refreshing a same-path replacement', async () => {
-    const activeRefresh = createDeferred<FileTreeRefreshResult>();
+    const activeRefresh = Promise.withResolvers<FileTreeRefreshResult>();
     refreshTree.mockImplementationOnce(() => activeRefresh.promise);
     const replacementRefresh = vi
       .fn<() => Promise<FileTreeRefreshResult>>()

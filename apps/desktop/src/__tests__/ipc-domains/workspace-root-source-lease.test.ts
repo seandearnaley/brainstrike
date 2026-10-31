@@ -15,17 +15,6 @@ import { createRegistry, rootHandle, secureRoot } from './workspace-root-registr
 const WORKSPACE = path.resolve('/workspace');
 const REPLACEMENT = path.resolve('/replacement');
 
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}
-
 function context(signal = new AbortController().signal): {
   requestId: string;
   signal: AbortSignal;
@@ -173,8 +162,9 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
   });
 
   it('joins a physically held read after cancellation and discards its late bytes', async () => {
-    const started = deferred<void>();
-    const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+    const started = Promise.withResolvers<void>();
+    const nativeRead =
+      Promise.withResolvers<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
     const root = {
       ...secureRoot(WORKSPACE),
       readFile: vi.fn(() => {
@@ -206,7 +196,7 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
   });
 
   it('retires a borrow once a read it cancelled settles, whatever that read ended with', async () => {
-    const started = deferred<void>();
+    const started = Promise.withResolvers<void>();
     let fail: ((error: unknown) => void) | undefined;
     const root = {
       ...secureRoot(WORKSPACE),
@@ -236,8 +226,9 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
   });
 
   it('answers a read its folder removal retired with the typed refusal, logged at info and sent typed', async () => {
-    const started = deferred<void>();
-    const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+    const started = Promise.withResolvers<void>();
+    const nativeRead =
+      Promise.withResolvers<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
     const root = {
       ...secureRoot(WORKSPACE),
       readFile: vi.fn(() => {
@@ -273,8 +264,9 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
   });
 
   it('answers a read its folder data deletion took over with the typed refusal, sent without a log', async () => {
-    const started = deferred<void>();
-    const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+    const started = Promise.withResolvers<void>();
+    const nativeRead =
+      Promise.withResolvers<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
     const root = {
       ...secureRoot(WORKSPACE),
       readFile: vi.fn(() => {
@@ -303,8 +295,9 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
   });
 
   it('disconnect revokes admission and joins the borrow before closing the shared mount', async () => {
-    const started = deferred<void>();
-    const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+    const started = Promise.withResolvers<void>();
+    const nativeRead =
+      Promise.withResolvers<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
     const root = {
       ...secureRoot(WORKSPACE),
       readFile: vi.fn(() => {
@@ -334,10 +327,11 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
   it.each(['replacement', 'unmount'] as const)(
     'refuses a path borrow resolving after %s captured its retirement snapshot',
     async (retirementKind) => {
-      const readStarted = deferred<void>();
-      const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
-      const pathStarted = deferred<void>();
-      const resolvedPath = deferred<string>();
+      const readStarted = Promise.withResolvers<void>();
+      const nativeRead =
+        Promise.withResolvers<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+      const pathStarted = Promise.withResolvers<void>();
+      const resolvedPath = Promise.withResolvers<string>();
       const original = {
         ...secureRoot(WORKSPACE),
         readFile: vi.fn(() => {
@@ -474,8 +468,9 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
   });
 
   it('registry disposal revokes immediately and returns only after admitted native work settles', async () => {
-    const started = deferred<void>();
-    const nativeRead = deferred<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
+    const started = Promise.withResolvers<void>();
+    const nativeRead =
+      Promise.withResolvers<Awaited<ReturnType<SecureWorkspaceRoot['readFile']>>>();
     const root = {
       ...secureRoot(WORKSPACE),
       readFile: vi.fn(() => {

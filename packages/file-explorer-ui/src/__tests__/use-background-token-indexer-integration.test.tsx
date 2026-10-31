@@ -176,22 +176,6 @@ const advanceTimers = (ms: number): void => {
   });
 };
 
-interface DeferredValue<T> {
-  promise: Promise<T>;
-  reject: (reason?: unknown) => void;
-  resolve: (value: T | PromiseLike<T>) => void;
-}
-
-function createDeferredValue<T>(): DeferredValue<T> {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((innerResolve, innerReject) => {
-    resolve = innerResolve;
-    reject = innerReject;
-  });
-  return { promise, reject, resolve };
-}
-
 function createElectronTree(fileCount: number): {
   keys: string[];
   tree: IFileNode[];
@@ -842,9 +826,9 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
     it('streams Electron file reads in cooperative batches with a yield before overflow reads', async () => {
       const { keys } = createElectronTree(17);
-      const deferredReads = new Map<string, DeferredValue<string>>();
+      const deferredReads = new Map<string, PromiseWithResolvers<string>>();
       const electronFileReader = vi.fn((handle: { path: string }) => {
-        const deferred = createDeferredValue<string>();
+        const deferred = Promise.withResolvers<string>();
         deferredReads.set(handle.path, deferred);
         return deferred.promise;
       });
@@ -1028,7 +1012,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
     it('abandons a completed warm-cache read when the cache provider is removed', async () => {
       const deferredEntries =
-        createDeferredValue<
+        Promise.withResolvers<
           Map<string, { filePath: string; folderId: string; tokenCount: number }>
         >();
       (storeMock.getBatch as ReturnType<typeof vi.fn>).mockReturnValueOnce(deferredEntries.promise);
@@ -1065,7 +1049,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
     it('does not hydrate a record that indexing resolved before the store read completed', async () => {
       const deferredEntries =
-        createDeferredValue<
+        Promise.withResolvers<
           Map<string, { filePath: string; folderId: string; tokenCount: number }>
         >();
       (storeMock.getBatch as ReturnType<typeof vi.fn>).mockReturnValueOnce(deferredEntries.promise);

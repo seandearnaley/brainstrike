@@ -67,17 +67,6 @@ const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
 };
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
-
 const createDirectoryNode = (path: string): WorkerFileNode => ({
   depth: 1,
   loadState: 'unloaded',
@@ -204,7 +193,7 @@ describe('createFileTreeWorkerPort', () => {
   it('stops supersession posting when an aborted load starts a replacement', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
-    const held = createDeferred<BatchLoadResult[]>();
+    const held = Promise.withResolvers<BatchLoadResult[]>();
     let replacement: ReturnType<typeof port.loadPaths> | undefined;
     let replacementSignal: AbortSignal | undefined;
     port.onRequestLoad((id, _paths, signal) => {
@@ -291,7 +280,7 @@ describe('createFileTreeWorkerPort', () => {
     async (mode) => {
       const worker = new MockWorker();
       const port = createFileTreeWorkerPort(worker as unknown as Worker);
-      const held = createDeferred<BatchLoadResult[]>();
+      const held = Promise.withResolvers<BatchLoadResult[]>();
       let replacement: ReturnType<typeof port.loadPaths> | undefined;
       let replacementSignal: AbortSignal | undefined;
       const admit = (): void => {
@@ -349,7 +338,7 @@ describe('createFileTreeWorkerPort', () => {
   it('cleans captured request loads when public abort posting throws', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
-    const held = createDeferred<BatchLoadResult[]>();
+    const held = Promise.withResolvers<BatchLoadResult[]>();
     let signal: AbortSignal | undefined;
     port.onRequestLoad((_id, _paths, value) => {
       signal = value;
@@ -381,7 +370,7 @@ describe('createFileTreeWorkerPort', () => {
   it('termination rejects bulk operations reentered through abort callbacks', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
-    const held = createDeferred<BatchLoadResult[]>();
+    const held = Promise.withResolvers<BatchLoadResult[]>();
     let replacement: ReturnType<typeof port.loadPaths> | undefined;
     port.onRequestLoad((_id, _paths, signal) => {
       signal.addEventListener(
@@ -644,8 +633,8 @@ describe('createFileTreeWorkerPort', () => {
   it('aborts an active renderer load and suppresses its late correlated result', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
-    const readGate = createDeferred<BatchLoadResult[]>();
-    const requestStarted = createDeferred<void>();
+    const readGate = Promise.withResolvers<BatchLoadResult[]>();
+    const requestStarted = Promise.withResolvers<void>();
     let requestSignal: AbortSignal | undefined;
 
     port.onRequestLoad(async (_requestId, _paths, ...args: [AbortSignal?]) => {
@@ -704,8 +693,8 @@ describe('createFileTreeWorkerPort', () => {
   it('aborts an active renderer load when a newer bulk operation takes the worker slot', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
-    const readGate = createDeferred<BatchLoadResult[]>();
-    const requestStarted = createDeferred<void>();
+    const readGate = Promise.withResolvers<BatchLoadResult[]>();
+    const requestStarted = Promise.withResolvers<void>();
     let requestSignal: AbortSignal | undefined;
 
     port.onRequestLoad(async (_requestId, _paths, signal) => {
@@ -928,8 +917,8 @@ describe('createFileTreeWorkerPort', () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
     const onProgress = vi.fn();
-    const readGate = createDeferred<BatchLoadResult[]>();
-    const requestStarted = createDeferred<void>();
+    const readGate = Promise.withResolvers<BatchLoadResult[]>();
+    const requestStarted = Promise.withResolvers<void>();
     let requestSignal: AbortSignal | undefined;
     let operationSettlement:
       | { status: 'pending' }

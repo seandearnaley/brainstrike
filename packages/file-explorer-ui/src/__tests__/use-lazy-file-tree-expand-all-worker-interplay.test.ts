@@ -60,19 +60,6 @@ vi.stubGlobal(
   }))
 );
 
-interface Deferred<T> {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-}
-
-function createDeferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
-
 describe('useLazyFileTree worker-path expand-all with in-flight manual load', () => {
   let mockAdapter: MockFileSystemAdapter;
 
@@ -99,7 +86,7 @@ describe('useLazyFileTree worker-path expand-all with in-flight manual load', ()
 
     // Gate reads of `parent` behind a deferred so the manual load stays in
     // flight until the worker expand-all has started.
-    const parentReadGate = createDeferred<void>();
+    const parentReadGate = Promise.withResolvers<void>();
     const originalStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
     mockAdapter.readDirectoryStreaming = async (dirHandle, onBatch, options) => {
       if (dirHandle.path === parentPath) {
@@ -108,7 +95,7 @@ describe('useLazyFileTree worker-path expand-all with in-flight manual load', ()
       return originalStreaming(dirHandle, onBatch, options);
     };
 
-    const expandAllGate = createDeferred<{
+    const expandAllGate = Promise.withResolvers<{
       expandedPaths: string[];
       loadedCount: number;
       patches: never[];
@@ -202,7 +189,7 @@ describe('useLazyFileTree worker-path restoration with committed manual loads', 
     const srcPath = `${handle.path}/src`;
     const componentsPath = `${srcPath}/components`;
 
-    const loadPathsGate = createDeferred<{
+    const loadPathsGate = Promise.withResolvers<{
       expandedPaths: string[];
       loadedCount: number;
       patches: AccumulatedFileTreePatchMessage[];

@@ -22,29 +22,6 @@ import {
 
 const originalGetAvailableProviders = useAssistantPreferencesStore.getState().getAvailableProviders;
 
-interface Deferred<T> {
-  readonly promise: Promise<T>;
-  readonly reject: (reason?: unknown) => void;
-  readonly resolve: (value: T) => void;
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolvePromise: ((value: T) => void) | undefined;
-  let rejectPromise: ((reason?: unknown) => void) | undefined;
-  const promise = new Promise<T>((resolve, reject) => {
-    resolvePromise = resolve;
-    rejectPromise = reject;
-  });
-  if (!(resolvePromise && rejectPromise)) {
-    throw new Error('Failed to initialize deferred provider discovery');
-  }
-  return {
-    promise,
-    reject: rejectPromise,
-    resolve: resolvePromise,
-  };
-}
-
 function setProviderDiscovery(
   implementation: () => Promise<SupportedProvider[]>
 ): Mock<() => Promise<SupportedProvider[]>> {
@@ -98,7 +75,7 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('keeps the merged Desktop provider list stable across unrelated renders', async () => {
-    const pending = deferred<SupportedProvider[]>();
+    const pending = Promise.withResolvers<SupportedProvider[]>();
     const getAvailableProviders = setProviderDiscovery(() => pending.promise);
     const source: AssistantProviderSource = {
       kind: 'discovery',
@@ -155,7 +132,7 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('preserves the last provider snapshot while a remount revalidates', async () => {
-    const revalidation = deferred<SupportedProvider[]>();
+    const revalidation = Promise.withResolvers<SupportedProvider[]>();
     const getAvailableProviders = setProviderDiscovery(
       vi
         .fn<() => Promise<SupportedProvider[]>>()
@@ -211,8 +188,8 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('keeps the newest refresh result when an older request settles last', async () => {
-    const first = deferred<SupportedProvider[]>();
-    const second = deferred<SupportedProvider[]>();
+    const first = Promise.withResolvers<SupportedProvider[]>();
+    const second = Promise.withResolvers<SupportedProvider[]>();
     const getAvailableProviders = setProviderDiscovery(
       vi
         .fn<() => Promise<SupportedProvider[]>>()
@@ -237,7 +214,7 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('keeps a prior test request invalid after the external resource is reset', async () => {
-    const staleRequest = deferred<SupportedProvider[]>();
+    const staleRequest = Promise.withResolvers<SupportedProvider[]>();
     const firstDiscovery = setProviderDiscovery(() => staleRequest.promise);
     const firstMount = renderHook(() => useConfiguredAssistantProviders(), {
       wrapper: providerSourceWrapper({ kind: 'discovery' }),
@@ -246,7 +223,7 @@ describe('useConfiguredAssistantProviders', () => {
     firstMount.unmount();
 
     __resetConfiguredAssistantProvidersForTests();
-    const currentRequest = deferred<SupportedProvider[]>();
+    const currentRequest = Promise.withResolvers<SupportedProvider[]>();
     const currentDiscovery = setProviderDiscovery(() => currentRequest.promise);
     let activeSource: AssistantProviderSource = {
       kind: 'authoritative',
@@ -272,7 +249,7 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('invalidates an in-flight Desktop request when authority switches to Hosted Web', async () => {
-    const pending = deferred<SupportedProvider[]>();
+    const pending = Promise.withResolvers<SupportedProvider[]>();
     const getAvailableProviders = setProviderDiscovery(() => pending.promise);
     const desktopSource: AssistantProviderSource = {
       kind: 'discovery',
