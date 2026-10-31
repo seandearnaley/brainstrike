@@ -1,22 +1,22 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
-import { createAgentIgnoreGuard } from '@brainstrike/host-capabilities/agent-ignore-guard';
-import { walkWorkspaceRoot } from '@brainstrike/host-capabilities/workspace-file-walk';
-import { isWithinRoot } from '@brainstrike/host-capabilities/workspace-path';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import type { LineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { collectGrepMatchesInContent, type GrepMatch } from '@brainstrike/utils/grep-search';
-import { resolveScopedGrepFile } from './live-grep-files';
-import { buildLiveNote } from './live-grep-note';
+import { createAgentIgnoreGuard } from './agent-ignore-guard.ts';
+import { resolveScopedGrepFile } from './live-grep-files.ts';
+import { buildLiveNote } from './live-grep-note.ts';
 import {
   PROBE_RIPGREP_TIMEOUT_MS,
   RipgrepRunError,
   resolveRipgrepPath,
   resolveRipgrepPrefilterLiteral,
   runRipgrep,
-} from './live-grep-ripgrep';
+} from './live-grep-ripgrep.ts';
+import { walkWorkspaceRoot } from './workspace-file-walk.ts';
+import { isWithinRoot } from './workspace-path.ts';
 
 const logger = createLogger('AssistantLiveGrep');
 

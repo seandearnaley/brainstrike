@@ -3,7 +3,7 @@ import {
   resolveZeroMatchProbeNote,
   ZERO_MATCH_PROBE_TIMEOUT_MS,
   type ZeroMatchProbeDeps,
-} from '../../assistant-server/grep-zero-match-probes';
+} from '../src/native-tools/grep-zero-match-probes.js';
 
 const { loggerWarnMock } = vi.hoisted(() => ({
   loggerWarnMock: vi.fn(),

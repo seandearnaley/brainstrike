@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { runRipgrep } from '../../assistant-server/live-grep-ripgrep';
+import { runRipgrep } from '../src/native-tools/live-grep-ripgrep.js';
 
 const recorded = vi.hoisted(() => ({ args: [] as readonly string[], stdout: '' }));
 

@@ -4,8 +4,8 @@ import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { projectGrepSearchModelOutput } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runGrepSearchWith } from '../../assistant-server/grep-search-core';
-import { runLiveGrep, setMaxLiveCandidateFilesForTests } from '../../assistant-server/live-grep';
+import { runGrepSearchWith } from '../src/native-tools/grep-search-core.js';
+import { runLiveGrep, setMaxLiveCandidateFilesForTests } from '../src/native-tools/live-grep.js';
 
 const { loggerErrorMock } = vi.hoisted(() => ({
   loggerErrorMock: vi.fn(),
@@ -26,8 +26,8 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 
 // The real live pass, observed: grep and each zero-match probe are one
 // `runLiveGrep` call apiece (ADR 0026), so the call count proves which ran.
-vi.mock('../../assistant-server/live-grep', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../assistant-server/live-grep')>();
+vi.mock('../src/native-tools/live-grep.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/native-tools/live-grep.js')>();
   return { ...actual, runLiveGrep: vi.fn(actual.runLiveGrep) };
 });
 
