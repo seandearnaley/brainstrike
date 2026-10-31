@@ -12,7 +12,6 @@ import { Database } from 'lucide-react';
 export function DatabaseStatusItem() {
   const connected = useDatabaseStatusStore(databaseStatusSelectors.isConnected);
   const loading = useDatabaseStatusStore(databaseStatusSelectors.isLoading);
-  const location = useDatabaseStatusStore(databaseStatusSelectors.location);
 
   if (loading) {
     return (
@@ -29,18 +28,17 @@ export function DatabaseStatusItem() {
     );
   }
 
-  // Shorten display text for status bar
-  const displayLocation = location === 'Main Process' ? 'IPC' : (location ?? 'PGlite');
-
+  // The storage engine is an implementation detail; System Diagnostics names it.
   return (
     <StatusBarItem
       announce
-      announcement={`Storage ${connected ? 'connected' : 'disconnected'}: ${displayLocation}`}
+      announcement={connected ? 'Storage connected' : 'Storage disconnected'}
       className="w-40 max-w-full shrink-0"
       icon={Database}
-      label={`Storage: ${displayLocation}`}
+      label="Storage:"
       status={connected ? 'connected' : 'disconnected'}
       testId={connected ? 'status-bar-db-connected' : 'status-bar-db-disconnected'}
+      value={connected ? 'Connected' : 'Disconnected'}
     />
   );
 }

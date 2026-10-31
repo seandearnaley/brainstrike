@@ -11,7 +11,7 @@ import type {
 } from '@brainstrike/assistant-contract/memory-settings';
 import { OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET } from '@brainstrike/assistant-contract/memory-settings';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { Badge, Card, Label, Switch } from '@brainstrike/ui';
+import { Card, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { MemoryEmbedderTest, type TestMemoryEmbedder } from './assistant-memory-embedder-test';
@@ -95,9 +95,9 @@ function ObservationalMemoryModelField({
           className="text-muted-foreground text-xs"
           data-testid="assistant-memory-auto-observer-note"
         >
-          Auto observes with a fast, Mastra-recommended model from your active chat provider only
-          (e.g. Haiku for Anthropic chats) — the conversation never reaches a provider that is not
-          already receiving it.
+          Auto observes with a fast, recommended model from your active chat provider only (e.g.
+          Haiku for Anthropic chats) — the conversation never reaches a provider that is not already
+          receiving it.
         </p>
       ) : (
         <p
@@ -105,10 +105,10 @@ function ObservationalMemoryModelField({
           data-testid="assistant-memory-manual-observer-note"
         >
           The target identifies a provider/model such as{' '}
-          <span className="font-mono">openai/gpt-5.4-mini</span>; Desktop resolves its credential
-          before constructing the observer. Unlike Auto, a manual target is NOT tied to your chat
-          provider: whenever observations run on a chat using a different provider, that
-          conversation reaches the observer's provider as well.
+          <span className="font-mono">openai/gpt-5.4-mini</span>, and uses that provider's
+          credentials. Unlike Auto, a manual target is NOT tied to your chat provider: whenever
+          observations run on a chat using a different provider, that conversation reaches the
+          observer's provider as well.
         </p>
       )}
       {hasUnavailableObservationModel && (
@@ -217,10 +217,9 @@ export function AssistantMemorySettingsSection({
           <div className="flex items-center gap-2">
             <BrainCircuit className="text-muted-foreground h-4 w-4" />
             <h3 className="text-sm font-medium">Assistant Memory</h3>
-            <Badge variant="outline">Mastra</Badge>
           </div>
           <p className="text-muted-foreground text-sm">
-            Choose the explicit models Mastra uses for observations and semantic memory.
+            Choose the models the assistant uses for observations and semantic memory.
           </p>
         </div>
         <div className="flex items-center gap-2">

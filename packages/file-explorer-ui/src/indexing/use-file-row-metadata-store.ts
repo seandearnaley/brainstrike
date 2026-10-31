@@ -5,8 +5,8 @@
  * and connects it to the two places metadata actually lives:
  *
  * - Tokens and the size fallback come from the TokenCacheContext — the hot
- *   in-memory cache, warmed from PGlite `file_token_cache` by the existing
- *   preload/warm path. This hook never queries the database itself.
+ *   in-memory cache, filled by the existing preload/warm path. This hook never
+ *   queries a database itself.
  * - The preferred size and the directory subtree enumeration come from the
  *   caller (the tree), so the store stays free of tree traversal.
  *

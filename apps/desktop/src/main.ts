@@ -1,5 +1,5 @@
 // Side-effect import, deliberately FIRST: wraps WebAssembly before any other
-// import (PGlite, tokenizers, xxhash-wasm) can instantiate a module.
+// import (tokenizers, xxhash-wasm) can instantiate a module.
 import './diagnostics/install-webassembly-counter';
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
@@ -1142,7 +1142,7 @@ if (singleInstanceLockAcquired) {
       // DiagnosticSinkBridge stamps on its own `diagnostic_events` DB rows
       // (getDiagnosticSessionId() in packages/app-shell). This is
       // deliberate, per the Flight Recorder P2a design — the NDJSON
-      // backstop and the PGlite-backed DB sink are independent failure
+      // backstop and the database-backed sink are independent failure
       // domains — but it means a line in this file and a DB row cannot be
       // joined on `sessionId` alone.
       if (!disableFileLogs) {

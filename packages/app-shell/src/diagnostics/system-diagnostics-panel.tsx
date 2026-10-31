@@ -184,7 +184,7 @@ function DatabaseStatusSection(): ReactElement {
 
   return (
     <DiagnosticCard
-      description="PGlite database connection"
+      description="Local SQLite database"
       icon={<Database className="text-primary h-4 w-4" />}
       status={variant}
       statusLabel={label}
