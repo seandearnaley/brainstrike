@@ -1,9 +1,9 @@
 import path from 'node:path';
+import type { ManagedWorktreeAuthorizer } from '@brainstrike/assistant-service/node-workspace-services';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ManagedWorktreeAuthorizer } from '../../ipc-domains/workspace-recent-roots';
 import { registerIpcHandlers } from '../../ipc-handlers';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {

@@ -4,6 +4,13 @@ import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModelV2 } from '@ai-sdk/provider';
 import {
+  getProviderDefinition,
+  isSupportedProvider,
+  listProviders,
+  PROVIDER_DEFAULT_MODELS,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract/provider-metadata';
+import {
   type IdentifiedModelConfig,
   type MastraModelConfig,
   ModelRouterLanguageModel,
@@ -24,13 +31,6 @@ import {
   providerFetchOptions,
   requireAwsAuthInput,
 } from './provider-auth-input.ts';
-import {
-  getProviderDefinition,
-  isSupportedProvider,
-  listProviders,
-  PROVIDER_DEFAULT_MODELS,
-  type SupportedProvider,
-} from './types.ts';
 
 /** The factory's actual public outputs; routers have a distinct stream-shaped generate API. */
 export type ProviderModelConfiguration =

@@ -1,8 +1,11 @@
+export {
+  DirectoryListingTruncatedError,
+  readFullTree,
+  readFullTreeWithOptions,
+} from '@brainstrike/file-system/directory-tree';
 export * from '../hooks/use-file-tree-worker';
 export * from '../hooks/use-tree-perf-metrics';
 export * from '../hooks/use-worker-flattened-tree';
-export { DirectoryListingTruncatedError } from '../utils/parallel-directory-walker';
-export { readFullTree, readFullTreeWithOptions } from '../utils/read-full-tree';
 export { default as FileTree } from './file-tree';
 export * from './file-tree-index';
 export * from './file-tree-provider';

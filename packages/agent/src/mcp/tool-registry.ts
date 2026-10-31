@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
+import type { HostToolDefinitions } from '../host-tool-definition.ts';
 
 const logger = createLogger('ToolRegistry');
 
@@ -17,7 +17,9 @@ interface McpRegistrableTool {
 }
 
 /** Discovery metadata records or live Mastra/AI SDK tool definitions. */
-export type McpRegistrableTools = Readonly<Record<string, McpRegistrableTool | ToolsInput[string]>>;
+export type McpRegistrableTools = Readonly<
+  Record<string, McpRegistrableTool | HostToolDefinitions[string]>
+>;
 
 export interface McpToolMetadata {
   description?: string;
@@ -251,8 +253,8 @@ export class ToolRegistry {
   /**
    * Get filtered tools suitable for agent runtime (only enabled tools)
    */
-  getEnabledTools(originalTools: ToolsInput): ToolsInput {
-    const filtered: ToolsInput = {};
+  getEnabledTools(originalTools: HostToolDefinitions): HostToolDefinitions {
+    const filtered: HostToolDefinitions = {};
 
     for (const [id, tool] of Object.entries(originalTools)) {
       const metadata = this.tools.get(id);

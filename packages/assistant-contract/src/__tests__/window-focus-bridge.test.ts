@@ -9,10 +9,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   resolveWindowFocusBridge,
   WINDOW_FOCUS_BRIDGE_REQUIRED_METHODS,
-} from '../window-focus-bridge.js';
+} from '../window-focus-bridge.ts';
 
 // This package's vitest environment is `node`: a stubbed `globalThis.window`
-// carries the bridge, as in browser-download.test.ts.
+// carries the bridge.
 function setBridge(value: unknown): void {
   vi.stubGlobal('window', { windowFocus: value });
 }

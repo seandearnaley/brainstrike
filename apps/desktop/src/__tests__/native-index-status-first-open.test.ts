@@ -1,9 +1,9 @@
 // @vitest-environment node
 
+import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import { beforeEach, expect, it } from 'vitest';
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { admissionCatalogFixture } from './fixtures/admission-catalog';
 import { restoredRoots } from './helpers/restored-roots';
 import { fixture, resetActivationFixture, unused } from './native-index-activation-fixture';

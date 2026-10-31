@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
+import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DesktopEnvLoadFailure } from '../../desktop-env';
-import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 import {
   createAllowlistedSenderFrame,
   reconfigureTestRendererTargetAfterModuleReset,

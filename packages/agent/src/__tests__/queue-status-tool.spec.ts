@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  buildToolsWithQueueStatus,
   createQueueStatusTool,
   QUEUE_STATUS_ERROR_MESSAGES,
   QUEUE_STATUS_TOOL_ID,
@@ -380,27 +379,6 @@ describe('QueueStatusTool', () => {
           context: { embeddingSetId: 'non-existent' },
         })
       ).rejects.toThrow(QUEUE_STATUS_ERROR_MESSAGES.embeddingSetNotFound);
-    });
-  });
-
-  describe('buildToolsWithQueueStatus', () => {
-    it('creates tools object with queue status tool', () => {
-      const deps = createMockDeps();
-      const tools = buildToolsWithQueueStatus(deps);
-
-      expect(tools[QUEUE_STATUS_TOOL_ID]).toBeDefined();
-      expect(tools[QUEUE_STATUS_TOOL_ID]?.id).toBe(QUEUE_STATUS_TOOL_ID);
-    });
-
-    it('merges with existing tools', () => {
-      const deps = createMockDeps();
-      const existingTool = createQueueStatusTool(deps);
-      const baseTools = { 'existing.tool': existingTool };
-
-      const tools = buildToolsWithQueueStatus(deps, baseTools);
-
-      expect(tools['existing.tool']).toBeDefined();
-      expect(tools[QUEUE_STATUS_TOOL_ID]).toBeDefined();
     });
   });
 });

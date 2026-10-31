@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
 import { Predicate } from 'effect';
-import type { HostToolDefinitions as ToolsInput } from './host-tool-definition.ts';
+import type { HostToolDefinitions } from './host-tool-definition.ts';
 import type { ScaledToolResultBudget } from './stream/tool-output-limits.ts';
 import { TOOL_RESULT_TRUNCATED_CODE } from './stream/tool-output-limits.ts';
 import { readToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry.ts';
@@ -329,13 +329,15 @@ function toToolDefinitionEntry(name: string, tool: unknown): Record<string, unkn
   };
 }
 
-function sortedToolDefinitionEntries(tools: ToolsInput): [string, Record<string, unknown>][] {
+function sortedToolDefinitionEntries(
+  tools: HostToolDefinitions
+): [string, Record<string, unknown>][] {
   return Object.entries(tools)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, tool]) => [name, toToolDefinitionEntry(name, tool)]);
 }
 
-function serializeToolDefinitionEntries(tools: ToolsInput): [string, string][] {
+function serializeToolDefinitionEntries(tools: HostToolDefinitions): [string, string][] {
   return sortedToolDefinitionEntries(tools).map(([name, definition]) => [
     name,
     JSON.stringify(definition),
@@ -343,7 +345,7 @@ function serializeToolDefinitionEntries(tools: ToolsInput): [string, string][] {
 }
 
 function measureToolDefinitionBatch(
-  tools: ToolsInput,
+  tools: HostToolDefinitions,
   measurement: PreparedTokenMeasurement
 ): {
   readonly measurement: TokenMeasurementSample;
@@ -505,7 +507,7 @@ export class RunTokenDiagnostics {
   }
 
   /** Best-effort accounting for definitions loaded after the run began. */
-  recordAdditionalToolDefinitions(tools: ToolsInput): void {
+  recordAdditionalToolDefinitions(tools: HostToolDefinitions): void {
     const toolDefinitionCount = Object.keys(tools).length;
     if (toolDefinitionCount === 0) {
       return;
@@ -625,7 +627,7 @@ export async function createRunTokenDiagnostics(
   params: {
     capability: TokenMeasurementCapability;
     resolvedToolResultBudget: ScaledToolResultBudget;
-    tools: ToolsInput;
+    tools: HostToolDefinitions;
   },
   dependencies: TokenMeasurementDependencies = {}
 ): Promise<RunTokenDiagnostics> {

@@ -1,6 +1,8 @@
-import { NativeIndexSetupRequiredError } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  NativeAuthorityTransitionError,
+  NativeIndexSetupRequiredError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { expect, it, vi } from 'vitest';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { createNativeRootRegistration } from '../native-root-registration';
 
 function fixture() {

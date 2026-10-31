@@ -54,7 +54,7 @@ const WORKSPACE_OPEN_ORIGINS = Object.keys(
 
 /**
  * The two refusal messages `resolveGrantedRootHandle`
- * (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`) throws when
+ * (`packages/assistant-service/src/node-workspace/workspace-recent-roots.ts`) throws when
  * neither picker-less grant fires (ruling S2). Canonical HERE rather than
  * duplicated: main throws these EXACT strings and the renderer's refusal-remedy
  * matcher (`use-connect-folder.tsx`) matches against the SAME export, so a

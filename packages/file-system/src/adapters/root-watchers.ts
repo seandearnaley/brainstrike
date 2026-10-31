@@ -49,11 +49,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import {
-  isExcludedBackgroundIndexingPath,
-  isUnconditionalExcludedNativePath,
-} from '@brainstrike/utils/background-indexing-policy';
-import { buildIgnorePatternRegex, DEFAULT_IGNORE_PATTERNS } from '@brainstrike/utils/path-filter';
 import type {
   DirectoryHandle,
   FileSystemChange,
@@ -62,7 +57,12 @@ import type {
   WatcherFailure,
   WatcherHealthState,
   WatcherHealthTransition,
-} from '../types.ts';
+} from '@brainstrike/types';
+import {
+  isExcludedBackgroundIndexingPath,
+  isUnconditionalExcludedNativePath,
+} from '@brainstrike/utils/background-indexing-policy';
+import { buildIgnorePatternRegex, DEFAULT_IGNORE_PATTERNS } from '@brainstrike/utils/path-filter';
 import { createFileSystemChangeBatcher } from './electron-watchers.ts';
 
 const logger = createLogger('RootWatchers');

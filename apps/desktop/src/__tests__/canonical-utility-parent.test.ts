@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { CanonicalInferencePort } from '@brainstrike/canonical-ingestion';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
@@ -8,7 +10,6 @@ import {
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { CANONICAL_CHANNEL, decodeCanonicalFrame } from '../canonical-utility-protocol';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 
 const scope = { kind: 'workspace' as const, rootId: 'root' };
 const profile: VectorProfile = {

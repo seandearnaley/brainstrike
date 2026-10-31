@@ -22,6 +22,7 @@ import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
+import { resolveHostDelegation } from '@brainstrike/host-capabilities/delegation';
 import {
   type AttachedMentionFolders,
   attachedMentionReader,
@@ -38,7 +39,6 @@ import type { VectorProfile } from '@brainstrike/indexer';
 import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
-import { resolveDesktopHostDelegation } from './desktop-host-delegation';
 import {
   desktopInputTokenLimit,
   desktopMemorySelection,
@@ -541,7 +541,7 @@ export function createDesktopRunAdmission(
     try {
       policies.set(request.threadId, permissionPolicy);
       // ADR-0032: personas come from the trusted roots and the home directory.
-      const delegation = resolveDesktopHostDelegation(
+      const delegation = resolveHostDelegation(
         intent,
         native.configurationRoots,
         request.planMode === true

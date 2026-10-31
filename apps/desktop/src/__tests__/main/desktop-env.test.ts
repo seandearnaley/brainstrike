@@ -6,6 +6,7 @@ import {
   providerDeprecatedEnvKeys,
   providerEnvKeys,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   CREDENTIAL_ENV_FILE_VARIABLE_NAMES,
@@ -16,7 +17,6 @@ import {
   SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES,
   SUPPORTED_ENV_FILE_VARIABLE_NAMES,
 } from '../../desktop-env';
-import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 
 const temporaryDirectories: string[] = [];
 

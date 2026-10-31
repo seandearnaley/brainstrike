@@ -1,5 +1,4 @@
 import type { ChunkingRequestOptions } from '@brainstrike/chunking-worker/canonical';
-import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import type {
   ScopedCoverage,
   ScopedFilePlan,
@@ -7,6 +6,7 @@ import type {
   ScopedManifestResult,
   VectorProfile,
 } from '@brainstrike/indexer';
+import type { CanonicalIndexPayload } from './canonical-index-publication.ts';
 
 /** A scan's source: one workspace folder. */
 export interface CanonicalSourceScope {

@@ -1,5 +1,5 @@
+import { scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';
 import { describe, expect, it } from 'vitest';
-import { scrubLikelySecretValues } from '../diagnostics/secret-scrub';
 
 describe('scrubLikelySecretValues', () => {
   it('redacts an Anthropic/OpenAI-style API key (sk-...)', () => {

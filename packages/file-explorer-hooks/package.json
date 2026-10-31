@@ -10,8 +10,7 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "@brainstrike/workers": "workspace:*"
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/file-tree-test-fixtures": "workspace:*",
@@ -27,7 +26,8 @@
     "node": ">=22"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./file-content-worker": "./src/file-content-worker.ts"
   },
   "license": "ISC",
   "peerDependencies": {

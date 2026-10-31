@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createNodeChunker } from '@brainstrike/chunking-worker/node';
-import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { type ScopedFilePlan, type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { describe, expect, it, vi } from 'vitest';
 import { CanonicalOperationCancelledError } from '../src/cancellation.js';
+import type { CanonicalIndexPayload } from '../src/canonical-index-publication.ts';
 import { CanonicalIngestionHost } from '../src/host.js';
 import type {
   CanonicalCatalogPort,

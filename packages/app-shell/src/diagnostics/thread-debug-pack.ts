@@ -1,5 +1,5 @@
 import { redactSensitiveLogValue } from '@brainstrike/logging';
-import { scrubLikelySecretValues } from './secret-scrub';
+import { scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';
 import type { ThreadDebugHostProbe } from './thread-debug-host-probe';
 
 const REPEATED_VALUE_MARKER = '[REPEATED OR CIRCULAR]';

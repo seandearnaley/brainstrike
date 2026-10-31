@@ -9,4 +9,8 @@ React integration for adapter-backed filesystem access, selection, loading, watc
   - They require the active adapter; missing capabilities and invalid filters fail visibly.
   - Loading keeps per-key accessible/inaccessible results, explicit retry and generation fences.
   - A callback or abort notification alone does not retire physical reads.
+- `/file-content-worker` exports `createFileContentWorker`, an adapter-backed async read queue with bounded concurrency; it spawns no Web Worker.
+  - Results keep the original composite key: `{ status: 'accessible', content }` or `{ status: 'inaccessible', message }`. Binary, oversized and unreadable files are per-file failures, never content strings.
+  - Prefer admitted adapter handles. A handleless absolute read needs a durable root ID, fully qualified root/file paths and the explicit absolute-read capability; missing authority refuses before I/O, with no generic path-reader fallback.
+  - Cancellation rejects the batch and stops scheduling; the adapter owns already-admitted I/O, so a rejected promise doesn't prove reads stopped. Don't infer concurrency limits from platform names.
 - Contracts: [workspace](../../docs/agents/workspace-context.md), [explorer](../../docs/agents/explorer-search-context-map.md).

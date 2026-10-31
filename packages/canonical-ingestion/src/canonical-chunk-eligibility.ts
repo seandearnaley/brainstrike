@@ -1,9 +1,9 @@
 import type { NodeChunker } from '@brainstrike/chunking-worker/node';
-import type { CanonicalChunkEvent } from '@brainstrike/file-import';
+import type { CanonicalChunkEvent } from './canonical-chunk-producer.ts';
 import {
   type CanonicalIndexPayload,
   canonicalIndexPayload,
-} from '@brainstrike/file-import/canonical-index-publication';
+} from './canonical-index-publication.ts';
 import type { CanonicalScanRequest, CanonicalSourceExclusion } from './ports.ts';
 import type { CanonicalPreparedRead } from './source-preparation.ts';
 

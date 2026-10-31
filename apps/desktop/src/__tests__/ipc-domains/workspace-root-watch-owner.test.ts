@@ -1,8 +1,9 @@
 // @vitest-environment node
+
+import type { MountedWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { FileSystemChange, WatcherHealthTransition } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
-import type { MountedWorkspaceRoot } from '../../ipc-domains/workspace-root-types';
 import { createWorkspaceRootWatchOwner } from '../../ipc-domains/workspace-root-watch-owner';
 import { secureRoot } from './workspace-root-registry-test-helpers';
 

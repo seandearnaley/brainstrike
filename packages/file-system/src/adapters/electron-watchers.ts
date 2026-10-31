@@ -2,7 +2,7 @@ import {
   FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT,
   type FileSystemChange,
   type FileSystemWatchBatchMetadata,
-} from '../types.ts';
+} from '@brainstrike/types';
 
 // Shared change-batching primitive for the root watch engine
 // (see ./root-watchers.ts).

@@ -92,7 +92,9 @@ describe('main boot order', () => {
               'Reset resume failed'
             )
           : new Error('Replacement renderer failed');
-      const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
+      const { NativeAuthorityTransitionError } = await import(
+        '@brainstrike/assistant-service/node-native-text-services'
+      );
       nativePrepareForPause.mockImplementation(async () => {
         if (!reopened) {
           throw new NativeAuthorityTransitionError(
@@ -196,7 +198,9 @@ describe('main boot order', () => {
   it.each(['none', 'typed', 'independent'] as const)(
     'prepares saved settings synchronously outside reset and preserves failure=%s',
     async (kind) => {
-      const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
+      const { NativeAuthorityTransitionError } = await import(
+        '@brainstrike/assistant-service/node-native-text-services'
+      );
       const failure =
         kind === 'typed'
           ? new NativeAuthorityTransitionError(
@@ -287,7 +291,9 @@ describe('main boot order', () => {
     nativeAcquireRead.mockReturnValue(reader.promise);
     await import('../../main');
     await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
-    const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
+    const { NativeAuthorityTransitionError } = await import(
+      '@brainstrike/assistant-service/node-native-text-services'
+    );
     const failure = new NativeAuthorityTransitionError('Native owner retired');
     isDesktopShuttingDownMock.mockReturnValue(true);
     reader.reject(failure);

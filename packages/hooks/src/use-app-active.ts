@@ -1,5 +1,5 @@
+import { resolveWindowFocusBridge } from '@brainstrike/assistant-contract/window-focus-bridge';
 import { createLogger } from '@brainstrike/logging';
-import { resolveWindowFocusBridge } from '@brainstrike/utils/window-focus-bridge';
 import { useSyncExternalStore } from 'react';
 
 const logger = createLogger('UseAppActive');

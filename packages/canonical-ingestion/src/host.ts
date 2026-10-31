@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import type { CanonicalChunker } from '@brainstrike/chunking-worker/canonical';
-import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import {
   type ScopedCoverage,
   type ScopedFilePlan,
@@ -12,6 +11,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { CanonicalOperationCancelledError } from './cancellation.ts';
 import { chunkCanonicalRead } from './canonical-chunk-eligibility.ts';
+import type { CanonicalIndexPayload } from './canonical-index-publication.ts';
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,

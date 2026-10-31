@@ -1,9 +1,9 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { ipcMain } from 'electron';
-import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import type { DesktopHookTrust } from './desktop-hook-trust';
 import {
   type DbRootLite,
