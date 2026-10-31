@@ -5,6 +5,7 @@ import {
   __resetDiagnosticsRetentionStoreForTests,
   useDiagnosticsRetentionStore,
 } from '@brainstrike/app-state/stores/diagnostics-retention-store';
+import { createDefaultLoggingPreferences } from '@brainstrike/logging';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoggingSettingsSection } from './logging-settings-section';
 import { DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD } from './use-diagnostics-purge-action';
@@ -18,6 +19,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useToast: () => ({ dismiss: vi.fn(), toast: toastMock, toasts: [] }),
 }));
+
+const baseProps = {
+  defaults: createDefaultLoggingPreferences(),
+  onCommitPreferences: async () => {},
+  preferences: createDefaultLoggingPreferences(),
+};
 
 beforeEach(() => {
   toastMock.mockReset();
@@ -41,7 +48,7 @@ describe('LoggingSettingsSection logs link', () => {
   it('opens the Logs tab and renders no log viewer of its own', async () => {
     const user = userEvent.setup();
     const onOpenLogs = vi.fn();
-    render(<LoggingSettingsSection onOpenLogs={onOpenLogs} runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} onOpenLogs={onOpenLogs} runtime="browser" />);
 
     expect(screen.queryByRole('region', { name: 'Log Viewer' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Open Logs' }));
@@ -50,7 +57,7 @@ describe('LoggingSettingsSection logs link', () => {
   });
 
   it('offers no link when the host has no Logs tab', () => {
-    render(<LoggingSettingsSection runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} runtime="browser" />);
 
     expect(screen.queryByRole('button', { name: 'Open Logs' })).not.toBeInTheDocument();
   });
@@ -59,7 +66,7 @@ describe('LoggingSettingsSection logs link', () => {
 describe('LoggingSettingsSection diagnostics retention card', () => {
   it('keeps retention preferences usable and reports deferred enforcement without a database', async () => {
     const user = userEvent.setup();
-    render(<LoggingSettingsSection runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} runtime="browser" />);
 
     expect(screen.getByText('Diagnostics Retention')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /keep events for/iu })).toBeInTheDocument();
@@ -78,7 +85,9 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
   });
 
   it('is present when onPurgeNow is supplied', () => {
-    render(<LoggingSettingsSection onPurgeNow={vi.fn(async () => 0)} runtime="browser" />);
+    render(
+      <LoggingSettingsSection {...baseProps} onPurgeNow={vi.fn(async () => 0)} runtime="browser" />
+    );
 
     expect(screen.getByText('Diagnostics Retention')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /purge now/iu })).toBeInTheDocument();
@@ -86,7 +95,9 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
 
   it('changing the "Keep Events For" select writes maxAgeDays to the store', async () => {
     const user = userEvent.setup();
-    render(<LoggingSettingsSection onPurgeNow={vi.fn(async () => 0)} runtime="browser" />);
+    render(
+      <LoggingSettingsSection {...baseProps} onPurgeNow={vi.fn(async () => 0)} runtime="browser" />
+    );
 
     await user.click(screen.getByRole('combobox', { name: /keep events for/iu }));
     await user.click(screen.getByRole('option', { name: '7 days' }));
@@ -98,7 +109,9 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
 
   it('changing the "Maximum Events" select writes maxRows to the store', async () => {
     const user = userEvent.setup();
-    render(<LoggingSettingsSection onPurgeNow={vi.fn(async () => 0)} runtime="browser" />);
+    render(
+      <LoggingSettingsSection {...baseProps} onPurgeNow={vi.fn(async () => 0)} runtime="browser" />
+    );
 
     await user.click(screen.getByRole('combobox', { name: /maximum events/iu }));
     await user.click(screen.getByRole('option', { name: /5,?000 events/iu }));
@@ -111,7 +124,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
   it('clicking Purge now invokes the callback and toasts the deleted count', async () => {
     const user = userEvent.setup();
     const onPurgeNow = vi.fn(async () => 42);
-    render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} onPurgeNow={onPurgeNow} runtime="browser" />);
 
     await user.click(screen.getByRole('button', { name: /purge now/iu }));
 
@@ -131,7 +144,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
   it('says more may remain when the deleted count hits the per-call limit', async () => {
     const user = userEvent.setup();
     const onPurgeNow = vi.fn(async () => DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD);
-    render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} onPurgeNow={onPurgeNow} runtime="browser" />);
 
     await user.click(screen.getByRole('button', { name: /purge now/iu }));
 
@@ -156,7 +169,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const user = userEvent.setup();
     const belowLimit = DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD - 1;
     const onPurgeNow = vi.fn(async () => belowLimit);
-    render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} onPurgeNow={onPurgeNow} runtime="browser" />);
 
     await user.click(screen.getByRole('button', { name: /purge now/iu }));
 
@@ -175,7 +188,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const onPurgeNow = vi.fn(async () => {
       throw new Error('database unavailable');
     });
-    render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} onPurgeNow={onPurgeNow} runtime="browser" />);
 
     await user.click(screen.getByRole('button', { name: /purge now/iu }));
 
@@ -199,7 +212,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
         })
     );
     const user = userEvent.setup();
-    render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} onPurgeNow={onPurgeNow} runtime="browser" />);
 
     const purgeButton = screen.getByRole('button', { name: /purge now/iu });
     expect(purgeButton).not.toBeDisabled();
@@ -223,7 +236,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
         })
     );
     const user = userEvent.setup();
-    render(<LoggingSettingsSection onPurgeNow={onPurgeNow} runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} onPurgeNow={onPurgeNow} runtime="browser" />);
 
     const purgeButton = screen.getByRole('button', { name: /purge now/iu });
     await user.click(purgeButton);
@@ -238,13 +251,13 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
 
 describe('LoggingSettingsSection sink-health banner', () => {
   it('renders no banner when the sink is healthy', () => {
-    render(<LoggingSettingsSection runtime="browser" sinkHealthReason={null} />);
+    render(<LoggingSettingsSection {...baseProps} runtime="browser" sinkHealthReason={null} />);
 
     expect(screen.queryByTestId('diagnostic-sink-health-banner')).not.toBeInTheDocument();
   });
 
   it('renders no banner when the prop is omitted entirely', () => {
-    render(<LoggingSettingsSection runtime="browser" />);
+    render(<LoggingSettingsSection {...baseProps} runtime="browser" />);
 
     expect(screen.queryByTestId('diagnostic-sink-health-banner')).not.toBeInTheDocument();
   });
@@ -252,6 +265,7 @@ describe('LoggingSettingsSection sink-health banner', () => {
   it('names the reason and states that capture is stopped until restart', () => {
     render(
       <LoggingSettingsSection
+        {...baseProps}
         runtime="browser"
         sinkHealthReason="Failed to insert diagnostic events: disk is full"
       />
@@ -267,7 +281,9 @@ describe('LoggingSettingsSection sink-health banner', () => {
   });
 
   it('renders the banner above the general logging card', () => {
-    render(<LoggingSettingsSection runtime="browser" sinkHealthReason="sink exploded" />);
+    render(
+      <LoggingSettingsSection {...baseProps} runtime="browser" sinkHealthReason="sink exploded" />
+    );
 
     const banner = screen.getByTestId('diagnostic-sink-health-banner');
     const generalCard = screen.getByText('General Logging');
