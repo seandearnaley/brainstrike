@@ -102,6 +102,12 @@ describe('formatToolPayload', () => {
     );
   });
 
+  it('keeps numbers in JSON text exactly as written', () => {
+    expect(formatToolPayload('{"id":9223372036854775807,"price":1.50}')).toBe(
+      '{\n  "id": 9223372036854775807,\n  "price": 1.50\n}'
+    );
+  });
+
   it('shows text that is not complete JSON exactly as it arrived', () => {
     expect(formatToolPayload('{"path":"src/ap')).toBe('{"path":"src/ap');
     expect(formatToolPayload('total 8\n-rw-r--r-- a.ts')).toBe('total 8\n-rw-r--r-- a.ts');

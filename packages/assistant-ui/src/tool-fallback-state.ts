@@ -142,6 +142,35 @@ export function failureReasonSummary(
 }
 
 /**
+ * `JSON.parse` source text access and `JSON.rawJSON` (ES2026), which Node and
+ * Chromium ship but TypeScript's lib does not declare yet.
+ */
+interface SourceTextJson {
+  isRawJSON(value: unknown): boolean;
+  parse(
+    text: string,
+    reviver: (key: string, value: unknown, context: { readonly source?: string }) => unknown
+  ): unknown;
+  rawJSON(text: string): object;
+}
+
+const sourceTextJson = JSON as unknown as SourceTextJson;
+
+/**
+ * Keeps each number as the text it arrived as, so a 64-bit id or `1.50`
+ * displays exactly instead of being rounded through a JavaScript number.
+ */
+function keepNumberSource(
+  _key: string,
+  value: unknown,
+  context: { readonly source?: string }
+): unknown {
+  return typeof value === 'number' && context.source !== undefined
+    ? sourceTextJson.rawJSON(context.source)
+    : value;
+}
+
+/**
  * Parses a string that holds a JSON object or array. Anything else (plain
  * text, a bare number, a partial stream) is not JSON worth expanding.
  */
@@ -151,7 +180,7 @@ function parseJsonContainer(text: string): object | undefined {
     return;
   }
   try {
-    const parsed: unknown = JSON.parse(trimmed);
+    const parsed = sourceTextJson.parse(trimmed, keepNumberSource);
     return parsed !== null && typeof parsed === 'object' ? parsed : undefined;
   } catch {
     return;
@@ -167,6 +196,9 @@ function expandNestedJson(value: unknown): unknown {
   if (typeof value === 'string') {
     const parsed = parseJsonContainer(value);
     return parsed === undefined ? value : expandNestedJson(parsed);
+  }
+  if (sourceTextJson.isRawJSON(value)) {
+    return value;
   }
   if (Array.isArray(value)) {
     return value.map(expandNestedJson);
