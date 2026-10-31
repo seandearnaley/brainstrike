@@ -10,10 +10,6 @@ export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
 
 /**
  * Copy / retry controls for an assistant message.
- *
- * Lives in its own module (rather than inline in assistant-ui-panel.tsx) so the
- * panel root stays within its source-file budget — see
- * __tests__/assistant-ui-panel-architecture.test.ts.
  */
 export const AssistantActionBar = () => {
   const aui = useAui();

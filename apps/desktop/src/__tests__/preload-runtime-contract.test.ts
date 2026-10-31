@@ -122,9 +122,8 @@ function findManifestChannelLiterals(source: string): string[] {
 describe('preload runtime contract', () => {
   it('sources every channel from the desktop IPC manifest instead of a local literal', () => {
     // BST-1648: the manifest is the ONE place a channel string lives. The
-    // preload imports it (bundle: true inlines the pure module) and the
-    // AST walk in preload-sandbox-imports.test.ts proves the graph stays
-    // sandbox-pure. A literal that equals any manifest channel is a
+    // preload imports it (bundle: true inlines the pure module) and
+    // build-main.mjs refuses a bundle that is not sandbox-pure. A literal that equals any manifest channel is a
     // duplicate by definition.
     const preloadSource = readPreloadSource();
     expect(preloadSource).toContain("from './platform/desktop-ipc-channels'");
