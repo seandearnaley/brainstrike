@@ -52,6 +52,13 @@ describe('target facts on pages without a form (BST-2375)', () => {
   it('refuses the sign-in button of a script-driven login, wherever the click lands in it', () => {
     expect(decide(SCRIPTED_LOGIN, '#go', click)).toBe('credential');
     expect(decide(SCRIPTED_LOGIN, '#go span', click)).toBe('credential');
+    const buttonRow = `
+      <div class="login">
+        <input id="email"><input id="secret" type="password">
+        <div class="actions"><button id="signin">Sign in</button><input type="submit" id="go2" value="Go"><button>Cancel</button></div>
+      </div>`;
+    expect(decide(buttonRow, '#signin', click)).toBe('credential');
+    expect(decide(buttonRow, '#go2', click)).toBe('credential');
     expect(decide(SCRIPTED_LOGIN, '#email', { kind: 'type', submit: false, text: 'a@b.c' })).toBe(
       'credential'
     );

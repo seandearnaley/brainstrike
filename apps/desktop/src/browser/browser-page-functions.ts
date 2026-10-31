@@ -59,14 +59,18 @@ export const TARGET_FACTS_FUNCTION = `function () {
   const tag = lower(el.tagName);
   const form = el.form || el.closest('form');
   // Without a form, a script-driven page groups its fields in some container:
-  // the nearest one holding another field or button stands in for the form,
-  // and any button in it may send its fields. Whether a field is filled is not asked: the
-  // browser hides an autofilled password's value until the page is touched.
+  // the nearest one holding another field (or, from a field, a button) stands
+  // in for the form, and any button in it may send its fields. Whether a field
+  // is filled is not asked: the browser hides an autofilled password's value
+  // until the page is touched.
   let group = null;
   if (!form) {
+    // A button sends fields, so a row of buttons alone is not its group.
+    const isField = (node) => node.matches(FIELDS) && !node.matches(BUTTONS);
+    const counts = isField(el) ? () => true : isField;
     for (let node = el.parentElement; node && !group; node = node.parentElement) {
-      const controls = node.querySelectorAll(FIELDS + ', ' + BUTTONS);
-      if (Array.from(controls).some((control) => control !== el && !el.contains(control))) {
+      const controls = Array.from(node.querySelectorAll(FIELDS + ', ' + BUTTONS));
+      if (controls.some((control) => control !== el && !el.contains(control) && counts(control))) {
         group = node;
       }
     }
