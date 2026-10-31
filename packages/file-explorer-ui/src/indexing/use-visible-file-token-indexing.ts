@@ -32,7 +32,7 @@
  * State (`indexedFilesRef`, `inFlightRef`, `preloadedFoldersRef`) is SHARED
  * with the selection trigger by design: whichever trigger reaches a file first,
  * the other must not queue it again, and the parent owns the single reset point
- * for all of it (root change, tree clear, `clearIndexedCache`).
+ * for all of it (root change and tree clear).
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
@@ -68,8 +68,8 @@ export interface UseVisibleFileTokenIndexingParams {
   isTokenCachePersisted: boolean;
   /**
    * Parent-owned memo of folders already warmed for THIS trigger. A stable Set
-   * instance (not a ref) — the parent clears it in place on root change, tree
-   * clear, and `clearIndexedCache`.
+   * instance (not a ref) — the parent clears it in place on root change and
+   * tree clear.
    */
   preloadedFolders: Set<string>;
   tokenCacheRef: MutableRefObject<TokenCacheContextValue | null>;
