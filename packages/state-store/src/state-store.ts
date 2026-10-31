@@ -3,8 +3,7 @@
 // is a constructor parameter.
 //
 // The write side is M0-A1's SqliteStore (src/store-sqlite.ts): this thread only posts messages to the writer worker
-// (src/writer-worker.mjs), which holds the ONLY writing connection; an append is delivered (`onCommitted`) only after its
-// COMMIT returned; a failed write or an unexpected worker exit fails the store, never a hang or a silent drop.
+// (src/writer-worker.mjs), which holds the ONLY writing connection; an append resolves only after its COMMIT returned; a failed write or an unexpected worker exit fails the store, never a hang or a silent drop.
 // The lifecycle is M0-A2's Host (src/host.ts) without the run host: synced-root refusal and the root lock at open, a
 // damaged DB opened read-only and visibly, purge orchestration with a crash-replayable intent, export/import, reset.
 // Every mutation runs on ONE write chain, so a purge's blob GC can never race an append that references the blob.
@@ -275,15 +274,14 @@ export class StateStore implements MemoryDomainPort {
   // ---- run log --------------------------------------------------------------------------------------------------------
 
   /**
-   * Append rows (possibly across threads) as ONE NORMAL commit. `onCommitted` runs right after the COMMIT returned and
-   * before the next write starts: the process-crash contract. `full` makes the rows and existing run_sync marker
+   * Append rows (possibly across threads) as ONE NORMAL commit. It resolves only after the COMMIT returned, so a caller
+   * that displays rows once it resolves never shows one a process crash loses. `full` makes the rows and existing run_sync marker
    * one FULL transaction, so terminal success is never committed ahead of its kernel sync.
    * A write failure fails the store (later calls are refused,
    * so no seq is ever reused); a damaged thread refuses the batch without failing the store.
    */
   append(
     items: readonly AppendItem[],
-    onCommitted?: () => void,
     durability: 'normal' | 'full' = 'normal'
   ): Promise<LogRow[]> {
     if (this.closed) {
@@ -318,7 +316,6 @@ export class StateStore implements MemoryDomainPort {
               });
             }
           }
-          onCommitted?.();
           const seqs = r['seqs'] as number[];
           return items.map((it, i): LogRow => {
             const raw = withSeq(seqs[i] as number, bodies[i] as string);

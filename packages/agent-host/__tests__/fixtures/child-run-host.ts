@@ -240,12 +240,12 @@ export function crashableStorePort(
 ): { dead: boolean; port: HostEventStore } {
   const state = { dead: false } as { dead: boolean; port: HostEventStore };
   state.port = {
-    append: async (items, committed, durability) => {
+    append: async (items, durability) => {
       if (state.dead) {
         throw new Error('process crashed');
       }
       await beforeAppend?.(items);
-      return store.append(items, committed, durability);
+      return store.append(items, durability);
     },
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),
