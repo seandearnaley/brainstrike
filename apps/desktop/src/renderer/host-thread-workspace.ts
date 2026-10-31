@@ -1,7 +1,7 @@
 /**
  * A host thread's workspace snapshot (its tabs and panels) as the shell's
  * thread workspace repository reads and saves it, through the host that owns
- * the thread (BST-1940): desktop's and the web's thread hosts share it.
+ * the thread (BST-1940).
  */
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {

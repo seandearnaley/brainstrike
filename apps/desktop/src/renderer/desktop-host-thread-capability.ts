@@ -12,11 +12,6 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
-import {
-  hostThreadWorkspaceRepository,
-  projectHostThread,
-  projectStartedHostThread,
-} from '@brainstrike/host-conversation';
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
 import { connectDesktopAgentHost } from './agent-host-client';
@@ -24,9 +19,11 @@ import { createDesktopHostConnection, type DesktopHostConnection } from './deskt
 import { resolveDesktopWorkspaceGitServices } from './host-git-workspace';
 import { createHostRewindPort } from './host-rewind-port';
 import { HostThreadCanvases } from './host-thread-canvases';
+import { projectHostThread, projectStartedHostThread } from './host-thread-catalog';
 import { openHostThreadContext } from './host-thread-context';
 import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
+import { hostThreadWorkspaceRepository } from './host-thread-workspace';
 
 const logger = createLogger('DesktopHostThreads');
 /**

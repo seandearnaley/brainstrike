@@ -1,7 +1,6 @@
 /**
  * A host's catalog as the shell's thread list shows it, and a thread's
- * workspace snapshot through its owning host (BST-1940): shared by desktop's
- * and the web's thread hosts.
+ * workspace snapshot through its owning host (BST-1940).
  */
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
@@ -9,8 +8,8 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
-import { projectHostThread, projectStartedHostThread } from '../host-thread-catalog';
-import { hostThreadWorkspaceRepository } from '../host-thread-workspace';
+import { projectHostThread, projectStartedHostThread } from '../../renderer/host-thread-catalog';
+import { hostThreadWorkspaceRepository } from '../../renderer/host-thread-workspace';
 
 const RESOURCE = WORKSPACE_MEMORY_RESOURCE_ID;
 

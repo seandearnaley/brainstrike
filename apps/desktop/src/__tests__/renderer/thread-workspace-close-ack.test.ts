@@ -7,7 +7,6 @@ import {
   EMPTY_WORKSPACE_SNAPSHOT,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { hostThreadWorkspaceRepository } from '@brainstrike/host-conversation';
 import type { HostRecord } from '@brainstrike/host-lease';
 import { expect, test, vi } from 'vitest';
 import {
@@ -17,6 +16,7 @@ import {
 } from 'vscode-jsonrpc/node';
 import { createDesktopHostConnection } from '../../renderer/desktop-host-connection';
 import { installDesktopRendererClose } from '../../renderer/desktop-renderer-close';
+import { hostThreadWorkspaceRepository } from '../../renderer/host-thread-workspace';
 
 vi.mock('../../renderer/agent-host-client', () => ({ connectDesktopAgentHost: vi.fn() }));
 

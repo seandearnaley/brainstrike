@@ -1,7 +1,6 @@
 /**
  * A host catalog entry as the shell's thread list shows it (BST-1940): its
- * identity, binding, committed presentation and times. Desktop's and the
- * web's thread hosts list their host's threads through it.
+ * identity, binding, committed presentation and times.
  */
 import type { HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';

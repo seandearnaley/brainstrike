@@ -1,6 +1,5 @@
 /**
- * A host thread's committed conversation over any host client, desktop's or
- * the browser's (BST-1940; owner decision, 16 Oct: one shared core): the
+ * A host thread's committed conversation over a host client (BST-1940): the
  * thread's committed session, the store its view folds, and the commands
  * every host serves (send, edit, Stop). Desktop composes its other features
  * over it (approvals, checkpoints, verdicts, MCP input, steering, regeneration).
