@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 export const TOOL_OUTPUT_ARTIFACT_CODE = 'tool_output_artifact' as const;
 export const TOOL_OUTPUT_ARTIFACT_VERSION = 1 as const;
 export const TOOL_OUTPUT_ARTIFACT_CURSOR_PREFIX = 'bsto1.' as const;
@@ -94,10 +96,6 @@ export interface EncodedToolOutputArtifactContent {
 export interface ToolOutputArtifactCursorState {
   readonly artifactRef: ToolOutputArtifactReference;
   readonly offsetByte: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function hasOnlyKeys(
@@ -335,7 +333,7 @@ export function isToolOutputArtifactCursor(value: unknown): value is string {
 export function isToolOutputArtifactReference(
   value: unknown
 ): value is ToolOutputArtifactReference {
-  if (!(isRecord(value) && hasOnlyKeys(value, ARTIFACT_REFERENCE_KEYS))) {
+  if (!(Predicate.isObject(value) && hasOnlyKeys(value, ARTIFACT_REFERENCE_KEYS))) {
     return false;
   }
   return (
@@ -351,7 +349,8 @@ export function isToolOutputArtifactReference(
 export function isToolOutputArtifactEnvelope(value: unknown): value is ToolOutputArtifactEnvelope {
   if (
     !(
-      isRecord(value) && hasOnlyKeys(value, ARTIFACT_ENVELOPE_KEYS, ARTIFACT_ENVELOPE_REQUIRED_KEYS)
+      Predicate.isObject(value) &&
+      hasOnlyKeys(value, ARTIFACT_ENVELOPE_KEYS, ARTIFACT_ENVELOPE_REQUIRED_KEYS)
     )
   ) {
     return false;
@@ -387,7 +386,12 @@ export function isToolOutputArtifactEnvelope(value: unknown): value is ToolOutpu
 }
 
 export function isToolOutputArtifactPage(value: unknown): value is ToolOutputArtifactPage {
-  if (!(isRecord(value) && hasOnlyKeys(value, ARTIFACT_PAGE_KEYS, ARTIFACT_PAGE_REQUIRED_KEYS))) {
+  if (
+    !(
+      Predicate.isObject(value) &&
+      hasOnlyKeys(value, ARTIFACT_PAGE_KEYS, ARTIFACT_PAGE_REQUIRED_KEYS)
+    )
+  ) {
     return false;
   }
   if (!isToolOutputArtifactReference(value['artifactRef'])) {

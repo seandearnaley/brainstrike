@@ -11,6 +11,7 @@ import { closeSync, constants, fstatSync, openSync, readFileSync, readSync } fro
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { hostProjectHooksPath } from '@brainstrike/agent-host/hook-trust';
+import { Predicate } from 'effect';
 import { sha256OfBuffer } from './trust.ts';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
@@ -116,10 +117,6 @@ type FileValidation =
   | { readonly ok: true; readonly value: ValidatedFile }
   | { readonly ok: false; readonly message: string };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function validateMatcher(raw: unknown): {
   readonly matcher?: HookMatcher;
   readonly regex?: RegExp;
@@ -127,7 +124,7 @@ function validateMatcher(raw: unknown): {
   if (raw === undefined) {
     return {};
   }
-  if (!isRecord(raw)) {
+  if (!Predicate.isObject(raw)) {
     throw new Error('matcher must be an object');
   }
   const toolName = raw['tool_name'];
@@ -147,7 +144,7 @@ function validateHook(
   raw: unknown,
   maxHookTimeoutMs: number
 ): { readonly definition: HookDefinition; readonly toolNameRegex?: RegExp } {
-  if (!isRecord(raw)) {
+  if (!Predicate.isObject(raw)) {
     throw new Error('hook must be an object');
   }
   if (raw['type'] !== 'command') {
@@ -235,7 +232,7 @@ function validateFile(
       ok: false,
     };
   }
-  if (!isRecord(parsed)) {
+  if (!Predicate.isObject(parsed)) {
     return { message: 'root of hooks.json must be a JSON object', ok: false };
   }
 

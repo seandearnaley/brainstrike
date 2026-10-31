@@ -9,6 +9,7 @@ import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
+import { Predicate } from 'effect';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { isAssistantToolApprovalRequest } from './tool-decision-run-outcome';
 
@@ -99,28 +100,24 @@ export const EMPTY_ANSWERED_APPROVALS_INDEX: AnsweredApprovalsIndex = {
   userDecisions: new Map(),
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 export interface ScanCursor {
   readonly keys: string[];
   readonly scanned: number[];
 }
 
 function messageKey(message: unknown, index: number): string {
-  const id = isRecord(message) ? message['id'] : undefined;
+  const id = Predicate.isObject(message) ? message['id'] : undefined;
   return typeof id === 'string' ? id : `#${index}`;
 }
 
 /** Fold one part into the index; returns true when the index changed. */
 function indexPart(part: unknown, index: MutableApprovalsIndex): boolean {
-  if (!isRecord(part)) {
+  if (!Predicate.isObject(part)) {
     return false;
   }
   if (part['type'] === 'tool-call' && typeof part['toolCallId'] === 'string') {
     const args = part['args'];
-    const prompt = isRecord(args) ? args['prompt'] : undefined;
+    const prompt = Predicate.isObject(args) ? args['prompt'] : undefined;
     if (typeof prompt === 'string' && prompt.trim().length > 0) {
       index.prompts.set(part['toolCallId'], prompt);
       return true;
@@ -163,12 +160,12 @@ function indexPart(part: unknown, index: MutableApprovalsIndex): boolean {
  * guessed into a decision.
  */
 function indexUserDecision(message: unknown, index: MutableApprovalsIndex): boolean {
-  if (!(isRecord(message) && message['role'] === 'user')) {
+  if (!(Predicate.isObject(message) && message['role'] === 'user')) {
     return false;
   }
   const metadata = message['metadata'];
-  const custom = isRecord(metadata) ? metadata['custom'] : undefined;
-  const action = isRecord(custom) ? custom[TOOL_APPROVAL_RUN_CONFIG_KEY] : undefined;
+  const custom = Predicate.isObject(metadata) ? metadata['custom'] : undefined;
+  const action = Predicate.isObject(custom) ? custom[TOOL_APPROVAL_RUN_CONFIG_KEY] : undefined;
   if (!isAssistantToolApprovalAction(action)) {
     return false;
   }
@@ -204,7 +201,7 @@ export function advanceAnsweredApprovalsIndex(
     if (isNewMessage && indexUserDecision(message, index)) {
       changed = true;
     }
-    const content = isRecord(message) ? message['content'] : undefined;
+    const content = Predicate.isObject(message) ? message['content'] : undefined;
     if (!Array.isArray(content)) {
       continue;
     }

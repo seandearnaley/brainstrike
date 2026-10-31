@@ -1,3 +1,4 @@
+import { Predicate } from 'effect';
 import {
   ASSISTANT_TOOL_ACTION_ID_MAX_CHARS,
   type DelegatedToolActionIdentity,
@@ -119,7 +120,7 @@ export function isCodeExecutionApprovalContext(
   value: unknown
 ): value is CodeExecutionApprovalContext {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     Reflect.ownKeys(value).every((key) => CODE_EXECUTION_APPROVAL_CONTEXT_KEYS.has(key)) &&
     [...CODE_EXECUTION_APPROVAL_CONTEXT_KEYS].every((key) => Object.hasOwn(value, key)) &&
     isNonBlankStringArray(value['allowedDomains']) &&
@@ -152,7 +153,7 @@ export interface ApprovalTargetRoot {
 /** Exact-shape guard for {@link ApprovalTargetRoot}, as the card reads it from the log. */
 export function isApprovalTargetRoot(value: unknown): value is ApprovalTargetRoot {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     Reflect.ownKeys(value).length === 2 &&
     typeof value['displayName'] === 'string' &&
     value['displayName'].length > 0 &&
@@ -233,7 +234,7 @@ export interface SuspendedApprovalsResponse {
 
 export function isRediscoveredToolApproval(value: unknown): value is RediscoveredToolApproval {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['runId'] === 'string' &&
     value['runId'].trim().length > 0 &&
     typeof value['toolCallId'] === 'string' &&
@@ -298,7 +299,7 @@ export function createDeclinedToolCallResult(
  */
 export function isDeclinedToolCallResult(value: unknown): value is DeclinedToolCallResult {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     value['kind'] === DECLINED_TOOL_RESULT_KIND &&
     typeof value['message'] === 'string' &&
     value['message'].trim().length > 0
@@ -391,10 +392,6 @@ const TOOL_APPROVAL_ACTION_OWN_KEYS = new Set<PropertyKey>([
   'toolName',
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function isBoundedIdentifier(value: unknown, maxChars: number): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= maxChars;
 }
@@ -403,7 +400,7 @@ export function isAssistantToolApprovalAction(
   value: unknown
 ): value is AssistantToolApprovalAction {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     Reflect.ownKeys(value).every((key) => TOOL_APPROVAL_ACTION_OWN_KEYS.has(key)) &&
     hasValidDelegatedToolActionTarget(value) &&
     Object.hasOwn(value, 'action') &&
@@ -426,11 +423,11 @@ export function isAssistantToolApprovalAction(
 export function readToolApprovalRunConfigAction(
   runConfig: unknown
 ): ToolApprovalRunConfigActionReadResult | undefined {
-  if (!isRecord(runConfig)) {
+  if (!Predicate.isObject(runConfig)) {
     return;
   }
   const custom = runConfig['custom'];
-  if (!isRecord(custom)) {
+  if (!Predicate.isObject(custom)) {
     return;
   }
   const rawAction = custom[TOOL_APPROVAL_RUN_CONFIG_KEY];

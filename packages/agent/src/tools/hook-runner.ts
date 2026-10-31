@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 /**
  * Tool-lifecycle hook runner contract (platform-neutral — NO node imports).
  *
@@ -58,10 +60,6 @@ export interface HookResultEnvelope {
   readonly result: unknown;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 export function createHookResultEnvelope(
   result: unknown,
   additionalContext: string
@@ -84,7 +82,7 @@ export function createHookResultEnvelope(
  * model, display, or transcript output.
  */
 export function readHookResultEnvelope(value: unknown): HookResultEnvelope | undefined {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return;
   }
   if (!HOOK_RESULT_ENVELOPE_PROVENANCE.has(value)) {
@@ -94,7 +92,7 @@ export function readHookResultEnvelope(value: unknown): HookResultEnvelope | und
   if (
     outerKeys.length !== 1 ||
     outerKeys[0] !== HOOK_RESULT_ENVELOPE_FIELD ||
-    !isRecord(value[HOOK_RESULT_ENVELOPE_FIELD])
+    !Predicate.isObject(value[HOOK_RESULT_ENVELOPE_FIELD])
   ) {
     return;
   }

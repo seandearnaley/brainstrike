@@ -4,12 +4,12 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import { Predicate } from 'effect';
 import { fitHeadAndTailToCharBudget, TRUNCATION_HINT } from './execute-command-tool.ts';
 import {
   escapeProjectionPathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
-  isRecord,
   makeWorkspaceTextModelOutput,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers.ts';
@@ -43,7 +43,7 @@ interface ExecuteCommandProjectionResult {
 function parseExecuteCommandResult(output: unknown): ExecuteCommandProjectionResult {
   if (
     !(
-      isRecord(output) &&
+      Predicate.isObject(output) &&
       (output['ambiguousRootNames'] === undefined ||
         (Array.isArray(output['ambiguousRootNames']) &&
           output['ambiguousRootNames'].every((name) => typeof name === 'string'))) &&
@@ -245,7 +245,7 @@ export function projectExecuteCommandModelOutput(
   domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): ExecuteCommandTextModelOutput {
   if (
-    isRecord(output) &&
+    Predicate.isObject(output) &&
     Reflect.ownKeys(output).length === 2 &&
     Object.hasOwn(output, 'type') &&
     Object.hasOwn(output, 'value') &&

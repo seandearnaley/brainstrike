@@ -25,6 +25,7 @@ import {
   buildNativeToolRiskMap,
   denormalizeNativeToolName,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import { Predicate } from 'effect';
 import { useEffect, useRef, useState } from 'react';
 import { getMessageParts } from './assistant-run-event-derivation';
 
@@ -46,10 +47,6 @@ export interface RunLifecycleNotificationCallbacks {
   readonly onRunFailed?: (event: AssistantRunEvent) => void;
   readonly onRunFinished?: (event: AssistantRunEvent) => void;
   readonly onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function readTerminalRunEvent(value: unknown): AssistantRunEvent | undefined {
@@ -111,7 +108,7 @@ function readEditActivityRunEvent(value: unknown): AssistantRunEvent | undefined
 
 function isToolApprovalRequest(value: unknown): value is AssistantToolApprovalRequest {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['runId'] === 'string' &&
     typeof value['toolCallId'] === 'string' &&
     typeof value['toolName'] === 'string' &&
@@ -121,7 +118,7 @@ function isToolApprovalRequest(value: unknown): value is AssistantToolApprovalRe
 }
 
 function getPartData(part: unknown, name: string): unknown {
-  if (!isRecord(part) || part['name'] !== name) {
+  if (!Predicate.isObject(part) || part['name'] !== name) {
     return;
   }
   return part['data'];
@@ -210,7 +207,9 @@ function appendIncrementalMatches<T>({
 }
 
 function getMessageId(message: unknown): string | undefined {
-  return isRecord(message) && typeof message['id'] === 'string' ? message['id'] : undefined;
+  return Predicate.isObject(message) && typeof message['id'] === 'string'
+    ? message['id']
+    : undefined;
 }
 
 function createIncrementalSerializedSelector<T>({

@@ -22,6 +22,7 @@ import {
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
+import { Predicate } from 'effect';
 import { Check, MessageSquare, X } from 'lucide-react';
 
 /** Max answer characters shown on an "Answered: …" chip before truncation. */
@@ -36,20 +37,16 @@ export interface ApprovalActionChipProps {
   readonly toolName?: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function readCustomMetadata(message: unknown): Record<string, unknown> | null {
-  if (!isRecord(message) || message['role'] !== 'user') {
+  if (!Predicate.isObject(message) || message['role'] !== 'user') {
     return null;
   }
   const metadata = message['metadata'];
-  if (!isRecord(metadata)) {
+  if (!Predicate.isObject(metadata)) {
     return null;
   }
   const custom = metadata['custom'];
-  return isRecord(custom) ? custom : null;
+  return Predicate.isObject(custom) ? custom : null;
 }
 
 function readApprovalChip(marker: unknown): ApprovalActionChipProps | null {
@@ -153,7 +150,7 @@ function readSuspendChip(marker: unknown): ApprovalActionChipProps | null {
   // contract; absent means unattributable, which falls through to the bubble
   // rather than guessing. run_python never produces an askUser envelope, so its
   // records deliberately do NOT fall on to the answer arm.
-  if (isRecord(marker.resumeData)) {
+  if (Predicate.isObject(marker.resumeData)) {
     const planChip = readPlanDecisionChip(marker.resumeData);
     if (planChip) {
       return planChip;

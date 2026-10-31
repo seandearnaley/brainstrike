@@ -4,6 +4,7 @@ import type {
   ProcessLLMRequestResult,
   Processor,
 } from '@mastra/core/processors';
+import { Predicate } from 'effect';
 
 const logger = createLogger('OpenAIDuplicateItemCompat');
 const OPENAI_NAMESPACE = 'openai';
@@ -31,10 +32,6 @@ function positionKey(position: PartPosition): string {
   return `${position.messageIndex}:${position.partIndex}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function roleOf(message: PromptMessage): 'assistant' | 'tool' | undefined {
   return message.role === 'assistant' || message.role === 'tool' ? message.role : undefined;
 }
@@ -55,11 +52,11 @@ function partsOf(message: PromptMessage): PromptPart[] {
 function readOpenAIItemId(part: PromptPart): string | undefined {
   for (const carrier of ['providerOptions', 'providerMetadata'] as const) {
     const options = (part as unknown as Record<string, unknown>)[carrier];
-    if (!isRecord(options)) {
+    if (!Predicate.isObject(options)) {
       continue;
     }
     const openAIOptions = options[OPENAI_NAMESPACE];
-    if (!isRecord(openAIOptions)) {
+    if (!Predicate.isObject(openAIOptions)) {
       continue;
     }
     const itemId = openAIOptions['itemId'];

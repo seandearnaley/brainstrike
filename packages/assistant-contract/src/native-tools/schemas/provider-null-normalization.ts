@@ -1,6 +1,4 @@
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { Predicate } from 'effect';
 
 /**
  * The single literal a property schema pins, however its dialect spells it.
@@ -12,7 +10,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * and must not select a branch.
  */
 function discriminantValue(propertySchema: unknown): { readonly value: unknown } | undefined {
-  if (!isRecord(propertySchema)) {
+  if (!Predicate.isObject(propertySchema)) {
     return;
   }
   if ('const' in propertySchema) {
@@ -25,16 +23,16 @@ function discriminantValue(propertySchema: unknown): { readonly value: unknown }
 }
 
 function constMatchedBranch(branches: readonly unknown[], value: unknown): unknown {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return;
   }
 
   const matches = branches.filter((branch) => {
-    if (!isRecord(branch)) {
+    if (!Predicate.isObject(branch)) {
       return false;
     }
     const properties = branch['properties'];
-    if (!isRecord(properties)) {
+    if (!Predicate.isObject(properties)) {
       return false;
     }
 
@@ -55,20 +53,24 @@ function constMatchedBranch(branches: readonly unknown[], value: unknown): unkno
 }
 
 function uniqueStructuredBranch(branches: readonly unknown[], value: unknown): unknown {
-  const expectedType = Array.isArray(value) ? 'array' : isRecord(value) ? 'object' : undefined;
+  const expectedType = Array.isArray(value)
+    ? 'array'
+    : Predicate.isObject(value)
+      ? 'object'
+      : undefined;
   if (expectedType === undefined) {
     return;
   }
 
   const matches = branches.filter((branch) => {
-    if (!isRecord(branch)) {
+    if (!Predicate.isObject(branch)) {
       return false;
     }
     if (branch['type'] === expectedType) {
       return true;
     }
     return expectedType === 'object'
-      ? isRecord(branch['properties'])
+      ? Predicate.isObject(branch['properties'])
       : branch['items'] !== undefined || Array.isArray(branch['prefixItems']);
   });
   return matches.length === 1 ? matches[0] : undefined;
@@ -99,7 +101,7 @@ function normalizeDeclaredProperties(
   schema: Record<string, unknown>
 ): unknown {
   const properties = schema['properties'];
-  if (!isRecord(properties)) {
+  if (!Predicate.isObject(properties)) {
     return value;
   }
 
@@ -138,7 +140,7 @@ function normalizeDeclaredProperties(
  * It reads JSON Schema and values without owning another schema grammar.
  */
 export function normalizeProviderNulls(value: unknown, schema: unknown): unknown {
-  if (!isRecord(schema)) {
+  if (!Predicate.isObject(schema)) {
     return value;
   }
 
@@ -151,5 +153,5 @@ export function normalizeProviderNulls(value: unknown, schema: unknown): unknown
   if (Array.isArray(value)) {
     return normalizeArrayItems(value, schema);
   }
-  return isRecord(value) ? normalizeDeclaredProperties(value, schema) : value;
+  return Predicate.isObject(value) ? normalizeDeclaredProperties(value, schema) : value;
 }

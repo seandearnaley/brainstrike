@@ -1,3 +1,4 @@
+import { Predicate } from 'effect';
 import type { OpenAiReasoningEffort } from './runtime-data.ts';
 
 export const OPENROUTER_MODEL_METADATA_SOURCE = 'openrouter-models-api' as const;
@@ -50,10 +51,6 @@ export type OpenRouterModelMetadataLookup =
   | { readonly state: 'resolved'; readonly snapshot: OpenRouterModelMetadataSnapshot }
   | { readonly message: string; readonly state: 'error' };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function requirePositiveInteger(value: unknown, field: string): number {
   if (!(Number.isSafeInteger(value) && (value as number) > 0)) {
     throw new Error(`OpenRouter model metadata requires a positive integer ${field}`);
@@ -94,7 +91,7 @@ function parseReasoningMetadata(value: unknown): OpenRouterReasoningMetadata | u
   if (value === undefined || value === null) {
     return;
   }
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     throw new Error('OpenRouter model metadata reasoning must be an object');
   }
   if (typeof value['mandatory'] !== 'boolean') {
@@ -153,7 +150,7 @@ export function parseOpenRouterModelMetadata(
   expectedModelId: string,
   checkedAt: number
 ): OpenRouterModelMetadata {
-  if (!(isRecord(payload) && isRecord(payload['data']))) {
+  if (!(Predicate.isObject(payload) && Predicate.isObject(payload['data']))) {
     throw new Error('OpenRouter model metadata requires a data object');
   }
   const data = payload['data'];
@@ -165,7 +162,7 @@ export function parseOpenRouterModelMetadata(
   const supportedParameters = parseSupportedParameters(data['supported_parameters']);
   const reasoning = parseReasoningMetadata(data['reasoning']);
   const topProvider = data['top_provider'];
-  if (!isRecord(topProvider)) {
+  if (!Predicate.isObject(topProvider)) {
     throw new Error('OpenRouter model metadata requires a top_provider object');
   }
   // The window and output limit are the TOP PROVIDER's pair: a larger
@@ -212,7 +209,7 @@ export function parseOpenRouterModelMetadata(
 }
 
 function parseSnapshotMetadata(value: unknown): OpenRouterModelMetadata {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     throw new Error('OpenRouter model metadata snapshot requires metadata');
   }
   const id = value['id'];
@@ -236,7 +233,7 @@ function parseSnapshotMetadata(value: unknown): OpenRouterModelMetadata {
   data['supported_parameters'] = value['supportedParameters'];
   data['top_provider'] = topProvider;
   if (value['reasoning'] !== undefined) {
-    if (!isRecord(value['reasoning'])) {
+    if (!Predicate.isObject(value['reasoning'])) {
       throw new Error('OpenRouter model metadata snapshot reasoning must be an object');
     }
     const reasoning = value['reasoning'];
@@ -255,7 +252,7 @@ function parseSnapshotMetadata(value: unknown): OpenRouterModelMetadata {
 export function parseOpenRouterModelMetadataSnapshot(
   value: unknown
 ): OpenRouterModelMetadataSnapshot {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     throw new Error('OpenRouter model metadata snapshot requires an object');
   }
   const freshness = value['freshness'];

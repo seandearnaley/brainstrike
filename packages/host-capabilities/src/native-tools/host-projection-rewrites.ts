@@ -5,6 +5,7 @@ import type {
   HostToolInvocation,
 } from '@brainstrike/agent-host';
 import { denormalizeNativeToolName, isNativeToolId } from '@brainstrike/assistant-contract';
+import { Predicate } from 'effect';
 import {
   type RecencyPruneInvocation,
   selectRecencyPruneCandidates,
@@ -17,10 +18,6 @@ import {
 
 const PROJECTED_OUTPUT_TYPES: ReadonlySet<unknown> = new Set(['content', 'json', 'text']);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 /**
  * A committed call as legacy rewriting read a persisted native invocation:
  * catalog tool name, object input and a successful text/content/json projection.
@@ -30,8 +27,8 @@ function nativeInvocation(invocation: HostToolInvocation): PersistedToolInvocati
   if (
     !(
       isNativeToolId(toolName) &&
-      isRecord(invocation.args) &&
-      isRecord(invocation.modelOutput) &&
+      Predicate.isObject(invocation.args) &&
+      Predicate.isObject(invocation.modelOutput) &&
       PROJECTED_OUTPUT_TYPES.has(invocation.modelOutput['type'])
     )
   ) {

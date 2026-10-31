@@ -9,6 +9,7 @@ import {
   type NativeToolId,
   RECENCY_PRUNABLE_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
+import { Predicate } from 'effect';
 import { stableNormalizedArgsKey } from './tool-call-loop-guards.ts';
 
 /** Newest estimated tool-result tokens that recency pruning must preserve. */
@@ -69,14 +70,10 @@ export type RecencyPruneCandidate = Extract<ToolProjectionRewriteEntry, { kind: 
   readonly reclaimableChars: number;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function decodedContentModelOutputChars(value: readonly unknown[]): number {
   let chars = 0;
   for (const part of value) {
-    if (isRecord(part) && part['type'] === 'text' && typeof part['text'] === 'string') {
+    if (Predicate.isObject(part) && part['type'] === 'text' && typeof part['text'] === 'string') {
       chars += decodedTextModelOutputChars(part['text']);
     }
   }
@@ -103,7 +100,7 @@ function decodedJsonModelOutputChars(value: unknown): number {
 
 /** Measure the exact persisted model-facing text projection with the shared ruler. */
 export function decodedPersistedModelOutputChars(modelOutput: unknown): number {
-  if (!isRecord(modelOutput)) {
+  if (!Predicate.isObject(modelOutput)) {
     throw new TypeError('Persisted native-tool model output must be an object.');
   }
   if (modelOutput['type'] === 'text' && typeof modelOutput['value'] === 'string') {

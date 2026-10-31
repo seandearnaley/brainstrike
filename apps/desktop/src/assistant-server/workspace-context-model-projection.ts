@@ -8,10 +8,10 @@ import {
   clipProjectionMiddle,
   decodedWorkspaceTextModelOutputChars as decodedChars,
   escapeProjectionPathLineBreaks as escapePathLineBreaks,
-  isRecord,
   makeWorkspaceTextModelOutput as makeOutput,
   type WorkspaceTextModelOutput,
 } from '@brainstrike/host-capabilities/native-tools';
+import { Predicate } from 'effect';
 
 export type WorkspaceContextTextModelOutput = WorkspaceTextModelOutput;
 
@@ -34,7 +34,7 @@ const MAX_PATH_CHARS = 800;
 
 function isWorkspaceRoot(value: unknown): value is RuntimeWorkspaceRoot {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['displayName'] === 'string' &&
     typeof value['path'] === 'string' &&
     typeof value['rootId'] === 'string'
@@ -43,7 +43,7 @@ function isWorkspaceRoot(value: unknown): value is RuntimeWorkspaceRoot {
 
 function isWorkspaceIndex(value: unknown): value is WorkspaceIndexSummary {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     (value['embeddingSetId'] === null || typeof value['embeddingSetId'] === 'string') &&
     typeof value['enabled'] === 'boolean' &&
     (value['mode'] === null || typeof value['mode'] === 'string') &&
@@ -60,7 +60,7 @@ function throwMalformed(): never {
 function parseListWorkspaceContextResult(output: unknown): ListWorkspaceContextResult {
   if (
     !(
-      isRecord(output) &&
+      Predicate.isObject(output) &&
       isWorkspaceIndex(output['workspaceIndex']) &&
       (output['workspaceRootPath'] === null || typeof output['workspaceRootPath'] === 'string') &&
       Array.isArray(output['workspaceRoots']) &&

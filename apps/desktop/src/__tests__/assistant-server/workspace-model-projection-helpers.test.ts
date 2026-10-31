@@ -5,7 +5,6 @@ import {
   escapeProjectionPathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
-  isRecord,
   makeWorkspaceTextModelOutput,
   PROJECTION_ENVELOPE_RESERVE_CHARS,
   projectionSingleLine,
@@ -14,9 +13,6 @@ import { describe, expect, it } from 'vitest';
 
 describe('workspace model projection helpers', () => {
   it('keeps strict shared guards producer-agnostic', () => {
-    expect(isRecord({ value: 1 })).toBe(true);
-    expect(isRecord([])).toBe(false);
-    expect(isRecord(null)).toBe(false);
     expect(isNonNegativeInteger(0)).toBe(true);
     expect(isNonNegativeInteger(-1)).toBe(false);
     expect(isNonNegativeInteger(1.5)).toBe(false);

@@ -23,6 +23,7 @@ import {
   readProjectHookConfig,
   sha256OfBuffer,
 } from '@brainstrike/host-capabilities/hooks';
+import { Predicate } from 'effect';
 
 const HOOKS_READ_ERROR = 'hooks.json could not be read';
 
@@ -63,10 +64,6 @@ export interface HooksReviewDeps {
    * gate. No default — the caller MUST supply it (fail closed).
    */
   readonly resolveDbRoot: (absPath: string) => DbRootLite | null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function safeRealpath(path: string, realpath: (p: string) => string): string | null {
@@ -181,7 +178,7 @@ export function getProjectHooksForReview(
   let parseError: string | undefined;
   try {
     const parsed: unknown = JSON.parse(content);
-    if (!isRecord(parsed)) {
+    if (!Predicate.isObject(parsed)) {
       parseError = 'root of hooks.json must be a JSON object';
     }
   } catch (error) {

@@ -5,6 +5,7 @@ import {
   type SyncAccurateCounter,
 } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
+import { Predicate } from 'effect';
 import type { HostToolDefinitions as ToolsInput } from './host-tool-definition.ts';
 import type { ScaledToolResultBudget } from './stream/tool-output-limits.ts';
 import { TOOL_RESULT_TRUNCATED_CODE } from './stream/tool-output-limits.ts';
@@ -78,10 +79,6 @@ export interface RunTokenDiagnosticsLogOptions {
   readonly stepCount?: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 /**
  * Generic (non-search-tool) truncation signal for the telemetry sample.
  * `{type:'json', value:{truncated:true}}` almost never occurs in practice —
@@ -103,12 +100,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `recordModelOutput` via `readToolCallTelemetryMetadata`.
  */
 function detectGenericTruncation(output: unknown): boolean {
-  if (!isRecord(output)) {
+  if (!Predicate.isObject(output)) {
     return false;
   }
   const value = output['value'];
-  if (output['type'] === 'json' && isRecord(value)) {
-    return value['truncated'] === true || isRecord(value['next']);
+  if (output['type'] === 'json' && Predicate.isObject(value)) {
+    return value['truncated'] === true || Predicate.isObject(value['next']);
   }
   if (output['type'] === 'text' && typeof value === 'string') {
     let parsed: unknown;
@@ -121,7 +118,7 @@ function detectGenericTruncation(output: unknown): boolean {
       return false;
     }
     return (
-      isRecord(parsed) &&
+      Predicate.isObject(parsed) &&
       (parsed['truncated'] === true ||
         typeof parsed['omittedItems'] === 'number' ||
         parsed['code'] === TOOL_RESULT_TRUNCATED_CODE)
@@ -256,7 +253,7 @@ function isInlineProviderFile(part: Record<string, unknown>): boolean {
   }
   const data = part['data'];
   return (
-    isRecord(data) &&
+    Predicate.isObject(data) &&
     (data['type'] === 'data' ||
       (data['type'] === 'url' && data['url'] instanceof URL && data['url'].protocol === 'data:'))
   );
@@ -269,7 +266,7 @@ function compactMedia(value: unknown): unknown {
   if (value instanceof URL || value instanceof Date) {
     return value.toJSON();
   }
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return value;
   }
   const type = value['type'];
