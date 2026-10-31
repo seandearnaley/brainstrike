@@ -1,13 +1,12 @@
 // One streaming run under a kernel tracer (M0-A1 scripts/m0/run.ts, the S candidate): the root and `children` more
-// threads each stream `steps` steps of `deltas` text deltas through the Coalescer into the store. Writes the JS-side
+// threads each stream `steps` steps of `deltas` text deltas into the store, as the host writes a run. Writes the JS-side
 // spans (display write spans, boundary sync spans, all on the uv_hrtime clock) to <rawOut> for attribute.mjs.
 // usage: node --import tsx run.ts <boundary|sqlite-auto> <rawOut> [children=3] [steps=4] [deltas=500]
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Coalescer } from '../../src/coalescer.js';
 import { StateStore, type SyncSpan, type WriteSpan } from '../../src/state-store.js';
 import { cleanupDirs, freshDir } from '../helpers/fs.js';
-import { streamRun } from '../kill/workload.js';
+import { type Show, streamRun } from '../kill/workload.js';
 
 const [mode, rawOut, childrenArg, stepsArg, deltasArg] = process.argv.slice(2) as [
   string,
@@ -34,18 +33,17 @@ const store = await StateStore.open(join(freshDir('k'), 'store'), {
   walCheckpoint,
 });
 const boundariesByThread: Record<string, number> = {};
-const co = new Coalescer(store, 20, undefined, {
-  onBoundarySyncIssued: (t) => {
-    boundariesByThread[t] = (boundariesByThread[t] ?? 0) + 1;
-  },
-});
+const show: Show = (threadId, _runId, c) => {
+  if (c.type === 'finish-step') {
+    boundariesByThread[threadId] = (boundariesByThread[threadId] ?? 0) + 1;
+  }
+};
 const t0 = clock();
 await Promise.all(
   ['root', ...Array.from({ length: CHILDREN }, (_, i) => `root/child:C${i}`)].map((threadId, i) =>
-    streamRun(co, { runId: `run${i}`, steps: STEPS, text: () => pieces, threadId })
+    streamRun(store, show, { runId: `run${i}`, steps: STEPS, text: () => pieces, threadId })
   )
 );
-await co.drainSyncs();
 const t1 = clock();
 writeFileSync(
   rawOut,

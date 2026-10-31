@@ -309,7 +309,6 @@ export class HostCore {
   ): Promise<HostLogRow[]> {
     const committed = await this.store.append(
       items.map(({ event, threadId }) => storedHostEvent(threadId, event, referenced)),
-      undefined,
       durability
     );
     return this.published.fold(committed, async () => {

@@ -1,10 +1,18 @@
-// The streaming workload of the M0-A1 harnesses (scripts/m0/kill-host.ts, scripts/m0/run.ts), driven straight through
-// the Coalescer. The spike drove it through its AI SDK run host and a scripted mock model; the run host belongs to M3,
-// so this reproduces the chunk stream the host handed the Coalescer: per thread, `run.started`, then per step a
-// reasoning part, `deltas` text deltas and (all but the last step) a read_file tool call that takes 5 ms, closed by
-// `finish-step` (a step boundary), then `run.finished`. One model chunk per ms, as the spike's mock.
-import type { Coalescer, RunChunk } from '../../src/coalescer.js';
+// The streaming workload of the SIGKILL and kernel-sync harnesses, written the way HostCore writes a run: per thread,
+// `run.started`, then per step a reasoning part, `deltas` text deltas and (all but the last step) a read_file tool call
+// that takes 5 ms, closed by `finish-step` (a step boundary), then `run.finished`. One model chunk per ms. Each chunk is
+// its own NORMAL `stream.chunk` append and is shown only once that append resolved (ADR-0011: the host commits before
+// it displays). After a committed `finish-step` the run awaits one `syncBoundary`, as the host's run loop does. The
+// harness commits every chunk, text deltas included, so it writes far more rows than the host now does (ADR-0011
+// amendments: text, reasoning and tool input stream as uncommitted telemetry).
+import type { StateStore } from '../../src/state-store.js';
 import { sleep } from '../helpers/fs.js';
+
+/** A UI stream chunk: `type` plus the chunk's fields. */
+export type RunChunk = Readonly<Record<string, unknown>> & { readonly type: string };
+
+/** A chunk handed to the UI. */
+export type Show = (threadId: string, runId: string, c: RunChunk) => void;
 
 export interface StreamSpec {
   readonly runId: string;
@@ -14,62 +22,58 @@ export interface StreamSpec {
   readonly threadId: string;
 }
 
-/** Push then show every chunk, as the run host does; 1 ms between model chunks. */
-async function emit(co: Coalescer, s: StreamSpec, c: RunChunk): Promise<void> {
-  co.push(s.threadId, s.runId, c);
-  co.show(s.threadId, s.runId, c);
+type RunLog = Pick<StateStore, 'append' | 'syncBoundary'>;
+
+/** Commit, then show; a committed step boundary is synced. 1 ms between model chunks. */
+async function emit(log: RunLog, show: Show, s: StreamSpec, c: RunChunk): Promise<void> {
+  await log.append([
+    { event: { chunk: c, runId: s.runId, type: 'stream.chunk' }, threadId: s.threadId },
+  ]);
+  show(s.threadId, s.runId, c);
+  if (c.type === 'finish-step') {
+    await log.syncBoundary(s.threadId);
+  }
   await sleep(1);
 }
 
-export async function streamRun(co: Coalescer, s: StreamSpec): Promise<void> {
-  await co.appendNow(s.threadId, { runId: s.runId, type: 'run.started' });
-  await emit(co, s, { messageId: `${s.runId}-m`, type: 'start' });
+export async function streamRun(log: RunLog, show: Show, s: StreamSpec): Promise<void> {
+  await log.append([{ event: { runId: s.runId, type: 'run.started' }, threadId: s.threadId }]);
+  await emit(log, show, s, { messageId: `${s.runId}-m`, type: 'start' });
   for (let step = 0; step < s.steps; step++) {
     const id = `${s.runId}-${step}`;
-    await emit(co, s, { type: 'start-step' });
-    await emit(co, s, { id: `r${id}`, type: 'reasoning-start' });
-    await emit(co, s, { delta: `thinking ${s.runId} `, id: `r${id}`, type: 'reasoning-delta' });
-    await emit(co, s, { delta: `step ${step}`, id: `r${id}`, type: 'reasoning-delta' });
-    await emit(co, s, { id: `r${id}`, type: 'reasoning-end' });
-    await emit(co, s, { id: `t${id}`, type: 'text-start' });
-    for (const delta of s.text(step)) {
-      await emit(co, s, { delta, id: `t${id}`, type: 'text-delta' });
+    const chunks: RunChunk[] = [
+      { type: 'start-step' },
+      { id: `r${id}`, type: 'reasoning-start' },
+      { delta: `thinking ${s.runId} `, id: `r${id}`, type: 'reasoning-delta' },
+      { delta: `step ${step}`, id: `r${id}`, type: 'reasoning-delta' },
+      { id: `r${id}`, type: 'reasoning-end' },
+      { id: `t${id}`, type: 'text-start' },
+      ...s.text(step).map((delta) => ({ delta, id: `t${id}`, type: 'text-delta' })),
+      { id: `t${id}`, type: 'text-end' },
+    ];
+    for (const c of chunks) {
+      await emit(log, show, s, c);
     }
-    await emit(co, s, { id: `t${id}`, type: 'text-end' });
     if (step < s.steps - 1) {
       const toolCallId = `call_${id}`;
-      const input = JSON.stringify({ path: `${s.runId}-${step}.ts` });
-      const half = Math.ceil(input.length / 2);
-      await emit(co, s, { toolCallId, toolName: 'read_file', type: 'tool-input-start' });
-      await emit(co, s, {
-        inputTextDelta: input.slice(0, half),
-        toolCallId,
-        type: 'tool-input-delta',
-      });
-      await emit(co, s, {
-        inputTextDelta: input.slice(half),
-        toolCallId,
-        type: 'tool-input-delta',
-      });
-      await emit(co, s, {
-        input: JSON.parse(input) as unknown,
-        toolCallId,
-        toolName: 'read_file',
-        type: 'tool-input-available',
-      });
+      const input = { path: `${s.runId}-${step}.ts` };
+      await emit(log, show, s, { toolCallId, toolName: 'read_file', type: 'tool-input-start' });
+      await emit(log, show, s, { input, toolCallId, toolName: 'read_file', type: 'tool-call' });
       await sleep(5); // the read_file tool
-      await emit(co, s, {
+      await emit(log, show, s, {
         output: { content: `contents of ${s.runId}-${step}.ts` },
         toolCallId,
-        type: 'tool-output-available',
+        type: 'tool-result',
       });
     }
-    await emit(co, s, { type: 'finish-step' });
+    await emit(log, show, s, { type: 'finish-step' });
   }
-  await emit(co, s, { type: 'finish' });
-  await co.appendNow(s.threadId, { runId: s.runId, status: 'completed', type: 'run.finished' });
+  await emit(log, show, s, { type: 'finish' });
+  await log.append([
+    { event: { runId: s.runId, status: 'completed', type: 'run.finished' }, threadId: s.threadId },
+  ]);
 }
 
-/** Unique, ordered tokens so every displayed delta is identifiable in the log (M0-A1 kill-host). */
+/** Unique, ordered tokens so every displayed delta is identifiable in the log. */
 export const tokens = (tag: string, n: number): string[] =>
   Array.from({ length: n }, (_, i) => `<${tag}:${i}>`);

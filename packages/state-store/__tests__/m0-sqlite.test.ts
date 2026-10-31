@@ -44,24 +44,17 @@ describe('M0-A1 S', () => {
     await s.close();
   });
 
-  test('S-commit: onCommitted runs only after the batch is committed (visible to another connection)', async () => {
+  test('S-commit: an append resolves only once its batch is visible to another connection', async () => {
     const root = newRoot();
     const { s } = await open(root);
-    const seen: number[] = [];
     const path = join(root, STATE_DB);
-    await s.append(
-      [
-        { event: ev('a'), threadId: 't' },
-        { event: ev('b'), threadId: 'u' },
-      ],
-      () => {
-        seen.push(count(path));
-      }
-    );
-    await s.append([{ event: ev('c'), threadId: 't' }], () => {
-      seen.push(count(path));
-    });
-    expect(seen).toEqual([2, 3]);
+    await s.append([
+      { event: ev('a'), threadId: 't' },
+      { event: ev('b'), threadId: 'u' },
+    ]);
+    const afterFirst = count(path);
+    await s.append([{ event: ev('c'), threadId: 't' }]);
+    expect([afterFirst, count(path)]).toEqual([2, 3]);
     expect((await s.read('t')).map((r) => r.seq)).toEqual([1, 2]);
     await s.close();
   });
@@ -84,30 +77,26 @@ describe('M0-A1 S', () => {
     await s.close();
   });
 
-  test('terminal rows and their FULL marker are visible together before delivery', async () => {
+  test('terminal rows and their FULL marker are visible together once the append resolves', async () => {
     const root = newRoot();
     const { s, spans } = await open(root);
-    const observed: unknown[] = [];
     try {
       await s.append(
         [{ event: { outcome: 'completed', runId: 'r', type: 'run.finished' }, threadId: 't' }],
-        () => {
-          const db = new Database(join(root, STATE_DB), { readonly: true });
-          try {
-            observed.push(
-              db
-                .prepare(
-                  'SELECT e.type, e.seq, s.seq AS synced FROM run_events e JOIN run_sync s ON s.thread_id = e.thread_id'
-                )
-                .all()
-            );
-          } finally {
-            db.close();
-          }
-        },
         'full'
       );
-      expect(observed).toEqual([[{ seq: 1, synced: 1, type: 'run.finished' }]]);
+      const db = new Database(join(root, STATE_DB), { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(
+              'SELECT e.type, e.seq, s.seq AS synced FROM run_events e JOIN run_sync s ON s.thread_id = e.thread_id'
+            )
+            .all()
+        ).toEqual([{ seq: 1, synced: 1, type: 'run.finished' }]);
+      } finally {
+        db.close();
+      }
       expect(spans.map((span) => span.kind)).toEqual(['FULL commit']);
       await s.append([{ event: ev('ordinary streaming'), threadId: 't' }]);
       expect(spans).toHaveLength(1);
@@ -126,18 +115,13 @@ describe('M0-A1 S', () => {
     );
     fixture.close();
     const s = await StateStore.open(root);
-    let delivered = false;
     try {
       await expect(
         s.append(
           [{ event: { outcome: 'completed', runId: 'r', type: 'run.finished' }, threadId: 't' }],
-          () => {
-            delivered = true;
-          },
           'full'
         )
       ).rejects.toThrow('terminal FULL rejected');
-      expect(delivered).toBe(false);
       expect(count(join(root, STATE_DB))).toBe(0);
       await expect(s.read('t')).rejects.toThrow('terminal FULL rejected');
       await expect(s.append([{ event: ev('later'), threadId: 't' }])).rejects.toThrow(
