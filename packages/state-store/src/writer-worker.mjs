@@ -143,12 +143,14 @@ function fsyncDir(dir) {
 }
 
 /**
- * Content-addressed blob write (M0-A2 src/host.ts putBlob): temp + fsync + rename + directory fsync, so the blob is
- * durable before the event that references it is appended. An existing blob is left as it is.
+ * Write a content-addressed blob as temp + fsync + rename. Returns whether a new entry was created, which the caller
+ * must make durable with a directory fsync before it appends anything that references the blob.
  * @param {string} hash
  * @param {string} content
+ * @param {boolean} verifyExisting re-read and rehash a blob that already exists
+ * @returns {boolean}
  */
-function putBlob(hash, content) {
+function writeBlob(hash, content, verifyExisting) {
   if (
     !/^[a-f0-9]{64}$/u.test(hash) ||
     createHash('sha256').update(content).digest('hex') !== hash
@@ -157,10 +159,10 @@ function putBlob(hash, content) {
   }
   const p = join(cfg.blobsDir, hash);
   if (existsSync(p)) {
-    if (createHash('sha256').update(readFileSync(p)).digest('hex') !== hash) {
+    if (verifyExisting && createHash('sha256').update(readFileSync(p)).digest('hex') !== hash) {
       throw new Error(`existing blob ${hash} checksum mismatch`);
     }
-    return;
+    return false;
   }
   const tmp = `${p}.tmp`;
   const fd = openSync(tmp, 'w');
@@ -175,7 +177,50 @@ function putBlob(hash, content) {
     closeSync(fd);
   }
   renameSync(tmp, p);
-  fsyncDir(cfg.blobsDir);
+  return true;
+}
+
+/**
+ * Content-addressed blob write (M0-A2 src/host.ts putBlob): the blob is durable before the event that references it is
+ * appended. An existing blob is verified and left as it is.
+ * @param {string} hash
+ * @param {string} content
+ */
+function putBlob(hash, content) {
+  if (writeBlob(hash, content, true)) {
+    fsyncDir(cfg.blobsDir);
+  }
+}
+
+/**
+ * The source catalog's blobs for one request (BST-2377, owner decision 2026-10-31). They are a cache of workspace files
+ * that a rescan rebuilds, so an existing hash-named blob is trusted without a re-read, and the directory is fsynced
+ * once per request, before the transaction that references its new blobs commits. A crash loses at most that request.
+ */
+function sourceCatalogBlobs() {
+  let created = false;
+  return {
+    flush: () => {
+      if (created) {
+        fsyncDir(cfg.blobsDir);
+        created = false;
+      }
+    },
+    put: (/** @type {string} */ hash, /** @type {string} */ content) => {
+      created = writeBlob(hash, content, false) || created;
+    },
+    read: (/** @type {string} */ hash, /** @type {number} */ maxBytes) => {
+      const path = join(cfg.blobsDir, hash);
+      if (statSync(path).size > maxBytes) {
+        return null;
+      }
+      const content = readFileSync(path, 'utf8');
+      if (createHash('sha256').update(content).digest('hex') !== hash) {
+        throw new Error('Canonical source blob checksum mismatch');
+      }
+      return content;
+    },
+  };
 }
 
 /**
@@ -335,20 +380,7 @@ async function handle(m) {
       return executeSourceCatalogRequest(
         db,
         /** @type {import('./source-catalog-types.ts').SourceCatalogRequest} */ (m['request']),
-        {
-          put: putBlob,
-          read: (hash, maxBytes) => {
-            const path = join(cfg.blobsDir, hash);
-            if (statSync(path).size > maxBytes) {
-              return null;
-            }
-            const content = readFileSync(path, 'utf8');
-            if (createHash('sha256').update(content).digest('hex') !== hash) {
-              throw new Error('Canonical source blob checksum mismatch');
-            }
-            return content;
-          },
-        }
+        sourceCatalogBlobs()
       );
     case 'workspace-roots':
       return executeWorkspaceRootRequest(

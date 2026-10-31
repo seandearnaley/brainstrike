@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
 import { BLOBS_DIR, largeText, StateStore } from '../src/state-store.js';
@@ -359,6 +359,38 @@ test('forgetting a captured root erases its sources and bytes, keeps the other r
         })
       ).files[0]
     ).toMatchObject({ content: kept.content, rootId: 'root-beta' });
+  } finally {
+    await store.close();
+    indexer.close();
+  }
+});
+
+test('a source batch trusts an existing hash-named blob and a damaged one fails on read, not on write', async () => {
+  const directory = freshDir('source-catalog-trusted-blob');
+  const indexer = new TruthIndexer(directory);
+  const store = await StateStore.open(directory, { indexer });
+  try {
+    await store.workspaceRoots({
+      operation: 'register',
+      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
+    });
+    const original = source('A workspace file the cache already holds.\n'.repeat(200));
+    // A blob left damaged on disk under the file's hash name (BST-2377): the batch writes no
+    // replacement and does not re-read it, so the rescan stays cheap and the damage surfaces on read.
+    writeFileSync(join(directory, BLOBS_DIR, original.contentHash), 'damaged bytes');
+    const prepared = await store.sourceCatalog({
+      embeddingSetId: null,
+      files: [original],
+      operation: 'prepare',
+      rootId: 'root-alpha',
+    });
+    await expect(
+      store.sourceCatalog({
+        fileIds: [prepared.files[0]!.fileId],
+        maxContentBytes: original.stat.size,
+        operation: 'read',
+      })
+    ).rejects.toThrow('Canonical source blob checksum mismatch');
   } finally {
     await store.close();
     indexer.close();
