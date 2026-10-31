@@ -898,7 +898,7 @@ describe('useFileTree (lazy loading version)', () => {
       expect(parentReadCount).toBe(2);
 
       await act(async () => {
-        releaseFirstParentRead?.();
+        releaseFirstParentRead();
         await firstGenerationRefresh;
       });
 

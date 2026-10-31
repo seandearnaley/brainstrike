@@ -320,7 +320,7 @@ describe('canonical workspace source', () => {
       .fn()
       .mockRejectedValueOnce(new Error('Native unsubscribe failed.'))
       .mockResolvedValueOnce(undefined);
-    acquire?.({ close: unsubscribe });
+    acquire({ close: unsubscribe });
     expect(await outcome).toBe('cancelled');
     await expect(closing).rejects.toThrow('retirement failed');
     expect(borrowed.retire).not.toHaveBeenCalled();

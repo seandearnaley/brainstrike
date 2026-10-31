@@ -368,7 +368,7 @@ describe('useCheckpointTurnRevert', () => {
     expect(order).toEqual(['run-2']);
     expect(revertRun).toHaveBeenCalledTimes(1);
 
-    resolveFirst?.();
+    resolveFirst();
     await revertPromise;
 
     expect(revertRun).toHaveBeenCalledWith('run-1', { force: true });

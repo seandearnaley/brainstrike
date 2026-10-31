@@ -402,7 +402,7 @@ describe('file-system watch IPC domain', () => {
       const olderPromise = invokeWatch(owner, dir);
       await vi.waitFor(() => expect(statSpy).toHaveBeenCalledTimes(1));
       const newer = await invokeWatch(owner, dir);
-      releaseOlderStat?.();
+      releaseOlderStat();
       const older = await olderPromise;
 
       expect(harness.startedPaths).toEqual([dir]);
@@ -412,7 +412,7 @@ describe('file-system watch IPC domain', () => {
       harness.fireAllChanges(SAMPLE_CHANGES);
       expect(owner.watchEvents).toEqual([{ changes: SAMPLE_CHANGES, watchId: newer.watchId }]);
     } finally {
-      releaseOlderStat?.();
+      releaseOlderStat();
       statSpy.mockRestore();
     }
   });
@@ -572,13 +572,13 @@ describe('file-system watch IPC domain', () => {
       const pending = invokeWatch(owner, dir);
       await vi.waitFor(() => expect(statSpy).toHaveBeenCalledOnce());
       owner.fireDidNavigate();
-      releaseStat?.();
+      releaseStat();
 
       await expect(pending).rejects.toThrow(/renderer context changed/iu);
       expect(harness.startedPaths).toEqual([]);
       expect(liveFileSystemWatcherCountForTest()).toBe(0);
     } finally {
-      releaseStat?.();
+      releaseStat();
       statSpy.mockRestore();
     }
   });

@@ -257,7 +257,7 @@ test.each(
       await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
     }
     await act(async () => {
-      release?.();
+      release();
       await held;
     });
     await waitFor(() => expect(document.querySelector('[data-live="true"]')).toBeNull());
@@ -401,7 +401,7 @@ test('approved execution on the same host and call remains live until its result
   expect(executing.querySelector('.bs-thinking-shimmer')).not.toBeNull();
   expect(within(executing).queryAllByText('Waiting for approval')).toHaveLength(0);
   await act(async () => {
-    release?.();
+    release();
     await held;
   });
   await screen.findByText('Approved canvas finished.');

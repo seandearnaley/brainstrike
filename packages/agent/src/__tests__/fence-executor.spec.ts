@@ -343,13 +343,13 @@ describe.skipIf(!supported)('readiness failure lifetime', () => {
         await Promise.resolve();
         expect(sandbox.reset).not.toHaveBeenCalled();
         expect(sandbox[stage]).toHaveBeenCalledTimes(1);
-        release?.();
+        release();
         const executor = await retried;
         await executor.dispose();
         expect(spawnProbe).toHaveBeenCalledTimes(1);
         expect(sandbox.reset).toHaveBeenCalledTimes(2);
       } finally {
-        release?.();
+        release();
         vi.useRealTimers();
       }
     }

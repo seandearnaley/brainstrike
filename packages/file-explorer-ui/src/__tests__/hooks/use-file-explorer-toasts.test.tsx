@@ -133,7 +133,7 @@ describe('useFileExplorerToasts', () => {
         expect(result.current.isRefreshing).toBe(true);
       });
 
-      resolveRefresh!({ status: 'completed' });
+      resolveRefresh({ status: 'completed' });
       await refreshPromiseResult;
 
       await waitFor(() => {

@@ -260,7 +260,7 @@ describe('useFileTreeRefreshEvents', () => {
     expect(reconcileSelectionWithDirectorySnapshots).not.toHaveBeenCalled();
 
     act(() => {
-      releaseFirstRefresh?.();
+      releaseFirstRefresh();
     });
     await waitFor(() => {
       expect(refreshDirectory).toHaveBeenCalledTimes(2);
@@ -600,7 +600,7 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshDirectory).toHaveBeenCalledOnce();
 
     act(() => {
-      releaseFirstRefresh?.();
+      releaseFirstRefresh();
     });
     await waitFor(() => {
       expect(refreshDirectory).toHaveBeenCalledTimes(2);
@@ -640,7 +640,7 @@ describe('useFileTreeRefreshEvents', () => {
 
     unmount();
     await act(async () => {
-      releaseFirstRefresh?.();
+      releaseFirstRefresh();
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 0);
       });
