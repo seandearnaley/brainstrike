@@ -29,7 +29,70 @@
   },
   "overrides": [
     {
-      "includes": ["apps/desktop/e2e/**", "apps/web/e2e/**"],
+      "includes": ["packages/file-explorer-ui/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@brainstrike/file-explorer-ui": "Import the owning module directly; the package barrel is for consumers."
+                },
+                "patterns": [
+                  {
+                    "group": ["@brainstrike/file-explorer-ui/**"],
+                    "message": "Import the owning module directly; package subpaths are for consumers."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/file-explorer-ui/src/context-actions/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": "Context actions are defined at init in their own Vite chunk; renderer hooks pull the shared UI graph into it."
+                },
+                "patterns": [
+                  {
+                    "group": ["@brainstrike/ui", "@brainstrike/ui/**"],
+                    "message": "Context actions are defined at init in their own Vite chunk; the UI package pulls the shared UI graph into it."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/app-shell/src/assistant-chat-panel.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@brainstrike/assistant-ui": "This panel renders eagerly; the root barrel pulls the lazy assistant panel into the first-paint chunk. Import the narrow subpath."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/desktop/e2e/**"],
       "linter": {
         "rules": {
           "correctness": {
@@ -152,9 +215,7 @@
     {
       "includes": [
         "packages/test-utils/src/**",
-        "packages/test-utils/__tests__/**",
-        "packages/pipeline/src/**",
-        "packages/pipeline/__tests__/**"
+        "packages/test-utils/__tests__/**"
       ],
       "linter": {
         "rules": {

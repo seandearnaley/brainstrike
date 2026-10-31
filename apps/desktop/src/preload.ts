@@ -40,8 +40,8 @@ import {
 // Electron preload script. `electron` is the ONE runtime require a sandboxed
 // preload can resolve; every import above is either type-only (erased)
 // or a PURE relative module that `scripts/build-main-config.mjs` inlines into
-// dist/preload.js (BST-1648). preload-sandbox-imports.test.ts walks that
-// graph, and build-main.mjs refuses a bundle that requires anything else.
+// dist/preload.js (BST-1648). build-main.mjs refuses a bundle that requires
+// anything else.
 const electron = require('electron');
 const { contextBridge, webUtils } = electron;
 

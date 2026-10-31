@@ -121,10 +121,6 @@ export const NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<strin
  * name rejects the WHOLE file, so dropping them would brick existing user
  * files. Recognized-but-deprecated parses fine and is reported by name in
  * {@link DesktopEnvLoadResult.deprecatedVariableNames}.
- *
- * Exported so `.env.example` is contract-tested against it
- * (env-example-contract.test.ts) and the example can never drift from the
- * registry either.
  */
 export const SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
   ...CREDENTIAL_ENV_FILE_VARIABLE_NAMES,

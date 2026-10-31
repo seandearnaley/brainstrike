@@ -16,10 +16,8 @@ import { ExpandableMessageContent } from './expandable-message-content';
 import { MessageRewindAction } from './message-rewind-action';
 import { UserMessageText } from './user-message-text';
 
-// Extracted from assistant-ui-panel.tsx (the panel-root source-file budget in
-// __tests__/assistant-ui-panel-architecture.test.ts). Imports only sibling
-// modules — never the panel root — so the extraction cannot re-enter the
-// module-scope chunk-init cycle class.
+// Imports only sibling modules, never the panel root, so it cannot re-enter
+// the module-scope chunk-init cycle class.
 
 // Exported (rather than kept module-private) so tests can mount it directly
 // against a real assistant-ui local runtime -- see
