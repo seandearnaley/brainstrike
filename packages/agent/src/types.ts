@@ -4,6 +4,7 @@ import type {
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
+import type { RuntimeAssistantMemorySettings } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
@@ -15,7 +16,6 @@ import type {
 import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { McpConfig } from './mcp/config.ts';
-import type { RuntimeAssistantMemorySettings } from './memory-settings.ts';
 import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request.ts';
 import type { AgentHookRunner } from './tools/hook-runner.ts';
 

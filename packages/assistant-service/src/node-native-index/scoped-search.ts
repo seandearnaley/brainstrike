@@ -1,4 +1,5 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
+import type { NativeScopeReadiness } from '@brainstrike/canonical-ingestion';
 import {
   type IndexerPort,
   type IndexFileBinding,
@@ -30,7 +31,6 @@ import {
   NativeIndexRefusalError,
 } from './errors.ts';
 import { grepSnapshot } from './index-search.ts';
-import type { NativeScopeReadiness } from './read-contracts.ts';
 
 export interface NativeSearchAuthority {
   readonly bindings: readonly IndexFileBinding[];

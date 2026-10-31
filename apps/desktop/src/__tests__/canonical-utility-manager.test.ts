@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   type CanonicalRemoteWorkspaceDependencies,
@@ -8,7 +9,6 @@ import {
 import { CANONICAL_CHANNEL, decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { IndexerHostManager } from '../indexer-host-manager';
 import { IndexerUtilityExitedError } from '../indexer-utility-exit';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { reportNativeIndexActivationError } from '../native-index-activation-error';
 import {
   type NativeIndexSources,

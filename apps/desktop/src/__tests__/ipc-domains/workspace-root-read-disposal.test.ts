@@ -1,6 +1,6 @@
 import path from 'node:path';
+import type { SecureWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { describe, expect, it, vi } from 'vitest';
-import type { SecureWorkspaceRoot } from '../../ipc-domains/workspace-root-types';
 import {
   createRegistry,
   createStorage,

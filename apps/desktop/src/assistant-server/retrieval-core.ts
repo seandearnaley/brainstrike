@@ -10,6 +10,7 @@ import type {
 import { ContextPacker } from '@brainstrike/agent';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { BoundaryFailureError, ToolInputError } from '@brainstrike/assistant-contract';
+import { resolveOptionalWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
@@ -20,7 +21,6 @@ import {
   searchNativeAssistantChunks,
 } from './native-assistant-retrieval';
 import type { FileRecordRow, RetrievalStore } from './retrieval-store';
-import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 export type { FileRecordRow } from './retrieval-store';
 

@@ -7,7 +7,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { asSchema, generateText } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
+import type { HostToolDefinitions } from '../host-tool-definition';
 import { filterToolsByPermissionWithMetadata } from '../permissions/permission-tool-gate';
 import {
   applyProviderNativeWebSearch,
@@ -37,7 +37,7 @@ function makeTavilyToolStub(): { execute: () => Promise<unknown>; id: string } {
 const SANITIZED_ID = 'brainstrike_webSearch';
 
 function baseParams(overrides: Partial<Parameters<typeof applyProviderNativeWebSearch>[0]> = {}) {
-  const tools: ToolsInput = {
+  const tools: HostToolDefinitions = {
     [SANITIZED_ID]: makeTavilyToolStub(),
   };
   return {
@@ -198,8 +198,8 @@ describe('provider-defined tool is inert through guard + permission gate', () =>
   }
 
   it('applyToolGuards leaves a no-execute provider tool unchanged (no execute added)', () => {
-    const tools: ToolsInput = {
-      [SANITIZED_ID]: providerDefinedTool() as unknown as ToolsInput[string],
+    const tools: HostToolDefinitions = {
+      [SANITIZED_ID]: providerDefinedTool() as unknown as HostToolDefinitions[string],
     };
     const guarded = applyToolGuards(tools, { timeoutMs: 60_000 });
     expect(guarded[SANITIZED_ID]).toBe(tools[SANITIZED_ID]);
@@ -214,7 +214,9 @@ describe('provider-defined tool is inert through guard + permission gate', () =>
       yolo: false,
     };
     const tool = providerDefinedTool();
-    const tools: ToolsInput = { [SANITIZED_ID]: tool as unknown as ToolsInput[string] };
+    const tools: HostToolDefinitions = {
+      [SANITIZED_ID]: tool as unknown as HostToolDefinitions[string],
+    };
     const toolNameMap = new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]);
     const result = filterToolsByPermissionWithMetadata(tools, snapshot, toolNameMap, {
       info: vi.fn(),
@@ -247,7 +249,7 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
   }
 
   it('non-native provider (openrouter) + real ask gate → Tavily selected, native never injected', () => {
-    const tools: ToolsInput = {
+    const tools: HostToolDefinitions = {
       [SANITIZED_ID]: makeTavilyToolStub(),
     };
     const toolNameMap = new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]);
@@ -280,7 +282,7 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
   });
 
   it('native-capable provider (anthropic) + real deny gate → web search omitted, native never injected', () => {
-    const tools: ToolsInput = {
+    const tools: HostToolDefinitions = {
       [SANITIZED_ID]: makeTavilyToolStub(),
     };
     const toolNameMap = new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]);

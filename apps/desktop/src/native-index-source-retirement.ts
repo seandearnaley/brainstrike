@@ -1,10 +1,10 @@
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import type {
   CanonicalWorkspaceLease,
   createNativeScanAdmission,
   NativeCanonicalInference,
 } from '@brainstrike/canonical-ingestion';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
-import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export interface NativeIndexSources {
   readonly attachments: Set<{ close(): Promise<void> }>;

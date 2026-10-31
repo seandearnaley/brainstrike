@@ -7,6 +7,7 @@ import {
   refusalError,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { ManagedWorktreeAuthorizer } from '@brainstrike/assistant-service/node-workspace-services';
 import {
   isFileNotFoundError,
   isWorkspaceRootRegistryDisposed,
@@ -44,7 +45,6 @@ import {
 } from '../platform/desktop-ipc-registry';
 import { fileSystemContract } from './file-system.contract';
 import { fileSystemArgs } from './file-system-args';
-import type { ManagedWorktreeAuthorizer } from './workspace-recent-roots';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
 
 interface WorkspaceRootRegistryFileSystemSeams {

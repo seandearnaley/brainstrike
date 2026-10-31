@@ -5,14 +5,17 @@
  * of those steps. The index ends serving the folders left once Main re-reads them, and nothing
  * untyped crosses meanwhile.
  */
+
+import {
+  createNativeScopedSearchCapability,
+  NativeAuthorityTransitionError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { CanonicalRemoteWorkspaceDependencies } from '../canonical-utility-parent';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeRootRegistration } from '../native-root-registration';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import {
   createRegistry,
   createRegistryCatalogRequest,

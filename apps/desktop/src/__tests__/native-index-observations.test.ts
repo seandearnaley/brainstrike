@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
 import {
   type IndexerCoverageBatch,
@@ -8,7 +10,6 @@ import {
   NativeIndexRefusalError,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { observeNativeIndex } from '../native-index-observations';
 
 const workspace = { kind: 'workspace', rootId: 'root' } as const;

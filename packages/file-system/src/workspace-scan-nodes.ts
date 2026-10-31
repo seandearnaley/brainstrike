@@ -1,7 +1,11 @@
 import { createLogger } from '@brainstrike/logging';
-import type { DirectoryHandle, FileSystemChange, IFileNode } from '@brainstrike/types';
+import type {
+  DirectoryHandle,
+  FileSystemAdapter,
+  FileSystemChange,
+  IFileNode,
+} from '@brainstrike/types';
 import type { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils/background-indexing-policy';
-import type { FileSystemAdapter } from './types.ts';
 import {
   countRelativePathSegments,
   getParentRelativePath,

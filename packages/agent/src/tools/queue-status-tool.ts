@@ -261,21 +261,3 @@ export function createQueueStatusTool(deps: QueueStatusToolDependencies): Mastra
     inputSchema: QueueStatusInputSchema,
   };
 }
-
-/**
- * Type for tools input (matching Mastra pattern).
- */
-export type ToolsInput = Record<string, MastraTool>;
-
-/**
- * Builds a tools object with the queue status tool added to a base set.
- */
-export function buildToolsWithQueueStatus(
-  deps: QueueStatusToolDependencies,
-  base: ToolsInput = {}
-): ToolsInput {
-  return {
-    ...base,
-    [QUEUE_STATUS_TOOL_ID]: createQueueStatusTool(deps),
-  };
-}

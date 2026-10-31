@@ -13,8 +13,8 @@ import {
   DEFAULT_SELECTION_CHUNK_SIZE,
 } from '@brainstrike/file-explorer';
 import type { SelectionQueryDescriptor } from '@brainstrike/types';
+import { defaultCollator } from '@brainstrike/utils/collator';
 import { getAncestorDirectoryPaths } from '@brainstrike/utils/path-ancestors';
-import { defaultCollator } from '../utils/file-node-collator';
 import type { PersistableFileExplorerStore } from '../utils/persist-file-explorer-state';
 
 /**

@@ -1,8 +1,10 @@
 // @vitest-environment node
 
-import { NativeIndexSetupRequiredError } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  createNativeScopedSearchCapability,
+  NativeIndexSetupRequiredError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { describe, expect, it } from 'vitest';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 
 const unused = async (): Promise<never> => {
   throw new Error('Unexpected index operation');

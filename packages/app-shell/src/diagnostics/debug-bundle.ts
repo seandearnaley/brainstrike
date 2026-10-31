@@ -1,7 +1,7 @@
 import { redactSensitiveLogValue } from '@brainstrike/logging';
 import type { DiagnosticEvent, DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
+import { scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';
 import { getDiagnosticSessionId } from './diagnostic-sink-session';
-import { scrubLikelySecretValues } from './secret-scrub';
 
 /**
  * Thread debug-bundle collector + formatter (design §5.2, "Flight Recorder").

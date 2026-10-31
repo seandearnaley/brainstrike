@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
   getProviderDefinition,
   listEmbeddingModels,
@@ -7,7 +6,8 @@ import {
   STANDARD_EMBEDDING_DIMENSION,
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
-} from '../providers/types';
+} from '@brainstrike/assistant-contract/provider-metadata';
+import { describe, expect, it } from 'vitest';
 
 describe('provider registry metadata', () => {
   it('lists all supported providers with display names', () => {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
+import type { HostToolDefinitions } from '../host-tool-definition';
 import { ToolRegistry } from '../mcp/tool-registry';
 
 describe('MCP ToolRegistry', () => {
@@ -21,7 +21,7 @@ describe('MCP ToolRegistry', () => {
     'tool.read': createMockTool('tool.read', 'Read a document'),
     'tool.search': createMockTool('tool.search', 'Search for documents'),
     'tool.write': createMockTool('tool.write', 'Write a document'),
-  } as ToolsInput;
+  } as HostToolDefinitions;
 
   describe('register', () => {
     it('should register tools from a server', () => {
@@ -161,10 +161,10 @@ describe('MCP ToolRegistry', () => {
     it('should return tools grouped by server', () => {
       const server1Tools = {
         'server1.tool': createMockTool('server1.tool', 'Server 1 tool'),
-      } as ToolsInput;
+      } as HostToolDefinitions;
       const server2Tools = {
         'server2.tool': createMockTool('server2.tool', 'Server 2 tool'),
-      } as ToolsInput;
+      } as HostToolDefinitions;
 
       registry.register('server1', server1Tools);
       registry.register('server2', server2Tools);
@@ -196,7 +196,7 @@ describe('MCP ToolRegistry', () => {
       registry.register('server1', mockTools);
       registry.register('server2', {
         'server2.tool': createMockTool('server2.tool', 'Tool'),
-      } as ToolsInput);
+      } as HostToolDefinitions);
 
       const stats = registry.getStats();
 
@@ -260,7 +260,7 @@ describe('MCP ToolRegistry', () => {
       const extraTools = {
         ...mockTools,
         toolXread: createMockTool('toolXread', 'Extra tool'),
-      } as ToolsInput;
+      } as HostToolDefinitions;
 
       fresh.register('test-server', extraTools, {
         enabledTools: ['tool.read'],

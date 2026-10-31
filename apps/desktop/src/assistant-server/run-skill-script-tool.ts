@@ -14,6 +14,7 @@ import {
   requireNativeToolExecutionBudget,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
+import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
 import {
   acquireWorkspaceMutationLease,
@@ -25,7 +26,6 @@ import stripAnsi from 'strip-ansi';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { BUNDLED_PYTHON_ENV } from '../python-runtime/resolve-python-binary';
 import { resolveWindowsGitBash } from './windows-git-bash';
-import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('RunSkillScriptTool');
 const { defaultMs: DEFAULT_TIMEOUT_MS } = requireNativeToolExecutionBudget(

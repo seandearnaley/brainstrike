@@ -1,5 +1,5 @@
 /** Shared discovery-failure facts and the canonical reason redactor. */
-import { boundRunEventReason } from '../run-events.ts';
+import { boundRunEventReason } from '@brainstrike/assistant-contract/run-events';
 
 /**
  * A discriminated union, not one shape with two optional name fields (PR #2938

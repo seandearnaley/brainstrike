@@ -1,3 +1,4 @@
+import type { MountedWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import type {
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
@@ -8,7 +9,6 @@ import type {
   FileSystemWatchBatchMetadata,
   WatcherHealthTransition,
 } from '@brainstrike/types';
-import type { MountedWorkspaceRoot } from './workspace-root-types';
 
 interface Dependencies {
   /** Reject without a handle only after cleanup joins; retain typed acquired-handle failures. */

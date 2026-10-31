@@ -1,3 +1,7 @@
+import {
+  listProviderModels,
+  listProviders,
+} from '@brainstrike/assistant-contract/provider-registry';
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { describe, expect, it } from 'vitest';
 import { isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
@@ -7,7 +11,6 @@ import {
   createProvider,
   getDefaultModel,
 } from '../providers/provider-factory';
-import { listProviderModels, listProviders } from '../providers/registry';
 
 describe('provider-factory', () => {
   describe('createProvider', () => {

@@ -7,7 +7,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import { Predicate } from 'effect';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
+import type { HostToolDefinitions } from '../host-tool-definition.ts';
 import {
   isMcpMediaPart,
   type McpContentPart,
@@ -42,7 +42,7 @@ import { isToolProjectionInputRejected } from './tool-projection-input-rejected.
 
 const logger = createLogger('MastraAgent');
 
-type ExecutableToolWithModelOutput = ToolsInput[string] & {
+type ExecutableToolWithModelOutput = HostToolDefinitions[string] & {
   readonly execute: (...args: unknown[]) => unknown;
   readonly toModelOutput?: (output: unknown) => unknown;
 };
@@ -898,13 +898,13 @@ function readTelemetrySource(output: unknown): unknown {
  * not yet define a more concise, domain-specific representation.
  */
 export function applyToolModelOutputProjections(
-  tools: ToolsInput,
+  tools: HostToolDefinitions,
   toolNameMap: ReadonlyMap<string, string>,
   observer: ModelOutputProjectionObserver | undefined,
   resolvedToolResultBudget: ScaledToolResultBudget
-): ToolsInput {
+): HostToolDefinitions {
   const resolvedDefaultBudget = buildDefaultModelProjectionBudget(resolvedToolResultBudget);
-  const projected: ToolsInput = {};
+  const projected: HostToolDefinitions = {};
 
   for (const [toolId, tool] of Object.entries(tools)) {
     if (!isExecutableTool(tool)) {

@@ -15,6 +15,7 @@ import type {
   AssistantToolCallUsage,
   PromptToolCall,
 } from '@brainstrike/assistant-contract/context-breakdown';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
@@ -44,7 +45,6 @@ import {
   ProviderRequestBoundaryError,
 } from './providers/request-history.ts';
 import { rewriteToolProjectionPrompt } from './providers/tool-projection-rewrite.ts';
-import type { SupportedProvider } from './providers/types.ts';
 import {
   createPreparedTokenMeasurement,
   type PreparedTokenMeasurement,

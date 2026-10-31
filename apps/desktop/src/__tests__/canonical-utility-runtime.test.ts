@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import {
   type CanonicalIndexPayload,
   type CanonicalOperationContext,
@@ -15,7 +16,6 @@ import {
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 
 function connected(hold?: (frame: object) => boolean): {
   parent: CanonicalUtilityParent;

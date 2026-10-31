@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { join } from 'node:path';
+import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import type {
   CanonicalScanReceipt,
   CanonicalVectorPublicationPort,
@@ -28,7 +29,6 @@ import {
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { observeNativeReaderStartup } from '../native-index-startup-window';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { textSettings, vectorSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
 import {
