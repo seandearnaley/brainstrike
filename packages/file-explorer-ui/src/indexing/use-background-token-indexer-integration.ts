@@ -17,7 +17,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';
 import { useIndexingCancellation } from './background-token-indexer-cancellation';
@@ -85,27 +85,7 @@ export interface UseBackgroundTokenIndexerIntegrationProps {
   visibleFiles?: ReadonlySet<string>;
 }
 
-/** Diagnostic info for debugging indexing issues */
-export interface IndexerDiagnostics {
-  /** Whether the token cache is operational (counting works) */
-  cacheOperational: boolean;
-  /** Whether the token cache is persisted (DB-backed) */
-  cachePersisted: boolean;
-  /** Clear the indexed files tracking (forces re-indexing) */
-  clearIndexedCache: () => void;
-  /** Number of file handles available */
-  fileHandleMapSize: number;
-  /** Number of files tracked as already indexed */
-  indexedCount: number;
-  /** Number of files currently being processed */
-  inFlightCount: number;
-  /** Whether the background indexer worker is ready */
-  workerReady: boolean;
-}
-
 export interface UseBackgroundTokenIndexerIntegrationReturn {
-  /** Diagnostic info for debugging */
-  diagnostics: IndexerDiagnostics;
   /** Whether background indexing is active */
   isIndexing: boolean;
   /** Whether the background indexer is ready */
@@ -215,12 +195,18 @@ export function useBackgroundTokenIndexerIntegration({
   // Stable refs for tokenCache functions to avoid re-render loops.
   // The tokenCache object changes on every cacheVersion bump, but the functions are stable.
   // Using refs prevents effects from re-running when cacheVersion changes.
+  // Latest-value refs are published at commit (layout effects run before every
+  // passive effect), so a render React discards never reaches the callbacks.
   const tokenCacheRef = useRef(tokenCache);
-  tokenCacheRef.current = tokenCache;
+  useLayoutEffect(() => {
+    tokenCacheRef.current = tokenCache;
+  });
 
   // Stable ref for FileTreeIndex getHandle - provides O(1) lookups when index is available
   const indexGetHandleRef = useRef(indexGetHandle);
-  indexGetHandleRef.current = indexGetHandle;
+  useLayoutEffect(() => {
+    indexGetHandleRef.current = indexGetHandle;
+  });
 
   // Build file handle map whenever tree changes (debounced to avoid rebuilding during expand-all)
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
@@ -257,9 +243,11 @@ export function useBackgroundTokenIndexerIntegration({
   // Refs for values accessed inside the rebuild callback to avoid stale closures
   // and to prevent callback recreation on selection changes
   const fileTreeRef = useRef(fileTree);
-  fileTreeRef.current = fileTree;
   const selectedFilesSizeRef = useRef(selectedFiles.size);
-  selectedFilesSizeRef.current = selectedFiles.size;
+  useLayoutEffect(() => {
+    fileTreeRef.current = fileTree;
+    selectedFilesSizeRef.current = selectedFiles.size;
+  });
   // The handle map is what BOTH triggers read, so "is there work to do?" has to
   // count visible files as well — otherwise a workspace with nothing selected
   // never builds a map and the visible trigger can never dispatch.
@@ -456,7 +444,9 @@ export function useBackgroundTokenIndexerIntegration({
 
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
-  onTokenResolvedRef.current = onTokenResolved;
+  useLayoutEffect(() => {
+    onTokenResolvedRef.current = onTokenResolved;
+  });
 
   /**
    * Callback when background indexer resolves a token count.
@@ -546,12 +536,16 @@ export function useBackgroundTokenIndexerIntegration({
 
   // Stable ref for backgroundIndexer to avoid callback instability
   const backgroundIndexerRef = useRef(backgroundIndexer);
-  backgroundIndexerRef.current = backgroundIndexer;
+  useLayoutEffect(() => {
+    backgroundIndexerRef.current = backgroundIndexer;
+  });
   const ownedCancellation = useIndexingCancellation(backgroundIndexerRef);
 
   // Stable ref for electronFileReader
   const electronFileReaderRef = useRef(electronFileReader);
-  electronFileReaderRef.current = electronFileReader;
+  useLayoutEffect(() => {
+    electronFileReaderRef.current = electronFileReader;
+  });
 
   /**
    * Queue files for indexing using the background worker.
@@ -1278,29 +1272,7 @@ export function useBackgroundTokenIndexerIntegration({
     // When the DB initializes later, isPersisted changes → effect re-runs → preloads from store.
   }, [selectedFiles, tokenCacheIsOperational, tokenCacheIsPersisted]);
 
-  // Diagnostic function to force re-indexing by clearing the tracked files
-  const clearIndexedCache = useCallback(() => {
-    const previousSize = indexedFilesRef.current.size;
-    indexedFilesRef.current.clear();
-    inFlightRef.current.clear();
-    pendingNoHandleRef.current.clear();
-    // P0 optimization: Also clear preload memos to force re-preload
-    preloadedFoldersRef.current.clear();
-    preloadedVisibleFolders.clear();
-    bumpInFlightPulse((v) => v + 1);
-    logger.debug('Manually cleared indexed cache', { previousSize });
-  }, [preloadedVisibleFolders]);
-
   return {
-    diagnostics: {
-      cacheOperational: tokenCache?.isOperational ?? false,
-      cachePersisted: tokenCache?.isPersisted ?? false,
-      clearIndexedCache,
-      fileHandleMapSize: fileHandleMapRef.current.size,
-      indexedCount: indexedFilesRef.current.size,
-      inFlightCount: inFlightRef.current.size,
-      workerReady: backgroundIndexer.isReady,
-    },
     isIndexing: backgroundIndexer.isIndexing,
     isReady: backgroundIndexer.isReady && (tokenCache?.isOperational ?? false),
     progress: backgroundIndexer.progress,

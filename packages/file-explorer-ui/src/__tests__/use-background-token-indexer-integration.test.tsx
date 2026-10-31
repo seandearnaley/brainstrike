@@ -248,7 +248,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     tokenCacheContextOverride = undefined;
   });
 
-  it('reports unavailable diagnostics and declines dispatch when the token cache is absent', async () => {
+  it('declines dispatch and reports not ready when the token cache is absent', async () => {
     tokenCacheContextOverride = null;
     const { result } = renderIndexer();
 
@@ -256,8 +256,6 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       await result.current.triggerIndexing([fileAKey]);
     });
 
-    expect(result.current.diagnostics.cacheOperational).toBe(false);
-    expect(result.current.diagnostics.cachePersisted).toBe(false);
     expect(result.current.isReady).toBe(false);
     expect(indexFilesMock).not.toHaveBeenCalled();
   });
@@ -1204,7 +1202,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(true).toBe(true);
     });
 
-    it('clears all in-flight files when the worker reports a terminal error', () => {
+    it('clears all in-flight files when the worker reports a terminal error', async () => {
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
@@ -1214,16 +1212,22 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       );
 
       flushTimers();
-      expect(result.current.diagnostics.inFlightCount).toBe(2);
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
 
       act(() => {
         capturedOnFileError?.('__worker__', 'worker crashed');
       });
+      indexFilesMock.mockClear();
+      await act(async () => {
+        await result.current.triggerIndexing([fileAKey, fileBKey]);
+      });
 
-      expect(result.current.diagnostics.inFlightCount).toBe(0);
+      // Neither file is held as in flight any more, so both dispatch again.
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock.mock.calls[0]![0]).toHaveLength(2);
     });
 
-    it('keeps missing-file errors quiet and retryable', () => {
+    it('keeps missing-file errors quiet and retryable', async () => {
       const records: Array<{ level: LogLevel; message: string }> = [];
       const unsubscribe = addLogListener((record) => {
         records.push({ level: record.level, message: record.message ?? '' });
@@ -1247,8 +1251,12 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         unsubscribe();
       }
 
-      expect(result.current.diagnostics.inFlightCount).toBe(0);
-      expect(result.current.diagnostics.indexedCount).toBe(0);
+      indexFilesMock.mockClear();
+      await act(async () => {
+        await result.current.triggerIndexing([fileAKey]);
+      });
+      // Retryable: the file is neither in flight nor settled, so it dispatches again.
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
       expect(records).not.toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -1259,7 +1267,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       );
     });
 
-    it('keeps binary exclusions quiet and TERMINAL, so they are never re-dispatched', () => {
+    it('keeps binary exclusions quiet and TERMINAL, so they are never re-dispatched', async () => {
       // The flood this closes: a binary verdict was logged at error AND the key
       // was un-marked, so the next visible-files pass re-dispatched the very
       // same file. Eight files produced 149 identical error records that way.
@@ -1287,9 +1295,12 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         unsubscribe();
       }
 
-      expect(result.current.diagnostics.inFlightCount).toBe(0);
-      // Still counted as indexed: settled, so no later pass picks it up again.
-      expect(result.current.diagnostics.indexedCount).toBe(1);
+      indexFilesMock.mockClear();
+      await act(async () => {
+        await result.current.triggerIndexing([fileAKey]);
+      });
+      // Settled, so no later pass picks it up again.
+      expect(indexFilesMock).not.toHaveBeenCalled();
       expect(records).not.toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -1299,81 +1310,11 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         ])
       );
     });
-
-    it('clears diagnostics tracking on manual indexed-cache reset', () => {
-      const { result } = renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
-
-      flushTimers();
-      expect(result.current.diagnostics.inFlightCount).toBe(1);
-
-      act(() => {
-        result.current.diagnostics.clearIndexedCache();
-      });
-
-      expect(result.current.diagnostics.inFlightCount).toBe(0);
-      expect(result.current.diagnostics.indexedCount).toBe(0);
-    });
   });
 
   describe('P0 optimization: decouple fileHandleMap rebuild from selection updates', () => {
-    it('does not rebuild fileHandleMap repeatedly when selection changes on stable tree', () => {
-      // This test verifies the core P0 optimization:
-      // When fileTree is stable, changing selectedFiles should NOT trigger repeated rebuilds.
-      // The "File handle map built" log should only appear once per tree change, not per selection change.
-
-      const { rerender, result } = renderHook(
-        (selectedFiles: Set<string>) =>
-          useBackgroundTokenIndexerIntegration({
-            fileTree: fileTreeRootA,
-            onTokenResolved: vi.fn(),
-            selectedFiles,
-          }),
-        {
-          initialProps: new Set<string>(),
-        }
-      );
-
-      // Initial render with empty selection - map should be built once when selection becomes non-empty
-      rerender(new Set([fileAKey]));
-      flushTimers();
-
-      const initialMapSize = result.current.diagnostics.fileHandleMapSize;
-      expect(initialMapSize).toBe(2); // Both files in tree
-
-      // Clear indexFiles mock to track future calls
-      indexFilesMock.mockClear();
-
-      // Now update selection multiple times - should NOT trigger map rebuilds
-      rerender(new Set([fileAKey, fileBKey]));
-      advanceTimers(100); // Partial timer advance - not enough for rebuild
-
-      rerender(new Set([fileBKey]));
-      advanceTimers(100);
-
-      rerender(new Set([fileAKey, fileBKey]));
-      advanceTimers(100);
-
-      rerender(new Set([fileAKey]));
-      advanceTimers(100);
-
-      // Advance remaining time to complete any debounced operations
-      flushTimers();
-
-      // Map size should remain the same (no rebuilds on stable tree)
-      expect(result.current.diagnostics.fileHandleMapSize).toBe(initialMapSize);
-
-      // The map rebuild effect should NOT have been triggered by selection changes alone
-      // (The selection effect will trigger indexing, but NOT map rebuilds)
-    });
-
-    it('rebuilds fileHandleMap exactly once when tree changes', () => {
-      const { rerender, result } = renderHook(
+    it('indexes the new selection after the tree changes', () => {
+      const { rerender } = renderHook(
         (props: { tree: IFileNode[]; selected: Set<string> }) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: props.tree,
@@ -1386,57 +1327,14 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       );
 
       flushTimers();
-      expect(result.current.diagnostics.fileHandleMapSize).toBe(2); // Root A has 2 files
-
       indexFilesMock.mockClear();
 
       // Change tree to rootB
       rerender({ selected: new Set([fileCKey]), tree: fileTreeRootB });
       flushTimers();
 
-      // Map should now have 1 file (rootB has 1 file)
-      expect(result.current.diagnostics.fileHandleMapSize).toBe(1);
-
-      // Should have triggered indexing for the new selection
-      expect(indexFilesMock).toHaveBeenCalled();
-    });
-
-    it('only rebuilds on 0→>0 selection transition when map is stale or empty', () => {
-      const { rerender, result } = renderHook(
-        (selectedFiles: Set<string>) =>
-          useBackgroundTokenIndexerIntegration({
-            fileTree: fileTreeRootA,
-            onTokenResolved: vi.fn(),
-            selectedFiles,
-          }),
-        {
-          // Start with empty selection
-          initialProps: new Set<string>(),
-        }
-      );
-
-      // Map should not be built yet (no selection, no work)
-      advanceTimers(600); // Past debounce time
-      expect(result.current.diagnostics.fileHandleMapSize).toBe(0);
-
-      // Now transition from 0 → >0 - this should trigger a rebuild
-      rerender(new Set([fileAKey]));
-      flushTimers();
-
-      expect(result.current.diagnostics.fileHandleMapSize).toBe(2);
-
-      // Selection changes without going to 0 should NOT trigger additional rebuilds
-      const sizeAfterFirstBuild = result.current.diagnostics.fileHandleMapSize;
-
-      rerender(new Set([fileAKey, fileBKey]));
-      flushTimers();
-
-      expect(result.current.diagnostics.fileHandleMapSize).toBe(sizeAfterFirstBuild);
-
-      rerender(new Set([fileBKey]));
-      flushTimers();
-
-      expect(result.current.diagnostics.fileHandleMapSize).toBe(sizeAfterFirstBuild);
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock.mock.calls[0]![0][0]?.compositeKey).toBe(fileCKey);
     });
 
     it('is idempotent - does not reset debounce when rebuild already scheduled', () => {
