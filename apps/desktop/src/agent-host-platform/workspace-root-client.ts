@@ -75,6 +75,5 @@ export function createDesktopWorkspaceRootCatalog(
     threadGroups: (request) => borrow((client) => client.threadGroups(request)),
     viewFilterPresets: (request) => borrow((client) => client.viewFilterPresets(request)),
     workspaceRoots: (request) => borrow((client) => client.workspaceRoots(request)),
-    worktreeLedger: (request) => borrow((client) => client.worktreeLedger(request)),
   };
 }

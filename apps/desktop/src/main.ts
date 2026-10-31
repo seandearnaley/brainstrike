@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import {
@@ -45,8 +46,6 @@ import {
 } from './application-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
-import { hasHostRunInWorktree } from './assistant-server/worktree-host-activity';
-import { createWorktreeLedger } from './assistant-server/worktree-ledger';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
 import {
   clearActiveBrowserPaneHost,
@@ -118,7 +117,6 @@ import {
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
-import { createWorkspaceRootResolver } from './git-ipc-handlers';
 import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
@@ -1110,7 +1108,9 @@ if (singleInstanceLockAcquired) {
       // app is ready (protocol.handle requires ready). The resolver validates
       // renderer-supplied paths against the DB `roots` table — the SAME source
       // the git/read/search tools use — resolving the DB lazily per request.
-      registerAssetProtocol(createWorkspaceRootResolver(workspaceRootCatalog));
+      registerAssetProtocol({
+        listRoots: () => loadWorkspaceRootsFromCatalog(workspaceRootCatalog),
+      });
 
       // Static Canvas sandbox shell (BST-1173); no DB dependency, serves one
       // reviewed document with its own CSP header (see canvas-protocol.ts).
@@ -1844,24 +1844,20 @@ app.on('will-quit', () => {
 });
 
 desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
-  const ledger = createWorktreeLedger(
-    async () => workspaceRootCatalog,
-    (id) =>
-      hasHostRunInWorktree(
-        {
-          readLedger: () => agentHostMainClient.request('ledger/read', {}),
-          readThread: async (threadId) =>
-            (await agentHostMainClient.request('thread/read', { fromSeq: 0, threadId })).rows,
-        },
-        id
-      )
-  );
   const workspace = new DesktopWorkspaceBindingAuthority({
     borrowRoot: (root) =>
       applicationIpcDomain.roots.borrowSourceRootForPath(
         root.path,
         applicationIpcDomain.watches.subscribe.bind(applicationIpcDomain.watches)
       ),
+    // The host owns the worktree ledger: a thread's checkout names one of its live worktrees.
+    readLiveWorktreePath: async (id) => {
+      const listed = await agentHostMainClient.request('worktrees/managed-paths', {});
+      if (!listed.ok) {
+        throw new BoundaryFailureError(listed.error);
+      }
+      return listed.value.find((worktree) => worktree.id === id)?.path ?? null;
+    },
     // BST-1990: names a removed folder in the refusal, whatever its status now.
     readRootNames: async (ids) => {
       const { roots } = await workspaceRootCatalog.workspaceRoots({ operation: 'list' });
@@ -1870,7 +1866,6 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
       );
     },
     readRoots: async () => loadWorkspaceRootsFromCatalog(workspaceRootCatalog),
-    readWorktree: (id) => ledger.get(id),
   });
   return bindDesktopPlatformPort(platformPort, {
     ...productionDesktopCapabilities(
