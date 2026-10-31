@@ -8,6 +8,7 @@ import {
   recordDesktopResetFailed,
   recordDesktopResetStarted,
 } from './desktop-reset-diagnostics';
+import { purgeCrashReports } from './diagnostics/crash-dumps';
 
 const logger = createLogger('DesktopFactoryReset');
 
@@ -15,6 +16,10 @@ const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs'] as const;
 let resetTrashPathNonce = 0;
 
 export interface ResetDesktopApplicationDataOptions {
+  /** Crashpad's live database (`app.getPath('crashDumps')`, BST-2351). It stays
+   * in place so crashes after the reset still leave a minidump, and its
+   * reports are deleted file by file instead. */
+  crashDumpsPath?: string;
   /** Every on-disk path the durable NDJSON error-log backstop (Flight
    * Recorder P2a, `error-log-sink.ts`'s `listErrorLogFilePaths`) can occupy —
    * the live file plus rotated siblings. These live OUTSIDE `userDataPath`
@@ -151,6 +156,7 @@ async function purgeErrorLogFiles(
 }
 
 export async function resetDesktopApplicationData({
+  crashDumpsPath,
   errorLogFilePaths,
   getProtectedPaths,
   resetDatabaseProfile,
@@ -179,7 +185,10 @@ export async function resetDesktopApplicationData({
     const trashPath = createResetTrashPath(userDataPath);
     mkdirSync(trashPath, { recursive: true });
 
-    const requestedProtectedPaths = [...(getProtectedPaths?.() ?? [])];
+    const requestedProtectedPaths = [
+      ...(getProtectedPaths?.() ?? []),
+      ...(crashDumpsPath !== undefined && existsSync(crashDumpsPath) ? [crashDumpsPath] : []),
+    ];
     for (const protectedPath of requestedProtectedPaths) {
       if (!path.isAbsolute(protectedPath)) {
         throw new Error(
@@ -282,6 +291,18 @@ export async function resetDesktopApplicationData({
       const { purgeFailures, purgedPaths } = await purgeErrorLogFiles(errorLogFilePaths);
       deletedPaths.push(...purgedPaths);
       pendingDeletionPaths.push(...purgeFailures);
+    }
+
+    if (crashDumpsPath !== undefined) {
+      const { purgeFailures, purgedPaths } = await purgeCrashReports(crashDumpsPath);
+      deletedPaths.push(...purgedPaths);
+      pendingDeletionPaths.push(...purgeFailures);
+      if (purgeFailures.length > 0) {
+        logger.warn('Desktop application data reset could not delete some crash reports', {
+          crashDumpsPath,
+          purgeFailures,
+        });
+      }
     }
 
     // Ensure Electron has a userData directory to write into on the next boot.

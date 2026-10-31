@@ -132,6 +132,9 @@ describe('desktop platform diagnostics', () => {
 
   it('returns partial diagnostics with provider errors when one source fails', async () => {
     const snapshot = await collectDesktopPlatformDiagnostics({
+      crashDumps: {
+        list: vi.fn(() => Promise.reject(new Error('crash dumps unavailable'))),
+      },
       crashRecovery: {
         getSnapshot: vi.fn(() => {
           throw new Error('crash unavailable');

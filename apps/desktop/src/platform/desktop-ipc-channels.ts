@@ -66,6 +66,7 @@ export const DESKTOP_IPC_CHANNELS = {
     countByFingerprint: 'desktop-diagnostics:count-by-fingerprint',
     getSnapshot: 'desktop-diagnostics:get-snapshot',
     getUnseenCounts: 'desktop-diagnostics:get-unseen-counts',
+    listCrashDumps: 'desktop-diagnostics:list-crash-dumps',
     queryEvents: 'desktop-diagnostics:query-events',
     readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
     readProcessCounters: 'desktop-diagnostics:read-process-counters',

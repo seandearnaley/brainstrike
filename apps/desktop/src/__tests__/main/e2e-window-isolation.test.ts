@@ -47,6 +47,7 @@ vi.mock('electron', async () => {
     clipboard: {
       writeText: vi.fn(),
     },
+    crashReporter: { start: vi.fn() },
     dialog: {
       showErrorBox: vi.fn(),
       showMessageBox: vi.fn(),
@@ -170,7 +171,7 @@ describe('main E2E window isolation', () => {
     }
   });
 
-  it('overrides Electron userData, sessionData, and logs paths during desktop E2E launches', async () => {
+  it('overrides Electron userData, sessionData, crashDumps and logs paths during desktop E2E launches', async () => {
     process.argv = [...process.argv, '--test-mode'];
     process.env['ELECTRON_IS_E2E_TEST'] = 'true';
     process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'] = '/tmp/brainstrike-e2e-isolated-profile';
@@ -191,6 +192,10 @@ describe('main E2E window isolation', () => {
     expect(mockedApp.setPath).toHaveBeenCalledWith(
       'sessionData',
       path.join('/tmp/brainstrike-e2e-isolated-profile', 'session-data')
+    );
+    expect(mockedApp.setPath).toHaveBeenCalledWith(
+      'crashDumps',
+      path.join('/tmp/brainstrike-e2e-isolated-profile', 'Crashpad')
     );
     expect(mockedApp.setPath).toHaveBeenCalledWith(
       'logs',

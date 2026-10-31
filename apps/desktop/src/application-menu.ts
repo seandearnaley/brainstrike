@@ -11,6 +11,7 @@
 export const APP_MENU_IDS = {
   releaseNotes: 'help-release-notes',
   settings: 'app-settings',
+  showCrashReports: 'help-show-crash-reports',
   showLogs: 'help-show-logs',
 } as const;
 
@@ -83,12 +84,15 @@ export interface HelpMenuDeps {
   /** Windows and Linux have no app menu, so About sits at the end of Help. */
   readonly includeAbout: boolean;
   readonly onOpenReleaseNotes: () => void;
+  /** Opens the folder of local minidumps, so a user can attach one to a report. */
+  readonly onShowCrashReports: () => void;
   readonly onShowLogs: () => void;
 }
 
 export function buildHelpMenuTemplate({
   includeAbout,
   onOpenReleaseNotes,
+  onShowCrashReports,
   onShowLogs,
 }: HelpMenuDeps): Electron.MenuItemConstructorOptions {
   return {
@@ -96,6 +100,11 @@ export function buildHelpMenuTemplate({
     submenu: [
       { click: onOpenReleaseNotes, id: APP_MENU_IDS.releaseNotes, label: 'Release Notes' },
       { click: onShowLogs, id: APP_MENU_IDS.showLogs, label: 'Show Logs' },
+      {
+        click: onShowCrashReports,
+        id: APP_MENU_IDS.showCrashReports,
+        label: 'Show Crash Reports',
+      },
       ...(includeAbout
         ? ([
             { type: 'separator' },

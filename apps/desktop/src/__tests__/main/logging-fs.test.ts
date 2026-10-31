@@ -79,6 +79,7 @@ vi.mock('electron', async () => {
     clipboard: {
       writeText: vi.fn(),
     },
+    crashReporter: { start: vi.fn() },
     dialog: {
       showErrorBox: vi.fn(),
       showMessageBox: vi.fn(),

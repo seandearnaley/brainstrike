@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { HostCredentialStoreSelection } from '@brainstrike/host-capabilities/credentials';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
-import { app, MessageChannelMain, type MessagePortMain } from 'electron';
+import { app, crashReporter, MessageChannelMain, type MessagePortMain } from 'electron';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import type { HostNativeChildren } from './agent-host-platform/host-native-children';
 import { createAgentHostPrivateClients } from './agent-host-private-clients';
@@ -130,6 +130,11 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   const sessionDataDir = path.join(userDataDir, 'session-data');
   fs.mkdirSync(sessionDataDir, { recursive: true });
   app.setPath('sessionData', sessionDataDir);
+  // Crashpad writes a minidump for any process that crashes, into this
+  // profile so a dev or test profile never writes into the release one. Upload
+  // stays off; factory reset deletes the reports and keeps the live database.
+  app.setPath('crashDumps', path.join(userDataDir, 'Crashpad'));
+  crashReporter.start({ uploadToServer: false });
   // Linux launches the GPU process through Chromium's zygote. A signal to Main's process group
   // (Ctrl+C in a terminal, a tree kill) ends the zygote too, every GPU relaunch then fails, and
   // Chromium aborts Main ("GPU process isn't usable") before shutdown closes the stores. Running
