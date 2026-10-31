@@ -22,10 +22,7 @@ import { refusalError } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
-import {
-  createGitWorkspace,
-  defaultManagedWorktreeDirectory,
-} from '@brainstrike/host-capabilities/git-workspace';
+import { createGitWorkspace } from '@brainstrike/host-capabilities/git-workspace';
 import {
   getGlobalHooksPath,
   loadHostRunHooks,
@@ -54,6 +51,7 @@ import {
   type DesktopRunSelection,
 } from './desktop-run-admission';
 import { createDesktopTerminals } from './desktop-terminals';
+import { desktopManagedWorktreeDirectory } from './desktop-worktree-directory';
 import { forwardHostDiagnostics } from './host-diagnostics';
 import {
   disposeHostTools,
@@ -79,23 +77,6 @@ import {
 import { IndexSearchResultSchema, IndexStatusSchema } from './retrieval-wire';
 
 const logger = createLogger('DesktopNodePlatform');
-/**
- * `~/.brainstrike/worktrees`. Desktop E2E redirects it through
- * `BRAINSTRIKE_E2E_WORKTREE_DIR`, so a test never creates worktrees in the
- * developer's home directory; the redirect is inert in a shipped build.
- */
-function desktopManagedWorktreeDirectory(): string {
-  const override = isElectronE2ETestMode()
-    ? process.env['BRAINSTRIKE_E2E_WORKTREE_DIR']
-    : undefined;
-  if (override === undefined) {
-    return defaultManagedWorktreeDirectory(homedir());
-  }
-  if (!path.isAbsolute(override)) {
-    throw new Error('BRAINSTRIKE_E2E_WORKTREE_DIR must be an absolute path.');
-  }
-  return override;
-}
 function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {
   readonly provider: SupportedProvider;
 } {
@@ -279,7 +260,11 @@ export async function createDesktopHostConfiguration(
   const roots = createWorkspaceRootResolver(startup.store);
   const gitWorkspace = createGitWorkspace({
     logger,
-    managedWorktreeDirectory: desktopManagedWorktreeDirectory(),
+    managedWorktreeDirectory: desktopManagedWorktreeDirectory({
+      e2e: isElectronE2ETestMode(),
+      env: process.env,
+      homeDirectory: homedir(),
+    }),
     openWorktreeFolder: async (folder) =>
       wireDecoder(PlatformWorktreeFolderResultSchema, { errors: 'all', onExcessProperty: 'error' })(
         await request('platform/worktree/open-folder', { path: folder })

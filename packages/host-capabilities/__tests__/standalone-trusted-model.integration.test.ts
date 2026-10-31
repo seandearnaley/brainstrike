@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -56,7 +56,9 @@ async function refusingProvider() {
 async function standaloneHost(
   env: Readonly<Record<string, string>>,
   platformModule?: string,
-  files: Readonly<Record<string, string>> = {}
+  files: Readonly<Record<string, string>> = {},
+  /** Runs before `host start`, while nothing holds the data root. */
+  prepare?: (paths: { readonly dataRoot: string; readonly workspace: string }) => Promise<void>
 ) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-trusted-model-data-'));
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-trusted-model-ws-')));
@@ -96,6 +98,7 @@ async function standaloneHost(
     await rm(workspace, { force: true, recursive: true });
     await removeFixtureRoot(dataRoot);
   });
+  await prepare?.({ dataRoot, workspace });
   const started = await command([
     'host',
     'start',
@@ -340,6 +343,117 @@ test('the standalone host lists the git worktrees of its launch root', {
   expect(text).toContain(host.workspace);
   expect(text).toContain(sibling);
   expect(text).toContain('feature-2386');
+});
+
+test('the standalone host refuses to archive the worktree it was launched on', {
+  timeout: 120_000,
+}, async () => {
+  const git = (cwd: string, ...args: string[]) =>
+    new Promise<string>((resolve, reject) => {
+      execFile('git', args, { cwd }, (cause, stdout) => (cause ? reject(cause) : resolve(stdout)));
+    });
+  const repository = await realpath(await mkdtemp(join(tmpdir(), 'bs-launch-worktree-repo-')));
+  cleanup.push(() => rm(repository, { force: true, recursive: true }));
+  // manageWorktree is deferred and execute-risk: the model loads it, then the run asks.
+  const module = await trustedPlatformModule('trusted-fixture', [
+    { input: { toolName: 'brainstrike_manageWorktree' }, toolId: 'load_tool' },
+    {
+      input: { action: 'archive', force: true, worktreeId: 'launch-worktree' },
+      toolId: 'brainstrike_manageWorktree',
+    },
+  ]);
+  const host = await standaloneHost({}, module, {}, async ({ dataRoot, workspace }) => {
+    await writeFile(join(repository, 'README.md'), 'repository\n');
+    await git(repository, 'init', '--quiet', '--initial-branch=main');
+    await git(repository, 'add', 'README.md');
+    await git(
+      repository,
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '--quiet',
+      '-m',
+      'initial'
+    );
+    // The launch root is a managed worktree recorded in this host's own ledger.
+    await git(repository, 'worktree', 'add', '--quiet', '-b', 'launch-2386', workspace);
+    const store = await StateStore.open(dataRoot);
+    try {
+      await store.worktreeLedger({
+        operation: 'insert',
+        row: {
+          archivedAt: null,
+          archiveSnapshotRef: null,
+          baseRef: 'main',
+          branch: 'launch-2386',
+          createdAt: new Date().toISOString(),
+          createdBy: 'user',
+          id: 'launch-worktree',
+          path: workspace,
+          repoCommonDir: join(repository, '.git'),
+          runId: null,
+          setupOutput: null,
+          setupReason: null,
+          setupStatus: 'none',
+          threadId: null,
+        },
+      });
+    } finally {
+      await store.close();
+    }
+  });
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  const asked = await host.command([
+    'run',
+    'Archive this worktree.',
+    '--model',
+    'trusted-fixture::probe',
+    '--json',
+    '--non-interactive',
+  ]);
+  // A non-interactive run exits 2 at the approval it cannot answer.
+  expect(asked.code, asked.stderr).toBe(2);
+  const { runId, threadId } = z
+    .object({ runId: z.string(), threadId: z.string() })
+    .parse(JSON.parse(asked.stdout.split('\n')[0] || 'null'));
+  const readRows = async () =>
+    Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse((await host.command(['threads', 'show', '--thread', threadId])).stdout)).rows;
+  const requested = (await readRows())
+    .map((row) => row.event)
+    .find((event) => event.type === 'interaction.requested');
+  if (requested?.type !== 'interaction.requested') {
+    throw new Error('The archive call asked for no approval');
+  }
+  const approved = await host.command([
+    'interaction',
+    'respond',
+    '--thread',
+    threadId,
+    '--run',
+    runId,
+    '--interaction',
+    requested.interactionId,
+    '--decision',
+    'approve',
+  ]);
+  expect(approved, approved.stderr).toMatchObject({ code: 0 });
+  await expect
+    .poll(async () => (await readRows()).some((row) => row.event.type === 'run.finished'), {
+      timeout: 30_000,
+    })
+    .toBe(true);
+  // The model is told why, and the checkout its run uses is still on disk and in git.
+  const finished = (await readRows())
+    .map((row) => row.event)
+    .find((event) => event.type === 'effect.finished' && event.toolCallId === 'recorded-call-2');
+  expect(JSON.stringify(finished)).toContain('a workspace root this host was launched on');
+  await expect(readFile(join(host.workspace, 'README.md'), 'utf8')).resolves.toBe('repository\n');
+  expect(await git(repository, 'worktree', 'list')).toContain(host.workspace);
 });
 
 test("the standalone host loads a trusted launch root's instructions and the home skills", {

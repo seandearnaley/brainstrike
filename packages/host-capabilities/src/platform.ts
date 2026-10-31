@@ -56,6 +56,7 @@ import {
   type WorktreeWorkspace,
 } from './git-workspace/host-git-workspace.ts';
 import { defaultManagedWorktreeDirectory } from './git-workspace/worktree-settings.ts';
+import type { HostWorktreeServices } from './git-workspace/worktree-tool-dependencies.ts';
 import { getGlobalHooksPath } from './hooks/config.ts';
 import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.ts';
 import {
@@ -134,15 +135,15 @@ const standaloneWindowsCommandEntry = (): string =>
  * the same executor, schema, cwd fence and `execute` risk, with its worktree
  * commands correlated on this host's own ledger.
  */
-function standaloneHostExecutors(worktrees: WorktreeWorkspace, threadId: string) {
+function standaloneHostExecutors(worktrees: HostWorktreeServices, threadId: string) {
   return {
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
-      correlation: hostShellCorrelation(worktrees.tools, threadId),
+      correlation: hostShellCorrelation(worktrees, threadId),
       windowsCommandEntry: standaloneWindowsCommandEntry,
     }),
     [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
     ...INSPECTION_TOOL_EXECUTORS,
-    ...hostWorktreeToolExecutors(worktrees.tools, threadId),
+    ...hostWorktreeToolExecutors(worktrees, threadId),
   };
 }
 
@@ -234,7 +235,7 @@ function standaloneSystemPrompt(
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
   const unavailable = configuredMcp ? 'Skill scripts' : 'Configured MCP/Tasks, skill scripts';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder), Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -435,6 +436,11 @@ export async function createHostPlatform(
     store: startup.store,
   });
   await startup.register(() => worktrees.close());
+  // Its runs hold the launch roots without a workspace binding: archive refuses those checkouts.
+  const worktreeTools: HostWorktreeServices = {
+    ...worktrees.tools,
+    launchRootPaths: workspaceRoots.map((root) => root.path),
+  };
   const system = standaloneSystemPrompt(workspaceRoots, mcp !== undefined);
   const subagents = {
     delegationEnabled: true,
@@ -537,7 +543,7 @@ export async function createHostPlatform(
       const workspaceTools = createSharedNativeHostTools({
         diagnostics: (args) => getEditDiagnostics(args),
         executors: {
-          ...standaloneHostExecutors(worktrees, request.threadId),
+          ...standaloneHostExecutors(worktreeTools, request.threadId),
           ...skillToolExecutors(workspaceContext.workspaceSkills),
         },
         ids: STANDALONE_WORKSPACE_TOOL_IDS,
