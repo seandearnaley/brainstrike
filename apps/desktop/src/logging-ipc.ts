@@ -8,8 +8,8 @@ import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ip
 import {
   assertBufferedLogRecord,
   assertLoggingOpenDestinationTarget,
-  assertLoggingPreferences,
   LOGGING_API_CHANNELS,
+  mergeLoggingPreferencesPatch,
 } from './platform/logging-api-contract';
 
 const logger = createLogger('LoggingIPC');
@@ -94,11 +94,13 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
 
   let preferencesUpdateQueue: Promise<void> = Promise.resolve();
 
-  registry.handle('logging', LOGGING_API_CHANNELS.setPreferences, (_event, preferences: unknown) =>
+  // Each patch merges into the record Main holds once the updates queued before it have
+  // applied, so a change from one window never reverts another window's change.
+  registry.handle('logging', LOGGING_API_CHANNELS.setPreferences, (_event, patch: unknown) =>
     settleIpcResult({ category: 'logging', code: 'logging.write-failed' }, async () => {
-      const parsedPreferences = assertLoggingPreferences(preferences);
       const runUpdate = async (): Promise<LoggingSettingsPayload> => {
-        const payload = await handlers.setPreferences(parsedPreferences);
+        const preferences = mergeLoggingPreferencesPatch(handlers.getState().preferences, patch);
+        const payload = await handlers.setPreferences(preferences);
         broadcastLoggingPreferences(payload.preferences);
         return payload;
       };
@@ -164,11 +166,8 @@ export function cloneLoggingSettingsPayload(
 ): LoggingSettingsPayload {
   return {
     capabilities: { ...payload.capabilities },
-    preferences: {
-      ...payload.preferences,
-      file: { ...payload.preferences.file },
-      redactPaths: [...payload.preferences.redactPaths],
-    },
+    defaults: cloneLoggingPreferences(payload.defaults),
+    preferences: cloneLoggingPreferences(payload.preferences),
   };
 }
 

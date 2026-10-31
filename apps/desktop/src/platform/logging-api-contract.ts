@@ -127,6 +127,21 @@ export function assertBufferedLogRecord(payload: unknown): LogRecord {
   } satisfies LogRecord;
 }
 
+/** Merges a renderer's patch into the preferences Main holds, then validates the whole record. */
+export function mergeLoggingPreferencesPatch(
+  current: LoggingPreferences,
+  patch: unknown
+): LoggingPreferences {
+  if (!isRecord(patch)) {
+    throw new Error('Logging preferences patch must be an object.');
+  }
+  const file = patch['file'];
+  if (file !== undefined && !isRecord(file)) {
+    throw new Error('Logging file preferences must be an object.');
+  }
+  return assertLoggingPreferences({ ...current, ...patch, file: { ...current.file, ...file } });
+}
+
 export function assertLoggingPreferences(value: unknown): LoggingPreferences {
   if (!isRecord(value)) {
     throw new Error('Logging preferences must be an object.');
