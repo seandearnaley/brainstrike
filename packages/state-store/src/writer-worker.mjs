@@ -46,7 +46,6 @@ import {
   sourceBlobRefs,
   sourceGcCandidates,
 } from './deletion-domain.mjs';
-import { exportJsonl, readJsonl } from './jsonl.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
 import { executeMemoryRequest, executeNativeMemoryRequest } from './memory-domain.mjs';
 import { executeModelChoiceRequest } from './model-choice-domain.mjs';
@@ -114,7 +113,7 @@ if (damage) {
 } else {
   migrate(db);
 }
-let log = new RunLog(db, damage);
+const log = new RunLog(db, damage);
 
 const settings = {
   fullfsync: db.pragma('fullfsync', { simple: true }),
@@ -492,39 +491,6 @@ async function handle(m) {
     case 'intentDelete':
       deleteDeletionIntent(db, String(m['threadId']), Number(m['seq']));
       return {};
-    case 'exportJsonl':
-      exportJsonl(db, cfg.blobsDir, String(m['path']));
-      return {};
-    case 'importJsonl': {
-      if (db.prepare('SELECT count(*) FROM run_events').pluck().get() !== 0) {
-        throw new Error('JSONL import requires an empty run log');
-      }
-      const data = readJsonl(String(m['path']));
-      for (const blob of data.blobs) {
-        putBlob(blob.hash, blob.content);
-      }
-      db.transaction(() => {
-        for (const row of data.rows) {
-          const event = JSON.parse(row.payload);
-          db.prepare(
-            'INSERT INTO run_events(thread_id,seq,type,run_id,payload,crc,created_at) VALUES (?,?,?,?,?,?,?)'
-          ).run(
-            row.threadId,
-            row.seq,
-            event.type,
-            typeof event.runId === 'string' ? event.runId : null,
-            row.payload,
-            row.crc,
-            row.createdAt
-          );
-          db.prepare(
-            'INSERT INTO threads(id,last_seq,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seq=excluded.last_seq,updated_at=excluded.updated_at'
-          ).run(row.threadId, row.seq, row.createdAt, row.createdAt);
-        }
-      })();
-      log = new RunLog(db, damage);
-      return {};
-    }
     case 'setting':
       db.prepare(
         'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'

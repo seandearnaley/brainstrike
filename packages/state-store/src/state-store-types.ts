@@ -25,8 +25,6 @@ export interface IndexerPort {
 }
 
 export interface StateStoreHooks {
-  readonly exportAfterSnapshot?: () => Promise<void>;
-  readonly exportBeforeBlobs?: () => Promise<void>;
   readonly purgeAfterTruth?: () => void;
 }
 
@@ -98,20 +96,4 @@ export interface HydrationThread {
   readonly rows: readonly LogRow[];
   readonly threadId: string;
   readonly updatedAt: number;
-}
-
-export interface ExportedThread {
-  readonly threadId: string;
-  readonly watermark: number;
-}
-
-export interface Manifest {
-  readonly files: ReadonlyArray<{
-    readonly path: string;
-    readonly bytes: number;
-    readonly sha256: string;
-  }>;
-  readonly format: 1;
-  readonly sourceHost: string;
-  readonly threads: readonly ExportedThread[];
 }

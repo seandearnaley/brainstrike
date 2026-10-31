@@ -49,7 +49,7 @@ export class StateDeletion {
   readonly #writer: DeletionWriter;
   readonly #options: StateDeletionOptions;
   readonly #deferred = new Set<string>();
-  /** Exports in flight plus holdBlobGc holders: while any holds, unreferenced blobs wait in `#deferred`. */
+  /** holdBlobGc holders: while any holds, unreferenced blobs wait in `#deferred`. */
   #holds = 0;
 
   constructor(writer: DeletionWriter, options: StateDeletionOptions) {

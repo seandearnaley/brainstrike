@@ -217,6 +217,16 @@ and not built: they would add a second durable copy of every view, to version
 with the fold code and invalidate when it changes. Every view stays a fold of
 the log, and checkpoints wait until a measured profile needs them.
 
+## Amendment (2026-10-31): no export or import
+
+The decision above named JSONL as the export and import format. Two mechanisms
+were built: a JSONL interchange of the run log and its blobs, and a bundle that
+copied the state DB through `VACUUM INTO` with its blobs and a checksummed
+manifest. Nothing outside their own tests called either one, so BST-2395 removed
+both. Brainstrike is greenfield (ADR-0020) and has no user data to move. A
+backup or transfer feature starts from its product need, and it is designed
+then, against the schema of that day.
+
 ## Sources
 
 - `docs/agents/assistant-persistence.md:173` (line number at `43daec7fb`): readers
