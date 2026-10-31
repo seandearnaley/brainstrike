@@ -5,7 +5,8 @@
  * file and surface its diagnostics (errors/warnings) in the tool result, so
  * the agent learns about a broken edit immediately instead of only when a
  * later build/test fails. Phase A ships the flagship TypeScript/JavaScript
- * server, BUNDLED as a desktop dependency so it works out-of-box; other
+ * server as a dependency of this package (and of the desktop app, which keeps
+ * third-party packages beside its bundle) so it works out-of-box; other
  * languages (Python/Go/Rust) come in Phase B via PATH discovery + a config
  * surface.
  *
@@ -17,7 +18,8 @@
  * rule covers inference, not tooling — mirrors executeCommand's spawner). The
  * pool is keyed by workspace `rootId`; every server MUST be torn down on root
  * removal, factory reset, and app quit — see disposeLspServers /
- * evictLspServersForRoot and their wiring in host-tool-process.ts.
+ * evictLspServersForRoot, wired in desktop's host-tool-process.ts and the
+ * standalone platform's close.
  *
  * NO SILENT FALLBACKS: an unresolvable server, an unsupported language, or a
  * diagnostics timeout all resolve to an honest non-fatal result — never a
@@ -31,22 +33,6 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type {
-  EditDiagnostic,
-  EditDiagnosticsResult,
-  LspDiagnosticSeverity,
-} from '@brainstrike/host-capabilities/native-tools';
-import {
-  boundQueryFailureDetail,
-  clipHover,
-  DIAGNOSTIC_TIMEOUT_MS,
-  type LspInspectionResult,
-  QUERY_TIMEOUT_MS,
-  type RawLocation,
-  type RawQueryFailure,
-  toInspectLocations,
-  toQueryFailure,
-} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { spawnNativeChild, terminateTree } from '@brainstrike/state-store/native-children';
 import {
@@ -64,13 +50,19 @@ import type {
   Position,
   PublishDiagnosticsParams,
 } from 'vscode-languageserver-protocol/node';
-
-import { LspReadPolicyError, withLspDocument } from './lsp-document-session';
-
-// Re-exported so `lsp-diagnostics` stays the single import surface for the
-// inspect tool + its model projection (the split is an internal file boundary,
-// not a new public seam).
-export type { LspInspectionResult };
+import { LspReadPolicyError, withLspDocument } from './lsp-document-session.ts';
+import {
+  boundQueryFailureDetail,
+  clipHover,
+  DIAGNOSTIC_TIMEOUT_MS,
+  type LspInspectionResult,
+  QUERY_TIMEOUT_MS,
+  type RawLocation,
+  type RawQueryFailure,
+  toInspectLocations,
+  toQueryFailure,
+} from './lsp-inspection-shapes.ts';
+import type { EditDiagnostic, EditDiagnosticsResult, LspDiagnosticSeverity } from './ports.ts';
 
 // LSP method names used verbatim (string overloads avoid the branded-type
 // identity mismatch between vscode-jsonrpc and -protocol under the main
@@ -104,7 +96,7 @@ interface ResolvedServer {
   /** Extra launch args after the CLI path. */
   args: string[];
   bundledTsserverPath?: string;
-  /** Absolute path to the server CLI entry (run via Electron-as-Node). */
+  /** Absolute path to the server CLI entry (run by this process's Node; Electron-as-Node in desktop). */
   cliPath: string;
   /** initializationOptions sent during the handshake (e.g. bundled tsserver). */
   initializationOptions: Record<string, unknown>;
@@ -135,10 +127,11 @@ let cachedServer: ResolvedServer | null | undefined;
 
 type ModuleResolver = (id: string, options?: { paths?: string[] }) => string;
 
-// The host platform is ESM, while Electron main is CJS. The build supplies
-// __filename for both; esbuild's ESM require shim has no .resolve method.
-// biome-ignore lint/correctness/noGlobalDirnameFilename: import.meta is empty in the CJS main bundle; the ESM host build maps __filename explicitly.
-const resolveLspModule: ModuleResolver = createRequire(__filename).resolve;
+// Resolved from this module: its package's dependencies when Node runs the
+// source, the app's own node_modules when desktop bundles it into dist/.
+// require.resolve, not import.meta.resolve: the TypeScript 6 lookup below
+// resolves from the wrapper's own scope through `paths`.
+const resolveLspModule: ModuleResolver = createRequire(import.meta.url).resolve;
 
 /**
  * Resolve the JavaScript TypeScript server bundled for LSP use.

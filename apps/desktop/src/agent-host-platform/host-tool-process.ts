@@ -1,5 +1,9 @@
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { disposeLiveChildProcesses } from '@brainstrike/host-capabilities/native-tools';
+import {
+  disposeLiveChildProcesses,
+  disposeLspServers,
+  evictLspServersForRoot,
+} from '@brainstrike/host-capabilities/native-tools';
 /**
  * The desktop agent host's process-lifetime tool state: the command sessions
  * its runs start, the release of a root Main disconnected, and the disposal of
@@ -10,7 +14,6 @@ import {
   type CommandSessionManager,
   createCommandSessionManager,
 } from '../assistant-server/command-session-manager';
-import { disposeLspServers, evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import { HostRootCleanupRequestSchema } from './root-cleanup-wire';
 
 let sessions: CommandSessionManager | undefined;

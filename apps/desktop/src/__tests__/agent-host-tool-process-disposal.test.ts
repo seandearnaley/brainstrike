@@ -10,10 +10,7 @@ const owners = vi.hoisted(() => ({
 vi.mock('@brainstrike/host-capabilities/native-tools', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/host-capabilities/native-tools')>()),
   disposeLiveChildProcesses: owners.commands,
-}));
-vi.mock('../assistant-server/lsp-diagnostics', () => ({
   disposeLspServers: owners.languageServers,
-  evictLspServersForRoot: vi.fn(),
 }));
 vi.mock('../assistant-server/command-session-manager', () => ({
   createCommandSessionManager: () => ({ dispose: owners.sessions }),

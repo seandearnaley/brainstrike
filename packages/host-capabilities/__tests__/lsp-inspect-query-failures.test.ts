@@ -9,17 +9,18 @@
  * this symbol has no definition / no implementations", a confidently wrong
  * claim about the user's own code with nothing pointing at the real cause.
  *
- * The wire is faked here on purpose: the real-subprocess lane
- * (lsp-diagnostics.integration.test.ts) cannot force a per-query timeout or a
- * transport throw deterministically. Everything ABOVE the JSON-RPC connection —
- * pool, diagnose lock, inspect(), the model-facing mapping — is the real code.
+ * The wire is faked here on purpose: the real-subprocess lanes (the standalone
+ * host's lspInspect integration test, desktop's lsp-policy-freshness E2E spec)
+ * cannot force a per-query timeout or a transport throw deterministically.
+ * Everything ABOVE the JSON-RPC connection (pool, diagnose lock, inspect(), the
+ * model-facing mapping) is the real code.
  */
 import { EventEmitter } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { disposeLspServers, getLspInspection } from '../../assistant-server/lsp-diagnostics';
+import { disposeLspServers, getLspInspection } from '../src/native-tools/lsp-diagnostics.js';
 
 const { fakeChildren, warnSpy, wire } = vi.hoisted(() => {
   const state = {
@@ -40,9 +41,9 @@ const { fakeChildren, warnSpy, wire } = vi.hoisted(() => {
 
 // This suite isolates per-leg query failures. Real project policy and document
 // lifetime are covered by lsp-policy-freshness and lsp-document-session tests.
-vi.mock('../../assistant-server/lsp-document-session', async (importOriginal) => {
+vi.mock('../src/native-tools/lsp-document-session.js', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('../../assistant-server/lsp-document-session')>();
+    await importOriginal<typeof import('../src/native-tools/lsp-document-session.js')>();
   return {
     ...actual,
     withLspDocument: async <T>(
@@ -56,7 +57,6 @@ vi.mock('../../assistant-server/lsp-document-session', async (importOriginal) =>
   };
 });
 
-vi.mock('electron', () => ({}));
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {

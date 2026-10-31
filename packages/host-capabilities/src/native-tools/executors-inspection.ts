@@ -1,17 +1,13 @@
 /**
- * Language-server inspection, built over the shared build context so the
- * desktop agent host can run it in its own process. This module must not
- * import Electron: the host bundle loads it.
+ * Language-server inspection, run by every agent host in its own process over
+ * the thread's folders on disk.
  */
 import { type LspInspectInput, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
-import {
-  type NativeToolExecutor,
-  parseToolExecuteInput,
-  projectLspInspectModelOutput,
-  type ToolExecuteInput,
-} from '@brainstrike/host-capabilities/native-tools';
-import { runLspInspect } from './lsp-inspection-tools';
+import type { NativeToolExecutor } from './host-tools.ts';
+import { runLspInspect } from './lsp-inspection-tools.ts';
+import { parseToolExecuteInput, type ToolExecuteInput } from './tool-execute-support.ts';
+import { projectLspInspectModelOutput } from './workspace-inspection-model-projections.ts';
 
 export const INSPECTION_TOOL_EXECUTORS: {
   readonly [NATIVE_TOOL_ID.lspInspect]: NativeToolExecutor;
