@@ -22,6 +22,7 @@ import {
   parseMcpHostOperationResult,
 } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
+import { Predicate } from 'effect';
 
 export interface McpCoreFeatureClient {
   callTool(...args: Parameters<ExplicitHttpMcpClient['callTool']>): Promise<unknown>;
@@ -102,23 +103,19 @@ const MCP_TASKS_EXTENSION_ID = 'io.modelcontextprotocol/tasks';
 
 function serverAdvertisesTasks(client: McpCoreFeatureClient): boolean {
   const capabilities = client.getServerCapabilities();
-  const extensions = isRecord(capabilities) ? capabilities['extensions'] : undefined;
-  return isRecord(extensions) && Object.hasOwn(extensions, MCP_TASKS_EXTENSION_ID);
+  const extensions = Predicate.isObject(capabilities) ? capabilities['extensions'] : undefined;
+  return Predicate.isObject(extensions) && Object.hasOwn(extensions, MCP_TASKS_EXTENSION_ID);
 }
 const RELISTEN_DELAYS_MS = [100, 250, 500] as const;
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function advertisedFeatures(client: McpCoreFeatureClient): McpHostCatalog['features'] {
   const capabilities = client.getServerCapabilities();
-  const root = isRecord(capabilities) ? capabilities : {};
-  const tools = isRecord(root['tools']) ? root['tools'] : undefined;
-  const resources = isRecord(root['resources']) ? root['resources'] : undefined;
-  const prompts = isRecord(root['prompts']) ? root['prompts'] : undefined;
+  const root = Predicate.isObject(capabilities) ? capabilities : {};
+  const tools = Predicate.isObject(root['tools']) ? root['tools'] : undefined;
+  const resources = Predicate.isObject(root['resources']) ? root['resources'] : undefined;
+  const prompts = Predicate.isObject(root['prompts']) ? root['prompts'] : undefined;
   return {
-    completion: isRecord(root['completions']),
+    completion: Predicate.isObject(root['completions']),
     promptListChanged: prompts?.['listChanged'] === true,
     prompts: prompts !== undefined,
     resourceListChanged: resources?.['listChanged'] === true,

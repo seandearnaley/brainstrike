@@ -1,6 +1,7 @@
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
 import { isDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
+import { Predicate } from 'effect';
 import { type ActivityVerb, verbForTool } from './activity-verbs';
 import {
   narrowRunPythonDisplayResult,
@@ -85,13 +86,9 @@ export function stepVerbText(verb: ActivityVerb, state: ActivityStepState, ran: 
 }
 const MAX_RESTING_VERBS = 3;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function statusOf(part: Record<string, unknown>): { reason?: unknown; type?: unknown } | undefined {
   const status = part['status'];
-  return isRecord(status) ? status : undefined;
+  return Predicate.isObject(status) ? status : undefined;
 }
 
 /** The message a result-level `isError` flag implies; it states none of its own. */
@@ -122,7 +119,7 @@ export const TOOL_EXECUTION_FAILED_MESSAGE = 'Tool execution failed.';
  * counted it a success.
  */
 export function readResultError(result: unknown): string | null {
-  if (!isRecord(result) || Array.isArray(result)) {
+  if (!Predicate.isObject(result)) {
     return null;
   }
   if (result['ok'] === true) {
@@ -132,7 +129,7 @@ export function readResultError(result: unknown): string | null {
   if (typeof error === 'string' && error.length > 0) {
     return error;
   }
-  if (result['ok'] === false && isRecord(error) && !Array.isArray(error)) {
+  if (result['ok'] === false && Predicate.isObject(error)) {
     const message = error['message'];
     if (typeof message === 'string' && message.length > 0) {
       return message;
@@ -344,7 +341,7 @@ export function deriveActivitySteps(
       });
       continue;
     }
-    if (isRecord(part) && part['type'] === 'reasoning') {
+    if (Predicate.isObject(part) && part['type'] === 'reasoning') {
       steps.push({
         durationMs: undefined,
         id: `reasoning-${partIndex}`,
