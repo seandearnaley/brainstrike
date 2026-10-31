@@ -38,7 +38,8 @@ describe('preload bridge APIs', () => {
     expect(typeof secrets?.['deleteKey']).toBe('function');
     expect(typeof secrets?.['list']).toBe('function');
     expect(typeof secrets?.['listStored']).toBe('function');
-    expect(typeof secrets?.['clearAll']).toBe('function');
+    // Main owns the reset (ADR-0015): the renderer cannot wipe credentials.
+    expect(secrets).not.toHaveProperty('clearAll');
   });
 
   it('exposes the shared host without a second aggregate agent bridge', () => {

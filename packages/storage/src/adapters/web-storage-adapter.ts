@@ -19,10 +19,6 @@ export class WebStorageAdapter implements StorageAdapter {
     this.storage.removeItem(key);
   }
 
-  async clear(): Promise<void> {
-    this.storage.clear();
-  }
-
   async getAllKeys(): Promise<string[]> {
     const keys: string[] = [];
     for (let i = 0; i < this.storage.length; i++) {

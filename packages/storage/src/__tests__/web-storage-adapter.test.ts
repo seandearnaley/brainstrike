@@ -61,15 +61,6 @@ describe('WebStorageAdapter', () => {
     });
   });
 
-  describe('clear', () => {
-    it('should clear all keys', async () => {
-      await adapter.setItem('key1', 'value1');
-      await adapter.setItem('key2', 'value2');
-      await adapter.clear();
-      expect(await adapter.getAllKeys()).toEqual([]);
-    });
-  });
-
   describe('getAllKeys', () => {
     it('should return all stored keys', async () => {
       await adapter.setItem('key1', 'value1');

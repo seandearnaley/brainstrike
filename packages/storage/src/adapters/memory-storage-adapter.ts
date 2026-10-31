@@ -47,10 +47,6 @@ export class MemoryStorageAdapter implements StorageAdapter {
     this.storage.delete(key);
   }
 
-  async clear(): Promise<void> {
-    this.storage.clear();
-  }
-
   async getAllKeys(): Promise<string[]> {
     return Array.from(this.storage.keys());
   }

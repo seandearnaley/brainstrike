@@ -44,7 +44,6 @@ async function expectCorrelatedStorageFault(run: () => unknown, original: Error)
 describe('ipc-handlers error branches', () => {
   let fsAdapter: ElectronFileSystemAdapter;
   let storage: ElectronStorageAdapter;
-  let store: Record<string, unknown>;
   let close: () => Promise<void>;
 
   beforeEach(() => {
@@ -74,9 +73,7 @@ describe('ipc-handlers error branches', () => {
       setItem: vi.fn(async () => undefined),
     } as unknown as ElectronStorageAdapter;
 
-    store = {};
-
-    close = registerIpcHandlers(fsAdapter, storage, () => store as never, {
+    close = registerIpcHandlers(fsAdapter, storage, {
       getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
     });

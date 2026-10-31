@@ -40,10 +40,6 @@ function parseExactStringPair(
 }
 
 export const storageContract = {
-  clear: rawChannel<[], void>({
-    channel: DESKTOP_IPC_CHANNELS.storage.clear,
-    parseArgs: parseExactNoArgs('storage clear'),
-  }),
   getAllKeys: rawChannel<[], string[]>({
     channel: DESKTOP_IPC_CHANNELS.storage.getAllKeys,
     parseArgs: parseExactNoArgs('storage getAllKeys'),
@@ -59,13 +55,6 @@ export const storageContract = {
   setItem: rawChannel<[key: string, value: string], void>({
     channel: DESKTOP_IPC_CHANNELS.storage.setItem,
     parseArgs: parseExactStringPair('storage setItem'),
-  }),
-} as const satisfies Contract;
-
-export const settingsContract = {
-  clearAll: rawChannel<[], { message?: string; success: boolean }>({
-    channel: DESKTOP_IPC_CHANNELS.preferences.settingsClearAll,
-    parseArgs: parseExactNoArgs('settings clearAll'),
   }),
 } as const satisfies Contract;
 

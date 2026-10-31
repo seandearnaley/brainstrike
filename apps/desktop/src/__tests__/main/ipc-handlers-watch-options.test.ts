@@ -59,7 +59,6 @@ async function fixture() {
   const domain = createApplicationIpcDomain(
     {} as ElectronFileSystemAdapter,
     {} as ElectronStorageAdapter,
-    () => null,
     {
       getRootsCatalog: async () => {
         throw new Error('Unexpected catalog read in injected domain fixture');
