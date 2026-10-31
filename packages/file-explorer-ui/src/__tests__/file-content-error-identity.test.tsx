@@ -61,7 +61,7 @@ it('keeps the aggregate loader error identity stable while its error snapshot is
   expect(result.current.loader.error).toBe(firstAggregate);
 
   await act(async () => {
-    releasePhysicalWork?.();
+    releasePhysicalWork();
     await scheduled;
   });
 });

@@ -199,7 +199,7 @@ describe('createGitInventoryService', () => {
       // than the 2 s the old drain bound waited before abandoning the build.
       const run: GitCommandRunner = (params) => {
         capturedSignal = params.signal;
-        resolveRunCalled?.();
+        resolveRunCalled();
         return new Promise<GitCommandRun>((_resolve, reject) => {
           setTimeout(() => reject(new Error('git exited late after its abort')), 5000);
         });
@@ -243,7 +243,7 @@ describe('createGitInventoryService', () => {
       const { promise: runCalled, resolve: resolveRunCalled } = Promise.withResolvers<void>();
       // The git child ignores the abort and only fails 5 s later.
       const run: GitCommandRunner = () => {
-        resolveRunCalled?.();
+        resolveRunCalled();
         return new Promise<GitCommandRun>((_resolve, reject) => {
           setTimeout(() => reject(new Error('git exited late after its abort')), 5000);
         });

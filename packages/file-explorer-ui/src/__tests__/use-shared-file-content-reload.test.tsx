@@ -724,7 +724,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
         result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);
       });
       result.current.authority.trackActiveLoad([compositeKey], trackedPredecessor);
-      resolvePredecessors.push(() => resolvePredecessor?.());
+      resolvePredecessors.push(resolvePredecessor);
     }
 
     let reloadSettled = false;
@@ -837,7 +837,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
         result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);
       });
       result.current.authority.trackActiveLoad([compositeKey], trackedPredecessor);
-      resolvePredecessors.push(() => resolvePredecessor?.());
+      resolvePredecessors.push(resolvePredecessor);
     }
 
     let reload: Promise<void> | undefined;

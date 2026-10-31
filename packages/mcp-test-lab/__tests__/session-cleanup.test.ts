@@ -34,7 +34,7 @@ describe('MCP session cleanup ownership', () => {
     const first = cleanup.close();
     const concurrent = cleanup.close();
     expect(concurrent).toBe(first);
-    releaseFirst?.();
+    releaseFirst();
     const failure = await first.catch((error: unknown) => error);
     expect(failure).toMatchObject({
       failedResourceKinds: ['http-listener'],

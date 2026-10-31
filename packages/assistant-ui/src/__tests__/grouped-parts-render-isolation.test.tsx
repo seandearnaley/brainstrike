@@ -159,7 +159,7 @@ function RegisteredHarness({ renderPart }: { readonly renderPart: () => React.Re
 
 function createGate(): { readonly promise: Promise<void>; readonly release: () => void } {
   const { promise, resolve: release } = Promise.withResolvers<void>();
-  return { promise, release: () => release?.() };
+  return { promise, release };
 }
 
 describe('MessagePrimitive.GroupedParts render isolation', () => {

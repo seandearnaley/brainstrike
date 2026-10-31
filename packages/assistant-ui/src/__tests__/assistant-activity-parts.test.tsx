@@ -41,12 +41,7 @@ function tool(toolCallId: string, extra: Record<string, unknown> = {}) {
  */
 function createDeferred(): { readonly promise: Promise<void>; readonly release: () => void } {
   const { promise, resolve: release } = Promise.withResolvers<void>();
-  return {
-    promise,
-    release: () => {
-      release?.();
-    },
-  };
+  return { promise, release };
 }
 
 describe('AssistantActivityParts (hydrated messages)', () => {

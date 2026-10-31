@@ -589,7 +589,7 @@ it('preserves background intent across twenty singleton reload groups ahead of r
       result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);
     });
     result.current.authority.trackActiveLoad([compositeKey], trackedPredecessor);
-    resolvePredecessors.push(() => resolvePredecessor?.());
+    resolvePredecessors.push(resolvePredecessor);
   }
 
   let backgroundReload: Promise<void> | undefined;
