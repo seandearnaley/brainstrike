@@ -195,7 +195,9 @@ export function HooksSettingsSection({
     setBusyRootId(root.rootId);
     try {
       await change(bridge);
-      setActionErrors(({ [root.rootId]: _cleared, ...rest }) => rest);
+      setActionErrors((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([rootId]) => rootId !== root.rootId))
+      );
     } catch (error: unknown) {
       setActionErrors((prev) => ({
         ...prev,

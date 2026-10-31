@@ -286,11 +286,10 @@ export function McpServerCatalog({
         setContent(null);
         setContentError(failureMessage(cause));
       }
-    } finally {
-      if (pendingRef.current === invocation) {
-        pendingRef.current = null;
-        setPendingKey(null);
-      }
+    }
+    if (pendingRef.current === invocation) {
+      pendingRef.current = null;
+      setPendingKey(null);
     }
   };
   const readResource = (uri: string): void => {
