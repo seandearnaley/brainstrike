@@ -5,7 +5,7 @@ import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { databasePathContract } from '../ipc-domains/database.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
-import { settingsContract, storageContract } from '../ipc-domains/storage-preferences.contract';
+import { storageContract } from '../ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
@@ -44,7 +44,6 @@ const CONTRACT_BRIDGES = {
   clipboard: clipboardContract,
   contextFiles: contextFilesContract,
   indexSearch: indexSearchContract,
-  settings: settingsContract,
   threadGroups: threadGroupsContract,
   viewFilterPresets: viewFilterPresetsContract,
   windowFocus: windowFocusContract,

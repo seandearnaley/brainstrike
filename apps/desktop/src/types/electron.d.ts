@@ -15,7 +15,6 @@ import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
-import type { settingsContract } from '../ipc-domains/storage-preferences.contract';
 import type { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import type { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
@@ -162,8 +161,6 @@ declare global {
      * key set to `SECRETS_BRIDGE_REQUIRED_METHODS`.
      */
     secrets: import('@brainstrike/assistant-contract/secrets-bridge').SecretsBridge;
-    /** Desktop settings reset capability, derived from its pure contract. */
-    settings?: TransportBridge<typeof settingsContract>;
     threadGroups?: TransportBridge<typeof threadGroupsContract>;
     viewFilterPresets?: TransportBridge<typeof viewFilterPresetsContract>;
     /**

@@ -32,14 +32,9 @@ function invoke(method: string, ...args: unknown[]): Promise<unknown> {
   return invokeFrom(VISIBLE_UI_SENDER_ID, method, ...args);
 }
 
-interface FakeStore {
-  clear: () => void;
-}
-
 function createStorage(): ElectronStorageAdapter {
   return {
     clear: vi.fn(async () => undefined),
-    clearExcept: vi.fn(async () => undefined),
     getAllKeys: vi.fn(async () => ['alpha']),
     getItem: vi.fn(async (key: string) => `value:${key}`),
     removeItem: vi.fn(async () => undefined),
@@ -47,27 +42,18 @@ function createStorage(): ElectronStorageAdapter {
   } as unknown as ElectronStorageAdapter;
 }
 
-function createStore(): FakeStore {
-  return { clear: vi.fn() };
-}
-
 describe('storage preferences IPC domain', () => {
   let storage: ElectronStorageAdapter;
-  let store: FakeStore;
   let unregister: () => void;
 
   function register(): void {
-    unregister = registerStoragePreferencesIpcHandlers({
-      getStore: () => store as never,
-      storage,
-    });
+    unregister = registerStoragePreferencesIpcHandlers({ storage });
   }
 
   beforeEach(() => {
     trackTestAppWindow(VISIBLE_UI_SENDER_ID);
     trackTestAppWindow(SPOOFED_VISIBLE_UI_SENDER_ID);
     storage = createStorage();
-    store = createStore();
     register();
   });
 
@@ -82,21 +68,12 @@ describe('storage preferences IPC domain', () => {
     await expect(invoke('storage:getItem', 'alpha')).resolves.toBe('value:alpha');
     await invoke('storage:setItem', 'alpha', 'beta');
     await invoke('storage:removeItem', 'alpha');
-    await invoke('storage:clear');
     await expect(invoke('storage:getAllKeys')).resolves.toEqual(['alpha']);
 
     expect(storage.getItem).toHaveBeenCalledWith('alpha');
     expect(storage.setItem).toHaveBeenCalledWith('alpha', 'beta');
     expect(storage.removeItem).toHaveBeenCalledWith('alpha');
-    expect(storage.clear).not.toHaveBeenCalled();
     expect(storage.getAllKeys).toHaveBeenCalled();
-    expect(storage.clearExcept).toHaveBeenCalledWith([
-      'lastFolderPath',
-      'recentRootsList',
-      'recentRootsList.corrupt',
-      'rootsList',
-      'rootsList.corrupt',
-    ]);
   });
 
   it.each([
@@ -123,17 +100,11 @@ describe('storage preferences IPC domain', () => {
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 
-  it('clears renderer-owned keys without deleting main-owned ledgers', async () => {
-    await invoke('storage:clear');
-
+  it('gives the renderer no way to wipe storage: Main owns the reset', async () => {
+    await expect(invoke('storage:clear')).rejects.toThrow(
+      'No desktop IPC handler for storage:clear.'
+    );
     expect(storage.clear).not.toHaveBeenCalled();
-    expect(storage.clearExcept).toHaveBeenCalledWith([
-      'lastFolderPath',
-      'recentRootsList',
-      'recentRootsList.corrupt',
-      'rootsList',
-      'rootsList.corrupt',
-    ]);
   });
 
   it('does not serve storage test helpers outside Electron E2E mode', async () => {
@@ -147,14 +118,12 @@ describe('storage preferences IPC domain', () => {
     expect(storage.clear).not.toHaveBeenCalled();
   });
 
-  it('refuses untracked senders and foreign frames on every storage and settings method', async () => {
+  it('refuses untracked senders and foreign frames on every storage method', async () => {
     const methods = [
       'storage:getItem',
       'storage:setItem',
       'storage:removeItem',
-      'storage:clear',
       'storage:getAllKeys',
-      'settings:clearAll',
     ];
     for (const method of methods) {
       await expect(invokeFrom(UNTRACKED_SENDER_ID, method, { malformed: true })).rejects.toThrow(
@@ -172,8 +141,8 @@ describe('storage preferences IPC domain', () => {
         )
       ).rejects.toThrow(`Desktop IPC ${method} rejected an unrecognized sender frame URL.`);
     }
-    expect(storage.clearExcept).not.toHaveBeenCalled();
-    expect(store.clear).not.toHaveBeenCalled();
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(storage.removeItem).not.toHaveBeenCalled();
   });
 
   it('serves bounded storage helpers only in Electron E2E mode', async () => {
@@ -196,17 +165,11 @@ describe('storage preferences IPC domain', () => {
     expect(storage.clear).toHaveBeenCalledTimes(1);
   });
 
-  it('clears settings and stops serving its methods once unregistered', async () => {
-    await expect(invoke('settings:clearAll')).resolves.toEqual({ success: true });
-    expect(store.clear).toHaveBeenCalled();
-
+  it('stops serving its methods once unregistered', async () => {
     unregister();
 
     await expect(invoke('storage:getItem', 'alpha')).rejects.toThrow(
       'No desktop IPC handler for storage:getItem.'
-    );
-    await expect(invoke('settings:clearAll')).rejects.toThrow(
-      'No desktop IPC handler for settings:clearAll.'
     );
   });
 });

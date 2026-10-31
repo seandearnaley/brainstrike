@@ -21,7 +21,7 @@ import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
-import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
+import { storageContract } from './ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
@@ -50,7 +50,6 @@ const { contextBridge, webUtils } = electron;
 type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBridge;
 // The preload's ONE connection to Main: every call and push below rides it by method name.
 const ipcRenderer = createDesktopIpcTransport(electron.ipcRenderer);
-const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
 // unchanged result envelope. Pinned by preload-contract-bridges.test.ts.
@@ -147,9 +146,6 @@ if (shouldExposeBridge('electronAPI')) {
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
     storage: {
-      // A factory reset's renderer step clears the product way in E2E too: only Main's
-      // reset barrier erases the root ledgers its live index reads.
-      clear: storageBridge.clear,
       ...(DESKTOP_TEST_MODE
         ? { clearAllForE2e: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.clearAllForE2e) }
         : {}),
@@ -168,8 +164,6 @@ if (shouldExposeBridge('electronAPI')) {
 
 // Secure Secrets API
 contextBridge.exposeInMainWorld('secrets', {
-  clearAll: () =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.secrets.clearAll, SECRETS_CLEAR_CONFIRMATION_TOKEN),
   deleteKey: (provider: string) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.secrets.delete, provider),
   getCredential: (provider: string) =>
@@ -192,8 +186,6 @@ contextBridge.exposeInMainWorld('envBootstrap', {
   read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.secrets.envBootstrap),
 });
 
-// Settings Store API (factory reset support)
-exposeBridge('settings', settingsContract);
 if (shouldExposeBridge('indexSearch')) {
   exposeBridge('indexSearch', indexSearchContract);
 }

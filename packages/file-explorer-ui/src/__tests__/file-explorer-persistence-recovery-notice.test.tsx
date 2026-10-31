@@ -121,7 +121,6 @@ describe('FileExplorerProvider persistence recovery notice', () => {
     await seedPersistedState(backingStorage, validSerializedState);
     let remainingReadFailures = 2;
     const unavailableStorage = {
-      clear: () => backingStorage.clear(),
       getAllKeys: () => backingStorage.getAllKeys(),
       getItem: async (key: string) => {
         if (remainingReadFailures > 0) {

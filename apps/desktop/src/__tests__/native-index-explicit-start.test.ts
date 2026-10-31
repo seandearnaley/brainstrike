@@ -143,6 +143,7 @@ it('quit after a content clear settles without waiting for the held reopen', asy
   const f = heldOpens();
   const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
   const reset = createDesktopFactoryResetHandler({
+    clearCredentials: async () => true,
     clearRetainedContent: async () => {
       await f.activation.destroyNativeOwner();
       f.held.hold = true;

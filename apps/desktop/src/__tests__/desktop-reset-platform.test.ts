@@ -4,6 +4,7 @@ const resetDesktopApplicationDataMock = vi.hoisted(() => vi.fn());
 const completeSuccessfulResetMock = vi.hoisted(() => vi.fn(async () => undefined));
 const resetPersistentStorageAfterDataDeletionMock = vi.hoisted(() => vi.fn(async () => undefined));
 
+const clearCredentials = vi.fn(async () => true);
 const prepareDatabaseProfileReset = vi.fn(async () => ({
   clearRootContents: async () => undefined,
   isReleased: false,
@@ -40,6 +41,7 @@ describe('createDesktopFactoryResetHandler', () => {
 
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -65,6 +67,7 @@ describe('createDesktopFactoryResetHandler', () => {
 
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -118,6 +121,49 @@ describe('createDesktopFactoryResetHandler', () => {
     );
   });
 
+  it('clears stored credentials before stopping runtimes; a content clear keeps them', async () => {
+    const runThroughStop = async (options: { stopBackgroundRuntimes: () => Promise<void> }) => {
+      await options.stopBackgroundRuntimes();
+      return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
+    };
+    const stop = vi.fn(async () => undefined);
+    const clear = vi.fn(async () => true);
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials: clear,
+      clearRetainedContent: async () => ({ deletedChunks: 0, deletedFiles: 0 }),
+      completeSuccessfulReset: completeSuccessfulResetMock,
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      prepareDatabaseProfileReset,
+      resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      runTransition: (work) => work(),
+      runtimes: [{ name: 'native-index-sources', stop }],
+      sessionDataPath: '/mock/userData/session-data',
+      userDataPath: '/mock/userData',
+    });
+
+    await expect(handleReset.clearContent()).resolves.toMatchObject({ success: true });
+    expect(clear).not.toHaveBeenCalled();
+
+    resetDesktopApplicationDataMock.mockImplementationOnce(runThroughStop);
+    await expect(handleReset.reset()).resolves.toEqual({ success: true });
+    expect(clear).toHaveBeenCalledOnce();
+    expect(clear.mock.invocationCallOrder[0]).toBeLessThan(
+      stop.mock.invocationCallOrder.at(-1) ?? 0
+    );
+
+    // Credentials that survive would outlive the profile, so the reset fails.
+    clear.mockResolvedValueOnce(false);
+    stop.mockClear();
+    resetDesktopApplicationDataMock.mockImplementationOnce(runThroughStop);
+    await expect(handleReset.reset()).resolves.toEqual({
+      message: 'Stored credentials were not cleared',
+      success: false,
+    });
+    expect(stop).not.toHaveBeenCalled();
+  });
+
   it('forwards errorLogFilePaths through to resetDesktopApplicationData unchanged', async () => {
     const errorLogFilePaths = [
       '/mock/logs/brainstrike-errors.ndjson',
@@ -126,6 +172,7 @@ describe('createDesktopFactoryResetHandler', () => {
 
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       errorLogFilePaths,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -154,6 +201,7 @@ describe('createDesktopFactoryResetHandler', () => {
 
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       prepareDatabaseProfileReset,
@@ -186,6 +234,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const completeSuccessfulReset = vi.fn(async () => await rendererReplacement.promise);
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -219,6 +268,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const resumeAfterReset = vi.fn(async () => undefined);
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -252,6 +302,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const resumeAfterReset = vi.fn(async () => undefined);
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -284,6 +335,7 @@ describe('createDesktopFactoryResetHandler', () => {
       const resumeAfterReset = vi.fn(async () => undefined);
       const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
       const handleReset = createDesktopFactoryResetHandler({
+        clearCredentials,
         completeSuccessfulReset: completeSuccessfulResetMock,
         logger,
         prepareDatabaseProfileReset,
@@ -319,6 +371,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       prepareDatabaseProfileReset,
@@ -347,6 +400,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const resumeAfterReset = vi.fn(async () => undefined);
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: vi.fn(async () => {
         throw new Error('renderer did not report ready');
       }),
@@ -388,6 +442,7 @@ describe('createDesktopFactoryResetHandler', () => {
 
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       prepareDatabaseProfileReset,
@@ -424,6 +479,7 @@ describe('createDesktopFactoryResetHandler', () => {
       const resumeAfterReset = vi.fn(async () => undefined);
       const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
       const owner = createDesktopFactoryResetHandler({
+        clearCredentials,
         completeSuccessfulReset: completeSuccessfulResetMock,
         logger,
         prepareDatabaseProfileReset,
@@ -481,6 +537,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const resumeAfterReset = vi.fn(async () => undefined);
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: (signal: AbortSignal) => {
         signal.addEventListener('abort', () => replacement.resolve(), { once: true });
         return replacement.promise;
@@ -542,6 +599,7 @@ describe('createDesktopFactoryResetHandler', () => {
       const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
       const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
       const handleReset = createDesktopFactoryResetHandler({
+        clearCredentials,
         completeSuccessfulReset: completeSuccessfulResetMock,
         logger,
         prepareDatabaseProfileReset,
@@ -576,6 +634,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       prepareDatabaseProfileReset,
@@ -606,6 +665,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger,
       prepareDatabaseProfileReset,
@@ -654,6 +714,7 @@ describe('createDesktopFactoryResetHandler', () => {
     });
     const resumeAfterReset = vi.fn(async () => {});
     const options = {
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -710,6 +771,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const stop = vi.fn(async () => {});
     const resumeAfterReset = vi.fn(async () => {});
     const options = {
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -735,6 +797,7 @@ describe('createDesktopFactoryResetHandler', () => {
   it('refuses a reset once shutdown has closed it, touching nothing', async () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -761,6 +824,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const resumeAfterReset = vi.fn(async () => undefined);
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
+      clearCredentials,
       completeSuccessfulReset: () => replacement.promise,
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
@@ -800,6 +864,7 @@ it('clears content through the same retirement owner without purging retained se
   });
   const storageClear = vi.fn(async () => undefined);
   const reset = createDesktopFactoryResetHandler({
+    clearCredentials,
     clearRetainedContent,
     completeSuccessfulReset: async (_signal, mode) => {
       order.push(`replace:${mode}`);
@@ -854,6 +919,7 @@ it('joins duplicate content clears but does not swallow a subsequent factory res
   const purgeCount = resetDesktopApplicationDataMock.mock.calls.length;
   const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
   const reset = createDesktopFactoryResetHandler({
+    clearCredentials,
     clearRetainedContent,
     completeSuccessfulReset: vi.fn(async () => undefined),
     logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },

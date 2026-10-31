@@ -29,6 +29,10 @@ interface DesktopContentClearCounts {
 }
 
 export interface CreateDesktopFactoryResetHandlerOptions {
+  /** Clears every stored credential through its one writer, including those in
+   * the OS keychain, which lives outside userData where the purge cannot reach.
+   * Resolves whether it cleared. A content clear keeps credentials. */
+  readonly clearCredentials: () => Promise<boolean>;
   /** Terminal clear through the current host writer; retains configuration in place. */
   readonly clearRetainedContent?: () => Promise<DesktopContentClearCounts>;
   /** Replaces the stale visible renderer and resolves only after its explicit
@@ -169,6 +173,7 @@ async function stopDesktopResetRuntimes(
 }
 
 export function createDesktopFactoryResetHandler({
+  clearCredentials,
   clearRetainedContent,
   completeSuccessfulReset,
   crashDumpsPath,
@@ -212,6 +217,9 @@ export function createDesktopFactoryResetHandler({
             await resetLocalDatabase(profileResetLease);
           },
           stopBackgroundRuntimes: async () => {
+            if (!(await clearCredentials())) {
+              throw new Error('Stored credentials were not cleared');
+            }
             await stopDesktopResetRuntimes(runtimes);
             // Browser pane (BST-1174). Order matters: CLOSE the live
             // `WebContentsView`s first, THEN clear the partition. A still-running
