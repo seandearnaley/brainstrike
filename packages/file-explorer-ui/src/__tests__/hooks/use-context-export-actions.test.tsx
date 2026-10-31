@@ -18,13 +18,9 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useToastManager: () => ({ toast: mockToast }),
 }));
 
-vi.mock('@brainstrike/hooks', async () => {
-  const { useEventCallbackMock } = await import('../__mocks__/use-event-callback-mock');
-  return {
-    useEventCallback: useEventCallbackMock,
-    useReportManager: (args: unknown) => mockUseReportManager(args),
-  };
-});
+vi.mock('@brainstrike/hooks', () => ({
+  useReportManager: (args: unknown) => mockUseReportManager(args),
+}));
 
 const createWrapper = () => {
   const Wrapper = ({ children }: { children: React.ReactNode }) => <>{children}</>;
