@@ -2,7 +2,7 @@ import type { SlashCommand } from '@brainstrike/assistant-ui';
 import type { CommandContext, RunCommand } from '@brainstrike/context-actions/commands';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   buildAppActionRegistryParts,
   buildAppCommandContext,
@@ -47,6 +47,9 @@ const logger = createLogger('AssistantSlashCommands');
  * `threadId` is the active assistant thread, threaded to user commands so their
  * `execute` can read the live composer draft and write the expansion back.
  */
+/** App-lifetime warn-once set for app-vs-user/skill/MCP id collisions (F4). */
+const warnedCollisionIds = new Set<string>();
+
 export function useAssistantSlashCommands(threadId: string | undefined): readonly SlashCommand[] {
   const { toast } = useToast();
   const handlers = useGlobalCommandHandlers();
@@ -103,20 +106,17 @@ export function useAssistantSlashCommands(threadId: string | undefined): readonl
   // drop applies on principle.
   const mcpPromptCommands = useMcpPromptSlashCommands(threadId);
 
-  // App-lifetime warn-once set for app-vs-user/skill/MCP id collisions (F4).
-  const warnedCollisionIds = useRef<Set<string>>(new Set());
-
   return useMemo<readonly SlashCommand[]>(() => {
     const withUserCommands = mergeSlashCommands(appCommands, userCommands, {
       logger,
-      warnedCollisionIds: warnedCollisionIds.current,
+      warnedCollisionIds,
     });
     // Skills (`skill:<name>`) and MCP prompts (`mcp:<server>:<prompt>`) are
     // namespaced, so they cannot collide with each other and merge against the
     // app commands in one pass — the app-wins warn-once drop still covers both.
     return mergeSlashCommands(withUserCommands, [...skillCommands, ...mcpPromptCommands], {
       logger,
-      warnedCollisionIds: warnedCollisionIds.current,
+      warnedCollisionIds,
     });
   }, [appCommands, mcpPromptCommands, skillCommands, userCommands]);
 }

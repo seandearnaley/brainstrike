@@ -25,13 +25,14 @@ export function useApprovalSubmission(identityKey: string) {
   if (!state) {
     throw new Error('Approval controls require ApprovalSubmissionProvider.');
   }
+  const { setFailure: setKeyedFailure, setSubmission: setKeyedSubmission } = state;
   const setSubmission = useCallback(
-    (value: ApprovalSubmission | null) => state.setSubmission(identityKey, value),
-    [identityKey, state.setSubmission]
+    (value: ApprovalSubmission | null) => setKeyedSubmission(identityKey, value),
+    [identityKey, setKeyedSubmission]
   );
   const setFailure = useCallback(
-    (value: ApprovalSendFailure | null) => state.setFailure(identityKey, value),
-    [identityKey, state.setFailure]
+    (value: ApprovalSendFailure | null) => setKeyedFailure(identityKey, value),
+    [identityKey, setKeyedFailure]
   );
   return {
     sendFailure: state.failures.get(identityKey) ?? null,

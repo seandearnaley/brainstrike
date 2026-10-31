@@ -362,8 +362,10 @@ function useDebouncedPanelLayoutChange(options: {
   /** The resize the debounce still holds: the panel layout's only write-behind tail. */
   const pendingSizesRef = useRef<DebouncedPanelLayoutState | null>(null);
 
-  panelStateRef.current = panelState;
-  setStateRef.current = setState;
+  useLayoutEffect(() => {
+    panelStateRef.current = panelState;
+    setStateRef.current = setState;
+  });
 
   const cleanupSizeDebounce = useCallback(() => {
     if (sizeDebounceRef.current) {
