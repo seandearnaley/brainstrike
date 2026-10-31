@@ -104,7 +104,7 @@ export type FileRowDirectorySubtree =
     };
 
 export interface FileRowMetadataSources {
-  /** `file_token_cache.file_size`; the fallback when the node has no size. */
+  /** The cached entry's `fileSize`; the fallback when the node has no size. */
   getCachedSize: (compositeKey: string) => number | undefined;
   /**
    * Enumerated subtree for a directory key. TOTAL by contract: a key the caller
@@ -124,7 +124,7 @@ export interface FileRowMetadataSources {
   getDirectorySubtree: (compositeKey: string) => FileRowDirectorySubtree;
   /** `IFileNode.size` fed by the tree; the preferred size source. */
   getNodeSize: (compositeKey: string) => number | undefined;
-  /** Hot-cache (PGlite-warmed) count; `undefined` when not counted yet. */
+  /** Hot-cache count; `undefined` when not counted yet. */
   getTokenCount: (compositeKey: string) => number | undefined;
 }
 

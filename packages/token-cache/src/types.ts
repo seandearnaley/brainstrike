@@ -10,7 +10,7 @@
 export type TokenCountingMode = 'accurate' | 'heuristic';
 
 /**
- * Entry stored in the persistent token cache (PGlite)
+ * Entry stored in the token cache
  */
 export interface TokenCacheEntry {
   /** xxHash64 of file content for change detection */

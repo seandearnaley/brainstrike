@@ -3,7 +3,7 @@
  *
  * Two-phase grep over indexed file chunks:
  *   Phase 1: a GrepSearchRepository selects candidate chunks (the native
- *     index on desktop; a trigram-indexed ILIKE/LIKE in PGlite). Regex patterns
+ *     index on desktop). Regex patterns
  *     are prefiltered on their longest guaranteed literal (extractTrigramLiteral);
  *     patterns with no such literal fall back to a bounded unfiltered scan,
  *     surfaced via scanLimited when (and only when) that scan hit its

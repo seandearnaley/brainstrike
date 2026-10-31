@@ -42,7 +42,7 @@
  *    containing workspace root resolves to a null `resolutionRootId` while the
  *    surface's own `rootId` stays non-null, so the panes render and wait.
  * 2. A CALL THAT NEVER ANSWERS. `bridge.resolveView` is a main-process
- *    round-trip that reaches PGlite through the DB host. When that host is
+ *    round-trip that reaches the database through the DB host. When that host is
  *    wedged (observed in the field: a 30s `VACUUM (ANALYZE)` blowing its own
  *    timeout, every later query queued behind it) the desktop side eventually
  *    rejects with its own 30s per-request timeout — but nothing in the

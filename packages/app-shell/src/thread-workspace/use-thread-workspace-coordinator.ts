@@ -780,7 +780,7 @@ export function useThreadWorkspaceCoordinator({
     }
     if (!repository) {
       // Boot before the database is ready (reload reality: activeThreadId
-      // restores from localStorage instantly, PGlite takes seconds). The
+      // restores from localStorage instantly, the database takes seconds). The
       // persisted singleton stores already show a workspace; remember the
       // thread so hydration runs when the repository arrives — session-only
       // state (per-tab panes) has no other restore path.

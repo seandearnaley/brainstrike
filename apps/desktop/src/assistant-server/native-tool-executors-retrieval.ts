@@ -1,6 +1,6 @@
 /**
  * The retrieval tools (queryEmbeddingSpace, hybridSearch, listEmbeddingSpaces)
- * over a caller-supplied store and native index: Main binds its own PGlite
+ * over a caller-supplied store and native index: Main binds its own SQLite
  * catalog and index capability, the desktop agent host binds typed reads of
  * them. This module must not import Electron or Main's database: the host
  * bundle loads it.

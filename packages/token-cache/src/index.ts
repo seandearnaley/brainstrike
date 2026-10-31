@@ -1,13 +1,12 @@
 /**
  * @brainstrike/token-cache
  *
- * Persistent token cache with background worker for file explorer.
+ * Token cache with background worker for file explorer.
  *
  * Features:
- * - PGlite-backed persistent storage
+ * - In-memory cache over a caller-supplied store (the explorer's is in-memory too)
  * - xxHash64 content hashing for change detection
  * - Background Web Worker for non-blocking token counting
- * - Two-level caching (hot memory + cold PGlite)
  * - React hook for easy integration
  */
 
