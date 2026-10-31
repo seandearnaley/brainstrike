@@ -68,7 +68,7 @@ beforeEach(() => {
  * `AssistantUiPanelWrapper` needs the whole provider/runtime harness, and its
  * own render count is dominated by streaming state. This harness pins the same
  * invariant at the seam that actually decides it: the subscription lives in the
- * host, and the host is memoized.
+ * host.
  */
 describe('WorkspaceBarHost', () => {
   it('absorbs a live-refresh signal without re-rendering its siblings', () => {
@@ -90,16 +90,5 @@ describe('WorkspaceBarHost', () => {
     expect(renders.bar).toBe(2);
     expect(renders.parent).toBe(parentRenders);
     expect(renders.probe).toBe(probeRenders);
-  });
-
-  it('does not re-render when the parent re-renders with unchanged args', () => {
-    const { rerender } = render(<Parent tick={0} />);
-    expect(renders.bar).toBe(1);
-
-    rerender(<Parent tick={1} />);
-
-    expect(renders.parent).toBe(2);
-    expect(renders.probe).toBe(2);
-    expect(renders.bar).toBe(1);
   });
 });

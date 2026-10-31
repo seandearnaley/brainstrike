@@ -839,7 +839,7 @@ const DEFAULT_PANEL_CONSTRAINTS: IdeLayoutPanelConstraints = {
   rightPanelMinSize: '15%',
 };
 
-export const IdeLayout = React.memo(function IdeLayout({
+export function IdeLayout({
   children,
   inheritFileEditorContext = false,
   leftPanelContent,
@@ -1361,4 +1361,4 @@ export const IdeLayout = React.memo(function IdeLayout({
       </div>
     </IdeFileEditorContext.Provider>
   );
-});
+}

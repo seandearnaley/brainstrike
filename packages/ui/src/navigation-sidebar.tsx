@@ -1,4 +1,5 @@
-import React, { type ComponentType, type ReactElement, type ReactNode } from 'react';
+import type React from 'react';
+import type { ComponentType, ReactElement, ReactNode } from 'react';
 import { cn } from './lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
@@ -43,7 +44,7 @@ const getNavItemStyles = (isActive: boolean): string =>
     ]
   );
 
-const NavigationSidebar = React.memo(function NavigationSidebar({
+function NavigationSidebar({
   items,
   currentPath,
   children,
@@ -121,7 +122,6 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
       {children ? <div className="mt-auto flex flex-col items-center gap-2">{children}</div> : null}
     </nav>
   );
-});
-NavigationSidebar.displayName = 'NavigationSidebar';
+}
 
 export { NavigationSidebar };

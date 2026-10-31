@@ -9,7 +9,6 @@ import {
 } from '@brainstrike/ui';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { AlertTriangle, ArrowLeft, Bug, FileWarning, RefreshCw, Server, X } from 'lucide-react';
-import { memo } from 'react';
 
 /**
  * Error boundary tailored for the file explorer UI. It extends the generic
@@ -213,14 +212,9 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
 // biome-ignore lint/suspicious/noExplicitAny: React displayName requires any type
 (FileExplorerErrorBoundaryInner as any).displayName = 'FileExplorerErrorBoundaryInner';
 
-const FileExplorerErrorBoundary = memo(function FileExplorerErrorBoundary(
-  props: ErrorBoundaryProps
-) {
+function FileExplorerErrorBoundary(props: ErrorBoundaryProps) {
   const { toast } = useToast();
   return <FileExplorerErrorBoundaryInner {...props} toast={toast} />;
-});
-
-// Set displayName for the wrapper component
-FileExplorerErrorBoundary.displayName = 'FileExplorerErrorBoundary';
+}
 
 export default FileExplorerErrorBoundary;

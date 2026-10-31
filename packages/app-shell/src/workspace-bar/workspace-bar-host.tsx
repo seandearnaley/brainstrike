@@ -1,5 +1,5 @@
 import { WorkspaceBar } from '@brainstrike/assistant-ui';
-import { memo, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { type UseWorkspaceBarArgs, useWorkspaceBar } from '../hooks/use-workspace-bar';
 
 export type WorkspaceBarHostProps = UseWorkspaceBarArgs;
@@ -29,9 +29,7 @@ export type WorkspaceBarHostProps = UseWorkspaceBarArgs;
  * (store values, the db handle, ids), so the shallow prop compare bails out —
  * a wrapper render that changed none of the bar's inputs never reaches it.
  */
-export const WorkspaceBarHost = memo(function WorkspaceBarHost(
-  args: WorkspaceBarHostProps
-): ReactElement {
+export function WorkspaceBarHost(args: WorkspaceBarHostProps): ReactElement {
   const barProps = useWorkspaceBar(args);
   return <WorkspaceBar {...barProps} />;
-});
+}
