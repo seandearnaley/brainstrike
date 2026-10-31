@@ -38,6 +38,7 @@ export function formatHostThreadDebugPack(
 ): string {
   const { hostManifest, redaction, sections, structuralElisions } = redactDebugPack(
     {
+      crashDumps: hostEvidenceValue(host.crashDumps),
       diagnosticEvents: hostEvidenceValue(host.diagnosticEvents),
       hostLog: hostEvidenceValue(host.hostLog),
       processCounters: hostEvidenceValue(host.processCounters),
@@ -57,6 +58,7 @@ export function formatHostThreadDebugPack(
       'workspace.edit.recorded and workspace.edit.reverted are workspace edits and their reverts. command.accepted records each client command the host accepted.',
       'hostLog is the desktop main-process log (warn and above, redacted before write) for manifest.host.window, with failure-marker counts over every level; processCounters are 30 s samples of heap, WebAssembly instantiations and failures, and native background task counts. manifest.host says whether each was included and why not.',
       'diagnosticEvents.events are the newest records in the retained diagnostic log, newest first: what any process (source) logged at warn or above, from any thread or none and from earlier launches too. The status bar’s error and warning count covers this launch’s records logged since the user last clicked it; sessionId and occurredAt tell launches and times apart.',
+      'crashDumps lists the minidumps Crashpad wrote for any crashed process since the last factory reset (name, folder, time, size), newest first; the files stay on this machine (Help › Show Crash Reports). A “Renderer process gone” or “Child process gone” event at the same time names the process.',
       'Report evidence using thread, run, seq and tool-call IDs. Distinguish observed facts from hypotheses and missing evidence.',
     ],
     manifest: {
@@ -77,6 +79,7 @@ export function formatHostThreadDebugPack(
         'Secrets are redacted by key and recognized value shapes. Conversation text, file content and paths may remain private; review locally before sharing.',
         'hostLog and processCounters exist only on desktop and cover the main process; renderer console output is not in the main log. The counter ring holds the last two hours and is cleared by factory reset.',
         'diagnosticEvents holds at most the newest 50 records, so a long burst can push older ones out; the full log is in Settings › Logging.',
+        'crashDumps names at most the newest 20 minidumps (totalCount counts every one) and never carries their contents.',
       ],
       platform: typeof navigator === 'undefined' ? 'unknown' : navigator.platform,
       redaction,

@@ -76,6 +76,7 @@ import {
   isExpectedShutdownRefusal,
   markDesktopShuttingDown,
 } from './desktop-shutdown-state';
+import { listCrashDumps } from './diagnostics/crash-dumps';
 import {
   createErrorLogSink,
   ERROR_LOG_FILE_NAME,
@@ -836,6 +837,9 @@ ipcDisposers.add('main', () => {
 ipcDisposers.add(
   'desktop-diagnostics',
   registerDesktopDiagnosticsIpcHandlers({
+    crashDumps: {
+      list: () => listCrashDumps(app.getPath('crashDumps')),
+    },
     crashRecovery: {
       getSnapshot: getDesktopCrashRecoverySnapshot,
     },
@@ -1360,6 +1364,18 @@ if (singleInstanceLockAcquired) {
       const openSettingsFromMenu = (targetWindow?: Electron.BaseWindow): void => {
         pushToMenuTargetWindow(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined, targetWindow);
       };
+      const showFolderFromMenu = (label: string, folderPath: string): void => {
+        shell
+          .openPath(folderPath)
+          .then((failure) => {
+            if (failure !== '') {
+              logger.warn(`Failed to show the ${label} folder`, { failure, folderPath });
+            }
+          })
+          .catch((error: unknown) => {
+            logger.warn(`Failed to show the ${label} folder`, { error, folderPath });
+          });
+      };
       const helpMenu = buildHelpMenuTemplate({
         includeAbout: !isMac,
         onOpenReleaseNotes: () => {
@@ -1368,18 +1384,11 @@ if (singleInstanceLockAcquired) {
             logger.warn('Failed to open the release notes', { error, url });
           });
         },
+        onShowCrashReports: () => {
+          showFolderFromMenu('crash reports', app.getPath('crashDumps'));
+        },
         onShowLogs: () => {
-          const logsPath = app.getPath('logs');
-          shell
-            .openPath(logsPath)
-            .then((failure) => {
-              if (failure !== '') {
-                logger.warn('Failed to show the logs folder', { failure, logsPath });
-              }
-            })
-            .catch((error: unknown) => {
-              logger.warn('Failed to show the logs folder', { error, logsPath });
-            });
+          showFolderFromMenu('logs', app.getPath('logs'));
         },
       });
 
@@ -1700,6 +1709,22 @@ if (singleInstanceLockAcquired) {
 // quit prepares the window first (`installDocumentUnload`). Subscribing still matters: without a
 // listener Electron itself quits whenever every window has closed.
 app.on('window-all-closed', () => undefined);
+
+// Crashpad leaves a minidump for a crashed child process; this record names the
+// process beside the dump's time (BST-2351). App windows log their own renderer
+// in create-window; any other exit is the owning manager's to report.
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason !== 'crashed' && details.reason !== 'oom') {
+    return;
+  }
+  logger.error('Child process gone', {
+    exitCode: details.exitCode,
+    name: details.name,
+    reason: details.reason,
+    serviceName: details.serviceName,
+    type: details.type,
+  });
+});
 
 // Clean shutdown
 app.on('before-quit', (event) => {

@@ -49,6 +49,8 @@ describe('factory reset with the packaged macOS database layout', () => {
     writeFileSync(path.join(pgdata, 'PG_VERSION'), '18');
     mkdirSync(path.join(rootPath, 'backups', `${profile}-2026-09-29`), { recursive: true });
     mkdirSync(path.join(userData, 'Local Storage'));
+    mkdirSync(path.join(userData, 'Crashpad', 'completed'), { recursive: true });
+    writeFileSync(path.join(userData, 'Crashpad', 'completed', 'report.dmp'), 'minidump');
     mkdirSync(path.join(userData, 'logs'));
     writeFileSync(path.join(userData, 'logs', 'brainstrike.log'), 'kept');
     return { pgdata, root: rootPath };
@@ -79,6 +81,8 @@ describe('factory reset with the packaged macOS database layout', () => {
       expect(existsSync(RootLock.dirOf(lease.root))).toBe(true);
       expect(existsSync(path.join(root, 'backups'))).toBe(false);
       expect(existsSync(path.join(userData, 'Local Storage'))).toBe(false);
+      // The profile's minidumps go with it (BST-2351).
+      expect(existsSync(path.join(userData, 'Crashpad'))).toBe(false);
       expect(existsSync(path.join(sessionData, 'engine-container'))).toBe(true);
       expect(result.preservedPaths).toContain(RootLock.dirOf(lease.root));
       await expect(RootLock.acquire(profile)).rejects.toMatchObject({ name: 'RootLockedError' });

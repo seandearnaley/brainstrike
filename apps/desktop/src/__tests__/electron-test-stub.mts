@@ -46,6 +46,10 @@ export const app = {
   whenReady: () => Promise.resolve(),
 };
 
+export const crashReporter = {
+  start: noop,
+};
+
 export const BrowserWindow = class {
   static getAllWindows(): unknown[] {
     return [];

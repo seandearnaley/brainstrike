@@ -2,6 +2,7 @@ import { LogLevel } from '@brainstrike/logging';
 import type { DatabaseIntegritySnapshot } from '@brainstrike/types';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
+import type { CrashDumpListing } from './diagnostics/crash-dumps';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type { LoggingSettingsPayload } from './logging-shared';
@@ -33,6 +34,10 @@ export interface DesktopPlatformDiagnosticsSnapshot {
 }
 
 export interface DesktopPlatformDiagnosticsProviders {
+  readonly crashDumps: {
+    /** The profile's minidumps, read on demand by the thread debug pack. */
+    readonly list: () => Promise<CrashDumpListing>;
+  };
   readonly crashRecovery: {
     readonly getSnapshot: () => DesktopRendererCrashRecoverySnapshot;
   };

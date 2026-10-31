@@ -58,6 +58,7 @@ const mockApp = {
 const electronServices = {
   app: mockApp,
   clipboard: { writeText: vi.fn() },
+  crashReporter: { start: vi.fn() },
   ipcMain: {
     handle: vi.fn(),
   },

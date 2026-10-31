@@ -33,7 +33,12 @@ function click(item: Electron.MenuItemConstructorOptions | undefined): void {
 }
 
 describe('platform menus', () => {
-  const help = { includeAbout: true, onOpenReleaseNotes: vi.fn(), onShowLogs: vi.fn() };
+  const help = {
+    includeAbout: true,
+    onOpenReleaseNotes: vi.fn(),
+    onShowCrashReports: vi.fn(),
+    onShowLogs: vi.fn(),
+  };
   const menus = [
     buildMacAppMenuTemplate({ appName: 'Brainstrike', onOpenSettings: vi.fn() }),
     buildMacWindowMenuTemplate(),
@@ -122,18 +127,31 @@ describe('buildFileMenuClosingItems', () => {
 });
 
 describe('buildHelpMenuTemplate', () => {
-  it('opens the release notes and the logs', () => {
+  it('opens the release notes, the logs and the crash reports', () => {
     const onOpenReleaseNotes = vi.fn();
+    const onShowCrashReports = vi.fn();
     const onShowLogs = vi.fn();
-    const template = buildHelpMenuTemplate({ includeAbout: false, onOpenReleaseNotes, onShowLogs });
+    const template = buildHelpMenuTemplate({
+      includeAbout: false,
+      onOpenReleaseNotes,
+      onShowCrashReports,
+      onShowLogs,
+    });
     expect(template.role).toBe('help');
     const items = submenuOf(template);
-    expect(items.map((item) => item.label)).toEqual(['Release Notes', 'Show Logs']);
+    expect(items.map((item) => item.label)).toEqual([
+      'Release Notes',
+      'Show Logs',
+      'Show Crash Reports',
+    ]);
     click(items.find((item) => item.id === APP_MENU_IDS.releaseNotes));
     expect(onOpenReleaseNotes).toHaveBeenCalledOnce();
     expect(onShowLogs).not.toHaveBeenCalled();
     click(items.find((item) => item.id === APP_MENU_IDS.showLogs));
     expect(onShowLogs).toHaveBeenCalledOnce();
+    expect(onShowCrashReports).not.toHaveBeenCalled();
+    click(items.find((item) => item.id === APP_MENU_IDS.showCrashReports));
+    expect(onShowCrashReports).toHaveBeenCalledOnce();
   });
 
   it('ends with About where there is no app menu', () => {
@@ -141,6 +159,7 @@ describe('buildHelpMenuTemplate', () => {
       buildHelpMenuTemplate({
         includeAbout: true,
         onOpenReleaseNotes: vi.fn(),
+        onShowCrashReports: vi.fn(),
         onShowLogs: vi.fn(),
       })
     );

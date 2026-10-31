@@ -1,7 +1,9 @@
 # Desktop E2E tests
 
-The merge queue runs every desktop E2E lane on hosted runners. Before a PR, run
-the specs for the feature you changed; `pnpm check` selects broader checks.
+The merge queue runs the smoke and regression suites and the packaged MCP lanes
+on hosted runners; the packaged-target smoke run below is local only. Before a
+PR, run the specs for the feature you changed; `pnpm check` selects broader
+checks.
 
 ## Run locally
 
@@ -18,9 +20,9 @@ From `apps/desktop`, run a focused spec:
 pnpm test:e2e e2e/workspace-bar.desktop.test.ts --project=regression
 ```
 
-To run the same specs against the packaged app, package it the way
-[`native-package-matrix.yml`](../../../.github/workflows/native-package-matrix.yml)
-does (with `CSC_IDENTITY_AUTO_DISCOVERY=false` locally), then:
+To run the same specs against the packaged app, package it the way the Native
+Electron Package job in [`test.yml`](../../../.github/workflows/test.yml) does
+(with `CSC_IDENTITY_AUTO_DISCOVERY=false` locally), then:
 
 ```sh
 BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged pnpm --filter @brainstrike/desktop test:e2e:lane:smoke

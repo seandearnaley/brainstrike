@@ -8,6 +8,7 @@ import type { ThreadDebugHostEvidence } from '../diagnostics/thread-debug-pack';
 
 // Host evidence is a required, explicit input; these format cases are not about it.
 const HOST_NOT_UNDER_TEST: ThreadDebugHostEvidence = {
+  crashDumps: { reason: 'not under test', status: 'unavailable' },
   diagnosticEvents: { reason: 'not under test', status: 'unavailable' },
   hostLog: { reason: 'not under test', status: 'unavailable' },
   processCounters: { reason: 'not under test', status: 'unavailable' },
@@ -31,6 +32,7 @@ describe('host thread debug pack', () => {
     expect(noBridge.sections.hostLog).toBeNull();
     expect(noBridge.sections.processCounters).toBeNull();
     expect(noBridge.sections.diagnosticEvents).toBeNull();
+    expect(noBridge.sections.crashDumps).toBeNull();
     expect(noBridge.manifest.host.hostLog).toMatch(/^unavailable: no desktop diagnostics bridge/u);
     expect(noBridge.manifest.host.processCounters).toMatch(
       /^unavailable: no desktop diagnostics bridge/u
@@ -39,6 +41,7 @@ describe('host thread debug pack', () => {
 
     const failed = JSON.parse(
       await buildHostThreadDebugPack(snapshot(), {
+        listCrashDumps: vi.fn().mockRejectedValue(new Error('EACCES: permission denied')),
         queryEvents: vi.fn().mockRejectedValue(new Error('Malformed diagnostic record')),
         readMainLogWindow: vi
           .fn()
@@ -47,6 +50,7 @@ describe('host thread debug pack', () => {
       })
     );
     expect(failed.manifest.host).toEqual({
+      crashDumps: 'unavailable: EACCES: permission denied',
       diagnosticEvents: 'unavailable: Malformed diagnostic record',
       hostLog: 'unavailable: Main log file logging is disabled',
       processCounters: 'unavailable: malformed process counter result (no samples array)',
@@ -59,6 +63,7 @@ describe('host thread debug pack', () => {
     const readMainLogWindow = vi.fn();
     const pack = JSON.parse(
       await buildHostThreadDebugPack(snapshot({ earliestRunStartMs: null }), {
+        listCrashDumps: vi.fn().mockResolvedValue({ dumps: [] }),
         queryEvents: vi.fn().mockResolvedValue([]),
         readMainLogWindow,
         readProcessCounters: vi.fn().mockResolvedValue({ samples: [] }),
@@ -88,6 +93,7 @@ describe('host thread debug pack', () => {
       await buildHostThreadDebugPack(
         snapshot({ earliestRunStartMs: Date.parse('2026-09-16T02:00:00.000Z') }),
         {
+          listCrashDumps: vi.fn().mockResolvedValue({ dumps: [] }),
           queryEvents,
           readMainLogWindow: vi.fn().mockResolvedValue({ lines: [] }),
           readProcessCounters: vi.fn().mockResolvedValue({ samples: [] }),
@@ -105,6 +111,31 @@ describe('host thread debug pack', () => {
     ]);
   });
 
+  it('names the minidumps a crash left, from any launch (BST-2351)', async () => {
+    const dumps = {
+      directory: '/profile/Crashpad',
+      dumps: [
+        {
+          folder: 'completed',
+          modifiedAt: '2026-09-15T23:00:00.000Z',
+          name: '6f1c0a52-1d2b-4c1e-9a77-0c4c3a1b2d3e.dmp',
+          sizeBytes: 482_113,
+        },
+      ],
+      totalCount: 1,
+    };
+    const pack = JSON.parse(
+      await buildHostThreadDebugPack(snapshot(), {
+        listCrashDumps: vi.fn().mockResolvedValue(dumps),
+        queryEvents: vi.fn().mockResolvedValue([]),
+        readMainLogWindow: vi.fn().mockResolvedValue({ lines: [] }),
+        readProcessCounters: vi.fn().mockResolvedValue({ samples: [] }),
+      })
+    );
+    expect(pack.manifest.host.crashDumps).toBe('included');
+    expect(pack.sections.crashDumps).toEqual(dumps);
+  });
+
   it('redacts secrets inside thread rows and host log lines', () => {
     const apiKey = ['sk', 'abcdefghijklmnopqrstuv'].join('-');
     const pack = formatHostThreadDebugPack(
@@ -118,7 +149,7 @@ describe('host thread debug pack', () => {
         ],
       }),
       {
-        diagnosticEvents: HOST_NOT_UNDER_TEST.diagnosticEvents,
+        ...HOST_NOT_UNDER_TEST,
         hostLog: { status: 'included', value: { lines: [`{"msg":"${apiKey}"}`] } },
         processCounters: HOST_NOT_UNDER_TEST.processCounters,
         window: null,
@@ -131,7 +162,7 @@ describe('host thread debug pack', () => {
   it('scrubs and counts a secret shape inside each unavailable host evidence reason', () => {
     const apiKey = ['sk', 'abcdefghijklmnopqrstuv'].join('-');
     const pack = formatHostThreadDebugPack(snapshot(), {
-      diagnosticEvents: HOST_NOT_UNDER_TEST.diagnosticEvents,
+      ...HOST_NOT_UNDER_TEST,
       hostLog: {
         reason: `not readable at /tmp/${apiKey}/brainstrike.log`,
         status: 'unavailable',
