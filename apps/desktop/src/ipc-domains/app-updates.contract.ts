@@ -7,8 +7,7 @@
  * renderer. PURE — bundled into the preload and imported by main.
  */
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { type Contract, channel, parseNoArgs, pushEvent } from '../platform/ipc-contract';
-import { assertArgCount } from './contract-args';
+import { type Contract, channel, pushEvent } from '../platform/ipc-contract';
 
 export interface AppUpdatePreferences {
   /** Update checks offer the newest release, beta or stable, not only stable ones. */
@@ -32,32 +31,20 @@ export type AppUpdateStatus =
 export const appUpdatesContract = {
   checkNow: channel<[], AppUpdateStatus>({
     channel: DESKTOP_IPC_CHANNELS.appUpdates.checkNow,
-    parseArgs: parseNoArgs,
   }),
   getPreferences: channel<[], AppUpdatePreferences>({
     channel: DESKTOP_IPC_CHANNELS.appUpdates.getPreferences,
-    parseArgs: parseNoArgs,
   }),
   getStatus: channel<[], AppUpdateStatus>({
     channel: DESKTOP_IPC_CHANNELS.appUpdates.getStatus,
-    parseArgs: parseNoArgs,
   }),
   onStatusChange: pushEvent<AppUpdateStatus>({
     channel: DESKTOP_IPC_CHANNELS.appUpdates.statusChanged,
   }),
   restartToUpdate: channel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.appUpdates.restartToUpdate,
-    parseArgs: parseNoArgs,
   }),
   setBetaUpdates: channel<[enabled: boolean], AppUpdatePreferences>({
     channel: DESKTOP_IPC_CHANNELS.appUpdates.setBetaUpdates,
-    parseArgs: (raw) => {
-      assertArgCount(raw, 1, 'app updates setBetaUpdates');
-      const [enabled] = raw;
-      if (typeof enabled !== 'boolean') {
-        throw new TypeError('app updates setBetaUpdates requires a boolean');
-      }
-      return [enabled];
-    },
   }),
 } satisfies Contract;

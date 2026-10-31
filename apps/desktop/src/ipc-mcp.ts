@@ -5,6 +5,7 @@ import { mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { attachMcpBridges } from './mcp/bridges';
 import { getMainMcpHostControl, type MainMcpHostControl } from './mcp/main-host-control';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { NoArgs } from './platform/ipc-args';
 
 /**
  * Main's remaining MCP surfaces (BST-1930 c5d): the native config picker,
@@ -113,10 +114,8 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
   registry.handle(
     'mcp',
     mcpPathSelectionContract.selectPath.channel,
-    (event, ...raw): Promise<string | null> => {
-      mcpPathSelectionContract.selectPath.parseArgs(raw);
-      return selectMcpConfigPath(runtime, event.sender.id);
-    }
+    NoArgs,
+    (event): Promise<string | null> => selectMcpConfigPath(runtime, event.sender.id)
   );
   return () => {
     registry.unregisterAll();

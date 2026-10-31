@@ -1,18 +1,13 @@
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import { Schema } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createDesktopIpcRegistry,
   registerDomain,
   settleIpcResult,
 } from '../../platform/desktop-ipc-registry';
-import {
-  type Contract,
-  channel,
-  ipcOk,
-  parseNoArgs,
-  pushEvent,
-  rawChannel,
-} from '../../platform/ipc-contract';
+import { type ContractArgs, NoArgs } from '../../platform/ipc-args';
+import { type Contract, channel, ipcOk, pushEvent, rawChannel } from '../../platform/ipc-contract';
 import {
   createAllowlistedSenderFrame,
   invokeDesktopIpc,
@@ -21,20 +16,14 @@ import {
 
 const contract = {
   changed: pushEvent<{ readonly id: number }>({ channel: 'fixture:changed' }),
-  list: rawChannel<[], readonly string[]>({
-    channel: 'fixture:list',
-    parseArgs: parseNoArgs,
-  }),
-  writeText: channel<[text: string], void>({
-    channel: 'fixture:write-text',
-    parseArgs: ([text]) => {
-      if (typeof text !== 'string') {
-        throw new Error('fixture writeText requires a string payload');
-      }
-      return [text];
-    },
-  }),
+  list: rawChannel<[], readonly string[]>({ channel: 'fixture:list' }),
+  writeText: channel<[text: string], void>({ channel: 'fixture:write-text' }),
 } satisfies Contract;
+
+const args = {
+  list: NoArgs,
+  writeText: Schema.Tuple([Schema.String]),
+} satisfies ContractArgs<typeof contract>;
 
 function createMockIpcMain() {
   return { handle: vi.fn() };
@@ -51,7 +40,7 @@ describe('registerDomain', () => {
     const ipcMain = createMockIpcMain();
     const registry = createRegistry(ipcMain);
 
-    registerDomain(registry, 'clipboard', contract, {
+    registerDomain(registry, 'clipboard', contract, args, {
       list: () => ['a'],
       writeText: () => ipcOk(undefined),
     });
@@ -66,10 +55,13 @@ describe('registerDomain', () => {
     );
   });
 
-  it('runs parseArgs after authorization and before the handler, and settles malformed input as a boundary fault', async () => {
+  it('decodes arguments before the handler and rejects malformed input without running it', async () => {
     const ipcMain = createMockIpcMain();
     const writeText = vi.fn(() => ipcOk(undefined));
-    registerDomain(createRegistry(ipcMain), 'clipboard', contract, { list: () => [], writeText });
+    registerDomain(createRegistry(ipcMain), 'clipboard', contract, args, {
+      list: () => [],
+      writeText,
+    });
 
     await expect(invokeDesktopIpc(ipcMain, 'fixture:write-text', 'hello')).resolves.toEqual({
       ok: true,
@@ -77,21 +69,20 @@ describe('registerDomain', () => {
     });
     expect(writeText).toHaveBeenCalledWith('hello');
 
-    await expect(invokeDesktopIpc(ipcMain, 'fixture:write-text', 42)).resolves.toEqual({
-      error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
-      ok: false,
-    });
+    await expect(invokeDesktopIpc(ipcMain, 'fixture:write-text', 42)).rejects.toThrow(
+      'Desktop IPC fixture:write-text received invalid arguments'
+    );
     expect(writeText).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses an untracked sender before parsing anything', async () => {
+  it('refuses an untracked sender before running the handler', async () => {
     const ipcMain = createMockIpcMain();
-    const parseArgs = vi.fn(() => [] as []);
     const list = vi.fn(() => 1);
     registerDomain(
       createRegistry(ipcMain),
       'clipboard',
-      { list: rawChannel<[], number>({ channel: 'fixture:list', parseArgs }) },
+      { list: rawChannel<[], number>({ channel: 'fixture:list' }) },
+      { list: NoArgs },
       { list }
     );
     const event = {
@@ -102,7 +93,6 @@ describe('registerDomain', () => {
     await expect(invokeDesktopIpcFrom(ipcMain, event, 'fixture:list')).rejects.toThrow(
       'Desktop IPC fixture:list requires an app window sender.'
     );
-    expect(parseArgs).not.toHaveBeenCalled();
     expect(list).not.toHaveBeenCalled();
   });
 
@@ -111,12 +101,12 @@ describe('registerDomain', () => {
     const missing = createRegistry(ipcMain);
     const extra = createRegistry(ipcMain);
     expect(() =>
-      registerDomain(missing, 'clipboard', contract, {
+      registerDomain(missing, 'clipboard', contract, args, {
         list: () => [],
       } as never)
     ).toThrow('Desktop IPC domain clipboard has no handler for contract key "writeText".');
     expect(() =>
-      registerDomain(extra, 'clipboard', contract, {
+      registerDomain(extra, 'clipboard', contract, args, {
         extra: () => 1,
         list: () => [],
         writeText: () => ipcOk(undefined),

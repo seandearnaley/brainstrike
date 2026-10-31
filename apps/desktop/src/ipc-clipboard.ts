@@ -1,5 +1,9 @@
 import { ClipboardItem, clipboard, ipcMain } from 'electron';
-import { type ClipboardLike, createClipboardIpcHandlers } from './ipc-clipboard-handlers';
+import {
+  type ClipboardLike,
+  clipboardArgs,
+  createClipboardIpcHandlers,
+} from './ipc-clipboard-handlers';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 
@@ -20,6 +24,7 @@ export function registerClipboardIpcHandlers(
     registry,
     'clipboard',
     clipboardContract,
+    clipboardArgs,
     createClipboardIpcHandlers({ clipboard: target })
   );
   return () => {

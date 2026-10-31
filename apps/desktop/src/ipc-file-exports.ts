@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron';
-import { createFileExportsIpcHandlers } from './ipc-file-exports-handlers';
+import { createFileExportsIpcHandlers, SaveToDownloadsArgs } from './ipc-file-exports-handlers';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
@@ -12,7 +12,8 @@ export function registerFileExportsIpcHandlers(): () => void {
   registry.handle(
     'fileExports',
     DESKTOP_IPC_CHANNELS.fileExports.saveToDownloads,
-    (_event, rawPayload: unknown) => handlers.saveToDownloads(rawPayload)
+    SaveToDownloadsArgs,
+    (_event, payload) => handlers.saveToDownloads(payload)
   );
 
   return () => {

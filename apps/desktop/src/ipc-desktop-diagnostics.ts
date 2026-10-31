@@ -1,3 +1,4 @@
+import { Schema } from 'effect';
 import { ipcMain } from 'electron';
 import { mainDiagnosticEventsReader } from './assistant-server/query-diagnostics-tool';
 import {
@@ -6,20 +7,17 @@ import {
   type DesktopPlatformDiagnosticsProviders,
 } from './desktop-platform-diagnostics';
 import { assertMainLogWindowRequest } from './diagnostics/main-log-window';
-import {
-  assertRetainedEventsQuery,
-  assertRetainedFingerprintCount,
-  assertUnseenDiagnosticsWatermark,
-} from './diagnostics/retained-events-request';
+import { retainedEventsArgs, toRetainedEventsFilter } from './diagnostics/retained-events-request';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
+import { NoArgs } from './platform/ipc-args';
 
 export function registerDesktopDiagnosticsIpcHandlers(
   providers: DesktopPlatformDiagnosticsProviders
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.handle('diagnostics', DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL, () =>
+  registry.handle('diagnostics', DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL, NoArgs, () =>
     settleIpcResult({ category: 'diagnostics', code: 'diagnostics.snapshot-failed' }, () =>
       collectDesktopPlatformDiagnostics(providers)
     )
@@ -30,19 +28,20 @@ export function registerDesktopDiagnosticsIpcHandlers(
   registry.handle(
     'diagnostics',
     DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow,
-    (_event, request: unknown) =>
+    Schema.Tuple([Schema.Struct({ since: Schema.String, until: Schema.String })]),
+    (_event, request) =>
       settleIpcResult({ category: 'diagnostics', code: 'diagnostics.log-read-failed' }, () =>
         providers.mainLog.readWindow(assertMainLogWindowRequest(request, Date.now()))
       )
   );
 
-  registry.handle('diagnostics', DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters, () =>
+  registry.handle('diagnostics', DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters, NoArgs, () =>
     settleIpcResult({ category: 'diagnostics', code: 'diagnostics.counters-failed' }, () =>
       providers.processCounters.getSnapshot()
     )
   );
 
-  registry.handle('diagnostics', DESKTOP_IPC_CHANNELS.diagnostics.listCrashDumps, () =>
+  registry.handle('diagnostics', DESKTOP_IPC_CHANNELS.diagnostics.listCrashDumps, NoArgs, () =>
     settleIpcResult({ category: 'diagnostics', code: 'diagnostics.crash-dumps-failed' }, () =>
       providers.crashDumps.list()
     )
@@ -51,23 +50,23 @@ export function registerDesktopDiagnosticsIpcHandlers(
   registry.handle(
     'diagnostics',
     DESKTOP_IPC_CHANNELS.diagnostics.queryEvents,
-    async (_event, request: unknown) =>
-      mainDiagnosticEventsReader.queryEvents(assertRetainedEventsQuery(request))
+    retainedEventsArgs.queryEvents,
+    async (_event, request) =>
+      mainDiagnosticEventsReader.queryEvents(toRetainedEventsFilter(request))
   );
   registry.handle(
     'diagnostics',
     DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint,
-    async (_event, request: unknown) => {
-      const { fingerprint, sinceMs } = assertRetainedFingerprintCount(request);
-      return mainDiagnosticEventsReader.countByFingerprint(fingerprint, sinceMs);
-    }
+    retainedEventsArgs.countByFingerprint,
+    async (_event, { fingerprint, sinceMs }) =>
+      mainDiagnosticEventsReader.countByFingerprint(fingerprint, sinceMs)
   );
 
   registry.handle(
     'diagnostics',
     DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts,
-    async (_event, sinceMs: unknown) =>
-      mainDiagnosticEventsReader.getUnseenCounts(assertUnseenDiagnosticsWatermark(sinceMs))
+    retainedEventsArgs.getUnseenCounts,
+    async (_event, sinceMs) => mainDiagnosticEventsReader.getUnseenCounts(sinceMs)
   );
 
   return () => registry.unregisterAll();

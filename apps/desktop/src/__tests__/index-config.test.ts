@@ -245,9 +245,6 @@ describe('Main search index config', () => {
     await expect(owner.update({ mode: 'semantic' })).rejects.toMatchObject({
       _tag: 'IndexConfigRefused',
     });
-    await expect(owner.update({ collection: 'x' })).rejects.toMatchObject({
-      _tag: 'IndexConfigRefused',
-    });
     expect(dependencies.catalog.indexConfig).not.toHaveBeenCalledWith(
       expect.objectContaining({ operation: 'write' })
     );

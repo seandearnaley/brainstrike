@@ -504,8 +504,11 @@ describe('file system IPC domain', () => {
       readScoped(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, rootA.rootId)
     ).rejects.toMatchObject({ code: 'workspace.root-mismatch' });
     await expect(
-      readScoped(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, undefined)
+      readScoped(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, '')
     ).rejects.toMatchObject({ code: 'workspace.root-id-invalid' });
+    await expect(
+      readScoped(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, undefined)
+    ).rejects.toThrow('invalid arguments');
     await expect(
       readScoped(
         {

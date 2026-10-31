@@ -13,13 +13,11 @@ import {
   type BridgeMatches,
   type Contract,
   channel,
-  parseNoArgs,
 } from '../platform/ipc-contract';
 
 export const userPersonasContract = {
   list: channel<[], AssistantPersonasListResult>({
     channel: DESKTOP_IPC_CHANNELS.userPersonas.list,
-    parseArgs: parseNoArgs,
   }),
 } satisfies Contract;
 

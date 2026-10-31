@@ -24,11 +24,6 @@ describe('MCP IPC contracts', () => {
     }
   });
 
-  it('rejects malformed tuples before handlers run', () => {
-    expect(() => mcpAppsContract.prepareShell.parseArgs([])).toThrow();
-    expect(mcpPathSelectionContract.selectPath.parseArgs(['extra'])).toEqual([]);
-  });
-
   // BST-1930 c5a: the agent host owns MCP config, extension dials and tool
   // preferences; the renderer reaches them as host methods, never Main channels.
   it('leaves MCP settings off the desktop IPC manifest', () => {

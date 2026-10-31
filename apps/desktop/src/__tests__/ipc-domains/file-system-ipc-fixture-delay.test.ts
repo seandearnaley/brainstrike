@@ -21,6 +21,7 @@ const ROOT_HANDLE = {
   kind: 'directory',
   name: 'fixture',
   path: '/fixture',
+  platform: 'electron',
   type: 'directory',
 } as DirectoryHandle & { id: string; type: 'directory' };
 

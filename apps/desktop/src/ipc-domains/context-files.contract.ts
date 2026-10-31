@@ -14,13 +14,11 @@ import {
   type BridgeMatches,
   type Contract,
   channel,
-  parseNoArgs,
 } from '../platform/ipc-contract';
 
 export const contextFilesContract = {
   scan: channel<[], WorkspaceContextFileStatus[]>({
     channel: DESKTOP_IPC_CHANNELS.contextFiles.scan,
-    parseArgs: parseNoArgs,
   }),
 } satisfies Contract;
 

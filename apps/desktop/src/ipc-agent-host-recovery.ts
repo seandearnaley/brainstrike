@@ -5,6 +5,7 @@ import {
   registerDomain,
   settleIpcResult,
 } from './platform/desktop-ipc-registry';
+import { NoArgs } from './platform/ipc-args';
 
 export interface AgentHostRecoveryHandlers {
   readonly restartHost: () => Promise<void>;
@@ -16,16 +17,22 @@ export function registerAgentHostRecoveryIpcHandlers(
   handlers: AgentHostRecoveryHandlers
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
-  registerDomain(registry, 'agent', agentHostRecoveryContract, {
-    restartHost: () =>
-      settleIpcResult({ category: 'agent', code: 'agent-host.restart-failed' }, () =>
-        handlers.restartHost()
-      ),
-    showDataFolder: () =>
-      settleIpcResult({ category: 'agent', code: 'agent-host.data-folder-failed' }, () =>
-        handlers.showDataFolder()
-      ),
-  });
+  registerDomain(
+    registry,
+    'agent',
+    agentHostRecoveryContract,
+    { restartHost: NoArgs, showDataFolder: NoArgs },
+    {
+      restartHost: () =>
+        settleIpcResult({ category: 'agent', code: 'agent-host.restart-failed' }, () =>
+          handlers.restartHost()
+        ),
+      showDataFolder: () =>
+        settleIpcResult({ category: 'agent', code: 'agent-host.data-folder-failed' }, () =>
+          handlers.showDataFolder()
+        ),
+    }
+  );
   return () => {
     registry.unregisterAll();
   };

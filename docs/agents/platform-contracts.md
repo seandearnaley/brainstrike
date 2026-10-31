@@ -18,9 +18,14 @@ Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
   - Loaders, navigation and the sender-frame allowlist derive from the same target
     and never admit `file://`.
   - Browser storage (Cache Storage models included) belongs to that origin.
-- Shared IPC contracts and preload value imports stay pure; Node/runtime
-  validation lives on the main side. Bundles expose only the declared capability
+- Shared IPC contracts are type-only (channel names, argument and result types),
+  and preload value imports stay pure. Bundles expose only the declared capability
   graph.
+  - Main registers an Effect Schema for every invoke's argument tuple
+    (`platform/ipc-args.ts`). The one dispatcher decodes it after authorizing the
+    sender and before the handler, rejecting extra arguments and undeclared fields.
+  - Checks that need Main state (root identity, path containment, the credential
+    guard) stay with their owners.
 - Native modules, utility entries, Python/CLI helpers and assets resolve from the
   packaged layout. Missing or incompatible assets refuse; a dev path or system
   install is never a packaged fallback.
