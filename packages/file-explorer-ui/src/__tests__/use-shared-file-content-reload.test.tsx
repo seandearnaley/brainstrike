@@ -6,7 +6,6 @@ import type {
 } from '@brainstrike/file-explorer-hooks/file-content-worker';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -50,11 +49,10 @@ function createPendingWorker(pendingReads: PendingWorkerRead[]) {
 }
 
 function createWrapper(adapter: MockFileSystemAdapter) {
-  const storage = new MemoryStorageAdapter();
   return function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   };
@@ -470,12 +468,12 @@ describe('useSharedFileContentLoading reload ordering', () => {
     );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
-    const useStorageSource = create(() => ({ storage: new MemoryStorageAdapter() }));
+    const useProviderGeneration = create(() => ({ generation: 0 }));
     function ReplaceableWrapper({ children }: { readonly children: ReactNode }) {
-      const storage = useStorageSource((state) => state.storage);
+      const generation = useProviderGeneration((state) => state.generation);
       return (
-        <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-          <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+        <AdaptersProvider fileSystemAdapter={adapter}>
+          <FileExplorerProvider key={generation}>{children}</FileExplorerProvider>
         </AdaptersProvider>
       );
     }
@@ -497,7 +495,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     });
     await waitFor(() => expect(pendingReads).toHaveLength(1));
 
-    act(() => useStorageSource.setState({ storage: new MemoryStorageAdapter() }));
+    act(() => useProviderGeneration.setState({ generation: 1 }));
     act(() => {
       result.current.store.getState().setFileContent(compositeKey, 'replacement content');
     });
@@ -816,12 +814,12 @@ describe('useSharedFileContentLoading reload ordering', () => {
     );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
-    const useStorageSource = create(() => ({ storage: new MemoryStorageAdapter() }));
+    const useProviderGeneration = create(() => ({ generation: 0 }));
     function ReplaceableWrapper({ children }: { readonly children: ReactNode }) {
-      const storage = useStorageSource((state) => state.storage);
+      const generation = useProviderGeneration((state) => state.generation);
       return (
-        <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-          <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+        <AdaptersProvider fileSystemAdapter={adapter}>
+          <FileExplorerProvider key={generation}>{children}</FileExplorerProvider>
         </AdaptersProvider>
       );
     }
@@ -839,7 +837,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     });
     await waitFor(() => expect(pendingReads).toHaveLength(1));
 
-    act(() => useStorageSource.setState({ storage: new MemoryStorageAdapter() }));
+    act(() => useProviderGeneration.setState({ generation: 1 }));
     const loadingImmediatelyAfterReplacement = new Set(result.current.loader.loadingFiles);
     let replacementLoad: Promise<void> | undefined;
     act(() => {

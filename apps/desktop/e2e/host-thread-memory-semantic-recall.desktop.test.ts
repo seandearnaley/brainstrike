@@ -42,12 +42,8 @@ async function enableModel(page: Page): Promise<void> {
 
 async function writeStorage(page: Page, key: string, value: unknown): Promise<void> {
   await page.evaluate(
-    async (entry) => {
-      const storage = window.electronAPI?.storage;
-      if (!storage) {
-        throw new Error('The app storage bridge is unavailable');
-      }
-      await storage.setItem(entry.key, entry.value);
+    (entry) => {
+      window.localStorage.setItem(entry.key, entry.value);
     },
     { key, value: JSON.stringify(value) }
   );

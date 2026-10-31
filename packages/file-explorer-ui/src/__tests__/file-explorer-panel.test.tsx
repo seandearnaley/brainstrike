@@ -648,7 +648,6 @@ describe('FileExplorerPanel', () => {
     const { useAdapters, useToastManager } = await import('@brainstrike/file-explorer-hooks');
     vi.mocked(useAdapters).mockReturnValue({
       fileSystemAdapter: mockAdapter,
-      storageAdapter: {} as ReturnType<typeof useAdapters>['storageAdapter'],
     });
 
     const TestWrapper = ({ children }: { children: React.ReactNode }) =>
@@ -846,7 +845,6 @@ describe('FileExplorerPanel', () => {
         readFile: vi.fn(),
         requestDirectoryAccess: vi.fn(),
       } as unknown as ReturnType<typeof useAdapters>['fileSystemAdapter'],
-      storageAdapter: {} as unknown as ReturnType<typeof useAdapters>['storageAdapter'],
     });
 
     const user = userEvent.setup();

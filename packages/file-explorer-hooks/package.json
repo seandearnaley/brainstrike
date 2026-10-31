@@ -7,7 +7,6 @@
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
-    "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*"

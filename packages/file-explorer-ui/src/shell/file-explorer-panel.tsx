@@ -33,7 +33,6 @@ import { SelectionCounter } from '../selection-counter';
 import { SelectionModeBadge } from '../selection-mode-badge';
 import { ToolbarPresetSelector } from '../toolbar-preset-selector';
 import { getRootFolderId } from '../utils/get-root-folder-id';
-import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filter-tree';
 import { ExplorerColumnVisibilityControls } from './explorer-column-visibility-controls';
 import { useExplorerColumnsValue } from './explorer-columns-context';
@@ -156,7 +155,7 @@ export interface FileExplorerPanelProps {
  */
 const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   const { rootActions, selectionActions } = props;
-  const { fileSystemAdapter, storageAdapter } = useAdapters();
+  const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   // Persist + restore the explorer scroll position across sessions. Wired to the
   // outer scroll root; the hook resolves the active (single-root vs forest)
@@ -214,9 +213,6 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
 
   const handleMaxSelectionCountChange = (count: number) => {
     setMaxSelectionCount(count);
-    void persistFileExplorerStateImmediately(store, storageAdapter).catch((error: unknown) => {
-      logger.error('Failed to persist max selection count immediately', { error });
-    });
   };
 
   // Local state for UI

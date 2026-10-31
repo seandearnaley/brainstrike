@@ -1,5 +1,5 @@
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -11,6 +11,7 @@ import { getContextExplorerFileExplorerPanel } from './context-explorer-locators
 import { updateIndexConfig } from './index-config';
 import { ensureAssistantShellVisible } from './layout-helpers';
 import { loadElectronHelpers } from './load-electron-helpers';
+import { seedMainLedgers } from './seed-root';
 import { seedHostThreads } from './seed-threads';
 
 /**
@@ -51,24 +52,10 @@ export async function openDurableUiFixture(
   );
   await mkdir(path.join(rootPath, FOLDER));
   await writeFile(path.join(rootPath, FOLDER, 'index.ts'), 'export const durable = true;\n');
-  await seedPage.evaluate(
-    async ({ root, rootId }) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('lastFolderPath', root);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId }])
-      );
-    },
-    { root: rootPath, rootId: ROOT_ID }
-  );
+  await seedMainLedgers(seedPage, {
+    lastFolderPath: rootPath,
+    rootsList: JSON.stringify([{ addedAt: 1_800_000_000_000, path: rootPath, rootId: ROOT_ID }]),
+  });
   await updateIndexConfig(seedPage, { paused: true });
   // New creates nothing until a first send, so the thread is created through
   // the host, without a run.
@@ -147,13 +134,10 @@ export async function readPanelLayout(page: Page): Promise<string | null> {
   return await page.evaluate((key) => localStorage.getItem(key), PANEL_LAYOUT_KEY);
 }
 
-/** The expanded folders in Main's own storage file, as the next launch reads them. */
-export async function readStoredExplorerExpansion(userDataDir: string): Promise<string[]> {
-  const storage = JSON.parse(
-    await readFile(path.join(userDataDir, 'electron-storage.json'), 'utf8')
-  ) as Record<string, string | undefined>;
-  const stored = storage[FILE_EXPLORER_STORAGE_KEY];
-  if (stored === undefined) {
+/** The expanded folders the renderer saved in its `localStorage`, as the next document reads them. */
+export async function readStoredExplorerExpansion(page: Page): Promise<string[]> {
+  const stored = await page.evaluate((key) => localStorage.getItem(key), FILE_EXPLORER_STORAGE_KEY);
+  if (stored === null) {
     return [];
   }
   const envelope = JSON.parse(stored) as { state?: { expandedDirectoryPaths?: string[] } };

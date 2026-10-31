@@ -1,7 +1,6 @@
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { RootDescriptor } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -36,8 +35,8 @@ function setup(
   restoreRoots: () => Promise<RootDescriptor[]>,
   waitForHydration?: () => Promise<void>
 ) {
-  const storage = createMemoryStorageAdapter();
-  const store = createFileExplorerStore(storage);
+  localStorage.clear();
+  const store = createFileExplorerStore();
   const state = store.getState();
   state.setActiveRoots(
     unavailable.map(({ displayName, handle, rootId }) => ({
@@ -65,7 +64,7 @@ function setup(
     ...(waitForHydration ? { waitForHydration } : {}),
   };
   const hook = renderHook(() => useFileSystem(parameters), {
-    wrapper: createAdaptersTestWrapper(adapter, storage),
+    wrapper: createAdaptersTestWrapper(adapter),
   });
   return { ...hook, store };
 }

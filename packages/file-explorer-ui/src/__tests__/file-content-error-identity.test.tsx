@@ -1,7 +1,6 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -12,11 +11,10 @@ import { useSharedFileContentLoading } from '../use-shared-file-content-loading'
 
 function createWrapper() {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   return function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   };

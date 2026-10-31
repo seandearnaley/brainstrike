@@ -2,15 +2,10 @@
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/agent/client';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { ThemeProvider, type ThemeStorageAdapter, TooltipProvider } from '@brainstrike/ui';
+import { ThemeProvider, TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
-
-const themeStorageAdapter: ThemeStorageAdapter = {
-  getItem: async () => null,
-  setItem: async () => {},
-};
 
 // Mock file-explorer-ui - needed for useFileExplorerStoreContext
 // jsdom has no agent host: the window owns no host MCP settings.
@@ -182,7 +177,7 @@ afterEach(() => {
 describe('Desktop SettingsPageContent', () => {
   it('navigates to AI Tools and displays unified tools management', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -207,7 +202,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('renders Assistant Memory and the subagent budgets in their own categories', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -226,7 +221,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('filters categories using the search box', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -244,7 +239,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('shows Factory Reset category when searching for factory', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -260,7 +255,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('registers Workspace with the live worktree capability status', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -277,7 +272,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('offers no self-improvement signal or experiment enrollment controls', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -298,7 +293,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('renders the Provider Hub, not a separate API Keys category', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>

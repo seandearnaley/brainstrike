@@ -7,8 +7,6 @@
  * Action logic is delegated to separate action creator functions imported from ./actions/*.
  */
 
-import type { StorageAdapter } from '@brainstrike/storage';
-import { MemoryStorageAdapter } from '@brainstrike/storage'; // Import MemoryStorageAdapter
 import type { FileExplorerState, PersistenceRecoveryNotice } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import { setupHMR } from '@brainstrike/utils/hmr-utils';
@@ -22,7 +20,10 @@ import { createFileSelectionActions } from './actions/file-selection-actions';
 import { createFolderStateActions } from './actions/folder-state-actions';
 import { createSelectionModelActions } from './actions/selection-model-actions';
 import { createSettingsActions } from './actions/settings-actions';
-import { createPersistOptions } from './persistence/file-explorer-persistence';
+import {
+  createPersistOptions,
+  hydrateFileExplorerStore,
+} from './persistence/file-explorer-persistence';
 
 // Explicitly type the state creator function
 const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown]], []> = (
@@ -110,37 +111,14 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
   } as FileExplorerState;
 };
 
-// Factory function to create store with custom storage adapter
-export function createFileExplorerStore(storageAdapter: StorageAdapter) {
-  return create<FileExplorerState>()(persist(stateCreator, createPersistOptions(storageAdapter)));
+/** A store whose view state persists in this renderer's `localStorage`, read as it is made. */
+export function createFileExplorerStore() {
+  return hydrateFileExplorerStore(
+    create<FileExplorerState>()(persist(stateCreator, createPersistOptions()))
+  );
 }
 
 // Default store instance for backward compatibility (HMR-safe singleton)
-
-let defaultPersistStorageAdapter: StorageAdapter;
-
-if (typeof localStorage === 'undefined') {
-  // Fallback for Node.js environments (like tests) where localStorage is not available
-  // Using MemoryStorageAdapter ensures it behaves like a storage but doesn't persist anywhere problematic
-  defaultPersistStorageAdapter = new MemoryStorageAdapter();
-} else {
-  defaultPersistStorageAdapter = {
-    /* v8 ignore start -- Zustand persist storage only calls getItem/setItem/removeItem */
-    async getAllKeys() {
-      return Object.keys(localStorage);
-    },
-    async getItem(key: string) {
-      return localStorage.getItem(key);
-    },
-    async removeItem(key: string) {
-      localStorage.removeItem(key);
-    },
-    async setItem(key: string, value: string) {
-      localStorage.setItem(key, value);
-    },
-    /* v8 ignore stop */
-  };
-}
 
 const STORE_KEY = '__brainstrike_file_explorer_store__' as const;
 const STORE_BRAND = '__brainstrike_store_brand__';
@@ -165,9 +143,7 @@ function isValidStore(candidate: unknown): candidate is BoundStore & { [k: strin
 
 let storeSingleton = g[STORE_KEY] as unknown;
 if (!isValidStore(storeSingleton)) {
-  storeSingleton = create<FileExplorerState>()(
-    persist(stateCreator, createPersistOptions(defaultPersistStorageAdapter))
-  );
+  storeSingleton = createFileExplorerStore();
   (storeSingleton as Record<string, unknown>)[STORE_BRAND] = STORE_VERSION as unknown as number;
   g[STORE_KEY] = storeSingleton as unknown;
 }

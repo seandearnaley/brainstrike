@@ -10,11 +10,10 @@ import type {
 } from '@brainstrike/types';
 import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
-export interface DesktopStorageBridge {
-  getAllKeys: () => Promise<string[]>;
-  getItem: (key: string) => Promise<string | null>;
-  removeItem: (key: string) => Promise<void>;
-  setItem: (key: string, value: string) => Promise<void>;
+/** E2E only: seeds and clears Main's workspace ledgers. Absent outside test mode. */
+export interface DesktopWorkspaceLedgersForE2e {
+  clearLedgersForE2e?: () => Promise<void>;
+  seedLedgerForE2e?: (key: string, value: string) => Promise<void>;
 }
 
 export interface DesktopFileSystemBridge {
@@ -73,9 +72,8 @@ interface DesktopFactoryResetBridge {
 export interface VisibleDesktopElectronApi {
   content: ContentClearCapability;
   factoryReset: DesktopFactoryResetBridge;
-  fileSystem: DesktopFileSystemTransport;
+  fileSystem: DesktopFileSystemTransport & DesktopWorkspaceLedgersForE2e;
   getUserDataPath: () => Promise<string>;
-  storage: DesktopStorageBridge;
 }
 
 type ExactKeyList<Shape, Keys extends readonly (keyof Shape)[]> =
@@ -90,7 +88,6 @@ const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
   'factoryReset',
   'fileSystem',
   'getUserDataPath',
-  'storage',
 ]);
 const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
   'resetLocal',

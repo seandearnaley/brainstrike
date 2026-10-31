@@ -4,9 +4,9 @@ import { createApplicationIpcDomain } from '../../ipc-handlers';
 const ipcOwners = vi.hoisted(() => ({
   clear: vi.fn(async () => undefined),
   files: vi.fn(async () => undefined),
+  ledgers: vi.fn(async () => undefined),
   path: vi.fn(async () => undefined),
   reset: vi.fn(async () => undefined),
-  storage: vi.fn(async () => undefined),
   watch: vi.fn(async () => undefined),
 }));
 vi.mock('../../ipc-domains/file-system-ipc', () => ({
@@ -15,8 +15,8 @@ vi.mock('../../ipc-domains/file-system-ipc', () => ({
 vi.mock('../../ipc-domains/file-system-watch-ipc', () => ({
   registerFileSystemWatchIpcHandlers: vi.fn(() => ipcOwners.watch),
 }));
-vi.mock('../../ipc-domains/storage-preferences-ipc', () => ({
-  registerStoragePreferencesIpcHandlers: vi.fn(() => ipcOwners.storage),
+vi.mock('../../ipc-domains/workspace-ledgers-e2e-ipc', () => ({
+  registerWorkspaceLedgersE2eHandlers: vi.fn(() => ipcOwners.ledgers),
 }));
 vi.mock('../../ipc-factory-reset', () => ({
   registerContentClearIpcHandlers: vi.fn(() => ipcOwners.clear),

@@ -88,12 +88,8 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
     },
   };
   await page.evaluate(
-    async ({ key, value }) => {
-      const storage = window.electronAPI?.storage;
-      if (!storage) {
-        throw new Error('The app storage bridge is unavailable');
-      }
-      await storage.setItem(key, value);
+    ({ key, value }) => {
+      window.localStorage.setItem(key, value);
     },
     {
       key: MEMORY_SETTINGS_KEY,

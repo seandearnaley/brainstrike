@@ -80,12 +80,8 @@ test('the Developer memory panel shows the observer buffering live, then its buf
       },
     };
     await page.evaluate(
-      async ({ detail, detailKey, key, value }) => {
-        const storage = window.electronAPI?.storage;
-        if (!storage) {
-          throw new Error('The app storage bridge is unavailable');
-        }
-        await storage.setItem(key, value);
+      ({ detail, detailKey, key, value }) => {
+        window.localStorage.setItem(key, value);
         window.localStorage.setItem(detailKey, detail);
       },
       {

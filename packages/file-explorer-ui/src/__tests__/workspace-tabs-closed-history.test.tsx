@@ -1,6 +1,5 @@
 import { type ActionOutcome, NO_CLOSED_TAB_OUTCOME } from '@brainstrike/context-actions';
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -66,12 +65,9 @@ function workspace(): WorkspaceTabsValue {
   return probe.tabs;
 }
 
-/** A fresh store per test: the shared adapter would replay a prior test's roots. */
-let storage = new MemoryStorageAdapter();
-
 function Harness({ apps }: { readonly apps: readonly WorkspaceApp[] }): React.ReactElement {
   return (
-    <FileExplorerTestWrapper mockStorageAdapter={storage}>
+    <FileExplorerTestWrapper>
       <WorkspaceTabsProvider apps={apps}>
         <WorkspaceTabStrip />
         <Probe />
@@ -100,7 +96,6 @@ async function reopen(): Promise<ActionOutcome | undefined> {
 }
 
 beforeEach(() => {
-  storage = new MemoryStorageAdapter();
   const files = useTabManagerStore.getState();
   for (const file of ['a.ts', 'b.ts', 'c.ts']) {
     files.openTab(`src/${file}`, key(file), key(file));

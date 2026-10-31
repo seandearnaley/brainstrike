@@ -2,7 +2,7 @@ import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
 } from '@brainstrike/file-explorer';
-import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
@@ -14,7 +14,6 @@ import {
   useOptionalFileExplorerStoreContext,
   useOptionalFileExplorerStoreSelector,
 } from '../shell/file-explorer-provider';
-import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { filterSelectionScanNodesByQuickFilter } from '../utils/quick-filter-tree';
 import {
   querySelectableFiles,
@@ -26,7 +25,6 @@ import {
   applyExplicitSelection,
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
-  hasPersistApi,
   isForestStore,
 } from './recursive-selection-utils';
 
@@ -209,7 +207,6 @@ export function useRecursiveFolderSelect(
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
-  const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
   // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
   // the same derivation the tree display uses, so scans select exactly what
@@ -392,10 +389,6 @@ export function useRecursiveFolderSelect(
           });
         }
 
-        if (hasPersistApi(store)) {
-          await persistFileExplorerStateImmediately(store, storageAdapter);
-        }
-
         return {
           filePaths: result.filePaths,
           success: true,
@@ -450,7 +443,6 @@ export function useRecursiveFolderSelect(
       quickFilter,
       setQuerySelection,
       showToast,
-      storageAdapter,
       store,
       useRegex,
     ]

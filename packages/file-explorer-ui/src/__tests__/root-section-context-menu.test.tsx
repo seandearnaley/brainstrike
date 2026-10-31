@@ -1,6 +1,5 @@
 import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
@@ -54,11 +53,8 @@ function renderRootSections(options: { rootActions?: readonly AnyContextAction[]
       onBatch([], { done: true, total: 0 });
     }
   );
-  const storageAdapter = new MemoryStorageAdapter();
   const Wrapper = composeWrappers(({ children }) => (
-    <FileExplorerTestWrapper mockFileSystemAdapter={adapter} mockStorageAdapter={storageAdapter}>
-      {children}
-    </FileExplorerTestWrapper>
+    <FileExplorerTestWrapper mockFileSystemAdapter={adapter}>{children}</FileExplorerTestWrapper>
   ));
   const renderWithProviders = makeRenderWithProviders(Wrapper);
   const removeRootMock = vi.fn().mockResolvedValue(undefined);
@@ -139,11 +135,8 @@ function renderSingleRoot(
       onBatch([], { done: true, total: 0 });
     }
   );
-  const storageAdapter = new MemoryStorageAdapter();
   const Wrapper = composeWrappers(({ children }) => (
-    <FileExplorerTestWrapper mockFileSystemAdapter={adapter} mockStorageAdapter={storageAdapter}>
-      {children}
-    </FileExplorerTestWrapper>
+    <FileExplorerTestWrapper mockFileSystemAdapter={adapter}>{children}</FileExplorerTestWrapper>
   ));
   const renderWithProviders = makeRenderWithProviders(Wrapper);
   const removeRootMock = vi.fn().mockResolvedValue(undefined);

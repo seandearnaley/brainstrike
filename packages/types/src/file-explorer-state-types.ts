@@ -28,7 +28,7 @@ export interface StoredRootDescriptor {
   rootId: string;
 }
 
-export type PersistenceRecoveryNotice = 'persisted-state-discarded' | 'persisted-state-unavailable';
+export type PersistenceRecoveryNotice = 'persisted-state-discarded';
 
 // Data types
 export interface FileExplorerData {

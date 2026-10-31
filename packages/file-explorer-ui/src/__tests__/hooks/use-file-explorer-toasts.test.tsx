@@ -13,11 +13,6 @@ const mockHandleDirectorySelectError = vi.fn();
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: {},
-    storageAdapter: {
-      getItem: vi.fn(),
-      removeItem: vi.fn(),
-      setItem: vi.fn(),
-    },
   }),
   useToastManager: () => ({
     handleBrowserCompatibilityError: mockHandleBrowserCompatibilityError,

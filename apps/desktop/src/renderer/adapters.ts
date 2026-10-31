@@ -10,7 +10,6 @@ import {
   isFullyQualifiedFileSystemPath,
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
-import type { StorageAdapter } from '@brainstrike/storage';
 import type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
@@ -25,7 +24,7 @@ import type {
 } from '@brainstrike/types';
 import { type FileReadErrorPayload, isFileReadErrorPayload } from '../file-read-errors';
 import { fileSystemContract, fileSystemWatchContract } from '../ipc-domains/file-system.contract';
-import type { DesktopFileSystemBridge, DesktopStorageBridge } from '../types/desktop-electron-api';
+import type { DesktopFileSystemBridge } from '../types/desktop-electron-api';
 import { createIpcCapability } from './ipc-capability';
 
 const logger = createLogger('ElectronRendererAdapters');
@@ -70,14 +69,6 @@ function requireFileSystemBridge(): DesktopFileSystemBridge {
     throw new Error('The desktop file-system capability is not available in this renderer role');
   }
   return fileSystem;
-}
-
-function requireStorageBridge(): DesktopStorageBridge {
-  const api = window.electronAPI;
-  if (!(api && 'storage' in api)) {
-    throw new Error('The desktop storage capability is not available in this renderer role');
-  }
-  return api.storage;
 }
 
 /**
@@ -471,23 +462,5 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
       return { reason: 'unknown', retried: false };
     }
     return await api.retryWatch(watchId);
-  }
-}
-
-export class ElectronRendererStorageAdapter implements StorageAdapter {
-  async getItem(key: string): Promise<string | null> {
-    return requireStorageBridge().getItem(key);
-  }
-
-  async setItem(key: string, value: string): Promise<void> {
-    return requireStorageBridge().setItem(key, value);
-  }
-
-  async removeItem(key: string): Promise<void> {
-    return requireStorageBridge().removeItem(key);
-  }
-
-  async getAllKeys(): Promise<string[]> {
-    return requireStorageBridge().getAllKeys();
   }
 }

@@ -6,7 +6,6 @@ import type {
 } from '@brainstrike/file-explorer-hooks/file-content-worker';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -49,7 +48,6 @@ function createPendingWorker(pendingReads: PendingWorkerRead[]) {
 
 it('runs queued interactive reads before bulk work while bounding bulk starvation', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const nodes = [
     ...Array.from({ length: 3 }, (_, batchIndex) =>
       Array.from({ length: 2 }, (_, fileIndex) =>
@@ -77,8 +75,8 @@ it('runs queued interactive reads before bulk work while bounding bulk starvatio
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }
@@ -140,7 +138,6 @@ it('runs queued interactive reads before bulk work while bounding bulk starvatio
 
 it('promotes only a queued matching background key without duplicating its physical read', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const nodesByName = Object.fromEntries(
     [
       'active-a',
@@ -179,8 +176,8 @@ it('promotes only a queued matching background key without duplicating its physi
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }
@@ -265,7 +262,6 @@ it('promotes only a queued matching background key without duplicating its physi
 
 it('promotes a queued background reload for Workspace-tab Retry before its predecessor starts', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const names = ['active-a', 'active-b', 'earlier-background', 'target'] as const;
   const nodes = names.map((name) =>
     createFileNode({ path: `/${name}.txt`, rootFolderId: 'root-retry-promotion' })
@@ -289,8 +285,8 @@ it('promotes a queued background reload for Workspace-tab Retry before its prede
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }
@@ -355,7 +351,6 @@ it.each([
   'extracts $backgroundShape background promotion into the same interactive FIFO tail',
   async ({ includeHitchhiker }) => {
     const adapter = new MockFileSystemAdapter();
-    const storage = new MemoryStorageAdapter();
     const names = [
       'active-a',
       'active-b',
@@ -388,8 +383,8 @@ it.each([
 
     function Wrapper({ children }: { readonly children: ReactNode }) {
       return (
-        <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-          <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+        <AdaptersProvider fileSystemAdapter={adapter}>
+          <FileExplorerProvider>{children}</FileExplorerProvider>
         </AdaptersProvider>
       );
     }
@@ -462,7 +457,6 @@ it.each([
 
 it('settles promoted tickets once on reset and permits a fresh same-key schedule', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const names = ['active-a', 'active-b', 'target', 'hitchhiker'] as const;
   const nodes = names.map((name) =>
     createFileNode({ path: `/${name}.txt`, rootFolderId: 'root-promotion-reset' })
@@ -486,8 +480,8 @@ it('settles promoted tickets once on reset and permits a fresh same-key schedule
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }
@@ -558,7 +552,6 @@ it('settles promoted tickets once on reset and permits a fresh same-key schedule
 
 it('preserves background intent across twenty singleton reload groups ahead of real interactive work', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const backgroundNodes = Array.from({ length: 20 }, (_, index) =>
     createFileNode({ path: `/background-${index}.txt`, rootFolderId: 'root-logical-priority' })
   );
@@ -581,8 +574,8 @@ it('preserves background intent across twenty singleton reload groups ahead of r
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }

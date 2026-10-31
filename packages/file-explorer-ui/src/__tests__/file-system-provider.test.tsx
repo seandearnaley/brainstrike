@@ -3,7 +3,6 @@
  */
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
@@ -30,15 +29,14 @@ describe('FileSystemProvider (single shared instance)', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
       'cccccccc-dddd-eeee-ffff-000000000009' as ReturnType<typeof crypto.randomUUID>
     );
-    const storage = new MemoryStorageAdapter();
     const fsAdapter = new MockFileSystemAdapter(MockFileSystemAdapter.createSimpleFileSystem());
 
     let explorerSide: FsValue | null = null;
     let indexerSide: FsValue | null = null;
 
     render(
-      <AdaptersProvider fileSystemAdapter={fsAdapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>
+      <AdaptersProvider fileSystemAdapter={fsAdapter}>
+        <FileExplorerProvider>
           <FileSystemProvider>
             <Exposer
               onReady={(fs) => {

@@ -31,17 +31,12 @@ export function AppLayout({
   useDatabaseStatusSync();
   // Session-wide, mounted once: retired-model remap toasts (BST-565).
   useModelMigrationNotices();
-  const { fileSystemAdapter, storageAdapter } = useAdapters();
+  const { fileSystemAdapter } = useAdapters();
 
   return (
-    <ThemeProvider
-      defaultMode="light"
-      storageAdapter={storageAdapter}
-      storageKey={config.themeStorageKey}
-      themeStorageKey={config.themePaletteStorageKey}
-    >
+    <ThemeProvider defaultMode="light">
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
-        <FileExplorerProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+        <FileExplorerProvider fileSystemAdapter={fileSystemAdapter}>
           {/* ONE shared file-system instance for the entire app surface
               (explorer, database panel, assistant, settings). MUST mount
               BELOW FileExplorerProvider — the instance reads the store. */}

@@ -143,11 +143,10 @@ amended by ADR-0027).
 - E2E: the harness joins app exit under the test timeout and requires exit 0. A
   harness SIGTERM is cleanup after a failed close, and the test fails.
 
-## Document unload flushes the three durable writers
+## Document unload flushes the two durable writers
 
-- Only three renderer writers keep a write-behind tail (ADR-0026 R1):
+- Only two renderer writers keep a write-behind tail (ADR-0026 R1, amended by BST-2410):
   - thread workspace snapshot: 500 ms, to the host
-  - Explorer persistence via the desktop storage writer: 100 ms, to Main's storage
   - panel layout resize commit: 150 ms, to its store
 - Each registers one awaited flush with `registerDurableFlush`
   (`@brainstrike/app-state/renderer-close`) on top of `createWriteBehindWriter`
@@ -155,6 +154,9 @@ amended by ADR-0027).
   - Nothing else is joined at unload (no reads, producers or hydration).
   - None owns a `beforeunload`/`pagehide` handler. Editor view state stays in
     localStorage, flushes on `pagehide`, and is not joined by Main.
+  - Explorer state and appearance are renderer-only: zustand `persist` writes them
+    to `localStorage` synchronously, so nothing is left to join. Main's
+    `clearStorageData()` in factory reset clears them.
 - Main runs `prepareDocumentUnload` before every unload of a visible document it
   owns, then unloads regardless of the answer:
   - quit's `renderers` step, then the normal window close

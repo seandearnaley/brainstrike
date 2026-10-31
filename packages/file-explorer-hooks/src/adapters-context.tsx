@@ -1,10 +1,8 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import type { StorageAdapter } from '@brainstrike/storage';
 import React, { createContext, type ReactNode, useContext, useMemo } from 'react';
 
 export interface AdaptersContextValue {
   fileSystemAdapter: FileSystemAdapter;
-  storageAdapter: StorageAdapter;
 }
 
 export const AdaptersContext = createContext<AdaptersContextValue | null>(null);
@@ -12,21 +10,10 @@ export const AdaptersContext = createContext<AdaptersContextValue | null>(null);
 export interface AdaptersProviderProps {
   children: ReactNode;
   fileSystemAdapter: FileSystemAdapter;
-  storageAdapter: StorageAdapter;
 }
 
-export function AdaptersProvider({
-  fileSystemAdapter,
-  storageAdapter,
-  children,
-}: AdaptersProviderProps) {
-  const value = useMemo<AdaptersContextValue>(
-    () => ({
-      fileSystemAdapter,
-      storageAdapter,
-    }),
-    [fileSystemAdapter, storageAdapter]
-  );
+export function AdaptersProvider({ fileSystemAdapter, children }: AdaptersProviderProps) {
+  const value = useMemo<AdaptersContextValue>(() => ({ fileSystemAdapter }), [fileSystemAdapter]);
 
   return React.createElement(AdaptersContext.Provider, { value }, children);
 }

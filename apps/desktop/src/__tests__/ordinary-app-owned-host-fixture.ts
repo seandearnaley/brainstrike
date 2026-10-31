@@ -274,8 +274,8 @@ setInterval(() => {}, 1000);
       await page.getByRole('textbox', { name: 'Message input' }).waitFor();
       await page.evaluate(
         async ({ memory, version }) => {
-          if (!(window.modelCatalog && window.electronAPI && 'storage' in window.electronAPI)) {
-            throw new Error('The normal desktop model catalog/storage bridge is missing');
+          if (!window.modelCatalog) {
+            throw new Error('The normal desktop model catalog bridge is missing');
           }
           await window.modelCatalog.setModels(['anthropic/claude-sonnet-4.6'], true);
           localStorage.setItem(
@@ -298,7 +298,7 @@ setInterval(() => {}, 1000);
               version,
             })
           );
-          await window.electronAPI.storage.setItem(
+          window.localStorage.setItem(
             'assistant-memory-preferences.v1',
             JSON.stringify({
               state: {

@@ -13,7 +13,7 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ContentClearResult } from '@brainstrike/types';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
-import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
+import { registerWorkspaceLedgersE2eHandlers } from './ipc-domains/workspace-ledgers-e2e-ipc';
 import type { WorkspaceRootRegistry } from './ipc-domains/workspace-root-registry';
 import {
   createWorkspaceRootWatchOwner,
@@ -74,9 +74,7 @@ export function createApplicationIpcDomain(
   const unregisterFactoryReset = options.onResetLocal
     ? registerFactoryResetIpcHandlers(options.onResetLocal)
     : undefined;
-  const unregisterStoragePreferencesIpcHandlers = registerStoragePreferencesIpcHandlers({
-    storage,
-  });
+  const unregisterWorkspaceLedgersE2eHandlers = registerWorkspaceLedgersE2eHandlers({ storage });
   const fileSystemDomain = createFileSystemIpcDomain({
     fileSystem,
     ...(options?.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
@@ -157,7 +155,7 @@ export function createApplicationIpcDomain(
         ...(unregisterProfilePath ? [unregisterProfilePath] : []),
         ...(unregisterContentClear ? [unregisterContentClear] : []),
         ...(unregisterFactoryReset ? [unregisterFactoryReset] : []),
-        unregisterStoragePreferencesIpcHandlers,
+        unregisterWorkspaceLedgersE2eHandlers,
         unregisterFileSystemWatchIpcHandlers,
         () => watches.close(),
         () => fileSystemDomain.close(),

@@ -14,7 +14,6 @@ import {
 } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { BINARY_CONTENT_MESSAGE, type IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils';
@@ -49,11 +48,10 @@ function useTestHook(fileTree: IFileNode[]) {
 }
 
 function createWrapper(adapter: FileSystemAdapter) {
-  const storage = new MemoryStorageAdapter();
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   };

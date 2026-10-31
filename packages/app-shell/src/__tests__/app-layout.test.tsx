@@ -23,7 +23,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: null,
-    storageAdapter: null,
   }),
 }));
 
@@ -109,15 +108,12 @@ vi.mock('../status-items/workspace-root-status-item', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: {},
-    storageAdapter: {},
   }),
 }));
 
 const mockConfig: AppShellConfig = {
   description: 'A test application',
   navigationItems: [{ icon: () => null, name: 'Home', path: '/' }],
-  themePaletteStorageKey: 'test-theme-palette',
-  themeStorageKey: 'test-theme',
   title: 'Test App',
 };
 

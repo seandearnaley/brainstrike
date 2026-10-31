@@ -32,7 +32,6 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   ),
   useAdapters: () => ({
     fileSystemAdapter: {},
-    storageAdapter: {},
   }),
 }));
 
@@ -115,13 +114,6 @@ describe('renderer main entry', () => {
         saveLastFolder: vi.fn(),
       },
       getUserDataPath: vi.fn(),
-      storage: {
-        clear: vi.fn(),
-        getAllKeys: vi.fn(),
-        getItem: vi.fn(),
-        removeItem: vi.fn(),
-        setItem: vi.fn(),
-      },
     } as never;
     window.modelCatalog = { read: vi.fn() } as never;
     window.viewFilterPresets = { request: vi.fn() };

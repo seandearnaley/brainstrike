@@ -12,7 +12,6 @@
  */
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
@@ -75,12 +74,7 @@ describe('same-named roots resolve distinct RootId identities (storage v5)', () 
     );
 
     const Wrapper = composeWrappers(({ children }) => (
-      <FileExplorerTestWrapper
-        mockFileSystemAdapter={adapter}
-        mockStorageAdapter={new MemoryStorageAdapter()}
-      >
-        {children}
-      </FileExplorerTestWrapper>
+      <FileExplorerTestWrapper mockFileSystemAdapter={adapter}>{children}</FileExplorerTestWrapper>
     ));
     const renderWithProviders = makeRenderWithProviders(Wrapper);
 

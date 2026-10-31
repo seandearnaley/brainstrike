@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { ThemeProvider, type ThemeStorageAdapter } from '../theme-provider';
+import { describe, expect, it } from 'vitest';
+import { APPEARANCE_STORAGE_KEY, useAppearanceStore } from '../appearance-store';
+import { ThemeProvider } from '../theme-provider';
 import { ThemeSettings } from '../theme-settings';
 import { THEMES, type ThemeId } from '../themes';
 
@@ -13,27 +14,21 @@ import { THEMES, type ThemeId } from '../themes';
  * whether a keypress actually changed the selection.
  */
 
-function createStorage(seed: Record<string, string>): ThemeStorageAdapter {
-  const data = new Map(Object.entries(seed));
-  return {
-    getItem: vi.fn(async (key: string) => data.get(key) ?? null),
-    setItem: vi.fn(async (key: string, value: string) => {
-      data.set(key, value);
-    }),
-  };
-}
-
 async function renderPicker(persisted: ThemeId) {
-  const storage = createStorage({ 'ui-theme-palette': persisted });
+  useAppearanceStore.setState({ theme: persisted });
   const user = userEvent.setup();
   render(
-    <ThemeProvider defaultMode="light" storageAdapter={storage}>
+    <ThemeProvider defaultMode="light">
       <ThemeSettings />
     </ThemeProvider>
   );
-  // The provider renders nothing until storage has resolved.
   await screen.findByRole('radiogroup', { name: 'Theme' });
-  return { storage, user };
+  return { user };
+}
+
+function savedTheme(): unknown {
+  const saved = localStorage.getItem(APPEARANCE_STORAGE_KEY);
+  return saved === null ? null : (JSON.parse(saved) as { state: { theme?: unknown } }).state.theme;
 }
 
 function themeAt(index: number): (typeof THEMES)[number] {
@@ -115,14 +110,14 @@ describe('ThemeSettings palette keyboard model', () => {
   });
 
   it('applies and persists the palette an arrow key selects', async () => {
-    const { storage, user } = await renderPicker(themeAt(0).id);
+    const { user } = await renderPicker(themeAt(0).id);
     cardFor(0).focus();
 
     await user.keyboard('{ArrowRight}');
 
     const next = themeAt(1).id;
     expect(document.documentElement.dataset['theme']).toBe(next);
-    expect(storage.setItem).toHaveBeenCalledWith('ui-theme-palette', next);
+    expect(savedTheme()).toBe(next);
   });
 
   it('Space selects a focused card that is not checked', async () => {

@@ -15,7 +15,6 @@ import {
 import type { SelectionQueryDescriptor } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { getAncestorDirectoryPaths } from '@brainstrike/utils/path-ancestors';
-import type { PersistableFileExplorerStore } from '../utils/persist-file-explorer-state';
 
 /**
  * Multiple active roots = forest mode, the always-explicit selection regime:
@@ -35,16 +34,6 @@ export function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
-}
-
-export function hasPersistApi(store: unknown): store is PersistableFileExplorerStore {
-  return (
-    typeof store === 'function' &&
-    'persist' in store &&
-    typeof (store as { persist?: unknown }).persist === 'object' &&
-    (store as { persist?: { getOptions?: unknown } }).persist !== null &&
-    typeof (store as { persist?: { getOptions?: unknown } }).persist?.getOptions === 'function'
-  );
 }
 
 export type AddMultipleSelectedFilesChunked = (

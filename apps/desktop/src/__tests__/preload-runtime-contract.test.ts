@@ -132,14 +132,6 @@ describe('preload runtime contract', () => {
     expect(preloadSource).not.toMatch(/['"]logging:[^'"]+['"]/u);
   });
 
-  it('keeps the E2E seed routing keys sourced from MAIN authority', () => {
-    const preloadSource = readPreloadSource();
-    expect(preloadSource).toContain("from './platform/desktop-storage-authority'");
-    expect(preloadSource).toContain(
-      'MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS)'
-    );
-  });
-
   it('keeps the desktop diagnostics bridge on the manifest channel', () => {
     const preloadSource = readPreloadSource();
     const bridge = extractExposedBridgeProperties(preloadSource, 'desktopDiagnostics');

@@ -1,15 +1,17 @@
-import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
   MIN_FOLDER_SUMMARY_THRESHOLD,
   MIN_MAX_SELECTION_COUNT,
 } from '@brainstrike/types';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { createFileExplorerStore } from '../store';
 
 describe('settings-actions', () => {
-  const makeStore = () => createFileExplorerStore(createMemoryStorageAdapter());
+  beforeEach(() => {
+    localStorage.clear();
+  });
+  const makeStore = () => createFileExplorerStore();
 
   it('clamps maxSelectionCount and trims selection set when reduced', () => {
     const store = makeStore();

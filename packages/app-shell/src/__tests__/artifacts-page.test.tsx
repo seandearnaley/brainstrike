@@ -89,15 +89,9 @@ function artifacts(list: AssistantThreadHostArtifacts['list']): AssistantThreadH
   };
 }
 
-const themeStorageAdapter = {
-  getItem: () => Promise.resolve('light'),
-  removeItem: () => Promise.resolve(),
-  setItem: () => Promise.resolve(),
-};
-
 function renderPage(host: AssistantThreadHostCapability) {
   return render(
-    <ThemeProvider storageAdapter={themeStorageAdapter}>
+    <ThemeProvider defaultMode="light">
       <AssistantThreadHostContext.Provider value={host}>
         <ArtifactsPage shellSrc={SHELL} />
       </AssistantThreadHostContext.Provider>
