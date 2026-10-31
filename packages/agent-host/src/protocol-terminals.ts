@@ -1,3 +1,4 @@
+import { BoundaryFailureSchema } from '@brainstrike/assistant-contract';
 import { Schema } from 'effect';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
@@ -6,23 +7,15 @@ const Dimension = Schema.Finite;
 
 // --- terminals -------------------------------------------------------------
 
-const TerminalError = Schema.Struct({ error: Text, ok: Schema.Literal(false) });
-const TerminalDoneSchema = Schema.Union(
-  [Schema.Struct({ ok: Schema.Literal(true) }), TerminalError],
-  {
+/** Terminals and command sessions answer in the one `BoundaryResult` envelope, failures typed. */
+const BoundaryError = Schema.Struct({ error: BoundaryFailureSchema, ok: Schema.Literal(false) });
+function boundaryResult<T extends Schema.Constraint>(value: T) {
+  return Schema.Union([Schema.Struct({ ok: Schema.Literal(true), value }), BoundaryError], {
     mode: 'oneOf',
-  }
-);
-const TerminalCreatedSchema = Schema.Union(
-  [
-    Schema.Struct({
-      ok: Schema.Literal(true),
-      value: Schema.Struct({ cwd: Text, terminalId: Id }),
-    }),
-    TerminalError,
-  ],
-  { mode: 'oneOf' }
-);
+  });
+}
+const DoneSchema = boundaryResult(Schema.Null);
+const TerminalCreatedSchema = boundaryResult(Schema.Struct({ cwd: Text, terminalId: Id }));
 
 /** One terminal's output or exit, pushed only to the connection that created it. */
 export const TERMINAL_EVENT = 'terminal/event';
@@ -63,37 +56,6 @@ const CommandSessionInfoSchema = Schema.Union(
   ],
   { mode: 'oneOf' }
 );
-const CommandSessionFailure = Schema.Struct({
-  error: Schema.Struct({
-    code: Schema.Literals([
-      'aborted',
-      'cursor-out-of-range',
-      'cwd-not-found',
-      'cwd-outside-root',
-      'internal',
-      'invalid-buffer',
-      'invalid-input',
-      'root-unavailable',
-      'session-exited',
-      'session-id-collision',
-      'session-not-found',
-      'start-failed',
-      'workspace-busy',
-    ]),
-    message: Text,
-  }),
-  ok: Schema.Literal(false),
-});
-function commandSessionResult<T extends Schema.Constraint>(value: T) {
-  return Schema.Union([Schema.Struct({ ok: Schema.Literal(true), value }), CommandSessionFailure], {
-    mode: 'oneOf',
-  });
-}
-const CommandSessionDoneSchema = Schema.Union(
-  [Schema.Struct({ ok: Schema.Literal(true) }), CommandSessionFailure],
-  { mode: 'oneOf' }
-);
-
 /**
  * ADR-0029 stage 3: the Terminal panel's interactive terminals and the
  * inventory of the command sessions runs start, served by the host that owns
@@ -120,10 +82,10 @@ export const TERMINAL_METHOD_SCHEMAS = {
 } as const;
 
 export const TERMINAL_RESULT_SCHEMAS = {
-  'command-sessions/list': commandSessionResult(
+  'command-sessions/list': boundaryResult(
     Schema.Struct({ rootId: Id, sessions: Schema.Array(CommandSessionInfoSchema) })
   ),
-  'command-sessions/read': commandSessionResult(
+  'command-sessions/read': boundaryResult(
     Schema.Struct({
       bufferStartCursor: Schema.Finite,
       hasMore: Schema.Boolean,
@@ -134,11 +96,11 @@ export const TERMINAL_RESULT_SCHEMAS = {
       truncatedBeforeCursor: Schema.Boolean,
     })
   ),
-  'command-sessions/remove': CommandSessionDoneSchema,
-  'command-sessions/stop': CommandSessionDoneSchema,
-  'command-sessions/write': CommandSessionDoneSchema,
+  'command-sessions/remove': DoneSchema,
+  'command-sessions/stop': DoneSchema,
+  'command-sessions/write': DoneSchema,
   'terminal/create': TerminalCreatedSchema,
-  'terminal/destroy': TerminalDoneSchema,
-  'terminal/resize': TerminalDoneSchema,
-  'terminal/write': TerminalDoneSchema,
+  'terminal/destroy': DoneSchema,
+  'terminal/resize': DoneSchema,
+  'terminal/write': DoneSchema,
 } as const;

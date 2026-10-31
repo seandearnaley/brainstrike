@@ -1,3 +1,4 @@
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { FitAddon } from '@xterm/addon-fit';
@@ -17,7 +18,7 @@ const logger = createLogger('TerminalPanel');
 
 /**
  * Log an IPC-level rejection from a fire-and-forget bridge call. The
- * `TerminalResult` envelope never throws, but the underlying transport can (e.g.
+ * `BoundaryResult` envelope never throws, but the underlying transport can (e.g.
  * the bridge tears down mid-call); without this the rejection would be an
  * unhandled promise rejection rather than a logged warning.
  */
@@ -251,14 +252,15 @@ export function useTerminalSession(
             }, TRANSIENT_ROOT_RETRY_DELAY_MS);
             return;
           }
+          const message = describeBoundaryFailure(result.error);
           setTagged({
-            outcome: { kind: 'error', message: result.error },
+            outcome: { kind: 'error', message },
             sessionId,
             sessionKey,
           });
           logger.error('terminal create failed', { error: result.error });
           toast({
-            description: result.error,
+            description: message,
             title: 'Terminal failed to start',
             variant: 'destructive',
           });

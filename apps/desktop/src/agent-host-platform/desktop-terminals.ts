@@ -34,7 +34,7 @@
  *    kill another's terminal: a terminal id is looked up in its own session only.
  *
  * No-silent-fallbacks: a spawn failure, an unknown root, or a write/resize to a
- * dead terminal returns a structured `{ ok: false, error }` (logged), never a
+ * dead terminal returns a typed `{ ok: false, error }` failure (logged), never a
  * throw across the wire and never a silent success.
  */
 
@@ -46,6 +46,12 @@ import type {
   HostTerminals,
 } from '@brainstrike/agent-host';
 import type { TerminalEvent } from '@brainstrike/agent-host/protocol';
+import {
+  type BoundaryFailure,
+  fault,
+  refusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import { terminateTree, trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
@@ -92,9 +98,25 @@ const MAX_DIMENSION = 5000;
  */
 const MAX_EVENT_CHUNK_CHARS = 256 * 1024;
 
-type TerminalResult<T = void> =
-  | (T extends void ? { ok: true } : { ok: true; value: T })
-  | { ok: false; error: string };
+function failed(error: BoundaryFailure): { readonly error: BoundaryFailure; readonly ok: false } {
+  return { error, ok: false };
+}
+
+/** A pty call that threw: node-pty's words stay in the log under the fault's correlation id. */
+function ptyFault(
+  code: `terminal.${string}`,
+  message: string,
+  error: unknown,
+  details: Readonly<Record<string, unknown>>
+) {
+  const correlationId = randomUUID();
+  logger.error(message, {
+    ...details,
+    correlationId,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  return failed(fault({ category: 'internal', code, correlationId, message }));
+}
 
 /** A live pty in one client's session. */
 interface LiveTerminal {
@@ -260,7 +282,7 @@ export function createDesktopTerminals({
       readonly cwd?: string;
       readonly rootId: string;
       readonly rows?: number;
-    }): Promise<TerminalResult<{ cwd: string; terminalId: string }>> {
+    }): Promise<BoundaryResult<{ cwd: string; terminalId: string }>> {
       const root = await resolveRootCwd(resolver, params.rootId, 'terminal', logger);
       if (!root.ok) {
         return root;
@@ -270,7 +292,13 @@ export function createDesktopTerminals({
         return cwd;
       }
       if (closed) {
-        return { error: 'The terminal client has closed.', ok: false };
+        return failed(
+          refusal({
+            category: 'availability',
+            code: 'terminal.client-closed',
+            message: 'The terminal client has closed.',
+          })
+        );
       }
       const cols = clampDimension(params.cols, DEFAULT_COLS);
       const rows = clampDimension(params.rows, DEFAULT_ROWS);
@@ -287,13 +315,10 @@ export function createDesktopTerminals({
           rows,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.error('Failed to spawn pty', {
+        return ptyFault('terminal.start-failed', 'The terminal could not start.', error, {
           ...fingerprintCwd(cwd.value),
-          error: message,
           shell,
         });
-        return { error: `Failed to start terminal: ${message}`, ok: false };
       }
       // ADR-0017: node-pty cannot hand the shell the Root's descriptor, so the
       // supervisor tracks it instead. The pty leads its own session and group.
@@ -357,8 +382,16 @@ export function createDesktopTerminals({
     }
 
     /** An id another client created is as unknown here as one never created. */
-    function find(terminalId: string): LiveTerminal | { error: string } {
-      return live.get(terminalId) ?? { error: `No live terminal "${terminalId}".` };
+    function find(terminalId: string): LiveTerminal | { readonly error: BoundaryFailure } {
+      return (
+        live.get(terminalId) ?? {
+          error: refusal({
+            category: 'input',
+            code: 'terminal.not-found',
+            message: `No live terminal "${terminalId}".`,
+          }),
+        }
+      );
     }
 
     return {
@@ -381,46 +414,48 @@ export function createDesktopTerminals({
       'terminal/destroy': async ({ terminalId }) => {
         const entry = find(terminalId);
         if ('error' in entry) {
-          return { error: entry.error, ok: false };
+          return failed(entry.error);
         }
         // Remove from the session FIRST so the onExit handler (which also
         // deletes) is a no-op and cannot double-fire teardown.
         live.delete(terminalId);
         void killTerminalTree(entry);
         logger.info('Destroyed terminal', { terminalId });
-        return { ok: true };
+        return { ok: true, value: null };
       },
       'terminal/resize': async (params) => {
         const entry = find(params.terminalId);
         if ('error' in entry) {
-          return { error: entry.error, ok: false };
+          return failed(entry.error);
         }
         const cols = clampDimension(params.cols, DEFAULT_COLS);
         const rows = clampDimension(params.rows, DEFAULT_ROWS);
         try {
           entry.process.resize(cols, rows);
-          return { ok: true };
+          return { ok: true, value: null };
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          logger.warn('Resize of terminal failed', {
-            error: message,
+          return ptyFault('terminal.resize-failed', 'The terminal could not be resized.', error, {
             terminalId: params.terminalId,
           });
-          return { error: `Resize failed: ${message}`, ok: false };
         }
       },
       'terminal/write': async ({ data, terminalId }) => {
         const entry = find(terminalId);
         if ('error' in entry) {
-          return { error: entry.error, ok: false };
+          return failed(entry.error);
         }
         try {
           entry.process.write(data);
-          return { ok: true };
+          return { ok: true, value: null };
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          logger.warn('Write to terminal failed', { error: message, terminalId });
-          return { error: `Write failed: ${message}`, ok: false };
+          return ptyFault(
+            'terminal.write-failed',
+            'The terminal did not accept the input.',
+            error,
+            {
+              terminalId,
+            }
+          );
         }
       },
     };
