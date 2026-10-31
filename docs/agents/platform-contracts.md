@@ -41,7 +41,8 @@ secrets and persistent UI state. Both use the existing admission/retirement owne
 join renderer saves and retire persisted chat/tab references before host deletion
 and replacement. New durable state participates in reset. Main owns Factory
 Reset: it wipes userData, blanks every window so no old document can write, clears
-the session's storage, and loads a fresh document. Live in-memory stores return to
+the session's storage (`clearStorageData`: `clearData` skips the app's own scheme),
+and loads a fresh document. Live in-memory stores return to
 defaults because the document is replaced, so no store resets itself; the renderer
 clears only its window-scoped `sessionStorage`, which no session API reaches.
 

@@ -1030,9 +1030,10 @@ if (singleInstanceLockAcquired) {
   completeFactoryResetRendererReplacement = async (signal, mode) => {
     await factoryResetRendererReplacement.replace(BrowserWindow.getAllWindows(), {
       // Content clearing keeps configuration, so only a factory reset wipes the
-      // storage the renderer's preferences live in.
+      // storage the renderer's preferences live in. clearData skips the app's own
+      // non-web scheme; clearStorageData reaches it.
       ...(mode === 'factory'
-        ? { clearSessionStorage: () => session.defaultSession.clearData() }
+        ? { clearSessionStorage: () => session.defaultSession.clearStorageData() }
         : {}),
       signal,
     });

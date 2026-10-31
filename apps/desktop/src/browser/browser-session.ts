@@ -169,6 +169,11 @@ export async function clearDesktopBrowserSessions(): Promise<void> {
   const results = await Promise.allSettled(
     sessions.map(async (owned) => {
       await owned.clearData();
+      // clearData goes through Chromium's BrowsingDataRemover, which skips
+      // origins outside the web schemes, so the app's own `brainstrike-app:`
+      // localStorage, IndexedDB and CacheStorage survive it (Electron 45).
+      // clearStorageData clears the storage partition for every origin.
+      await owned.clearStorageData();
       await owned.clearAuthCache();
       await owned.closeAllConnections();
     })

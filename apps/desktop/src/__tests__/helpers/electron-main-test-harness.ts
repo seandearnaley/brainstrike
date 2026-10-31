@@ -71,6 +71,7 @@ const electronMainMockSurface = {
     defaultSession: {
       clearAuthCache: vi.fn(async () => undefined),
       clearData: vi.fn(async () => undefined),
+      clearStorageData: vi.fn(async () => undefined),
       closeAllConnections: vi.fn(async () => undefined),
       on: vi.fn(),
       setPermissionCheckHandler: vi.fn(),

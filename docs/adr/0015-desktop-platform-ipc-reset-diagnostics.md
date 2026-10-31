@@ -45,7 +45,8 @@ NDJSON backstop sits on the logging choke points.
   **Main-owned reset amendment, approved by Sean on 2026-10-31 (BST-2382):**
   Main is the only owner of Factory Reset. After the purge it loads `about:blank`
   in every window, so no old document can write, clears the default session's
-  storage, and then loads each window's document again. The renderer only
+  storage with `clearStorageData` (`clearData` skips the app's own non-web
+  scheme), and then loads each window's document again. The renderer only
   retires its writers and clears its window-scoped `sessionStorage`, which no
   session API reaches. Renderer stores no longer reset themselves or register
   resetters: the replaced document starts from defaults.
