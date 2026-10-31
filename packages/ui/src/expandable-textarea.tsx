@@ -47,7 +47,7 @@ export interface ExpandableTextareaProps {
  * - Collapses when content is removed
  * - Keyboard shortcuts: Cmd/Ctrl+Enter to submit (handled by parent)
  */
-export const ExpandableTextarea = React.memo(function ExpandableTextarea({
+export function ExpandableTextarea({
   value,
   onChange,
   placeholder = 'Enter search query...',
@@ -156,6 +156,4 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
       value={value}
     />
   );
-});
-
-ExpandableTextarea.displayName = 'ExpandableTextarea';
+}

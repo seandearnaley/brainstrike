@@ -1,6 +1,6 @@
 import type { ContextRun } from '@brainstrike/assistant-ui/thread-context-fold';
 import { cn } from '@brainstrike/ui';
-import { Fragment, memo, type ReactElement } from 'react';
+import { Fragment, type ReactElement } from 'react';
 
 const BAR_MAX_PX = 28;
 
@@ -9,7 +9,7 @@ const BAR_MAX_PX = 28;
  * it delivered. A compaction runs before the turn that made it, so its marker
  * sits just before that turn.
  */
-export const TurnScrubber = memo(function TurnScrubber({
+export function TurnScrubber({
   addedTokens,
   onSelect,
   runs,
@@ -74,4 +74,4 @@ export const TurnScrubber = memo(function TurnScrubber({
       })}
     </div>
   );
-});
+}
