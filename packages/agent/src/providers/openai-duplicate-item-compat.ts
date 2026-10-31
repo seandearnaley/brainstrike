@@ -1,15 +1,11 @@
+import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import { createLogger } from '@brainstrike/logging';
-import type {
-  ProcessLLMRequestArgs,
-  ProcessLLMRequestResult,
-  Processor,
-} from '@mastra/core/processors';
 import { Predicate } from 'effect';
 
 const logger = createLogger('OpenAIDuplicateItemCompat');
 const OPENAI_NAMESPACE = 'openai';
 
-type Prompt = ProcessLLMRequestArgs['prompt'];
+type Prompt = LanguageModelV4Prompt;
 type PromptMessage = Prompt[number];
 type AssistantMessage = Extract<PromptMessage, { role: 'assistant' }>;
 type ToolMessage = Extract<PromptMessage, { role: 'tool' }>;
@@ -297,39 +293,24 @@ function rebuildPrompt(prompt: Prompt, plan: DropPlan): Prompt {
  * reasoning is swept ({@link sweepOrphanedTrailingReasoning}); emptied
  * messages are removed. Durable history is never mutated.
  */
-export class OpenAIDuplicateItemCompat implements Processor<'openai-duplicate-item-compat'> {
-  readonly id = 'openai-duplicate-item-compat';
-  readonly name = 'OpenAI duplicate item-reference compatibility';
-
-  processLLMRequest(args: ProcessLLMRequestArgs): ProcessLLMRequestResult | undefined {
-    const { callOccurrences, itemOccurrences } = collectOccurrences(args.prompt);
-    const plan: DropPlan = { dropPositions: new Set(), droppedKeys: new Set() };
-    dropStaleItems(plan, itemOccurrences);
-    dropUnpairedCalls(plan, callOccurrences);
-    // Inspect the surviving assistant sequence across row boundaries, after
-    // duplicate/filter removal (https://github.com/vercel/ai/issues/11036).
-    sweepOrphanedTrailingReasoning(plan, args.prompt);
-    const prompt = rebuildPrompt(args.prompt, plan);
-    if (plan.droppedKeys.size === 0) {
-      return;
-    }
-    logger.warn(
-      {
-        code: 'openai_duplicate_items_canonicalized',
-        droppedKeys: [...plan.droppedKeys],
-        droppedPartCount: plan.dropPositions.size,
-      },
-      'dropped stale duplicated OpenAI item references from the provider request'
-    );
-    return { prompt };
+export function canonicalizeOpenAIDuplicateItems(input: Prompt): Prompt {
+  const { callOccurrences, itemOccurrences } = collectOccurrences(input);
+  const plan: DropPlan = { dropPositions: new Set(), droppedKeys: new Set() };
+  dropStaleItems(plan, itemOccurrences);
+  dropUnpairedCalls(plan, callOccurrences);
+  // Inspect the surviving assistant sequence across row boundaries, after
+  // duplicate/filter removal (https://github.com/vercel/ai/issues/11036).
+  sweepOrphanedTrailingReasoning(plan, input);
+  if (plan.droppedKeys.size === 0) {
+    return input;
   }
-}
-
-export function buildOpenAIDuplicateItemCompatInputProcessor(
-  provider: string
-): Processor | undefined {
-  if (provider.trim().toLowerCase() !== OPENAI_NAMESPACE) {
-    return;
-  }
-  return new OpenAIDuplicateItemCompat();
+  logger.warn(
+    {
+      code: 'openai_duplicate_items_canonicalized',
+      droppedKeys: [...plan.droppedKeys],
+      droppedPartCount: plan.dropPositions.size,
+    },
+    'dropped stale duplicated OpenAI item references from the provider request'
+  );
+  return rebuildPrompt(input, plan);
 }

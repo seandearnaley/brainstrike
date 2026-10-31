@@ -1,17 +1,16 @@
-import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import { describe, expect, it } from 'vitest';
-import {
-  BedrockMessageHygiene,
-  buildBedrockMessageHygieneInputProcessor,
-} from '../mastra-processors/bedrock-message-hygiene';
+import { prepareProviderRequest } from '../provider-request.ts';
+import { cleanBedrockPrompt } from '../providers/bedrock-message-hygiene.ts';
 
-type Prompt = ProcessLLMRequestArgs['prompt'];
+type Prompt = LanguageModelV4Prompt;
 
+/** The cleaned prompt, or undefined when the input came back untouched. */
 function run(prompt: unknown): Prompt | undefined {
-  const result = new BedrockMessageHygiene().processLLMRequest({
-    prompt: prompt as Prompt,
-  } as ProcessLLMRequestArgs);
-  return result?.prompt;
+  const input = prompt as Prompt;
+  const cleaned = cleanBedrockPrompt(input);
+  return cleaned === input ? undefined : cleaned;
 }
 
 describe('BedrockMessageHygiene', () => {
@@ -242,13 +241,61 @@ describe('BedrockMessageHygiene', () => {
   });
 });
 
-describe('buildBedrockMessageHygieneInputProcessor', () => {
-  it('is installed for bedrock only', () => {
-    expect(buildBedrockMessageHygieneInputProcessor(' Bedrock ')?.id).toBe(
-      'bedrock-message-hygiene'
-    );
-    expect(buildBedrockMessageHygieneInputProcessor('anthropic')).toBeUndefined();
-    expect(buildBedrockMessageHygieneInputProcessor('openai')).toBeUndefined();
-    expect(buildBedrockMessageHygieneInputProcessor('')).toBeUndefined();
+describe('Bedrock provider requests', () => {
+  const replay: Prompt = [
+    { content: [{ text: 'hello', type: 'text' }], role: 'user' },
+    {
+      content: [
+        { text: '', type: 'text' },
+        { input: {}, toolCallId: 'call:1', toolName: 'read', type: 'tool-call' },
+      ],
+      role: 'assistant',
+    },
+    {
+      content: [
+        {
+          output: { type: 'text', value: 'ok' },
+          toolCallId: 'call:1',
+          toolName: 'read',
+          type: 'tool-result',
+        },
+      ],
+      role: 'tool',
+    },
+  ];
+  const model = createAmazonBedrock({
+    accessKeyId: 'fake',
+    region: 'us-east-1',
+    secretAccessKey: 'fake',
+  })('anthropic.claude-sonnet-4-5-20250929-v1:0');
+
+  it('sends Bedrock a replay without blank blocks and with Converse-safe tool ids', async () => {
+    const prepared = await prepareProviderRequest({ prompt: replay }, model, {
+      provider: 'bedrock',
+    });
+    expect(prepared.params.prompt.slice(1)).toEqual([
+      {
+        content: [{ input: {}, toolCallId: 'call_1', toolName: 'read', type: 'tool-call' }],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'text', value: 'ok' },
+            toolCallId: 'call_1',
+            toolName: 'read',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+    ]);
+  });
+
+  it('leaves the same replay as stored for OpenAI', async () => {
+    const prepared = await prepareProviderRequest({ prompt: replay }, model, {
+      provider: 'openai',
+    });
+    expect(prepared.params.prompt).toEqual(replay);
   });
 });

@@ -29,7 +29,10 @@ tool at the SDK edge; a function named `tool_search` is a different tool
 ([vendor identity contract](https://github.com/vercel/ai/pull/19754)). The host
 retains its existing discovery catalog. Drop orphaned reasoning, aborted-step
 items and foreign-provider executed parts from
-requests without rewriting canonical history. OpenAI uses stored responses.
+requests without rewriting canonical history. Brainstrike's provider fixes are
+plain functions over the AI SDK V4 prompt in `transformParams`; only Mastra's
+`ProviderHistoryCompat` and `TokenLimiter` cross its V2 prompt type, in one
+place. OpenAI uses stored responses.
 Expired stored items are typed, non-retryable failures; replaying without them
 requires the user's decision.
 
