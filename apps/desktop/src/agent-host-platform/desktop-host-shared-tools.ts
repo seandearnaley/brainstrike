@@ -5,10 +5,10 @@ import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-work
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
   createSharedNativeHostTools,
+  getEditDiagnostics,
   type ReadWorkspaceFileCursorRegistry,
 } from '@brainstrike/host-capabilities/native-tools';
 import { Schema } from 'effect';
-import { getEditDiagnostics } from '../assistant-server/lsp-diagnostics';
 import type { DesktopWorktreeServices } from '../assistant-server/worktree-tool-dependencies';
 import { agentNavigationTarget } from '../browser/browser-url';
 import {

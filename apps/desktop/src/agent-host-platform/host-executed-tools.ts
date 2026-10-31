@@ -7,6 +7,7 @@ import {
   type CommandSandbox,
   executeCommandExecutor,
   grepSearchExecutor,
+  INSPECTION_TOOL_EXECUTORS,
   isSharedNativeToolId,
   type NativeToolExecutor,
   type ShellCorrelationDependencies,
@@ -19,7 +20,6 @@ import {
   CONTEXT_READ_TOOL_IDS,
   contextReadExecutors,
 } from '../assistant-server/native-tool-executors-context';
-import { INSPECTION_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-inspection';
 import {
   type CodeExecutionHost,
   runPythonExecutor,

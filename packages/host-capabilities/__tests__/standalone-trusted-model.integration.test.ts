@@ -128,6 +128,8 @@ async function standaloneHost(
   return { run, started };
 }
 
+type StandaloneHost = Awaited<ReturnType<typeof standaloneHost>>;
+
 /**
  * A trusted `--platform` module: the standalone platform with the scripted
  * fixture as `provider::probe`, which makes `calls` one step each, then answers.
@@ -227,6 +229,26 @@ test('a trusted model that claims a catalog provider identity fails host start',
   expect(host.started.stderr).toMatch(/must not claim a catalog provider's identity/u);
 });
 
+/** The tool results the model received, as recorded on the thread's `model.step` events. */
+function recordedToolResults(rows: Awaited<ReturnType<StandaloneHost['run']>>['rows']) {
+  const toolResult = z.object({
+    output: z.unknown(),
+    toolCallId: z.string(),
+    type: z.literal('tool-result'),
+  });
+  return (rows ?? []).flatMap(({ event }) =>
+    event.type === 'model.step'
+      ? event.messages.flatMap(
+          (message) =>
+            z
+              .object({ content: z.array(z.unknown()), role: z.literal('tool') })
+              .safeParse(message)
+              .data?.content.flatMap((part) => toolResult.safeParse(part).data ?? []) ?? []
+        )
+      : []
+  );
+}
+
 test('the standalone host searches its launch root with grepSearch', {
   timeout: 120_000,
 }, async () => {
@@ -239,26 +261,41 @@ test('the standalone host searches its launch root with grepSearch', {
   expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
   const searched = await host.run('trusted-fixture::probe');
   expect(searched.result, searched.result.stderr).toMatchObject({ code: 0 });
-  const toolResult = z.object({
-    output: z.unknown(),
-    toolCallId: z.literal('recorded-call-1'),
-    type: z.literal('tool-result'),
-  });
-  const results = (searched.rows ?? []).flatMap(({ event }) =>
-    event.type === 'model.step'
-      ? event.messages.flatMap(
-          (message) =>
-            z
-              .object({ content: z.array(z.unknown()), role: z.literal('tool') })
-              .safeParse(message)
-              .data?.content.flatMap((part) => toolResult.safeParse(part).data ?? []) ?? []
-        )
-      : []
-  );
   // The model sees the launch root's matching file and line, found on disk by this host.
-  expect(results).toEqual([
+  expect(recordedToolResults(searched.rows)).toEqual([
     expect.objectContaining({
       output: { type: 'text', value: expect.stringMatching(/^haystack\.txt:2 \(1 match\)$/mu) },
+      toolCallId: 'recorded-call-1',
     }),
   ]);
+});
+
+test('the standalone host inspects its launch root with the language server', {
+  timeout: 120_000,
+}, async () => {
+  // lspInspect is a deferred tool: the model loads it by name, then calls it.
+  const module = await trustedPlatformModule('trusted-fixture', [
+    { input: { toolName: 'brainstrike_lspInspect' }, toolId: 'load_tool' },
+    {
+      input: { line: 2, match: 'answer', path: 'main.ts' },
+      toolId: 'brainstrike_lspInspect',
+    },
+  ]);
+  const host = await standaloneHost({}, module, {
+    'main.ts': 'export const answer = 42;\nexport const doubled = answer * 2;\n',
+  });
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  const inspected = await host.run('trusted-fixture::probe');
+  expect(inspected.result, inspected.result.stderr).toMatchObject({ code: 0 });
+  // The model sees the symbol's type and its declaration, answered by a
+  // language server this host started over its launch root and retired on stop.
+  const result = recordedToolResults(inspected.rows).find(
+    ({ toolCallId }) => toolCallId === 'recorded-call-2'
+  );
+  const text = z
+    .object({ type: z.literal('text'), value: z.string() })
+    .parse(result?.output, { reportInput: true }).value;
+  expect(text).toMatch(/^lsp \| available=true\b/u);
+  expect(text).toMatch(/^hover: .*const answer: 42/mu);
+  expect(text).toMatch(/^definition \S*main\.ts:1 \| export const answer = 42;$/mu);
 });

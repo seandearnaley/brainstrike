@@ -48,16 +48,22 @@ import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.ts';
 import {
   createSharedNativeHostTools,
   disposeLiveChildProcesses,
+  disposeLspServers,
   executeCommandExecutor,
   forgetSharedNativeToolThread,
+  getEditDiagnostics,
   grepSearchExecutor,
+  INSPECTION_TOOL_EXECUTORS,
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from './native-tools/index.ts';
 import { closeStandaloneOwners } from './standalone-close.ts';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.ts';
 
-/** The native tools a standalone host runs over its launch roots: the shared ones, grep and its shell. */
+/**
+ * The native tools a standalone host runs over its launch roots: the shared
+ * ones, grep, language-server inspection and its shell.
+ */
 const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
@@ -70,6 +76,7 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.findWorkspaceSymbol,
   NATIVE_TOOL_ID.grepSearch,
+  NATIVE_TOOL_ID.lspInspect,
   NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.executeCommand,
 ] as const;
@@ -101,7 +108,19 @@ const STANDALONE_HOST_EXECUTORS = {
     windowsCommandEntry: standaloneWindowsCommandEntry,
   }),
   [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
+  ...INSPECTION_TOOL_EXECUTORS,
 };
+
+/** The command trees and language servers this host's runs started, all retired. */
+async function disposeStandaloneChildren(): Promise<void> {
+  const outcomes = await Promise.allSettled([disposeLiveChildProcesses(), disposeLspServers()]);
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === 'rejected' ? [outcome.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Standalone child process cleanup failed');
+  }
+}
 
 /** The standalone host has no plan mode; it refuses one rather than run unplanned. */
 function refuseStandalonePlanMode(request: { readonly planMode?: true }): void {
@@ -172,8 +191,8 @@ function standaloneSystemPrompt(
   const mcpTools = configuredMcp
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
-  const unavailableMcp = configuredMcp ? '' : 'configured MCP/Tasks, ';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, the task list, canvases, shell commands started in a workspace root and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Language-server inspection, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  const unavailableMcp = configuredMcp ? '' : 'Configured MCP/Tasks, ';
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -306,7 +325,7 @@ export async function createHostPlatform(
   return createProductionHostPlatform({
     auth: host.auth,
     // Live commands are retired before MCP and the host capabilities close.
-    close: () => closeStandaloneOwners({ commands: disposeLiveChildProcesses, host, mcp }),
+    close: () => closeStandaloneOwners({ commands: disposeStandaloneChildren, host, mcp }),
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),
@@ -383,6 +402,7 @@ export async function createHostPlatform(
       );
       const bindings = createStandaloneHumanTools(resolvedToolResultBudget);
       const workspaceTools = createSharedNativeHostTools({
+        diagnostics: (args) => getEditDiagnostics(args),
         executors: STANDALONE_HOST_EXECUTORS,
         ids: STANDALONE_WORKSPACE_TOOL_IDS,
         readFileCursorRegistry,
