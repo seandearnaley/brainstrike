@@ -14,9 +14,8 @@ an experimental one in a PATCH. So "deliberately" means checked, not guessed —
 the language service carries `unstableApiUsage` and `experimentalApiUsage`,
 takes `allowedUnstableApis`/`allowedExperimentalApis` for a reviewed exception,
 and reports a stable signature that exposes a less stable type as
-`apiStabilityLeak`. Everything imported today (`Effect`, `Layer`, `Scope`,
-`Schema`, `SchemaIssue`, `JsonSchema`, `Schedule`, `Semaphore`, `ManagedRuntime`,
-`Stream`) is tagged stable.
+`apiStabilityLeak`. Every module imported today is tagged stable, and those
+rules keep it so.
 
 Each project names those three rules as `error` in its `diagnosticSeverity`, and
 its type-check script's `effect-tsgo diagnostics --strict` step enforces them.

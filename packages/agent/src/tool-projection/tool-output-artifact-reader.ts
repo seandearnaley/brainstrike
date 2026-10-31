@@ -17,6 +17,7 @@ import {
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
   type ToolOutputArtifactPage,
   type ToolOutputArtifactReference,
+  ToolOutputArtifactReferenceSchema,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { assertSafeRegexSource } from '@brainstrike/utils';
 import { Predicate, Schema, SchemaIssue } from 'effect';
@@ -33,20 +34,6 @@ import {
 
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_ENCODER = new TextEncoder();
-
-const ToolOutputArtifactReferenceSchema = Schema.Struct({
-  byteLength: Schema.Int.check(
-    Schema.isGreaterThanOrEqualTo(0),
-    Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-  ),
-  expiresAt: Schema.String.check(Schema.isMinCodePoints(1), Schema.isMaxCodePoints(64)),
-  format: Schema.Literals(['json', 'text']),
-  id: Schema.String.check(
-    Schema.isMinCodePoints(1),
-    Schema.isMaxCodePoints(128),
-    Schema.isPattern(/^[A-Za-z0-9_-]+$/u)
-  ),
-});
 
 export const ReadToolOutputArtifactInputSchema = Schema.Struct({
   artifactRef: Schema.optionalKey(ToolOutputArtifactReferenceSchema),
@@ -854,7 +841,7 @@ function resolveReadPosition(input: ReadToolOutputArtifactInput): {
   readonly offsetByte: number;
 } {
   if (input.mode === 'artifact') {
-    if (!(input.artifactRef && isToolOutputArtifactReference(input.artifactRef))) {
+    if (!input.artifactRef) {
       throw new ToolOutputArtifactReadError('invalid_input');
     }
     return { artifactRef: input.artifactRef, offsetByte: 0 };
