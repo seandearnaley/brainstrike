@@ -74,13 +74,13 @@ export function RunVerdictButtons({
           <Button
             aria-label="This worked"
             aria-pressed={chosen === 'succeeded'}
-            className={`h-5 px-1.5 text-[11px] ${chosen === 'succeeded' ? 'text-success' : 'text-muted-foreground'}`}
+            className={`size-5 p-0 ${chosen === 'succeeded' ? 'text-success' : 'text-muted-foreground'}`}
             disabled={saving}
             onClick={() => void submit('succeeded')}
             size="sm"
             variant="ghost"
           >
-            <ThumbsUp className="size-3" />
+            <ThumbsUp className="size-3.5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>Mark this run's work as succeeded</TooltipContent>
@@ -90,13 +90,13 @@ export function RunVerdictButtons({
           <Button
             aria-label="This didn't work"
             aria-pressed={chosen === 'failed'}
-            className={`h-5 px-1.5 text-[11px] ${chosen === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}
+            className={`size-5 p-0 ${chosen === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}
             disabled={saving}
             onClick={() => void submit('failed')}
             size="sm"
             variant="ghost"
           >
-            <ThumbsDown className="size-3" />
+            <ThumbsDown className="size-3.5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>Mark this run's work as failed</TooltipContent>
@@ -134,7 +134,10 @@ export function RunVerdictControl(): ReactElement | null {
   }
   const committed = context.committed?.get(runId);
   return (
-    <div className="mt-1 flex items-center gap-1" data-testid="run-verdict-footer">
+    <div
+      className="mr-1 inline-flex items-center gap-1 align-middle"
+      data-testid="run-verdict-footer"
+    >
       <RunVerdictButtons
         committed={committed?.source === 'user' ? userChoice(committed.verdict) : undefined}
         onVerdict={(verdict) => context.recordVerdict(runId, verdict)}

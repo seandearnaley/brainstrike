@@ -5,7 +5,7 @@ import { TooltipIconButton, useCopyToClipboard } from '@brainstrike/ui';
 import { CheckIcon, CopyIcon, RefreshCwIcon } from 'lucide-react';
 
 export const ASSISTANT_ACTION_BAR_CLASSNAME =
-  'col-start-3 row-start-2 -ml-1 flex gap-0.5 text-muted-foreground data-[floating]:absolute';
+  'inline-flex gap-0.5 align-middle text-muted-foreground data-[floating]:absolute';
 export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
 
 /**
