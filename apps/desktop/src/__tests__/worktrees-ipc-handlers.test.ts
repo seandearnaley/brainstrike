@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readWorktreeSettings, writeWorktreeSettings } from '../assistant-server/worktree-settings';
 import { createWorktreesIpcHandlers } from '../worktrees-ipc-handlers';
 
 const service = {
@@ -545,6 +546,43 @@ describe('worktrees IPC handlers', () => {
 
     await expect(ipcHandlers.setSettings(next)).resolves.toEqual({ ok: true, value: settings });
     expect(writeSettings).toHaveBeenCalledWith(next);
+  });
+
+  it('tells the user why a managed directory inside a granted folder is refused', async () => {
+    const stored = new Map<string, string>();
+    const store = {
+      getSetting: (key: string) => Promise.resolve(stored.get(key)),
+      setSetting: (key: string, value: string) => {
+        stored.set(key, value);
+        return Promise.resolve();
+      },
+    };
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => readWorktreeSettings(store, '/home/me'),
+      resolveService: () => service as never,
+      writeSettings: (next) =>
+        writeWorktreeSettings(store, '/home/me', next, () => Promise.resolve(['/work/project'])),
+    });
+
+    await expect(
+      ipcHandlers.setSettings({ managedDirectory: '/work/project/worktrees', setupCommand: null })
+    ).resolves.toEqual({
+      error: expect.objectContaining({
+        code: 'worktree.path-refused',
+        message:
+          'Managed worktrees must not live inside the granted folder "/work/project" — change the location in Settings → Workspace.',
+      }),
+      ok: false,
+    });
+
+    stored.set('worktreeSettings', '{not json');
+    await expect(ipcHandlers.getSettings()).resolves.toEqual({
+      error: expect.objectContaining({
+        code: 'worktree.settings-invalid',
+        message: 'worktreeSettings is not valid JSON.',
+      }),
+      ok: false,
+    });
   });
 
   it('returns a typed failure when writing settings throws', async () => {
