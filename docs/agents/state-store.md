@@ -24,6 +24,18 @@ refusal carries `storeDamage`), and the host sends both as the typed
 Purge, thread delete and blob GC: `state-deletion.ts` orchestrates them over the
 writer's `deletion-domain.mjs` ops, its derived index and its write chain.
 
+Mastra memory calculation never runs on the writer thread. `memory-calculator.ts`
+starts its own worker (`memory-calculator-worker.mjs`) at the first request that
+needs it, so open never pays its 1-2 s module load, and stops it at close, Clear
+and reset. The worker only calculates: it opens no database and writes nothing.
+StateStore reads the input, the worker returns a delta, and the delta commits on
+the writer's write chain only if the resource's revision is still the one the
+input was read at. One resource's memory mutations run one at a time, while
+appends and other resources go on. A conflict, a crash or a module that fails to
+load fails that request visibly (`MemoryCalculatorError` for the worker); there
+is no retry and no fallback to the writer, and the next request starts a fresh
+worker. Without `memoryCalculatorModule`, native requests are refused.
+
 Settings the host serves as catalog domains (for example the search index config,
 `index/config` through `host/index-config`) are rows of the same writer; the
 catalog endpoints borrow it and are never a second store.

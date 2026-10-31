@@ -8,6 +8,8 @@
 // The lifecycle is M0-A2's Host (src/host.ts) without the run host: synced-root refusal and the root lock at open, a
 // damaged DB opened read-only and visibly, purge orchestration with a crash-replayable intent, reset.
 // Every mutation runs on ONE write chain, so a purge's blob GC can never race an append that references the blob.
+// Mastra's memory calculation runs on a second worker that only calculates (memory-calculator.ts); its results commit
+// on the writer, on that chain.
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -30,7 +32,15 @@ import {
 } from './event-schema.ts';
 import { RootLock } from './lock.ts';
 import type { McpTaskDomainReply, McpTaskDomainRequest } from './mcp-task-types.ts';
-import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './memory-types.ts';
+import { MemoryCalculator } from './memory-calculator.ts';
+import type {
+  MemoryDomainPort,
+  MemoryDomainRequest,
+  MemoryNativeRequest,
+  MemorySharedObservations,
+  MemorySnapshot,
+  MemoryWriterRequest,
+} from './memory-types.ts';
 import type {
   ModelChoiceRequest,
   ModelChoiceResult,
@@ -124,6 +134,9 @@ export class StateStore implements MemoryDomainPort {
   private readonly inflight = new Set<Promise<void>>();
   private readonly visible = new Map<string, Unreadable>();
   private chain: Promise<unknown> = Promise.resolve();
+  /** Each memory resource's mutations, one at a time in arrival order; a key exists while one is queued or running. */
+  private readonly memoryLanes = new Map<string, Promise<void>>();
+  private readonly calculator: MemoryCalculator;
   private nextId = 0;
   private closed = false;
   private closeTask: Promise<void> | undefined;
@@ -146,6 +159,7 @@ export class StateStore implements MemoryDomainPort {
     this.stateDamage = ready.damage;
     this.options = options;
     this.indexer = options.indexer;
+    this.calculator = new MemoryCalculator(options.memoryCalculatorModule);
     this.deletion = new StateDeletion(this.deletionWriter(), {
       indexer: () => this.indexer,
       purgeAfterTruth: () => this.options.hooks?.purgeAfterTruth?.(),
@@ -188,7 +202,6 @@ export class StateStore implements MemoryDomainPort {
           checkpointPages: options.checkpointPages ?? 1000,
           crashTestHooks: options.crashTestHooks,
           fullfsync: options.fullfsync ?? process.platform === 'darwin',
-          memoryCalculatorModule: options.memoryCalculatorModule,
           path: join(dataRoot, STATE_DB),
           walCheckpoint: options.walCheckpoint ?? 'boundary',
         },
@@ -213,6 +226,8 @@ export class StateStore implements MemoryDomainPort {
           throw new StateStoreStartupError([e, cleanup], store);
         }
       }
+      // Interrupted-delete replay may have started the memory calculator.
+      await store?.calculator.close();
       if (worker) {
         await worker.terminate(); // better-sqlite3 closes the connection when the worker is torn down
       }
@@ -259,6 +274,11 @@ export class StateStore implements MemoryDomainPort {
     if (this.closed) {
       return Promise.reject(new Error('StateStore is closed'));
     }
+    return this.enqueue(fn);
+  }
+
+  /** The write chain for work admitted before close: a memory mutation's commit, which close waits for. */
+  private enqueue<T>(fn: () => T | Promise<T>): Promise<T> {
     const p = this.chain.then(fn);
     this.chain = p.catch(() => undefined);
     return p;
@@ -482,13 +502,89 @@ export class StateStore implements MemoryDomainPort {
     );
   }
 
-  /** Native metadata/WM/OM use this same writer and mutation chain; transcript stays in the log. */
+  /**
+   * Native metadata/WM/OM commit on this same writer and write chain; transcript stays in the log. Reads run directly.
+   * One resource's mutations run one at a time, in arrival order. A native request reads the resource's snapshot,
+   * the memory calculator worker calculates its delta, and the delta commits on the write chain only while the
+   * resource's revision is still the one it read; appends and other resources go on during the calculation. A write
+   * that changed the resource in between (a thread deletion) fails the request visibly, with no retry.
+   */
   memory(request: MemoryDomainRequest): Promise<MemorySnapshot> {
-    const execute = async (): Promise<MemorySnapshot> => {
-      const reply = await this.call({ op: 'memory', request });
-      return reply['snapshot'] as MemorySnapshot;
-    };
-    return request.operation === 'read' ? execute() : this.run(execute);
+    if (request.operation === 'read') {
+      return this.memoryWrite(request);
+    }
+    if (this.closed) {
+      return Promise.reject(new Error('StateStore is closed'));
+    }
+    if (request.operation === 'native' && !this.calculator.available) {
+      return Promise.reject(new Error('Native memory calculator capability is unavailable'));
+    }
+    return this.memoryLane(request.resourceId, () => {
+      if (request.operation === 'native') {
+        return this.nativeMemory(request);
+      }
+      if (request.operation === 'purge-thread' && request.sharedResource === 'detach-thread') {
+        return this.detachThreadMemory(request);
+      }
+      return this.enqueue(() => this.memoryWrite(request));
+    });
+  }
+
+  private memoryLane<T>(resourceId: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.memoryLanes.get(resourceId);
+    const p = previous ? previous.then(work) : work();
+    const tail = p.then(
+      () => undefined,
+      () => undefined
+    );
+    this.memoryLanes.set(resourceId, tail);
+    tail.then(() => {
+      if (this.memoryLanes.get(resourceId) === tail) {
+        this.memoryLanes.delete(resourceId);
+      }
+    });
+    return p;
+  }
+
+  private async memoryWrite(
+    request: MemoryWriterRequest,
+    detached?: MemorySharedObservations
+  ): Promise<MemorySnapshot> {
+    return (await this.call({ detached, op: 'memory', request }))['snapshot'] as MemorySnapshot;
+  }
+
+  private async nativeMemory(request: MemoryNativeRequest): Promise<MemorySnapshot> {
+    const owner =
+      request.ownerThreadId === undefined ? {} : { ownerThreadId: request.ownerThreadId };
+    const current = await this.memoryWrite({
+      operation: 'read',
+      resourceId: request.resourceId,
+      ...owner,
+    });
+    const { changes, value } = await this.calculator.calculate(current, request);
+    const committed =
+      changes.length === 0
+        ? current
+        : await this.enqueue(() =>
+            this.memoryWrite({
+              changes,
+              expectedRevision: current.revision,
+              operation: 'commit',
+              resourceId: request.resourceId,
+              ...owner,
+            })
+          );
+    return { ...committed, value };
+  }
+
+  private async detachThreadMemory(
+    request: Extract<MemoryWriterRequest, { operation: 'purge-thread' }>
+  ): Promise<MemorySnapshot> {
+    const shared = (
+      await this.call({ op: 'memory-shared-observations', resourceId: request.resourceId })
+    )['shared'] as MemorySharedObservations[];
+    const [detached] = await this.calculator.detach(shared, request.threadId);
+    return this.enqueue(() => this.memoryWrite(request, detached));
   }
 
   /** MCP Tasks handles on this same writer: reads run directly, writes join the mutation chain. */
@@ -628,8 +724,14 @@ export class StateStore implements MemoryDomainPort {
       deleteIntent: async (threadId, seq) => {
         await this.call({ op: 'intentDelete', seq, threadId });
       },
+      // On the write chain: no memory write lands between this read and the deletion's commit, which checks the
+      // revisions the shared observations were read at.
       deleteThread: async (threadId) => {
-        await this.call({ op: 'deleteThread', threadId });
+        const shared = (await this.call({ op: 'memory-shared-observations', threadId }))[
+          'shared'
+        ] as MemorySharedObservations[];
+        const detached = await this.calculator.detach(shared, threadId);
+        await this.call({ detached, op: 'deleteThread', threadId });
       },
       eventRaw: async (threadId, seq) => {
         const [event] = await this.read(threadId, seq, 1);
@@ -677,7 +779,7 @@ export class StateStore implements MemoryDomainPort {
     this.closing = true;
     // better-sqlite3 closes every connection on the worker's environment teardown.
     // Preserve a database rejection even when physical termination also rejects.
-    const writer = await Promise.allSettled([this.worker.terminate()]);
+    const writer = await Promise.allSettled([this.worker.terminate(), this.calculator.close()]);
     const failures = [...database, ...writer]
       .filter((result) => result.status === 'rejected')
       .map((result) => result.reason);
@@ -737,6 +839,8 @@ export class StateStore implements MemoryDomainPort {
 
   private async closeOwned(): Promise<void> {
     this.closed = true;
+    // A memory mutation admitted before close commits on the chain when its calculation returns.
+    await Promise.all(this.memoryLanes.values());
     await this.chain;
     while (this.inflight.size) {
       await Promise.allSettled([...this.inflight]);

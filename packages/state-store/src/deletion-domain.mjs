@@ -55,14 +55,13 @@ export function deleteDeletionIntent(db, threadId, seq) {
 }
 
 /**
- * Erases what the thread contributed to memory, for the resources its intent recorded before FK deletion.
+ * The memory resources the thread's intent recorded before its rows go.
  * @param {import('better-sqlite3').Database} db
  * @param {string} threadId
  * @param {number} seq
- * @param {'clear' | 'detach-thread'} sharedResource
- * @param {import('./memory-types.ts').ObservationTokenCounter} [countTokens]
+ * @returns {string[]}
  */
-export function eraseThreadMemory(db, threadId, seq, sharedResource, countTokens) {
+export function intentMemoryResources(db, threadId, seq) {
   const intent = /** @type {{ memory_resources:string } | undefined} */ (
     db
       .prepare('SELECT memory_resources FROM purge_intent WHERE thread_id=? AND seq=?')
@@ -71,11 +70,24 @@ export function eraseThreadMemory(db, threadId, seq, sharedResource, countTokens
   if (!intent) {
     throw new Error('Memory erasure requires the existing purge intent');
   }
-  for (const resourceId of JSON.parse(intent.memory_resources)) {
+  return JSON.parse(intent.memory_resources);
+}
+
+/**
+ * Erases what the thread contributed to memory, for the resources its intent recorded before FK deletion.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} threadId
+ * @param {number} seq
+ * @param {'clear' | 'detach-thread'} sharedResource
+ * @param {readonly import('./memory-types.ts').MemorySharedObservations[]} [detached] each resource's shared
+ *   observations without the thread's sections, as the memory calculator detached them
+ */
+export function eraseThreadMemory(db, threadId, seq, sharedResource, detached) {
+  for (const resourceId of intentMemoryResources(db, threadId, seq)) {
     executeMemoryRequest(
       db,
       { operation: 'purge-thread', resourceId, sharedResource, threadId },
-      countTokens
+      detached?.find((entry) => entry.resourceId === resourceId)
     );
   }
 }
@@ -101,12 +113,10 @@ export function purgeEvent(db, log, threadId, seq, tombstone, inTransaction) {
  * @param {import('better-sqlite3').Database} db
  * @param {import('./run-log.mjs').RunLog} log
  * @param {string} threadId
- * @param {import('./memory-types.ts').ObservationTokenCounter} [countTokens]
+ * @param {readonly import('./memory-types.ts').MemorySharedObservations[]} detached
  */
-export function deleteThreadTruth(db, log, threadId, countTokens) {
-  log.deleteThread(threadId, () =>
-    eraseThreadMemory(db, threadId, 0, 'detach-thread', countTokens)
-  );
+export function deleteThreadTruth(db, log, threadId, detached) {
+  log.deleteThread(threadId, () => eraseThreadMemory(db, threadId, 0, 'detach-thread', detached));
 }
 
 /**

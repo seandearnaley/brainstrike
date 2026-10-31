@@ -30,7 +30,6 @@ import {
   writeSync,
 } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import { clearContentRows } from './clear-content.mjs';
@@ -40,6 +39,7 @@ import {
   deleteDeletionIntent,
   deleteThreadTruth,
   deletionIntents,
+  intentMemoryResources,
   okThreads,
   purgeEvent,
   recordDeletionIntent,
@@ -47,7 +47,7 @@ import {
   sourceGcCandidates,
 } from './deletion-domain.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
-import { executeMemoryRequest, executeNativeMemoryRequest } from './memory-domain.mjs';
+import { executeMemoryRequest, sharedObservations } from './memory-domain.mjs';
 import { executeModelChoiceRequest } from './model-choice-domain.mjs';
 import { isCorrupt, RunLog, ThreadDamage, ThreadReadOnlyRefusal } from './run-log.mjs';
 import { blobsOf } from './run-log-format.mjs';
@@ -68,7 +68,6 @@ import { executeWorktreeLedgerRequest } from './worktree-ledger-domain.mjs';
  * @property {number} checkpointPages
  * @property {number} busyTimeoutMs
  * @property {{ purgeInTxn?: 'sigkill' } | undefined} crashTestHooks
- * @property {string | undefined} memoryCalculatorModule
  */
 
 const port = parentPort;
@@ -295,43 +294,6 @@ function verifyBlobReferences(rows) {
   }
 }
 
-/**
- * Mastra OM's observation token counter, from the configured native memory
- * calculator module; none when no calculator is configured.
- * @returns {Promise<import('./memory-types.ts').ObservationTokenCounter | undefined>} */
-async function observationTokenCounter() {
-  if (!cfg.memoryCalculatorModule) {
-    return;
-  }
-  const module = await import(pathToFileURL(cfg.memoryCalculatorModule).href);
-  if (typeof module.countObservationTokens !== 'function') {
-    throw new Error('Configured observation token counter is unavailable');
-  }
-  return /** @type {import('./memory-types.ts').ObservationTokenCounter} */ (
-    module.countObservationTokens
-  );
-}
-
-/** @param {import('./memory-types.ts').MemoryDomainRequest} request */
-async function handleMemory(request) {
-  if (request.operation !== 'native') {
-    const countTokens =
-      request.operation === 'purge-thread' ? await observationTokenCounter() : undefined;
-    return { snapshot: executeMemoryRequest(db, request, countTokens) };
-  }
-  if (!cfg.memoryCalculatorModule) {
-    throw new Error('Native memory calculator capability is unavailable');
-  }
-  const module = await import(pathToFileURL(cfg.memoryCalculatorModule).href);
-  if (typeof module.calculateMemoryMutation !== 'function') {
-    throw new Error('Configured native memory calculator is unavailable');
-  }
-  const calculate = /** @type {import('./memory-types.ts').MemoryNativeCalculator} */ (
-    module.calculateMemoryMutation
-  );
-  return { snapshot: await executeNativeMemoryRequest(db, request, calculate) };
-}
-
 /** Read one verified snapshot on this existing serialized writer. */
 function readAll() {
   const rows = [];
@@ -346,7 +308,7 @@ function readAll() {
 }
 
 /** @param {{ op: string; id: number; [k: string]: unknown }} m */
-async function handle(m) {
+function handle(m) {
   switch (m.op) {
     case 'clear-content': {
       const receipt = clearContentRows(db);
@@ -391,10 +353,27 @@ async function handle(m) {
         // Main grants absolute OS paths.
         { isGranted: (root) => isAbsolute(root.path) }
       );
+    // Mastra's memory calculation runs on the memory calculator worker, never here (BST-2398): this writer reads
+    // its inputs and commits its delta against the revision they were read at.
     case 'memory':
-      return handleMemory(
-        /** @type {import('./memory-types.ts').MemoryDomainRequest} */ (m['request'])
-      );
+      return {
+        snapshot: executeMemoryRequest(
+          db,
+          /** @type {import('./memory-types.ts').MemoryWriterRequest} */ (m['request']),
+          /** @type {import('./memory-types.ts').MemorySharedObservations | undefined} */ (
+            m['detached']
+          )
+        ),
+      };
+    case 'memory-shared-observations':
+      return {
+        shared: sharedObservations(
+          db,
+          typeof m['resourceId'] === 'string'
+            ? [m['resourceId']]
+            : intentMemoryResources(db, String(m['threadId']), 0)
+        ),
+      };
     case 'mcp-tasks':
       return executeMcpTaskRequest(
         db,
@@ -474,8 +453,12 @@ async function handle(m) {
       return {};
     }
     case 'deleteThread':
-      // The counter loads before the transaction; the StateStore write chain keeps this op in order.
-      deleteThreadTruth(db, log, String(m['threadId']), await observationTokenCounter());
+      deleteThreadTruth(
+        db,
+        log,
+        String(m['threadId']),
+        /** @type {import('./memory-types.ts').MemorySharedObservations[]} */ (m['detached'])
+      );
       return {};
     case 'intentRecord':
       return {
@@ -518,9 +501,12 @@ async function handle(m) {
 }
 
 port.on('message', (/** @type {{ op: string; id: number }} */ m) => {
-  handle(m).then(
-    (result) => port.postMessage({ id: m.id, ...result }),
-    (cause) => port.postMessage({ id: m.id, ...errorReply(cause) })
-  );
+  let reply;
+  try {
+    reply = { id: m.id, ...handle(m) };
+  } catch (cause) {
+    reply = { id: m.id, ...errorReply(cause) };
+  }
+  port.postMessage(reply);
 });
 port.postMessage({ damage, ready: true, settings });
