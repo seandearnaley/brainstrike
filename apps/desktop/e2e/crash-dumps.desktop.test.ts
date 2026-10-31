@@ -61,7 +61,7 @@ test.describe('Crash dumps (desktop)', () => {
     // The reset replaces this document, so its answer never returns here: the
     // replacement document's load is the signal, as in the factory reset spec.
     await Promise.all([
-      page.waitForEvent('load'),
+      page.waitForEvent('load', { predicate: (loaded) => loaded.url() !== 'about:blank' }),
       page.evaluate(() => {
         void (
           window as unknown as {

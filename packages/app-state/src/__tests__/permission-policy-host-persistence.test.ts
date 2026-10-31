@@ -89,7 +89,7 @@ describe('the permission policy store with an agent host client', () => {
     expect(store.usePermissionPolicySave.getState().error).toBe('The agent host is closing');
   });
 
-  it('lets no save that was pending at a factory reset bring the old policy back', async () => {
+  it('lets no save that was pending when the saved policy is discarded bring it back', async () => {
     (window as Window & { agentHost?: unknown }).agentHost = {};
     const values = new Map<string, string>();
     const commit = Promise.withResolvers<void>();
@@ -112,9 +112,9 @@ describe('the permission policy store with an agent host client', () => {
     const inFlight = store.usePermissionPolicyStore.getState().setCategoryPolicy('edit', 'deny');
     const queued = store.usePermissionPolicyStore.getState().setAccess('full');
     await vi.waitFor(() => expect(host.setItem).toHaveBeenCalledOnce());
-    store.resetPermissionPolicyStoreToDefaults();
+    const discarded = store.discardSavedPermissionPolicy();
     commit.resolve();
-    await Promise.all([inFlight, queued]);
+    await Promise.all([inFlight, queued, discarded]);
     await vi.waitFor(() => expect(host.removeItem).toHaveBeenCalledOnce());
 
     expect(store.usePermissionPolicyStore.getState()).toMatchObject({

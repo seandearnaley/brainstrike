@@ -121,7 +121,3 @@ if (!isValidStore(singleton)) {
 }
 
 export const useExplorerSortStateStore = singleton as BoundStore;
-
-export function resetExplorerSortStateStoreToDefault(): void {
-  useExplorerSortStateStore.getState().reset();
-}

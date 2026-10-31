@@ -1,9 +1,4 @@
-import {
-  ClearPersistentUiStateIncompleteError,
-  type ClearPersistentUiStateResult,
-  clearPersistentUiStateWithResult,
-  prepareFactoryReset,
-} from '@brainstrike/app-state/factory-reset';
+import { prepareFactoryReset } from '@brainstrike/app-state/factory-reset';
 import { createLogger } from '@brainstrike/logging';
 import { Button } from '@brainstrike/ui';
 import { useState } from 'react';
@@ -35,23 +30,17 @@ function getDesktopResetBridge(): DesktopResetBridge | null {
   return typeof resetLocal === 'function' ? resetLocal : null;
 }
 
-function assertPersistentUiStateResetComplete(result: ClearPersistentUiStateResult): void {
-  if (result.success) {
-    return;
-  }
-
-  throw new ClearPersistentUiStateIncompleteError(result);
-}
-
+/**
+ * Main owns the reset: it wipes the profile and, once this document is gone, the
+ * session's storage, then loads a fresh one. Session storage belongs to the window
+ * rather than the session, so it is the one store this document clears itself.
+ */
 async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): Promise<void> {
-  const rendererStorageResetResult = await clearPersistentUiStateWithResult({
-    skipIndexedDb: false,
-  });
+  window.sessionStorage.clear();
   const result = await desktopResetBridge();
   if (!result.success) {
     throw new Error(result.message ?? 'Desktop factory reset failed.');
   }
-  assertPersistentUiStateResetComplete(rendererStorageResetResult);
 }
 
 export function FactoryResetPanel() {
@@ -82,7 +71,6 @@ export function FactoryResetPanel() {
       // Preparation retires renderer writers. Even a failed preparation must
       // reload this renderer; deletion begins only after every writer settles.
       await prepareFactoryReset();
-      // Clear CacheStorage while the live renderer still owns its backing store.
       await runDesktopFactoryReset(desktopResetBridge);
       // Ensure a full reload so the renderer boots cleanly.
       await reloadThroughLifecycle('factory-reset', logger);
@@ -90,7 +78,7 @@ export function FactoryResetPanel() {
       logger.error('Factory reset failed after renderer reset preparation began', {
         error: err,
       });
-      await reloadThroughLifecycle('factory-reset-failed-after-renderer-clear', logger);
+      await reloadThroughLifecycle('factory-reset-failed', logger);
     }
   };
 

@@ -68,6 +68,7 @@ it('clears the app, pane and agent sessions through Electron without origin excl
   await clearDesktopBrowserSessions();
   for (const owned of [fixture.app, fixture.pane, fixture.agent]) {
     expect(owned.clearData).toHaveBeenCalledExactlyOnceWith();
+    expect(owned.clearStorageData).toHaveBeenCalledExactlyOnceWith();
     expect(owned.clearAuthCache).toHaveBeenCalledExactlyOnceWith();
     expect(owned.closeAllConnections).toHaveBeenCalledExactlyOnceWith();
   }

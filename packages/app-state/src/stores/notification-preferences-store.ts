@@ -14,12 +14,8 @@
  * dispatch live in `../notifications/*` and the settings UI — this store never
  * calls a browser API itself, so it stays trivially testable and SSR-safe.
  *
- * Factory reset: the persisted slice is wiped by `clearPersistentUiState`'s
- * blanket `localStorage.clear()` (see `factory-reset-helpers.ts`), and the live
- * store is reset explicitly via `resetNotificationPreferencesStoreToDefaults`,
- * which `clearPersistentUiState` invokes (mirrors `permission-policy-store`) so
- * an in-memory master-enabled toggle never survives a reset that does not
- * reload the page (FACTORY RESET CONTRACT).
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 
 import { createBrowserJsonStorage } from '@brainstrike/storage';
@@ -136,11 +132,10 @@ export const notificationPreferencesSelectors = {
   masterEnabled: (store: NotificationPreferencesStore): boolean => store.masterEnabled,
 };
 
-/**
- * Resets the live store to defaults AND clears its persisted slice. Invoked by
- * the factory-reset pipeline (FACTORY RESET CONTRACT).
- */
-export function resetNotificationPreferencesStoreToDefaults(): void {
+export { isNotificationEventKind };
+
+/** Test-only reset helper. */
+export function __resetNotificationPreferencesStoreForTests(): void {
   try {
     const persistApi = (
       useNotificationPreferencesStore as typeof useNotificationPreferencesStore & {
@@ -152,11 +147,4 @@ export function resetNotificationPreferencesStoreToDefaults(): void {
     // Best effort: storage errors must not block the reset of in-memory state.
   }
   useNotificationPreferencesStore.setState(defaultData());
-}
-
-export { isNotificationEventKind };
-
-/** Test-only reset helper. */
-export function __resetNotificationPreferencesStoreForTests(): void {
-  resetNotificationPreferencesStoreToDefaults();
 }

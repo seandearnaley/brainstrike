@@ -22,10 +22,8 @@
  * Defaults are 30 days and 20_000 rows, so behavior is unchanged until a user
  * edits a preference.
  *
- * Factory reset: the persisted slice is wiped by `clearPersistentUiState`'s
- * blanket `localStorage.clear()` (see `factory-reset-helpers.ts`), and the
- * live store is reset explicitly via `resetDiagnosticsRetentionStoreToDefaults`,
- * which `clearPersistentUiState` invokes (FACTORY RESET CONTRACT).
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 
 import { createBrowserJsonStorage } from '@brainstrike/storage';
@@ -150,11 +148,8 @@ export const diagnosticsRetentionSelectors = {
   maxRows: (store: DiagnosticsRetentionStore): number => store.maxRows,
 };
 
-/**
- * Resets the live store to defaults AND clears its persisted slice. Invoked by
- * the factory-reset pipeline (FACTORY RESET CONTRACT).
- */
-export function resetDiagnosticsRetentionStoreToDefaults(): void {
+/** Test-only reset helper. */
+export function __resetDiagnosticsRetentionStoreForTests(): void {
   try {
     const persistApi = (
       useDiagnosticsRetentionStore as typeof useDiagnosticsRetentionStore & {
@@ -166,9 +161,4 @@ export function resetDiagnosticsRetentionStoreToDefaults(): void {
     // Best effort: storage errors must not block the reset of in-memory state.
   }
   useDiagnosticsRetentionStore.setState(defaultData());
-}
-
-/** Test-only reset helper. */
-export function __resetDiagnosticsRetentionStoreForTests(): void {
-  resetDiagnosticsRetentionStoreToDefaults();
 }

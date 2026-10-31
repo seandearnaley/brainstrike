@@ -21,11 +21,8 @@
  * enforcement into the Mastra loop (PR-1.3) and the approval UI (PR-1.4) come
  * later and consume this store's snapshot.
  *
- * Factory reset: the persisted slice is wiped by `clearPersistentUiState`'s
- * blanket `localStorage.clear()` (see `factory-reset-helpers.ts`), and the live
- * store is reset explicitly via `resetPermissionPolicyStoreToDefaults`, which
- * `clearPersistentUiState` invokes so in-memory session grants and policy state
- * never survive a reset (FACTORY RESET CONTRACT).
+ * Factory reset: Main wipes this renderer's storage after replacing the
+ * document, so the store never resets itself for it.
  */
 
 import { isBoundaryRefusal } from '@brainstrike/assistant-contract/boundary-failure';
@@ -349,7 +346,7 @@ export const usePermissionPolicySave = create<{ error: string | null }>(() => ({
  */
 let hydrated: Promise<void> = Promise.resolve();
 let latestSave: Promise<void> = Promise.resolve();
-// A factory reset discards every save made before it, pending or in flight.
+// Discarding the saved policy drops every save made before it, pending or in flight.
 let resets = 0;
 
 export const usePermissionPolicyStore = create<PermissionPolicyStore>()((set, get) => {
@@ -480,17 +477,6 @@ export async function discardSavedPermissionPolicy(): Promise<void> {
 
 void rehydratePermissionPolicy();
 
-/**
- * Resets the live store to defaults AND clears its persisted slice. Invoked by
- * the factory-reset pipeline so in-memory session grants and persisted policies
- * never survive a reset (FACTORY RESET CONTRACT).
- */
-export function resetPermissionPolicyStoreToDefaults(): void {
-  clearSavedPermissionPolicy().catch(() => {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  });
-}
-
 /** Defaults in memory, and the saved slice removed; settles with that removal. */
 function clearSavedPermissionPolicy(): Promise<void> {
   resets += 1;
@@ -550,5 +536,7 @@ export function getPermissionToolGateSnapshotInput(): PermissionToolGateSnapshot
 
 /** Test-only reset helper. */
 export function __resetPermissionPolicyStoreForTests(): void {
-  resetPermissionPolicyStoreToDefaults();
+  clearSavedPermissionPolicy().catch(() => {
+    // Best effort: storage errors must not block the reset of in-memory state.
+  });
 }

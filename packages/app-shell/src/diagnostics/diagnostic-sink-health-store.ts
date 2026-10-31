@@ -17,8 +17,7 @@ import { create } from 'zustand';
  * disable) must not overwrite the original root cause shown to the user.
  * The bridge clears the flag only when a new database identity constructs a
  * replacement writer. If that writer also fails, its `onDisabled` callback
- * re-arms the warning. Session-only; registered with factory reset in
- * `register-factory-reset-session-stores.ts`.
+ * re-arms the warning. Session-only.
  */
 export interface DiagnosticSinkHealthState {
   clear: () => void;

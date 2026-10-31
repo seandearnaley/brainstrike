@@ -7,8 +7,7 @@ type ThreadSearchStatus = 'idle' | 'searching' | 'results' | 'error';
  * Session store for the Threads panel search (mirrors the
  * workspace-search-store in-flight invalidation contract): a monotonic
  * `generation` token gates every async completion, so a superseded run can
- * never clobber or resurrect state. Session-only; registered with factory
- * reset in `register-factory-reset-session-stores.ts`.
+ * never clobber or resurrect state. Session-only.
  */
 interface ThreadSearchNavigationTarget {
   readonly messageId: string;

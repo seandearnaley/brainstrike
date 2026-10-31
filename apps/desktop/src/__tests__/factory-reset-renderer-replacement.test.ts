@@ -10,6 +10,8 @@ const RESET_GENERATION_CHANNEL = 'workspace:factory-reset-generation';
 class TestWebContents extends EventEmitter {
   readonly id: number;
   readonly reload = vi.fn();
+  readonly getURL = vi.fn(() => `app://renderer/${this.id}`);
+  readonly loadURL = vi.fn(async (_url: string) => {});
   readonly send = vi.fn<(channel: string, push: DesktopIpcPush) => void>();
 
   constructor(id: number) {
@@ -145,7 +147,7 @@ describe('factory reset renderer replacement', () => {
     const coordinator = createCoordinator();
     const window = new TestWindow(31);
     const quit = new AbortController();
-    const replacement = coordinator.replace([asBrowserWindow(window)], quit.signal);
+    const replacement = coordinator.replace([asBrowserWindow(window)], { signal: quit.signal });
     quit.abort(new Error('Terminal quit'));
     await expect(replacement).resolves.toBeUndefined();
     expect(window.listenerCount('closed')).toBe(0);
@@ -162,10 +164,10 @@ describe('factory reset renderer replacement', () => {
     window.testWebContents.reload.mockImplementationOnce(() => {
       throw failure;
     });
-    const replacement = coordinator.replace([asBrowserWindow(window)], quit.signal);
+    const replacement = coordinator.replace([asBrowserWindow(window)], { signal: quit.signal });
     quit.abort(new Error('Terminal quit'));
     await expect(replacement).rejects.toThrow(failure.message);
-    await coordinator.replace([asBrowserWindow(window)], quit.signal);
+    await coordinator.replace([asBrowserWindow(window)], { signal: quit.signal });
     expect(window.testWebContents.reload).toHaveBeenCalledOnce();
   });
 
@@ -191,5 +193,68 @@ describe('factory reset renderer replacement', () => {
     failedWindow.testWebContents.emit('dom-ready');
     coordinator.handleRendererReady(ready(failedWindow, readPublishedGeneration(failedWindow)));
     await expect(retry).resolves.toBeUndefined();
+  });
+
+  it('with storage clearing, unloads every window before the wipe and loads its document after it', async () => {
+    const coordinator = createCoordinator();
+    const first = new TestWindow(31);
+    const second = new TestWindow(32);
+    const events: string[] = [];
+    for (const window of [first, second]) {
+      window.testWebContents.loadURL.mockImplementation(async (url: string) => {
+        events.push(`${window.testWebContents.id}:${url}`);
+      });
+    }
+    const clearSessionStorage = vi.fn(async () => {
+      events.push('clear');
+    });
+    const replacement = coordinator.replace([asBrowserWindow(first), asBrowserWindow(second)], {
+      clearSessionStorage,
+    });
+
+    await vi.waitFor(() => expect(events).toHaveLength(5));
+    expect(events.slice(0, 2).sort()).toEqual(['31:about:blank', '32:about:blank']);
+    expect(events[2]).toBe('clear');
+    expect(events.slice(3).sort()).toEqual(['31:app://renderer/31', '32:app://renderer/32']);
+    for (const window of [first, second]) {
+      startReplacementNavigation(window);
+      window.testWebContents.emit('dom-ready');
+      coordinator.handleRendererReady(ready(window, readPublishedGeneration(window)));
+    }
+    await expect(replacement).resolves.toBeUndefined();
+    expect(first.testWebContents.reload).not.toHaveBeenCalled();
+  });
+
+  it('gives every window its document back when the wipe fails, and reports the failure', async () => {
+    const coordinator = createCoordinator();
+    const window = new TestWindow(41);
+    const replacement = coordinator.replace([asBrowserWindow(window)], {
+      clearSessionStorage: async () => {
+        throw new Error('storage locked');
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(window.testWebContents.loadURL).toHaveBeenLastCalledWith('app://renderer/41')
+    );
+    startReplacementNavigation(window);
+    window.testWebContents.emit('dom-ready');
+    coordinator.handleRendererReady(ready(window, readPublishedGeneration(window)));
+    await expect(replacement).rejects.toThrow('Factory reset could not clear renderer storage');
+  });
+
+  it('does not wipe storage when an old document fails to unload', async () => {
+    const coordinator = createCoordinator();
+    const window = new TestWindow(51);
+    window.testWebContents.loadURL.mockRejectedValueOnce(new Error('navigation aborted'));
+    const clearSessionStorage = vi.fn(async () => {});
+    const replacement = coordinator.replace([asBrowserWindow(window)], { clearSessionStorage });
+
+    await vi.waitFor(() => expect(window.testWebContents.loadURL).toHaveBeenCalledTimes(2));
+    startReplacementNavigation(window);
+    window.testWebContents.emit('dom-ready');
+    coordinator.handleRendererReady(ready(window, readPublishedGeneration(window)));
+    await expect(replacement).rejects.toThrow('could not unload 1 renderer');
+    expect(clearSessionStorage).not.toHaveBeenCalled();
   });
 });

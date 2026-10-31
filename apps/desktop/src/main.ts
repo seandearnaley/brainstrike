@@ -16,7 +16,7 @@ import {
   LogBuffer,
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, powerMonitor, session, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
@@ -71,7 +71,7 @@ import {
 } from './desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
-import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import { createDesktopFactoryResetHandler, type DesktopResetMode } from './desktop-reset-platform';
 import { createDesktopResetResume } from './desktop-reset-resume';
 import {
   isDesktopShuttingDown,
@@ -372,7 +372,9 @@ function reloadVisibleDocument(window: BrowserWindow, reason: string, source: 'm
   });
 }
 
-let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
+let completeFactoryResetRendererReplacement:
+  | ((signal: AbortSignal, mode: DesktopResetMode) => Promise<void>)
+  | null = null;
 
 // One shutdown run's step BODIES, built when the run starts so they capture
 // its state. They live here beside the module state they read and clear. The
@@ -549,12 +551,12 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     }
     return result;
   },
-  completeSuccessfulReset: async (signal) => {
+  completeSuccessfulReset: async (signal, mode) => {
     const completeRendererReplacement = completeFactoryResetRendererReplacement;
     if (completeRendererReplacement === null) {
       throw new Error('Factory reset renderer replacement coordinator is unavailable');
     }
-    await completeRendererReplacement(signal);
+    await completeRendererReplacement(signal, mode);
   },
   crashDumpsPath: app.getPath('crashDumps'),
   // The durable NDJSON backstop (Flight Recorder P2a) is a plaintext mirror
@@ -1025,8 +1027,16 @@ if (singleInstanceLockAcquired) {
     })
   );
 
-  completeFactoryResetRendererReplacement = async (signal) => {
-    await factoryResetRendererReplacement.replace(BrowserWindow.getAllWindows(), signal);
+  completeFactoryResetRendererReplacement = async (signal, mode) => {
+    await factoryResetRendererReplacement.replace(BrowserWindow.getAllWindows(), {
+      // Content clearing keeps configuration, so only a factory reset wipes the
+      // storage the renderer's preferences live in. clearData skips the app's own
+      // non-web scheme; clearStorageData reaches it.
+      ...(mode === 'factory'
+        ? { clearSessionStorage: () => session.defaultSession.clearStorageData() }
+        : {}),
+      signal,
+    });
   };
 
   desktopBootstrap.bindSecondInstanceFocus(() => {
