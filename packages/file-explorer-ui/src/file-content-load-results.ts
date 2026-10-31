@@ -2,13 +2,13 @@ import {
   buildInaccessibleContent,
   INACCESSIBLE_CONTENT_PREFIX,
 } from '@brainstrike/file-explorer-hooks';
-import { createLogger } from '@brainstrike/logging';
-import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import type {
   FileContentReadResult,
   FileContentWorker,
   FileReadRequest,
-} from '@brainstrike/workers/file-content-worker';
+} from '@brainstrike/file-explorer-hooks/file-content-worker';
+import { createLogger } from '@brainstrike/logging';
+import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 const logger = createLogger('FileContentLoadResults');

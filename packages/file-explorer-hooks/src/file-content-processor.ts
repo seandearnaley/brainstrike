@@ -10,7 +10,7 @@ import {
   type FileContentReadResult,
   type FileContentWorker,
   type FileReadRequest,
-} from '@brainstrike/workers/file-content-worker';
+} from './file-content-worker.ts';
 
 export type FileContentResult = FileContentReadResult;
 

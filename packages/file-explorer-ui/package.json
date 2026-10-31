@@ -17,7 +17,6 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/workers": "workspace:*",
     "react-hotkeys-hook": "catalog:",
     "react-resizable-panels": "catalog:"
   },

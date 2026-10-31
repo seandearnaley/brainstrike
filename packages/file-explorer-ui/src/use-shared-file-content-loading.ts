@@ -1,12 +1,15 @@
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { buildInaccessibleContent, useAdapters } from '@brainstrike/file-explorer-hooks';
+import type {
+  FileContentWorker,
+  FileReadRequest,
+} from '@brainstrike/file-explorer-hooks/file-content-worker';
 import type { FileHandle } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import { fileNodeToFileHandle } from '@brainstrike/file-system/file-node-handles';
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { getKnownFileSize } from '@brainstrike/utils/file-content';
-import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import {
   useCallback,
   useEffect,
