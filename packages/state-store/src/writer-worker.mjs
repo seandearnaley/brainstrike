@@ -296,19 +296,28 @@ function verifyBlobReferences(rows) {
 }
 
 /**
+ * The configured native memory calculator, loaded once as the writer starts.
+ * Importing it compiles Mastra's storage modules on this thread; loaded at the
+ * first memory operation, that stalled every queued writer operation for a
+ * second or more, the first run's admission reads included (BST-2398).
+ */
+const memoryCalculator = cfg.memoryCalculatorModule
+  ? await import(pathToFileURL(cfg.memoryCalculatorModule).href)
+  : undefined;
+
+/**
  * Mastra OM's observation token counter, from the configured native memory
  * calculator module; none when no calculator is configured.
- * @returns {Promise<import('./memory-types.ts').ObservationTokenCounter | undefined>} */
-async function observationTokenCounter() {
-  if (!cfg.memoryCalculatorModule) {
+ * @returns {import('./memory-types.ts').ObservationTokenCounter | undefined} */
+function observationTokenCounter() {
+  if (!memoryCalculator) {
     return;
   }
-  const module = await import(pathToFileURL(cfg.memoryCalculatorModule).href);
-  if (typeof module.countObservationTokens !== 'function') {
+  if (typeof memoryCalculator.countObservationTokens !== 'function') {
     throw new Error('Configured observation token counter is unavailable');
   }
   return /** @type {import('./memory-types.ts').ObservationTokenCounter} */ (
-    module.countObservationTokens
+    memoryCalculator.countObservationTokens
   );
 }
 
@@ -316,18 +325,17 @@ async function observationTokenCounter() {
 async function handleMemory(request) {
   if (request.operation !== 'native') {
     const countTokens =
-      request.operation === 'purge-thread' ? await observationTokenCounter() : undefined;
+      request.operation === 'purge-thread' ? observationTokenCounter() : undefined;
     return { snapshot: executeMemoryRequest(db, request, countTokens) };
   }
-  if (!cfg.memoryCalculatorModule) {
+  if (!memoryCalculator) {
     throw new Error('Native memory calculator capability is unavailable');
   }
-  const module = await import(pathToFileURL(cfg.memoryCalculatorModule).href);
-  if (typeof module.calculateMemoryMutation !== 'function') {
+  if (typeof memoryCalculator.calculateMemoryMutation !== 'function') {
     throw new Error('Configured native memory calculator is unavailable');
   }
   const calculate = /** @type {import('./memory-types.ts').MemoryNativeCalculator} */ (
-    module.calculateMemoryMutation
+    memoryCalculator.calculateMemoryMutation
   );
   return { snapshot: await executeNativeMemoryRequest(db, request, calculate) };
 }
@@ -474,8 +482,8 @@ async function handle(m) {
       return {};
     }
     case 'deleteThread':
-      // The counter loads before the transaction; the StateStore write chain keeps this op in order.
-      deleteThreadTruth(db, log, String(m['threadId']), await observationTokenCounter());
+      // The StateStore write chain keeps this op in order.
+      deleteThreadTruth(db, log, String(m['threadId']), observationTokenCounter());
       return {};
     case 'intentRecord':
       return {
