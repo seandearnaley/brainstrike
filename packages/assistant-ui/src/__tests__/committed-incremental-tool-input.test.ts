@@ -120,4 +120,31 @@ describe('a provider that streams its tool input incrementally', () => {
     expect(call()).toMatchObject({ args: { path: 'README.md' }, argsText: '{"path":"README.md"}' });
     expect(projection.getSnapshot()).toMatchObject({ activeRunId: runId, isRunning: true });
   });
+
+  it("waits for the committed input when a replay dropped the call's first deltas", () => {
+    const projection = projector();
+    const opened = rows.findIndex(
+      ({ event }) =>
+        event['type'] === 'stream.chunk' &&
+        (event['chunk'] as Record<string, unknown>)['type'] === 'tool-input-start'
+    );
+    projection.acceptCommitted(rows.slice(0, opened + 1));
+    const call = () => answer(projection).content.find((part) => part.type === 'tool-call');
+    // A late view's replay: the bound dropped the step's oldest telemetry,
+    // including the call's first deltas, and only their tail remains.
+    projection.acceptLive(runId, {
+      omittedBytes: 2048,
+      resumesAt: 40,
+      type: 'brainstrike.telemetry.omitted',
+    });
+    projection.acceptLive(runId, {
+      delta: 'ADME.md"}',
+      id: 'call_incremental_1',
+      type: 'tool-input-delta',
+    });
+    expect(call()).toMatchObject({ args: {}, argsText: '' });
+
+    projection.acceptCommitted(rows);
+    expect(call()).toMatchObject({ args: { path: 'README.md' }, argsText: '{"path":"README.md"}' });
+  });
 });

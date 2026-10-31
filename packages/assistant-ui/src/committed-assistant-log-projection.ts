@@ -29,6 +29,7 @@ import {
   isToolRiskCategory,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import { readToolTelemetryOmission } from '@brainstrike/assistant-contract/tool-telemetry';
 import { activityTraceShowsEnd } from './assistant-activity-grouping';
 import { committedApprovalOptions } from './committed-approval-options';
 import { committedFileNotices } from './committed-file-notices';
@@ -129,8 +130,11 @@ const AWAITING_INTERACTION: MessageStatus = { reason: 'interrupt', type: 'requir
 interface ProjectedRun {
   readonly authoritativeInputs: Set<string>;
   readonly authoritativeResults: Set<string>;
-  /** Calls whose committed `tool-call` owns their input: live deltas no longer apply. */
-  readonly committedInputs: Set<string>;
+  /**
+   * Calls live input deltas no longer grow: their committed `tool-call` owns the
+   * input, or a late view's replay dropped their first deltas.
+   */
+  readonly closedInputs: Set<string>;
   readonly createdAt: Date;
   /** A refused call's reason, from its approval response, until its denial settles it. */
   readonly denialReasons: Map<string, string>;
@@ -555,7 +559,7 @@ export class CommittedAssistantLogProjection {
     this.runs.set(runId, {
       authoritativeInputs: new Set(),
       authoritativeResults: new Set(),
-      committedInputs: new Set(),
+      closedInputs: new Set(),
       createdAt: identity.createdAt,
       denialReasons: new Map(),
       messageId: message.id,
@@ -591,11 +595,21 @@ export class CommittedAssistantLogProjection {
     const live = record(chunk);
     if (live?.['type'] === 'tool-input-delta') {
       const id = requiredString(live, 'id');
-      // The committed `tool-call` owns the input from then on.
       this.updateTool(run, id, (part) =>
-        run.committedInputs.has(id) ? part : withLiveInputDelta(part, requiredText(live, 'delta'))
+        run.closedInputs.has(id) ? part : withLiveInputDelta(part, requiredText(live, 'delta'))
       );
       return this.view;
+    }
+    const omission = readToolTelemetryOmission(live);
+    if (omission && omission.toolCallId === undefined) {
+      // A replay that dropped the step's oldest telemetry may have dropped a
+      // started call's first deltas: its tail is no input, so the call waits
+      // for its committed `tool-call`.
+      for (const key of run.partIndexes.keys()) {
+        if (key.startsWith('tool:')) {
+          run.closedInputs.add(key.slice('tool:'.length));
+        }
+      }
     }
     const entry = liveOverlayEntry(run.step, chunk);
     if (entry) {
@@ -715,7 +729,7 @@ export class CommittedAssistantLogProjection {
       this.tool(run, { ...chunk, toolCallId: chunk['id'] });
       return;
     } else if (type === 'tool-call') {
-      run.committedInputs.add(this.tool(run, chunk));
+      run.closedInputs.add(this.tool(run, chunk));
       return;
     } else if (type === 'tool-result' || type === 'tool-error') {
       const id = this.tool(run, chunk);
