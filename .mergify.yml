@@ -26,21 +26,13 @@ merge_protections_settings:
   auto_merge_conditions:
     - -draft
     - -from-fork
-    # Claude Review gates entry, not merge. Mergify evaluates a merge
-    # condition's checks on the batch's draft PR, where the review never runs
-    # (the workflow skips bot PRs), so a merge protection on it dequeued every
-    # batch (#4859, batch draft #4860). Here it is read on the PR's own head
-    # commit. The workflow skips bot PRs (Renovate's), so those never wait.
-    - or:
-        - check-success = @github-actions/Claude Review
-        - author ~= \[bot\]$
 
 # Review findings are addressed before a PR merges (owner decision 2026-10-30).
-# A ready PR queues only once Claude Review passed (above) and every thread is
-# resolved, and Mergify merges nothing while a thread is open, so a thread
-# posted after the PR queued holds it too. Thread counts are read on the PR
-# itself, not on the batch draft. The Mergify Merge Protections check on the PR
-# names the rule it waits for.
+# A PR queues only once Claude Review passed (queue_conditions below) and every
+# thread is resolved, and Mergify merges nothing while a thread is open, so a
+# thread posted after the PR queued holds it too. Thread counts are read on the
+# PR itself, not on the batch draft. The Mergify Merge Protections check on the
+# PR names the rule it waits for.
 merge_protections:
   - name: Review threads resolved
     description: >-
@@ -55,6 +47,15 @@ queue_rules:
   - name: default
     queue_conditions:
       - base = main
+      # Claude Review gates entry, not merge. Mergify evaluates a merge
+      # condition's checks on the batch's draft PR, where the review never runs,
+      # so a merge protection on it dequeued every batch (#4859, batch draft
+      # #4860). Queue conditions are read on the PR's own head, for automatic
+      # entry and for `@mergifyio queue` or the checkbox alike. The workflow
+      # skips bot PRs (Renovate's), so those never wait for it.
+      - or:
+          - check-success = @github-actions/Claude Review
+          - author ~= \[bot\]$
     merge_conditions:
       - check-success = @github-actions/Merge Queue Gate
     # The ruleset's required Merge Queue Gate never reports on a PR head, so
