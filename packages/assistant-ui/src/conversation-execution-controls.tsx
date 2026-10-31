@@ -54,13 +54,16 @@ export function ConversationExecutionControls({
   const cancel = async () => {
     setPending(true);
     setError(undefined);
-    try {
+    const attempt = async () => {
       await onCancel();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setPending(false);
-    }
+    };
+    return attempt()
+      .catch((failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      })
+      .finally(() => {
+        setPending(false);
+      });
   };
   return (
     <div className="flex items-center gap-2 px-3 py-2">
