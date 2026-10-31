@@ -18,16 +18,16 @@ export type WorkspaceBarHostProps = UseWorkspaceBarArgs;
  * primary root's git-scope nonce (`use-thread-checkout-status.ts:79`, the
  * dot's own separate read). The switcher's post-mutation `reloadNonce` is
  * LOCAL state, not a subscription — it only ever advances from this hook's
- * own mutations, never from a push. Called in
- * `assistant-ui-panel-wrapper.tsx` — an ~1850-line component mounting the whole
- * assistant — that meant a `git commit` in another window re-rendered the
- * entire panel wrapper. Here the same signal re-renders ~30 lines of chips.
+ * own mutations, never from a push. When the assistant panel wrapper (a large
+ * component mounting the whole assistant) called the hook itself, a
+ * `git commit` in another window re-rendered the entire wrapper. Here the same
+ * signal re-renders ~30 lines of chips.
  *
- * `memo` is the other half of the bound: the wrapper re-renders constantly
- * (streaming, usage, model changes), and every one of those renders would
- * otherwise re-render the bar. The wrapper passes only stable references
- * (store values, the db handle, ids), so the shallow prop compare bails out —
- * a wrapper render that changed none of the bar's inputs never reaches it.
+ * The other half of the bound is the React Compiler: the parent
+ * (`CommittedWorkspaceControls` in desktop) compiles, so a parent render that
+ * changed none of the bar's inputs (store values, the repository, ids) reuses
+ * the cached `<WorkspaceBarHost />` element and never reaches it. Rendering
+ * this host from an uncompiled parent loses that half.
  */
 export function WorkspaceBarHost(args: WorkspaceBarHostProps): ReactElement {
   const barProps = useWorkspaceBar(args);

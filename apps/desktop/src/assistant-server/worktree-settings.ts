@@ -7,6 +7,10 @@
  * ledger points at.
  */
 import path from 'node:path';
+import {
+  type BoundaryFailureError,
+  refusalError,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type { StateStore } from '@brainstrike/state-store';
 import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
 import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
@@ -41,6 +45,11 @@ export function defaultManagedWorktreeDirectory(homeDirectory: string): string {
   return override;
 }
 
+/** A stored or submitted value the settings refuse, in words the user can act on. */
+function settingsInvalid(message: string): BoundaryFailureError {
+  return refusalError('input', 'worktree.settings-invalid', message);
+}
+
 function parseStored(raw: string | undefined): StoredWorktreeSettings {
   if (raw === undefined) {
     return { managedDirectory: null, setupCommand: null };
@@ -48,11 +57,11 @@ function parseStored(raw: string | undefined): StoredWorktreeSettings {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error('worktreeSettings is not valid JSON.', { cause: error });
+  } catch {
+    throw settingsInvalid('worktreeSettings is not valid JSON.');
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error('worktreeSettings is not an object.');
+    throw settingsInvalid('worktreeSettings is not an object.');
   }
   const record = parsed as Record<string, unknown>;
   const managedDirectory = record['managedDirectory'];
@@ -61,7 +70,7 @@ function parseStored(raw: string | undefined): StoredWorktreeSettings {
     managedDirectory !== null &&
     (typeof managedDirectory !== 'string' || !path.isAbsolute(managedDirectory))
   ) {
-    throw new Error('worktreeSettings managedDirectory must be an absolute path.');
+    throw settingsInvalid('worktreeSettings managedDirectory must be an absolute path.');
   }
   const setupCommand = record['setupCommand'];
   if (
@@ -72,7 +81,7 @@ function parseStored(raw: string | undefined): StoredWorktreeSettings {
       setupCommand.length === 0 ||
       !setupCommand.every((part) => typeof part === 'string' && part.length > 0))
   ) {
-    throw new Error(
+    throw settingsInvalid(
       'worktreeSettings setupCommand must be a non-empty string array, "disabled", or null.'
     );
   }
@@ -114,7 +123,7 @@ export async function writeWorktreeSettings(
 ): Promise<WorktreeSettings> {
   if (next.managedDirectory !== null) {
     if (!path.isAbsolute(next.managedDirectory)) {
-      throw new Error('worktreeSettings managedDirectory must be an absolute path.');
+      throw settingsInvalid('worktreeSettings managedDirectory must be an absolute path.');
     }
     assertWorktreeTargetOutsideRoots(next.managedDirectory, await listMountedRootPaths());
   }
