@@ -13,9 +13,9 @@
  */
 
 /**
- * Attribute facts about the target and its form, for the hard blocks
- * (BST-2209). Reads only; no event fires. `fields` is capped so a huge form
- * cannot flood the reply.
+ * Attribute facts about the target and its form (or, on a page without one,
+ * the fields around it), for the hard blocks (BST-2209). Reads only; no event
+ * fires. `fields` is capped so a huge form cannot flood the reply.
  */
 export const TARGET_FACTS_FUNCTION = `function () {
   const el = this && this.nodeType === 1 ? this : this && this.parentElement;
@@ -54,29 +54,49 @@ export const TARGET_FACTS_FUNCTION = `function () {
   // the browser does not know, submits.
   const isSubmitButton = (node) =>
     ['button', 'input'].includes(lower(node.tagName)) && (node.type === 'submit' || node.type === 'image');
+  const FIELDS = 'input, select, textarea';
+  const BUTTONS = 'button, input[type="submit"], input[type="button"], input[type="image"], [role="button"]';
   const tag = lower(el.tagName);
   const form = el.form || el.closest('form');
+  // Without a form, a script-driven page groups its fields in some container:
+  // the nearest one holding another field or button stands in for the form,
+  // and any button in it may send its fields. Whether a field is filled is not asked: the
+  // browser hides an autofilled password's value until the page is touched.
+  let group = null;
+  if (!form) {
+    for (let node = el.parentElement; node && !group; node = node.parentElement) {
+      const controls = node.querySelectorAll(FIELDS + ', ' + BUTTONS);
+      if (Array.from(controls).some((control) => control !== el && !el.contains(control))) {
+        group = node;
+      }
+    }
+  }
   // HTML's implicit submission presses the form's first submit button in
   // tree order, wherever its \`form\` attribute puts it.
   const defaultButton = form
     ? Array.from(form.getRootNode().querySelectorAll('button, input')).find(
         (node) => node.form === form && isSubmitButton(node)
       )
-    : undefined;
+    : group && group.querySelector(BUTTONS);
+  // \`elements\` holds the fields outside the form that name it with \`form="id"\`.
+  const fields = form
+    ? Array.from(form.elements).filter((node) => node.matches(FIELDS))
+    : group
+      ? Array.from(group.querySelectorAll(FIELDS))
+      : [];
+  const scope = form || group;
   return {
     captcha: Boolean(el.closest(CAPTCHA)),
     connected: true,
     disabled: el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true',
-    form: form
+    form: scope
       ? {
-          captcha: Boolean(form.querySelector(CAPTCHA)),
-          fields: Array.from(form.querySelectorAll('input, select, textarea'))
-            .slice(0, 200)
-            .map(field),
+          captcha: Boolean(scope.querySelector(CAPTCHA)),
+          fields: fields.slice(0, 200).map(field),
           submitText: defaultButton ? label(defaultButton) : '',
         }
       : null,
-    submits: Boolean(form) && isSubmitButton(el),
+    submits: form ? isSubmitButton(el) : Boolean(group) && Boolean(el.closest(BUTTONS)),
     tag,
     text: label(el),
     ...field(el),
