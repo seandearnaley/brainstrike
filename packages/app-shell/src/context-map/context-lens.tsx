@@ -1,5 +1,5 @@
 import { formatTokenCount } from '@brainstrike/tokenization';
-import { memo, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { ChunkStrip } from './chunk-strip';
 import { FRESHNESS_LABEL, KIND_COLOR_CLASS, KIND_LABEL, STATE_LABEL } from './context-map-kinds';
 import type { ChunkCell, ContextFileRow, ContextFileSpan } from './context-map-model';
@@ -24,7 +24,7 @@ const FILE_STATUS_LABEL: Readonly<Record<RowFreshness['status'], string>> = {
 };
 
 /** One file: its strip, and every call that delivered part of it, in turn order. */
-export const ContextLens = memo(function ContextLens({
+export function ContextLens({
   cells,
   folderLabel,
   freshness,
@@ -108,4 +108,4 @@ export const ContextLens = memo(function ContextLens({
       </table>
     </div>
   );
-});
+}

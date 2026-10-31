@@ -20,7 +20,7 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { Check, CheckSquare, Settings2, X } from 'lucide-react';
-import { memo, type RefObject, useEffect, useRef, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import { parseCountInput, SELECTION_PRESETS } from './selection-counter';
 
 export interface SelectionModeBadgeProps {
@@ -143,13 +143,13 @@ const SelectionSettingsPanel = ({
   </div>
 );
 
-export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function SelectionModeBadge({
+export function SelectionModeBadge({
   compactValue,
   maxSelectionCount,
   onMaxSelectionCountChange,
   show = true,
   triggerVariant = 'badge',
-}) {
+}: SelectionModeBadgeProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState<string>(String(maxSelectionCount ?? ''));
   const [error, setError] = useState<string | null>(null);
@@ -278,4 +278,4 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
       </PopoverContent>
     </Popover>
   );
-});
+}

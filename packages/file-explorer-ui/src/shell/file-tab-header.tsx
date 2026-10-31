@@ -6,7 +6,7 @@ import {
   cn,
 } from '@brainstrike/ui';
 import { Code, Eye, PanelLeft } from 'lucide-react';
-import { memo } from 'react';
+
 import type { FileViewMode } from '../stores/editor-view-state-store';
 
 export interface FileTabHeaderProps {
@@ -45,7 +45,7 @@ const MODE_OPTIONS: readonly { icon: typeof Eye; label: string; mode: FileViewMo
 
 /** Slim per-tab header for every file tab: identity on the left, actions on the
  * right. Markdown tabs render the Source/Preview segmented toggle. */
-export const FileTabHeader = memo(function FileTabHeader({
+export function FileTabHeader({
   breadcrumbs,
   copyText,
   directory,
@@ -125,4 +125,4 @@ export const FileTabHeader = memo(function FileTabHeader({
       </div>
     </div>
   );
-});
+}
