@@ -111,8 +111,8 @@ export class HomePage {
 
     // Verify the app title
     const title = await this.page.title();
-    if (!title.includes('BrainStrike')) {
-      throw new Error(`Expected title to contain 'BrainStrike' but got: ${title}`);
+    if (!title.includes('Brainstrike')) {
+      throw new Error(`Expected title to contain 'Brainstrike' but got: ${title}`);
     }
 
     // Wait for any loading to complete

@@ -74,7 +74,7 @@ function resolveDescriptionMeta(): HTMLMetaElement {
  * other than the one the user is looking at.
  *
  * @param metaByRoute - The app's strings; the desktop app names itself
- *   "BrainStrike Desktop". Defaults to the web app's.
+ *   "Brainstrike". Defaults to the web app's.
  */
 export function useDocumentTitle(metaByRoute: DocumentMetaByRoute = DOCUMENT_META): void {
   const activeTab = usePanelLayoutStore((state) => state.activeTab);

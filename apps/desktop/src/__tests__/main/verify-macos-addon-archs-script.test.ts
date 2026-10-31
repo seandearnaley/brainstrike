@@ -16,9 +16,9 @@ afterEach(async () => {
 });
 
 async function app(addons: Record<string, string[] | null>) {
-  const volume = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'BrainStrike Desktop 0.1.0 '));
+  const volume = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'Brainstrike 0.1.0 '));
   cleanupPaths.push(volume);
-  const bundle = path.join(volume, 'BrainStrike Desktop.app');
+  const bundle = path.join(volume, 'Brainstrike.app');
   const unpacked = path.join(bundle, 'Contents', 'Resources', 'app.asar.unpacked');
   const archs = new Map<string, string[] | null>();
   for (const [relative, value] of Object.entries(addons)) {
