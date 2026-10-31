@@ -7,12 +7,17 @@ import {
   SqliteQueryProcessExitedError,
 } from '../client.js';
 import type { QueryProcess } from '../process.js';
-import type { QueryRequest, SqliteGrepOptions } from '../protocol.js';
+import type { SqliteGrepOptions } from '../protocol.js';
 
+interface Request {
+  readonly id: number;
+  readonly method: string;
+  readonly params: unknown;
+}
 function reader(ready = true) {
   let message: (value: unknown) => void = () => undefined;
   let exit: () => void = () => undefined;
-  const requests: QueryRequest[] = [];
+  const requests: Request[] = [];
   const detach = { error: vi.fn(), exit: vi.fn(), message: vi.fn() };
   const process: QueryProcess = {
     kill: vi.fn(),
@@ -25,10 +30,11 @@ function reader(ready = true) {
       message = listener;
       return detach.message;
     },
-    postMessage: vi.fn((request: QueryRequest) => {
+    postMessage: vi.fn((frame) => {
+      const request = frame as unknown as Request;
       requests.push(request);
-      if ((request.kind === 'open' || request.kind === 'open-native-coverage') && ready) {
-        queueMicrotask(() => message({ id: request.id, kind: 'ready' }));
+      if ((request.method === 'open' || request.method === 'openNativeCoverage') && ready) {
+        queueMicrotask(() => message({ id: request.id, jsonrpc: '2.0', result: null }));
       }
     }),
   };
@@ -37,6 +43,8 @@ function reader(ready = true) {
     exit: () => exit(),
     message: (value: unknown) => message(value),
     process,
+    /** The id the client gave its `index`-th request. */
+    requestId: (index: number) => requests[index]?.id ?? -1,
     requests,
   };
 }
@@ -58,14 +66,14 @@ const options: SqliteGrepOptions = {
   pattern: 'needle',
   rootIds: ['root'],
 };
-const grepRows = (id: number) => ({
+const grepRows = (id: number, rows: readonly (readonly string[])[] = [[`chunk-${id}`]]) => ({
   id,
-  kind: 'grepRows',
+  jsonrpc: '2.0',
   result: {
     columns: ['id'],
     identity: { storeId: 'a'.repeat(64) },
     matchedChunks: 1,
-    rows: [[`chunk-${id}`]],
+    rows,
     truncated: false,
   },
 });
@@ -86,8 +94,8 @@ describe('owned grep reader stop paths', () => {
     const error = await outcome;
     expect(error).toMatchObject({ message: 'SQLite query client is closed.' });
     expect(owner.process.kill).toHaveBeenCalledOnce();
-    owner.message(grepRows(2));
-    await Promise.resolve();
+    owner.message(grepRows(owner.requestId(1)));
+    await new Promise((resolve) => setImmediate(resolve));
     expect(closed).toBe(false);
     owner.exit();
     await closing;
@@ -103,7 +111,7 @@ describe('owned grep reader stop paths', () => {
     const error = await outcome;
     expect(error).toBeInstanceOf(SqliteQueryDeadlineError);
     expect(owner.process.kill).toHaveBeenCalledOnce();
-    owner.message(grepRows(2));
+    owner.message(grepRows(owner.requestId(1)));
     await expect(client.grep(options)).rejects.toBe(error);
     const closing = client.close();
     owner.exit();
@@ -138,7 +146,7 @@ describe('owned grep reader stop paths', () => {
       startupDeadlineMs: 20,
     }).catch((error: unknown) => error);
     await vi.waitFor(() => expect(owner.process.kill).toHaveBeenCalledOnce());
-    owner.message({ id: 1, kind: 'ready' });
+    owner.message({ id: owner.requestId(0), jsonrpc: '2.0', result: null });
     let settled = false;
     void outcome.then(() => {
       settled = true;
@@ -213,7 +221,15 @@ it.each(['store', 'revision'] as const)(
     const result = client.nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }]);
     const response = result.catch((error: unknown) => error);
     await posted(owner, 2);
-    owner.message({ error: fault(failure), id: 2, kind: 'nativeCoverageError' });
+    owner.message({
+      error: {
+        code: -32_603,
+        data: { fault: fault(failure), kind: 'coverage' },
+        message: 'coverage refused',
+      },
+      id: owner.requestId(1),
+      jsonrpc: '2.0',
+    });
     expect(await response).toMatchObject({
       code: mismatch === 'store' ? 'coverage-store-mismatch' : 'coverage-authority-changed',
       name: 'IndexerError',
@@ -225,74 +241,38 @@ it.each(['store', 'revision'] as const)(
   }
 );
 
-it('fails a wrong-kind fault before the query deadline and retains listeners until physical exit', async () => {
-  vi.useFakeTimers();
-  const owner = reader();
-  let client: SqliteQueryClient | undefined;
-  let outcome: Promise<unknown> | undefined;
-  try {
-    const opening = open(owner);
-    await vi.advanceTimersByTimeAsync(0);
-    client = await opening;
-    let settled = false;
-    outcome = client.grep(options).catch((error: unknown) => {
-      settled = true;
-      return error;
-    });
-    owner.message({
-      error: fault(new Error('wrong request kind')),
-      id: 2,
-      kind: 'nativeCoverageError',
-    });
-    await vi.advanceTimersByTimeAsync(0);
+it.each([
+  ['malformed rows', (id: number) => ({ id, jsonrpc: '2.0', result: 'invalid' })],
+  ['an empty success', (id: number) => ({ id, jsonrpc: '2.0', result: null })],
+  [
+    'an untyped refusal',
+    (id: number) => ({ error: { code: -32_603, message: 'no data' }, id, jsonrpc: '2.0' }),
+  ],
+  ['a frame that is not JSON-RPC', (id: number) => ({ id, kind: 'grepRows' })],
+] as const)(
+  'settles %s once as a protocol fault and detaches only on exit',
+  async (_name, reply) => {
+    const owner = reader();
+    const client = await open(owner);
+    const outcome = client.grep(options).catch((error: unknown) => error);
+    await posted(owner, 2);
+    owner.message(reply(owner.requestId(1)));
+    const error = await outcome;
+    expect(error).toBeInstanceOf(Error);
     expect(owner.process.kill).toHaveBeenCalledOnce();
-    expect(
-      settled,
-      'a terminal protocol fault must settle the correlated request without its timer'
-    ).toBe(true);
-    expect(await outcome).toMatchObject({
-      message: 'Native coverage error replied to a grep request.',
-    });
+    owner.message(grepRows(owner.requestId(1)));
+    await expect(client.grep(options)).rejects.toBe(error);
     for (const detach of Object.values(owner.detach)) {
       expect(detach).not.toHaveBeenCalled();
     }
-  } finally {
+    const closing = client.close();
     owner.exit();
-    await vi.advanceTimersByTimeAsync(1000);
-    await outcome;
-    await client?.close();
-    vi.useRealTimers();
+    await closing;
+    for (const detach of Object.values(owner.detach)) {
+      expect(detach).toHaveBeenCalledOnce();
+    }
   }
-  for (const detach of Object.values(owner.detach)) {
-    expect(detach).toHaveBeenCalledOnce();
-  }
-});
-
-it.each([
-  ['malformed rows', { id: 2, kind: 'grepRows', result: 'invalid' }],
-  ['unknown correlation', grepRows(999)],
-  ['wrong success kind', { id: 2, kind: 'ready' }],
-] as const)('settles %s once and detaches only on exit', async (_name, reply) => {
-  const owner = reader();
-  const client = await open(owner);
-  const outcome = client.grep(options).catch((error: unknown) => error);
-  await posted(owner, 2);
-  owner.message(reply);
-  const error = await outcome;
-  expect(error).toBeInstanceOf(Error);
-  expect(owner.process.kill).toHaveBeenCalledOnce();
-  owner.message(grepRows(2));
-  await expect(client.grep(options)).rejects.toBe(error);
-  for (const detach of Object.values(owner.detach)) {
-    expect(detach).not.toHaveBeenCalled();
-  }
-  const closing = client.close();
-  owner.exit();
-  await closing;
-  for (const detach of Object.values(owner.detach)) {
-    expect(detach).toHaveBeenCalledOnce();
-  }
-});
+);
 it('a synchronous post failure rejects the request and keeps its original error through joined close', async () => {
   const owner = reader();
   const client = await open(owner);
@@ -338,34 +318,6 @@ it('repeated close joins the same physical exit without duplicate kills or detac
     expect(detach).toHaveBeenCalledOnce();
   }
 });
-it('a late old-generation reply cannot settle a replacement with the same request id', async () => {
-  const old = reader();
-  const first = await open(old);
-  const closed = first.close();
-  old.exit();
-  await closed;
-  const replacement = reader();
-  const second = await open(replacement);
-  let settled = false;
-  const result = second.grep(options).then((value) => {
-    settled = true;
-    return value;
-  });
-  await posted(replacement, 2);
-  old.message({
-    ...grepRows(2),
-    result: { ...grepRows(2).result, rows: [['stale-old-generation']] },
-  });
-  await Promise.resolve();
-  expect(settled).toBe(false);
-  replacement.message(grepRows(2));
-  expect(await result).toMatchObject({ rows: [['chunk-2']] });
-  expect(replacement.process.kill).not.toHaveBeenCalled();
-  const closing = second.close();
-  replacement.exit();
-  await closing;
-});
-
 // Lifecycle redesign PR D (R5(b)): after its kill, close joins the exit however long it takes.
 it('joins an exit that arrives 6 s after the kill: close resolves and nothing is abandoned', async () => {
   vi.useFakeTimers();
@@ -411,15 +363,17 @@ it('a client opened with no deadline waits out a slow startup and read, and neve
     await vi.advanceTimersByTimeAsync(0);
     expect(owner.requests).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(60_000);
-    owner.message({ id: owner.requests[0]?.id, kind: 'ready' });
+    owner.message({ id: owner.requestId(0), jsonrpc: '2.0', result: null });
+    await vi.advanceTimersByTimeAsync(0);
     const client = await opening;
 
     const read = client.grep(options);
     await vi.advanceTimersByTimeAsync(0);
     expect(owner.requests).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(60_000);
-    owner.message(grepRows(owner.requests[1]?.id ?? 0));
-    expect(await read).toMatchObject({ rows: [['chunk-2']] });
+    owner.message(grepRows(owner.requestId(1), [['chunk']]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await read).toMatchObject({ rows: [['chunk']] });
     expect(owner.process.kill).not.toHaveBeenCalled();
     const closing = client.close();
     owner.exit();

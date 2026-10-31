@@ -1,7 +1,15 @@
 import { serialize } from 'node:v8';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createQueryHost } from '../host-core.js';
-import type { QueryResponse, SqliteGrepRows } from '../protocol.js';
+import { MessageChannel } from 'node:worker_threads';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createMessageConnection,
+  type MessageConnection,
+  PortMessageReader,
+  PortMessageWriter,
+  ResponseError,
+} from 'vscode-jsonrpc/node';
+import { serveQueryHost } from '../host-core.js';
+import type { SqliteGrepRows } from '../protocol.js';
 import { SqliteRuntimeRefusedError } from '../runtime-refusal.js';
 
 const { grepMock } = vi.hoisted(() => ({ grepMock: vi.fn<() => SqliteGrepRows>() }));
@@ -14,78 +22,99 @@ vi.mock('../sandbox.js', () => ({
   },
 }));
 
-beforeEach(() => grepMock.mockReset());
-
 const identity = { storeId: 'a'.repeat(64) };
-const grep = (id: number) => ({
+const grep = {
   caseSensitive: false,
-  id,
   isRegex: false,
-  kind: 'grep',
   maxRows: 1,
   pattern: 'needle',
   rootIds: ['root'],
+};
+const authority = {
+  authorityEpoch: 'b'.repeat(64),
+  authorityRevision: 7,
+  dbPath: '/owned.sqlite',
+  fileBindings: [],
+  rootIds: [],
+  scopes: [],
+  storeId: 'a'.repeat(64),
+};
+
+let client: MessageConnection;
+let host: MessageConnection;
+let channel: MessageChannel;
+beforeEach(() => {
+  grepMock.mockReset();
+  channel = new MessageChannel();
+  host = createMessageConnection(
+    new PortMessageReader(channel.port1),
+    new PortMessageWriter(channel.port1)
+  );
+  serveQueryHost(host);
+  host.listen();
+  client = createMessageConnection(
+    new PortMessageReader(channel.port2),
+    new PortMessageWriter(channel.port2)
+  );
+  client.listen();
+});
+afterEach(() => {
+  client.dispose();
+  host.dispose();
+  channel.port1.close();
 });
 
-describe('complete process response budget', () => {
-  it('preserves a runtime refusal through the process response boundary', () => {
-    const responses: QueryResponse[] = [];
-    const receive = createQueryHost((response) => responses.push(response));
-    receive({ databasePath: 'owned.sqlite', id: 1, kind: 'open' });
-    const refusal = new SqliteRuntimeRefusedError('Engine memory accounting is unavailable.');
+/** The refusal a request was answered with. */
+async function refusal(method: string, params: unknown): Promise<ResponseError<unknown>> {
+  const error: unknown = await client.sendRequest(method, params).then(
+    () => undefined,
+    (cause: unknown) => cause
+  );
+  if (!(error instanceof ResponseError)) {
+    throw new Error(`${method} was not refused.`);
+  }
+  return error;
+}
+
+describe('query process boundary', () => {
+  it('preserves a runtime refusal through the process response boundary', async () => {
+    await client.sendRequest('open', { databasePath: 'owned.sqlite' });
+    const engine = new SqliteRuntimeRefusedError('Engine memory accounting is unavailable.');
     grepMock.mockImplementationOnce(() => {
-      throw refusal;
+      throw engine;
     });
-    receive(grep(2));
-    expect(responses.at(-1)).toEqual({
-      id: 2,
-      kind: 'error',
-      message: refusal.message,
-      name: refusal.name,
-    });
-    expect(refusal.code).toBe('sqlite_runtime_refused');
+    const error = await refusal('grep', grep);
+    expect(error.message).toBe(engine.message);
+    expect(error.data).toEqual({ kind: 'engine', name: 'SqliteRuntimeRefusedError' });
+    expect(engine.code).toBe('sqlite_runtime_refused');
   });
-  it('refuses native coverage in a grep owner', () => {
-    const responses: QueryResponse[] = [];
-    const receive = createQueryHost((response) => responses.push(response));
-    receive({ databasePath: 'owned.sqlite', id: 1, kind: 'open' });
-    receive({
-      id: 2,
-      kind: 'native-coverage',
+
+  it('refuses native coverage in a grep owner', async () => {
+    await client.sendRequest('open', { databasePath: 'owned.sqlite' });
+    const error = await refusal('nativeCoverage', {
       requests: [{ scope: { kind: 'workspace', rootId: 'root' } }],
     });
-    expect(responses.at(-1)).toMatchObject({
-      error: { message: expect.stringContaining('coverage-only owner') },
-      kind: 'nativeCoverageError',
+    expect(error.data).toMatchObject({
+      fault: { message: expect.stringContaining('coverage-only owner') },
+      kind: 'coverage',
     });
   });
-  it('refuses grep in a trusted coverage owner', () => {
-    const responses: QueryResponse[] = [];
-    const receive = createQueryHost((response) => responses.push(response));
-    receive({
-      authority: {
-        authorityEpoch: 'b'.repeat(64),
-        authorityRevision: 7,
-        dbPath: '/owned.sqlite',
-        fileBindings: [],
-        rootIds: [],
-        scopes: [],
-        storeId: 'a'.repeat(64),
-      },
-      id: 1,
-      kind: 'open-native-coverage',
-    });
-    receive(grep(2));
-    expect(responses.at(-1)).toMatchObject({
-      kind: 'error',
-      message: 'SQLite query process has not been initialized.',
-    });
+
+  it('refuses grep in a trusted coverage owner', async () => {
+    await client.sendRequest('openNativeCoverage', { authority });
+    const error = await refusal('grep', grep);
+    expect(error.message).toBe('SQLite query process has not been initialized.');
     expect(grepMock).not.toHaveBeenCalled();
   });
-  it('refuses a response whose envelope exceeds the budget and retains grep admission', () => {
-    const responses: QueryResponse[] = [];
-    const receive = createQueryHost((response) => responses.push(response));
-    receive({ databasePath: 'owned.sqlite', id: 1, kind: 'open' });
+
+  it('answers params that do not decode without opening anything', async () => {
+    const error = await refusal('open', { databasePath: 'owned.sqlite', sql: 'SELECT 1' });
+    expect(error.data).toBeUndefined();
+    await client.sendRequest('open', { databasePath: 'owned.sqlite' });
+  });
+
+  it('refuses a reply whose envelope exceeds the budget and retains grep admission', async () => {
+    await client.sendRequest('open', { databasePath: 'owned.sqlite' });
     const sized = (length: number) => ({
       columns: ['x'.repeat(length)],
       identity,
@@ -96,15 +125,10 @@ describe('complete process response budget', () => {
     // The result alone sits exactly at the budget; only the envelope crosses it.
     const result = sized(2 * 1024 * 1024 - serialize(sized(1024 * 1024)).byteLength);
     expect(serialize(result).byteLength).toBe(1024 * 1024);
-    expect(serialize({ id: 2, kind: 'grepRows', result }).byteLength).toBeGreaterThan(1024 * 1024);
     grepMock.mockReturnValueOnce(result);
-    receive(grep(2));
-    expect(responses.at(-1)).toEqual({
-      id: 2,
-      kind: 'error',
-      message: expect.stringContaining('process-message budget'),
-      name: 'RangeError',
-    });
+    const error = await refusal('grep', grep);
+    expect(error.message).toContain('process-message budget');
+    expect(error.data).toEqual({ kind: 'engine', name: 'RangeError' });
     const small = {
       columns: ['id'],
       identity,
@@ -113,7 +137,6 @@ describe('complete process response budget', () => {
       truncated: false,
     };
     grepMock.mockReturnValueOnce(small);
-    receive(grep(3));
-    expect(responses.at(-1)).toEqual({ id: 3, kind: 'grepRows', result: small });
+    expect(await client.sendRequest('grep', grep)).toEqual(small);
   });
 });

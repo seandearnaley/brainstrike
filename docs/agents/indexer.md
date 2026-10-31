@@ -88,9 +88,12 @@ Implementation: `packages/indexer`, `packages/canonical-ingestion`,
   - Deadline/overflow is a visible refusal, not partial success.
   - A closed reader stays closed; replacement is a new owned acquisition.
 - Query client (distinct from desktop's progress-based host request channel):
-  - Its correlation Map owns a request until reply validation can no longer throw;
-    terminal protocol faults reject it with the others.
-  - Late replies never replace the first terminal error.
+  - It speaks JSON-RPC through `vscode-jsonrpc`, the host's wire (ADR-0024); both ends
+    decode each method's params and result (`sqlite-query/src/protocol.ts`). A reply
+    that does not decode, an untyped refusal or a frame that is not JSON-RPC is a
+    protocol fault that stops the process.
+  - The first terminal error (deadline, protocol fault, close, exit) rejects every
+    request in flight and every later one; late replies never replace it.
   - Process listeners stay attached until exit and detach once; repeated close
     joins that exit; a failed kill keeps the owner for explicit retry.
   - Deadlines already use the shared Effect timeout; no per-request Scope/Deferred wrappers.

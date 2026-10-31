@@ -9,23 +9,22 @@ import {
   type CoverageAuthority,
 } from '@brainstrike/indexer/coverage-reader';
 import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store';
+import {
+  createMessageConnection,
+  type MessageConnection,
+  ResponseError,
+} from 'vscode-jsonrpc/node';
+import { EndpointMessageReader, EndpointMessageWriter } from './endpoint-transport.ts';
 import type { QueryProcess } from './process.ts';
 import {
-  decodeRequest,
-  decodeResponse,
-  type QueryRequest,
-  type QueryResponse,
+  decodeErrorData,
+  type QueryMethod,
+  type QueryResult,
+  queryMethods,
   type SqliteGrepOptions,
   type SqliteGrepRows,
 } from './protocol.ts';
 import { SqliteRuntimeRefusedError } from './runtime-refusal.ts';
-
-/** A startup failure rebuilt from the query process's reply; a runtime refusal keeps its type. */
-function startupError(reply: { readonly message: string; readonly name: string }): Error {
-  return reply.name === 'SqliteRuntimeRefusedError'
-    ? new SqliteRuntimeRefusedError(reply.message)
-    : new Error(reply.message);
-}
 
 export interface OpenSqliteQueryOptions {
   readonly databasePath: string;
@@ -46,22 +45,23 @@ export interface OpenNativeCoverageOptions extends Omit<OpenSqliteQueryOptions, 
   readonly authority: CoverageAuthority;
 }
 
+/**
+ * One read-only query process over a `vscode-jsonrpc` connection. The first terminal error (a
+ * deadline, a protocol fault, the owner's close or the process's exit) rejects every request in
+ * flight and every later one; a reply that arrives after it changes nothing. Listeners stay
+ * attached until the exit and detach once.
+ */
 export class SqliteQueryClient {
   readonly #process: QueryProcess;
+  readonly #connection: MessageConnection;
   readonly #deadlineMs: number | undefined;
   readonly #onSlowExit: ((elapsedMs: number) => void) | undefined;
-  readonly #pending = new Map<
-    number,
-    {
-      readonly resolve: (response: QueryResponse) => void;
-      readonly reject: (reason: unknown) => void;
-      readonly kind: QueryRequest['kind'];
-    }
-  >();
+  /** Rejected once, with the terminal error, so every request racing it settles with that error. */
+  readonly #terminated = Promise.withResolvers<never>();
   readonly #exited: Promise<void>;
   readonly #detach: (() => void)[] = [];
-  #nextId = 0;
   #terminal: Error | undefined;
+  #settled = false;
   #hasExited = false;
   #killRequested = false;
 
@@ -73,11 +73,22 @@ export class SqliteQueryClient {
     this.#process = process;
     this.#deadlineMs = deadlineMs;
     this.#onSlowExit = onSlowExit;
+    this.#terminated.promise.catch(() => undefined);
+    const reader = new EndpointMessageReader();
+    this.#connection = createMessageConnection(
+      reader,
+      new EndpointMessageWriter((message) => process.postMessage(message))
+    );
+    this.#connection.onError(([error]) => {
+      this.#stop(error);
+    });
+    this.#connection.listen();
     this.#exited = new Promise((resolve) => {
       this.#detach.push(
         process.onExit(() => {
           this.#hasExited = true;
           this.#fail(this.#terminal ?? new SqliteQueryProcessExitedError());
+          this.#connection.dispose();
           for (const detach of this.#detach.splice(0)) {
             detach();
           }
@@ -85,42 +96,7 @@ export class SqliteQueryClient {
         })
       );
     });
-    this.#detach.push(
-      process.onMessage((message) => {
-        try {
-          const response = decodeResponse(message);
-          const pending = this.#pending.get(response.id);
-          if (!pending) {
-            throw new TypeError('SQLite query process replied with an unknown request id.');
-          }
-          // Keep the correlation owned until protocol checks that may throw
-          // finish, so a terminal refusal rejects this request too.
-          if (
-            response.kind === 'nativeCoverageError' &&
-            pending.kind !== 'native-coverage' &&
-            pending.kind !== 'open-native-coverage'
-          ) {
-            throw new TypeError('Native coverage error replied to a grep request.');
-          }
-          this.#pending.delete(response.id);
-          if (response.kind === 'nativeCoverageError') {
-            pending.reject(new IndexerError(response.error.code, response.error.message));
-            return;
-          }
-          if (response.kind === 'error') {
-            const error =
-              pending.kind === 'open'
-                ? startupError(response)
-                : new SqliteQueryInputError(response.message, response.name);
-            pending.reject(error);
-            return;
-          }
-          pending.resolve(response);
-        } catch (error) {
-          this.#stop(error instanceof Error ? error : new Error(String(error)));
-        }
-      })
-    );
+    this.#detach.push(process.onMessage((message) => reader.deliver(message)));
     this.#detach.push(
       process.onError((error) => {
         this.#stop(error);
@@ -129,19 +105,20 @@ export class SqliteQueryClient {
   }
 
   static async open(options: OpenSqliteQueryOptions): Promise<SqliteQueryClient> {
-    return SqliteQueryClient.#open(options, { databasePath: options.databasePath, kind: 'open' });
+    return SqliteQueryClient.#open(options, 'open', { databasePath: options.databasePath });
   }
 
   static async openNativeCoverage(options: OpenNativeCoverageOptions): Promise<SqliteQueryClient> {
-    return SqliteQueryClient.#open(options, {
-      authority: options.authority,
-      kind: 'open-native-coverage',
-    });
+    const params = { authority: options.authority };
+    // Measured before a process exists: an oversized authority spawns nothing.
+    assertCoverageAuthorityBound(params);
+    return SqliteQueryClient.#open(options, 'openNativeCoverage', params);
   }
 
   static async #open(
     options: Omit<OpenSqliteQueryOptions, 'databasePath'>,
-    body: RequestBody
+    method: 'open' | 'openNativeCoverage',
+    params: unknown
   ): Promise<SqliteQueryClient> {
     for (const timeout of [options.deadlineMs, options.startupDeadlineMs]) {
       if (timeout !== undefined && !(Number.isFinite(timeout) && timeout > 0)) {
@@ -150,10 +127,7 @@ export class SqliteQueryClient {
     }
     const client = new SqliteQueryClient(options.spawn(), options.deadlineMs, options.onSlowExit);
     try {
-      const response = await client.#call(body, options.startupDeadlineMs);
-      if (response.kind !== 'ready') {
-        throw new TypeError('SQLite query startup returned an unexpected response.');
-      }
+      await client.#call(method, params, options.startupDeadlineMs);
       return client;
     } catch (error) {
       try {
@@ -165,26 +139,12 @@ export class SqliteQueryClient {
     }
   }
 
-  async nativeCoverage(
-    requests: readonly ScopedCoverageRequest[]
-  ): Promise<readonly ScopedCoverage[]> {
-    const response = await this.#call({ kind: 'native-coverage', requests }, this.#deadlineMs);
-    if (response.kind !== 'nativeCoverage') {
-      const error = new TypeError('Native coverage returned an unexpected response.');
-      this.#stop(error);
-      throw error;
-    }
-    return response.result;
+  nativeCoverage(requests: readonly ScopedCoverageRequest[]): Promise<readonly ScopedCoverage[]> {
+    return this.#call('nativeCoverage', { requests }, this.#deadlineMs);
   }
 
-  async grep(options: SqliteGrepOptions): Promise<SqliteGrepRows> {
-    const response = await this.#call({ kind: 'grep', ...options }, this.#deadlineMs);
-    if (response.kind !== 'grepRows') {
-      const error = new TypeError('SQLite grep returned an unexpected response.');
-      this.#stop(error);
-      throw error;
-    }
-    return response.result;
+  grep(options: SqliteGrepOptions): Promise<SqliteGrepRows> {
+    return this.#call('grep', options, this.#deadlineMs);
   }
 
   /**
@@ -209,7 +169,8 @@ export class SqliteQueryClient {
     }
   }
 
-  #stop(reason: Error): void {
+  /** Make `reason` terminal (unless one already is), kill the process once, and return the terminal error. */
+  #stop(reason: Error): Error {
     this.#terminal ??= reason;
     try {
       if (!(this.#hasExited || this.#killRequested)) {
@@ -217,68 +178,86 @@ export class SqliteQueryClient {
         this.#killRequested = true;
       }
     } catch (cleanup) {
-      const failure = new AggregateError(
+      this.#terminal = new AggregateError(
         [reason, cleanup],
         `${reason.message} Process kill failed; ownership is retained.`,
         { cause: reason }
       );
-      this.#terminal = failure;
-      this.#fail(failure);
-      return;
     }
-    this.#fail(reason);
+    return this.#fail(this.#terminal);
   }
 
-  #fail(reason: Error): void {
+  #fail(reason: Error): Error {
     this.#terminal ??= reason;
-    for (const pending of this.#pending.values()) {
-      pending.reject(this.#terminal);
+    if (!this.#settled) {
+      this.#settled = true;
+      this.#terminated.reject(this.#terminal);
     }
-    this.#pending.clear();
+    return this.#terminal;
   }
 
-  #call(body: RequestBody, timeoutMs: number | undefined): Promise<QueryResponse> {
+  /** A refusal the process answered with, typed for its caller; anything else is a protocol fault. */
+  #refusal(method: QueryMethod, error: unknown): Error {
+    if (error instanceof ResponseError) {
+      let data: ReturnType<typeof decodeErrorData> | undefined;
+      try {
+        data = decodeErrorData(error.data);
+      } catch {
+        data = undefined;
+      }
+      if (data?.kind === 'coverage') {
+        return new IndexerError(data.fault.code, data.fault.message);
+      }
+      if (data?.kind === 'engine') {
+        if (method !== 'open') {
+          return new SqliteQueryInputError(error.message, data.name);
+        }
+        return data.name === 'SqliteRuntimeRefusedError'
+          ? new SqliteRuntimeRefusedError(error.message)
+          : new Error(error.message);
+      }
+    }
+    return this.#stop(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  #call<M extends QueryMethod>(
+    method: M,
+    input: unknown,
+    timeoutMs: number | undefined
+  ): Promise<QueryResult<M>> {
     if (this.#terminal) {
       return Promise.reject(this.#terminal);
     }
-    const id = ++this.#nextId;
-    let request: QueryRequest;
+    let params: unknown;
     try {
-      request = decodeRequest({ ...body, id });
-      if (request.kind === 'open-native-coverage') {
-        assertCoverageAuthorityBound(request);
-      }
+      params = queryMethods[method].params(input);
     } catch (error) {
       return Promise.reject(error);
     }
-    const response = () =>
-      new Promise<QueryResponse>((resolve, reject) => {
-        this.#pending.set(id, { kind: request.kind, reject, resolve });
-        try {
-          this.#process.postMessage(request);
-        } catch (error) {
-          this.#stop(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
-    const settled =
-      timeoutMs === undefined
-        ? response()
-        : runWithTimeout(response, {
-            onTimeout: () => {
-              this.#stop(new SqliteQueryDeadlineError(timeoutMs));
-              return this.#terminal;
-            },
-            timeoutMs,
-          });
-    return settled.finally(() => {
-      this.#pending.delete(id);
-    });
+    const reply = async (): Promise<QueryResult<M>> => {
+      let value: unknown;
+      try {
+        value = await Promise.race([
+          this.#connection.sendRequest(method, params),
+          this.#terminated.promise,
+        ]);
+      } catch (error) {
+        throw this.#terminal ?? this.#refusal(method, error);
+      }
+      try {
+        return queryMethods[method].result(value) as QueryResult<M>;
+      } catch (error) {
+        throw this.#stop(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    return timeoutMs === undefined
+      ? reply()
+      : runWithTimeout(reply, {
+          onTimeout: () => this.#stop(new SqliteQueryDeadlineError(timeoutMs)),
+          timeoutMs,
+        });
   }
 }
-
-type RequestBody = {
-  [Kind in QueryRequest['kind']]: Omit<Extract<QueryRequest, { kind: Kind }>, 'id'>;
-}[QueryRequest['kind']];
 
 export class SqliteQueryDeadlineError extends Error {
   constructor(deadlineMs: number) {

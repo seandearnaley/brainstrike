@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { SqliteQueryClient } from '../client.js';
-import { decodeRequest, decodeResponse } from '../protocol.js';
+import { queryMethods } from '../protocol.js';
 
 const grep = {
   caseSensitive: true,
-  id: 1,
   isRegex: false,
-  kind: 'grep',
   maxRows: 50,
   pattern: 'needle',
   rootIds: ['root'],
@@ -15,41 +13,21 @@ const identity = { storeId: 'a'.repeat(64) };
 
 describe('SQLite query process boundary', () => {
   it('rejects unknown command fields, invalid row limits and malformed scopes', () => {
-    for (const message of [
-      { databasePath: '/index.sqlite', disableAuthorizer: true, id: 1, kind: 'open' },
+    expect(() =>
+      queryMethods.open.params({ databasePath: '/index.sqlite', disableAuthorizer: true })
+    ).toThrow(TypeError);
+    for (const params of [
       { ...grep, maxRows: 201 },
       { ...grep, rootIds: [42] },
       { ...grep, sql: 'SELECT 1' },
+      { ...grep, requirement: { kind: 'caller-vectors', symbol: 'add' } },
     ]) {
-      expect(() => decodeRequest(message)).toThrow(TypeError);
+      expect(() => queryMethods.grep.params(params)).toThrow(TypeError);
     }
-    expect(decodeRequest(grep)).toEqual(grep);
+    expect(queryMethods.grep.params(grep)).toEqual(grep);
   });
 
-  it('refuses a caller-vector requirement, which no request carries any more', () => {
-    expect(() =>
-      decodeRequest({ ...grep, requirement: { kind: 'caller-vectors', symbol: 'add' } })
-    ).toThrow(TypeError);
-  });
-
-  it('refuses the removed generic SQL kinds and their rows reply', () => {
-    for (const message of [
-      { id: 1, kind: 'query', maxRows: 50, sql: 'SELECT 1', values: [] },
-      { id: 1, kind: 'listTables' },
-      { id: 1, kind: 'describeTable', table: 'file_records' },
-    ]) {
-      expect(() => decodeRequest(message)).toThrow(TypeError);
-    }
-    expect(() =>
-      decodeResponse({
-        id: 1,
-        kind: 'rows',
-        result: { columns: ['id'], rows: [[1]], truncated: false },
-      })
-    ).toThrow(TypeError);
-  });
-
-  it('rejects malformed and unrecognized child replies', () => {
+  it('rejects malformed grep results', () => {
     const result = {
       columns: ['id'],
       identity,
@@ -57,19 +35,11 @@ describe('SQLite query process boundary', () => {
       rows: [['chunk']],
       truncated: false,
     };
-    expect(decodeResponse({ id: 1, kind: 'grepRows', result })).toEqual({
-      id: 1,
-      kind: 'grepRows',
-      result,
-    });
-    expect(() =>
-      decodeResponse({ id: 1, kind: 'grepRows', result: { ...result, rows: [[{}]] } })
-    ).toThrow(TypeError);
-    expect(() =>
-      decodeResponse({ id: 1, kind: 'grepRows', result: { ...result, matchedChunks: -1 } })
-    ).toThrow(TypeError);
-    expect(() => decodeResponse({ id: 0, kind: 'ready' })).toThrow(TypeError);
-    expect(() => decodeResponse({ bypass: true, id: 1, kind: 'ready' })).toThrow(TypeError);
+    expect(queryMethods.grep.result(result)).toEqual(result);
+    expect(() => queryMethods.grep.result({ ...result, rows: [[{}]] })).toThrow(TypeError);
+    expect(() => queryMethods.grep.result({ ...result, matchedChunks: -1 })).toThrow(TypeError);
+    expect(() => queryMethods.grep.result({ ...result, bypass: true })).toThrow(TypeError);
+    expect(() => queryMethods.open.result({ ready: true })).toThrow(TypeError);
   });
 
   it('refuses unbounded deadlines before acquiring a process', async () => {

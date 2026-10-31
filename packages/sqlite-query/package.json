@@ -7,15 +7,15 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./utility-host": "./src/utility-query-host.ts",
-    "./host": "./src/host-core.ts"
+    "./utility-host": "./src/utility-query-host.ts"
   },
   "dependencies": {
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/indexer": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "vscode-jsonrpc": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
