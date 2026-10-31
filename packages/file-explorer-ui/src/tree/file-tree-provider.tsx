@@ -376,57 +376,14 @@ export function FileTreeProvider({
     [getNode, getHandle, index, indexVersion]
   );
 
-  // Same stability pattern as indexContextValue / normalizedContextValue:
-  // avoid a fresh object identity every render so consumers don't thrash.
-  // Depend on individual fields — useFileTree / useExpandedPathRestoration
-  // return a new object literal each render, so object-identity deps would
-  // defeat the memo.
-  const fileTreeContextValue = useMemo<FileTreeContextType>(
-    () => ({
-      ...fileTreeState,
-      ...restorationState,
-      refreshTree: refreshTreeWithSelection,
-      rootDirectoryHandle,
-    }),
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- fileTreeState and restorationState are intentionally fresh objects; every consumed leaf is enumerated below to preserve context identity.
-    [
-      fileTreeState.__internalGetDescendantFileCount,
-      fileTreeState.__internalGetDescendantFilePaths,
-      fileTreeState.__internalMaterializeSubtree,
-      fileTreeState.__internalNormalizedTreeRef,
-      fileTreeState.__internalNormalizedTreeVersion,
-      fileTreeState.cancelChildLoading,
-      fileTreeState.cancelExpandAll,
-      fileTreeState.cancellable,
-      fileTreeState.cancelOperation,
-      fileTreeState.cancelRecursiveSelect,
-      fileTreeState.cancelSelectAll,
-      fileTreeState.error,
-      fileTreeState.expandAllProgress,
-      fileTreeState.expandAllProgressively,
-      fileTreeState.fileTree,
-      fileTreeState.isCancelling,
-      fileTreeState.isExpandingAll,
-      fileTreeState.isLoading,
-      fileTreeState.isLoadingForSelectAll,
-      fileTreeState.isLoadingForSelection,
-      fileTreeState.loadChildren,
-      fileTreeState.loadingPathForSelection,
-      fileTreeState.loadingPaths,
-      fileTreeState.loadingProgress?.isInitialLoading,
-      fileTreeState.loadingProgress?.loadingCount,
-      fileTreeState.loadSpecificPaths,
-      fileTreeState.refreshDirectory,
-      refreshTreeWithSelection,
-      fileTreeState.selectAllRecursively,
-      fileTreeState.selectFolderRecursively,
-      fileTreeState.workerPortRef,
-      restorationState.isRestorationSettled,
-      restorationState.isRestoringExpandedPaths,
-      restorationState.restorationProgress,
-      rootDirectoryHandle,
-    ]
-  );
+  // The compiler memoizes useFileTree's and useExpandedPathRestoration's
+  // results on their fields, so this value keeps its identity until one moves.
+  const fileTreeContextValue: FileTreeContextType = {
+    ...fileTreeState,
+    ...restorationState,
+    refreshTree: refreshTreeWithSelection,
+    rootDirectoryHandle,
+  };
 
   return (
     <FileTreeContext.Provider value={fileTreeContextValue}>
