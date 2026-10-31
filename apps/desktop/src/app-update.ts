@@ -90,7 +90,7 @@ export function createAppUpdates(): AppUpdates {
       },
       (error: unknown) => {
         logger.error('Update download failed', { error, version });
-        settle({ message: describeUpdateError(error), state: 'failed' });
+        settle({ message: describeUpdateError(error), state: 'failed', step: 'download' });
       }
     );
   };
@@ -114,7 +114,7 @@ export function createAppUpdates(): AppUpdates {
       result = await autoUpdater.checkForUpdatesAndNotify();
     } catch (error) {
       logger.error('Update check failed', { error });
-      return settle({ message: describeUpdateError(error), state: 'failed' });
+      return settle({ message: describeUpdateError(error), state: 'failed', step: 'check' });
     }
     checkResult = result;
     const download = result?.isUpdateAvailable ? result.downloadPromise : undefined;

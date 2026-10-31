@@ -27,7 +27,7 @@ export type AppUpdateStatus =
   | { readonly state: 'up-to-date' }
   | { readonly state: 'downloading'; readonly version: string }
   | { readonly state: 'ready'; readonly version: string }
-  | { readonly message: string; readonly state: 'failed' };
+  | { readonly message: string; readonly state: 'failed'; readonly step: 'check' | 'download' };
 
 export const appUpdatesContract = {
   checkNow: channel<[], AppUpdateStatus>({

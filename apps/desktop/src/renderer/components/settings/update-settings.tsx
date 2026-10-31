@@ -49,7 +49,9 @@ export function describeUpdateStatus(update: AppUpdateStatus): string {
     case 'ready':
       return `Version ${update.version} is ready to install.`;
     case 'failed':
-      return `Couldn't check for updates: ${update.message}`;
+      return update.step === 'download'
+        ? `Couldn't download the update: ${update.message}`
+        : `Couldn't check for updates: ${update.message}`;
     default:
       return update satisfies never;
   }

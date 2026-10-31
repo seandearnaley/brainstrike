@@ -70,7 +70,10 @@ export function describeUpdateCheck(
       return {
         buttons: ['OK'],
         detail: status.message,
-        message: "Couldn't check for updates",
+        message:
+          status.step === 'download'
+            ? "Couldn't download the update"
+            : "Couldn't check for updates",
         type: 'error',
       };
     default:

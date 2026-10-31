@@ -116,6 +116,7 @@ it('a failed check says why, and the next scheduled check tries again', async ()
     expect(updates.status()).toEqual({
       message: 'net::ERR_INTERNET_DISCONNECTED',
       state: 'failed',
+      step: 'check',
     })
   );
 
@@ -134,7 +135,11 @@ it('a failed download says why instead of offering a restart', async () => {
   download.reject(new Error('sha512 checksum mismatch'));
 
   await vi.waitFor(() =>
-    expect(updates.status()).toEqual({ message: 'sha512 checksum mismatch', state: 'failed' })
+    expect(updates.status()).toEqual({
+      message: 'sha512 checksum mismatch',
+      state: 'failed',
+      step: 'download',
+    })
   );
   expect(() => updates.restartToInstall()).toThrow();
 });

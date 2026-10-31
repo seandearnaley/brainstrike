@@ -105,12 +105,23 @@ it('Check for Updates… says when the app is up to date, downloading or could n
   expect(shownDialog().message).toBe('Downloading Brainstrike 1.1.0');
 
   expect(
-    describeUpdateCheck({ message: 'HttpError: 404', state: 'failed' }, 'Brainstrike', '1.0.0')
+    describeUpdateCheck(
+      { message: 'HttpError: 404', state: 'failed', step: 'check' },
+      'Brainstrike',
+      '1.0.0'
+    )
   ).toMatchObject({
     detail: 'HttpError: 404',
     message: "Couldn't check for updates",
     type: 'error',
   });
+  expect(
+    describeUpdateCheck(
+      { message: 'sha512 checksum mismatch', state: 'failed', step: 'download' },
+      'Brainstrike',
+      '1.0.0'
+    ).message
+  ).toBe("Couldn't download the update");
   expect(
     describeUpdateCheck({ reason: 'not-installed', state: 'off' }, 'Brainstrike', '1.0.0').message
   ).toBe('Updates come only to an installed copy of Brainstrike');
