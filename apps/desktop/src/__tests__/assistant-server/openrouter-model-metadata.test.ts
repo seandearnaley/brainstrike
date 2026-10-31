@@ -460,7 +460,9 @@ describe('OpenRouterModelMetadataService', () => {
   });
 
   it('refuses an unreachable OpenRouter as unreachable, keeping the request error as its cause', async () => {
-    const failure = new TypeError('fetch failed');
+    const failure = new TypeError('fetch failed', {
+      cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+    });
     const service = createOpenRouterModelMetadataService({
       fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(failure),
     });

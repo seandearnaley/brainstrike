@@ -73,7 +73,28 @@ function timeoutRefusal(timeoutMs: number): BoundaryFailureError {
   );
 }
 
-/** The request never reached OpenRouter (offline, DNS, refused); its cause stays local. */
+/** Connection errors fetch reports in its `TypeError`'s cause: the network, not the request. */
+const NETWORK_ERROR_CODES = new Set([
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+function isNetworkFailure(error: unknown): boolean {
+  if (!(error instanceof TypeError) || typeof error.cause !== 'object' || error.cause === null) {
+    return false;
+  }
+  const { code } = error.cause as { readonly code?: unknown };
+  return typeof code === 'string' && NETWORK_ERROR_CODES.has(code);
+}
+
+/** The request never reached OpenRouter (offline, DNS, refused). */
 function unreachableRefusal(cause: unknown): BoundaryFailureError {
   return new BoundaryFailureError(
     refusal({
@@ -206,7 +227,9 @@ export function createOpenRouterModelMetadataService(
           }).catch((error: unknown) => {
             // An aborted fetch answers with the deadline's or the caller's reason.
             signal.throwIfAborted();
-            throw unreachableRefusal(error);
+            // Only a request that never reached OpenRouter is the person's to fix;
+            // anything else (TLS, a bad header, a bad URL) stays the logged fault.
+            throw isNetworkFailure(error) ? unreachableRefusal(error) : error;
           });
           signal.throwIfAborted();
           if (!response.ok) {

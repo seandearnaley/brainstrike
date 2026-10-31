@@ -215,7 +215,11 @@ describe('host provider services: a failure the person can fix says how (BST-237
 
   it('tells an offline machine to check its connection', async () => {
     const services = servicesWith({
-      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(new TypeError('fetch failed')),
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(
+        new TypeError('fetch failed', {
+          cause: Object.assign(new Error('getaddrinfo'), { code: 'ENOTFOUND' }),
+        })
+      ),
       stored: { openrouter: { key: 'fixture-key', type: 'api_key' } },
     });
 
@@ -231,6 +235,22 @@ describe('host provider services: a failure the person can fix says how (BST-237
       },
       logged: 0,
     });
+  });
+
+  it('keeps a lookup that failed for another reason, such as TLS, a logged fault', async () => {
+    const tls = Object.assign(new Error('unable to get local issuer certificate'), {
+      code: 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+    });
+    const services = servicesWith({
+      fetchImpl: vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new TypeError('fetch failed', { cause: tls })),
+      stored: { openrouter: { key: 'fixture-key', type: 'api_key' } },
+    });
+
+    const result = await crossed(services.openRouterModel('anthropic/claude-sonnet-4.6', open));
+    expect(result.data).not.toMatchObject({ code: 'provider.unreachable' });
+    expect(result.logged).toBe(1);
   });
 
   it('tells a lookup OpenRouter never answered that it timed out', async () => {
