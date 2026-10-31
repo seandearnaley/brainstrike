@@ -153,7 +153,7 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
       notifyProgressListeners();
     }
     setRunningCount((count) => count + 1);
-    try {
+    const attempt = async () => {
       // Sequential: progressive expansion is I/O-heavy per root; one section
       // at a time keeps disk load and progress predictable (mirrors the
       // sequential per-root sync).
@@ -166,9 +166,10 @@ export function ForestTreeActionsProvider({ children }: { children: ReactNode })
         actions.setCollapsed(false);
         await actions.expandAll();
       }
-    } finally {
+    };
+    return attempt().finally(() => {
       setRunningCount((count) => count - 1);
-    }
+    });
   }, [notifyProgressListeners]);
 
   const cancelExpandAll = useCallback(() => {

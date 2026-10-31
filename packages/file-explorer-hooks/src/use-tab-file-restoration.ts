@@ -424,20 +424,17 @@ export function useTabFileRestoration(
 
       setIsRestoring(true);
 
-      try {
-        // Mark as attempted
-        for (const tab of newTabs) {
-          restoredTabsRef.current.add(tab.compositeKey);
-        }
+      // Mark as attempted
+      for (const tab of newTabs) {
+        restoredTabsRef.current.add(tab.compositeKey);
+      }
 
-        await restoreElectronTabsWithStatus(newTabs);
-      } catch (err) {
+      await restoreElectronTabsWithStatus(newTabs).catch((err: unknown) => {
         logger.warn('Tab restoration failed', {
           error: err instanceof Error ? err.message : String(err),
         });
-      } finally {
-        setIsRestoring(false);
-      }
+      });
+      setIsRestoring(false);
     },
     [restoreElectronTabsWithStatus]
   );
