@@ -11,7 +11,7 @@
  * record.
  */
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import { Schema, SchemaTransformation } from 'effect';
+import { Predicate, Schema, SchemaTransformation } from 'effect';
 
 const MCP_TASK_STATUSES = [
   'cancelled',
@@ -43,10 +43,6 @@ const BLOCKED_DIAGNOSTIC_KEYS = 'actualBytes,code,field,maxBytes,remoteStatus,sh
 
 const utf8ByteLength = (value: string): number => TEXT_ENCODER.encode(value).length;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isJsonValue(value: unknown): value is JsonValue {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') {
     return true;
@@ -58,14 +54,14 @@ function isJsonValue(value: unknown): value is JsonValue {
     return value.every(isJsonValue);
   }
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     [null, Object.prototype].includes(Object.getPrototypeOf(value)) &&
     Object.values(value).every(isJsonValue)
   );
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
-  return isRecord(value) && isJsonValue(value);
+  return Predicate.isObject(value) && isJsonValue(value);
 }
 
 /** Non-empty text of at most `maxBytes` UTF-8 bytes. */
@@ -151,7 +147,8 @@ const blockedDiagnostic = Schema.NullOr(
     }),
     Schema.makeFilter(
       (value: unknown) =>
-        isRecord(value) && Object.keys(value).sort().join(',') === BLOCKED_DIAGNOSTIC_KEYS,
+        Predicate.isObject(value) &&
+        Object.keys(value).sort().join(',') === BLOCKED_DIAGNOSTIC_KEYS,
       { message: 'MCP task blockedDiagnostic fields are invalid.' }
     )
   ).pipe(Schema.decodeTo(blockedDiagnosticValues, SchemaTransformation.passthroughSupertype()))

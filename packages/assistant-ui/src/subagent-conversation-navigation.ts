@@ -3,6 +3,7 @@ import {
   readAssistantRunEventDataPart,
 } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
+import { Predicate } from 'effect';
 import { createContext } from 'react';
 
 export const SubagentConversationNavigationContext = createContext<
@@ -83,9 +84,6 @@ export const SubagentLiveInvocationContext = createContext<SubagentLiveInvocatio
   null
 );
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
 /**
  * The child thread a delegation's own result names: a native completion
  * persists it, and an agent host delegation names it in every result
@@ -94,7 +92,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 function readResultThread(result: unknown): string | undefined {
   let threadId: string | undefined;
   for (const key of ['subAgentThreadId', 'childThreadId'] as const) {
-    if (!(isRecord(result) && key in result)) {
+    if (!(Predicate.isObject(result) && key in result)) {
       continue;
     }
     const child = result[key];
@@ -120,10 +118,10 @@ export function readSubagentConversationThread(
   for (const part of parts) {
     if (
       !(
-        isRecord(part) &&
+        Predicate.isObject(part) &&
         part['type'] === 'data' &&
         part['name'] === DELEGATED_CONVERSATION_DATA_NAME &&
-        isRecord(part['data'])
+        Predicate.isObject(part['data'])
       )
     ) {
       continue;
@@ -131,9 +129,9 @@ export function readSubagentConversationThread(
     const data = part['data'];
     if (
       !(
-        isRecord(data['identity']) &&
+        Predicate.isObject(data['identity']) &&
         data['identity']['parentToolCallId'] === toolCallId &&
-        isRecord(data['baseline'])
+        Predicate.isObject(data['baseline'])
       )
     ) {
       continue;
@@ -202,8 +200,8 @@ export type SubagentInvocationRun =
 
 /** The agent host run an assistant message answers; its owner names it (BST-1932). */
 function readHostRunId(metadata: unknown): string | undefined {
-  const custom = isRecord(metadata) ? metadata['custom'] : undefined;
-  if (!(isRecord(custom) && 'hostRunId' in custom)) {
+  const custom = Predicate.isObject(metadata) ? metadata['custom'] : undefined;
+  if (!(Predicate.isObject(custom) && 'hostRunId' in custom)) {
     return;
   }
   const runId = custom['hostRunId'];

@@ -2,6 +2,7 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import { Predicate } from 'effect';
 import { isValidWebSearchCitationUrl } from './web-search-citation-url.ts';
 import { decodedWorkspaceTextModelOutputChars as decodedChars } from './workspace-model-projection-helpers.ts';
 
@@ -34,10 +35,6 @@ const MAX_QUERY_LINE_SERIALIZED_CHARS = 2600;
 const MAX_SNIPPET_CHARS = 320;
 const MAX_TITLE_CHARS = 220;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
@@ -48,7 +45,7 @@ function isOptionalString(value: unknown): value is string | undefined {
 
 function isWebSearchItem(value: unknown): value is WebSearchItem {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['snippet'] === 'string' &&
     typeof value['title'] === 'string' &&
     value['title'].length > 0 &&
@@ -60,7 +57,7 @@ function isWebSearchItem(value: unknown): value is WebSearchItem {
 function parseWebSearchResult(raw: unknown): WebSearchResult {
   if (
     !(
-      isRecord(raw) &&
+      Predicate.isObject(raw) &&
       typeof raw['available'] === 'boolean' &&
       isNonNegativeInteger(raw['count']) &&
       isOptionalString(raw['error']) &&

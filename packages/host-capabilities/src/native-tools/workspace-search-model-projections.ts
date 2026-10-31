@@ -6,6 +6,7 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import { Predicate } from 'effect';
 import type { GlobWorkspaceMatch, GlobWorkspaceToolResult } from './glob-workspace-tool.ts';
 import {
   type GrepFileSummary,
@@ -20,7 +21,6 @@ import {
   escapeProjectionPathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
-  isRecord,
   makeWorkspaceTextModelOutput as makeTextModelOutput,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
@@ -39,7 +39,7 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 function isGrepFileSummary(value: unknown): value is GrepFileSummary {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   return (
@@ -52,7 +52,7 @@ function isGrepFileSummary(value: unknown): value is GrepFileSummary {
 }
 
 function isGrepMatch(value: unknown): value is ModelFacingGrepMatch {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   return (
@@ -67,7 +67,7 @@ function isGrepMatch(value: unknown): value is ModelFacingGrepMatch {
 }
 
 function isGlobMatch(value: unknown): value is GlobWorkspaceMatch {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   return (
@@ -80,7 +80,7 @@ function isGlobMatch(value: unknown): value is GlobWorkspaceMatch {
 function parseGlobWorkspaceToolResult(output: unknown): GlobWorkspaceToolResult {
   if (
     !(
-      isRecord(output) &&
+      Predicate.isObject(output) &&
       isNonNegativeInteger(output['count']) &&
       isOptionalString(output['hint']) &&
       isOptionalString(output['loopGuardWarning']) &&
@@ -404,7 +404,7 @@ export function projectGrepSearchModelOutput(
   domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): WorkspaceSearchTextModelOutput {
   if (
-    isRecord(output) &&
+    Predicate.isObject(output) &&
     Object.keys(output).length === 2 &&
     output['type'] === 'text' &&
     typeof output['value'] === 'string' &&

@@ -13,11 +13,11 @@ import {
   escapeProjectionPathLineBreaks as escapePathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
-  isRecord,
   makeWorkspaceTextModelOutput as output,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from '@brainstrike/host-capabilities/native-tools';
+import { Predicate } from 'effect';
 
 export type WorkspaceRetrievalTextModelOutput = WorkspaceTextModelOutput;
 
@@ -108,7 +108,7 @@ function isOptionalString(value: unknown): value is string | undefined {
 
 function isSemanticChunk(value: unknown, index: number): value is SemanticChunk {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     value['rank'] === index + 1 &&
     (value['score'] === undefined || isFiniteNumber(value['score']))
   );
@@ -123,12 +123,12 @@ function hasSemanticNotices(value: Record<string, unknown>): boolean {
 
 function parseSemanticResult(output: unknown): SemanticResult | UnavailableResult {
   if (
-    isRecord(output) &&
+    Predicate.isObject(output) &&
     output['status'] === 'unavailable' &&
     (output['reason'] === 'workspace-index-blocked' ||
       output['reason'] === 'workspace-index-unavailable') &&
     typeof output['message'] === 'string' &&
-    isRecord(output['workspaceIndex'])
+    Predicate.isObject(output['workspaceIndex'])
   ) {
     const index = output['workspaceIndex'];
     const queue = index['queueProgress'];
@@ -140,7 +140,7 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
       typeof index['paused'] === 'boolean' &&
       (index['statusState'] === null || typeof index['statusState'] === 'string') &&
       (queue === null ||
-        (isRecord(queue) &&
+        (Predicate.isObject(queue) &&
           isNonNegativeInteger(queue['failed']) &&
           isNonNegativeInteger(queue['pending']) &&
           isNonNegativeInteger(queue['processed']) &&
@@ -151,7 +151,7 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
   }
   if (
     !(
-      isRecord(output) &&
+      Predicate.isObject(output) &&
       hasSemanticNotices(output) &&
       isPositiveInteger(output['budget']) &&
       typeof output['chunkContentIncludedInContext'] === 'boolean' &&
@@ -188,7 +188,7 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
 
 function isHybridItem(value: unknown): value is HybridItem {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     isNonNegativeInteger(value['chunkIndex']) &&
     typeof value['content'] === 'string' &&
     isOptionalString(value['fileName']) &&
@@ -206,11 +206,11 @@ function isHybridItem(value: unknown): value is HybridItem {
 function parseHybridResult(output: unknown): HybridResult {
   if (
     !(
-      isRecord(output) &&
+      Predicate.isObject(output) &&
       typeof output['embeddingSetId'] === 'string' &&
       isFiniteNumber(output['ftsWeight']) &&
       isOptionalString(output['hint']) &&
-      isRecord(output['metadata']) &&
+      Predicate.isObject(output['metadata']) &&
       isNonNegativeInteger(output['metadata']['ftsResultCount']) &&
       isNonNegativeInteger(output['metadata']['fusedResultCount']) &&
       isFiniteNumber(output['metadata']['totalMs']) &&

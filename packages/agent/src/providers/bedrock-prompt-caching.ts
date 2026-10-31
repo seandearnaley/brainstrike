@@ -34,6 +34,8 @@
  * for every role. We still READ part-level points, because the SDK honors
  * those when a caller sets them.
  */
+
+import { Predicate } from 'effect';
 import {
   type PromptMessageLike,
   type PromptParamsLike,
@@ -69,10 +71,6 @@ function hasCachePointInOptions(
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 /**
  * Whether the caller already placed a checkpoint on this message, at EITHER
  * level. Part-level points are real checkpoints to the SDK, so a message
@@ -87,11 +85,11 @@ function hasExplicitCachePoint(message: PromptMessageLike): boolean {
     return false;
   }
   return content.some((part) => {
-    if (!isRecord(part)) {
+    if (!Predicate.isObject(part)) {
       return false;
     }
     const partOptions = part['providerOptions'];
-    return isRecord(partOptions)
+    return Predicate.isObject(partOptions)
       ? hasCachePointInOptions(partOptions as Record<string, Record<string, unknown>>)
       : false;
   });

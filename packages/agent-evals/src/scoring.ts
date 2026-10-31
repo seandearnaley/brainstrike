@@ -4,6 +4,7 @@
  * `interaction.requested`, `run.finished`).
  */
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
+import { Predicate } from 'effect';
 
 export interface EvalRunMetrics {
   /** Approval interactions the run requested. */
@@ -35,13 +36,9 @@ export interface EvalRunSummary {
   readonly verdict: EvalRunVerdict;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** The step's reported count, or null when the provider reported none. */
 function tokens(usage: unknown, field: 'inputTokens' | 'outputTokens'): number | null {
-  const value = isRecord(usage) ? usage[field] : undefined;
+  const value = Predicate.isObject(usage) ? usage[field] : undefined;
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
@@ -55,9 +52,13 @@ function sum(values: readonly (number | null)[]): number | null {
 /** The tool names of a committed step's assistant tool-call parts. */
 function toolCallNames(messages: readonly unknown[]): string[] {
   return messages.flatMap((message) =>
-    isRecord(message) && message['role'] === 'assistant' && Array.isArray(message['content'])
+    Predicate.isObject(message) &&
+    message['role'] === 'assistant' &&
+    Array.isArray(message['content'])
       ? message['content'].flatMap((part) =>
-          isRecord(part) && part['type'] === 'tool-call' && typeof part['toolName'] === 'string'
+          Predicate.isObject(part) &&
+          part['type'] === 'tool-call' &&
+          typeof part['toolName'] === 'string'
             ? [part['toolName']]
             : []
         )

@@ -1,3 +1,5 @@
+import { Predicate } from 'effect';
+
 /**
  * Prompt-composition breakdown for the context usage popover.
  *
@@ -106,17 +108,13 @@ export type AssistantContextBreakdownState =
   | { readonly invalid: true }
   | { readonly breakdown: AssistantContextBreakdown; readonly invalid: false };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function isToolCallUsageEntry(value: unknown): value is AssistantToolCallUsage {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['toolName'] === 'string' &&
     value['toolName'].length > 0 &&
     isCount(value['tokens']) &&
@@ -126,7 +124,7 @@ function isToolCallUsageEntry(value: unknown): value is AssistantToolCallUsage {
 
 function isToolDefinitionTokensEntry(value: unknown): value is AssistantToolDefinitionTokens {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['name'] === 'string' &&
     value['name'].length > 0 &&
     isCount(value['tokens'])
@@ -135,7 +133,7 @@ function isToolDefinitionTokensEntry(value: unknown): value is AssistantToolDefi
 
 /** True when the value is a well-formed {@link AssistantContextBreakdown}. */
 export function isAssistantContextBreakdown(value: unknown): value is AssistantContextBreakdown {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   if (value['provenance'] !== 'heuristic') {

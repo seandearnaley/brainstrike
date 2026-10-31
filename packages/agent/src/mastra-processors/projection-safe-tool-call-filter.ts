@@ -11,6 +11,7 @@ import type {
   ProcessLLMRequestResult,
   Processor,
 } from '@mastra/core/processors';
+import { Predicate } from 'effect';
 
 type LanguageModelV2Prompt = ProcessLLMRequestArgs['prompt'];
 type LanguageModelV2Message = LanguageModelV2Prompt[number];
@@ -111,7 +112,7 @@ interface ArgElisionGroup {
  * safe to keep from a shape this tool contract never produces.
  */
 function elideMutationArgs(input: unknown): unknown {
-  if (!isRecord(input)) {
+  if (!Predicate.isObject(input)) {
     return input;
   }
   let serializedChars = 0;
@@ -190,16 +191,12 @@ export interface ProjectionSafeToolCallFilterOptions {
   readonly toolNameMap: ReadonlyMap<string, string>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function readToolInvocationPart(value: unknown): ToolInvocationPart | undefined {
-  if (!(isRecord(value) && value['type'] === 'tool-invocation')) {
+  if (!(Predicate.isObject(value) && value['type'] === 'tool-invocation')) {
     return;
   }
   const invocation = value['toolInvocation'];
-  if (!isRecord(invocation)) {
+  if (!Predicate.isObject(invocation)) {
     return;
   }
   return value as unknown as ToolInvocationPart;
@@ -214,7 +211,7 @@ function readToolCallId(invocation: MutableToolInvocation): string | undefined {
 }
 
 function readMessageParts(message: MastraDBMessage): unknown[] {
-  const parts = isRecord(message.content) ? message.content['parts'] : undefined;
+  const parts = Predicate.isObject(message.content) ? message.content['parts'] : undefined;
   return Array.isArray(parts) ? parts : [];
 }
 
@@ -277,7 +274,7 @@ function hasNonEmptyFailureValue(value: unknown): boolean {
   if (Array.isArray(value)) {
     return value.length > 0;
   }
-  if (isRecord(value)) {
+  if (Predicate.isObject(value)) {
     return Object.keys(value).length > 0;
   }
   return true;
@@ -287,7 +284,7 @@ function isErrorBearingResult(value: unknown): boolean {
   if (value instanceof Error || isGuardedToolError(value)) {
     return true;
   }
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   if (value['ok'] === false || value['available'] === false) {
@@ -342,11 +339,11 @@ function modelOutputCanBePreserved(value: unknown): boolean {
 }
 
 function readStoredModelOutput(part: ToolInvocationPart): unknown {
-  if (!isRecord(part.providerMetadata)) {
+  if (!Predicate.isObject(part.providerMetadata)) {
     return;
   }
   const mastraMetadata = part.providerMetadata['mastra'];
-  if (!(isRecord(mastraMetadata) && Object.hasOwn(mastraMetadata, 'modelOutput'))) {
+  if (!(Predicate.isObject(mastraMetadata) && Object.hasOwn(mastraMetadata, 'modelOutput'))) {
     return;
   }
   return mastraMetadata['modelOutput'];
@@ -473,7 +470,7 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
         continue;
       }
       const atStepBoundary =
-        part === MESSAGE_BOUNDARY || (isRecord(part) && part['type'] === 'step-start');
+        part === MESSAGE_BOUNDARY || (Predicate.isObject(part) && part['type'] === 'step-start');
       if (atStepBoundary && pendingStepIds.size > 0 && finishPendingStep()) {
         return recentIds;
       }
@@ -558,7 +555,7 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     }
     const group = groups.get(toolCallId) ?? { oversized: false, settled: false, unsafe: false };
     const args = (toolInvocation as { args?: unknown }).args;
-    if (isRecord(args)) {
+    if (Predicate.isObject(args)) {
       try {
         group.oversized ||= (JSON.stringify(args)?.length ?? 0) > ARG_ELISION_MIN_SERIALIZED_CHARS;
       } catch {
@@ -603,7 +600,7 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
 
   private readFilterState(state: Record<string, unknown>): FilterState | undefined {
     const value = state[FILTER_STATE_KEY];
-    if (!(isRecord(value) && Array.isArray(value['safeToolCallIds']))) {
+    if (!(Predicate.isObject(value) && Array.isArray(value['safeToolCallIds']))) {
       return;
     }
     const safeToolCallIds = value['safeToolCallIds'].filter(

@@ -8,6 +8,7 @@ import {
   type CreateTaskResult,
   parseMcpCreateTaskResult,
 } from '@brainstrike/mcp-tasks-extension/task';
+import { Predicate } from 'effect';
 import { getActiveToolResultBudget } from '../tool-projection/tool-model-output.ts';
 import { readRegisteredExtensionResult } from './client-extension-registry.ts';
 import {
@@ -80,10 +81,6 @@ export function createMcpTaskToolTracking(
   return { capability, settlementTimeoutMs: resolveMcpTaskSettlementTimeoutMs(toolTimeoutMs) };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /**
  * Detects a created task in either shape a `tools/call` response can take on
  * this client: the bare `resultType: 'task'` result, or the client extension
@@ -92,7 +89,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function readMcpCreatedTaskResult(result: unknown): CreateTaskResult | undefined {
   const candidate = readRegisteredExtensionResult(result) ?? result;
-  if (!isRecord(candidate) || candidate['resultType'] !== 'task') {
+  if (!Predicate.isObject(candidate) || candidate['resultType'] !== 'task') {
     return;
   }
   return parseMcpCreateTaskResult(candidate);

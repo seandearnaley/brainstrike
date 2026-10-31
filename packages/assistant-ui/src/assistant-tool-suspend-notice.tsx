@@ -17,6 +17,7 @@ import {
 import { createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import { Button } from '@brainstrike/ui';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
+import { Predicate } from 'effect';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
 import { type ReactNode, use, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
@@ -66,15 +67,11 @@ interface AssistantToolSuspendNoticeProps {
   data: unknown;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null | undefined {
   if (value === undefined || value === null) {
     return;
   }
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return null;
   }
   const { overview, risks, steps, title, verification } = value;
@@ -84,7 +81,7 @@ function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null | undef
 
   const parsedSteps: SubmitPlanPayload['steps'] = [];
   for (const step of steps) {
-    if (!isRecord(step) || typeof step['title'] !== 'string') {
+    if (!Predicate.isObject(step) || typeof step['title'] !== 'string') {
       return null;
     }
     parsedSteps.push({
@@ -111,7 +108,7 @@ function readAskUserOptions(options: unknown): AskUserOption[] | null | undefine
   }
   const parsedOptions: AskUserOption[] = [];
   for (const option of options) {
-    if (!isRecord(option) || typeof option['label'] !== 'string') {
+    if (!Predicate.isObject(option) || typeof option['label'] !== 'string') {
       return null;
     }
     parsedOptions.push({
@@ -126,7 +123,7 @@ function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
   if (value === undefined || value === null) {
     return;
   }
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return null;
   }
   const { options, question, selectionMode } = value;
@@ -158,7 +155,9 @@ function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
 }
 
 function readAskUserQuestion(value: unknown): string | null {
-  return isRecord(value) && typeof value['question'] === 'string' ? value['question'] : null;
+  return Predicate.isObject(value) && typeof value['question'] === 'string'
+    ? value['question']
+    : null;
 }
 
 /**
@@ -706,7 +705,7 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
  * unnamed domain list). Deny is the outcome of every non-action.
  */
 function narrowNetworkSuspendPayload(value: unknown): readonly string[] | null {
-  if (!(isRecord(value) && value['kind'] === 'network')) {
+  if (!(Predicate.isObject(value) && value['kind'] === 'network')) {
     return null;
   }
   const domains = value['allowedDomains'];
