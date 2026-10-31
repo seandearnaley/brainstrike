@@ -108,7 +108,6 @@ export class SecretReadError extends Error {
 }
 
 export interface SecretsService {
-  clearAll: () => Promise<boolean>;
   deleteKey: (provider: string) => Promise<boolean>;
   /**
    * Typed read (BST-1348). Legacy bare-string values map to

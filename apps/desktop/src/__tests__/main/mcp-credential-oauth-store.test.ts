@@ -1,5 +1,4 @@
 import {
-  type CredentialMcpOAuthStoreOptions,
   createCredentialMcpOAuthStore,
   type McpOAuthCredentialStorage,
 } from '@brainstrike/host-capabilities/mcp/credential-oauth-store';
@@ -9,36 +8,20 @@ import {
   type McpOAuthPersistedState,
   type McpOAuthStoreIdentity,
   parseRecords,
-  purgeMcpOAuthRuntimeState,
   readMcpOAuthAuthProjection,
 } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const identity = createMcpOAuthStoreIdentity('fixture-server', 'https://mcp.example.test/mcp', [
   'read',
 ]);
 const issuer = 'https://auth.example.test';
 
-const unregisterStores = new Set<() => void>();
-afterEach(() => {
-  for (const unregister of unregisterStores) {
-    unregister();
-  }
-  unregisterStores.clear();
-});
-
-function trackedStore(options: CredentialMcpOAuthStoreOptions) {
-  const store = createCredentialMcpOAuthStore(options);
-  unregisterStores.add(store.unregister);
-  return store;
-}
-
 function fixture() {
   const values = new Map<string, string>();
   const credentials = {
     delete: vi.fn(async (account: string) => values.delete(account)),
     join: vi.fn(async () => undefined),
-    listAccounts: vi.fn(async () => [...values.keys()]),
     read: vi.fn(async (account: string) => values.get(account) ?? null),
     write: vi.fn(async (account: string, value: string) => {
       values.set(account, value);
@@ -46,7 +29,7 @@ function fixture() {
   } satisfies McpOAuthCredentialStorage;
   const accountForIdentity = (input: McpOAuthStoreIdentity): string =>
     `fixture-oauth:${identityKey(input)}`;
-  const store = trackedStore({
+  const store = createCredentialMcpOAuthStore({
     accountForIdentity,
     credentials,
     ownsAccount: (account) => account.startsWith('fixture-oauth:'),
@@ -114,22 +97,9 @@ describe('MCP OAuth projection onto the injected credential authority', () => {
     expect(values.size).toBe(1);
   });
 
-  it('clears only MCP accounts and preserves provider credentials in the shared authority', async () => {
-    const { accountForIdentity, credentials, store, values } = fixture();
-    values.set('fixture-provider:openai', '{"type":"api_key","key":"fixture-provider-key"}');
-    await store.write(identity, records);
-    await store.clearAll();
-    expect(values.has(accountForIdentity(identity))).toBe(false);
-    expect(values.get('fixture-provider:openai')).toContain('fixture-provider-key');
-    expect(credentials.delete).toHaveBeenCalledExactlyOnceWith(
-      accountForIdentity(identity),
-      undefined
-    );
-  });
-
   it('rejects an account mapping outside the supplied namespace before touching credentials', async () => {
     const { credentials } = fixture();
-    const store = trackedStore({
+    const store = createCredentialMcpOAuthStore({
       accountForIdentity: () => 'fixture-provider:openai',
       credentials,
       ownsAccount: (account) => account.startsWith('fixture-oauth:'),
@@ -181,7 +151,7 @@ describe('MCP OAuth projection onto the injected credential authority', () => {
     const { credentials } = fixture();
     const entered = Promise.withResolvers<void>();
     const validation = Promise.withResolvers<Readonly<Record<string, McpOAuthPersistedState>>>();
-    const store = trackedStore({
+    const store = createCredentialMcpOAuthStore({
       accountForIdentity: () => 'fixture-oauth:account',
       credentials,
       ownsAccount: (account) => account.startsWith('fixture-oauth:'),
@@ -231,34 +201,12 @@ describe('MCP OAuth projection onto the injected credential authority', () => {
     expect(credentials.delete).toHaveBeenCalledOnce();
   });
 
-  it('participates in canonical reset and joins the borrowed credential authority', async () => {
+  it('joins the borrowed credential authority', async () => {
     const { accountForIdentity, credentials, store, values } = fixture();
     await store.write(identity, records);
     await store.join();
     expect(credentials.join).toHaveBeenCalledOnce();
-    await purgeMcpOAuthRuntimeState();
-    expect(values.has(accountForIdentity(identity))).toBe(false);
-    await store.write(identity, records);
-    store.unregister();
-    await purgeMcpOAuthRuntimeState();
     expect(values.has(accountForIdentity(identity))).toBe(true);
-  });
-
-  it('attempts every MCP account on clearAll and reports partial cleanup failure', async () => {
-    const { credentials, store, values } = fixture();
-    values.set('fixture-oauth:first', '{}');
-    values.set('fixture-oauth:second', '{}');
-    values.set('fixture-provider:openai', 'fixture-provider-key');
-    const cause = new Error('fixture-first-delete-denied');
-    credentials.delete.mockRejectedValueOnce(cause);
-    await expect(store.clearAll()).rejects.toMatchObject({
-      errors: [cause],
-      name: 'AggregateError',
-    });
-    expect(credentials.delete).toHaveBeenCalledTimes(2);
-    expect(values.has('fixture-oauth:first')).toBe(true);
-    expect(values.has('fixture-oauth:second')).toBe(false);
-    expect(values.has('fixture-provider:openai')).toBe(true);
   });
 
   it('rejects a queued cancelled write before it can enter credentials after a pending read', async () => {

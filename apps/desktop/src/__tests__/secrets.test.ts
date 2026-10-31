@@ -8,10 +8,6 @@ import {
 } from '@brainstrike/assistant-contract';
 import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
-import {
-  createSecretsMcpBearerCredentialAuthority,
-  mcpBearerCredentialStorageKey,
-} from '@brainstrike/host-capabilities/mcp/bearer-credential';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { desktopCredentialStoreSelection, SecretReadError } from '../secrets';
 
@@ -195,24 +191,6 @@ describe('typed provider credentials (BST-1348)', () => {
       await credentials.close();
     });
   });
-
-  describe('factory reset coverage', () => {
-    it('clearAll removes MCP bearer credentials from the shared authority', async () => {
-      const reference = {
-        id: '00000000-0000-4000-8000-000000000001',
-        store: 'mcp-credentials',
-      } as const;
-      const { credentials, svc } = await desktopSecrets();
-      const authority = createSecretsMcpBearerCredentialAuthority(svc);
-
-      await svc.saveKey(mcpBearerCredentialStorageKey(reference), 'factory-reset-secret');
-      await expect(authority.inspect(reference)).resolves.toEqual({ state: 'stored' });
-
-      await expect(svc.clearAll()).resolves.toBe(true);
-      await expect(authority.inspect(reference)).resolves.toEqual({ state: 'missing' });
-      await credentials.close();
-    });
-  });
 });
 
 describe("Main's view of the host-owned profile store", () => {
@@ -239,7 +217,6 @@ describe("Main's view of the host-owned profile store", () => {
       () => main.saveKey('openai', 'sk-main'),
       () => main.setCredential('openai', { key: 'sk-main', type: 'api_key' }),
       () => main.deleteKey('openai'),
-      () => main.clearAll(),
     ]) {
       await expect(write()).rejects.toThrow('the agent host owns every credential write');
     }

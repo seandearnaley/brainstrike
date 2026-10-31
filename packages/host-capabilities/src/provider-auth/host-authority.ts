@@ -1,9 +1,6 @@
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostAuthService } from '@brainstrike/agent-host';
-import {
-  joinCredentialCleanup,
-  type SecretsService,
-} from '@brainstrike/agent-host/credential-contract';
+import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import type { ProviderCredential } from '@brainstrike/assistant-contract';
 import {
   getProviderDefinition,
@@ -11,7 +8,6 @@ import {
   refusalError,
 } from '@brainstrike/assistant-contract';
 import type { HostCredentials } from '../credentials.ts';
-import { purgeMcpOAuthRuntimeState } from '../mcp/oauth-client-provider.ts';
 import { createHostProviderAuth } from '../provider-auth.ts';
 
 export interface HostAuthorityOptions {
@@ -21,8 +17,6 @@ export interface HostAuthorityOptions {
 
 /** The host's single credential authority: the only writer of every credential fact. */
 export interface HostAuthority extends HostAuthService {
-  /** Factory reset: every entry, MCP OAuth records and their live providers included. */
-  clear(): Promise<boolean>;
   deleteCredential(provider: string): Promise<boolean>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   /** The profile store for the host's other credential readers. */
@@ -56,7 +50,6 @@ export function createHostAuthority(options: HostAuthorityOptions): HostAuthorit
   const secrets = () => options.credentials.secrets();
   // Every reader shares the one profile store, resolved per call.
   const storeSecrets: SecretsService = {
-    clearAll: () => secrets().clearAll(),
     deleteKey: (account) => secrets().deleteKey(account),
     getCredential: (account) => secrets().getCredential(account),
     getKey: (account) => secrets().getKey(account),
@@ -65,23 +58,6 @@ export function createHostAuthority(options: HostAuthorityOptions): HostAuthorit
     setCredential: (account, credential) => secrets().setCredential(account, credential),
   };
   return {
-    clear: async () => {
-      let cleared = false;
-      await joinCredentialCleanup(
-        [
-          secrets()
-            .clearAll()
-            .then((value) => {
-              cleared = value;
-            }),
-        ],
-        'Credential reset completed with failures.',
-        // MCP OAuth records sit under their own accounts, outside the secrets namespace:
-        // live MCP OAuth providers disconnect, then every registered store clears.
-        () => [purgeMcpOAuthRuntimeState()]
-      );
-      return cleared;
-    },
     deleteCredential: async (provider) => await secrets().deleteKey(provider),
     resolveProviderAuth: async (provider) =>
       await createHostProviderAuth({ credentials: options.credentials, env: options.env })(

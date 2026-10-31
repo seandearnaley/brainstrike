@@ -156,7 +156,9 @@ export * from './workspace-wire.ts';
 // envelope: a failure is a `BoundaryFailure` instead of a string or a `{ code, message }` pair,
 // and a call with nothing to return answers `value: null`. The required field is why this is a
 // version bump.
-export const AGENT_HOST_PROTOCOL_VERSION = 15;
+// v16 (2026-10-31): `auth/clear` is gone. A factory reset deletes the profile's credential
+// store with the rest of its data (ADR-0015), so no client asks the host to empty it.
+export const AGENT_HOST_PROTOCOL_VERSION = 16;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
@@ -387,7 +389,6 @@ export const HOST_METHOD_SCHEMAS = {
   ...TERMINAL_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
-  'auth/clear': Schema.Record(Schema.String, Schema.Never),
   'auth/credential/delete': Schema.Struct({ account: Id }),
   'auth/credential/set': Schema.Struct({ account: Id, credential: LoginCredential }),
   'auth/login': Schema.Struct({ ...Provider, credential: LoginCredential }),
@@ -973,7 +974,6 @@ export const HOST_RESULT_SCHEMAS = {
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   ...PERMISSION_POLICY_RESULT_SCHEMAS,
   ...TERMINAL_RESULT_SCHEMAS,
-  'auth/clear': Schema.Struct({ cleared: Schema.Boolean }),
   'auth/credential/delete': Schema.Struct({ deleted: Schema.Boolean }),
   'auth/credential/set': Schema.Struct({ stored: Schema.Literal(true) }),
   'auth/login': Schema.Struct({ stored: Schema.Literal(true) }),

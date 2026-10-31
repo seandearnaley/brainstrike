@@ -7,9 +7,7 @@ import {
   createSafeStorageMcpOAuthStore,
   identityKey,
   type McpOAuthPersistedState,
-  purgeMcpOAuthRuntimeState,
   readMcpOAuthAuthProjection,
-  registerMcpOAuthStore,
 } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { auth, type FetchLike } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
@@ -130,23 +128,18 @@ describe('MCP OAuth credential boundary', () => {
         isAsyncEncryptionAvailable: async () => true,
       }
     );
-    const unregister = registerMcpOAuthStore(store);
-    try {
-      const controller = new AbortController();
-      const writing = store.write(identity, {}, controller.signal);
-      await entered.promise;
-      controller.abort();
-      await expect(writing).rejects.toMatchObject({ name: 'AbortError' });
-      const failure = new Error('fixture-native-encryption-denied');
-      const joined = expect(store.join?.()).rejects.toMatchObject({
-        errors: [failure],
-        name: 'AggregateError',
-      });
-      encryption.reject(failure);
-      await joined;
-    } finally {
-      unregister();
-    }
+    const controller = new AbortController();
+    const writing = store.write(identity, {}, controller.signal);
+    await entered.promise;
+    controller.abort();
+    await expect(writing).rejects.toMatchObject({ name: 'AbortError' });
+    const failure = new Error('fixture-native-encryption-denied');
+    const joined = expect(store.join?.()).rejects.toMatchObject({
+      errors: [failure],
+      name: 'AggregateError',
+    });
+    encryption.reject(failure);
+    await joined;
   });
 
   it('joins pending provider persistence and releases the actor signal listener on close', async () => {
@@ -187,26 +180,6 @@ describe('MCP OAuth credential boundary', () => {
     encryption.resolve(Buffer.from('fixture-ciphertext'));
     await expect(closing).resolves.toEqual({ callbacksClosed: 1, loopbackPortsClosed: 1 });
     expect(set).not.toHaveBeenCalled();
-  });
-
-  it('attempts every registered store on reset and reports original failures', async () => {
-    const failed = {
-      ...createInMemoryMcpOAuthStore(),
-      clearAll: vi.fn(async () => {
-        throw new Error('fixture-reset-denied');
-      }),
-    };
-    const healthy = { ...createInMemoryMcpOAuthStore(), clearAll: vi.fn(async () => undefined) };
-    const unregisterFailed = registerMcpOAuthStore(failed);
-    const unregisterHealthy = registerMcpOAuthStore(healthy);
-    try {
-      await expect(purgeMcpOAuthRuntimeState()).rejects.toMatchObject({ name: 'AggregateError' });
-      expect(failed.clearAll).toHaveBeenCalledOnce();
-      expect(healthy.clearAll).toHaveBeenCalledOnce();
-    } finally {
-      unregisterFailed();
-      unregisterHealthy();
-    }
   });
 
   it('requires explicit interactive consent when the authorization option is omitted', async () => {
@@ -260,7 +233,10 @@ describe('MCP OAuth credential boundary', () => {
   it('keeps OAuth clear joined behind pending native encryption without blocking the main lane', async () => {
     const encryption = Promise.withResolvers<Buffer>();
     const started = Promise.withResolvers<void>();
-    const set = vi.fn();
+    let saved: unknown = {};
+    const set = vi.fn((_key: string, value: unknown) => {
+      saved = value;
+    });
     const syncAccess = vi.fn(() => {
       throw new Error('synchronous Keychain access blocks desktop main');
     });
@@ -276,13 +252,13 @@ describe('MCP OAuth credential boundary', () => {
       isAsyncEncryptionAvailable: async () => true,
       isEncryptionAvailable: () => true,
     };
-    const store = createSafeStorageMcpOAuthStore({ get: () => ({}), set }, storage);
+    const store = createSafeStorageMcpOAuthStore({ get: () => saved, set }, storage);
     const writing = store.write(identity, {});
     // Observe any early failure before waiting for the actual async entry.
     writing.catch(started.reject);
     await started.promise;
     let cleared = false;
-    const clearing = store.clearAll().then(() => {
+    const clearing = store.clear(identity).then(() => {
       cleared = true;
     });
     await new Promise<void>((done) => setImmediate(done));
