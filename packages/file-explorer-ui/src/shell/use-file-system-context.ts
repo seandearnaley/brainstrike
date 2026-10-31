@@ -225,6 +225,15 @@ export function useFileSystemInstance() {
     setCurrentFolderId,
     waitForHydration,
   });
+  // Plain function locals: the React Compiler memoizes a call through
+  // `coreApi.` on the whole object, whose identity churns with any member.
+  const {
+    addExternalRootHandle,
+    clearRootDirectory: clearCoreRootDirectory,
+    registerRestoredHandles: registerCoreRestoredHandles,
+    removeRootDirectory: removeCoreRootDirectory,
+    setRootDirectoryHandle,
+  } = coreApi;
 
   const selectRootDirectory = useCallback(async (): Promise<DirectoryHandle | null> => {
     const handle = await selectDirectoryWithErrorMapping(
@@ -249,8 +258,8 @@ export function useFileSystemInstance() {
   ]);
 
   const clearRootDirectory = useCallback(() => {
-    coreApi.clearRootDirectory();
-  }, [coreApi.clearRootDirectory]);
+    clearCoreRootDirectory();
+  }, [clearCoreRootDirectory]);
 
   /**
    * Disconnect a root by RootId (multi-root, Phase 5).
@@ -291,7 +300,7 @@ export function useFileSystemInstance() {
       // silent return, never letting the failure vanish uncaught (NO SILENT
       // FALLBACKS — this makes the failure visible instead of losing it).
       try {
-        await coreApi.removeRootDirectory(rootId);
+        await removeCoreRootDirectory(rootId);
       } catch (error) {
         logger.error('removeRootDirectory: adapter disconnect failed — root stays connected', {
           error,
@@ -309,7 +318,7 @@ export function useFileSystemInstance() {
         }
       }
     },
-    [deleteRootData, showToast, coreApi.removeRootDirectory, tokenCacheStore]
+    [deleteRootData, showToast, removeCoreRootDirectory, tokenCacheStore]
   );
 
   /**
@@ -321,7 +330,7 @@ export function useFileSystemInstance() {
    */
   const registerRestoredHandles = useCallback(
     async (handles: readonly DirectoryHandle[]): Promise<void> => {
-      await coreApi.registerRestoredHandles(handles);
+      await registerCoreRestoredHandles(handles);
       const first = handles[0];
       if (first) {
         // v5: use the resolved RootId UUID from the store (same rationale as selectRootDirectory).
@@ -331,7 +340,7 @@ export function useFileSystemInstance() {
         }
       }
     },
-    [coreApi.registerRestoredHandles, store, rehydrateCurrentFolderStateIfNeeded]
+    [registerCoreRestoredHandles, store, rehydrateCurrentFolderStateIfNeeded]
   );
 
   /**
@@ -340,7 +349,7 @@ export function useFileSystemInstance() {
    */
   const setRootHandle = useCallback(
     (handle: DirectoryHandle | null) => {
-      coreApi.setRootDirectoryHandle(handle);
+      setRootDirectoryHandle(handle);
       if (handle) {
         // v5: prefer the RootId UUID from the store after coreApi has updated currentFolderId.
         // Fall back to handle.path for legacy paths that still write the path as currentFolderId.
@@ -348,7 +357,7 @@ export function useFileSystemInstance() {
         rehydrateCurrentFolderStateIfNeeded(rootId);
       }
     },
-    [coreApi.setRootDirectoryHandle, store, rehydrateCurrentFolderStateIfNeeded]
+    [setRootDirectoryHandle, store, rehydrateCurrentFolderStateIfNeeded]
   );
 
   // Non-React fixture-injection bridge: the inline-fixture subscription runs
@@ -356,7 +365,7 @@ export function useFileSystemInstance() {
   // the React-only reducer). Route it through the same reducer path a real
   // set-root uses; mode 'add' appends an additional root instead (multi-root
   // fixture harness — never persisted). clearRootDirectory / setRootHandle are
-  // useCallback-stabilized above and coreApi.addExternalRootHandle is stable
+  // useCallback-stabilized above and addExternalRootHandle is stable
   // from the core hook's own useCallback, so the effect can call them
   // directly — no ref-mirroring needed to keep a single subscription; the
   // listener only re-subscribes if one of these three genuinely changes
@@ -369,14 +378,14 @@ export function useFileSystemInstance() {
         return;
       }
       if (detail.mode === 'add') {
-        coreApi.addExternalRootHandle(detail.handle);
+        addExternalRootHandle(detail.handle);
         return;
       }
       setRootHandle(detail.handle);
     };
     window.addEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
     return () => window.removeEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
-  }, [clearRootDirectory, coreApi.addExternalRootHandle, setRootHandle]);
+  }, [clearRootDirectory, addExternalRootHandle, setRootHandle]);
 
   // On auto-restore (desktop) the core hook restores a handle and sets
   // currentFolderId; rehydrate the restored folder's persisted selection/expansion

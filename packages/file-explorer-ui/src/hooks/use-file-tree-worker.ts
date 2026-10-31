@@ -18,7 +18,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent, useRef } from 'react';
 
 import { runWithConcurrency } from '../utils/concurrency';
 import { fileNodeCollator } from '../utils/file-node-collator';
@@ -154,11 +154,14 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
   // path when the caller has not threaded an identity (legacy behaviour).
   const rootFolderIdRef = useRef<string | null>(null);
 
-  // Store callbacks in refs so effect doesn't depend on them (avoids worker recreation)
-  const onProgressRef = useRef(onProgress);
-  const onErrorRef = useRef(onError);
-  onProgressRef.current = onProgress;
-  onErrorRef.current = onError;
+  // Effect events, so the worker effect reads the latest callbacks without
+  // depending on them (which would recreate the worker).
+  const reportProgress = useEffectEvent((loaded: number, total: number, currentPath: string) => {
+    onProgress?.(loaded, total, currentPath);
+  });
+  const reportError = useEffectEvent((error: Error) => {
+    onError?.(error);
+  });
 
   // Set root handle (and the RootId identity stamped on worker-loaded nodes)
   const setRootHandle = (handle: DirectoryHandle | null, rootFolderId?: string) => {
@@ -186,14 +189,14 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
           lineno: event.lineno,
           message: event.message,
         });
-        onErrorRef.current?.(new Error(`Worker error: ${event.message}`));
+        reportError(new Error(`Worker error: ${event.message}`));
       };
 
       port = createFileTreeWorkerPort(worker);
       portRef.current = port;
     } catch (err) {
       logger.error('Failed to create worker', { error: String(err) });
-      onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
+      reportError(err instanceof Error ? err : new Error(String(err)));
       return;
     }
 
@@ -266,18 +269,18 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
       })
     );
 
-    // Handle progress updates - use ref to get current callback
+    // Handle progress updates
     unsubscribes.push(
       port.onProgress((loaded, total, currentPath) => {
-        onProgressRef.current?.(loaded, total, currentPath);
+        reportProgress(loaded, total, currentPath);
       })
     );
 
-    // Handle errors from worker - use ref to get current callback
+    // Handle errors from worker
     unsubscribes.push(
       port.onError((message, _path) => {
         logger.error('Worker error', { message });
-        onErrorRef.current?.(new Error(message));
+        reportError(new Error(message));
       })
     );
 

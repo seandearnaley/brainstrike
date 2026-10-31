@@ -1,7 +1,7 @@
 import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
-import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChangesBridge } from '../changes/changes-bridge';
 import { useChangesBridge } from '../workspace-git-services';
 import { notifyRootRegistered } from './root-registration-events';
@@ -327,14 +327,17 @@ export function useRootsReconciliation({
   const pendingRegistrationsRef = useRef<Promise<void>>(Promise.resolve());
 
   // Latest adapter, index registration and Changes bridge, read at call time
-  // so registerRoot stays identity-stable without stale captures.
+  // so registerRoot stays identity-stable without stale captures. They are
+  // published at commit, never written during render.
   const adapterRef = useRef(adapter);
-  adapterRef.current = adapter;
   const registrationRef = useRef(registration);
-  registrationRef.current = registration;
   const changes = useChangesBridge();
   const changesRef = useRef(changes);
-  changesRef.current = changes;
+  useLayoutEffect(() => {
+    adapterRef.current = adapter;
+    registrationRef.current = registration;
+    changesRef.current = changes;
+  }, [adapter, registration, changes]);
 
   // Merges a canonical adapter→db pair into the reactive snapshot. No-ops when
   // the pair is already present so a re-resolved boot map never churns the Map

@@ -15,7 +15,7 @@ import type {
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react';
 
 const logger = createLogger('useViewFilterPresets');
 
@@ -113,10 +113,9 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
     [repository]
   );
 
-  // Use ref to avoid infinite loops when fetchPresetsFromRepo is in useEffect deps
-  // This pattern ensures the effect only re-runs when repository actually changes
-  const fetchPresetsRef = useRef(fetchPresetsFromRepo);
-  fetchPresetsRef.current = fetchPresetsFromRepo;
+  // An effect event, so the fetch effect below re-runs only when the
+  // repository changes.
+  const fetchPresets = useEffectEvent(fetchPresetsFromRepo);
 
   // Fetch repository data when repository changes.
   // This effect must re-run on React dev replay as well as true repository changes.
@@ -130,7 +129,7 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
     }
 
     const controller = new AbortController();
-    void fetchPresetsRef.current(controller.signal);
+    void fetchPresets(controller.signal);
 
     return () => {
       controller.abort();
