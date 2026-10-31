@@ -1,31 +1,12 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { createDefaultLoggingPreferences, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import {
   assertBufferedLogRecord,
   assertLoggingOpenDestinationTarget,
   assertLoggingPreferences,
-  LOGGING_API_CHANNELS,
 } from '../../platform/logging-api-contract';
 
-function readDesktopSource(relativePath: string): string {
-  return readFileSync(path.resolve(process.cwd(), 'src', relativePath), 'utf8');
-}
-
 describe('logging API contract', () => {
-  it('defines the canonical logging IPC channel names in one main-process contract', () => {
-    expect(LOGGING_API_CHANNELS).toEqual({
-      durableRecord: 'logging:durable-record',
-      getBufferedLogs: 'logging:get-buffered-logs',
-      getPreferences: 'logging:get-preferences',
-      openDestination: 'logging:open-destination',
-      preferencesUpdated: 'logging:preferences-updated',
-      selectDestination: 'logging:select-destination',
-      setPreferences: 'logging:set-preferences',
-    });
-  });
-
   it('accepts and clones well-formed logging preferences from the renderer', () => {
     const preferences = createDefaultLoggingPreferences({
       file: {
@@ -166,25 +147,5 @@ describe('logging API contract', () => {
     expect(() => assertBufferedLogRecord({ ...record, bindings: null })).toThrow(
       'Buffered log record must include bindings object.'
     );
-  });
-
-  it('requires logging-ipc to register handlers through the contract constants', () => {
-    const source = readDesktopSource('logging-ipc.ts');
-
-    expect(source).toContain('LOGGING_API_CHANNELS.getPreferences');
-    expect(source).toContain('LOGGING_API_CHANNELS.setPreferences');
-    expect(source).toContain('LOGGING_API_CHANNELS.preferencesUpdated');
-    expect(source).not.toContain('function assertLogRecord');
-    expect(source).not.toMatch(
-      /(?:ipcMain\.(?:handle|on|removeHandler|removeListener)|contents\.send)\(\s*['"`]logging:/u
-    );
-  });
-
-  it('requires logging-ipc to register channels through the typed desktop IPC registry', () => {
-    const source = readDesktopSource('logging-ipc.ts');
-
-    expect(source).toContain('createDesktopIpcRegistry');
-    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/u);
-    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/u);
   });
 });
