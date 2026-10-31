@@ -197,6 +197,7 @@ const mockApp = {
   on: vi.fn(),
   quit: vi.fn(),
   requestSingleInstanceLock: vi.fn(() => true),
+  setAboutPanelOptions: vi.fn(),
   setPath: vi.fn(),
   whenReady: vi.fn(() => Promise.resolve()),
 };
