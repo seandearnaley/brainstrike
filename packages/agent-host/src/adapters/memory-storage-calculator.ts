@@ -156,7 +156,7 @@ async function entities(
 }
 
 /**
- * Pure vendor-storage calculation, loaded by Studio on the existing writer.
+ * Pure vendor-storage calculation, loaded by StateStore's memory calculator worker.
  * The transient projection has no SQLite connection, file or transcript facts.
  * Native operations/IDs stay unmodified; only their delta becomes durable.
  * Upstream primitive: https://github.com/mastra-ai/mastra/tree/main/packages/core/src/storage/domains/memory
@@ -207,8 +207,9 @@ const observationTokens = new TokenCounter();
 /**
  * Mastra OM's own observation token count. `TokenCounter.countObservations`
  * sets a record's `observationTokenCount`, each buffered chunk's `tokenCount`
- * and `bufferedReflectionTokens`; the writer recounts those with it after
- * detaching a deleted thread's sections from shared resource observations.
+ * and `bufferedReflectionTokens`; the memory calculator worker recounts those
+ * with it after detaching a deleted thread's sections from shared resource
+ * observations.
  */
 export function countObservationTokens(text: string): number {
   return observationTokens.countObservations(text);
