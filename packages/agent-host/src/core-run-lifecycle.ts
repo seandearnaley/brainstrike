@@ -548,5 +548,16 @@ export async function finishHostSdkLoop(
     await finish('failed', run.deadline);
     return;
   }
-  await finish(joinedSdkOutcome(run, closing, failed, interrupted), failed);
+  const outcome = joinedSdkOutcome(run, closing, failed, interrupted);
+  await finish(outcome, failed ?? (outcome === 'interrupted' ? closingDetail(run) : undefined));
+}
+
+/**
+ * Why closing the host interrupted the run: the reason Core aborted it with.
+ * The SDK ends an aborted stream with an `abort` part rather than an error, so
+ * the attempt's outcome holds no failure that would name it.
+ */
+function closingDetail(run: HostRunState): string | undefined {
+  const reason: unknown = run.controller.signal.reason;
+  return run.controller.signal.aborted && reason instanceof Error ? reason.message : undefined;
 }
