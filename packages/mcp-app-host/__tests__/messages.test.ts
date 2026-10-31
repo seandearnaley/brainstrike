@@ -392,6 +392,20 @@ describe('stable MCP Apps message allowlist', () => {
     }
   );
 
+  it('names the field the pinned schema rejects', () => {
+    expect(() =>
+      parseMcpAppMessage(
+        {
+          id: 'missing-text',
+          jsonrpc: '2.0',
+          method: 'ui/message',
+          params: { content: [{ type: 'text' }], role: 'user' },
+        },
+        'app-to-host'
+      )
+    ).toThrow(/^MCP Apps message ui\/message\.params\.content\.0 does not match/u);
+  });
+
   it.each([
     ['missing JSON-RPC version', { id: 1, method: 'ui/open-link', params: { url: 'x' } }],
     [

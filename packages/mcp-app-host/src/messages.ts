@@ -342,10 +342,15 @@ function parseParams(
   const params = cloneJsonRecord(value, label);
   const result = CANONICAL_MESSAGE_SCHEMAS[method].safeParse({ method, params });
   if (!result.success) {
+    // An issue's path starts at the `{ method, params }` envelope.
     const [issue] = result.error.issues;
-    const where =
-      issue === undefined ? '' : ` at ${issue.path.map(String).join('.')}: ${issue.message}`;
-    throw new TypeError(`${label} does not match its canonical schema${where}`);
+    const path =
+      issue?.path
+        .slice(1)
+        .map((key) => `.${String(key)}`)
+        .join('') ?? '';
+    const detail = issue === undefined ? '' : `: ${issue.message}`;
+    throw new TypeError(`${label}${path} does not match its canonical schema${detail}`);
   }
   expectNoStrippedFields(params, result.data.params, label);
   PARAMS_POLICIES[method]?.(params, label);
