@@ -1,9 +1,9 @@
+import { McpUiResourceMetaSchema, McpUiToolMetaSchema } from '@modelcontextprotocol/ext-apps';
 import { MCP_APPS_MIME_TYPE } from './capabilities.ts';
 import {
   expectEncodedSize,
-  expectExactKeys,
-  expectRecord,
   MCP_APP_MAX_METADATA_BYTES,
+  parseCanonicalRecord,
 } from './validation.ts';
 
 const MAX_URI_LENGTH = 2048;
@@ -36,10 +36,6 @@ export interface McpAppResourceMeta {
 export interface McpAppToolMeta {
   readonly resourceUri?: McpAppResourceUri;
   readonly visibility?: readonly McpAppToolVisibility[];
-}
-
-function isToolVisibility(value: unknown): value is McpAppToolVisibility {
-  return value === 'model' || value === 'app';
 }
 
 function parseResourceUri(value: unknown, label: string): McpAppResourceUri {
@@ -117,13 +113,10 @@ function parseCspSource(value: string, label: string, allowWebSocket: boolean): 
 }
 
 function parseCspSourceArray(
-  value: unknown,
+  value: readonly string[],
   label: string,
   allowWebSocket: boolean
 ): readonly string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
-    throw new TypeError(`${label} must be an array of strings`);
-  }
   if (value.length > MAX_METADATA_COLLECTION_ENTRIES) {
     throw new TypeError(`${label} must contain at most ${MAX_METADATA_COLLECTION_ENTRIES} entries`);
   }
@@ -132,99 +125,68 @@ function parseCspSourceArray(
   );
 }
 
-function parseCsp(value: unknown, label: string): McpAppResourceCsp {
-  const record = expectRecord(value, label);
-  const keys = ['baseUriDomains', 'connectDomains', 'frameDomains', 'resourceDomains'] as const;
-  expectExactKeys(record, keys, [], label);
+const CSP_KEYS = ['baseUriDomains', 'connectDomains', 'frameDomains', 'resourceDomains'] as const;
 
-  const parsed: {
-    baseUriDomains?: readonly string[];
-    connectDomains?: readonly string[];
-    frameDomains?: readonly string[];
-    resourceDomains?: readonly string[];
-  } = {};
-  for (const key of keys) {
-    if (record[key] !== undefined) {
-      parsed[key] = parseCspSourceArray(record[key], `${label}.${key}`, key === 'connectDomains');
+function parseCsp(
+  csp: Readonly<Partial<Record<(typeof CSP_KEYS)[number], readonly string[] | undefined>>>,
+  label: string
+): McpAppResourceCsp {
+  const parsed: { -readonly [K in keyof McpAppResourceCsp]: McpAppResourceCsp[K] } = {};
+  for (const key of CSP_KEYS) {
+    const sources = csp[key];
+    if (sources !== undefined) {
+      parsed[key] = parseCspSourceArray(sources, `${label}.${key}`, key === 'connectDomains');
     }
   }
   return Object.freeze(parsed);
 }
 
-function parseEmptyPermission(value: unknown, label: string): Readonly<Record<string, never>> {
-  const record = expectRecord(value, label);
-  expectExactKeys(record, [], [], label);
-  return Object.freeze({});
-}
-
-function parsePermissions(value: unknown, label: string): McpAppResourcePermissions {
-  const record = expectRecord(value, label);
-  const keys = ['camera', 'clipboardWrite', 'geolocation', 'microphone'] as const;
-  expectExactKeys(record, keys, [], label);
-
-  const parsed: {
-    camera?: Readonly<Record<string, never>>;
-    clipboardWrite?: Readonly<Record<string, never>>;
-    geolocation?: Readonly<Record<string, never>>;
-    microphone?: Readonly<Record<string, never>>;
-  } = {};
-  for (const key of keys) {
-    if (record[key] !== undefined) {
-      parsed[key] = parseEmptyPermission(record[key], `${label}.${key}`);
-    }
+function parseDomain(domain: string, label: string): string {
+  if (domain.length === 0 || domain.length > 253 || domain.trim() !== domain) {
+    throw new TypeError(`${label} must be a non-empty bare hostname`);
   }
-  return Object.freeze(parsed);
+  let parsedDomainUrl: URL;
+  try {
+    parsedDomainUrl = new URL(`https://${domain}`);
+  } catch (error: unknown) {
+    throw new TypeError(`${label} must be a valid bare hostname`, { cause: error });
+  }
+  if (
+    parsedDomainUrl.hostname.toLowerCase() !== domain.toLowerCase() ||
+    parsedDomainUrl.port.length > 0 ||
+    parsedDomainUrl.pathname !== '/' ||
+    parsedDomainUrl.search.length > 0 ||
+    parsedDomainUrl.hash.length > 0
+  ) {
+    throw new TypeError(`${label} must be a bare hostname without a scheme or path`);
+  }
+  return domain;
 }
 
+/** The pinned SDK schema owns the shape; the host adds CSP, hostname and size rules. */
 export function parseMcpAppResourceMeta(value: unknown): McpAppResourceMeta {
   const label = 'MCP Apps resource metadata';
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['csp', 'domain', 'permissions', 'prefersBorder'], [], label);
-
-  const parsed: {
-    csp?: McpAppResourceCsp;
-    domain?: string;
-    permissions?: McpAppResourcePermissions;
-    prefersBorder?: boolean;
-  } = {};
-  if (record['csp'] !== undefined) {
-    parsed.csp = parseCsp(record['csp'], `${label}.csp`);
+  const meta = parseCanonicalRecord(McpUiResourceMetaSchema, value, label);
+  const parsed: { -readonly [K in keyof McpAppResourceMeta]: McpAppResourceMeta[K] } = {};
+  if (meta.csp !== undefined) {
+    parsed.csp = parseCsp(meta.csp, `${label}.csp`);
   }
-  if (record['permissions'] !== undefined) {
-    parsed.permissions = parsePermissions(record['permissions'], `${label}.permissions`);
+  if (meta.permissions !== undefined) {
+    // Each granted permission is an empty object; the strip check refused any field in one.
+    // A key set to undefined is no request, as the sandbox reads it.
+    parsed.permissions = Object.freeze(
+      Object.fromEntries(
+        Object.entries(meta.permissions)
+          .filter(([, grant]) => grant !== undefined)
+          .map(([key]) => [key, Object.freeze({})])
+      )
+    );
   }
-  if (record['domain'] !== undefined) {
-    const domain = record['domain'];
-    if (
-      typeof domain !== 'string' ||
-      domain.length === 0 ||
-      domain.length > 253 ||
-      domain.trim() !== domain
-    ) {
-      throw new TypeError(`${label}.domain must be a non-empty bare hostname`);
-    }
-    let parsedDomainUrl: URL;
-    try {
-      parsedDomainUrl = new URL(`https://${domain}`);
-    } catch (error: unknown) {
-      throw new TypeError(`${label}.domain must be a valid bare hostname`, { cause: error });
-    }
-    if (
-      parsedDomainUrl.hostname.toLowerCase() !== domain.toLowerCase() ||
-      parsedDomainUrl.port.length > 0 ||
-      parsedDomainUrl.pathname !== '/' ||
-      parsedDomainUrl.search.length > 0 ||
-      parsedDomainUrl.hash.length > 0
-    ) {
-      throw new TypeError(`${label}.domain must be a bare hostname without a scheme or path`);
-    }
-    parsed.domain = domain;
+  if (meta.domain !== undefined) {
+    parsed.domain = parseDomain(meta.domain, `${label}.domain`);
   }
-  if (record['prefersBorder'] !== undefined) {
-    if (typeof record['prefersBorder'] !== 'boolean') {
-      throw new TypeError(`${label}.prefersBorder must be a boolean`);
-    }
-    parsed.prefersBorder = record['prefersBorder'];
+  if (meta.prefersBorder !== undefined) {
+    parsed.prefersBorder = meta.prefersBorder;
   }
   const result = Object.freeze(parsed);
   expectEncodedSize(result, MCP_APP_MAX_METADATA_BYTES, label);
@@ -233,28 +195,19 @@ export function parseMcpAppResourceMeta(value: unknown): McpAppResourceMeta {
 
 export function parseMcpAppToolMeta(value: unknown): McpAppToolMeta {
   const label = 'MCP Apps tool metadata';
-  const record = expectRecord(value, label);
-  expectExactKeys(record, ['resourceUri', 'visibility'], [], label);
-
-  const parsed: {
-    resourceUri?: McpAppResourceUri;
-    visibility?: readonly McpAppToolVisibility[];
-  } = {};
-  if (record['resourceUri'] !== undefined) {
-    parsed.resourceUri = parseResourceUri(record['resourceUri'], `${label}.resourceUri`);
+  const meta = parseCanonicalRecord(McpUiToolMetaSchema, value, label);
+  const parsed: { -readonly [K in keyof McpAppToolMeta]: McpAppToolMeta[K] } = {};
+  if (meta.resourceUri !== undefined) {
+    parsed.resourceUri = parseResourceUri(meta.resourceUri, `${label}.resourceUri`);
   }
-  if (record['visibility'] !== undefined) {
-    const visibility = record['visibility'];
-    if (!(Array.isArray(visibility) && visibility.every(isToolVisibility))) {
-      throw new TypeError(`${label}.visibility must contain only "model" or "app"`);
-    }
-    if (visibility.length > MAX_METADATA_COLLECTION_ENTRIES) {
+  if (meta.visibility !== undefined) {
+    if (meta.visibility.length > MAX_METADATA_COLLECTION_ENTRIES) {
       throw new TypeError(
         `${label}.visibility must contain at most ${MAX_METADATA_COLLECTION_ENTRIES} entries`
       );
     }
     // The stable schema permits empty and duplicate visibility entries.
-    parsed.visibility = Object.freeze([...visibility]);
+    parsed.visibility = Object.freeze([...meta.visibility]);
   }
   const result = Object.freeze(parsed);
   expectEncodedSize(result, MCP_APP_MAX_METADATA_BYTES, label);
