@@ -4,7 +4,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
-  useCallback,
   useRef,
   useState,
   useSyncExternalStore,
@@ -72,15 +71,12 @@ function ErrorState({
   code,
   onRetry,
 }: Pick<McpAppHostSurfaceProps, 'appName' | 'onRetry'> & { readonly code: McpAppHostErrorCode }) {
-  const focusAlert = useCallback(
-    (node: HTMLDivElement | null): void => {
-      if (node && !onRetry) {
-        node.focus();
-      }
-    },
-    [onRetry]
-  );
-  const focusRetry = useCallback((node: HTMLButtonElement | null): void => node?.focus(), []);
+  const focusAlert = (node: HTMLDivElement | null): void => {
+    if (node && !onRetry) {
+      node.focus();
+    }
+  };
+  const focusRetry = (node: HTMLButtonElement | null): void => node?.focus();
   return (
     <section aria-label={appName} className="border-destructive/40 bg-card rounded-lg border p-4">
       <div className="flex flex-col items-start gap-3" ref={focusAlert} role="alert" tabIndex={-1}>
@@ -108,14 +104,11 @@ function TerminalState({
 }: Pick<McpAppHostSurfaceProps, 'appName' | 'recoveryFocusRef'> & {
   readonly phase: 'cancelled' | 'completed';
 }) {
-  const recover = useCallback(
-    (node: HTMLElement | null): void => {
-      if (node) {
-        focus(recoveryFocusRef.current);
-      }
-    },
-    [recoveryFocusRef]
-  );
+  const recover = (node: HTMLElement | null): void => {
+    if (node) {
+      focus(recoveryFocusRef.current);
+    }
+  };
   return (
     <section
       aria-label={appName}
@@ -138,21 +131,18 @@ export function McpAppHostSurface({
   recoveryFocusRef,
   state,
 }: McpAppHostSurfaceProps) {
-  const subscribe = useCallback(
-    (listener: () => void) => {
-      let previousApprovalId = authority.snapshot.pendingApprovals[0]?.id;
-      return authority.subscribe(() => {
-        const nextApprovalId = authority.snapshot.pendingApprovals[0]?.id;
-        listener();
-        if (previousApprovalId !== undefined && nextApprovalId === undefined) {
-          queueMicrotask(() => focus(recoveryFocusRef.current));
-        }
-        previousApprovalId = nextApprovalId;
-      });
-    },
-    [authority, recoveryFocusRef]
-  );
-  const getSnapshot = useCallback(() => authority.snapshot, [authority]);
+  const subscribe = (listener: () => void) => {
+    let previousApprovalId = authority.snapshot.pendingApprovals[0]?.id;
+    return authority.subscribe(() => {
+      const nextApprovalId = authority.snapshot.pendingApprovals[0]?.id;
+      listener();
+      if (previousApprovalId !== undefined && nextApprovalId === undefined) {
+        queueMicrotask(() => focus(recoveryFocusRef.current));
+      }
+      previousApprovalId = nextApprovalId;
+    });
+  };
+  const getSnapshot = () => authority.snapshot;
   const authoritySnapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const approval = authoritySnapshot.pendingApprovals[0];
   // Focus "Allow once" only when a different approval takes over, never on
@@ -160,14 +150,14 @@ export function McpAppHostSurface({
   // from Deny to Allow mid-decision would be a consent-integrity bug. The
   // callback is stable; it compares the button's approval id itself.
   const focusedApprovalRef = useRef<string | undefined>(undefined);
-  const focusApproval = useCallback((node: HTMLButtonElement | null): void => {
+  const focusApproval = (node: HTMLButtonElement | null): void => {
     const nodeApprovalId = node?.dataset['approvalId'];
     if (node === null || nodeApprovalId === focusedApprovalRef.current) {
       return;
     }
     focusedApprovalRef.current = nodeApprovalId;
     node.focus();
-  }, []);
+  };
   const [actionErrorId, setActionErrorId] = useState<string | undefined>(undefined);
 
   const approve = (): void => {
