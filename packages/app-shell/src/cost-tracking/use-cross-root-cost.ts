@@ -2,7 +2,7 @@ import {
   type CrossRootUsageRow,
   hasDurableAssistantUsageCapability,
 } from '@brainstrike/assistant-data';
-import { useMemo } from 'react';
+
 import { useThreadFolderRows } from '../hooks/use-thread-folder-rows';
 import { getThreadGroupsCapability } from '../thread-groups-capability';
 
@@ -31,15 +31,11 @@ export function useCrossRootCost(
 ): CrossRootCostState {
   const native = getThreadGroupsCapability();
   // A worktree is named after its repository's Local root, so that root is looked up too.
-  const rootIds = useMemo(
-    () =>
-      native
-        ? [...new Set(hostRootUsage.flatMap((row) => [row.rootId, row.localRootId]))].filter(
-            (rootId) => rootId !== null
-          )
-        : [],
-    [native, hostRootUsage]
-  );
+  const rootIds = native
+    ? [...new Set(hostRootUsage.flatMap((row) => [row.rootId, row.localRootId]))].filter(
+        (rootId) => rootId !== null
+      )
+    : [];
   const folders = useThreadFolderRows(rootIds);
   const available = hasDurableAssistantUsageCapability();
   return {

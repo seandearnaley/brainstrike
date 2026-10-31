@@ -23,7 +23,7 @@ import type {
 } from '@brainstrike/types';
 import { Popover, PopoverContent, PopoverTrigger, Switch } from '@brainstrike/ui';
 import { Brain, ChevronDown } from 'lucide-react';
-import { useCallback } from 'react';
+
 import { modelIdFromCompositeKey } from './composer-picker-sections';
 import { useOpenRouterModelMetadataLookup } from './openrouter-model-metadata-context';
 import {
@@ -132,15 +132,12 @@ export const ComposerEffortControl = ({
 }: ComposerEffortControlProps) => {
   const openRouterMetadataLookup = useOpenRouterModelMetadataLookup();
 
-  const handleSettingsUpdate = useCallback(
-    (updates: AssistantProviderSettingsUpdate) => {
-      if (!(onProviderSettingsChange && selectedProvider)) {
-        return;
-      }
-      onProviderSettingsChange(selectedProvider, updates);
-    },
-    [onProviderSettingsChange, selectedProvider]
-  );
+  const handleSettingsUpdate = (updates: AssistantProviderSettingsUpdate) => {
+    if (!(onProviderSettingsChange && selectedProvider)) {
+      return;
+    }
+    onProviderSettingsChange(selectedProvider, updates);
+  };
 
   const availability = resolveAvailability(
     selectedProvider,

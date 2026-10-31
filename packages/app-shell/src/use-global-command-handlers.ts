@@ -2,7 +2,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import type { GlobalCommandHandlers } from '@brainstrike/context-actions/commands';
 import { useTheme } from '@brainstrike/ui';
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
 import { useConnectFolder } from './workspace-connect/use-connect-folder';
 
@@ -34,12 +34,11 @@ export function useGlobalCommandHandlers(): GlobalCommandHandlers {
   // the thread on its first send. Without a host this is null and the
   // handler is omitted below.
   const host = useAssistantThreadHost();
-  const newThread = useMemo<(() => void) | null>(
-    () => (host ? () => startNewThread(WORKSPACE_MEMORY_RESOURCE_ID) : null),
-    [host, startNewThread]
-  );
+  const newThread: (() => void) | null = host
+    ? () => startNewThread(WORKSPACE_MEMORY_RESOURCE_ID)
+    : null;
 
-  const toggleTheme = useCallback(() => {
+  const toggleTheme = () => {
     // Resolve `system` toward its effective value, then flip — so a single
     // invocation always produces a visible change.
     const effective =
@@ -49,7 +48,7 @@ export function useGlobalCommandHandlers(): GlobalCommandHandlers {
           : 'light'
         : mode;
     setMode(effective === 'dark' ? 'light' : 'dark');
-  }, [mode, setMode]);
+  };
 
   return useMemo<GlobalCommandHandlers>(
     () => ({

@@ -9,7 +9,7 @@ import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import type { ChangedFileEntry } from '@brainstrike/types';
 import type { DiffLineComment } from '@brainstrike/ui';
 import { toast } from '@brainstrike/ui/use-toast';
-import { useCallback } from 'react';
+
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 
 export interface DiffLineCommentSource {
@@ -62,24 +62,21 @@ export function useDiffLineCommentToThread(
   rootLabelById: ReadonlyMap<string, string>
 ): (entry: ChangedFileEntry, comment: DiffLineComment) => boolean {
   const threadId = useActiveAssistantThreadId();
-  return useCallback(
-    (entry, comment) => {
-      if (!threadId) {
-        toast({
-          description: 'Open or start a thread, then add the comment again.',
-          title: 'No active thread',
-          variant: 'destructive',
-        });
-        return false;
-      }
-      const rootLabel = entry.rootId === null ? undefined : rootLabelById.get(entry.rootId);
-      useAssistantComposerCommandStore.getState().enqueue({
-        mode: 'append',
-        text: formatDiffLineComment({ comment, entry, rootLabel }),
-        threadId,
+  return (entry, comment) => {
+    if (!threadId) {
+      toast({
+        description: 'Open or start a thread, then add the comment again.',
+        title: 'No active thread',
+        variant: 'destructive',
       });
-      return true;
-    },
-    [rootLabelById, threadId]
-  );
+      return false;
+    }
+    const rootLabel = entry.rootId === null ? undefined : rootLabelById.get(entry.rootId);
+    useAssistantComposerCommandStore.getState().enqueue({
+      mode: 'append',
+      text: formatDiffLineComment({ comment, entry, rootLabel }),
+      threadId,
+    });
+    return true;
+  };
 }

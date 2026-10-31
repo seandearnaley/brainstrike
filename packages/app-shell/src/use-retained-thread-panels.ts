@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 const NO_THREAD_IDS: ReadonlySet<string> = new Set();
 
@@ -72,18 +72,18 @@ export function useRetainedThreadPanels(
   }
   const { retainedThreadIds } = current;
 
-  const onRunningChange = useCallback((threadId: string, running: boolean): void => {
+  const onRunningChange = (threadId: string, running: boolean): void => {
     if (running) {
       runningThreadIdsRef.current.add(threadId);
     } else {
       runningThreadIdsRef.current.delete(threadId);
     }
-  }, []);
+  };
 
   // Decided here, inside the close event, so the retained set and the store's
   // tab removal render together: an effect-based latch would unmount the panel
   // first and abort the run it exists to keep.
-  const onTabsRemoved = useCallback((removedThreadIds: readonly string[]): void => {
+  const onTabsRemoved = (removedThreadIds: readonly string[]): void => {
     const running = removedThreadIds.filter((id) => runningThreadIdsRef.current.has(id));
     setState((previous) => {
       const next = new Set(previous.retainedThreadIds);
@@ -95,7 +95,7 @@ export function useRetainedThreadPanels(
       }
       return { ...previous, retainedThreadIds: next };
     });
-  }, []);
+  };
 
   // A retained thread absent from the loaded threads was deleted (or the store
   // was reset by Clear Database): its panel goes with it. Absence means deletion

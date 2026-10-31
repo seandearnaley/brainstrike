@@ -1,7 +1,7 @@
 import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import type { WorktreeArchivePreview } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 export function errorMessage(error: unknown): string {
@@ -35,37 +35,34 @@ export function useWorktreeArchiveAction(input: {
     worktreeId,
     worktreeName,
   } = input;
-  const archiveWorktree = useCallback(
-    async (confirmIgnoredEntries?: string): Promise<void> => {
-      if (!(bridge && threadId && worktreeId)) {
+  const archiveWorktree = async (confirmIgnoredEntries?: string): Promise<void> => {
+    if (!(bridge && threadId && worktreeId)) {
+      return;
+    }
+    try {
+      // Hand-off MUST precede archive. If hand-off fails, the worktree is untouched.
+      // If archive then fails, the thread is safely Local; reversing the order can
+      // strand a thread on a checkout that has already been removed.
+      await onHandOffToLocal();
+    } catch (error) {
+      toastFailure('Could not hand off to Local — worktree not archived', errorMessage(error));
+      return;
+    }
+    try {
+      const result = await bridge.archive({
+        ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}),
+        worktreeId,
+        ...(runId ? { runId } : {}),
+      });
+      if (!result.ok) {
+        toastFailure('Thread handed off — worktree not archived', result.error);
         return;
       }
-      try {
-        // Hand-off MUST precede archive. If hand-off fails, the worktree is untouched.
-        // If archive then fails, the thread is safely Local; reversing the order can
-        // strand a thread on a checkout that has already been removed.
-        await onHandOffToLocal();
-      } catch (error) {
-        toastFailure('Could not hand off to Local — worktree not archived', errorMessage(error));
-        return;
-      }
-      try {
-        const result = await bridge.archive({
-          ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}),
-          worktreeId,
-          ...(runId ? { runId } : {}),
-        });
-        if (!result.ok) {
-          toastFailure('Thread handed off — worktree not archived', result.error);
-          return;
-        }
-        await refreshList();
-      } catch (error) {
-        toastFailure('Thread handed off — worktree not archived', errorMessage(error));
-      }
-    },
-    [bridge, onHandOffToLocal, refreshList, runId, threadId, worktreeId]
-  );
+      await refreshList();
+    } catch (error) {
+      toastFailure('Thread handed off — worktree not archived', errorMessage(error));
+    }
+  };
   const [confirmation, setConfirmation] = useState<{
     readonly archiveWorktree: typeof archiveWorktree;
     readonly preview: WorktreeArchivePreview;
@@ -82,7 +79,7 @@ export function useWorktreeArchiveAction(input: {
       ? confirmation
       : null;
 
-  const onArchive = useCallback((): void => {
+  const onArchive = (): void => {
     if (!(bridge && worktreeId)) {
       return;
     }
@@ -113,7 +110,7 @@ export function useWorktreeArchiveAction(input: {
         toastFailure('Could not inspect worktree for archive', errorMessage(error));
       })
       .finally(() => setPending(false));
-  }, [archiveWorktree, bridge, setPending, threadId, worktreeId, worktreeName]);
+  };
 
   const archiveConfirmation = useMemo<WorktreeArchiveConfirmation | null>(() => {
     if (!currentConfirmation) {

@@ -6,7 +6,7 @@ import {
 import { toast } from '@brainstrike/ui';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { Globe } from 'lucide-react';
-import { type ReactNode, useMemo } from 'react';
+import type { ReactNode } from 'react';
 import type { BrowserBridge } from './browser-pane/browser-bridge';
 import { openBrowserPage } from './browser-pane/browser-pages';
 import { useBrowserWorkspaceApps } from './browser-pane/use-browser-workspace-apps';
@@ -45,11 +45,8 @@ export function DelegatedWorkspaceTabsProvider({
   const hostChildApps = useHostChildWorkspaceApps();
   const canvasApps = useCanvasWorkspaceApps(canvasShellSrc);
   const browserApps = useBrowserWorkspaceApps(browser);
-  const allApps = useMemo(
-    () => [...apps, ...hostChildApps, ...canvasApps, ...browserApps],
-    [apps, hostChildApps, canvasApps, browserApps]
-  );
-  const launchActions = useMemo(() => (browser ? [NEW_BROWSER_PAGE] : []), [browser]);
+  const allApps = [...apps, ...hostChildApps, ...canvasApps, ...browserApps];
+  const launchActions = browser ? [NEW_BROWSER_PAGE] : [];
   return (
     <WorkspaceTabsProvider apps={allApps} launchActions={launchActions}>
       {children}

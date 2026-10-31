@@ -48,13 +48,10 @@ export function AssistantChatPanel(): ReactElement {
       ? fixedProviderModelsResolution.models
       : undefined;
   const providerSource = useAssistantStatusProviderSource();
-  const providerReadErrors = useMemo(
-    () =>
-      status.state === 'enabled' && status.providerErrors
-        ? toProviderReadErrors(status.providerErrors)
-        : undefined,
-    [status]
-  );
+  const providerReadErrors =
+    status.state === 'enabled' && status.providerErrors
+      ? toProviderReadErrors(status.providerErrors)
+      : undefined;
   // Links in thread markdown cannot use the anchor default: the desktop
   // renderer fences navigation and web would tear the SPA down. This is the
   // host end of that seam (BST-1665). A link's menu can drop over a browser

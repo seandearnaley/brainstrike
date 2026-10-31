@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext } from 'react';
 import type { AssistantProviderSource } from './assistant-provider-source';
 import type { AssistantAvailabilityStatus } from './use-assistant-availability';
 
@@ -22,7 +22,7 @@ export function useAssistantProviderStatus(): AssistantAvailabilityStatus {
 /** The provider source a composer discovers with under the host's status. */
 export function useAssistantStatusProviderSource(): AssistantProviderSource {
   const status = useAssistantProviderStatus();
-  return useMemo(() => resolveAssistantProviderSource(status), [status]);
+  return resolveAssistantProviderSource(status);
 }
 
 function resolveAssistantProviderSource(

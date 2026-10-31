@@ -7,7 +7,7 @@ import type {
 } from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger } from '@brainstrike/logging';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
-import { useCallback, useMemo } from 'react';
+
 import { buildApprovalDecisionMessage } from './approval-decision-message';
 import {
   resolveNoticeStatus,
@@ -116,10 +116,7 @@ export function useApprovalNoticeState(
     useApprovalSubmission(
       JSON.stringify([getToolActionIdentityKey(approval), approvalRunOutcomeKey])
     );
-  const approvalRunOutcome = useMemo(
-    () => fromApprovalRunOutcomeKey(approvalRunOutcomeKey),
-    [approvalRunOutcomeKey]
-  );
+  const approvalRunOutcome = fromApprovalRunOutcomeKey(approvalRunOutcomeKey);
   const { delegationOwner, hostAnswer } = useDelegatedNoticeContext(approval);
   const { isRunning, queued } = useDecisionQueueState(approval);
   const decisionRoute = useDecisionRoute();
@@ -139,74 +136,60 @@ export function useApprovalNoticeState(
   const submittedAction =
     submittedDecision?.outcomeKey === approvalRunOutcomeKey ? submittedDecision.action : null;
 
-  const submitApprovalAction = useCallback(
-    (action: AssistantToolApprovalDecision): void => {
-      if (!(submittedAction === null && !actionLockedByRun && !decisionLocked)) {
-        return;
-      }
-      setSendFailure(null);
-      const decision = buildApprovalDecisionMessage(approval, action);
-      const sendNow = (queuedMessage: typeof decision.message): void => {
-        setSubmittedDecision({ action, outcomeKey: approvalRunOutcomeKey });
-        // `append` returns void in the installed assistant-ui: a failed run
-        // arrives as thread state (`retryable` below), never as a rejection
-        // here. Only a synchronous throw (e.g. an unavailable thread scope)
-        // is ours to report.
-        try {
-          aui.thread().append(queuedMessage);
-        } catch (error) {
-          setSubmittedDecision(null);
-          setSendFailure({ message: getErrorMessage(error), outcomeKey: approvalRunOutcomeKey });
-          logger.warn('Failed to append tool approval action', {
-            error,
-            runId: approval.runId,
-            toolCallId: approval.toolCallId,
-          });
-        }
-      };
-      // A decision never cancels an in-flight run: while the thread runs it
-      // is delivered INTO the run when the host offers a live transport, and
-      // otherwise waits in the follow-up queue (chip + "Queued" chip on this
-      // notice) until the run ends (`decision-dispatch.ts`). The notice locks
-      // for the round trip so a second click cannot race the first.
+  const submitApprovalAction = (action: AssistantToolApprovalDecision): void => {
+    if (!(submittedAction === null && !actionLockedByRun && !decisionLocked)) {
+      return;
+    }
+    setSendFailure(null);
+    const decision = buildApprovalDecisionMessage(approval, action);
+    const sendNow = (queuedMessage: typeof decision.message): void => {
       setSubmittedDecision({ action, outcomeKey: approvalRunOutcomeKey });
-      const dispatch = decisionRoute
-        ? decisionRoute.dispatch(decision.message)
-        : submitDecisionOrQueue({
-            append: sendNow,
-            isRunning,
-            message: decision.message,
-          });
-      dispatch.then(
-        (outcome) => {
-          if (outcome === 'queued') {
-            setSubmittedDecision(null);
-          }
-        },
-        (error: unknown) => {
+      // `append` returns void in the installed assistant-ui: a failed run
+      // arrives as thread state (`retryable` below), never as a rejection
+      // here. Only a synchronous throw (e.g. an unavailable thread scope)
+      // is ours to report.
+      try {
+        aui.thread().append(queuedMessage);
+      } catch (error) {
+        setSubmittedDecision(null);
+        setSendFailure({ message: getErrorMessage(error), outcomeKey: approvalRunOutcomeKey });
+        logger.warn('Failed to append tool approval action', {
+          error,
+          runId: approval.runId,
+          toolCallId: approval.toolCallId,
+        });
+      }
+    };
+    // A decision never cancels an in-flight run: while the thread runs it
+    // is delivered INTO the run when the host offers a live transport, and
+    // otherwise waits in the follow-up queue (chip + "Queued" chip on this
+    // notice) until the run ends (`decision-dispatch.ts`). The notice locks
+    // for the round trip so a second click cannot race the first.
+    setSubmittedDecision({ action, outcomeKey: approvalRunOutcomeKey });
+    const dispatch = decisionRoute
+      ? decisionRoute.dispatch(decision.message)
+      : submitDecisionOrQueue({
+          append: sendNow,
+          isRunning,
+          message: decision.message,
+        });
+    dispatch.then(
+      (outcome) => {
+        if (outcome === 'queued') {
           setSubmittedDecision(null);
-          setSendFailure({ message: getErrorMessage(error), outcomeKey: approvalRunOutcomeKey });
-          logger.warn('Failed to deliver tool approval action', {
-            error,
-            runId: approval.runId,
-            toolCallId: approval.toolCallId,
-          });
         }
-      );
-    },
-    [
-      actionLockedByRun,
-      approval,
-      approvalRunOutcomeKey,
-      aui,
-      decisionLocked,
-      decisionRoute,
-      isRunning,
-      submittedAction,
-      setSubmittedDecision,
-      setSendFailure,
-    ]
-  );
+      },
+      (error: unknown) => {
+        setSubmittedDecision(null);
+        setSendFailure({ message: getErrorMessage(error), outcomeKey: approvalRunOutcomeKey });
+        logger.warn('Failed to deliver tool approval action', {
+          error,
+          runId: approval.runId,
+          toolCallId: approval.toolCallId,
+        });
+      }
+    );
+  };
 
   // Derived, not adjusted in an effect: a notice the user can no longer act on
   // has an authoritative status, and a failure from an earlier attempt beside

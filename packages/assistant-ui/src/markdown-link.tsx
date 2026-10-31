@@ -1,11 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { LinkChoiceMenu } from '@brainstrike/ui';
-import {
-  type ComponentPropsWithoutRef,
-  type MouseEvent,
-  type ReactElement,
-  useCallback,
-} from 'react';
+import type { ComponentPropsWithoutRef, MouseEvent, ReactElement } from 'react';
 import {
   type AssistantLinkCapabilities,
   type AssistantLinkChoices,
@@ -89,51 +84,45 @@ export function MarkdownLink({
 }: ComponentPropsWithoutRef<'a'> & { readonly node?: unknown }): ReactElement {
   const capabilities = useAssistantLinkCapabilities();
 
-  const activate = useCallback(
-    (event: MouseEvent<HTMLAnchorElement>) => {
-      if (href === undefined) {
-        // No href at all is not a link and never navigates, so there is nothing
-        // to rescue. Distinct from href="" (below), which react-markdown
-        // produces for a sanitized-away URL and which DOES navigate.
-        return;
-      }
+  const activate = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (href === undefined) {
+      // No href at all is not a link and never navigates, so there is nothing
+      // to rescue. Distinct from href="" (below), which react-markdown
+      // produces for a sanitized-away URL and which DOES navigate.
+      return;
+    }
 
-      if (isSameDocumentHref(href)) {
-        return;
-      }
+    if (isSameDocumentHref(href)) {
+      return;
+    }
 
-      // Unconditional for off-page links: the anchor default is never the right
-      // outcome, and a modifier-click ("open in a new tab") means the same
-      // thing here — hand the URL to the host.
-      event.preventDefault();
+    // Unconditional for off-page links: the anchor default is never the right
+    // outcome, and a modifier-click ("open in a new tab") means the same
+    // thing here — hand the URL to the host.
+    event.preventDefault();
 
-      if (!capabilities) {
-        logger.error('Assistant link capabilities are missing; link activation ignored', { href });
-        return;
-      }
+    if (!capabilities) {
+      logger.error('Assistant link capabilities are missing; link activation ignored', { href });
+      return;
+    }
 
-      // The host owns protocol policy and the single visible failure, so EVERY
-      // off-page href goes to it — relative ones, and the empty string
-      // react-markdown leaves behind when it sanitizes away a `javascript:`
-      // URL. Short-circuiting any of them here would restore the silent dead
-      // click: only the host can show the user why nothing opened.
-      handOff(capabilities.openLink, href);
-    },
-    [capabilities, href]
-  );
+    // The host owns protocol policy and the single visible failure, so EVERY
+    // off-page href goes to it — relative ones, and the empty string
+    // react-markdown leaves behind when it sanitizes away a `javascript:`
+    // URL. Short-circuiting any of them here would restore the silent dead
+    // click: only the host can show the user why nothing opened.
+    handOff(capabilities.openLink, href);
+  };
 
-  const handleAuxClick = useCallback(
-    (event: MouseEvent<HTMLAnchorElement>) => {
-      // `auxclick` covers every non-primary button, so the secondary button
-      // lands here too. Routing that would open the link on a right-click and
-      // steal "Copy link address".
-      if (event.button !== MIDDLE_MOUSE_BUTTON) {
-        return;
-      }
-      activate(event);
-    },
-    [activate]
-  );
+  const handleAuxClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    // `auxclick` covers every non-primary button, so the secondary button
+    // lands here too. Routing that would open the link on a right-click and
+    // steal "Copy link address".
+    if (event.button !== MIDDLE_MOUSE_BUTTON) {
+      return;
+    }
+    activate(event);
+  };
 
   // A web link the host's own browser can show asks where to open: the menu
   // opens on activation, so the click only has to stop the navigation. A

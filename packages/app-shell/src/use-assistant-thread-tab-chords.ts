@@ -7,7 +7,7 @@ import {
   recordRemovedTabs,
   reopenLastClosed,
 } from '@brainstrike/context-actions';
-import { type RefObject, useCallback, useMemo, useState } from 'react';
+import { type RefObject, useMemo, useState } from 'react';
 import { type TabChordStrip, useTabChordStrip } from './tab-chords/tab-chord-registry';
 
 const EMPTY_THREAD_IDS: readonly string[] = [];
@@ -59,45 +59,30 @@ export function useAssistantThreadTabChords(
   const reorderThreadTabs = useAssistantThreadStore((state) => state.reorderThreadTabs);
 
   const [closedTabs] = useState(() => createClosedTabHistory<ClosedThreadTab>());
-  const readOpenThreadIds = useCallback(
-    (): readonly string[] =>
-      useAssistantThreadStore.getState().openThreadIdsByResourceId[resourceId] ?? EMPTY_THREAD_IDS,
-    [resourceId]
-  );
+  const readOpenThreadIds = (): readonly string[] =>
+    useAssistantThreadStore.getState().openThreadIdsByResourceId[resourceId] ?? EMPTY_THREAD_IDS;
 
   /** Run a store close, then record exactly the tabs it removed, at their old indices. */
-  const closeRecorded = useCallback(
-    (close: () => void): void => {
-      const before = readOpenThreadIds().map((threadId) => ({
-        id: threadId,
-        tab: { threadId, title: threadTitle(resourceId, threadId) },
-      }));
-      close();
-      const after = readOpenThreadIds();
-      recordRemovedTabs(closedTabs, before, after);
-      const remaining = new Set(after);
-      onTabsRemoved(before.flatMap((tab) => (remaining.has(tab.id) ? [] : [tab.id])));
-    },
-    [closedTabs, onTabsRemoved, readOpenThreadIds, resourceId]
-  );
-  const closes = useMemo<
-    Pick<AssistantThreadTabCloses, 'close' | 'closeAll' | 'closeOthers' | 'closeToRight'>
-  >(
-    () => ({
-      close: (threadId) => closeRecorded(() => closeThreadTab(resourceId, threadId)),
-      closeAll: () => closeRecorded(() => closeAllThreadTabs(resourceId)),
-      closeOthers: (threadId) => closeRecorded(() => closeOtherThreadTabs(resourceId, threadId)),
-      closeToRight: (threadId) => closeRecorded(() => closeThreadTabsToRight(resourceId, threadId)),
-    }),
-    [
-      closeAllThreadTabs,
-      closeOtherThreadTabs,
-      closeRecorded,
-      closeThreadTab,
-      closeThreadTabsToRight,
-      resourceId,
-    ]
-  );
+  const closeRecorded = (close: () => void): void => {
+    const before = readOpenThreadIds().map((threadId) => ({
+      id: threadId,
+      tab: { threadId, title: threadTitle(resourceId, threadId) },
+    }));
+    close();
+    const after = readOpenThreadIds();
+    recordRemovedTabs(closedTabs, before, after);
+    const remaining = new Set(after);
+    onTabsRemoved(before.flatMap((tab) => (remaining.has(tab.id) ? [] : [tab.id])));
+  };
+  const closes: Pick<
+    AssistantThreadTabCloses,
+    'close' | 'closeAll' | 'closeOthers' | 'closeToRight'
+  > = {
+    close: (threadId) => closeRecorded(() => closeThreadTab(resourceId, threadId)),
+    closeAll: () => closeRecorded(() => closeAllThreadTabs(resourceId)),
+    closeOthers: (threadId) => closeRecorded(() => closeOtherThreadTabs(resourceId, threadId)),
+    closeToRight: (threadId) => closeRecorded(() => closeThreadTabsToRight(resourceId, threadId)),
+  };
 
   /**
    * Reopen the most recently closed tab at its old index (or the end) and
@@ -108,52 +93,46 @@ export function useAssistantThreadTabChords(
    * missing from it was deleted (the entry is dropped). Before the list has
    * loaded nothing can be told, so the entry is kept for the next reopen.
    */
-  const reopenClosed = useCallback(
-    (): Promise<ActionOutcome> =>
-      reopenLastClosed(closedTabs, ({ index, tab: { threadId, title } }): ReopenAttempt => {
-        const { threadsByResourceId } = useAssistantThreadStore.getState();
-        if (!Object.hasOwn(threadsByResourceId, resourceId)) {
-          return { error: 'Threads are still loading', status: 'unavailable' };
-        }
-        const loaded = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
-        if (!loaded.some((thread) => thread.id === threadId)) {
-          return { error: `"${title}" was deleted and cannot be reopened`, status: 'stale' };
-        }
-        const wasOpen = readOpenThreadIds().includes(threadId);
-        openThreadTab(resourceId, threadId);
-        if (!wasOpen) {
-          reorderThreadTabs(resourceId, placeTabAtIndex(readOpenThreadIds(), threadId, index));
-        }
-        return { status: 'reopened' };
-      }),
-    [closedTabs, openThreadTab, readOpenThreadIds, reorderThreadTabs, resourceId]
-  );
+  const reopenClosed = (): Promise<ActionOutcome> =>
+    reopenLastClosed(closedTabs, ({ index, tab: { threadId, title } }): ReopenAttempt => {
+      const { threadsByResourceId } = useAssistantThreadStore.getState();
+      if (!Object.hasOwn(threadsByResourceId, resourceId)) {
+        return { error: 'Threads are still loading', status: 'unavailable' };
+      }
+      const loaded = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
+      if (!loaded.some((thread) => thread.id === threadId)) {
+        return { error: `"${title}" was deleted and cannot be reopened`, status: 'stale' };
+      }
+      const wasOpen = readOpenThreadIds().includes(threadId);
+      openThreadTab(resourceId, threadId);
+      if (!wasOpen) {
+        reorderThreadTabs(resourceId, placeTabAtIndex(readOpenThreadIds(), threadId, index));
+      }
+      return { status: 'reopened' };
+    });
 
-  const hasClosedTabs = useCallback((): boolean => closedTabs.size() > 0, [closedTabs]);
+  const hasClosedTabs = (): boolean => closedTabs.size() > 0;
 
-  const chordStrip = useMemo<TabChordStrip>(
-    () => ({
-      activate: (threadId) => {
-        openThreadTab(resourceId, threadId);
-        return Promise.resolve();
-      },
-      close: (threadId) => {
-        closes.close(threadId);
-        return Promise.resolve();
-      },
-      getActiveId: () =>
-        useAssistantThreadStore.getState().activeThreadIdByResourceId[resourceId] ?? null,
-      getPanel: () => panelRef.current,
-      getTabs: () =>
-        readOpenThreadIds().map((threadId) => ({
-          id: threadId,
-          label: threadTitle(resourceId, threadId),
-        })),
-      hasClosedTabs,
-      reopenClosed,
-    }),
-    [closes, hasClosedTabs, openThreadTab, panelRef, readOpenThreadIds, reopenClosed, resourceId]
-  );
+  const chordStrip: TabChordStrip = {
+    activate: (threadId) => {
+      openThreadTab(resourceId, threadId);
+      return Promise.resolve();
+    },
+    close: (threadId) => {
+      closes.close(threadId);
+      return Promise.resolve();
+    },
+    getActiveId: () =>
+      useAssistantThreadStore.getState().activeThreadIdByResourceId[resourceId] ?? null,
+    getPanel: () => panelRef.current,
+    getTabs: () =>
+      readOpenThreadIds().map((threadId) => ({
+        id: threadId,
+        label: threadTitle(resourceId, threadId),
+      })),
+    hasClosedTabs,
+    reopenClosed,
+  };
   useTabChordStrip('assistant-threads', chordStrip);
 
   return useMemo<AssistantThreadTabCloses>(

@@ -5,7 +5,7 @@ import type {
   McpTaskPresentationControllerPort,
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { createLogger } from '@brainstrike/logging';
-import { type ReactElement, useEffect, useMemo, useState } from 'react';
+import { type ReactElement, useEffect, useState } from 'react';
 import { McpTaskStatusCard } from './mcp-task-status-card';
 import { useMcpTaskBridge } from './use-mcp-task-bridge';
 
@@ -76,10 +76,9 @@ function LiveMcpTask({
 }): ReactElement {
   const [task, setTask] = useState(snapshot);
   const [liveStatus, setLiveStatus] = useState<LiveStatus>(bridge ? 'syncing' : 'unavailable');
-  const controller = useMemo<McpTaskPresentationControllerPort>(
-    () => (bridge ? { act: (request) => bridge.act(request) } : NO_BRIDGE_CONTROLLER),
-    [bridge]
-  );
+  const controller: McpTaskPresentationControllerPort = bridge
+    ? { act: (request) => bridge.act(request) }
+    : NO_BRIDGE_CONTROLLER;
 
   useEffect(() => {
     if (!bridge) {

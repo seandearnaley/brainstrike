@@ -10,7 +10,7 @@ import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
 import { useWorkspaceTrustRevision } from './workspace-trust/workspace-trust-revision';
@@ -121,7 +121,7 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
   // any resolution that lands after unmount / dep change.
   const generationRef = useRef(0);
 
-  const reload = useCallback(() => {
+  const reload = () => {
     // Factory reset preparation is terminal for this renderer: its replacement
     // loads the list, so this one starts no load once preparation began.
     if (!discovery || hasFactoryResetPreparationStarted()) {
@@ -147,7 +147,7 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
     return () => {
       generationRef.current += 1;
     };
-  }, [discovery]);
+  };
 
   // Reload on mount, whenever the mounted roots change, and after a trust answer (ADR-0032).
   useEffect(() => reload(), [reload, activeRootIds, trustRevision]);

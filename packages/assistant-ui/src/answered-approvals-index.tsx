@@ -1,5 +1,5 @@
 import { useAuiState } from '@assistant-ui/react';
-import { type ReactNode, use, useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { type ReactNode, use, useState, useSyncExternalStore } from 'react';
 import { AnsweredApprovalsContext } from './answered-approvals-context';
 import {
   type AnsweredApprovalsIndex,
@@ -77,11 +77,8 @@ function useIndexedMessages(messages: readonly unknown[]): AnsweredApprovalsInde
 }
 
 function useOwnerMessages(owner: ApprovalOwnerThread | null): readonly unknown[] {
-  const subscribe = useCallback(
-    (listener: () => void) => (owner ? owner.subscribe(listener) : () => undefined),
-    [owner]
-  );
-  const read = useCallback(() => (owner ? owner.getState().messages : NO_MESSAGES), [owner]);
+  const subscribe = (listener: () => void) => (owner ? owner.subscribe(listener) : () => undefined);
+  const read = () => (owner ? owner.getState().messages : NO_MESSAGES);
   return useSyncExternalStore(subscribe, read, read);
 }
 
@@ -92,14 +89,11 @@ export function AnsweredApprovalsProvider({ children }: { children: ReactNode })
   const ownerIndex = useIndexedMessages(ownerMessages);
   // Consumers re-render only when either index changes; a thread with no
   // owner (every root thread) folds in the empty index.
-  const value = useMemo(
-    () => ({
-      ...own,
-      answers: new Map([...ownerIndex.answers, ...own.answers]),
-      userDecisions: new Map([...ownerIndex.userDecisions, ...own.userDecisions]),
-    }),
-    [own, ownerIndex]
-  );
+  const value = {
+    ...own,
+    answers: new Map([...ownerIndex.answers, ...own.answers]),
+    userDecisions: new Map([...ownerIndex.userDecisions, ...own.userDecisions]),
+  };
   return (
     <ApprovalOwnerMessagesContext value={ownerMessages}>
       <AnsweredApprovalsContext.Provider value={value}>

@@ -9,7 +9,7 @@ import type {
   IndexerFileChunks,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ContextFileRow } from './context-map-model';
 
 const logger = createLogger('ContextMapFileChunks');
@@ -66,13 +66,11 @@ export function useFileChunks(
   rows: readonly ContextFileRow[],
   revision: string
 ): ReadonlyMap<string, FileChunksState> {
-  const requestKey = useMemo(
-    () =>
-      [...new Set(rows.flatMap((row) => (row.rootId ? [keyOf(row.rootId, row.path)] : [])))]
-        .sort()
-        .join('\n'),
-    [rows]
-  );
+  const requestKey = [
+    ...new Set(rows.flatMap((row) => (row.rootId ? [keyOf(row.rootId, row.path)] : []))),
+  ]
+    .sort()
+    .join('\n');
   const [state, setState] = useState<ReadonlyMap<string, FileChunksState>>(new Map());
   const requested = useRef<Requested>({ capability, keys: new Set(), revision });
   const mounted = useRef(true);

@@ -1,6 +1,6 @@
 import { IdeLayout } from '@brainstrike/ui';
 import { MessagesSquare, PanelRightClose } from 'lucide-react';
-import { type ReactElement, type ReactNode, useMemo, useState } from 'react';
+import { type ReactElement, type ReactNode, useState } from 'react';
 import { SidebarHeaderContext } from './sidebar-header';
 
 export interface AgentWorkspaceLayoutProps {
@@ -52,20 +52,13 @@ export function AgentWorkspaceLayout({
   const [sidebarHeader, setSidebarHeader] = useState<HTMLDivElement | null>(null);
   // Stable chrome identity so IdeLayout's React.memo keeps protecting the
   // subtree even if a future edit re-parents this JSX under a chatty provider.
-  const leftPanelChrome = useMemo(
-    () => ({
-      ...AGENT_LEFT_PANEL_CHROME,
-      headerContent: <div className="flex min-w-0 flex-1" ref={setSidebarHeader} />,
-    }),
-    []
-  );
-  const rightPanelChrome = useMemo(
-    () =>
-      workspaceHeaderContent
-        ? { ...AGENT_RIGHT_PANEL_CHROME, headerContent: workspaceHeaderContent }
-        : AGENT_RIGHT_PANEL_CHROME,
-    [workspaceHeaderContent]
-  );
+  const leftPanelChrome = {
+    ...AGENT_LEFT_PANEL_CHROME,
+    headerContent: <div className="flex min-w-0 flex-1" ref={setSidebarHeader} />,
+  };
+  const rightPanelChrome = workspaceHeaderContent
+    ? { ...AGENT_RIGHT_PANEL_CHROME, headerContent: workspaceHeaderContent }
+    : AGENT_RIGHT_PANEL_CHROME;
   return (
     <IdeLayout
       leftPanelChrome={leftPanelChrome}

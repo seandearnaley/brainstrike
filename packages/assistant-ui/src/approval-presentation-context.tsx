@@ -1,4 +1,4 @@
-import { type ReactNode, use, useMemo } from 'react';
+import { type ReactNode, use } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useAnsweredApprovals } from './answered-approvals-context';
 import { approvalCategoryKey, rankPendingApprovals } from './approval-presentation';
@@ -20,20 +20,16 @@ export function ApprovalRanksProvider({ children }: { children: ReactNode }) {
   const activeThreadKey = use(ActiveThreadKeyContext);
   const threadKey = useDecisionRoute()?.queueThreadKey ?? activeThreadKey;
   const queuedKeys = useQueuedDecisionKeys(threadKey);
-  const ranks = useMemo(
-    () =>
-      rankPendingApprovals(
-        [...index.requests].map(([identityKey, entry]) => ({
-          categoryKey: approvalCategoryKey(entry.request),
-          decided:
-            entry.decided ||
-            index.answers.has(identityKey) ||
-            index.userDecisions.has(identityKey) ||
-            queuedKeys.has(identityKey),
-          identityKey,
-        }))
-      ),
-    [index, queuedKeys]
+  const ranks = rankPendingApprovals(
+    [...index.requests].map(([identityKey, entry]) => ({
+      categoryKey: approvalCategoryKey(entry.request),
+      decided:
+        entry.decided ||
+        index.answers.has(identityKey) ||
+        index.userDecisions.has(identityKey) ||
+        queuedKeys.has(identityKey),
+      identityKey,
+    }))
   );
   return <ApprovalRanksContext.Provider value={ranks}>{children}</ApprovalRanksContext.Provider>;
 }

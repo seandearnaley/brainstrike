@@ -1,7 +1,7 @@
 import { useWorktreesBridge } from '@brainstrike/app-shell/workspace-git-services';
 import type { WorktreeSettingsStatus } from '@brainstrike/settings-ui/settings/system/worktree-settings-section';
 import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export interface UseWorktreeSettingsResult {
   readonly save: (next: {
@@ -58,22 +58,19 @@ export function useWorktreeSettings(): UseWorktreeSettingsResult {
     };
   }, [bridge]);
 
-  const save = useCallback(
-    async (next: {
-      readonly managedDirectory: string | null;
-      readonly setupCommand: WorktreeSetupCommand;
-    }): Promise<void> => {
-      if (!bridge) {
-        throw new Error('Worktrees are a desktop feature. This build has no worktree bridge.');
-      }
-      const result = await bridge.setSettings(next);
-      if (!result.ok) {
-        throw new Error(result.error);
-      }
-      setSettings(result.value);
-    },
-    [bridge]
-  );
+  const save = async (next: {
+    readonly managedDirectory: string | null;
+    readonly setupCommand: WorktreeSetupCommand;
+  }): Promise<void> => {
+    if (!bridge) {
+      throw new Error('Worktrees are a desktop feature. This build has no worktree bridge.');
+    }
+    const result = await bridge.setSettings(next);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    setSettings(result.value);
+  };
 
   return { save, settings, status };
 }

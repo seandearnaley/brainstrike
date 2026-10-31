@@ -37,7 +37,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import {
   ASSISTANT_THREAD_COLOR_PALETTES,
@@ -123,24 +123,24 @@ export function ThreadRow({
   const [draftTitle, setDraftTitle] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
   const [savingRename, setSavingRename] = useState(false);
-  const handleCustomizeThreadToggle = useCallback(() => {
+  const handleCustomizeThreadToggle = () => {
     setCustomizing((current) => !current);
     setMetadataError(null);
-  }, []);
-  const handleDeleteThreadStart = useCallback(() => {
+  };
+  const handleDeleteThreadStart = () => {
     setConfirmingDelete(true);
     setDeleteError(null);
     setCustomizing(false);
-  }, []);
-  const handleExpandedThreadToggle = useCallback(() => {
+  };
+  const handleExpandedThreadToggle = () => {
     setExpanded((current) => !current);
-  }, []);
-  const handleRenameThreadStart = useCallback(() => {
+  };
+  const handleRenameThreadStart = () => {
     setEditing(true);
     setDraftTitle(thread.title);
     setRenameError(null);
     setCustomizing(false);
-  }, [thread.title]);
+  };
 
   return (
     <ThreadRowDragScope draggable={draggable} groupId={groupId} threadId={thread.id}>

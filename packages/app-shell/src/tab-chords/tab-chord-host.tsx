@@ -1,5 +1,5 @@
 import { isMacPlatform } from '@brainstrike/ui';
-import { useMemo } from 'react';
+
 import { useTabChords } from './use-tab-chords';
 import { canClaimWindowChords } from './window-chord-capability';
 
@@ -9,10 +9,7 @@ import { canClaimWindowChords } from './window-chord-capability';
  * lifetime (the preload runs before React mounts), so they resolve once.
  */
 export function TabChordHost(): null {
-  const environment = useMemo(
-    () => ({ claimWindowChords: canClaimWindowChords(), isMac: isMacPlatform() }),
-    []
-  );
+  const environment = { claimWindowChords: canClaimWindowChords(), isMac: isMacPlatform() };
   useTabChords(environment);
   return null;
 }

@@ -1,6 +1,6 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { CommittedApprovalStrip, type CommittedPendingApproval } from '@brainstrike/assistant-ui';
-import { type ReactElement, useMemo, useSyncExternalStore } from 'react';
+import { type ReactElement, useSyncExternalStore } from 'react';
 import { respondToHostApproval } from './host-approval-response';
 import { HostChildrenRunning, HostChildWaiting } from './host-child-tree-notices';
 import type { HostTreeApprovals } from './host-tree-approvals';
@@ -22,35 +22,33 @@ export function HostApprovalStrip({
   readonly tree: HostTreeApprovals;
 }): ReactElement | null {
   const waiting = useSyncExternalStore(tree.subscribe, tree.getSnapshot, tree.getSnapshot);
-  const approvals = useMemo(
-    () =>
-      waiting.map(({ approval, owner = self, threadId }): CommittedPendingApproval => {
-        const toolName = approval.toolCatalogId ?? approval.toolId;
-        return {
-          args: approval.input,
-          interactionId: approval.interactionId,
-          ...(owner ? { owner } : {}),
-          respond: (response) =>
-            respondToHostApproval(
-              client,
-              {
-                interactionId: approval.interactionId,
-                permissionToolId: toolName,
-                risk: approval.risk,
-                runId: approval.runId,
-                threadId,
-              },
-              response
-            ),
-          ...(approval.reason ? { reviewNote: approval.reason } : {}),
-          ...(approval.risk ? { risk: approval.risk } : {}),
-          runId: approval.runId,
-          ...(approval.targetRoot ? { targetRoot: approval.targetRoot } : {}),
-          toolCallId: approval.toolCallId,
-          toolName,
-        };
-      }),
-    [client, self, waiting]
+  const approvals = waiting.map(
+    ({ approval, owner = self, threadId }): CommittedPendingApproval => {
+      const toolName = approval.toolCatalogId ?? approval.toolId;
+      return {
+        args: approval.input,
+        interactionId: approval.interactionId,
+        ...(owner ? { owner } : {}),
+        respond: (response) =>
+          respondToHostApproval(
+            client,
+            {
+              interactionId: approval.interactionId,
+              permissionToolId: toolName,
+              risk: approval.risk,
+              runId: approval.runId,
+              threadId,
+            },
+            response
+          ),
+        ...(approval.reason ? { reviewNote: approval.reason } : {}),
+        ...(approval.risk ? { risk: approval.risk } : {}),
+        runId: approval.runId,
+        ...(approval.targetRoot ? { targetRoot: approval.targetRoot } : {}),
+        toolCallId: approval.toolCallId,
+        toolName,
+      };
+    }
   );
   return (
     <>

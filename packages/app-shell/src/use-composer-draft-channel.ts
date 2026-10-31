@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import {
   type AssistantComposerCommand,
   useAssistantComposerCommandStore,
@@ -36,23 +36,17 @@ export function useComposerDraftChannel(threadId: string | undefined): ComposerD
       restoreDraft(threadId);
     }
   }, [restoreDraft, threadId]);
-  const onApplied = useCallback(
-    (commandId: string) => {
-      if (!command || command.id !== commandId) {
-        throw new Error(`Cannot acknowledge unknown composer command: ${commandId}`);
-      }
-      acknowledgeCommand(command.threadId, commandId);
-    },
-    [acknowledgeCommand, command]
-  );
-  const onTextChange = useCallback(
-    (text: string) => {
-      if (!threadId) {
-        throw new Error('Cannot record composer text without an active assistant thread.');
-      }
-      recordDraft(threadId, text);
-    },
-    [recordDraft, threadId]
-  );
+  const onApplied = (commandId: string) => {
+    if (!command || command.id !== commandId) {
+      throw new Error(`Cannot acknowledge unknown composer command: ${commandId}`);
+    }
+    acknowledgeCommand(command.threadId, commandId);
+  };
+  const onTextChange = (text: string) => {
+    if (!threadId) {
+      throw new Error('Cannot record composer text without an active assistant thread.');
+    }
+    recordDraft(threadId, text);
+  };
   return { command, onApplied, onTextChange };
 }

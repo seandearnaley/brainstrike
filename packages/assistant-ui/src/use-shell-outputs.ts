@@ -17,10 +17,7 @@ export function useShellOutputs(
   messageParts: readonly unknown[]
 ): Record<string, ShellOutputAccumulation> {
   const [accumulate] = useState(() => createShellOutputAccumulator());
-  const fromParts = useMemo(
-    () => accumulate(messageId, messageParts),
-    [accumulate, messageId, messageParts]
-  );
+  const fromParts = accumulate(messageId, messageParts);
   const live = use(LiveShellOutputContext);
   const liveOutputs = useSyncExternalStore(
     live?.subscribe ?? NO_SUBSCRIPTION,
