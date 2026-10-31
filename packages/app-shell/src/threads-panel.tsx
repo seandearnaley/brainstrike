@@ -1816,19 +1816,13 @@ export function ThreadsPanelCore({
   const treeOnScreen = contentState.kind === 'tree' && !searchActive;
   const sidebarHeader = useSidebarHeader();
   const threadsById = new Map(threads.map((thread) => [thread.id, thread]));
-  const groupNameByThreadId = useMemo(() => {
-    const nameByGroupId = new Map(groups.map((group) => [group.id, group.name]));
-    const names = new Map<string, string>();
-    for (const placement of placements) {
-      if (placement.groupId) {
-        const name = nameByGroupId.get(placement.groupId);
-        if (name) {
-          names.set(placement.threadId, name);
-        }
-      }
-    }
-    return names;
-  }, [groups, placements]);
+  const nameByGroupId = new Map(groups.map((group) => [group.id, group.name]));
+  const groupNameByThreadId = new Map(
+    placements.flatMap((placement) => {
+      const name = placement.groupId ? nameByGroupId.get(placement.groupId) : undefined;
+      return name ? [[placement.threadId, name] as const] : [];
+    })
+  );
 
   const handleSelectThread = (threadId: string): void => {
     selectThread(resourceId, threadId);

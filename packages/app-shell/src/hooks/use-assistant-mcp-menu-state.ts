@@ -90,10 +90,8 @@ export function useAssistantMcpMenuState({
         }))),
   ];
 
-  const toolSourceById = useMemo(() => {
-    const entries = toolMenuItems.map((tool) => [tool.id, tool.source] as const);
-    return new Map(entries);
-  }, [toolMenuItems]);
+  const entries = toolMenuItems.map((tool) => [tool.id, tool.source] as const);
+  const toolSourceById = new Map(entries);
 
   const handleToggleTool = async (toolId: string, enabled: boolean) => {
     const source = toolSourceById.get(toolId);

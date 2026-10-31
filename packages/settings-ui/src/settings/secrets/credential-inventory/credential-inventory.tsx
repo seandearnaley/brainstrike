@@ -253,22 +253,19 @@ export function CredentialInventory({
     return grouped;
   }, [deprecatedEnvVars]);
 
-  const mergedSources = useMemo(() => {
-    const merged = new Map<string, ProviderKeySource<string>>();
-    for (const source of sources) {
-      merged.set(source.provider, source);
+  const mergedSources = new Map<string, ProviderKeySource<string>>();
+  for (const source of sources) {
+    mergedSources.set(source.provider, source);
+  }
+  // Status-probe seed: an env source is authoritative wherever it appears;
+  // a status stored source only fills a gap (the IPC stored entry carries
+  // the fingerprint the status payload lacks).
+  for (const source of statusProviderKeySources) {
+    const existing = mergedSources.get(source.provider);
+    if (source.source === 'env' || !existing) {
+      mergedSources.set(source.provider, source);
     }
-    // Status-probe seed: an env source is authoritative wherever it appears;
-    // a status stored source only fills a gap (the IPC stored entry carries
-    // the fingerprint the status payload lacks).
-    for (const source of statusProviderKeySources) {
-      const existing = merged.get(source.provider);
-      if (source.source === 'env' || !existing) {
-        merged.set(source.provider, source);
-      }
-    }
-    return merged;
-  }, [sources, statusProviderKeySources]);
+  }
 
   const orderedSlots = useMemo(() => {
     const rank = (slot: CredentialSlot): number => {
