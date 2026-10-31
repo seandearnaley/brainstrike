@@ -24,8 +24,7 @@
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
-import type { MutableRefObject } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
 import {
   type FileRowMetadataSource,
@@ -208,14 +207,17 @@ interface DeferredRollupState {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-interface DeferredRollupSources {
-  resolvedRef: MutableRefObject<ResolvedSourceState>;
-  storeRef: MutableRefObject<FileRowMetadataStore | undefined>;
+/** The latest committed tree state and store the controller resolves against. */
+export interface DeferredRollupInputs {
+  resolved: ResolvedSourceState;
+  store: FileRowMetadataStore | undefined;
 }
 
 export interface DeferredRollupController {
   /** Drop any queued work. Used on unmount and before re-arming. */
   cancel: () => void;
+  /** Size of the node at `path` in the latest committed tree. */
+  getNodeSize: (path: string) => number | undefined;
   /**
    * Subtree for `path`: the cached one when present — which may be at most one
    * commit stale while a refresh is in flight — otherwise the explicit
@@ -245,12 +247,18 @@ export interface DeferredRollupController {
    * no longer projected, so nothing is serving them.
    */
   refreshAll: () => void;
+  /**
+   * Adopt a commit's tree state and store. The registry holds this controller
+   * for as long as the tree is mounted, so it reads the inputs set here rather
+   * than the ones it was created with.
+   */
+  setInputs: (next: DeferredRollupInputs) => void;
 }
 
-export function createDeferredRollupController({
-  resolvedRef,
-  storeRef,
-}: DeferredRollupSources): DeferredRollupController {
+export function createDeferredRollupController(
+  initialInputs: DeferredRollupInputs
+): DeferredRollupController {
+  let inputs = initialInputs;
   const state: DeferredRollupState = {
     cache: new Map(),
     pending: new Set(),
@@ -273,10 +281,11 @@ export function createDeferredRollupController({
     if (paths.length === 0) {
       return;
     }
-    const { folderId } = resolvedRef.current.params;
+    const { resolved, store } = inputs;
+    const { folderId } = resolved.params;
     const invalidatedKeys: string[] = [];
     for (const path of paths) {
-      state.cache.set(path, resolveDirectorySubtree(resolvedRef.current, path));
+      state.cache.set(path, resolveDirectorySubtree(resolved, path));
       if (folderId) {
         invalidatedKeys.push(encodeFileSelection(folderId, path));
       }
@@ -286,7 +295,7 @@ export function createDeferredRollupController({
     // `invalidate` would bump every named key's root unconditionally, which
     // made an expand/collapse cost a THIRD full projection rebuild+sort for a
     // flush that resolved the same totals (whole-branch review F4).
-    storeRef.current?.invalidateDirectories(invalidatedKeys);
+    store?.invalidateDirectories(invalidatedKeys);
   };
 
   const schedule = (): void => {
@@ -295,6 +304,7 @@ export function createDeferredRollupController({
 
   return {
     cancel,
+    getNodeSize: (path) => resolveNodeSize(inputs.resolved, path),
     read: (path) => {
       state.readSinceRefresh.add(path);
       const cached = state.cache.get(path);
@@ -333,6 +343,9 @@ export function createDeferredRollupController({
       }
       schedule();
     },
+    setInputs: (next) => {
+      inputs = next;
+    },
   };
 }
 
@@ -349,29 +362,25 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
     return index;
   }, [fileTree, normalizedTreeContext]);
 
-  // Latest-value refs: the source closures below are created ONCE (the registry
-  // holds them for as long as the tree is mounted), so they must read through
-  // refs rather than capture this render's props. Written after commit — a
-  // render React discards must not leak into the registry — and declared
-  // BEFORE the registration/reconciliation effects so those observe this
-  // commit's values.
-  const resolvedRef = useRef<ResolvedSourceState>({ displayNodeByPath, params });
-  const storeRef = useRef(metadata?.store);
-  useEffect(() => {
-    resolvedRef.current = { displayNodeByPath, params };
-    storeRef.current = metadata?.store;
-  });
-
-  // Create-once via the lazy useState initializer (the repo's idiom, and the
-  // one that does not allocate a throwaway controller on every render).
+  // The registry holds the source below for as long as the tree is mounted, so
+  // it resolves through the controller's inputs rather than this render's
+  // props. Each commit hands them over after the fact, so a render React
+  // discards never reaches the registry; this effect is declared BEFORE the
+  // registration/reconciliation effects so those observe this commit's values.
   const [deferredRollups] = useState(() =>
-    createDeferredRollupController({ resolvedRef, storeRef })
+    createDeferredRollupController({
+      resolved: { displayNodeByPath, params },
+      store: metadata?.store,
+    })
   );
+  useEffect(() => {
+    deferredRollups.setInputs({ resolved: { displayNodeByPath, params }, store: metadata?.store });
+  });
 
   const source = useMemo<FileRowMetadataSource>(
     () => ({
       getDirectorySubtree: (path) => deferredRollups.read(path),
-      getNodeSize: (path) => resolveNodeSize(resolvedRef.current, path),
+      getNodeSize: (path) => deferredRollups.getNodeSize(path),
     }),
     [deferredRollups]
   );
