@@ -56,7 +56,7 @@ describe('ipc-handlers filesystem composition', () => {
       }),
     } as unknown as ElectronStorageAdapter;
     managedWorktreeAuthorizer = vi.fn<ManagedWorktreeAuthorizer>(async () => 'unmanaged');
-    close = registerIpcHandlers(fileSystem, storage, () => null, {
+    close = registerIpcHandlers(fileSystem, storage, {
       getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       managedWorktreeAuthorizer,

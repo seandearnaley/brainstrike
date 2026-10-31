@@ -487,10 +487,6 @@ export class ElectronRendererStorageAdapter implements StorageAdapter {
     return requireStorageBridge().removeItem(key);
   }
 
-  async clear(): Promise<void> {
-    return requireStorageBridge().clear();
-  }
-
   async getAllKeys(): Promise<string[]> {
     return requireStorageBridge().getAllKeys();
   }

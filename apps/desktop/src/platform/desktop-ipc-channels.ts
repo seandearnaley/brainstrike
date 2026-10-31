@@ -150,15 +150,12 @@ export const DESKTOP_IPC_CHANNELS = {
     setModels: 'model-catalog:set-models',
     setProvider: 'model-catalog:set-provider',
   },
-  preferences: {
-    settingsClearAll: 'settings:clearAll',
-  },
+  preferences: {},
   runtime: {
     noteReloadIntent: 'app:lifecycle:note-reload-intent',
     requestReload: 'app:lifecycle:request-reload',
   },
   secrets: {
-    clearAll: 'secrets:clearAll',
     delete: 'secrets:delete',
     // Read-only env bootstrap projection (BST-1363). Reports which .env files
     // loaded, how many variables applied, line-precise parse failures, and the
@@ -179,7 +176,6 @@ export const DESKTOP_IPC_CHANNELS = {
     showItemInFolder: 'shell:show-item-in-folder',
   },
   storage: {
-    clear: 'storage:clear',
     clearAllForE2e: 'storage:clearAllForE2e',
     getAllKeys: 'storage:getAllKeys',
     getItem: 'storage:getItem',

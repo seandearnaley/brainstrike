@@ -60,7 +60,6 @@ describe('IPC Handlers Expected Behavior', () => {
         'storage:getItem',
         'storage:setItem',
         'storage:removeItem',
-        'storage:clear',
         'storage:getAllKeys',
       ];
 
@@ -125,7 +124,6 @@ describe('IPC Handlers Expected Behavior', () => {
         'storage:getItem',
         'storage:setItem',
         'storage:removeItem',
-        'storage:clear',
         'storage:getAllKeys',
       ];
 

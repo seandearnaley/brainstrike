@@ -659,7 +659,7 @@ const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(() =>
   nativeIndexActivation.acquireProfile()
 );
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
-const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, getSettingsStore, {
+const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, {
   getRootsCatalog: async () => workspaceRootCatalog,
   getUserDataPath: () => app.getPath('userData'),
   // The host owns the worktree ledger and settings: it says whether a folder is a managed worktree.
@@ -1191,10 +1191,8 @@ if (singleInstanceLockAcquired) {
 
       logger.debug('Setting up IPC handlers that require app readiness...');
       // Settings reads the profile store directly and writes through the host,
-      // the single credential writer. Its `auth/clear` also drops the host's MCP
-      // OAuth records with their live providers.
+      // the single credential writer.
       const secretsService = createDesktopSettingsSecrets({
-        clear: async () => (await agentHostMainClient.request('auth/clear', {})).cleared,
         deleteCredential: async (account) =>
           (await agentHostMainClient.request('auth/credential/delete', { account })).deleted,
         setCredential: async (account, credential) => {

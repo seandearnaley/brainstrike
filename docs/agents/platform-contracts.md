@@ -40,11 +40,12 @@ retaining configuration/credentials. Factory Reset also clears configuration,
 secrets and persistent UI state. Both use the existing admission/retirement owner:
 join renderer saves and retire persisted chat/tab references before host deletion
 and replacement. New durable state participates in reset. Main owns Factory
-Reset: it wipes userData, blanks every window so no old document can write, clears
+Reset: it wipes userData, which holds the sealed credential store, blanks every window so no old document can write, clears
 the session's storage (`clearStorageData`: `clearData` skips the app's own scheme),
 and loads a fresh document. Live in-memory stores return to
 defaults because the document is replaced, so no store resets itself; the renderer
-clears only its window-scoped `sessionStorage`, which no session API reaches.
+clears only its window-scoped `sessionStorage`, which no session API reaches,
+and has no channel that wipes storage, settings or secrets.
 
 Before destructive profile work, fence new admission, join writers, readers,
 inference, subscriptions and pending acquisition, then hold the profile reset

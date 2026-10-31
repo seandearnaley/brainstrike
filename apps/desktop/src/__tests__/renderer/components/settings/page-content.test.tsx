@@ -56,7 +56,6 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 }));
 
 interface SecretsApi {
-  clearAll?: () => Promise<{ success: boolean; message?: string }>;
   deleteKey: (provider: string) => Promise<void>;
   getKey: (provider: string) => Promise<string | null>;
   list: () => Promise<ProviderKeySource<SupportedProvider | 'tavily'>[]>;

@@ -164,13 +164,9 @@ export function createWriteBehindStorageAdapter(
 ): StorageAdapter & Pick<WriteBehindWriter, 'flush' | 'retire'> {
   const writer = createWriteBehindWriter(adapter, options);
   return {
-    // Whole-store operations see every buffered write first.
-    clear: async () => {
-      await writer.flush();
-      await adapter.clear();
-    },
     flush: writer.flush,
     getAllKeys: async () => {
+      // A whole-store read sees every buffered write first.
       await writer.flush();
       return await adapter.getAllKeys();
     },

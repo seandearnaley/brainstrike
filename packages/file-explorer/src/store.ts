@@ -126,9 +126,6 @@ if (typeof localStorage === 'undefined') {
 } else {
   defaultPersistStorageAdapter = {
     /* v8 ignore start -- Zustand persist storage only calls getItem/setItem/removeItem */
-    async clear() {
-      localStorage.clear();
-    },
     async getAllKeys() {
       return Object.keys(localStorage);
     },

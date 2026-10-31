@@ -164,7 +164,7 @@ const { applicationDomainCapture } = vi.hoisted(() => ({
     close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
     options: null as
       | null
-      | Parameters<typeof import('../../ipc-handlers').createApplicationIpcDomain>[3],
+      | Parameters<typeof import('../../ipc-handlers').createApplicationIpcDomain>[2],
   },
 }));
 
@@ -177,7 +177,7 @@ vi.mock('../../ipc-handlers', async () => {
       onTestFinished(() => domain.close());
       const close = vi.fn(() => domain.close());
       applicationDomainCapture.close = close;
-      applicationDomainCapture.options = args[3];
+      applicationDomainCapture.options = args[2];
       return { ...domain, close };
     },
   };

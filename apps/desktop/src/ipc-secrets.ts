@@ -43,7 +43,6 @@ function toWriteErrorResult(err: unknown): {
   return { error: 'unknown_error', ok: false };
 }
 
-const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const TAVILY_SECRET_PROVIDER = 'tavily' as const;
 type DesktopProviderKeyId = SupportedProvider | typeof TAVILY_SECRET_PROVIDER;
 
@@ -350,32 +349,6 @@ export function registerSecretsIpcHandlers(
   // channel exists precisely to explain that failure, so it must still answer.
   registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.envBootstrap, () =>
     options.readEnvBootstrapReport()
-  );
-
-  registry.handle(
-    'preferences',
-    DESKTOP_IPC_CHANNELS.secrets.clearAll,
-    async (_event, confirmationToken?: string) => {
-      if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
-        return {
-          message: 'Unauthorized: Invalid confirmation token',
-          success: false,
-        };
-      }
-
-      // In test mode the profile store is the disposable file holding the
-      // provider, OAuth-engine, MCP bearer and MCP OAuth entries. The host's
-      // `auth/clear` behind it also drops the engine's and MCP's in-memory state.
-      try {
-        const result = await secrets.clearAll();
-        return { success: result };
-      } catch (error) {
-        return {
-          message: error instanceof Error ? error.message : String(error),
-          success: false,
-        };
-      }
-    }
   );
 
   return () => {
