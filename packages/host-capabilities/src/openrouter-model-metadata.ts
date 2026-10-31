@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
 import {
+  BoundaryFailureError,
   getLlmModelDefinition,
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataSnapshot,
   parseOpenRouterModelMetadata,
+  refusal,
+  refusalError,
 } from '@brainstrike/assistant-contract';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { resolveProviderBaseUrl } from './provider-base-url.ts';
@@ -15,25 +18,93 @@ const DEFAULT_MAX_CACHE_ENTRIES = 128;
 const MAX_VISIBLE_ERROR_CHARS = 300;
 const MAX_MODEL_ID_CHARS = 256;
 
-class OpenRouterMetadataRequestError extends Error {
-  constructor(error: unknown) {
-    super(toVisibleError(error), { cause: error });
-    this.name = 'OpenRouterMetadataRequestError';
+/**
+ * OpenRouter's answer as a refusal the person can act on: a rejected key, an
+ * unknown model or an upstream outage is not a host fault, so it crosses with
+ * its remedy and is never logged as an error (BST-2374).
+ */
+function statusRefusal(status: number, modelId: string): BoundaryFailureError {
+  if (status === 401) {
+    return refusalError(
+      'authorization',
+      'provider.credential-rejected',
+      'OpenRouter rejected the API key (HTTP 401).',
+      'Replace the OpenRouter API key in Providers.'
+    );
   }
+  if (status === 403) {
+    return refusalError(
+      'authorization',
+      'provider.credential-forbidden',
+      'OpenRouter refused the API key access to model details (HTTP 403).',
+      "Check the key's permissions on OpenRouter, or replace it in Providers."
+    );
+  }
+  if (status === 404) {
+    return refusalError(
+      'configuration',
+      'provider.model-not-found',
+      `OpenRouter has no model "${modelId}" (HTTP 404).`,
+      'Choose another OpenRouter model.'
+    );
+  }
+  if (status === 429) {
+    return refusalError(
+      'availability',
+      'provider.rate-limited',
+      'OpenRouter is rate limiting requests (HTTP 429).',
+      'Try again in a moment.'
+    );
+  }
+  return refusalError(
+    'availability',
+    'provider.upstream-unavailable',
+    `OpenRouter Models API returned status ${status}.`,
+    'Try again later.'
+  );
 }
 
-class OpenRouterMetadataStatusError extends Error {
-  constructor(status: number) {
-    super(`OpenRouter Models API returned status ${status}`);
-    this.name = 'OpenRouterMetadataStatusError';
-  }
+function timeoutRefusal(timeoutMs: number): BoundaryFailureError {
+  return refusalError(
+    'timeout',
+    'provider.timeout',
+    `OpenRouter Models API request timed out after ${timeoutMs}ms.`,
+    'Check your connection, then try again.'
+  );
 }
 
-class OpenRouterMetadataTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`OpenRouter Models API request timed out after ${timeoutMs}ms`);
-    this.name = 'OpenRouterMetadataTimeoutError';
+/** Connection errors fetch reports in its `TypeError`'s cause: the network, not the request. */
+const NETWORK_ERROR_CODES = new Set([
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+function isNetworkFailure(error: unknown): boolean {
+  if (!(error instanceof TypeError) || typeof error.cause !== 'object' || error.cause === null) {
+    return false;
   }
+  const { code } = error.cause as { readonly code?: unknown };
+  return typeof code === 'string' && NETWORK_ERROR_CODES.has(code);
+}
+
+/** The request never reached OpenRouter (offline, DNS, refused). */
+function unreachableRefusal(cause: unknown): BoundaryFailureError {
+  return new BoundaryFailureError(
+    refusal({
+      category: 'availability',
+      code: 'provider.unreachable',
+      message: 'OpenRouter could not be reached.',
+      remedy: 'Check your connection, then try again.',
+    }),
+    { cause }
+  );
 }
 
 interface OpenRouterModelMetadataServiceOptions {
@@ -153,23 +224,27 @@ export function createOpenRouterModelMetadataService(
           const response = await fetchImpl(modelUrl, {
             headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
             signal,
+          }).catch((error: unknown) => {
+            // An aborted fetch answers with the deadline's or the caller's reason.
+            signal.throwIfAborted();
+            // Only a request that never reached OpenRouter is the person's to fix;
+            // anything else (TLS, a bad header, a bad URL) stays the logged fault.
+            throw isNetworkFailure(error) ? unreachableRefusal(error) : error;
           });
           signal.throwIfAborted();
           if (!response.ok) {
-            throw new OpenRouterMetadataStatusError(response.status);
+            throw statusRefusal(response.status, modelId);
           }
           const body = await response.json();
           signal.throwIfAborted();
           return mergeCatalogBudgetCeilings(parseOpenRouterModelMetadata(body, modelId, now()));
         },
         {
-          onTimeout: () => new OpenRouterMetadataTimeoutError(requestTimeoutMs),
+          onTimeout: () => timeoutRefusal(requestTimeoutMs),
           signal: cancelled,
           timeoutMs: requestTimeoutMs,
         }
-      ).catch((error: unknown) => {
-        throw error instanceof Error ? error : new OpenRouterMetadataRequestError(error);
-      });
+      );
       retain(cacheKey, metadata);
       return { freshness: 'live', metadata };
     } catch (error) {

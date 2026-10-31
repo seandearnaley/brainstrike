@@ -2,8 +2,6 @@ import { listProviders, type ProviderCredential } from '@brainstrike/assistant-c
 import {
   createProviderVerificationService,
   listApiKeyProbeProviderIds,
-  MissingProviderCredentialError,
-  UnknownVerificationProviderError,
 } from '@brainstrike/host-capabilities/provider-verification';
 import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 
@@ -683,9 +681,9 @@ describe('ProviderVerificationService routing and caching', () => {
     const readCredential = vi.fn<(id: string) => Promise<ProviderCredential | undefined>>();
     const { service } = createService({ fetchImpl, readCredential });
 
-    await expect(service.verify('not-a-provider')).rejects.toBeInstanceOf(
-      UnknownVerificationProviderError
-    );
+    await expect(service.verify('not-a-provider')).rejects.toMatchObject({
+      failure: { code: 'provider.unknown', kind: 'refusal' },
+    });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(readCredential).not.toHaveBeenCalled();
   });
@@ -695,7 +693,9 @@ describe('ProviderVerificationService routing and caching', () => {
       readCredential: () => Promise.resolve(undefined),
     });
 
-    await expect(service.verify('openai')).rejects.toBeInstanceOf(MissingProviderCredentialError);
+    await expect(service.verify('openai')).rejects.toMatchObject({
+      failure: { code: 'provider.credential-missing', kind: 'refusal' },
+    });
   });
 
   it('single-flights concurrent probes for the same provider', async () => {
