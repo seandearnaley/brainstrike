@@ -41,6 +41,7 @@ import {
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
 import { createIpcCapability } from './ipc-capability';
 import './log-buffer';
+import { useAppUpdateReadyToast } from './use-app-update-ready-toast';
 import './styles.css';
 
 // Import layout component
@@ -182,6 +183,8 @@ function requestDocumentReload(): void {
 }
 
 function App() {
+  useAppUpdateReadyToast();
+
   // biome-ignore lint/plugin: Fires a one-time DOM event on mount to signal the desktop app is ready.
   useEffect(() => {
     if (!window.__BRAINSTRIKE_READY__) {

@@ -25,7 +25,8 @@ import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
-import { checkForAppUpdate, clearAppUpdateForReset } from './app-update';
+import { createAppUpdates } from './app-update';
+import { checkForUpdatesFromMenu, offerMoveToApplicationsFolder } from './app-update-dialogs';
 import { readUpdatePreferences, writeUpdatePreferences } from './app-update-preferences';
 import { isAppWindowSender } from './app-windows';
 import { buildFileMenuTemplate } from './application-file-menu';
@@ -255,6 +256,9 @@ function requireSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> {
 }
 
 const logger = createLogger('DesktopMain');
+// BST-2356: the launch check, a check every few hours, Check for Updates… and
+// Restart to update. The factory reset below stops it for the rest of the launch.
+const appUpdates = createAppUpdates();
 // Preference STATE lives in main/logging-preferences.ts (BST-1648 step 4);
 // the boot ORDER below is unchanged: controller (initial set) → watchdog →
 // log buffer → initializeLogging → applyInitial. The watchdog hook is a
@@ -596,7 +600,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     // is not profile content.
     {
       name: 'app-update',
-      stop: clearAppUpdateForReset,
+      stop: appUpdates.clearForReset,
       stopForContent: () => Promise.resolve(),
     },
     // Close (never null) the durable NDJSON sink before the purge below runs
@@ -635,11 +639,14 @@ ipcDisposers.add(
     setPreferences: loggingPreferences.applyAndPersist,
   })
 );
-// Settings › Updates (BST-2367): the next launch's update check applies the choice.
+// Settings › Updates (BST-2367, BST-2356): the next update check applies the beta choice.
 ipcDisposers.add(
   'app-updates',
   registerAppUpdatesIpcHandlers({
+    checkNow: appUpdates.check,
     getPreferences: () => readUpdatePreferences(requireSettingsStore(), app.getVersion()),
+    getStatus: appUpdates.status,
+    restartToUpdate: appUpdates.restartToInstall,
     setBetaUpdates: (betaUpdates) =>
       writeUpdatePreferences(requireSettingsStore(), { betaUpdates }),
   })
@@ -1397,8 +1404,14 @@ if (singleInstanceLockAcquired) {
             logger.warn(`Failed to open the ${label}`, { error, targetPath });
           });
       };
+      const checkForUpdatesOverWindow = (targetWindow?: Electron.BaseWindow): void => {
+        checkForUpdatesFromMenu(appUpdates, targetWindow).catch((error: unknown) => {
+          logger.error('Check for Updates… failed', { error });
+        });
+      };
       const helpMenu = buildHelpMenuTemplate({
         includeAbout: !isMac,
+        onCheckForUpdates: checkForUpdatesOverWindow,
         onOpenReleaseNotes: () => {
           const url = releaseNotesUrl(app.getVersion());
           shell.openExternal(url).catch((error: unknown) => {
@@ -1424,7 +1437,13 @@ if (singleInstanceLockAcquired) {
         const recents = await listWorkspaceRecentRootPaths();
         const template: Electron.MenuItemConstructorOptions[] = [
           ...(isMac
-            ? [buildMacAppMenuTemplate({ appName: app.name, onOpenSettings: openSettingsFromMenu })]
+            ? [
+                buildMacAppMenuTemplate({
+                  appName: app.name,
+                  onCheckForUpdates: checkForUpdatesOverWindow,
+                  onOpenSettings: openSettingsFromMenu,
+                }),
+              ]
             : []),
           buildFileMenuTemplate({
             closingItems: isMac ? [] : buildFileMenuClosingItems(openSettingsFromMenu),
@@ -1672,7 +1691,23 @@ if (singleInstanceLockAcquired) {
         return;
       }
       logger.debug('Main window created successfully');
-      checkForAppUpdate(requireSettingsStore());
+      appUpdates.start({
+        publish: (status) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) {
+              pushToRenderer(
+                window.webContents,
+                DESKTOP_IPC_CHANNELS.appUpdates.statusChanged,
+                status
+              );
+            }
+          }
+        },
+        settings: requireSettingsStore(),
+      });
+      offerMoveToApplicationsFolder(requireSettingsStore(), mainWindow).catch((error: unknown) => {
+        logger.warn('The offer to move the app to Applications failed', { error });
+      });
 
       // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
       // never re-enqueued by `app.on('activate')`'s later `createMainWindow()`
