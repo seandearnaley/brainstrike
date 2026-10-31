@@ -1,85 +1,42 @@
-import { resolveHostedProviderKey } from '@brainstrike/assistant-contract/provider-key-resolution';
-import {
-  CohereEmbeddingProvider,
-  GoogleEmbeddingProvider,
-  OpenAIEmbeddingProvider,
-  parseProviderModelKey,
-  resolveHostedProviderApiKey,
-  VoyageEmbeddingProvider,
-} from '@brainstrike/embeddings/provider-core';
+import { createCohere } from '@ai-sdk/cohere';
+import { createGoogle } from '@ai-sdk/google';
+import { createOpenAI } from '@ai-sdk/openai';
+import { listProviderEmbeddingModels } from '@brainstrike/assistant-contract/provider-registry';
 import { resolveProviderBaseUrl } from '@brainstrike/host-capabilities/provider-base-url';
-import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
+import {
+  type EmbeddingProviderType,
+  parseEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
+import { type EmbeddingModel, embedMany } from 'ai';
+import { createVoyage } from 'voyage-ai-provider';
 import {
   HOSTED_EMBEDDING_MISSING_KEY_MESSAGE,
   HostedEmbeddingError,
   hostedRefusal,
 } from './hosted-embedding-error';
 import type { QueryEmbeddingRequest } from './ipc-domains/index-search.contract';
-import { getSecretsService } from './secrets';
+import { readProviderApiKey } from './provider-api-key';
 
 const logger = createLogger('DesktopHostedEmbeddings');
 
-type HostedEmbeddingProvider =
-  | OpenAIEmbeddingProvider
-  | GoogleEmbeddingProvider
-  | CohereEmbeddingProvider
-  | VoyageEmbeddingProvider;
-async function resolveEmbeddingApiKey(
-  provider: EmbeddingProviderType
-): Promise<string | undefined> {
-  // Shared resolution order (BST-979): the environment is authoritative, the
-  // keychain is the fallback — previously this path was keychain-first, so a
-  // key rotated via env could stay shadowed by a stale stored key. The
-  // env leg reuses the embeddings resolver (same table + core order); the
-  // secret leg preserves the BST-574 escape hatch: a keychain read failure
-  // is NOT an absent credential and stays visible unless env supplied a key.
-  const fromEnvironment = await resolveHostedProviderApiKey(provider);
-  if (fromEnvironment) {
-    return fromEnvironment;
-  }
-  const secrets = getSecretsService();
-  const stored = await resolveHostedProviderKey({
-    envKeyNames: [],
-    envSources: [],
-    readSecret: () => secrets.getKey(provider),
-  });
-  if (stored.secretReadError) {
-    logger.warn('Stored embedding API key is unreadable and no env key exists', {
-      error: stored.secretReadError,
-      provider,
-    });
-    throw stored.secretReadError;
-  }
-  return stored.key;
-}
-
-export function createHostedProvider(
+function embeddingModel(
   provider: EmbeddingProviderType,
   modelId: string,
-  dimensions: number,
-  apiKey: string,
-  purpose: 'document' | 'query' = 'query'
-): HostedEmbeddingProvider {
+  apiKey: string
+): EmbeddingModel {
   switch (provider) {
     case 'openai':
       // Wherever a real OpenAI turn goes (`OPENAI_BASE_URL`), so indexing and chat share one origin.
-      return new OpenAIEmbeddingProvider({
-        apiKey,
-        endpoint: `${resolveProviderBaseUrl('openai')}/embeddings`,
-        modelId,
-        targetDimensions: dimensions,
-      });
+      return createOpenAI({ apiKey, baseURL: resolveProviderBaseUrl('openai') }).embeddingModel(
+        modelId
+      );
     case 'google':
-      return new GoogleEmbeddingProvider({ apiKey, modelId, outputDimensions: dimensions });
+      return createGoogle({ apiKey }).embeddingModel(modelId);
     case 'cohere':
-      return new CohereEmbeddingProvider({
-        apiKey,
-        inputType: purpose === 'document' ? 'search_document' : 'search_query',
-        modelId,
-      });
+      return createCohere({ apiKey }).embeddingModel(modelId);
     case 'voyage':
-      return new VoyageEmbeddingProvider({ apiKey, inputType: purpose, modelId });
+      return createVoyage({ apiKey }).embeddingModel(modelId);
   }
 }
 
@@ -93,55 +50,61 @@ export async function generateHostedEmbeddings(input: {
   readonly signal: AbortSignal;
 }): Promise<number[][]> {
   input.signal.throwIfAborted();
-  const apiKey = await resolveEmbeddingApiKey(input.provider);
+  // The chat credential order: the environment is authoritative, the keychain
+  // is the fallback, and an unreadable keychain entry stays visible.
+  const apiKey = await readProviderApiKey(input.provider);
   input.signal.throwIfAborted();
   if (!apiKey) {
     throw new HostedEmbeddingError('missing-key', HOSTED_EMBEDDING_MISSING_KEY_MESSAGE);
   }
-  const provider = createHostedProvider(
-    input.provider,
-    input.modelId,
-    input.dimensions,
-    apiKey,
-    input.purpose
+  // Only a model the catalog marks as tunable is sent a dimension; the others
+  // have one fixed size, checked below.
+  const tunable = listProviderEmbeddingModels(input.provider).some(
+    (model) => model.id === input.modelId && model.supportsCustomDimensions === true
   );
-  const result = await provider.embed({
-    modelId: input.modelId,
-    signal: input.signal,
-    text: [...input.texts],
-  });
-  if (!result.ok) {
-    if (
-      result.error.type === 'network_error' &&
-      input.signal.aborted &&
-      result.error.originalError === input.signal.reason
-    ) {
-      throw input.signal.reason;
+  let embeddings: number[][];
+  try {
+    ({ embeddings } = await embedMany({
+      abortSignal: input.signal,
+      // Report a refusal as it happened instead of retrying it.
+      maxRetries: 0,
+      model: embeddingModel(input.provider, input.modelId, apiKey),
+      // Each provider reads only its own key: the retrieval side of the text.
+      providerOptions: {
+        cohere: { inputType: input.purpose === 'document' ? 'search_document' : 'search_query' },
+        voyage: { inputType: input.purpose },
+      },
+      values: [...input.texts],
+      ...(tunable ? { dimensions: input.dimensions } : {}),
+    }));
+  } catch (error) {
+    // Our own cancellation, as the SDK rethrows it; a provider failure that
+    // settles after cancellation is still reported as that failure.
+    if (input.signal.aborted && error === input.signal.reason) {
+      throw error;
     }
-    // Keep the original typed provider diagnostic in Main before the utility
-    // fault channel deliberately projects plain-object causes to Error text.
+    const refusal = hostedRefusal(input.provider, error);
+    // Keep the provider diagnostic in Main before the utility fault channel
+    // projects causes to Error text.
     logger.error('Hosted embedding request failed', {
-      error: result.error,
+      error: refusal ? refusal.cause : error,
       provider: input.provider,
     });
-    throw hostedRefusal(input.provider, result.error);
+    throw refusal ?? error;
   }
   input.signal.throwIfAborted();
-  const output = result.value;
-  const vectors = output.embeddings ?? (input.texts.length === 1 ? [output.embedding] : []);
   if (
-    output.modelId !== input.modelId ||
-    output.provider !== input.provider ||
-    output.dimensions !== input.dimensions ||
-    vectors.length !== input.texts.length ||
-    vectors.some((vector) => vector.length !== input.dimensions || !vector.every(Number.isFinite))
+    embeddings.length !== input.texts.length ||
+    embeddings.some(
+      (vector) => vector.length !== input.dimensions || !vector.every(Number.isFinite)
+    )
   ) {
     throw new HostedEmbeddingError(
       'provider-status',
-      `Embedding provider ${input.provider} returned vectors that do not match the requested model, dimensions or batch.`
+      `Embedding provider ${input.provider} returned vectors that do not match the requested dimensions or batch.`
     );
   }
-  return vectors;
+  return embeddings;
 }
 
 /** Embeds one search query with the index's hosted model; the signal cancels the request. */
@@ -149,7 +112,7 @@ export async function hostedQueryEmbedding(
   request: QueryEmbeddingRequest,
   signal: AbortSignal
 ): Promise<number[]> {
-  const selected = parseProviderModelKey(request.modelKey);
+  const selected = parseEmbeddingProviderModelKey(request.modelKey);
   if (!selected || selected.modelId !== request.modelId) {
     throw new Error('The query embedding model disagrees with its provider/model key.');
   }

@@ -4,7 +4,6 @@ import {
   NativeCanonicalInference,
   NativeCanonicalProfileResolver,
 } from '@brainstrike/canonical-ingestion';
-import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
 import { afterEach, expect, it, vi } from 'vitest';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { generateHostedEmbeddings } from '../hosted-embeddings';
@@ -13,15 +12,12 @@ vi.mock('../secrets', () => ({ getSecretsService: () => ({ getKey: async () => u
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
-  clearHostedProviderApiKeyCache();
 });
 
 it('retires an already physically settled missing-key request after generate delivers its failure', async () => {
   for (const key of providerEnvKeys('cohere')) {
     vi.stubEnv(key, '');
-    vi.stubEnv(`VITE_${key}`, '');
   }
-  clearHostedProviderApiKeyCache();
   const fetch = vi.fn(() => {
     throw new Error('No provider call is authorized in this proof.');
   });
