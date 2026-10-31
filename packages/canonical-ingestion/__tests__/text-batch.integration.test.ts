@@ -31,19 +31,14 @@ const entries = Array.from({ length: 5 }, (_, index) => {
   };
   return { content, contentHash: createHash('sha256').update(content).digest('hex'), file };
 });
+type Entry = (typeof entries)[number];
 const bindings = entries.map(({ file }) => {
   const { fileName: _name, stat: _stat, ...identity } = file;
   return { ...identity, profile: null };
 });
-const entryFor = (fileId: string) => {
-  const entry = entries.find((item) => item.file.fileId === fileId);
-  if (!entry) {
-    throw new Error('Unexpected canonical file.');
-  }
-  return entry;
-};
 
 async function withIndex(
+  folderBindings: readonly (typeof bindings)[number][],
   work: (
     port: Awaited<ReturnType<typeof openIndexer>>,
     search: () => Promise<readonly string[]>
@@ -54,7 +49,7 @@ async function withIndex(
     {
       dbPath: path.join(directory, 'index.sqlite'),
       embedding: { indexMode: 'text-only' },
-      fileBindings: bindings,
+      fileBindings: folderBindings,
       rootIds: [scope.rootId],
       scopes: [{ embeddingSetId: 'managed-set', kind: 'collection' }],
     },
@@ -72,67 +67,119 @@ async function withIndex(
   }
 }
 
-it('publishes a folder of TEXT files in one native write, each searchable and acknowledged', async () => {
-  await withIndex(async (port, search) => {
-    const commitScopedTextFiles = vi.fn((batch: unknown) => port.commitScopedTextFiles(batch));
-    const publication = createNativeCanonicalPublication({ ...port, commitScopedTextFiles }, [
-      scope,
-    ]);
-    const source: CanonicalSourcePort = {
-      close: async () => {},
-      async *discover() {
-        yield { files: entries.map((entry) => entry.file), removed: [] };
-        return { errors: [], full: true, truncatedDirectories: [] };
-      },
-      read: async (current) => {
-        const entry = entryFor('fileId' in current ? current.fileId : '');
-        return { content: entry.content, stat: entry.file.stat };
-      },
-    };
-    const host = new CanonicalIngestionHost({
-      catalog: {
-        applyManagedCacheBatch: async () => {},
-        completeFiles: async () => {},
-        loadAuthorizedBatch: async ({ files }) =>
-          files.map((current) => ({
-            ...entryFor(current.fileId).file,
-            chunksProcessed: false,
-            contentHash: null,
-          })),
-        prepareManagedSourcesBatch: async () => [],
-        removeFiles: async () => {},
-        resolveProfile: async () => {
-          throw new Error('TEXT never resolves a profile.');
-        },
-      },
-      chunker,
-      managedCollectionId: 'managed-set',
-      publication,
-      source,
-    });
-    try {
-      const receipt = await host.scan({
-        batchSize: 64,
-        chunkingOptions,
-        maxFileBytes: 100_000,
-        requestId: 'folder',
-        scope,
-      });
-      expect(receipt).toMatchObject({ reason: 'complete', scanComplete: true });
-      expect(commitScopedTextFiles).toHaveBeenCalledOnce();
-      expect(await search()).toEqual(entries.map((entry) => entry.file.fileId));
-      expect(publication.getReadiness()[0]).toMatchObject({
-        publication: { acknowledgedFiles: entries.length },
-        scanComplete: true,
-      });
-    } finally {
-      await host.close();
+async function scanFolder(
+  port: Awaited<ReturnType<typeof openIndexer>>,
+  commitScopedTextFiles: (batch: unknown) => Promise<unknown>,
+  folder: readonly Entry[]
+) {
+  const find = (fileId: string) => {
+    const entry = folder.find((item) => item.file.fileId === fileId);
+    if (!entry) {
+      throw new Error('Unexpected canonical file.');
     }
+    return entry;
+  };
+  const publication = createNativeCanonicalPublication(
+    { ...port, commitScopedTextFiles } as typeof port,
+    [scope]
+  );
+  const source: CanonicalSourcePort = {
+    close: async () => {},
+    async *discover() {
+      yield { files: folder.map((entry) => entry.file), removed: [] };
+      return { errors: [], full: true, truncatedDirectories: [] };
+    },
+    read: async (current) => {
+      const entry = find('fileId' in current ? current.fileId : '');
+      return { content: entry.content, stat: entry.file.stat };
+    },
+  };
+  const host = new CanonicalIngestionHost({
+    catalog: {
+      applyManagedCacheBatch: async () => {},
+      completeFiles: async () => {},
+      loadAuthorizedBatch: async ({ files }) =>
+        files.map((current) => ({
+          ...find(current.fileId).file,
+          chunksProcessed: false,
+          contentHash: null,
+        })),
+      prepareManagedSourcesBatch: async () => [],
+      removeFiles: async () => {},
+      resolveProfile: async () => {
+        throw new Error('TEXT never resolves a profile.');
+      },
+    },
+    chunker,
+    managedCollectionId: 'managed-set',
+    publication,
+    source,
+  });
+  try {
+    const receipt = await host.scan({
+      batchSize: 64,
+      chunkingOptions,
+      maxFileBytes: 4_000_000,
+      requestId: 'folder',
+      scope,
+    });
+    return { publication, receipt };
+  } finally {
+    await host.close();
+  }
+}
+
+it('publishes a folder of TEXT files in one native write, each searchable and acknowledged', async () => {
+  await withIndex(bindings, async (port, search) => {
+    const commitScopedTextFiles = vi.fn((batch: unknown) => port.commitScopedTextFiles(batch));
+    const { publication, receipt } = await scanFolder(port, commitScopedTextFiles, entries);
+    expect(receipt).toMatchObject({ reason: 'complete', scanComplete: true });
+    expect(commitScopedTextFiles).toHaveBeenCalledOnce();
+    expect(await search()).toEqual(entries.map((entry) => entry.file.fileId));
+    expect(publication.getReadiness()[0]).toMatchObject({
+      publication: { acknowledgedFiles: entries.length },
+      scanComplete: true,
+    });
+  });
+});
+
+it('splits a batch of large files across native writes, so each stays within one message', async () => {
+  // Ten files of about 480 KB, under the chunker's size limit but together past the text one
+  // commit carries.
+  const large = Array.from({ length: 10 }, (_, index) => {
+    const lines = Array.from(
+      { length: 14_000 },
+      (_, line) => `export const value${index}_${line} = ${(line * 7919 + index) % 100_003};\n`
+    );
+    const content = `export const needle${index} = 'batched needle ${index}';\n${lines.join('')}`;
+    const file: CanonicalSourceFile = {
+      ...entries[0]!.file,
+      fileId: `large-${index}`,
+      fileName: `large-${index}.ts`,
+      relativePath: `large-${index}.ts`,
+      sourcePath: `/root/large-${index}.ts`,
+      stat: { mtimeMs: 123, size: Buffer.byteLength(content) },
+    };
+    return { content, contentHash: createHash('sha256').update(content).digest('hex'), file };
+  });
+  const largeBindings = large.map(({ file }) => {
+    const { fileName: _name, stat: _stat, ...identity } = file;
+    return { ...identity, profile: null };
+  });
+  await withIndex(largeBindings, async (port, search) => {
+    const commitScopedTextFiles = vi.fn((batch: unknown) => port.commitScopedTextFiles(batch));
+    const { publication, receipt } = await scanFolder(port, commitScopedTextFiles, large);
+    expect(receipt).toMatchObject({ reason: 'complete', scanComplete: true });
+    expect(commitScopedTextFiles.mock.calls.length).toBeGreaterThan(1);
+    expect(await search()).toEqual(large.map((entry) => entry.file.fileId));
+    expect(publication.getReadiness()[0]).toMatchObject({
+      publication: { acknowledgedFiles: large.length },
+    });
   });
 });
 
 it('publishes none of a batch whose file fails, and its scan is write-failed', async () => {
-  await withIndex(async (port, search) => {
+  await withIndex(bindings, async (port, search) => {
     const publication = createNativeCanonicalPublication(port, [scope]);
     const [revoked] = bindings;
     // One file's binding is retired before the batch lands, so the writer refuses that file.

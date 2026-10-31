@@ -40,6 +40,7 @@ import {
   readCanonicalSource,
   statCacheSkip,
 } from './source-preparation.ts';
+import { textCommitGroups } from './text-commit-groups.ts';
 
 /**
  * VECTOR completion reads its manifest and coverage separately, and another
@@ -526,10 +527,13 @@ export class CanonicalIngestionHost {
     }
     if (profile) {
       vectorFiles.push(...(await this.publishVectors(chunked, profile, context, ticket)));
-    } else if (chunked.length > 0) {
-      // One publication call per batch: its files are acknowledged together or not at all.
-      await publication.commitTextFiles({ files: chunked, ticket });
-      context.signal.throwIfAborted();
+    } else {
+      // One publication call per batch, split only where the batch's text is large: each call's
+      // files are acknowledged together or not at all.
+      for (const files of textCommitGroups(chunked)) {
+        await publication.commitTextFiles({ files, ticket });
+        context.signal.throwIfAborted();
+      }
     }
     if (completed.length > 0) {
       await catalog.completeFiles({ files: completed, scope: request.scope }, context);
