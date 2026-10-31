@@ -3,18 +3,20 @@ import type { HostRecord } from '@brainstrike/host-lease';
 import { MessageChannelMain, type MessagePortMain } from 'electron';
 import { type Message, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node';
 
-export interface AgentHostPortRelay {
-  /** Closes this client transport and joins its socket, without stopping the root host. */
+export interface AgentHostSocketRelay {
+  /** Closes this client's socket and joins it, without stopping the host. */
   close(): Promise<void>;
   readonly closed: Promise<void>;
+  /** The frame's end; Main re-posts its messages to and from the socket. */
   readonly port: MessagePortMain;
 }
 
 /**
- * Desktop main transfers a client port; the existing Node host authenticates
- * and dispatches every JSON-RPC message. This relay owns no run or root lease.
+ * Only for a host this app did not launch (a CLI `host start`), which has no private
+ * channel to Main: the frame reaches it over its public socket, like any CLI client, and
+ * Main relays each message. The host this app launched never takes this path.
  */
-export async function openAgentHostPortRelay(record: HostRecord): Promise<AgentHostPortRelay> {
+export async function openAgentHostSocketRelay(record: HostRecord): Promise<AgentHostSocketRelay> {
   const socket = new Socket();
   const channel = new MessageChannelMain();
   const reader = new StreamMessageReader(socket);
@@ -26,8 +28,7 @@ export async function openAgentHostPortRelay(record: HostRecord): Promise<AgentH
     return exited.promise;
   };
   const receive = (event: { readonly data: unknown }): void => {
-    // The public stream writer owns framing. A transport failure closes this
-    // client rather than dispatching an alternate command or replacing the host.
+    // The public stream writer owns framing. A transport failure closes this client.
     Promise.resolve()
       .then(() => writer.write(event.data as Message))
       .catch(() => close());
@@ -59,31 +60,4 @@ export async function openAgentHostPortRelay(record: HostRecord): Promise<AgentH
     await close();
     throw cause;
   }
-}
-
-/**
- * Relays a visible client over a port the host received on its private parent
- * channel, so the host admits it as the desktop origin. Closing either side
- * closes both and settles `closed`.
- */
-export function openAgentHostChildRelay(hostPort: MessagePortMain): AgentHostPortRelay {
-  const channel = new MessageChannelMain();
-  const exited = Promise.withResolvers<void>();
-  let open = true;
-  const close = (): Promise<void> => {
-    if (open) {
-      open = false;
-      hostPort.close();
-      channel.port1.close();
-      exited.resolve();
-    }
-    return exited.promise;
-  };
-  hostPort.on('message', (event) => channel.port1.postMessage(event.data));
-  channel.port1.on('message', (event) => hostPort.postMessage(event.data));
-  hostPort.once('close', () => void close());
-  channel.port1.once('close', () => void close());
-  hostPort.start();
-  channel.port1.start();
-  return { close, closed: exited.promise, port: channel.port2 };
 }

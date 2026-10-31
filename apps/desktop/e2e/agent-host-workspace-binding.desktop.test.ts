@@ -44,7 +44,6 @@ test('ordinary app Main validates a committed host root through its actual catal
         port: MessagePort;
         record: { token: string; protocolVersion: number; hostVersion: string };
       }>();
-      const disconnected = Promise.withResolvers<void>();
       const receive = (event: MessageEvent<unknown>): void => {
         if (event.source !== window || !event.data || typeof event.data !== 'object') {
           return;
@@ -57,9 +56,6 @@ test('ordinary app Main validates a committed host root through its actual catal
           data.payload.requestId !== requestId
         ) {
           return;
-        }
-        if ('type' in data && data.type === 'agent-host/disconnected') {
-          disconnected.resolve();
         }
         if ('type' in data && data.type === 'agent-host/connected' && 'record' in data.payload) {
           const port = event.ports[0];
@@ -155,9 +151,6 @@ test('ordinary app Main validates a committed host root through its actual catal
         };
       } finally {
         port?.close();
-        if (port) {
-          await disconnected.promise;
-        }
         window.removeEventListener('message', receive);
       }
     },

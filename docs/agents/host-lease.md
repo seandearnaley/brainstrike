@@ -83,7 +83,23 @@ CLI host closes after its last client and active run lease leave; explicit persi
 start has a different lifetime. A CLI host no client ever attached closes once its
 startup grace has elapsed and no run lease is held, including a run it recovered on
 start that releases after the grace. A client its launcher connects privately (a
-port, not the socket) counts as attached like a socket client. Cooperative close fences admission, joins
+port, not the socket) counts as attached like a socket client. Main gives each
+authorized renderer frame a port, chosen by which host the profile's attachment
+names:
+
+- The host this app launched: one end of such a private channel, the host holding
+  the other as the desktop origin. Main forwards nothing.
+- A host the app did not launch (a CLI `host start`): Main relays the port over
+  that host's public socket (`agent-host-socket-relay.ts`), as a `public-socket`
+  client, until host lifetime work picks a transport for hosts Main does not own.
+- The host this app launched, once gone (its lifetime channel closed or it
+  exited) while the profile has yet to admit a replacement: an `availability`
+  refusal, never the socket.
+
+The frame owns its port, which closes with its document. Main tells the frame when
+the host is gone, and the frame connects again through the same call.
+
+Cooperative close fences admission, joins
 Core/platform/native tails and SQLite, then removes discovery and releases Root.
 The requesting transport remains through its actual response write and final socket
 join.
