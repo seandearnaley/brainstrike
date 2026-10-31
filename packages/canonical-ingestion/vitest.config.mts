@@ -11,6 +11,7 @@ export default mergeConfig(
           test: {
             // The integration lane runs the native-process fixtures (vitest.integration.config.mts).
             exclude: ['**/*.integration.test.ts', 'node_modules', 'dist'],
+            globals: true,
             include: ['__tests__/**/*.test.ts'],
             name: 'unit',
             setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],

@@ -12,7 +12,7 @@ export const coverageEnabled =
  *
  *   export default mergeConfig(sharedConfig, defineConfig({ test: { include: [...] } }));
  *
- * Workspace packages resolve through their `exports`; configs carry no aliases.
+ * Workspace packages resolve through their `exports`; Vitest configs carry no aliases.
  */
 export const sharedConfig = defineConfig({
   test: {

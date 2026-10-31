@@ -49,7 +49,7 @@ pnpm dev --filter @brainstrike/desktop
 
 ### Build and test configuration
 
-- Workspace packages resolve through their `exports` (pnpm links plus Node type stripping) in TypeScript, Vite and Vitest. Configs carry no `@brainstrike/*` aliases.
+- Workspace packages resolve through their `exports` (pnpm links plus Node type stripping) in TypeScript, Vite and Vitest. Vitest configs carry no `@brainstrike/*` aliases; the one left in Vite is the desktop renderer's `@brainstrike/file-tree-worker` entry.
 - A package's `vitest.config.mts` is `mergeConfig(sharedConfig, defineConfig({...}))` with `sharedConfig` from `@brainstrike/test-utils/vitest.base`; `integrationLane(config, include)` derives its `test:integration` config.
 - `turbo.jsonc`:
   - `topo` is a transit node that no package defines. `test*` and `type-check` depend on it, so a dependency's source edit re-hashes its dependents without a build. An empty `dependsOn` would replay stale passes.

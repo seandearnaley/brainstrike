@@ -36,6 +36,7 @@ export default mergeConfig(
           test: {
             environment: 'jsdom',
             exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+            globals: true,
             include: ['src/__tests__/**/*.test.{ts,tsx}'],
             name: 'unit',
             // Vitest 4: server.deps replaces the deprecated deps config
@@ -85,6 +86,7 @@ export default mergeConfig(
               // createBrowserProject in @brainstrike/config).
               screenshotFailures: true,
             },
+            globals: true,
             include: ['src/__tests__/**/*.browser.test.{ts,tsx}'],
             name: 'browser',
             // Output directory for traces and screenshots

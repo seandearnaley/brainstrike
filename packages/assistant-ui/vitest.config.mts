@@ -59,6 +59,7 @@ export default mergeConfig(
             },
             environment: 'happy-dom',
             exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+            globals: true,
             include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
             maxWorkers: process.env['CI'] ? '50%' : '100%',
             name: 'unit',
@@ -99,6 +100,7 @@ export default mergeConfig(
                 emulateReducedMotion,
               },
             },
+            globals: true,
             sequence: {
               groupOrder: 1,
             },
