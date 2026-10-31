@@ -37,6 +37,7 @@ import {
 } from './workspace-root-catalog.ts';
 import {
   cleanupWorkspaceRootResources,
+  convergeWorkspaceRootCatalog,
   type WorkspaceRootResourceOwners,
 } from './workspace-root-cleanup.ts';
 import { WorkspaceRootMountTable } from './workspace-root-mounts.ts';
@@ -99,6 +100,7 @@ export class WorkspaceRootRegistry {
   private readonly resources: WorkspaceRootResourceOwners;
   private readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   private readonly isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined;
+  private readonly whenCatalogOpen: (() => Promise<void>) | undefined;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private readonly availability = new WorkspaceRootAvailability();
@@ -130,6 +132,7 @@ export class WorkspaceRootRegistry {
     };
     this.getRootsCatalog = options.getRootsCatalog;
     this.isExpectedCatalogRefusal = options.isExpectedCatalogRefusal;
+    this.whenCatalogOpen = options.whenCatalogOpen;
     this.onRootGranted = options.onRootGranted;
     this.onRestoredRootsChanged = options.onRestoredRootsChanged;
     this.pathExists = options.pathExists;
@@ -792,19 +795,14 @@ export class WorkspaceRootRegistry {
     return cleanupWorkspaceRootResources(this.resources, rootIds, strict);
   }
 
-  private async convergeDatabase(): Promise<void> {
-    const mountedPaths = this.mounts.persistedMountedPaths();
-    try {
-      const db = await this.getRootsCatalog();
-      const disconnected = await markRootsDisconnectedExcept(db, mountedPaths);
-      await this.cleanupRootResources(disconnected.map((row) => row.id));
-    } catch (error) {
-      if (this.isExpectedCatalogRefusal?.(error)) {
-        logger.info('Workspace root database convergence stopped', { error });
-        return;
-      }
-      logger.error('Workspace root database convergence failed', { error });
-    }
+  private convergeDatabase(): Promise<void> {
+    return convergeWorkspaceRootCatalog({
+      cleanup: (rootIds) => this.cleanupRootResources(rootIds),
+      getRootsCatalog: this.getRootsCatalog,
+      isExpectedCatalogRefusal: this.isExpectedCatalogRefusal,
+      mountedPaths: this.mounts.persistedMountedPaths(),
+      whenCatalogOpen: this.whenCatalogOpen,
+    });
   }
 
   private async findExistingStoredRoot(

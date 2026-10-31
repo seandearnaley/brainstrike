@@ -4,9 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 beforeEach(() => {
   vi.resetModules();
   localStorage.clear();
-  // CRITICAL: Clear the store singleton cache
-  (globalThis as unknown as Record<string, unknown>)['__brainstrike_file_explorer_store__'] =
-    undefined;
 });
 
 describe('createFileExplorerStore', () => {

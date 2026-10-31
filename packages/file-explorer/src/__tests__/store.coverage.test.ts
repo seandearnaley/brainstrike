@@ -1,49 +1,17 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const STORE_KEY = '__brainstrike_file_explorer_store__';
-const STORE_BRAND = '__brainstrike_store_brand__';
-
 describe('store coverage', () => {
   beforeEach(() => {
-    vi.resetModules();
-    delete (globalThis as Record<string, unknown>)[STORE_KEY];
     localStorage.clear();
   });
 
-  it('saves the default store in localStorage', async () => {
-    const { useFileExplorerStore } = await import('../store');
+  it('saves a store in localStorage', async () => {
+    const { createFileExplorerStore } = await import('../store');
 
-    useFileExplorerStore.getState().setQuickFilter('saved-filter');
+    createFileExplorerStore().getState().setQuickFilter('saved-filter');
 
     expect(localStorage.getItem('file-explorer-storage-v5')).toContain('saved-filter');
-  });
-
-  it('reuses a valid branded singleton from globalThis', async () => {
-    const existingStore = Object.assign(vi.fn(), {
-      getState: vi.fn(),
-      setState: vi.fn(),
-      [STORE_BRAND]: 2,
-    });
-    (globalThis as Record<string, unknown>)[STORE_KEY] = existingStore;
-
-    const mod = await import('../store');
-
-    expect(mod.useFileExplorerStore).toBe(existingStore);
-  });
-
-  it('replaces a previous cache-lifetime branded singleton', async () => {
-    const invalidStore = Object.assign(vi.fn(), {
-      getState: vi.fn(),
-      setState: vi.fn(),
-      [STORE_BRAND]: 1,
-    });
-    (globalThis as Record<string, unknown>)[STORE_KEY] = invalidStore;
-
-    const mod = await import('../store');
-
-    expect(mod.useFileExplorerStore).not.toBe(invalidStore);
-    expect(typeof mod.useFileExplorerStore.getState).toBe('function');
   });
 
   it('stateCreator wires explorer-only setter actions', async () => {

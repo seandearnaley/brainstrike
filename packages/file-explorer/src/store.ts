@@ -9,7 +9,6 @@
 
 import type { FileExplorerState, PersistenceRecoveryNotice } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
-import { setupHMR } from '@brainstrike/utils/hmr-utils';
 import type { StateCreator } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -117,44 +116,5 @@ export function createFileExplorerStore() {
     create<FileExplorerState>()(persist(stateCreator, createPersistOptions()))
   );
 }
-
-// Default store instance for backward compatibility (HMR-safe singleton)
-
-const STORE_KEY = '__brainstrike_file_explorer_store__' as const;
-const STORE_BRAND = '__brainstrike_store_brand__';
-const STORE_VERSION = 2 as const;
-const g = globalThis as unknown as Record<string, unknown>;
-// Derive from createFileExplorerStore (which applies the persist middleware) so the
-// exported store type carries the persist mutator augmentation (e.g. `.persist`).
-type BoundStore = ReturnType<typeof createFileExplorerStore>;
-function isValidStore(candidate: unknown): candidate is BoundStore & { [k: string]: unknown } {
-  if (!candidate || typeof candidate !== 'function') {
-    return false;
-  }
-  const cand = candidate as unknown as {
-    getState?: unknown;
-    setState?: unknown;
-    [k: string]: unknown;
-  };
-  const hasAPI = typeof cand.getState === 'function' && typeof cand.setState === 'function';
-  const version = cand[STORE_BRAND];
-  return hasAPI && version === STORE_VERSION;
-}
-
-let storeSingleton = g[STORE_KEY] as unknown;
-if (!isValidStore(storeSingleton)) {
-  storeSingleton = createFileExplorerStore();
-  (storeSingleton as Record<string, unknown>)[STORE_BRAND] = STORE_VERSION as unknown as number;
-  g[STORE_KEY] = storeSingleton as unknown;
-}
-export const useFileExplorerStore = storeSingleton as BoundStore;
-
-// Set up HMR if available (safe in both ESM and CJS environments)
-/* c8 ignore start - Dev-only HMR wiring; excluded from coverage */
-setupHMR(undefined, () => {
-  // keep store on global between swaps
-});
-
-/* c8 ignore end */
 
 export { stateCreator };

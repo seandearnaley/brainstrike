@@ -114,82 +114,12 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
   const tabState = createPersistedTabState();
 
   await page.evaluate(
-    async ({
-      nextFileExplorerState,
-      nextTabState,
-      restoredFolderName,
-      restoredFolderPath,
-      restoredRootId,
-    }) => {
+    ({ nextFileExplorerState, nextTabState }) => {
       localStorage.setItem('tab-manager.v1', JSON.stringify(nextTabState));
-
-      const fileExplorerStore = (
-        window as Window & {
-          __brainstrike_file_explorer_store__?: {
-            setState?: (state: Record<string, unknown>) => void;
-          };
-        }
-      ).__brainstrike_file_explorer_store__;
-      if (!fileExplorerStore?.setState) {
-        throw new Error('File explorer store is not available on window');
-      }
-
-      const runtimeFolderState = {
-        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
-        expandedDirectoryPaths: new Set<string>(),
-        folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
-        includeFilters: [...nextFileExplorerState.state.includeFilters],
-        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
-        lastAccessed: Date.now(),
-        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
-        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
-        selectedFilePaths: new Set<string>(),
-        useRegex: nextFileExplorerState.state.useRegex,
-        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
-      };
-
-      fileExplorerStore.setState({
-        currentFolderId: restoredRootId,
-        devInlineFixtureEnabled: nextFileExplorerState.state.devInlineFixtureEnabled,
-        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
-        expandedDirectoryPaths: new Set<string>(),
-        folderAccessOrder: [restoredRootId],
-        folderStates: {
-          [restoredRootId]: runtimeFolderState,
-        },
-        folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
-        includeFilters: [...nextFileExplorerState.state.includeFilters],
-        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
-        isFiltersExpanded: nextFileExplorerState.state.isFiltersExpanded ?? true,
-        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
-        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
-        quickFilter: nextFileExplorerState.state.quickFilter,
-        rootDirectoryHandle: {
-          kind: 'directory',
-          name: restoredFolderName,
-          path: restoredFolderPath,
-          platform: 'electron',
-        },
-        selectedFilePaths: new Set<string>(),
-        selectionModel: {
-          explicitPaths: new Set<string>(),
-          materializedAt: nextFileExplorerState.state.selectionModel?.materializedAt ?? null,
-          materializedPaths: null,
-          mode: nextFileExplorerState.state.selectionModel?.mode ?? 'explicit',
-        },
-        useRegex: nextFileExplorerState.state.useRegex,
-        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
-      });
 
       localStorage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
     },
-    {
-      nextFileExplorerState: fileExplorerState,
-      nextTabState: tabState,
-      restoredFolderName: RESTORED_FOLDER_NAME,
-      restoredFolderPath: RESTORED_FOLDER_PATH,
-      restoredRootId: RESTORED_ROOT_ID,
-    }
+    { nextFileExplorerState: fileExplorerState, nextTabState: tabState }
   );
   // Main's ledgers: the rootsList entry carries the fixed RootId so main's restoreRoots()
   // resolves the restored folder to this exact id on boot. lastFolderPath is seeded directly:

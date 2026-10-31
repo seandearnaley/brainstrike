@@ -15,10 +15,9 @@ import { seedMainLedgers } from './seed-root';
 import { seedHostThreads } from './seed-threads';
 
 /**
- * The three renderer writers with a write-behind tail (ADR-0026 R1), driven through the real UI
- * and read back from each one's owner: the thread workspace snapshot from the agent host,
- * Explorer persistence from Main's `electron-storage.json`, the panel layout from the profile's
- * localStorage. No transport is patched and no write is held: the contract is "the last write is
+ * The renderer's durable UI writers (ADR-0026 R1), driven through the real UI and read back from
+ * each one's owner: the thread workspace snapshot from the agent host, Explorer persistence and
+ * the panel layout from the profile's localStorage. No transport is patched and no write is held: the contract is "the last write is
  * committed before the document unloads", read where it is committed.
  */
 export interface DurableUiFixture {

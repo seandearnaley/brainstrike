@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildQuerySelectionFingerprint } from '@brainstrike/file-explorer';
 import {
@@ -11,6 +11,8 @@ import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import type { ElectronApplication, Locator, Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
+import { reloadRenderer } from './utils/electron-helpers.mts';
+import { seedMainLedgers } from './utils/seed-root';
 
 export { expect, test };
 // NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
@@ -21,9 +23,10 @@ export { expect, test };
 /**
  * Harness surface the seeding helpers need.
  *
- * The helpers write Main's storage into the harness's own userData directory
- * (the app's `userData` path, BRAINSTRIKE_E2E_USER_DATA_DIR) before the app
- * first launches, so a restore spec boots once instead of twice.
+ * The helpers save the Explorer snapshot in a running renderer's `localStorage`
+ * (renderer-only state that only a document can write) and the root in Main's
+ * ledgers, reload so the document restores both, then close the app so the
+ * spec's restart reads what that document kept.
  * `closeForStateSeeding` is mandatory when an app is running: the harness
  * registers every process it launches with `ElectronProcessExitGuard`, so
  * closing a harness-owned app any other way (e.g. `closeElectronApp` directly)
@@ -32,6 +35,7 @@ export { expect, test };
  */
 export interface SeedableElectronHarness {
   closeForStateSeeding: () => Promise<void>;
+  ensureWindow: () => Promise<Page>;
   getUserDataDir: () => string;
 }
 
@@ -632,6 +636,34 @@ function createRestoredQuerySelectionSnapshot(args: {
   };
 }
 
+/**
+ * Saves the Explorer snapshot in the renderer's `localStorage` and the root in Main's ledgers,
+ * reloads so the document restores both as a launch would, then closes the app for a restart.
+ */
+async function seedRestoredState(
+  electronHarness: SeedableElectronHarness,
+  rootPath: string,
+  persistedState: unknown
+): Promise<void> {
+  const page = await electronHarness.ensureWindow();
+  await page.evaluate(
+    ({ key, value }) => {
+      localStorage.setItem(key, value);
+    },
+    { key: FILE_EXPLORER_STORAGE_KEY, value: JSON.stringify(persistedState) }
+  );
+  // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this entry, so the
+  // restored root carries the same RootId the snapshot is keyed by.
+  await seedMainLedgers(page, {
+    lastFolderPath: rootPath,
+    rootsList: JSON.stringify([
+      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
+    ]),
+  });
+  await reloadRenderer(page, 'file-explorer-selection: seed restored state');
+  await electronHarness.closeForStateSeeding();
+}
+
 export async function seedRestoredExplicitSelectionState(args: {
   electronHarness: SeedableElectronHarness;
   expandedDirectoryPaths: string[];
@@ -639,36 +671,11 @@ export async function seedRestoredExplicitSelectionState(args: {
   selectedFilePaths: string[];
 }): Promise<void> {
   const { electronHarness, expandedDirectoryPaths, rootPath, selectedFilePaths } = args;
-  const persistedState = createRestoredExplicitSelectionSnapshot({
-    expandedDirectoryPaths,
+  await seedRestoredState(
+    electronHarness,
     rootPath,
-    selectedFilePaths,
-  });
-  const userDataDir = electronHarness.getUserDataDir();
-
-  await electronHarness.closeForStateSeeding();
-
-  const storagePath = path.join(userDataDir, 'electron-storage.json');
-  let existingStorage: Record<string, string> = {};
-  try {
-    existingStorage = JSON.parse(await readFile(storagePath, 'utf8')) as Record<string, string>;
-  } catch {
-    existingStorage = {};
-  }
-
-  const nextStorage = {
-    ...existingStorage,
-    lastFolderPath: rootPath,
-    // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this
-    // entry, so the restored root carries the same RootId the snapshot is keyed by.
-    rootsList: JSON.stringify([
-      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
-    ]),
-    [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
-  };
-
-  await mkdir(userDataDir, { recursive: true });
-  await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
+    createRestoredExplicitSelectionSnapshot({ expandedDirectoryPaths, rootPath, selectedFilePaths })
+  );
 }
 
 export async function seedRestoredQuerySelectionState(args: {
@@ -685,33 +692,11 @@ export async function seedRestoredQuerySelectionState(args: {
   selectionRootPath: string;
 }): Promise<void> {
   const { electronHarness, ...snapshot } = args;
-  const { rootPath } = snapshot;
-  const persistedState = createRestoredQuerySelectionSnapshot(snapshot);
-  const userDataDir = electronHarness.getUserDataDir();
-
-  await electronHarness.closeForStateSeeding();
-
-  const storagePath = path.join(userDataDir, 'electron-storage.json');
-  let existingStorage: Record<string, string> = {};
-  try {
-    existingStorage = JSON.parse(await readFile(storagePath, 'utf8')) as Record<string, string>;
-  } catch {
-    existingStorage = {};
-  }
-
-  const nextStorage = {
-    ...existingStorage,
-    lastFolderPath: rootPath,
-    // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this
-    // entry, so the restored root carries the same RootId the snapshot is keyed by.
-    rootsList: JSON.stringify([
-      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
-    ]),
-    [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
-  };
-
-  await mkdir(userDataDir, { recursive: true });
-  await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
+  await seedRestoredState(
+    electronHarness,
+    snapshot.rootPath,
+    createRestoredQuerySelectionSnapshot(snapshot)
+  );
 }
 
 async function writeLive3dmolRestoreFixture(args: {

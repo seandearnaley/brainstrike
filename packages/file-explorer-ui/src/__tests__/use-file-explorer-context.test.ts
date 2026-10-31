@@ -1,8 +1,4 @@
-import {
-  useAdapters,
-  useFileExplorer as useCoreFileExplorer,
-  useFileContentLoading,
-} from '@brainstrike/file-explorer-hooks';
+import { useAdapters, useFileContentLoading } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { act } from '@brainstrike/test-utils/react-act';
@@ -40,7 +36,6 @@ vi.mock('../use-shared-file-content-loading', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: vi.fn(),
   useFileContentLoading: vi.fn(),
-  useFileExplorer: vi.fn(),
 }));
 
 const mockApplyFileFilters = vi.fn();
@@ -277,14 +272,6 @@ describe('useFileExplorer (context)', () => {
       loadingFiles: new Set<string>(),
       reloadFileContents: vi.fn(),
     });
-
-    const coreReturn = {
-      error: null,
-      filterError: null,
-      isLoading: false,
-      rootDirectoryHandle: rootHandle,
-    } as unknown as ReturnType<typeof useCoreFileExplorer>;
-    vi.mocked(useCoreFileExplorer).mockReturnValue(coreReturn);
 
     vi.mocked(useAdapters).mockReturnValue({
       fileSystemAdapter: {

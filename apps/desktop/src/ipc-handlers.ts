@@ -37,6 +37,8 @@ interface RegisterIpcHandlerOptions {
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
   readonly onWorkspaceRootsChanged?: () => void;
+  /** Resolves once the roots catalog's profile is open (a factory reset holds it). */
+  readonly whenRootsCatalogOpen?: () => Promise<void>;
 }
 
 /**
@@ -79,6 +81,7 @@ export function createApplicationIpcDomain(
     fileSystem,
     ...(options?.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
     getRootsCatalog: options.getRootsCatalog,
+    ...(options.whenRootsCatalogOpen ? { whenRootsCatalogOpen: options.whenRootsCatalogOpen } : {}),
     ...(options?.isSyntheticFileSystemPath
       ? { isSyntheticFileSystemPath: options.isSyntheticFileSystemPath }
       : {}),
