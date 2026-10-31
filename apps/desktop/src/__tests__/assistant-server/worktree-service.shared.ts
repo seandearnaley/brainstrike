@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type { StateStore, WorktreeLedgerPort } from '@brainstrike/state-store';
 import { createWorktreeService } from '../../assistant-server/worktree-service';
 import { execFileGitRunner } from '../../git-ipc-handlers';
@@ -65,7 +66,14 @@ export function buildTestService(
       Promise.resolve(
         rootId === 'r-1'
           ? { ok: true as const, value: ctx.repo }
-          : { error: 'unknown root', ok: false as const }
+          : {
+              error: refusal({
+                category: 'input',
+                code: 'workspace.root-unknown',
+                message: 'unknown root',
+              }),
+              ok: false as const,
+            }
       ),
     resolveRootPaths: () => Promise.resolve([{ id: 'r-1', path: ctx.repo }]),
     run: execFileGitRunner,

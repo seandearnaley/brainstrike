@@ -29,9 +29,9 @@ function terminals() {
       ok: true as const,
       value: { cwd: '/repo', terminalId: 'pty-1' },
     })),
-    'terminal/destroy': vi.fn(async () => ({ ok: true as const })),
-    'terminal/resize': vi.fn(async () => ({ ok: true as const })),
-    'terminal/write': vi.fn(async () => ({ ok: true as const })),
+    'terminal/destroy': vi.fn(async () => ({ ok: true as const, value: null })),
+    'terminal/resize': vi.fn(async () => ({ ok: true as const, value: null })),
+    'terminal/write': vi.fn(async () => ({ ok: true as const, value: null })),
   };
   const open = vi.fn((send: (event: TerminalEvent) => void) => {
     push = send;

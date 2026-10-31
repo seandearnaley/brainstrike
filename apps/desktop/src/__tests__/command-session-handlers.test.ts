@@ -80,8 +80,11 @@ describe('host command session handlers', () => {
 
     expect(handlers.read({ cursor: 0, rootId: 'root-1', sessionId: 'session-1' })).toEqual({
       error: {
-        code: 'internal',
-        message: 'Command-session manager returned an oversized page.',
+        category: 'internal',
+        code: 'command-session.internal',
+        correlationId: expect.any(String),
+        kind: 'fault',
+        message: 'The command session failed unexpectedly.',
       },
       ok: false,
     });
@@ -113,7 +116,12 @@ describe('host command session handlers', () => {
     const handlers = createCommandSessionHandlers(manager);
 
     await expect(handlers.stop({ rootId: 'wrong-root', sessionId: 'missing' })).resolves.toEqual({
-      error: { code: 'session-not-found', message: 'No command session "missing".' },
+      error: {
+        category: 'input',
+        code: 'command-session.session-not-found',
+        kind: 'refusal',
+        message: 'No command session "missing".',
+      },
       ok: false,
     });
   });
@@ -124,12 +132,15 @@ describe('host command session handlers', () => {
 
     expect(handlers.write({ data: 'y\n', rootId: 'root-1', sessionId: 'session-1' })).toEqual({
       ok: true,
+      value: null,
     });
     await expect(handlers.stop({ rootId: 'root-1', sessionId: 'session-1' })).resolves.toEqual({
       ok: true,
+      value: null,
     });
     await expect(handlers.remove({ rootId: 'root-1', sessionId: 'session-1' })).resolves.toEqual({
       ok: true,
+      value: null,
     });
     expect(manager.write).toHaveBeenCalledWith('root-1', 'session-1', 'y\n');
     expect(manager.stop).toHaveBeenCalledWith('root-1', 'session-1');

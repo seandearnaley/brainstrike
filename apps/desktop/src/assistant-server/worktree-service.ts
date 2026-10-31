@@ -121,7 +121,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   ): Promise<BoundaryResult<RepositoryContext>> {
     const cwd = await deps.resolveRootCwd(rootId);
     if (!cwd.ok) {
-      return gitRefused('input', 'workspace.root-unresolved', cwd.error);
+      return cwd;
     }
     const invoke = invokeIn(cwd.value);
     const commonDirRun = await invokeGitHookFree(invoke, [

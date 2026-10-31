@@ -76,7 +76,7 @@ async function open(owner: ReturnType<typeof terminals>, events: TerminalEvent[]
   const session = owner.service.open((event) => events.push(event));
   const created = await session['terminal/create']({ rootId: 'root' });
   if (!created.ok) {
-    throw new Error(created.error);
+    throw new Error(created.error.message);
   }
   const pty = ptys.at(-1);
   if (!pty) {
@@ -106,7 +106,10 @@ describe('desktop terminals', () => {
     mine.pty.output('hello');
     await expect(
       other['terminal/write']({ data: 'rm -rf ~\r', terminalId: mine.terminalId })
-    ).resolves.toEqual({ error: `No live terminal "${mine.terminalId}".`, ok: false });
+    ).resolves.toMatchObject({
+      error: { code: 'terminal.not-found', message: `No live terminal "${mine.terminalId}".` },
+      ok: false,
+    });
     mine.pty.exit();
 
     expect(mine.events).toEqual([
@@ -121,7 +124,7 @@ describe('desktop terminals', () => {
     const session = terminals().service.open(() => undefined);
     const created = await session['terminal/create']({ cwd: tmpdir(), rootId: 'root' });
 
-    expect(created.ok).toBe(false);
+    expect(created).toMatchObject({ error: { code: 'workspace.cwd-outside-root' }, ok: false });
     expect(ptys).toEqual([]);
   });
 });

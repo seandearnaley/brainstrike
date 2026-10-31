@@ -27,7 +27,6 @@ import type {
   StructuredFileDiff,
   StructuredFileDiffParams,
 } from '@brainstrike/types';
-import type { RootCwdResult } from '../workspace-root-cwd';
 import {
   describeFailure,
   gitCommandFailed,
@@ -117,13 +116,13 @@ function requireStringRootId(rootId: unknown): BoundaryResult<string> {
  * `worktreePath`.
  */
 async function resolveContainedWorktreeCwd(
-  resolveRootCwd: (rootId: unknown) => Promise<RootCwdResult>,
+  resolveRootCwd: (rootId: unknown) => Promise<BoundaryResult<string>>,
   rootId: unknown,
   worktreePath: string
 ): Promise<BoundaryResult<string>> {
   const rootCwd = await resolveRootCwd(rootId);
   if (!rootCwd.ok) {
-    return gitRefused('input', 'workspace.root-unresolved', rootCwd.error);
+    return rootCwd;
   }
   let worktreeReal: string;
   try {
@@ -499,7 +498,7 @@ async function resolveScopeChanges(
 }
 
 export interface GitScopeDeps {
-  readonly resolveRootCwd: (rootId: unknown) => Promise<RootCwdResult>;
+  readonly resolveRootCwd: (rootId: unknown) => Promise<BoundaryResult<string>>;
   readonly run: GitCommandRunner;
 }
 
