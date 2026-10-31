@@ -117,11 +117,11 @@ const platform = {
 function port(store) {
   const state = { dead: false };
   state.port = {
-    append: async (items, committed, durability) => {
+    append: async (items, durability) => {
       if (state.dead) {
         throw new Error('process crashed');
       }
-      return store.append(items, committed, durability);
+      return store.append(items, durability);
     },
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),

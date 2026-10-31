@@ -3,9 +3,9 @@
 // recorder was shown against the store. The spike's run-host boot sweep (marking interrupted runs) belongs to M3.
 // usage: node --import tsx kill-verify.ts <root> <recorderFile> <trial>
 import { readFileSync } from 'node:fs';
-import type { RunChunk } from '../../src/coalescer.js';
 import { StateStore } from '../../src/state-store.js';
 import { checkShownInLog, type ShownChunk } from './shown-check.js';
+import type { RunChunk } from './workload.js';
 
 const [root, recFile, trial] = process.argv.slice(2) as [string, string, string];
 const shown = readFileSync(recFile, 'utf8')
@@ -36,11 +36,8 @@ let rows = 0;
 for (const t of threads) {
   for (const row of await store.read(t)) {
     rows++;
-    if (row.event.type !== 'ui.chunk') {
-      continue;
-    }
-    for (const c of row.event['chunks'] as RunChunk[]) {
-      logged.push({ c, r: String(row.event['runId']), t });
+    if (row.event.type === 'stream.chunk') {
+      logged.push({ c: row.event['chunk'] as RunChunk, r: String(row.event['runId']), t });
     }
   }
 }
