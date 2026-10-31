@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/types": "workspace:*"
+    "@brainstrike/types": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -18,7 +19,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./indexer-client": "./src/indexer-client.ts",
-    "./indexer-producer": "./src/indexer-producer.ts"
+    "./indexer-producer": "./src/indexer-producer.ts",
+    "./indexer-producer-schema": "./src/indexer-producer-schema.ts"
   },
   "license": "MIT",
   "private": true,
