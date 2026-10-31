@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { MessageConnection } from 'vscode-jsonrpc/node';
-import { LspReadPolicyError, withLspDocument } from '../../assistant-server/lsp-document-session';
+import { LspReadPolicyError, withLspDocument } from '../src/native-tools/lsp-document-session.js';
 
 let root: string;
 let file: string;
