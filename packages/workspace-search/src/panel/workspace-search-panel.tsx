@@ -1,7 +1,7 @@
 import { Button } from '@brainstrike/ui';
 import { AlertCircle, Loader2, Search } from 'lucide-react';
 import type * as React from 'react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import { SearchCoverageBanner } from './search-coverage-banner';
 import { SearchInputBar } from './search-input-bar';
@@ -63,7 +63,7 @@ export function WorkspaceSearchPanel({
   // Instead we fail VISIBLY (error card) while PRESERVING the user's mode —
   // `beginSearch` + `failSearch` reuse the generation-guarded store transition
   // so the surfaced error can't clobber a newer in-flight run.
-  const onSubmit = useCallback(() => {
+  const onSubmit = () => {
     if (mode !== 'semantic') {
       runTextSearch();
       return;
@@ -75,17 +75,17 @@ export function WorkspaceSearchPanel({
     const store = useWorkspaceSearchStore.getState();
     const generation = store.beginSearch();
     store.failSearch(semanticReason ?? SEMANTIC_UNAVAILABLE_NO_CHUNKS, generation);
-  }, [mode, semanticAvailable, semanticReason, runSemanticSearch, runTextSearch]);
+  };
 
   // Show-more paging (text mode only, Task P2): bump the store's cap, then
   // rerun the current text search — `beginSearch()` inside `runTextSearch`
   // supplies the generation guard, so a mode switch (or any other invalidating
   // change) right after this click drops the late results instead of
   // resurrecting a now-stale run.
-  const handleShowMore = useCallback(() => {
+  const handleShowMore = () => {
     useWorkspaceSearchStore.getState().increaseTextResultLimit();
     runTextSearch();
-  }, [runTextSearch]);
+  };
 
   // Latest-value refs keep the debounce effect's dependency list scoped to the
   // query controls (not the run-callback/mode identity) while still calling the
@@ -140,9 +140,9 @@ export function WorkspaceSearchPanel({
     return () => clearTimeout(timer);
   }, [query, caseSensitive, isRegex, wholeWord]);
 
-  const handleRetry = useCallback(() => {
+  const handleRetry = () => {
     onSubmit();
-  }, [onSubmit]);
+  };
 
   return (
     // One column the panel's width: an `auto` track grew to its widest row's

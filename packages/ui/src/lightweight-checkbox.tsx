@@ -35,20 +35,17 @@ const LightweightCheckbox = ({
   // Combine refs
   React.useImperativeHandle(ref, () => inputRef.current as HTMLInputElement, []);
 
-  const handleClick = React.useCallback(
-    (event: React.MouseEvent<HTMLInputElement>) => {
-      event.stopPropagation();
+  const handleClick = (event: React.MouseEvent<HTMLInputElement>) => {
+    event.stopPropagation();
 
-      if (props.disabled) {
-        return;
-      }
+    if (props.disabled) {
+      return;
+    }
 
-      const newChecked = checked !== true;
-      onCheckedChange?.(newChecked);
-      onClick?.(event);
-    },
-    [checked, onCheckedChange, onClick, props.disabled]
-  );
+    const newChecked = checked !== true;
+    onCheckedChange?.(newChecked);
+    onClick?.(event);
+  };
 
   // Update input state for indeterminate and data-state attribute
   React.useLayoutEffect(() => {

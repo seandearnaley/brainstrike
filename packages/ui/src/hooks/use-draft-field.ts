@@ -1,13 +1,5 @@
 import type * as React from 'react';
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 /**
  * What the user typed. A number input reports `text: ''` for unparseable text
@@ -128,12 +120,12 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
   const standingRefusal = useRef(false);
   const scope = useContext(DraftFieldScopeContext);
 
-  const setDraft = useCallback((next: DraftInput | null): void => {
+  const setDraft = (next: DraftInput | null): void => {
     pending.current = next;
     setDraftState(next);
-  }, []);
+  };
   /** `true` when nothing is pending or the draft landed; `false` when refused. */
-  const commitPending = useCallback((): boolean => {
+  const commitPending = (): boolean => {
     const current = pending.current;
     if (current === null) {
       return true;
@@ -150,7 +142,7 @@ export function useDraftField({ commit, onRevert, value }: DraftFieldOptions): D
     }
     setDraft(null);
     return true;
-  }, [setDraft]);
+  };
   const revert = (): void => {
     setDraft(null);
     setError(undefined);

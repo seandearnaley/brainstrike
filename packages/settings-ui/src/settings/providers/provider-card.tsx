@@ -9,7 +9,7 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract/provider
 import { Badge, Button, Card, cn, getProviderColor, ProviderIcon } from '@brainstrike/ui';
 import { ChevronDown, ExternalLink } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CredentialInventory } from '../secrets/credential-inventory/credential-inventory';
 import { KeySourceBadge } from '../secrets/key-source-badge';
 import type {
@@ -189,20 +189,17 @@ export function ProviderCard({
   // parent callback from it was pushing state upward from a render pass — the
   // thing `no-prop-callback-in-effect` exists to stop — and it needed a second
   // latch to stay idempotent.
-  const handleProbeResolved = useCallback(
-    (snapshot: ProviderVerificationSnapshot) => {
-      if (!chainProbeFired.current) {
-        return;
-      }
-      chainProbeFired.current = false;
-      const { status } = snapshot.result;
-      // Only a credential that actually authenticated earns the model step.
-      if (status === 'verified' || status === 'verified_limited') {
-        onRequestExpand(providerId);
-      }
-    },
-    [onRequestExpand, providerId]
-  );
+  const handleProbeResolved = (snapshot: ProviderVerificationSnapshot) => {
+    if (!chainProbeFired.current) {
+      return;
+    }
+    chainProbeFired.current = false;
+    const { status } = snapshot.result;
+    // Only a credential that actually authenticated earns the model step.
+    if (status === 'verified' || status === 'verified_limited') {
+      onRequestExpand(providerId);
+    }
+  };
 
   // The probe is button-driven, so naming the provider unconditionally costs
   // nothing and keeps chaining available on a collapsed card.

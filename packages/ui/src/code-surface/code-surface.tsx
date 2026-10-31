@@ -15,7 +15,7 @@ import {
   lineNumbers,
   rectangularSelection,
 } from '@codemirror/view';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { cn } from '../lib/utils';
 import { type CodeSurfaceLanguageResolution, resolveCodeSurfaceLanguage } from './language';
 import { appSyntaxHighlighting } from './syntax-highlighting';
@@ -186,10 +186,10 @@ export function CodeSurface({
     value,
   });
 
-  const resolvedLanguage = useMemo<CodeSurfaceLanguageResolution>(
-    () => resolveCodeSurfaceLanguage({ language, path }),
-    [language, path]
-  );
+  const resolvedLanguage: CodeSurfaceLanguageResolution = resolveCodeSurfaceLanguage({
+    language,
+    path,
+  });
 
   useEffect(() => {
     callbacksRef.current = {

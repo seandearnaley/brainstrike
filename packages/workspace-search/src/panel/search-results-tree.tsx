@@ -9,7 +9,7 @@ import {
 } from '@brainstrike/ui';
 import { File as FileIcon, Paperclip, TextQuote } from 'lucide-react';
 import type * as React from 'react';
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { FileSelectionState } from '../bridge/use-search-selection-bridge';
 import { useSearchSelectionBridge } from '../bridge/use-search-selection-bridge';
 import { unindexedFoldersNote } from '../core/native-workspace-search';
@@ -291,12 +291,12 @@ function SelectAllHeader({
   const state = rollupSelectAllState(bridge, fileKeys);
   const label = `Select ${fileKeys.length} shown`;
 
-  const onToggle = useCallback(() => {
+  const onToggle = () => {
     const nextChecked = state !== 'checked';
     for (const key of fileKeys) {
       bridge.toggleFile(key, nextChecked);
     }
-  }, [bridge, fileKeys, state]);
+  };
 
   return (
     <div className="flex items-center gap-2 border-b px-2 py-1.5">
@@ -363,10 +363,7 @@ export function SearchResultsTree({
   const toggleExpanded = useWorkspaceSearchStore((state) => state.toggleExpanded);
   const bridge = useSearchSelectionBridge();
 
-  const nodes = useMemo(
-    () => (results ? buildSearchTreeNodes({ expandedIds, resolveAdapterRootId, results }) : []),
-    [results, expandedIds, resolveAdapterRootId]
-  );
+  const nodes = results ? buildSearchTreeNodes({ expandedIds, resolveAdapterRootId, results }) : [];
 
   const nodeById = useMemo(() => {
     const map = new Map<string, TreeNode<SearchNodeData>>();
@@ -379,16 +376,12 @@ export function SearchResultsTree({
   // Composite keys of every currently loaded (rendered) file row, regardless of
   // expansion — select-all operates on this set only, never on files omitted
   // upstream for an unmounted root.
-  const fileKeys = useMemo(
-    () =>
-      nodes.reduce<string[]>((keys, node) => {
-        if (node.data.kind === 'file' && node.data.compositeKey !== null) {
-          keys.push(node.data.compositeKey);
-        }
-        return keys;
-      }, []),
-    [nodes]
-  );
+  const fileKeys = nodes.reduce<string[]>((keys, node) => {
+    if (node.data.kind === 'file' && node.data.compositeKey !== null) {
+      keys.push(node.data.compositeKey);
+    }
+    return keys;
+  }, []);
 
   // Badge whenever the WORKSPACE is multi-root (the user needs attribution
   // even for a single-root result set), falling back to result-set diversity
@@ -406,102 +399,85 @@ export function SearchResultsTree({
     return roots.size > 1;
   }, [nodes, workspaceRootCount]);
 
-  const ctx = useMemo<RowRenderContext>(
-    () => ({
-      caseSensitive,
-      highlightEnabled: mode === 'text' && !isRegex,
-      onAttachFile,
-      query: query.trim(),
-      showRootBadge,
-    }),
-    [caseSensitive, mode, isRegex, onAttachFile, query, showRootBadge]
-  );
+  const ctx: RowRenderContext = {
+    caseSensitive,
+    highlightEnabled: mode === 'text' && !isRegex,
+    onAttachFile,
+    query: query.trim(),
+    showRootBadge,
+  };
 
-  const getCheckboxState = useCallback(
-    (node: TreeNode<SearchNodeData>): CheckboxState | 'hidden' => {
-      const { data } = node;
-      if (data.kind !== 'file' || data.compositeKey === null) {
-        return 'hidden';
-      }
-      return bridge.fileState(data.compositeKey);
-    },
-    [bridge]
-  );
+  const getCheckboxState = (node: TreeNode<SearchNodeData>): CheckboxState | 'hidden' => {
+    const { data } = node;
+    if (data.kind !== 'file' || data.compositeKey === null) {
+      return 'hidden';
+    }
+    return bridge.fileState(data.compositeKey);
+  };
 
-  const getCheckboxAriaLabel = useCallback((node: TreeNode<SearchNodeData>): string | undefined => {
+  const getCheckboxAriaLabel = (node: TreeNode<SearchNodeData>): string | undefined => {
     const { data } = node;
     return data.kind === 'file' ? `Select ${data.file.path}` : undefined;
-  }, []);
+  };
 
-  const onCheckboxChange = useCallback(
-    (node: TreeNode<SearchNodeData>, nextState: TreeTableCheckboxNextState) => {
-      const { data } = node;
-      if (data.kind === 'file' && data.compositeKey !== null) {
-        bridge.toggleFile(data.compositeKey, nextState === 'checked');
-      }
-    },
-    [bridge]
-  );
+  const onCheckboxChange = (
+    node: TreeNode<SearchNodeData>,
+    nextState: TreeTableCheckboxNextState
+  ) => {
+    const { data } = node;
+    if (data.kind === 'file' && data.compositeKey !== null) {
+      bridge.toggleFile(data.compositeKey, nextState === 'checked');
+    }
+  };
 
-  const columns = useMemo(
-    () => [
-      {
-        cell: ({ node }: { node: TreeNode<SearchNodeData> }) => {
-          switch (node.data.kind) {
-            case 'file':
-              return <FileRow ctx={ctx} data={node.data} />;
-            case 'match':
-              return <MatchRow ctx={ctx} data={node.data} />;
-            default:
-              return <ChunkRow data={node.data} />;
-          }
-        },
-        header: 'Results',
-        id: 'result',
-        // Reserve toggle space on EVERY row (default). A depth-0 file row shows a
-        // real expand toggle (28px); leaf semantic chunk rows (depth 1) have no
-        // children, so without the reserved spacer their checkbox would sit at
-        // 20px indent — LEFT of the file checkbox's 28px, the reported "chunks
-        // indented less than files" regression. Reserving the spacer keeps every
-        // level's checkbox aligned at `depth*20 + 28`.
-        reserveToggleSpace: true,
+  const columns = [
+    {
+      cell: ({ node }: { node: TreeNode<SearchNodeData> }) => {
+        switch (node.data.kind) {
+          case 'file':
+            return <FileRow ctx={ctx} data={node.data} />;
+          case 'match':
+            return <MatchRow ctx={ctx} data={node.data} />;
+          default:
+            return <ChunkRow data={node.data} />;
+        }
       },
-    ],
-    [ctx]
-  );
-
-  const handleSelect = useCallback(
-    (nodeId: string | null) => {
-      if (nodeId === null) {
-        return;
-      }
-      const node = nodeById.get(nodeId);
-      if (!node || node.data.compositeKey === null) {
-        return;
-      }
-      const target = openTargetForData(node.data);
-      if (target === undefined) {
-        onOpenFile(node.data.compositeKey);
-        return;
-      }
-      onOpenFile(node.data.compositeKey, target);
+      header: 'Results',
+      id: 'result',
+      // Reserve toggle space on EVERY row (default). A depth-0 file row shows a
+      // real expand toggle (28px); leaf semantic chunk rows (depth 1) have no
+      // children, so without the reserved spacer their checkbox would sit at
+      // 20px indent — LEFT of the file checkbox's 28px, the reported "chunks
+      // indented less than files" regression. Reserving the spacer keeps every
+      // level's checkbox aligned at `depth*20 + 28`.
+      reserveToggleSpace: true,
     },
-    [nodeById, onOpenFile]
-  );
+  ];
+
+  const handleSelect = (nodeId: string | null) => {
+    if (nodeId === null) {
+      return;
+    }
+    const node = nodeById.get(nodeId);
+    if (!node || node.data.compositeKey === null) {
+      return;
+    }
+    const target = openTargetForData(node.data);
+    if (target === undefined) {
+      onOpenFile(node.data.compositeKey);
+      return;
+    }
+    onOpenFile(node.data.compositeKey, target);
+  };
 
   const notices = results?.notices;
 
   // Count the leaf result rows actually rendered (text matches + semantic chunks)
   // so the truncated notice can name an honest limit ("first N matches") instead
   // of a false "Show more" affordance.
-  const renderedMatchCount = useMemo(
-    () =>
-      nodes.reduce(
-        (count, node) =>
-          node.data.kind === 'match' || node.data.kind === 'chunk' ? count + 1 : count,
-        0
-      ),
-    [nodes]
+  const renderedMatchCount = nodes.reduce(
+    (count, node) => (node.data.kind === 'match' || node.data.kind === 'chunk' ? count + 1 : count),
+    0
   );
 
   return (

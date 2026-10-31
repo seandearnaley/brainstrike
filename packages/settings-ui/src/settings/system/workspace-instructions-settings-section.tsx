@@ -30,7 +30,7 @@ import {
   Label,
   Switch,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const logger = createLogger('WorkspaceInstructionsSettings');
 
@@ -91,7 +91,7 @@ export function WorkspaceInstructionsSettingsSection() {
   // error state — NEVER swallowed into the empty state, which would falsely
   // claim no workspace folders are open. The applier arrows keep setState out of
   // the effect body (react-compiler-friendly data-fetch-in-effect).
-  const runScan = useCallback(() => {
+  const runScan = () => {
     const bridge = resolveContextFilesBridge();
     if (!bridge) {
       return;
@@ -112,7 +112,7 @@ export function WorkspaceInstructionsSettingsSection() {
         logger.error('Workspace context-file scan failed', { error: detail });
         setScanError(detail);
       });
-  }, []);
+  };
 
   useEffect(() => {
     runScan();

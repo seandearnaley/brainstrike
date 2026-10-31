@@ -101,67 +101,58 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     focusedIdRef.current = focusedId;
   }, [focusedId]);
 
-  const getRowById = React.useCallback(
-    (nodeId: string): FlattenedRow<T> | null => {
-      const index = rowIndexById.get(nodeId);
-      if (index === undefined) {
-        return null;
-      }
-      return rows[index] ?? null;
-    },
-    [rowIndexById, rows]
-  );
+  const getRowById = (nodeId: string): FlattenedRow<T> | null => {
+    const index = rowIndexById.get(nodeId);
+    if (index === undefined) {
+      return null;
+    }
+    return rows[index] ?? null;
+  };
 
-  const selectRangeByIndexes = React.useCallback(
-    (fromId: string, toId: string): Set<string> => {
-      const fromIndex = rowIndexById.get(fromId);
-      const toIndex = rowIndexById.get(toId);
-      if (fromIndex === undefined || toIndex === undefined) {
-        return new Set<string>();
-      }
+  const selectRangeByIndexes = (fromId: string, toId: string): Set<string> => {
+    const fromIndex = rowIndexById.get(fromId);
+    const toIndex = rowIndexById.get(toId);
+    if (fromIndex === undefined || toIndex === undefined) {
+      return new Set<string>();
+    }
 
-      const start = Math.min(fromIndex, toIndex);
-      const end = Math.max(fromIndex, toIndex);
-      const ids = new Set<string>();
-      for (let index = start; index <= end; index += 1) {
-        const row = rows[index];
-        if (row) {
-          ids.add(row.node.id);
-        }
+    const start = Math.min(fromIndex, toIndex);
+    const end = Math.max(fromIndex, toIndex);
+    const ids = new Set<string>();
+    for (let index = start; index <= end; index += 1) {
+      const row = rows[index];
+      if (row) {
+        ids.add(row.node.id);
       }
-      return ids;
-    },
-    [rowIndexById, rows]
-  );
+    }
+    return ids;
+  };
 
-  const getNextNodeId = React.useCallback(
-    (direction: 'up' | 'down', currentId: string | null): string | null => {
-      if (rows.length === 0) {
-        return null;
-      }
+  const getNextNodeId = (direction: 'up' | 'down', currentId: string | null): string | null => {
+    if (rows.length === 0) {
+      return null;
+    }
 
-      if (currentId === null) {
-        const firstRow = rows[0];
-        const lastRow = rows.at(-1);
-        return direction === 'down' ? (firstRow?.node.id ?? null) : (lastRow?.node.id ?? null);
-      }
+    if (currentId === null) {
+      const firstRow = rows[0];
+      const lastRow = rows.at(-1);
+      return direction === 'down' ? (firstRow?.node.id ?? null) : (lastRow?.node.id ?? null);
+    }
 
-      const currentIndex = rowIndexById.get(currentId);
-      if (currentIndex === undefined) {
-        const firstRow = rows[0];
-        return firstRow?.node.id ?? null;
-      }
+    const currentIndex = rowIndexById.get(currentId);
+    if (currentIndex === undefined) {
+      const firstRow = rows[0];
+      return firstRow?.node.id ?? null;
+    }
 
-      const nextIndex = direction === 'down' ? currentIndex + 1 : currentIndex - 1;
-      if (nextIndex < 0 || nextIndex >= rows.length) {
-        return null;
-      }
+    const nextIndex = direction === 'down' ? currentIndex + 1 : currentIndex - 1;
+    if (nextIndex < 0 || nextIndex >= rows.length) {
+      return null;
+    }
 
-      const nextRow = rows[nextIndex];
-      return nextRow?.node.id ?? null;
-    },
-    [rowIndexById, rows]
-  );
+    const nextRow = rows[nextIndex];
+    return nextRow?.node.id ?? null;
+  };
 
   // Sync focused state with table focus
   React.useEffect(() => {
@@ -211,23 +202,23 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   }, [isActive, rows, rowIndexById]);
 
   // Navigation actions
-  const moveUp = React.useCallback(() => {
+  const moveUp = () => {
     const nextId = getNextNodeId('up', focusedId);
     if (nextId) {
       setFocusedId(nextId);
       onScrollToNode?.(nextId);
     }
-  }, [getNextNodeId, focusedId, onScrollToNode]);
+  };
 
-  const moveDown = React.useCallback(() => {
+  const moveDown = () => {
     const nextId = getNextNodeId('down', focusedId);
     if (nextId) {
       setFocusedId(nextId);
       onScrollToNode?.(nextId);
     }
-  }, [getNextNodeId, focusedId, onScrollToNode]);
+  };
 
-  const expandOrMoveRight = React.useCallback(() => {
+  const expandOrMoveRight = () => {
     if (!focusedId) {
       return;
     }
@@ -252,9 +243,9 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         onToggleExpand(node.id);
       }
     }
-  }, [focusedId, getRowById, onToggleExpand, getChildren, onScrollToNode]);
+  };
 
-  const collapseOrMoveLeft = React.useCallback(() => {
+  const collapseOrMoveLeft = () => {
     if (!focusedId) {
       return;
     }
@@ -277,9 +268,9 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         onScrollToNode?.(parentId);
       }
     }
-  }, [focusedId, getRowById, nodes, onToggleExpand, getChildren, onScrollToNode]);
+  };
 
-  const selectFocused = React.useCallback(() => {
+  const selectFocused = () => {
     if (!focusedId || selectionMode === 'none') {
       return;
     }
@@ -291,9 +282,9 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
       onMultiSelectChange?.(new Set([focusedId]));
       rangeAnchorRef.current = focusedId;
     }
-  }, [focusedId, selectionMode, onSelect, onMultiSelectChange]);
+  };
 
-  const toggleFocused = React.useCallback(() => {
+  const toggleFocused = () => {
     if (!focusedId || selectionMode !== 'multi') {
       return;
     }
@@ -306,78 +297,68 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     }
     onMultiSelectChange?.(newSelection);
     rangeAnchorRef.current = focusedId;
-  }, [focusedId, selectionMode, multiSelectedIds, onMultiSelectChange]);
+  };
 
-  const setFocus = React.useCallback((nodeId: string | null) => {
+  const setFocus = (nodeId: string | null) => {
     setFocusedId(nodeId);
     if (nodeId) {
       setIsActive(true);
     }
-  }, []);
+  };
 
-  const reset = React.useCallback(() => {
+  const reset = () => {
     setFocusedId(null);
     setIsActive(false);
     rangeAnchorRef.current = null;
-  }, []);
+  };
 
   // Extend selection (for Shift+Arrow)
-  const extendSelection = React.useCallback(
-    (direction: 'up' | 'down') => {
-      if (selectionMode !== 'multi' || !focusedId) {
-        return;
-      }
+  const extendSelection = (direction: 'up' | 'down') => {
+    if (selectionMode !== 'multi' || !focusedId) {
+      return;
+    }
 
-      const nextId = getNextNodeId(direction, focusedId);
-      if (!nextId) {
-        return;
-      }
+    const nextId = getNextNodeId(direction, focusedId);
+    if (!nextId) {
+      return;
+    }
 
-      // If no anchor, set current as anchor
-      if (!rangeAnchorRef.current) {
-        rangeAnchorRef.current = focusedId;
-      }
+    // If no anchor, set current as anchor
+    if (!rangeAnchorRef.current) {
+      rangeAnchorRef.current = focusedId;
+    }
 
-      // Calculate range selection
-      const rangeIds = selectRangeByIndexes(rangeAnchorRef.current, nextId);
-      onMultiSelectChange?.(rangeIds);
+    // Calculate range selection
+    const rangeIds = selectRangeByIndexes(rangeAnchorRef.current, nextId);
+    onMultiSelectChange?.(rangeIds);
 
-      // Move focus
-      setFocusedId(nextId);
-      onScrollToNode?.(nextId);
-    },
-    [
-      selectionMode,
-      focusedId,
-      getNextNodeId,
-      selectRangeByIndexes,
-      onMultiSelectChange,
-      onScrollToNode,
-    ]
-  );
+    // Move focus
+    setFocusedId(nextId);
+    onScrollToNode?.(nextId);
+  };
 
   // Select all visible
-  const selectAll = React.useCallback(() => {
+  const selectAll = () => {
     if (selectionMode !== 'multi') {
       return;
     }
 
     const allIds = new Set(rows.map((r) => r.node.id));
     onMultiSelectChange?.(allIds);
-  }, [selectionMode, rows, onMultiSelectChange]);
+  };
 
   // Clear selection
-  const clearSelection = React.useCallback(() => {
+  const clearSelection = () => {
     if (selectionMode === 'single') {
       onSelect?.(null);
     } else if (selectionMode === 'multi') {
       onMultiSelectChange?.(new Set());
     }
     rangeAnchorRef.current = null;
-  }, [selectionMode, onSelect, onMultiSelectChange]);
+  };
 
   // Jump to first/last
-  const jumpToFirst = React.useCallback(() => {
+  const jumpToFirst = () => {
     if (rows.length > 0) {
       const firstRow = rows[0];
       if (firstRow) {
@@ -386,9 +367,9 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         onScrollToNode?.(firstId);
       }
     }
-  }, [rows, onScrollToNode]);
+  };
 
-  const jumpToLast = React.useCallback(() => {
+  const jumpToLast = () => {
     if (rows.length > 0) {
       const lastRow = rows.at(-1);
       if (lastRow) {
@@ -397,24 +378,21 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         onScrollToNode?.(lastId);
       }
     }
-  }, [rows, onScrollToNode]);
+  };
 
   // Handle arrow key with optional shift for selection extension
-  const handleArrowKey = React.useCallback(
-    (direction: 'up' | 'down', shiftKey: boolean) => {
-      if (shiftKey && selectionMode === 'multi') {
-        extendSelection(direction);
-      } else if (direction === 'up') {
-        moveUp();
-      } else {
-        moveDown();
-      }
-    },
-    [selectionMode, extendSelection, moveUp, moveDown]
-  );
+  const handleArrowKey = (direction: 'up' | 'down', shiftKey: boolean) => {
+    if (shiftKey && selectionMode === 'multi') {
+      extendSelection(direction);
+    } else if (direction === 'up') {
+      moveUp();
+    } else {
+      moveDown();
+    }
+  };
 
   // Handle space key action
-  const handleSpaceKey = React.useCallback(() => {
+  const handleSpaceKey = () => {
     if (focusedId && onCheckboxSpace?.(focusedId)) {
       return;
     }
@@ -423,10 +401,10 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     } else {
       selectFocused();
     }
-  }, [focusedId, onCheckboxSpace, selectionMode, toggleFocused, selectFocused]);
+  };
 
   // Activate navigation on first arrow key press
-  const activateNavigation = React.useCallback(() => {
+  const activateNavigation = () => {
     setIsActive(true);
     if (!focusedId && rows.length > 0) {
       const firstRow = rows[0];
@@ -434,92 +412,77 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         setFocusedId(firstRow.node.id);
       }
     }
-  }, [focusedId, rows]);
+  };
 
   // Keyboard event handler
-  const onKeyDown = React.useCallback(
-    (event: React.KeyboardEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest(
-          'button, a[href], input, select, textarea, [contenteditable="true"], [role="button"], [role="checkbox"], [role="menuitem"], [role="option"], [role="switch"], [role="tab"]'
-        )
-      ) {
-        return;
-      }
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest(
+        'button, a[href], input, select, textarea, [contenteditable="true"], [role="button"], [role="checkbox"], [role="menuitem"], [role="option"], [role="switch"], [role="tab"]'
+      )
+    ) {
+      return;
+    }
 
-      const { key, shiftKey, ctrlKey, metaKey } = event;
-      const modKey = ctrlKey || metaKey;
-      const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+    const { key, shiftKey, ctrlKey, metaKey } = event;
+    const modKey = ctrlKey || metaKey;
+    const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
-      if (!isActive && arrowKeys.includes(key)) {
-        activateNavigation();
+    if (!isActive && arrowKeys.includes(key)) {
+      activateNavigation();
+      event.preventDefault();
+      return;
+    }
+
+    // Handle 'a'/'A' for select all with modifier
+    if ((key === 'a' || key === 'A') && modKey) {
+      event.preventDefault();
+      selectAll();
+      return;
+    }
+
+    switch (key) {
+      case 'ArrowUp':
         event.preventDefault();
+        handleArrowKey('up', shiftKey);
         return;
-      }
-
-      // Handle 'a'/'A' for select all with modifier
-      if ((key === 'a' || key === 'A') && modKey) {
+      case 'ArrowDown':
         event.preventDefault();
-        selectAll();
+        handleArrowKey('down', shiftKey);
         return;
-      }
-
-      switch (key) {
-        case 'ArrowUp':
-          event.preventDefault();
-          handleArrowKey('up', shiftKey);
-          return;
-        case 'ArrowDown':
-          event.preventDefault();
-          handleArrowKey('down', shiftKey);
-          return;
-        case 'ArrowLeft':
-          event.preventDefault();
-          collapseOrMoveLeft();
-          return;
-        case 'ArrowRight':
-          event.preventDefault();
-          expandOrMoveRight();
-          return;
-        case 'Enter':
-          event.preventDefault();
-          selectFocused();
-          return;
-        case ' ':
-          event.preventDefault();
-          handleSpaceKey();
-          return;
-        case 'Home':
-          event.preventDefault();
-          jumpToFirst();
-          return;
-        case 'End':
-          event.preventDefault();
-          jumpToLast();
-          return;
-        case 'Escape':
-          event.preventDefault();
-          clearSelection();
-          return;
-        default:
-          return;
-      }
-    },
-    [
-      isActive,
-      activateNavigation,
-      handleArrowKey,
-      collapseOrMoveLeft,
-      expandOrMoveRight,
-      selectFocused,
-      handleSpaceKey,
-      jumpToFirst,
-      jumpToLast,
-      clearSelection,
-      selectAll,
-    ]
-  );
+      case 'ArrowLeft':
+        event.preventDefault();
+        collapseOrMoveLeft();
+        return;
+      case 'ArrowRight':
+        event.preventDefault();
+        expandOrMoveRight();
+        return;
+      case 'Enter':
+        event.preventDefault();
+        selectFocused();
+        return;
+      case ' ':
+        event.preventDefault();
+        handleSpaceKey();
+        return;
+      case 'Home':
+        event.preventDefault();
+        jumpToFirst();
+        return;
+      case 'End':
+        event.preventDefault();
+        jumpToLast();
+        return;
+      case 'Escape':
+        event.preventDefault();
+        clearSelection();
+        return;
+      default:
+        return;
+    }
+  };
 
   // State
   const state: KeyboardNavigationState = {
@@ -531,28 +494,16 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   // object in their dependency chain; a per-render literal would give every
   // TreeTableRow a fresh onClick and defeat the row memo (see
   // tree-table-render-stability.test.tsx).
-  const actions: KeyboardNavigationActions = React.useMemo(
-    () => ({
-      collapseOrMoveLeft,
-      expandOrMoveRight,
-      moveDown,
-      moveUp,
-      reset,
-      selectFocused,
-      setFocus,
-      toggleFocused,
-    }),
-    [
-      collapseOrMoveLeft,
-      expandOrMoveRight,
-      moveDown,
-      moveUp,
-      reset,
-      selectFocused,
-      setFocus,
-      toggleFocused,
-    ]
-  );
+  const actions: KeyboardNavigationActions = {
+    collapseOrMoveLeft,
+    expandOrMoveRight,
+    moveDown,
+    moveUp,
+    reset,
+    selectFocused,
+    setFocus,
+    toggleFocused,
+  };
 
   return {
     actions,

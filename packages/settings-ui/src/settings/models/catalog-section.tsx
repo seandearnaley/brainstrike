@@ -10,7 +10,7 @@ import {
   type TreeTableColumn,
 } from '@brainstrike/ui';
 import { ChevronRight } from 'lucide-react';
-import { type CSSProperties, type RefObject, useCallback, useId, useMemo } from 'react';
+import { type CSSProperties, type RefObject, useId } from 'react';
 import { buildSectionNodes, type CatalogNodeData, type CatalogRowNodes } from './catalog-nodes';
 import type { CatalogRow } from './catalog-projection';
 import type { CatalogSection as CatalogSectionModel } from './catalog-sections';
@@ -97,34 +97,28 @@ export function CatalogSection({
   section,
 }: CatalogSectionProps) {
   const regionId = useId();
-  const nodes = useMemo(() => buildSectionNodes(section.rows, getNodes), [getNodes, section.rows]);
-  const rowsById = useMemo(() => new Map(section.rows.map((row) => [row.id, row])), [section.rows]);
+  const nodes = buildSectionNodes(section.rows, getNodes);
+  const rowsById = new Map(section.rows.map((row) => [row.id, row]));
 
   // Space on a focused row toggles its switch (the checkbox-list pattern);
   // Space on a details row is not consumed.
-  const handleSpace = useCallback(
-    (nodeId: string): boolean => {
-      const row = rowsById.get(nodeId);
-      if (!row) {
-        return false;
-      }
-      if (!busyModelIds.has(row.id)) {
-        onToggleModel(row.id, !row.enabled);
-      }
-      return true;
-    },
-    [busyModelIds, onToggleModel, rowsById]
-  );
+  const handleSpace = (nodeId: string): boolean => {
+    const row = rowsById.get(nodeId);
+    if (!row) {
+      return false;
+    }
+    if (!busyModelIds.has(row.id)) {
+      onToggleModel(row.id, !row.enabled);
+    }
+    return true;
+  };
 
   // Enter (TreeTable "activate") toggles the details row.
-  const handleActivate = useCallback(
-    (nodeId: string | null): void => {
-      if (nodeId !== null && rowsById.has(nodeId)) {
-        onToggleDetails(nodeId);
-      }
-    },
-    [onToggleDetails, rowsById]
-  );
+  const handleActivate = (nodeId: string | null): void => {
+    if (nodeId !== null && rowsById.has(nodeId)) {
+      onToggleDetails(nodeId);
+    }
+  };
 
   const shown = section.rows.length;
   // The busy set is not reference-counted, so a bulk write overlapping an
