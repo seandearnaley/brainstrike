@@ -7,7 +7,6 @@ import {
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ContentClearResult } from '@brainstrike/types';
-import type ElectronStore from 'electron-store';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
@@ -24,7 +23,6 @@ import {
   registerProfilePathIpcHandlers,
 } from './ipc-factory-reset';
 import { lifecycleDelaySeam } from './lifecycle-delay-seam';
-import type { DesktopSettingsStoreSchema } from './store-schema';
 
 interface RegisterIpcHandlerOptions {
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
@@ -49,10 +47,9 @@ interface RegisterIpcHandlerOptions {
 export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
-  getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null,
   options: RegisterIpcHandlerOptions
 ): () => Promise<void> {
-  return createApplicationIpcDomain(fileSystem, storage, getStore, options).close;
+  return createApplicationIpcDomain(fileSystem, storage, options).close;
 }
 
 export interface ApplicationIpcDomain {
@@ -64,7 +61,6 @@ export interface ApplicationIpcDomain {
 export function createApplicationIpcDomain(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
-  getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null,
   options: RegisterIpcHandlerOptions
 ): ApplicationIpcDomain {
   const unregisterProfilePath = options.getUserDataPath
@@ -77,7 +73,6 @@ export function createApplicationIpcDomain(
     ? registerFactoryResetIpcHandlers(options.onResetLocal)
     : undefined;
   const unregisterStoragePreferencesIpcHandlers = registerStoragePreferencesIpcHandlers({
-    getStore,
     storage,
   });
   const fileSystemDomain = createFileSystemIpcDomain({

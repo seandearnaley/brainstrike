@@ -150,7 +150,6 @@ vi.mock('@brainstrike/ui', () => ({
 type ListedSource = ProviderKeySource<SupportedProvider | 'tavily'>;
 
 interface SecretsApi {
-  clearAll: (confirmationToken?: string) => Promise<{ message?: string; success: boolean }>;
   deleteKey: (provider: string) => Promise<boolean>;
   getKey: (provider: string) => Promise<string | null>;
   list: () => Promise<ListedSource[]>;
@@ -177,7 +176,6 @@ const getSecretsApi = (): SecretsApi | undefined =>
   (window as unknown as { secrets?: SecretsApi }).secrets;
 
 const createSecretsApi = (): SecretsApi => ({
-  clearAll: vi.fn().mockResolvedValue({ success: true }),
   deleteKey: vi.fn().mockResolvedValue(true),
   getKey: vi.fn().mockResolvedValue(null),
   list: vi.fn().mockResolvedValue([]),

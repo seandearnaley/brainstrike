@@ -9,7 +9,6 @@ import {
 } from '../utils/persist-file-explorer-state';
 
 const createStorageAdapter = (): StorageAdapter => ({
-  clear: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   getAllKeys: vi.fn<() => Promise<string[]>>(() => Promise.resolve([])),
   getItem: vi.fn<(_: string) => Promise<string | null>>(() => Promise.resolve(null)),
   removeItem: vi.fn<(_: string) => Promise<void>>(() => Promise.resolve()),

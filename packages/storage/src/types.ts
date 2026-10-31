@@ -1,9 +1,5 @@
+/** The renderer's key-value store. No store clears itself: Main owns the reset (ADR-0015). */
 export interface StorageAdapter {
-  /**
-   * Clear all storage
-   */
-  clear: () => Promise<void>;
-
   /**
    * Get all keys in storage
    */

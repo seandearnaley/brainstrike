@@ -41,7 +41,6 @@ describe('file-explorer-persistence coverage', () => {
 
     const mod = await import('../file-explorer-persistence');
     mod.createPersistOptions({
-      clear: async () => {},
       getAllKeys: async () => [],
       getItem: async () => null,
       removeItem: async () => {},
@@ -70,7 +69,6 @@ describe('file-explorer-persistence coverage', () => {
 
     const mod = await import('../file-explorer-persistence');
     mod.createPersistOptions({
-      clear: async () => {},
       getAllKeys: async () => [],
       getItem: async () => null,
       removeItem: async () => {},
@@ -92,7 +90,6 @@ describe('file-explorer-persistence coverage', () => {
 
     const mod = await import('../file-explorer-persistence');
     const persistOptions = mod.createPersistOptions({
-      clear: async () => {},
       getAllKeys: async () => [],
       getItem: async () => null,
       removeItem: async () => {},
@@ -127,7 +124,6 @@ describe('file-explorer-persistence coverage', () => {
 
     const mod = await import('../file-explorer-persistence');
     const persistOptions = mod.createPersistOptions({
-      clear: async () => {},
       getAllKeys: async () => [],
       getItem: async () => null,
       removeItem: async () => {},
@@ -156,7 +152,6 @@ describe('file-explorer-persistence coverage', () => {
     vi.stubEnv('NODE_ENV', 'development');
     const mod = await import('../file-explorer-persistence');
     const persistOptions = mod.createPersistOptions({
-      clear: async () => {},
       getAllKeys: async () => [],
       getItem: async () => null,
       removeItem: async () => {},
@@ -189,7 +184,6 @@ describe('file-explorer-persistence coverage', () => {
 
     const mod = await import('../file-explorer-persistence');
     const persistOptions = mod.createPersistOptions({
-      clear: async () => {},
       getAllKeys: async () => [],
       getItem: async () => null,
       removeItem: async () => {},
@@ -212,7 +206,6 @@ describe('file-explorer-persistence coverage', () => {
 
     const mod = await import('../file-explorer-persistence');
     const persistOptions = mod.createPersistOptions({
-      clear: async () => {},
       getAllKeys: async () => [],
       getItem: async () => null,
       removeItem: async () => {},

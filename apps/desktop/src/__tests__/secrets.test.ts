@@ -249,7 +249,6 @@ describe("Main's view of the host-owned profile store", () => {
   it('Settings writes reach the store only through the host writer', async () => {
     const { host, secrets } = await mainSecrets();
     const writer = {
-      clear: vi.fn(() => host.secrets().clearAll()),
       deleteCredential: vi.fn((account: string) => host.secrets().deleteKey(account)),
       setCredential: vi.fn(async (account: string, credential: ProviderCredential) => {
         await host.secrets().setCredential(account, credential);
@@ -265,10 +264,8 @@ describe("Main's view of the host-owned profile store", () => {
     await expect(settings.getKey('openai')).resolves.toBe('sk-settings');
     await expect(settings.deleteKey('openai')).resolves.toBe(true);
     await expect(settings.getKey('openai')).resolves.toBeNull();
-    await expect(settings.clearAll()).resolves.toBe(true);
     expect(writer.setCredential).toHaveBeenCalledOnce();
     expect(writer.deleteCredential).toHaveBeenCalledWith('openai');
-    expect(writer.clear).toHaveBeenCalledOnce();
     await host.close();
   });
 });

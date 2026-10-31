@@ -38,7 +38,6 @@ interface SecretsServiceMock {
 
 const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
-const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const PROVIDER_ENV_KEYS = [
   ...new Set([
     ...listProviders().flatMap(({ id }) => providerEnvKeys(id)),
@@ -519,39 +518,6 @@ describe('registerSecretsIpcHandlers', () => {
     expect(secretsService.listProviders).not.toHaveBeenCalled();
   });
 
-  it('requires confirmation token to clear secrets store', async () => {
-    process.env['NODE_ENV'] = 'production';
-
-    const secretsService: SecretsServiceMock = {
-      clearAll: vi.fn().mockResolvedValue(true),
-      deleteKey: vi.fn(),
-      getKey: vi.fn(),
-      listProviders: vi.fn().mockResolvedValue([]),
-      saveKey: vi.fn(),
-    };
-
-    const { getHandler } = await bootstrap(secretsService);
-    const clearHandler = getHandler('secrets:clearAll');
-
-    const unauthorized = (await clearHandler(createInvokeEvent())) as {
-      success: false;
-      message: string;
-    };
-
-    expect(unauthorized).toEqual({
-      message: 'Unauthorized: Invalid confirmation token',
-      success: false,
-    });
-    expect(secretsService.clearAll).toHaveBeenCalledTimes(0);
-
-    const success = (await clearHandler(createInvokeEvent(), SECRETS_CLEAR_CONFIRMATION_TOKEN)) as {
-      success: true;
-    };
-
-    expect(success).toEqual({ success: true });
-    expect(secretsService.clearAll).toHaveBeenCalledTimes(1);
-  });
-
   it('rejects every secret operation before dispatch for a sender that is not an app window', async () => {
     process.env['NODE_ENV'] = 'production';
     isAppWindowSenderMock.mockReturnValue(false);
@@ -573,7 +539,6 @@ describe('registerSecretsIpcHandlers', () => {
       ['secrets:delete', 'openai'],
       ['secrets:list'],
       ['secrets:listStored'],
-      ['secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN],
       ['secrets:envBootstrap'],
     ];
 
@@ -589,7 +554,6 @@ describe('registerSecretsIpcHandlers', () => {
     expect(secretsService.getCredential).not.toHaveBeenCalled();
     expect(secretsService.deleteKey).not.toHaveBeenCalled();
     expect(secretsService.listProviders).not.toHaveBeenCalled();
-    expect(secretsService.clearAll).not.toHaveBeenCalled();
   });
 
   describe('env bootstrap projection channel (BST-1363)', () => {

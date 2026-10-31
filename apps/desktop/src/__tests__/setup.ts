@@ -114,7 +114,6 @@ const mockElectronAPI = {
   },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
   storage: {
-    clear: vi.fn().mockResolvedValue(undefined),
     getAllKeys: vi.fn().mockResolvedValue([]),
     getItem: vi.fn().mockResolvedValue(null),
     removeItem: vi.fn().mockResolvedValue(undefined),
@@ -138,7 +137,6 @@ if (typeof window !== 'undefined') {
 
   // Mock window.secrets
   const mockSecrets = {
-    clearAll: vi.fn().mockResolvedValue({ success: true } as const),
     deleteKey: vi.fn().mockResolvedValue(true),
     getKey: vi.fn().mockResolvedValue(null as string | null),
     list: vi.fn().mockResolvedValue([] as ProviderKeySource<SupportedProvider | 'tavily'>[]),

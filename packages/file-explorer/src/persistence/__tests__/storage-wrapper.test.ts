@@ -26,7 +26,6 @@ describe('StorageWrapper', () => {
 
     // Create a storage adapter that always throws errors
     errorStorage = {
-      clear: vi.fn().mockRejectedValue(new Error('Clear error')),
       getAllKeys: vi.fn().mockRejectedValue(new Error('GetAllKeys error')),
       getItem: vi.fn().mockRejectedValue(new Error('Get error')),
       removeItem: vi.fn().mockRejectedValue(new Error('Remove error')),
@@ -266,7 +265,6 @@ describe('StorageWrapper', () => {
     it('should redact the actual read error object from logger metadata', async () => {
       const testError = new Error('Specific test error');
       const customErrorStorage: StorageAdapter = {
-        clear: vi.fn().mockRejectedValue(testError),
         getAllKeys: vi.fn().mockRejectedValue(testError),
         getItem: vi.fn().mockRejectedValue(testError),
         removeItem: vi.fn().mockRejectedValue(testError),

@@ -42,7 +42,6 @@ describe('persisted explorer recovery notice', () => {
       await backingStorage.setItem(key, value);
     });
     const unavailableStorage = {
-      clear: () => backingStorage.clear(),
       getAllKeys: () => backingStorage.getAllKeys(),
       getItem: async (key: string) => {
         if (remainingReadFailures > 0) {
@@ -80,7 +79,6 @@ describe('persisted explorer recovery notice', () => {
     await seedPersistedState(backingStorage, validSerializedState);
     let getItemCalls = 0;
     const transientStorage = {
-      clear: () => backingStorage.clear(),
       getAllKeys: () => backingStorage.getAllKeys(),
       getItem: async (key: string) => {
         getItemCalls += 1;

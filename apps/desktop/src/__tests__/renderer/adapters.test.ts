@@ -643,14 +643,6 @@ describe('ElectronRendererStorageAdapter', () => {
     });
   });
 
-  describe('clear', () => {
-    it('should call electronAPI.storage.clear', async () => {
-      await adapter.clear();
-
-      expect(mockElectronAPI.storage.clear).toHaveBeenCalledOnce();
-    });
-  });
-
   describe('getAllKeys', () => {
     it('should call electronAPI.storage.getAllKeys', async () => {
       const mockKeys = ['key1', 'key2', 'key3'];

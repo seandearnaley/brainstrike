@@ -20,7 +20,6 @@ class LocalStorageMock {
 }
 
 const memoryAdapter: StorageAdapter = {
-  async clear() {},
   async getAllKeys() {
     return [];
   },
