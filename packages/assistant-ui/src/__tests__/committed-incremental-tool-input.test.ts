@@ -66,18 +66,40 @@ describe('a provider that streams its tool input incrementally', () => {
     expect(answer(projection).status).toEqual({ reason: 'stop', type: 'complete' });
   });
 
-  it('shows the call with no input yet while only its empty opening delta has committed', () => {
+  it('grows the call from its live input deltas until its committed call replaces them', () => {
     const projection = projector();
-    const opening = rows.findIndex(
+    const opened = rows.findIndex(
       ({ event }) =>
         event['type'] === 'stream.chunk' &&
-        (event['chunk'] as Record<string, unknown>)['type'] === 'tool-input-delta'
+        (event['chunk'] as Record<string, unknown>)['type'] === 'tool-input-start'
     );
-    projection.acceptCommitted(rows.slice(0, opening + 1));
-    expect(answer(projection).content.find((part) => part.type === 'tool-call')).toMatchObject({
-      toolCallId: 'call_incremental_1',
-      toolName: 'read_fixture',
+    projection.acceptCommitted(rows.slice(0, opened + 1));
+    const call = () => answer(projection).content.find((part) => part.type === 'tool-call');
+    // The deltas the recorded provider streamed, as uncommitted telemetry: the
+    // empty opening delta first (the wire's `arguments: ""`).
+    projection.acceptLive(runId, { delta: '', id: 'call_incremental_1', type: 'tool-input-delta' });
+    expect(call()).toMatchObject({ args: {}, argsText: '', toolName: 'read_fixture' });
+    projection.acceptLive(runId, {
+      delta: '{',
+      id: 'call_incremental_1',
+      type: 'tool-input-delta',
     });
+    projection.acceptLive(runId, {
+      delta: '"path":"README',
+      id: 'call_incremental_1',
+      type: 'tool-input-delta',
+    });
+    expect(call()).toMatchObject({ args: { path: 'README' }, argsText: '{"path":"README' });
     expect(projection.getSnapshot()).toMatchObject({ activeRunId: runId, isRunning: true });
+
+    projection.acceptCommitted(rows);
+    expect(call()).toMatchObject({ args: { path: 'README.md' }, argsText: '{"path":"README.md"}' });
+    // A delta that arrives after the committed call no longer changes it.
+    projection.acceptLive(runId, {
+      delta: 'x',
+      id: 'call_incremental_1',
+      type: 'tool-input-delta',
+    });
+    expect(call()).toMatchObject({ argsText: '{"path":"README.md"}' });
   });
 });
