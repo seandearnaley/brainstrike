@@ -20,6 +20,7 @@ import {
   assertPreloadBundleRequires,
   PRELOAD_BUNDLE_ENTRY_NAMES,
 } from './preload-bundle-contract.mjs';
+import { bundledPackageNotices, NODE_LICENSE_REPORT } from './third-party-notices.mjs';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -74,10 +75,25 @@ async function writeProcessLaunchers() {
   }
 }
 
+/**
+ * Most third-party code stays a runtime import from the packed node_modules;
+ * report the packages a bundle inlines, for the license notices.
+ */
+async function writeNodeLicenseReport(results) {
+  const inputs = results.flatMap((result) =>
+    Object.keys(result.metafile.inputs).map((input) => path.resolve(appRoot, input))
+  );
+  await writeFile(
+    path.join(appRoot, 'dist', NODE_LICENSE_REPORT),
+    `${JSON.stringify(bundledPackageNotices(inputs), null, 2)}\n`
+  );
+}
+
 await cleanMainProcessOutputs();
 // Every Node-side entry Main, a utility process, a worker or the Windows command
 // path loads. The builds are independent, so esbuild runs them at once.
-await Promise.all(NODE_BUILDS.map((options) => build(options)));
+const results = await Promise.all(NODE_BUILDS.map((options) => build(options)));
+await writeNodeLicenseReport(results);
 await writeProcessLaunchers();
 await copyNodeGrammars();
 await assertPreloadBundlesAreSandboxSafe();

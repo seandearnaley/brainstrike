@@ -36,6 +36,7 @@ describe('platform menus', () => {
   const help = {
     includeAbout: true,
     onOpenReleaseNotes: vi.fn(),
+    onOpenSourceLicenses: vi.fn(),
     onShowCrashReports: vi.fn(),
     onShowLogs: vi.fn(),
   };
@@ -127,13 +128,15 @@ describe('buildFileMenuClosingItems', () => {
 });
 
 describe('buildHelpMenuTemplate', () => {
-  it('opens the release notes, the logs and the crash reports', () => {
+  it('opens the release notes, the logs, the crash reports and the licenses', () => {
     const onOpenReleaseNotes = vi.fn();
+    const onOpenSourceLicenses = vi.fn();
     const onShowCrashReports = vi.fn();
     const onShowLogs = vi.fn();
     const template = buildHelpMenuTemplate({
       includeAbout: false,
       onOpenReleaseNotes,
+      onOpenSourceLicenses,
       onShowCrashReports,
       onShowLogs,
     });
@@ -143,6 +146,7 @@ describe('buildHelpMenuTemplate', () => {
       'Release Notes',
       'Show Logs',
       'Show Crash Reports',
+      'Open-Source Licenses',
     ]);
     click(items.find((item) => item.id === APP_MENU_IDS.releaseNotes));
     expect(onOpenReleaseNotes).toHaveBeenCalledOnce();
@@ -152,6 +156,9 @@ describe('buildHelpMenuTemplate', () => {
     expect(onShowCrashReports).not.toHaveBeenCalled();
     click(items.find((item) => item.id === APP_MENU_IDS.showCrashReports));
     expect(onShowCrashReports).toHaveBeenCalledOnce();
+    expect(onOpenSourceLicenses).not.toHaveBeenCalled();
+    click(items.find((item) => item.id === APP_MENU_IDS.openSourceLicenses));
+    expect(onOpenSourceLicenses).toHaveBeenCalledOnce();
   });
 
   it('ends with About where there is no app menu', () => {
@@ -159,6 +166,7 @@ describe('buildHelpMenuTemplate', () => {
       buildHelpMenuTemplate({
         includeAbout: true,
         onOpenReleaseNotes: vi.fn(),
+        onOpenSourceLicenses: vi.fn(),
         onShowCrashReports: vi.fn(),
         onShowLogs: vi.fn(),
       })
