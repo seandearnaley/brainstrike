@@ -144,9 +144,9 @@ it('publishes a folder of TEXT files in one native write, each searchable and ac
 });
 
 it('splits a batch of large files across native writes, so each stays within one message', async () => {
-  // Ten files of about 480 KB, under the chunker's size limit but together past the text one
-  // commit carries.
-  const large = Array.from({ length: 10 }, (_, index) => {
+  // Eight symbol-dense files of about 480 KB: under the chunker's size limit, and under 4 MB of
+  // source together, but their chunks and syntax records serialize past one utility frame.
+  const large = Array.from({ length: 8 }, (_, index) => {
     const lines = Array.from(
       { length: 14_000 },
       (_, line) => `export const value${index}_${line} = ${(line * 7919 + index) % 100_003};\n`
