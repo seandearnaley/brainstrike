@@ -1,6 +1,6 @@
 # Brainstrike
 
-![Brainstrike logo](packages/ui/icons/icon-192x192.png)
+![Brainstrike logo](apps/desktop/build/icons/128x128.png)
 
 Brainstrike is a local-first workspace and AI assistant app built with React,
 TypeScript, Vite, Electron and pnpm workspaces.

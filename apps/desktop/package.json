@@ -39,7 +39,7 @@
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.icns",
+      "icon": "build/icon.icon",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "signing/entitlements.mac.plist",

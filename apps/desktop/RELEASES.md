@@ -32,6 +32,19 @@ repository. The first release has a one-line body. The release body is the
 notes' only home; edit it on GitHub after publishing if a line needs a human
 touch.
 
+## App icon
+
+`apps/desktop/build/icon.icon` is the macOS icon, an Icon Composer asset:
+the identity mark (`Assets/01-foreground.svg`) on the ultramarine fill, with
+Liquid Glass translucency. electron-builder compiles it with `actool` into
+`Assets.car`, which macOS 26 and later use, and an `icon.icns` for older
+macOS. `actool` must be Xcode 26 or later: each macOS release leg picks the
+newest installed Xcode 26+ for Package DMG and fails without one. Packaging on
+a Mac needs the same, either `sudo xcode-select -s /Applications/Xcode.app`
+once or `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` for the
+command. Windows and Linux use `icon.ico` and `icons/*.png`, rendered from
+`icon-square.svg`.
+
 ## In-app updates
 
 A packaged install checks `seandearnaley/brainstrike-releases` once per launch
