@@ -138,16 +138,6 @@
       }
     },
     {
-      "includes": ["packages/workers/**"],
-      "linter": {
-        "rules": {
-          "nursery": {
-            "noFloatingPromises": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": [
         "packages/effect-kit/**",
         "packages/assistant-contract/**",

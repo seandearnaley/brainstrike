@@ -1,4 +1,4 @@
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
+import type { HostToolDefinitions } from '../host-tool-definition.ts';
 
 export function sanitizeToolName(name: string): string {
   const sanitized = name.replace(/[^a-zA-Z0-9_-]/gu, '_');
@@ -66,14 +66,14 @@ export function createSanitizedToolNameMap(toolNames: Iterable<string>): Map<str
 }
 
 export function sanitizeTools(
-  tools: ToolsInput | undefined,
+  tools: HostToolDefinitions | undefined,
   map: Map<string, string>
-): ToolsInput | undefined {
+): HostToolDefinitions | undefined {
   if (!tools) {
     return;
   }
 
-  const sanitized: ToolsInput = {};
+  const sanitized: HostToolDefinitions = {};
   const usedNames = new Set<string>(map.keys());
 
   for (const [name, tool] of Object.entries(tools)) {
@@ -93,5 +93,3 @@ export function sanitizeTools(
 
   return sanitized;
 }
-
-export type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';

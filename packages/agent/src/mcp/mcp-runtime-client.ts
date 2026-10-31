@@ -13,10 +13,7 @@ import {
 import { MCP_PROGRESS_STREAM_PART_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import { createLogger } from '@brainstrike/logging';
 import { toStandardSchema } from '@mastra/schema-compat/schema';
-import type {
-  HostToolExecutionContext,
-  HostToolDefinitions as ToolsInput,
-} from '../host-tool-definition.ts';
+import type { HostToolDefinitions, HostToolExecutionContext } from '../host-tool-definition.ts';
 import { readToolCallId } from '../tools/read-tool-call-id.ts';
 import { type McpConfigInput, parseMcpConfigValue } from './config.ts';
 import type {
@@ -66,7 +63,7 @@ export function shouldRetainRawMcpCallToolResult(signal: unknown): boolean {
 
 export interface McpToolsetsWithErrors {
   errors: Record<string, string>;
-  toolsets: Record<string, ToolsInput>;
+  toolsets: Record<string, HostToolDefinitions>;
 }
 
 /** The only MCP lifecycle surface the agent runtime's discovery pipeline needs. */
@@ -260,7 +257,7 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
   }
 
   async listToolsetsWithErrors(): Promise<McpToolsetsWithErrors> {
-    const toolsets: Record<string, ToolsInput> = {};
+    const toolsets: Record<string, HostToolDefinitions> = {};
     const errors: Record<string, string> = {};
     await Promise.all(
       this.serverClients.map((entry) => this.discoverServer(entry, toolsets, errors))
@@ -297,7 +294,7 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
 
   private async discoverServer(
     entry: TransportOwnedServerClient,
-    toolsets: Record<string, ToolsInput>,
+    toolsets: Record<string, HostToolDefinitions>,
     errors: Record<string, string>
   ): Promise<void> {
     try {
@@ -319,8 +316,8 @@ function discoveryFailureReason(error: unknown): string {
 function convertMcpTools(
   entry: TransportOwnedServerClient,
   tools: ExplicitHttpMcpTool[]
-): ToolsInput {
-  const converted: ToolsInput = {};
+): HostToolDefinitions {
+  const converted: HostToolDefinitions = {};
   for (const tool of tools) {
     defineOwn(converted, tool.name, createMcpTool(entry, tool));
   }
@@ -330,7 +327,7 @@ function convertMcpTools(
 function createMcpTool(
   { client, server, taskTracking }: TransportOwnedServerClient,
   tool: ExplicitHttpMcpTool
-): ToolsInput[string] {
+): HostToolDefinitions[string] {
   const toolMeta = stampServerIdInMeta(tool._meta, server.name);
   const strict = readStrictMeta(toolMeta);
   const hasAppMeta = hasMcpAppToolMeta(tool._meta);

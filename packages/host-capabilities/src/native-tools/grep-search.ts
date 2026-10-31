@@ -14,8 +14,8 @@
  */
 
 import type { GrepMatch } from '@brainstrike/assistant-contract';
-import { createGrepLineMatcher, type LineMatcher } from './grep-line-matcher.ts';
-import { escapeLikeLiteral, extractTrigramLiteral } from './grep-pattern.ts';
+import { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
+import { escapeLikeLiteral, extractTrigramLiteral } from '@brainstrike/utils/grep-pattern';
 
 /** Options for the SQL candidate-selection phase of grep search. */
 export interface GrepCandidateOptions {
@@ -81,8 +81,6 @@ export interface GrepSearchOptions {
   /** Optional multi-root workspace filter (file_records.root_id ∈ rootIds). */
   rootIds?: readonly string[];
 }
-
-export type { GrepMatch };
 
 export interface GrepSearchResult {
   /** Phase-1 candidate pool hit its limit — more files may contain matches. */

@@ -28,9 +28,9 @@
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isContained } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
 import { net, protocol } from 'electron';
-import { isContained } from './ipc-domains/workspace-root-paths';
 import type { WorkspaceRootResolver } from './workspace-root-cwd';
 
 const logger = createLogger('AssetProtocol');

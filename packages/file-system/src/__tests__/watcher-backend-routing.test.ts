@@ -3,9 +3,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { DirectoryHandle } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronFileSystemAdapter } from '../adapters/electron-adapter.js';
-import type { DirectoryHandle } from '../types.js';
 
 vi.mock('electron', () => ({
   dialog: { showOpenDialog: vi.fn() },

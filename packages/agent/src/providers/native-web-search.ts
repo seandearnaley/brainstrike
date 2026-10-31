@@ -30,7 +30,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type { Tool } from 'ai';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
+import type { HostToolDefinitions } from '../host-tool-definition.ts';
 import {
   type ProviderAuthInput,
   type ProviderFetchOptions,
@@ -142,7 +142,7 @@ export interface ApplyProviderNativeWebSearchParams {
   /** Sanitized id → original tool id, as recorded by `sanitizeTools`. */
   toolNameMap: ReadonlyMap<string, string>;
   /** The final, post-gate tool map (sanitized ids → tool objects). */
-  tools: ToolsInput;
+  tools: HostToolDefinitions;
 }
 
 function findWebSearchSanitizedId(toolNameMap: ReadonlyMap<string, string>): string | undefined {
@@ -162,7 +162,7 @@ function findWebSearchSanitizedId(toolNameMap: ReadonlyMap<string, string>): str
  */
 export function applyProviderNativeWebSearch(
   params: ApplyProviderNativeWebSearchParams
-): ToolsInput {
+): HostToolDefinitions {
   const { auth, askTools, logger, preserveExecuteBackedWebSearch, provider, tools, toolNameMap } =
     params;
 

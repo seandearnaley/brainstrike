@@ -1,6 +1,12 @@
 import path from 'node:path';
+import type {
+  NativeScopedRead,
+  NativeSearchAuthority,
+} from '@brainstrike/assistant-service/node-native-text-services';
+import { NativeAuthorityTransitionError as TransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { CanonicalScanReceipt, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
 import {
+  assertSavedCollection,
   createNativeCanonicalCatalog,
   createNativeCanonicalPublication,
   createNativeScanAdmission,
@@ -10,6 +16,7 @@ import {
   NativeCanonicalInference,
   type NativeCanonicalProfileResolver,
   partitionAuthority,
+  vectorCollectionId,
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
@@ -27,7 +34,6 @@ import {
   getReadyIndexerHost,
   getReadyScopedIndexerPort,
 } from './indexer-runtime';
-import { NativeAuthorityTransitionError as TransitionError } from './native-authority-transition';
 import { isolateNativeCoverage } from './native-coverage-reader';
 import { nativeFileIdentity } from './native-index-attach';
 import {
@@ -54,7 +60,6 @@ import {
   createNativeIndexLifecycle,
   NativeSourceRetirementFailure,
 } from './native-index-lifecycle-owner';
-import { assertSavedCollection, vectorCollectionId } from './native-index-partition';
 import { createNativeIndexProfileAdmission } from './native-index-profile-admission';
 import { createNativeIndexFailures } from './native-index-reopen';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
@@ -64,7 +69,6 @@ import {
   settleNativeIndexSources,
 } from './native-index-source-retirement';
 import { createNativeIndexWatchHealthHandler } from './native-index-watch-health';
-import type { NativeScopedRead, NativeSearchAuthority } from './native-scoped-search';
 import {
   closeAllIndexQueries,
   installIndexQueryTarget,

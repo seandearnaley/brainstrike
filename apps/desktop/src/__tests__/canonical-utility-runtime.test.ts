@@ -1,12 +1,13 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import {
+  type CanonicalIndexPayload,
   type CanonicalOperationContext,
   type CanonicalScanReceipt,
   type CanonicalWorkspaceLease,
   createNativeCanonicalPublication,
 } from '@brainstrike/canonical-ingestion';
-import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
@@ -15,7 +16,6 @@ import {
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 
 function connected(hold?: (frame: object) => boolean): {
   parent: CanonicalUtilityParent;

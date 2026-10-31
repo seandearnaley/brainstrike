@@ -1,4 +1,10 @@
-import type { IFileNode } from '@brainstrike/types';
+import type {
+  DirectoryHandle,
+  DirectoryStreamCallback,
+  FileHandle,
+  FileSystemAdapter,
+  IFileNode,
+} from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createFixtureCapableAdapter,
@@ -7,12 +13,6 @@ import {
 } from '../dev-fixture-adapter.js';
 import type { FixtureDefinition } from '../dev-fixture-types.js';
 import { DEV_INLINE_FIXTURE } from '../fixtures/dev-inline-fixture.js';
-import type {
-  DirectoryHandle,
-  DirectoryStreamCallback,
-  FileHandle,
-  FileSystemAdapter,
-} from '../types.js';
 
 interface AdapterOptions {
   includeRestoreLastFolder?: boolean;

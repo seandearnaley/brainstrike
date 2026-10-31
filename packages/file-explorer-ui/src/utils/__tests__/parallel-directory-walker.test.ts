@@ -1,13 +1,13 @@
 // @vitest-environment node
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import {
+  DirectoryListingTruncatedError,
   type DirectoryReadCapability,
   walkDirectoryParallel,
 } from '@brainstrike/file-system/directory-tree';
 import type { IFileNode } from '@brainstrike/types';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DirectoryListingTruncatedError } from '../parallel-directory-walker';
 
 const rootHandle: DirectoryHandle = {
   _internal: undefined,

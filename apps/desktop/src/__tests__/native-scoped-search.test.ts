@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  createNativeScopedSearchCapability,
+  NativeAuthorityTransitionError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { vectorProfileHash } from '@brainstrike/indexer';
 import {
   indexerEmbeddingProfileValues,
@@ -8,9 +12,7 @@ import {
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import {
   binding,
   fixture,

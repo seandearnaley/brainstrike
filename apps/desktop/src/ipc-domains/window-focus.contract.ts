@@ -5,10 +5,10 @@
  * the focused OS window, so `useAppActive()` reads the NATIVE window instead:
  * `isFocused` is the value now, `onChange` pushes every `focus`/`blur` of the
  * asking window. The derived bridge is pinned to `WindowFocusBridge` in
- * `@brainstrike/utils`, the shape `useAppActive()` consumes. PURE — bundled into
+ * `@brainstrike/assistant-contract`, the shape `useAppActive()` consumes. PURE — bundled into
  * the preload and imported by main.
  */
-import type { WindowFocusBridge } from '@brainstrike/utils/window-focus-bridge';
+import type { WindowFocusBridge } from '@brainstrike/assistant-contract/window-focus-bridge';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
   type AssertTrue,

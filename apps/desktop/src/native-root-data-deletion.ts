@@ -1,6 +1,8 @@
-import type { RootDataDeletionReservation } from '@brainstrike/assistant-service/node-workspace-services';
+import type {
+  MountedWorkspaceRoot,
+  RootDataDeletionReservation,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
-import type { MountedWorkspaceRoot } from './ipc-domains/workspace-root-types';
 import type { NativeIndexAuthority } from './native-index-runtime';
 
 interface NativeCleanupOwner {

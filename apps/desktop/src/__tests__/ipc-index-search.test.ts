@@ -1,6 +1,10 @@
 import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
-import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  createNativeScopedSearchCapability,
+  NativeAuthorityTransitionError,
+  NativeIndexRefusalError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { IndexerError } from '@brainstrike/indexer';
 import type {
   IndexChunkBoundsCapability,
@@ -12,8 +16,6 @@ import { getFactoryResetUnavailableReason } from '../factory-reset-availability'
 import { IndexConfigRefused, IndexConfigStoreFailed } from '../index-config';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { indexSearchArgs, registerIndexSearchIpcHandlers } from '../ipc-index-search';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { ipcArgsDecoder } from '../platform/ipc-args';
 import { createIpcBridge } from '../platform/ipc-bridge';
 import { createIpcCapability } from '../renderer/ipc-capability';

@@ -4,6 +4,7 @@ import {
   type RuntimeData,
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
+import type { GrepMatch } from '@brainstrike/assistant-contract';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
   describeOpenRootTopology,
@@ -13,7 +14,6 @@ import {
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
 import { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
-import type { GrepMatch } from '@brainstrike/utils/grep-search';
 import { resolveGrepFilePaths } from './grep-file-paths.ts';
 import {
   type GrepContentToolResult,

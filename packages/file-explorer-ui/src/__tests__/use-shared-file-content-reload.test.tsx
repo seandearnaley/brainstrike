@@ -1,13 +1,13 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider, buildInaccessibleContent } from '@brainstrike/file-explorer-hooks';
+import type {
+  FileContentReadResult,
+  FileReadRequest,
+} from '@brainstrike/file-explorer-hooks/file-content-worker';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
-import type {
-  FileContentReadResult,
-  FileReadRequest,
-} from '@brainstrike/workers/file-content-worker';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -16,7 +16,7 @@ import { useFileContentLoadAuthority } from '../file-content-load-authority-cont
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
-vi.mock('@brainstrike/workers/file-content-worker', () => ({
+vi.mock('@brainstrike/file-explorer-hooks/file-content-worker', () => ({
   createFileContentWorker: vi.fn(),
 }));
 
@@ -112,7 +112,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
         }
       }
     );
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -158,7 +160,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const compositeKey = encodeFileSelection('root-a', '/file.txt');
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -205,7 +209,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const secondPendingReads: PendingWorkerRead[] = [];
     const firstWorker = createPendingWorker(firstPendingReads);
     const secondWorker = createPendingWorker(secondPendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker)
       .mockReturnValueOnce(firstWorker)
       .mockReturnValueOnce(secondWorker);
@@ -272,7 +278,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
         return results;
       }
     );
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -304,7 +312,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const idleKeyB = encodeFileSelection('root-groups', '/idle-b.txt');
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -352,7 +362,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const fastKey = encodeFileSelection('root-groups', '/fast.txt');
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -403,7 +415,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const idleKey = encodeFileSelection('root-errors', '/idle.txt');
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -451,7 +465,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const compositeKey = encodeFileSelection('root-provider', '/provider.txt');
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const useStorageSource = create(() => ({ storage: new MemoryStorageAdapter() }));
@@ -516,7 +532,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
         return results;
       }
     );
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -564,7 +582,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
         return results;
       }
     );
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -612,7 +632,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const workerFailure = new Error('first scheduled group failed');
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -730,7 +752,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
           });
         })
     );
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
@@ -787,7 +811,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const compositeKey = encodeFileSelection('root-identity', '/identity.txt');
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const useStorageSource = create(() => ({ storage: new MemoryStorageAdapter() }));
@@ -860,7 +886,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
         return { [request.compositeKey]: { content: 'nested content', status: 'accessible' } };
       }
     );
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);

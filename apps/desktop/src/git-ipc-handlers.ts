@@ -21,6 +21,7 @@
 
 import type { Readable } from 'node:stream';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { endTreeOnDeadline, spawnNativeChild } from '@brainstrike/state-store/native-children';
@@ -31,7 +32,6 @@ import {
   type GitCommandRun,
   type GitCommandRunner,
 } from './assistant-server/git-service';
-import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
 
 const logger = createLogger('GitIpc');

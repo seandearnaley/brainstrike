@@ -6,10 +6,10 @@ import {
   refusalError,
 } from '@brainstrike/assistant-contract';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
+import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
-import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';

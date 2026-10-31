@@ -1,5 +1,7 @@
-import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
-import { NativeAuthorityTransitionError as TransitionError } from './native-authority-transition';
+import {
+  NativeIndexRefusalError,
+  NativeAuthorityTransitionError as TransitionError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { type NativeIndexState, nativeIndexFailureRefusal } from './native-index-lifecycle';
 
 /** The typed refusal of a native index closed for good: shutdown, reset, or profile retirement. */

@@ -3,18 +3,16 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
   enrichRuntimeDataWithWorkspaceRoots,
+  getWorkspaceRoots,
   loadWorkspaceRootsFromDatabase,
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,
   orderWorkspaceRoots,
+  resolveOptionalWorkspaceRoot,
+  resolveWorkspaceRoot,
   type WorkspaceRootsQueryable,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  getWorkspaceRoots,
-  resolveOptionalWorkspaceRoot,
-  resolveWorkspaceRoot,
-} from '../../assistant-server/workspace-roots';
 
 function mockDb(rows: unknown[]): WorkspaceRootsQueryable {
   return { query: vi.fn(async () => ({ rows: rows as never[] })) };

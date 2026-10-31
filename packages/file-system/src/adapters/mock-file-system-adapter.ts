@@ -1,12 +1,12 @@
-import type { IFileNode } from '@brainstrike/types';
-import { defaultCollator } from '@brainstrike/utils';
 import type {
   DirectoryHandle,
   DirectoryStreamCallback,
   FileHandle,
   FileSystemAdapter,
+  IFileNode,
   StreamingDirectoryReadOptions,
-} from '../types.ts';
+} from '@brainstrike/types';
+import { defaultCollator } from '@brainstrike/utils';
 
 export interface MockFileEntry {
   children?: Record<string, MockFileEntry>;

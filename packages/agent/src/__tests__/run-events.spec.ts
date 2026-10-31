@@ -1,5 +1,8 @@
+import {
+  emitAssistantRunEventSafely,
+  sanitizeAssistantRunEventMetadata,
+} from '@brainstrike/assistant-contract/run-events';
 import { describe, expect, it, vi } from 'vitest';
-import { emitAssistantRunEventSafely, sanitizeAssistantRunEventMetadata } from '../run-events';
 
 describe('run event metadata sanitization', () => {
   it('strips unsafe keys after canonical key normalization', () => {

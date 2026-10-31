@@ -1,14 +1,15 @@
 // @vitest-environment node
+
+import {
+  createNativeScopedSearchCapability,
+  NativeAuthorityTransitionError,
+  type NativeSearchAuthority,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { IndexerError } from '@brainstrike/indexer';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { isolateNativeCoverage } from '../native-coverage-reader';
 import type { NativeIndexAuthority } from '../native-index-runtime';
-import {
-  createNativeScopedSearchCapability,
-  type NativeSearchAuthority,
-} from '../native-scoped-search';
 import { nativeRuntimeFixture as fixture } from './native-index-runtime-fixture';
 
 it('shares the existing profile attachment between clients and index acquisition', async () => {

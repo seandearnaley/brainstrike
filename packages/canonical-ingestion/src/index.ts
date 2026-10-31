@@ -8,6 +8,10 @@ export {
   type NativeCanonicalCatalogScope,
 } from './canonical-catalog.ts';
 export {
+  type CanonicalIndexPayload,
+  canonicalIndexPayload,
+} from './canonical-index-publication.ts';
+export {
   type CanonicalHostedEmbeddings,
   NativeCanonicalInference,
   type NativeCanonicalInferenceDependencies,

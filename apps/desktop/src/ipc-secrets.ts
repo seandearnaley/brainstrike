@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
+import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { ipcMain } from 'electron';
 import type { DesktopEnvLoadFailure } from './desktop-env';
 import { ProviderArgs, ProviderCredentialArgs, ProviderValueArgs } from './ipc-secrets-args';
@@ -20,7 +21,6 @@ import {
   storedAuthMode,
 } from './provider-api-key';
 import { credentialStoredKeyFingerprint, SecretReadError, type SecretsService } from './secrets';
-import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 /**
  * Serialize a write failure as data. IPC channels never throw domain errors

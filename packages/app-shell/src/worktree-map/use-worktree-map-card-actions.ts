@@ -21,7 +21,7 @@ const logger = createLogger('WorktreeMapSurface');
 
 /**
  * The exact refusal text `resolveGrantedRootHandle` throws
- * (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`'s
+ * (`packages/assistant-service/src/node-workspace/workspace-recent-roots.ts`'s
  * `NEVER_GRANTED_MESSAGE`) when neither of its two picker-less grants — an
  * exact-path recents match, or `managedWorktreeAuthorizer`'s live-ledger-row
  * + reachable-checkout rule (under the managed directory, or inside a

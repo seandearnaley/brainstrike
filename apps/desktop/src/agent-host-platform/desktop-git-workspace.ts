@@ -21,6 +21,7 @@ import type {
   HostTurnSnapshotRoot,
 } from '@brainstrike/agent-host';
 import type { GitWorkspaceEvent } from '@brainstrike/agent-host/protocol';
+import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import type { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
 import { createHostThreadTurns } from '../assistant-server/changeset-host-turns';
@@ -30,7 +31,6 @@ import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import { FAILED_SNAPSHOT_CAPTURE_OID } from '../assistant-server/snapshot-repository';
 import { createSnapshotService } from '../assistant-server/snapshot-service';
 import { captureRootSnapshot } from '../assistant-server/snapshot-turn-boundaries';
-import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import { hasHostRunInWorktree } from '../assistant-server/worktree-host-activity';
 import { isPathWithin } from '../assistant-server/worktree-paths';
 import { createWorktreeService } from '../assistant-server/worktree-service';

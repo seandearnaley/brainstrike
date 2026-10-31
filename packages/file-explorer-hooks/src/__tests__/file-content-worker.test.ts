@@ -13,8 +13,8 @@ import {
   createFileContentWorker,
   type FileContentReadResult,
   type ProgressEvent as FileProgressEvent,
-} from './file-content-worker';
-import { MockFileSystemAdapter } from './test-helpers';
+} from '../file-content-worker.ts';
+import { MockFileSystemAdapter } from './file-content-worker-test-helpers.ts';
 
 function displayResult(result: FileContentReadResult | undefined): string {
   if (!result) {
