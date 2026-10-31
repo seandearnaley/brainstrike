@@ -135,6 +135,8 @@ export function NewHostThread({
   );
   useEffect(() => source.follow(client), [client, source]);
   useEffect(() => () => store.dispose(), [store]);
+  // One first send creates the thread; another before it opens keeps its text.
+  const sending = useRef(false);
   const commands = useMemo<CommittedAssistantCommands>(() => {
     if (!host) {
       throw new Error('The new-thread composer requires the attached agent host.');
@@ -154,13 +156,11 @@ export function NewHostThread({
         threadId: created,
       });
     };
-    // One first send creates the thread; another before it opens keeps its text.
-    let sending = false;
     const sendFirst = async (message: AppendMessage): Promise<void> => {
-      if (sending) {
+      if (sending.current) {
         throw new MessageNotSentError('The new thread is still being created.');
       }
-      sending = true;
+      sending.current = true;
       const current = settings.current;
       try {
         return await sendNewThreadFirstMessage(
@@ -185,7 +185,7 @@ export function NewHostThread({
           message
         );
       } finally {
-        sending = false;
+        sending.current = false;
       }
     };
     return { onNew: sendFirst };

@@ -885,7 +885,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
         try {
           const request = deriveMakePrimary(current, rootId);
-          if (request.binding?.['checkoutMode'] === 'local') {
+          if (request.binding !== undefined && request.binding['checkoutMode'] === 'local') {
             localTransitionPrimaryName = request.primaryRoot?.displayName ?? null;
           }
           return request;

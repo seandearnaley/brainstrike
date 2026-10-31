@@ -119,6 +119,9 @@ export const useSelectionManager = () => {
     selectedFilePaths,
     setSelectedFiles: setSelectedFilesStable,
   });
+  // A plain function local: the React Compiler memoizes a call through
+  // `core.` on the whole object.
+  const { handleSelectionChange: handleCoreSelectionChange } = core;
 
   /**
    * Effective selection based on current mode.
@@ -218,9 +221,9 @@ export const useSelectionManager = () => {
           setFolderSelection(rootId, []);
         }
       }
-      core.handleSelectionChange(focusedKeys);
+      handleCoreSelectionChange(focusedKeys);
     },
-    [activeRootIds, core.handleSelectionChange, currentFolderId, folderStates, setFolderSelection]
+    [activeRootIds, currentFolderId, folderStates, handleCoreSelectionChange, setFolderSelection]
   );
 
   return {

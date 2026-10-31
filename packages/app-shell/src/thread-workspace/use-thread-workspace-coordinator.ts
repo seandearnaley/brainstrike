@@ -356,6 +356,20 @@ function shouldPreserveLiveEdits(
   return isDeferredBootHydration ? pendingBootPreserveEdits : true;
 }
 
+/** Holds a repository operation in each pending set until it settles. */
+function track<T>(pending: Promise<T>, ...sets: Set<Promise<unknown>>[]): Promise<T> {
+  for (const set of sets) {
+    set.add(pending);
+  }
+  const settled = () => {
+    for (const set of sets) {
+      set.delete(pending);
+    }
+  };
+  void pending.then(settled, settled);
+  return pending;
+}
+
 /**
  * The thread⇄workspace binding (BST-1268). Live stores stay the single
  * working state; this hook:
@@ -418,18 +432,6 @@ export function useThreadWorkspaceCoordinator({
     if (!sourceRepository) {
       return null;
     }
-    const track = <T>(pending: Promise<T>, ...sets: Set<Promise<unknown>>[]): Promise<T> => {
-      for (const set of sets) {
-        set.add(pending);
-      }
-      const settled = () => {
-        for (const set of sets) {
-          set.delete(pending);
-        }
-      };
-      void pending.then(settled, settled);
-      return pending;
-    };
     return {
       getThreadWorkspace: (threadId) =>
         track(sourceRepository.getThreadWorkspace(threadId), pendingOperationsRef.current),

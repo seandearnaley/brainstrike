@@ -35,8 +35,7 @@ export interface CommandPaletteHotkeyOptions {
  * where it mounts rather than role-checked here.
  */
 export function useCommandPaletteHotkey({ onOpen }: CommandPaletteHotkeyOptions): void {
-  const onOpenRef = React.useRef(onOpen);
-  onOpenRef.current = onOpen;
+  const open = React.useEffectEvent(onOpen);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -47,7 +46,7 @@ export function useCommandPaletteHotkey({ onOpen }: CommandPaletteHotkeyOptions)
         return;
       }
       event.preventDefault();
-      onOpenRef.current();
+      open();
     };
 
     document.addEventListener('keydown', handleKeyDown);

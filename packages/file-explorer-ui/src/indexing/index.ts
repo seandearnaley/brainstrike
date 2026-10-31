@@ -3,7 +3,6 @@ export * from './resolve-token-cache-worker-url';
 export * from './token-cache-context';
 export * from './use-background-token-indexer-integration';
 export * from './use-file-row-metadata-store';
-export * from './use-persistent-token-cache';
 export * from './use-selected-file-size-prefetch';
 export * from './use-text-token-count';
 export * from './use-token-counting';
