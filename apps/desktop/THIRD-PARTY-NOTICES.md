@@ -1,9 +1,9 @@
 # Third-Party Notices — Brainstrike
 
-Hand-maintained notices for third-party components BUNDLED into the packaged
-desktop app outside the npm dependency graph (npm dependencies carry their own
-license metadata via their packages). Add an entry here whenever a build step
-fetches or embeds an external component.
+Third-party components the desktop app carries outside its npm packages. The
+build adds the notice of every npm package the app bundles or packs after these
+(Help › Open-Source Licenses opens the result). Maintainers add an entry here
+whenever a build step fetches or embeds an external component.
 
 ## CPython (via python-build-standalone)
 
