@@ -1,5 +1,4 @@
 import type { ReactElement } from 'react';
-import { useMemo } from 'react';
 import {
   type AssistantThreadHostCapability,
   createHostAssistantThreadRepository,
@@ -29,22 +28,16 @@ function HostThreadTabs({
 }: AssistantThreadTabsWorkspaceProps & {
   readonly host: AssistantThreadHostCapability;
 }): ReactElement {
-  const repository = useMemo(() => createHostAssistantThreadRepository(host), [host]);
+  const repository = createHostAssistantThreadRepository(host);
   const runs = useAssistantThreadHostRuns();
-  const activeThreads = useMemo(
-    () => ({
-      error: null,
-      threadIds: new Set([...runs].filter(([, run]) => run.status === 'running').map(([id]) => id)),
-    }),
-    [runs]
-  );
-  const threadsAwaitingApproval = useMemo(
-    () => ({
-      error: null,
-      threadIds: new Set([...runs].filter(([, run]) => run.needsInput).map(([id]) => id)),
-    }),
-    [runs]
-  );
+  const activeThreads = {
+    error: null,
+    threadIds: new Set([...runs].filter(([, run]) => run.status === 'running').map(([id]) => id)),
+  };
+  const threadsAwaitingApproval = {
+    error: null,
+    threadIds: new Set([...runs].filter(([, run]) => run.needsInput).map(([id]) => id)),
+  };
   return (
     <AssistantThreadTabsCore
       {...props}

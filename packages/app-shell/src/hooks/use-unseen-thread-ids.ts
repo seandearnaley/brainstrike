@@ -92,17 +92,13 @@ export function deriveUnseenThreadIds({
 export function useUnseenThreadIds(args: Omit<UnseenThreadIdsArgs, 'hostRuns'>): UnseenThreadIds {
   const { lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt } = args;
   const hostRuns = useAssistantThreadHostRuns();
-  return useMemo(
-    () =>
-      deriveUnseenThreadIds({
-        hostRuns,
-        lastViewedAtByThreadId,
-        onScreenThreadId,
-        threads,
-        unseenBaselineAt,
-      }),
-    [hostRuns, lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt]
-  );
+  return deriveUnseenThreadIds({
+    hostRuns,
+    lastViewedAtByThreadId,
+    onScreenThreadId,
+    threads,
+    unseenBaselineAt,
+  });
 }
 
 /**

@@ -30,7 +30,7 @@
 import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type { Changeset, GitInventory } from '@brainstrike/types';
-import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
+import { type ReactElement, useEffect, useMemo, useRef } from 'react';
 import {
   selectGitScopeRefreshNonce,
   useChangesLiveRefreshStore,
@@ -149,13 +149,13 @@ export function ChangesSurface(): ReactElement {
       : 0
   );
 
-  const handleRetry = useCallback(() => {
+  const handleRetry = () => {
     void refresh();
-  }, [refresh]);
+  };
 
-  const handleRetryInventory = useCallback(() => {
+  const handleRetryInventory = () => {
     void refreshInventory();
-  }, [refreshInventory]);
+  };
 
   // A stable empty tuple, not a fresh `[]` per render — both panes memoize on
   // this array's identity.

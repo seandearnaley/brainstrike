@@ -9,7 +9,7 @@ import {
   cn,
 } from '@brainstrike/ui';
 import { GitBranch, Loader2 } from 'lucide-react';
-import { useMemo } from 'react';
+
 import { useAssistantThreadHostLedger } from '../assistant-thread-host-context';
 import { formatTokensCompact, formatUsd, shareWidth } from './cost-format';
 import { type CrossRootCostState, useCrossRootCost } from './use-cross-root-cost';
@@ -37,7 +37,7 @@ export function CostAggregationPanelView({ state }: CostAggregationPanelViewProp
 
   // Display names come from the aggregation's roots JOIN (on each row); the
   // helper reads them directly, so no separate resolver is threaded here.
-  const costRows = useMemo(() => resolveCrossRootCostRows(rows), [rows]);
+  const costRows = resolveCrossRootCostRows(rows);
 
   return (
     <Card>

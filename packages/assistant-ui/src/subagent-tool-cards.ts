@@ -4,7 +4,7 @@ import {
   delegationToolNameForPersona,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
-import { createElement, use, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { createElement, use, useSyncExternalStore } from 'react';
 import {
   readSubagentConversationAddress,
   readSubagentInvocationRun,
@@ -29,10 +29,7 @@ function useSubagentChildRun(threadId: string | undefined): SubagentChildRun | u
   if (threadId !== undefined && !source) {
     throw new Error('A delegation card with a child conversation requires SubagentChildRunContext');
   }
-  const read = useCallback(
-    () => (threadId === undefined ? undefined : source?.read(threadId)),
-    [source, threadId]
-  );
+  const read = () => (threadId === undefined ? undefined : source?.read(threadId));
   return useSyncExternalStore(source?.subscribe ?? emptySubscribe, read, read);
 }
 
@@ -51,29 +48,20 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
       readSubagentInvocationRun(state.message.parts, props.toolCallId, state.message.metadata)
     )
   );
-  const invocation = useMemo(
-    () => JSON.parse(invocationJson) as SubagentInvocationRun,
-    [invocationJson]
-  );
+  const invocation = JSON.parse(invocationJson) as SubagentInvocationRun;
   const addressJson = useAuiState((state) =>
     JSON.stringify(
       readSubagentConversationAddress(state.message.parts, props.toolCallId, props.result)
     )
   );
-  const persistedAddress = useMemo(
-    () => JSON.parse(addressJson) as SubagentConversationAddress,
-    [addressJson]
-  );
-  const getLiveThreadId = useCallback(
-    () =>
-      invocation.kind === 'available'
-        ? liveInvocations?.getThreadId({
-            parentRuntimeRunId: invocation.parentRuntimeRunId,
-            parentToolCallId: props.toolCallId,
-          })
-        : undefined,
-    [invocation, liveInvocations, props.toolCallId]
-  );
+  const persistedAddress = JSON.parse(addressJson) as SubagentConversationAddress;
+  const getLiveThreadId = () =>
+    invocation.kind === 'available'
+      ? liveInvocations?.getThreadId({
+          parentRuntimeRunId: invocation.parentRuntimeRunId,
+          parentToolCallId: props.toolCallId,
+        })
+      : undefined;
   const liveThreadId = useSyncExternalStore(
     liveInvocations?.subscribe ?? emptySubscribe,
     getLiveThreadId,

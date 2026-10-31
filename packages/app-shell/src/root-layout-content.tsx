@@ -47,7 +47,6 @@ import {
   type ReactElement,
   type ReactNode,
   Suspense,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -367,14 +366,14 @@ function useDebouncedPanelLayoutChange(options: {
     setStateRef.current = setState;
   });
 
-  const cleanupSizeDebounce = useCallback(() => {
+  const cleanupSizeDebounce = () => {
     if (sizeDebounceRef.current) {
       clearTimeout(sizeDebounceRef.current);
     }
-  }, []);
+  };
 
   /** Commits the held resize; the panel layout store writes it through to storage at once. */
-  const commitPendingSizes = useCallback(() => {
+  const commitPendingSizes = () => {
     if (sizeDebounceRef.current) {
       clearTimeout(sizeDebounceRef.current);
       sizeDebounceRef.current = null;
@@ -384,7 +383,7 @@ function useDebouncedPanelLayoutChange(options: {
     if (pending) {
       setStateRef.current(pending);
     }
-  }, []);
+  };
 
   useEffect(() => cleanupSizeDebounce, [cleanupSizeDebounce]);
   // Every document unload commits a held resize first (ADR-0026 R1).
@@ -399,51 +398,48 @@ function useDebouncedPanelLayoutChange(options: {
 
   // Stable callback: all mutable panel state flows through refs so resize commits
   // do not recreate the outer or inner layout trees.
-  return useCallback(
-    (state: PanelLayoutState) => {
-      const currentPanelState = panelStateRef.current;
-      const fallback = currentPanelState.sizes;
-      const nextSizes = [
-        (state.sizes?.[0] as number | undefined) ?? fallback[0],
-        (state.sizes?.[1] as number | undefined) ?? fallback[1],
-        (state.sizes?.[2] as number | undefined) ?? fallback[2],
-      ] as [number, number, number];
+  return (state: PanelLayoutState) => {
+    const currentPanelState = panelStateRef.current;
+    const fallback = currentPanelState.sizes;
+    const nextSizes = [
+      (state.sizes?.[0] as number | undefined) ?? fallback[0],
+      (state.sizes?.[1] as number | undefined) ?? fallback[1],
+      (state.sizes?.[2] as number | undefined) ?? fallback[2],
+    ] as [number, number, number];
 
-      const booleansChanged =
-        state.showConsole !== currentPanelState.showConsole ||
-        state.showLeftPanel !== currentPanelState.showLeftPanel ||
-        state.showRightPanel !== currentPanelState.showRightPanel;
+    const booleansChanged =
+      state.showConsole !== currentPanelState.showConsole ||
+      state.showLeftPanel !== currentPanelState.showLeftPanel ||
+      state.showRightPanel !== currentPanelState.showRightPanel;
 
-      if (booleansChanged) {
-        if (sizeDebounceRef.current) {
-          clearTimeout(sizeDebounceRef.current);
-          sizeDebounceRef.current = null;
-        }
-        pendingSizesRef.current = null;
-        setStateRef.current({
-          ...currentPanelState,
-          showConsole: state.showConsole,
-          showLeftPanel: state.showLeftPanel,
-          showRightPanel: state.showRightPanel,
-          sizes: nextSizes,
-        });
-        return;
-      }
-
+    if (booleansChanged) {
       if (sizeDebounceRef.current) {
         clearTimeout(sizeDebounceRef.current);
+        sizeDebounceRef.current = null;
       }
-      pendingSizesRef.current = {
+      pendingSizesRef.current = null;
+      setStateRef.current({
         ...currentPanelState,
         showConsole: state.showConsole,
         showLeftPanel: state.showLeftPanel,
         showRightPanel: state.showRightPanel,
         sizes: nextSizes,
-      };
-      sizeDebounceRef.current = setTimeout(commitPendingSizes, 150);
-    },
-    [commitPendingSizes]
-  );
+      });
+      return;
+    }
+
+    if (sizeDebounceRef.current) {
+      clearTimeout(sizeDebounceRef.current);
+    }
+    pendingSizesRef.current = {
+      ...currentPanelState,
+      showConsole: state.showConsole,
+      showLeftPanel: state.showLeftPanel,
+      showRightPanel: state.showRightPanel,
+      sizes: nextSizes,
+    };
+    sizeDebounceRef.current = setTimeout(commitPendingSizes, 150);
+  };
 }
 
 /**
@@ -485,7 +481,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   useCanvasAutoOpen(canvasShellSrc !== undefined);
   // The preload bridge exists before React mounts, so the desktop browser's
   // presence at first render holds for the window's lifetime (BST-1271).
-  const browser = useMemo(() => resolveBrowserBridge(), []);
+  const browser = resolveBrowserBridge();
   useBrowserPageSync(browser);
 
   // The workspace app registry (BST-1258; Terminal joined as a workspace app
@@ -493,24 +489,14 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // buildWorkspaceApps helper — capability gating by omission.
   const toolApprovalGrants = useToolApprovalGrantHandlers();
   const workspaceStripRootRef = useRef<HTMLDivElement>(null);
-  const workspaceApps = useMemo<readonly WorkspaceApp[]>(
-    () =>
-      buildWorkspaceApps({
-        ...(changesPageContent ? { changesPageContent } : {}),
-        filesContent: <FilesAppSurface />,
-        ...(logsPageContent ? { logsPageContent } : {}),
-        ...(terminalPageContent ? { terminalPageContent } : {}),
-        ...(threadContextPageContent ? { threadContextPageContent } : {}),
-        ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
-      }),
-    [
-      changesPageContent,
-      logsPageContent,
-      terminalPageContent,
-      threadContextPageContent,
-      worktreeMapPageContent,
-    ]
-  );
+  const workspaceApps: readonly WorkspaceApp[] = buildWorkspaceApps({
+    ...(changesPageContent ? { changesPageContent } : {}),
+    filesContent: <FilesAppSurface />,
+    ...(logsPageContent ? { logsPageContent } : {}),
+    ...(terminalPageContent ? { terminalPageContent } : {}),
+    ...(threadContextPageContent ? { threadContextPageContent } : {}),
+    ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
+  });
 
   return (
     <div className="h-full min-h-0" data-testid="explorer-section">
@@ -593,13 +579,10 @@ export function RootLayoutContent({
   const setState = usePanelLayoutStore((state) => state.setState);
   useAppMenuSettings();
   const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([shellTab]));
-  const appConfig = useMemo(
-    () => createAppConfig({ navigationItems: orderNavigationItems(navigationItems) }),
-    [navigationItems]
-  );
+  const appConfig = createAppConfig({ navigationItems: orderNavigationItems(navigationItems) });
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
-  const actionRegistry = useMemo(() => createAppActionRegistry(), []);
+  const actionRegistry = createAppActionRegistry();
   // Capability gate mirrors terminalPageContent:
   // the desktop wrapper only passes changesPageContent when the Changes bridge
   // exists, so its presence IS the capability check here — the "→ Review"
@@ -613,10 +596,10 @@ export function RootLayoutContent({
   // Assignment (not a cast) so `PanelTab ⊆ RendererDiagnosticSurface` stays a
   // compile-time check as either union gains members.
   const diagnosticSurface: RendererDiagnosticSurface = shellTab;
-  const longTaskContext = useMemo(
-    () => ({ enabledFeatureFlags: diagnosticFeatureFlags ?? null, route: diagnosticSurface }),
-    [diagnosticFeatureFlags, diagnosticSurface]
-  );
+  const longTaskContext = {
+    enabledFeatureFlags: diagnosticFeatureFlags ?? null,
+    route: diagnosticSurface,
+  };
   const longTaskContextRef = useRef(longTaskContext);
 
   useLayoutEffect(() => {
@@ -637,10 +620,7 @@ export function RootLayoutContent({
     });
   }, [shellTab]);
 
-  const handleNavigationClick = useCallback(
-    (path: string) => setActiveTab(resolveActiveTabForPath(path)),
-    [setActiveTab]
-  );
+  const handleNavigationClick = (path: string) => setActiveTab(resolveActiveTabForPath(path));
   const panelState = usePanelLayoutStore(
     (state) => ({
       showConsole: state.showConsole,

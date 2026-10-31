@@ -4,7 +4,7 @@ import type {
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   buildDraftRuntimeForProvider,
   copyProviderSettingsMap,
@@ -72,55 +72,45 @@ export function useAssistantModelChange({
   };
 } {
   const [providerSettingsValidationReason, reportProviderSettingsValidation] = useState<string>();
-  const handleModelChange = useCallback(
-    (compositeKey: string) => {
-      reportProviderSettingsValidation(undefined);
-      const provider = resolveProviderFromComposite(compositeKey);
-      const model = resolveModelNameFromComposite(compositeKey);
-      if (memoryThreadId && provider && model) {
-        setModel(compositeKey);
-        const draftProviderSettings = draftRuntimeByThreadId[memoryThreadId]?.providerSettings;
-        const providerSettingsMap =
-          copyProviderSettingsMap(draftProviderSettings) ??
-          (providerSettings[provider] ? { [provider]: { ...providerSettings[provider] } } : {});
-        const currentSettings = providerSettingsMap[provider];
-        const compatibleSettings = reconcileProviderSettingsForModel(
-          provider,
-          model,
-          currentSettings
-        );
-        if (compatibleSettings !== currentSettings && compatibleSettings) {
-          providerSettingsMap[provider] = compatibleSettings;
-        }
-        setThreadDraftRuntime(
-          memoryThreadId,
-          buildDraftRuntimeForProvider({ model, provider, providerSettingsMap })
-        );
-        return;
-      }
-      if (provider && model) {
-        const currentSettings = providerSettings[provider];
-        const compatibleSettings = reconcileProviderSettingsForModel(
-          provider,
-          model,
-          currentSettings
-        );
-        const updates = buildReconciledProviderSettingsUpdate(currentSettings, compatibleSettings);
-        if (updates) {
-          setProviderSettings(provider, updates);
-        }
-      }
+  const handleModelChange = (compositeKey: string) => {
+    reportProviderSettingsValidation(undefined);
+    const provider = resolveProviderFromComposite(compositeKey);
+    const model = resolveModelNameFromComposite(compositeKey);
+    if (memoryThreadId && provider && model) {
       setModel(compositeKey);
-    },
-    [
-      draftRuntimeByThreadId,
-      memoryThreadId,
-      providerSettings,
-      setModel,
-      setProviderSettings,
-      setThreadDraftRuntime,
-    ]
-  );
+      const draftProviderSettings = draftRuntimeByThreadId[memoryThreadId]?.providerSettings;
+      const providerSettingsMap =
+        copyProviderSettingsMap(draftProviderSettings) ??
+        (providerSettings[provider] ? { [provider]: { ...providerSettings[provider] } } : {});
+      const currentSettings = providerSettingsMap[provider];
+      const compatibleSettings = reconcileProviderSettingsForModel(
+        provider,
+        model,
+        currentSettings
+      );
+      if (compatibleSettings !== currentSettings && compatibleSettings) {
+        providerSettingsMap[provider] = compatibleSettings;
+      }
+      setThreadDraftRuntime(
+        memoryThreadId,
+        buildDraftRuntimeForProvider({ model, provider, providerSettingsMap })
+      );
+      return;
+    }
+    if (provider && model) {
+      const currentSettings = providerSettings[provider];
+      const compatibleSettings = reconcileProviderSettingsForModel(
+        provider,
+        model,
+        currentSettings
+      );
+      const updates = buildReconciledProviderSettingsUpdate(currentSettings, compatibleSettings);
+      if (updates) {
+        setProviderSettings(provider, updates);
+      }
+    }
+    setModel(compositeKey);
+  };
   const reconciledFixedSelectionsRef = useRef(new Set<string>());
   useEffect(() => {
     const fixedModel = resolveFixedProviderModelSelection({

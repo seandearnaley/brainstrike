@@ -21,7 +21,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { toast } from '@brainstrike/ui';
-import { useCallback, useMemo } from 'react';
+
 import { extractDroppedFolderPaths } from './extract-dropped-folder-paths';
 import { useConnectFolder } from './use-connect-folder';
 import { resolveWorkspaceConnectBridge } from './workspace-connect-bridge';
@@ -86,35 +86,34 @@ export function useFolderDrop({ onRootConnected }: UseFolderDropArgs): {
 } {
   // Resolved ONCE per hook instance, not per render: the capability IS the
   // gate, so web renders no drop zone rather than a zone that refuses.
-  const bridge = useMemo(() => resolveWorkspaceConnectBridge(), []);
+  const bridge = resolveWorkspaceConnectBridge();
   const { connectPath } = useConnectFolder();
-  const onDropItems = useCallback(
-    (items: readonly DataTransferItem[]) => {
-      if (!(bridge && connectPath)) {
-        return;
-      }
-      const { paths, skippedFileCount, unreadableCount, unresolvedCount } =
-        extractDroppedFolderPaths(items, bridge.getDroppedPath);
-      void connectAndRecordSequentially(paths, connectPath, onRootConnected);
-      // Every non-outcome is stated. A drop that mounted nothing and said
-      // nothing is the silent failure this whole feature must not have.
-      const notice = skippedDropNotice(
-        paths.length,
+  const onDropItems = (items: readonly DataTransferItem[]) => {
+    if (!(bridge && connectPath)) {
+      return;
+    }
+    const { paths, skippedFileCount, unreadableCount, unresolvedCount } = extractDroppedFolderPaths(
+      items,
+      bridge.getDroppedPath
+    );
+    void connectAndRecordSequentially(paths, connectPath, onRootConnected);
+    // Every non-outcome is stated. A drop that mounted nothing and said
+    // nothing is the silent failure this whole feature must not have.
+    const notice = skippedDropNotice(
+      paths.length,
+      skippedFileCount,
+      unreadableCount,
+      unresolvedCount
+    );
+    if (notice) {
+      logger.info('Dropped items were not folders', {
         skippedFileCount,
         unreadableCount,
-        unresolvedCount
-      );
-      if (notice) {
-        logger.info('Dropped items were not folders', {
-          skippedFileCount,
-          unreadableCount,
-          unresolvedCount,
-        });
-        toast({ ...notice, variant: 'destructive' });
-      }
-    },
-    [bridge, connectPath, onRootConnected]
-  );
+        unresolvedCount,
+      });
+      toast({ ...notice, variant: 'destructive' });
+    }
+  };
   return bridge && connectPath ? { onDropItems } : {};
 }
 

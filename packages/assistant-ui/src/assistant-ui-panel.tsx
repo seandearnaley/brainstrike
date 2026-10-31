@@ -15,7 +15,7 @@ import type {
   AssistantRunEvent,
   AssistantToolApprovalRequest,
 } from '@brainstrike/assistant-contract';
-import { Activity, type ReactNode, use, useMemo, useState } from 'react';
+import { Activity, type ReactNode, use, useState } from 'react';
 import { AnsweredApprovalsProvider } from './answered-approvals-index';
 import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
@@ -309,13 +309,10 @@ export const ChatThreadUI = ({
   // present, regardless of whether search() returns items, so mounting it with
   // an empty list would surface an empty menu. "No commands" ⇒ no slash feature.
   const hasSlashCommands = slashCommands.length > 0;
-  const slashAdapterOptions = useMemo(
-    () => toSlashCommandAdapterOptions(slashCommands),
-    [slashCommands]
-  );
+  const slashAdapterOptions = toSlashCommandAdapterOptions(slashCommands);
   const { adapter: slashAdapter, action: slashAction } =
     useSlashCommandAdapter(slashAdapterOptions);
-  const slashIconMap = useMemo(() => buildSlashCommandIconMap(slashCommands), [slashCommands]);
+  const slashIconMap = buildSlashCommandIconMap(slashCommands);
   // A diagram's full-size view fills the thread (messages and composer).
   const [threadRoot, setThreadRoot] = useState<HTMLDivElement | null>(null);
 

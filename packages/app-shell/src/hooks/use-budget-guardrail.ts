@@ -2,7 +2,7 @@ import { useAssistantBudgetPreferencesStore } from '@brainstrike/app-state/store
 import { useDailySpend } from '@brainstrike/assistant-data/cost-tracking';
 import type { BudgetGuardrailContextValue } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAssistantThreadHostLedger } from '../assistant-thread-host-context';
 
 const budgetGuardrailLogger = createLogger('BudgetGuardrail');
@@ -30,7 +30,7 @@ export function useBudgetGuardrailBinding(): BudgetGuardrailContextValue | null 
   const { usage: hostUsage } = useAssistantThreadHostLedger();
   const spendState = useDailySpend(hostUsage);
   const [overridden, setOverridden] = useState(false);
-  const override = useCallback(() => setOverridden(true), []);
+  const override = () => setOverridden(true);
 
   useEffect(() => {
     if (dailyCapUsd !== null && spendState.error) {

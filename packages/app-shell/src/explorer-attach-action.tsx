@@ -7,7 +7,7 @@
 import { useSelectionManager } from '@brainstrike/file-explorer-ui/shell';
 import { Button, SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS } from '@brainstrike/ui';
 import { Paperclip } from 'lucide-react';
-import { type ReactElement, useCallback } from 'react';
+import type { ReactElement } from 'react';
 import { useAttachFilesToThread } from './use-attach-files-to-thread';
 
 function plural(count: number, word: string): string {
@@ -18,10 +18,7 @@ export function ExplorerAttachAction(): ReactElement {
   // The whole forest: in query mode `selectedFilePaths` is the focused root alone.
   const { forestSelection, selectedCount } = useSelectionManager();
   const attachFiles = useAttachFilesToThread();
-  const attach = useCallback(
-    () => attachFiles(forestSelection, selectedCount),
-    [attachFiles, forestSelection, selectedCount]
-  );
+  const attach = () => attachFiles(forestSelection, selectedCount);
 
   return (
     <Button

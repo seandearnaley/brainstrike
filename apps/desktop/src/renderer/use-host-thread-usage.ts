@@ -3,7 +3,7 @@ import {
   EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
   resolveCumulativeUsageDisplay,
 } from '@brainstrike/assistant-data';
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { HostThreadLedger } from './host-thread-ledger';
 
 /**
@@ -15,15 +15,11 @@ export function useHostThreadUsage(
   ledger: HostThreadLedger,
   threadId: string
 ): CumulativeUsageDisplay | undefined {
-  const read = useCallback(() => ledger.getThreadUsage(threadId), [ledger, threadId]);
+  const read = () => ledger.getThreadUsage(threadId);
   const usage = useSyncExternalStore(ledger.subscribe, read, read);
-  return useMemo(
-    () =>
-      usage === undefined
-        ? undefined
-        : // A read thread with no costed call yet is the honest zero baseline.
-          (resolveCumulativeUsageDisplay(usage.perModel.length > 0 ? usage : null) ??
-          EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY),
-    [usage]
-  );
+  return usage === undefined
+    ? undefined
+    : // A read thread with no costed call yet is the honest zero baseline.
+      (resolveCumulativeUsageDisplay(usage.perModel.length > 0 ? usage : null) ??
+        EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY);
 }

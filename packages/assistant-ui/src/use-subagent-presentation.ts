@@ -1,4 +1,4 @@
-import { use, useCallback, useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import {
   type SubagentConversationPresentation,
   SubagentConversationPresentationContext,
@@ -13,7 +13,7 @@ type Entry = {
 export function useSubagentPresentation(threadId: string | undefined) {
   const resolver = use(SubagentConversationPresentationContext);
   const [revision, setRevision] = useState(0);
-  const reload = useCallback(() => setRevision((value) => value + 1), []);
+  const reload = () => setRevision((value) => value + 1);
   const [entry, setEntry] = useState<Entry>();
   useEffect(() => {
     if (!(threadId && resolver)) {

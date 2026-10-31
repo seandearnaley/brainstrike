@@ -3,7 +3,7 @@ import { useToast } from '@brainstrike/ui';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   isTransientRootError,
   TRANSIENT_ROOT_RETRY_DELAY_MS,
@@ -151,9 +151,9 @@ export function useTerminalSession(
   // The host element is tracked in state (not a plain ref) so the lifecycle
   // effect re-runs when the node mounts/unmounts — a ref mutation would not.
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
-  const containerRef = useCallback((node: HTMLDivElement | null) => {
+  const containerRef = (node: HTMLDivElement | null) => {
     setContainer(node);
-  }, []);
+  };
 
   // A monotonically-increasing id for the CURRENT desired session. Bumping it
   // (restart) re-keys the effect and invalidates any stale outcome. This is the
@@ -163,10 +163,10 @@ export function useTerminalSession(
   // the silent boot-race retry loop is bounded. Reset on success, on a manual
   // restart, and when the focused root changes.
   const transientRetryCountRef = useRef(0);
-  const restart = useCallback(() => {
+  const restart = () => {
     transientRetryCountRef.current = 0;
     setSessionId((id) => id + 1);
-  }, []);
+  };
 
   // A different target (root or pinned checkout) starts with a fresh
   // transient-retry budget.

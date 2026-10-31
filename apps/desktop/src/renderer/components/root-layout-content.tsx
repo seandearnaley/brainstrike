@@ -19,7 +19,7 @@ import { createLogger } from '@brainstrike/logging';
 import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { Shapes } from 'lucide-react';
-import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react';
+import { type ReactElement, type ReactNode, useEffect, useRef } from 'react';
 import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
@@ -81,45 +81,40 @@ const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 export default function RootLayoutContent() {
   // The one writer of the window title, keyed on the route on screen.
   useDocumentTitle(DESKTOP_DOCUMENT_META);
-  const nativeSearch = useMemo(
-    () =>
-      window.indexSearch ? createIpcCapability(window.indexSearch, indexSearchContract) : null,
-    []
-  );
+  const nativeSearch = window.indexSearch
+    ? createIpcCapability(window.indexSearch, indexSearchContract)
+    : null;
   const activeToolsTabRef = useRef('host-owned');
 
   // The agent host owns the git cluster (ADR-0029): Changes, the branch chip
   // and worktrees. Resolved once; each surface below is offered only when its
   // bridge is present (no isElectron check).
-  const workspaceGit = useMemo(() => resolveDesktopWorkspaceGitServices(), []);
+  const workspaceGit = resolveDesktopWorkspaceGitServices();
   const changesAvailable = workspaceGit.changes !== null;
   // ...and the terminal cluster: pty terminals and the command-session
   // inventory. The Terminal tab is offered only when its bridge is present.
-  const workspaceTerminals = useMemo(() => resolveDesktopWorkspaceTerminalServices(), []);
+  const workspaceTerminals = resolveDesktopWorkspaceTerminalServices();
   const terminalAvailable = workspaceTerminals.terminal !== null;
   const worktreesAvailable = workspaceGit.worktrees !== null;
   // Capability port (BST-1566): live MCP task status for the thread's task
   // cards comes from the agent host (BST-1930 c5c); `null` keeps the cards on
   // their persisted snapshot with a visible note. Resolved once.
-  const mcpTaskBridge = useMemo(() => resolveDesktopMcpTaskBridge(), []);
+  const mcpTaskBridge = resolveDesktopMcpTaskBridge();
   // The MCP input presenters answer server input and cancel its task on the host.
-  const mcpElicitationCapability = useMemo(
-    () => ({ elicitation: resolveDesktopMcpElicitationBridge(), tasks: mcpTaskBridge }),
-    [mcpTaskBridge]
-  );
+  const mcpElicitationCapability = {
+    elicitation: resolveDesktopMcpElicitationBridge(),
+    tasks: mcpTaskBridge,
+  };
   // The agent host owns the MCP tools and their preferences the composer menu toggles.
-  const mcpToolsCapability = useMemo(() => resolveDesktopMcpToolsCapability(), []);
+  const mcpToolsCapability = resolveDesktopMcpToolsCapability();
   // ...and the server status the prompt affordances and MCP Apps follow.
-  const mcpStatusCapability = useMemo(() => resolveDesktopMcpStatusCapability(), []);
+  const mcpStatusCapability = resolveDesktopMcpStatusCapability();
   // ...and the prompt content those affordances read.
-  const mcpContentCapability = useMemo(() => resolveDesktopMcpContent(), []);
+  const mcpContentCapability = resolveDesktopMcpContent();
   const mcpAppsEnabled = useMcpAppsEnablement(mcpStatusCapability);
-  const navigationConfig = useMemo<NavigationItem[]>(
-    () => [...navigationItems, ARTIFACTS_NAVIGATION_ITEM],
-    []
-  );
+  const navigationConfig: NavigationItem[] = [...navigationItems, ARTIFACTS_NAVIGATION_ITEM];
   // BST-1880: the damaged-store notice's health read and recovery actions.
-  const stateHealth = useMemo(() => createDesktopStateHealth(), []);
+  const stateHealth = createDesktopStateHealth();
   const sharedProps: RootLayoutContentProps = {
     // Canvases (BST-1173) need only the agent host and the brainstrike-canvas:
     // shell protocol, both unconditionally present on desktop: no bridge gate.

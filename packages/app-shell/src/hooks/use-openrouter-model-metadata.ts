@@ -121,32 +121,26 @@ export function useOpenRouterModelMetadata({
         : { maxOutputTokens: metadata.maxOutputTokens }),
     };
   }, [lookup, selectedModelDef]);
-  const disabledReason = useMemo(
-    () =>
-      resolveOpenRouterMetadataDisabledReason(providerId, settings, lookup, modelSettings, modelId),
-    [lookup, modelId, modelSettings, providerId, settings]
+  const disabledReason = resolveOpenRouterMetadataDisabledReason(
+    providerId,
+    settings,
+    lookup,
+    modelSettings,
+    modelId
   );
-  const effectiveModelSettings = useMemo(
-    () =>
-      disabledReason
-        ? modelSettings
-        : buildEffectiveModelSettings(
-            providerId,
-            modelSettings,
-            budgetModelDef,
-            lookup?.state === 'resolved' ? lookup.snapshot.metadata : undefined,
-            modelId,
-            settings?.reasoningEffort || undefined
-          ),
-    [budgetModelDef, disabledReason, lookup, modelId, modelSettings, providerId, settings]
-  );
-  const agentLoopSettings = useMemo(
-    () =>
-      disabledReason
-        ? undefined
-        : buildAgentLoopSettings(settings, budgetModelDef, providerId, effectiveModelSettings),
-    [budgetModelDef, disabledReason, effectiveModelSettings, providerId, settings]
-  );
+  const effectiveModelSettings = disabledReason
+    ? modelSettings
+    : buildEffectiveModelSettings(
+        providerId,
+        modelSettings,
+        budgetModelDef,
+        lookup?.state === 'resolved' ? lookup.snapshot.metadata : undefined,
+        modelId,
+        settings?.reasoningEffort || undefined
+      );
+  const agentLoopSettings = disabledReason
+    ? undefined
+    : buildAgentLoopSettings(settings, budgetModelDef, providerId, effectiveModelSettings);
   return {
     agentLoopSettings,
     lookup,

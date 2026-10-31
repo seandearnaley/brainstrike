@@ -16,7 +16,7 @@ import {
 } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { Info, RotateCw, Search, Settings2, SlidersHorizontal } from 'lucide-react';
-import { useCallback, useId, useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { DetailLevelControl } from './assistant-detail-control';
 import type {
   AssistantToolMenuConfig,
@@ -372,15 +372,12 @@ export const ControlsMenu = ({
 
   const toolMenuOnToggleTool = toolMenu?.onToggleTool;
 
-  const handleToggleTool = useCallback(
-    (toolId: string, enabled: boolean) => {
-      if (!toolMenuOnToggleTool) {
-        return;
-      }
-      void toolMenuOnToggleTool(toolId, enabled);
-    },
-    [toolMenuOnToggleTool]
-  );
+  const handleToggleTool = (toolId: string, enabled: boolean) => {
+    if (!toolMenuOnToggleTool) {
+      return;
+    }
+    void toolMenuOnToggleTool(toolId, enabled);
+  };
 
   // The Detail control is always relevant, so the menu always renders even
   // without tools or reasoning settings.

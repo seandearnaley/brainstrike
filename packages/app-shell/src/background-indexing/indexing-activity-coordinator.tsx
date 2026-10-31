@@ -4,7 +4,7 @@ import {
 } from '@brainstrike/app-state/stores/index-config-store';
 import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 
 export function IndexingActivityCoordinator(): null {
   const setBackgroundSnapshot = useIndexingActivityStore((state) => state.setBackgroundSnapshot);
@@ -19,25 +19,15 @@ export function IndexingActivityCoordinator(): null {
     state: state.state,
   }));
 
-  const backgroundSnapshot = useMemo(
-    () => ({
-      enabled: !off,
-      lastError: backgroundStatus.lastError,
-      managedCollectionId: backgroundStatus.managedCollectionId,
-      managedCollectionName: backgroundStatus.managedCollectionName,
-      paused: backgroundStatus.state === 'paused',
-      pauseReasons: backgroundStatus.pauseReasons,
-      state: backgroundStatus.state,
-    }),
-    [
-      off,
-      backgroundStatus.lastError,
-      backgroundStatus.managedCollectionId,
-      backgroundStatus.managedCollectionName,
-      backgroundStatus.pauseReasons,
-      backgroundStatus.state,
-    ]
-  );
+  const backgroundSnapshot = {
+    enabled: !off,
+    lastError: backgroundStatus.lastError,
+    managedCollectionId: backgroundStatus.managedCollectionId,
+    managedCollectionName: backgroundStatus.managedCollectionName,
+    paused: backgroundStatus.state === 'paused',
+    pauseReasons: backgroundStatus.pauseReasons,
+    state: backgroundStatus.state,
+  };
 
   useEffect(() => {
     setBackgroundSnapshot(backgroundSnapshot);

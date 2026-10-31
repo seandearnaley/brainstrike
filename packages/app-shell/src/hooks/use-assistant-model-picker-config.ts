@@ -88,18 +88,14 @@ export function useAssistantModelPickerConfig({
       );
   }, [configuredProviders, getProviderLlmModels, isModelEnabled]);
 
-  const pickerProviders = useMemo<ModelPickerProvider[]>(
-    () =>
-      configuredProviders.map((providerId) => {
-        const definition = getProviderDefinition(providerId);
-        return {
-          icon: null,
-          id: providerId,
-          name: definition.displayName,
-        };
-      }),
-    [configuredProviders]
-  );
+  const pickerProviders: ModelPickerProvider[] = configuredProviders.map((providerId) => {
+    const definition = getProviderDefinition(providerId);
+    return {
+      icon: null,
+      id: providerId,
+      name: definition.displayName,
+    };
+  });
 
   const pickerModels = useMemo<ModelPickerModel[]>(() => {
     const models: ModelPickerModel[] = [];

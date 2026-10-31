@@ -1,6 +1,6 @@
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { type AgentColor, isAgentColor } from '@brainstrike/types/agent-color';
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
 import {
@@ -165,29 +165,20 @@ export function useHostChildSidebar(base: readonly ThreadPanelVisibleRow[]) {
     store?.getSnapshot ?? (() => EMPTY)
   );
   const [expanded, setExpanded] = useState<ReadonlyMap<string, ExpandedParent>>(() => new Map());
-  const owns = useCallback(
-    (row: ThreadPanelVisibleRow): boolean =>
-      row.kind === 'host-child' || (row.kind === 'thread' && host?.isHostThread?.(row.id) === true),
-    [host]
-  );
-  const toggle = useCallback(
-    (row: ThreadPanelVisibleRow): void => {
-      if (!(store && owns(row) && (row.kind === 'thread' || row.kind === 'host-child'))) {
-        return;
-      }
-      setExpanded(
-        expanded.has(row.id)
-          ? collapseHostParent(expanded, row.id, store, snapshot)
-          : expandHostParent(expanded, row, store)
-      );
-    },
-    [expanded, owns, snapshot, store]
-  );
-  const retry = useCallback((threadId: string) => store?.retry(threadId), [store]);
-  const rows = useMemo(
-    () => projectHostChildRows(base, expanded, snapshot, retry),
-    [base, expanded, snapshot, retry]
-  );
+  const owns = (row: ThreadPanelVisibleRow): boolean =>
+    row.kind === 'host-child' || (row.kind === 'thread' && host?.isHostThread?.(row.id) === true);
+  const toggle = (row: ThreadPanelVisibleRow): void => {
+    if (!(store && owns(row) && (row.kind === 'thread' || row.kind === 'host-child'))) {
+      return;
+    }
+    setExpanded(
+      expanded.has(row.id)
+        ? collapseHostParent(expanded, row.id, store, snapshot)
+        : expandHostParent(expanded, row, store)
+    );
+  };
+  const retry = (threadId: string) => store?.retry(threadId);
+  const rows = projectHostChildRows(base, expanded, snapshot, retry);
   useEffect(() => {
     store?.observe(
       rows.flatMap((row) => {
@@ -198,17 +189,14 @@ export function useHostChildSidebar(base: readonly ThreadPanelVisibleRow[]) {
       })
     );
   }, [owns, rows, store]);
-  const hasChildren = useCallback(
-    (row: ThreadPanelVisibleRow): boolean => {
-      if (!owns(row)) {
-        return false;
-      }
-      const threadId = row.kind === 'host-child' ? row.child.threadId : row.id;
-      const children = snapshot.children.get(threadId);
-      return Array.isArray(children) && children.length > 0;
-    },
-    [owns, snapshot]
-  );
-  const expandedIds = useMemo(() => new Set(expanded.keys()), [expanded]);
+  const hasChildren = (row: ThreadPanelVisibleRow): boolean => {
+    if (!owns(row)) {
+      return false;
+    }
+    const threadId = row.kind === 'host-child' ? row.child.threadId : row.id;
+    const children = snapshot.children.get(threadId);
+    return Array.isArray(children) && children.length > 0;
+  };
+  const expandedIds = new Set(expanded.keys());
   return { expandedIds, hasChildren, owns, rows, toggle };
 }

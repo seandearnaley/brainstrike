@@ -1,7 +1,7 @@
 import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { Bot, Globe } from 'lucide-react';
-import { useMemo } from 'react';
+
 import type { BrowserBridge, BrowserTab } from './browser-bridge';
 import { type BrowserPageTab, readBrowserPageTab } from './browser-page-tab';
 import { BrowserPageView } from './browser-page-view';
@@ -66,14 +66,10 @@ function pageApp(
 export function useBrowserWorkspaceApps(bridge: BrowserBridge | null): readonly WorkspaceApp[] {
   const openIds = useWorkspaceTabSelectionStore((state) => state.openAppIds);
   const pages = useBrowserTabsStore((state) => state.tabs);
-  return useMemo(
-    () =>
-      bridge === null
-        ? []
-        : openIds.flatMap((id) => {
-            const app = pageApp(id, bridge, pages);
-            return app ? [app] : [];
-          }),
-    [bridge, openIds, pages]
-  );
+  return bridge === null
+    ? []
+    : openIds.flatMap((id) => {
+        const app = pageApp(id, bridge, pages);
+        return app ? [app] : [];
+      });
 }

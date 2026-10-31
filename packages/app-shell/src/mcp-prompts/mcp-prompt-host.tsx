@@ -19,7 +19,7 @@
 
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { useMcpContentCapability } from '../use-mcp-content-capability';
 import { useMcpStatusCapability } from '../use-mcp-status-capability';
@@ -120,66 +120,63 @@ export function McpPromptComposerHost() {
     };
   }, [bridge, selection]);
 
-  const stage = useCallback(
-    async (values: Readonly<Record<string, string>>): Promise<void> => {
-      if (!(bridge && selection)) {
-        return;
-      }
-      const { entry, split, threadId } = selection;
-      const response = await bridge.getPrompt({
-        ...(Object.keys(values).length > 0 ? { arguments: values } : {}),
-        authority: {
-          configuredServerId: entry.configuredServerId,
-          generation: entry.generation,
-        },
-        name: entry.promptName,
+  const stage = async (values: Readonly<Record<string, string>>): Promise<void> => {
+    if (!(bridge && selection)) {
+      return;
+    }
+    const { entry, split, threadId } = selection;
+    const response = await bridge.getPrompt({
+      ...(Object.keys(values).length > 0 ? { arguments: values } : {}),
+      authority: {
+        configuredServerId: entry.configuredServerId,
+        generation: entry.generation,
+      },
+      name: entry.promptName,
+    });
+    // The dialog is dismissible mid-request (Escape / outside click) and a
+    // modal that cannot be closed is worse UX than one that can, so the ABORT
+    // is allowed and honoured HERE instead: `selection` is captured in this
+    // closure, so without re-reading the store a dismissed request would still
+    // land its text in the composer. Covers a replacing second selection too.
+    if (useMcpPromptSelectionStore.getState().selection !== selection) {
+      logger.info('Discarding an MCP prompt result whose selection was dismissed', {
+        prompt: entry.commandId,
       });
-      // The dialog is dismissible mid-request (Escape / outside click) and a
-      // modal that cannot be closed is worse UX than one that can, so the ABORT
-      // is allowed and honoured HERE instead: `selection` is captured in this
-      // closure, so without re-reading the store a dismissed request would still
-      // land its text in the composer. Covers a replacing second selection too.
-      if (useMcpPromptSelectionStore.getState().selection !== selection) {
-        logger.info('Discarding an MCP prompt result whose selection was dismissed', {
-          prompt: entry.commandId,
-        });
-        return;
-      }
-      const insertion = buildMcpPromptInsertion(response.result);
-      if (insertion.text.trim().length === 0) {
-        throw new Error(
-          `Prompt “${entry.title}” returned no text content, so there is nothing to stage.`
-        );
-      }
-      // The composer stays editable across the round trip, so the selection-time
-      // split can be stale: replacing with it would silently discard whatever
-      // the user typed (or the fresh draft they started after sending). When the
-      // draft has moved on, the prompt is APPENDED to the live draft instead —
-      // the prompt still arrives, and no user text is lost.
-      const untouched = isComposerDraftUntouched(
-        { draftText: selection.draftText, split },
-        liveDraftText(threadId)
+      return;
+    }
+    const insertion = buildMcpPromptInsertion(response.result);
+    if (insertion.text.trim().length === 0) {
+      throw new Error(
+        `Prompt “${entry.title}” returned no text content, so there is nothing to stage.`
       );
-      if (!untouched) {
-        logger.info('Composer draft changed while a prompt was loading; appending instead', {
-          prompt: entry.commandId,
-        });
-      }
-      useAssistantComposerCommandStore.getState().enqueue({
-        mode: untouched ? 'replace' : 'append',
-        text: untouched ? applyComposerTriggerSplit(split, insertion.text) : insertion.text,
-        threadId,
+    }
+    // The composer stays editable across the round trip, so the selection-time
+    // split can be stale: replacing with it would silently discard whatever
+    // the user typed (or the fresh draft they started after sending). When the
+    // draft has moved on, the prompt is APPENDED to the live draft instead —
+    // the prompt still arrives, and no user text is lost.
+    const untouched = isComposerDraftUntouched(
+      { draftText: selection.draftText, split },
+      liveDraftText(threadId)
+    );
+    if (!untouched) {
+      logger.info('Composer draft changed while a prompt was loading; appending instead', {
+        prompt: entry.commandId,
       });
-      if (insertion.omitted.length > 0) {
-        toast({
-          description: `Staged the text of “${entry.title}”. These parts cannot go in the composer: ${insertion.omitted.join('; ')}.`,
-          title: 'Prompt partially staged',
-        });
-      }
-      clear();
-    },
-    [bridge, clear, selection, toast]
-  );
+    }
+    useAssistantComposerCommandStore.getState().enqueue({
+      mode: untouched ? 'replace' : 'append',
+      text: untouched ? applyComposerTriggerSplit(split, insertion.text) : insertion.text,
+      threadId,
+    });
+    if (insertion.omitted.length > 0) {
+      toast({
+        description: `Staged the text of “${entry.title}”. These parts cannot go in the composer: ${insertion.omitted.join('; ')}.`,
+        title: 'Prompt partially staged',
+      });
+    }
+    clear();
+  };
 
   // Argument-less prompts need no form, so they stage as soon as the user picks
   // them. Keyed on the selection object so a re-render never re-fetches.

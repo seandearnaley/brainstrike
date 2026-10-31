@@ -7,7 +7,7 @@ import type {
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { toast } from '@brainstrike/ui';
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { useBranchSwitcher } from './use-branch-switcher';
 import type { ThreadCheckoutState } from './use-thread-checkout';
@@ -153,23 +153,20 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
   // settles, as the branch chip does (BST-1400), instead of briefly offering
   // the "Not a git repository" diagnostic (BST-2129).
   const mode = checkoutSettled ? resolvedMode : undefined;
-  const onSwitchInNewWorktree = useCallback(
-    (branch: string): void => {
-      if (!mode) {
-        return;
-      }
-      void mode
-        .onCreate({
-          baseRef: branch,
-          branch: { detached: true },
-          name: branchToName(branch),
-        })
-        .catch((error: unknown) => {
-          logger.error('Switch in a new worktree failed', { error });
-        });
-    },
-    [mode]
-  );
+  const onSwitchInNewWorktree = (branch: string): void => {
+    if (!mode) {
+      return;
+    }
+    void mode
+      .onCreate({
+        baseRef: branch,
+        branch: { detached: true },
+        name: branchToName(branch),
+      })
+      .catch((error: unknown) => {
+        logger.error('Switch in a new worktree failed', { error });
+      });
+  };
   const { menu: branchSwitcher, settled: branchSwitcherSettled } = useBranchSwitcher({
     checkout,
     dbRootId: primaryRootId ?? null,

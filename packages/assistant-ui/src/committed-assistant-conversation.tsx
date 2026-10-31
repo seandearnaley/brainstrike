@@ -3,7 +3,7 @@ import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import { Button } from '@brainstrike/ui';
 import { CircleAlertIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   AssistantConversationPanel,
   type AssistantConversationPanelProps,
@@ -82,13 +82,10 @@ function BoundCommittedAssistantConversation({
   const withheld = useCommittedAssistantSelector(store, selectWithheld);
   const [commandError, setCommandError] = useState<string | undefined>();
   const rootRef = useRef<HTMLDivElement>(null);
-  const reportCommandError = useCallback(
-    (cause: unknown): void => {
-      setCommandError(commandErrorText(cause));
-      onCommandError?.(cause);
-    },
-    [onCommandError]
-  );
+  const reportCommandError = (cause: unknown): void => {
+    setCommandError(commandErrorText(cause));
+    onCommandError?.(cause);
+  };
   const dismissCommandError = (): void => {
     // Dismiss leaves with its alert. Before it unmounts, hand focus to the
     // composer: the conversation's stable input, where the next command
@@ -170,10 +167,8 @@ function CommittedRuntimePanel({
   const { adapters: attachmentAdapters } = useAssistantThreadRuntimeAdapters(
     panel.attachmentsAvailability !== undefined
   );
-  const runtimeAdapters = useMemo(
-    () => (adapters || attachmentAdapters ? { ...attachmentAdapters, ...adapters } : undefined),
-    [adapters, attachmentAdapters]
-  );
+  const runtimeAdapters =
+    adapters || attachmentAdapters ? { ...attachmentAdapters, ...adapters } : undefined;
   const runtime = useCommittedAssistantRuntime({
     adapters: runtimeAdapters,
     commands,

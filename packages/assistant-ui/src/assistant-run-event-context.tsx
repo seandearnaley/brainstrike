@@ -1,5 +1,5 @@
 import { useAuiState } from '@assistant-ui/react';
-import { createContext, type ReactNode, use, useMemo } from 'react';
+import { createContext, type ReactNode, use } from 'react';
 import { shouldShowBackgroundActivity } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import type { AssistantRunEventDisplayStatus } from './assistant-run-event-derivation';
@@ -22,13 +22,10 @@ export function AssistantRunEventProvider({ children }: { readonly children: Rea
   const { detailLevel } = useAssistantDetailLevel();
   const active = shouldShowBackgroundActivity(detailLevel);
   const messages = useAuiState((state) => state.thread.messages);
-  const derived = useMemo(
-    () => (active ? deriveAssistantRunEventRows(messages) : EMPTY_DERIVATIONS),
-    [active, messages]
-  );
+  const derived = active ? deriveAssistantRunEventRows(messages) : EMPTY_DERIVATIONS;
   const renderPlanKeys = useStableRecord(derived.renderPlanKeys);
   const statuses = useStableRecord(derived.statuses);
-  const value = useMemo(() => ({ renderPlanKeys, statuses }), [renderPlanKeys, statuses]);
+  const value = { renderPlanKeys, statuses };
 
   return (
     <AssistantRunEventContext.Provider value={value}>{children}</AssistantRunEventContext.Provider>

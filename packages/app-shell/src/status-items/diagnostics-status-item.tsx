@@ -1,5 +1,5 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { useCallback } from 'react';
+
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
 import { useUnseenDiagnosticsCount } from '../diagnostics/use-unseen-diagnostics-count';
@@ -95,13 +95,13 @@ export function DiagnosticsStatusItem() {
   const markAllSeen = useDiagnosticsSeenStore((state) => state.markAllSeen);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
 
-  const handleClick = useCallback(() => {
+  const handleClick = () => {
     markAllSeen(Date.now());
     openSettings();
     if (typeof window !== 'undefined') {
       window.location.hash = '#settings/logging';
     }
-  }, [markAllSeen, openSettings]);
+  };
 
   const display = getDisplay(errorCount, warningCount, error, sinkDisabledReason);
   if (!display) {
