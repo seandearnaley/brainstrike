@@ -1,5 +1,5 @@
+import type { Message } from 'vscode-jsonrpc/node';
 import { type QueryProcess, queryHostEntryPath } from './process.ts';
-import type { QueryRequest } from './protocol.ts';
 
 /** Electron's documented surface, injected to keep this library Node-only. */
 export interface QueryUtilityProcess {
@@ -15,7 +15,7 @@ export interface QueryUtilityProcess {
     (event: 'error', listener: (type: string, location: string, report: string) => void): unknown;
   };
   readonly pid?: number | undefined;
-  readonly postMessage: (message: QueryRequest) => void;
+  readonly postMessage: (message: Message) => void;
 }
 
 export function spawnUtilityQueryProcess(
