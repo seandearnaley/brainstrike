@@ -565,8 +565,9 @@ const AssistantMessage = () => {
       {/* One footer line: the per-run 👍/👎 verdict (Task Ledger; once per
           finished run, on its terminal leg) then Copy/Retry. Inline flow, not
           flex: the action bar floats (absolute) on older messages, and only an
-          inline static position keeps it after the verdict, not on top of it. */}
-      <div className="col-start-3 row-start-2 -ml-1 leading-5 whitespace-nowrap">
+          inline static position keeps it after the verdict, not on top of it.
+          min-w-0: a long verdict label wraps inside the column, never widens it. */}
+      <div className="col-start-3 row-start-2 -ml-1 min-w-0 leading-5">
         <RunVerdictControl />
         <AssistantActionBar />
       </div>
