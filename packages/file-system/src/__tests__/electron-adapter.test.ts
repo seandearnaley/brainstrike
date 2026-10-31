@@ -137,7 +137,7 @@ describe('ElectronFileSystemAdapter', () => {
     expect(handle.platform).toBe('electron');
     expect(dialog.showOpenDialog).toHaveBeenCalledWith({
       buttonLabel: 'Select Folder',
-      message: 'Choose a directory to explore with BrainStrike',
+      message: 'Choose a directory to explore with Brainstrike',
       properties: ['openDirectory'],
       title: 'Select a folder to explore',
     });

@@ -137,7 +137,7 @@ vi.mock('lucide-react', () => ({
 
 describe('ToolGroupAccordion', () => {
   const defaultProps = {
-    description: 'Built-in BrainStrike tools',
+    description: 'Built-in Brainstrike tools',
     enabledCount: 8,
     id: 'native-tools',
     label: 'Native Tools',
@@ -169,7 +169,7 @@ describe('ToolGroupAccordion', () => {
         </ToolGroupAccordion>
       );
 
-      expect(screen.getByText('Built-in BrainStrike tools')).toBeInTheDocument();
+      expect(screen.getByText('Built-in Brainstrike tools')).toBeInTheDocument();
     });
 
     it('renders enabled count fraction as badge', () => {

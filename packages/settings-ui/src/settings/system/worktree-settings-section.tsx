@@ -112,7 +112,7 @@ function WorktreeSettingsForm({
           value={directory}
         />
         <p className="text-muted-foreground text-xs">
-          Worktrees BrainStrike creates live under this folder. It must sit outside every connected
+          Worktrees Brainstrike creates live under this folder. It must sit outside every connected
           workspace folder — an in-folder location would be indexed and watched as part of that
           folder. Leave this field empty to use the default location.
         </p>

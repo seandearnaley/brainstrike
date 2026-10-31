@@ -130,7 +130,7 @@ export function createWorkspaceSettingsCategory(
       </div>
     ),
     description:
-      'Choose where BrainStrike creates managed worktrees, set an optional per-worktree setup command, and review repository setup-script consent.',
+      'Choose where Brainstrike creates managed worktrees, set an optional per-worktree setup command, and review repository setup-script consent.',
     icon: FolderTree,
     id: 'workspace',
     keywords: [

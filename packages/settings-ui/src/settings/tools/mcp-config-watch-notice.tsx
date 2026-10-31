@@ -22,7 +22,7 @@ export function McpConfigWatchNotice({ watchError }: McpConfigWatchNoticeProps) 
       data-testid="mcp-config-watch-error"
       role="alert"
     >
-      {`BrainStrike can't watch the MCP config file for outside edits: ${watchError}. Saving or reloading the config retries.`}
+      {`Brainstrike can't watch the MCP config file for outside edits: ${watchError}. Saving or reloading the config retries.`}
     </div>
   );
 }

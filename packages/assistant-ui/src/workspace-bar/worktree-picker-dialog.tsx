@@ -136,7 +136,7 @@ export function WorktreePickerDialog({
         <DialogHeader>
           <DialogTitle>Use an existing worktree</DialogTitle>
           <DialogDescription>
-            Every worktree BrainStrike can see, including ones other tools created. A worktree that
+            Every worktree Brainstrike can see, including ones other tools created. A worktree that
             cannot be used here says why.
           </DialogDescription>
         </DialogHeader>
