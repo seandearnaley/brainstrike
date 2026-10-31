@@ -51,11 +51,11 @@ The application implements a comprehensive Content Security Policy that differs 
 - `nodeIntegration: false`: Disables Node.js in renderer
 - `contextIsolation: true`: Isolates context between main and renderer
 - `webSecurity: true`: Enables web security features
-- `sandbox: true`: The Chromium renderer sandbox is on; only test runs turn it
-  off, because Playwright's Electron driver cannot launch a sandboxed app in CI
-  (`create-window.ts`). The `dev:electron`, `start` and `start:dev` scripts
-  launch Electron with `--no-sandbox`, which turns the sandbox off for every
-  process; packaged builds never pass it
+- `sandbox: true`: The Chromium renderer sandbox is on in packaged builds. Test
+  runs turn it off, because Playwright's Electron driver cannot launch a
+  sandboxed app in CI (`create-window.ts`), and the `dev:electron`, `start` and
+  `start:dev` scripts launch Electron with `--no-sandbox`, which turns it off for
+  every process
 - `allowRunningInsecureContent: false`: Blocks mixed content
 - `experimentalFeatures: false`: Disables experimental web features
 - `safeDialogs: true`: Enables safe dialog handling
@@ -93,6 +93,10 @@ The application implements a comprehensive Content Security Policy that differs 
 - Local storage adapter with validation
 - No sensitive data stored in plain text
 - Proper cleanup of temporary data
+- Crash reports stay on the machine (BST-2351): Crashpad writes a minidump for
+  a crashed process into `<userData>/Crashpad` with upload off. A minidump can
+  hold memory from the crashed process, so the thread debug pack lists only
+  names, times and sizes, and factory reset deletes every report
 
 ### Credential storage
 - Provider keys, MCP bearer tokens and MCP OAuth records live in one private

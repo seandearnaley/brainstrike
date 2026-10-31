@@ -5,6 +5,7 @@ import type {
   mainDiagnosticEventsReader,
 } from './assistant-server/query-diagnostics-tool';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
+import type { CrashDumpListing } from './diagnostics/crash-dumps';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
@@ -259,6 +260,8 @@ if (shouldExposeBridge('desktopDiagnostics')) {
       sinceMs: number
     ): ReturnType<typeof mainDiagnosticEventsReader.getUnseenCounts> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts, sinceMs),
+    listCrashDumps: (): Promise<IpcResult<CrashDumpListing>> =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.diagnostics.listCrashDumps),
     queryEvents: (
       filter: DiagnosticEventsQueryFilter
     ): ReturnType<DiagnosticEventsReader['queryEvents']> =>
