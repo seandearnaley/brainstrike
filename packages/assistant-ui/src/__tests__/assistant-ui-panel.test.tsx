@@ -519,12 +519,13 @@ describe('assistant thread surface', () => {
         droppedSummaryLine: 'Dropped 8 messages from August 1–2.',
         fallbackKind: 'deterministic',
       });
-      const { rerender } = render(<Panel {...baseProps} onModelChange={() => {}} />);
+      const { unmount } = render(<Panel {...baseProps} onModelChange={() => {}} />);
 
       expect(screen.getByText(/no summarization model ran/iu)).toBeVisible();
 
+      unmount();
       setAssistantMessage(summaryPayload);
-      rerender(<Panel {...baseProps} onModelChange={() => {}} />);
+      render(<Panel {...baseProps} onModelChange={() => {}} />);
 
       expect(screen.queryByText(/no summarization model ran/iu)).not.toBeInTheDocument();
     });

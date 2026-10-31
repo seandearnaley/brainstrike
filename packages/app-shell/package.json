@@ -38,7 +38,6 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
     "react-dom": "^19.3.0",
@@ -90,7 +89,7 @@
   "private": true,
   "scripts": {
     "lint": "pnpm -w lint",
-    "test": "vitest run && vitest run --config vitest.compiled.config.mts",
+    "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },

@@ -9,7 +9,7 @@ const slice = (toolCallId: string, chunk: string) => ({
   type: 'data',
 });
 
-describe('useChainActivityDerivations under the React Compiler', () => {
+describe('useChainActivityDerivations', () => {
   it('accumulates the next message’s shell output, not the previous message’s', () => {
     const { result, rerender } = renderHook(
       ({ messageId, parts }: { messageId: string; parts: readonly unknown[] }) =>

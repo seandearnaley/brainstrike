@@ -10,6 +10,7 @@
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
     "react": "^19.3.0",
@@ -49,6 +50,7 @@
       "default": "./vitest.base.mjs"
     },
     "./vitest-lost-file-reporter": "./vitest-lost-file-reporter.mjs",
+    "./vitest-react-compiler": "./vitest-react-compiler.mjs",
     "./electron": "./src/index.ts",
     "./worker": "./src/index.ts",
     "./playwright": "./src/playwright/failure-artifacts.ts",

@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { getAdjustedTimeout, getExpectPollTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import react from '@vitejs/plugin-react';
+import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import { defineConfig, type TestProjectConfiguration } from 'vitest/config';
 
 // Native file sharding keeps each integration runner serialized. Local runs
@@ -87,7 +87,7 @@ const workspaceRoot = path.resolve(desktopRoot, '../..');
 const require = createRequire(import.meta.url);
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [reactCompiler()],
   resolve: {
     // Array form: first match wins, so config-local entries (mocks, curated
     // subpath maps, deliberate overrides) come BEFORE the shared registry

@@ -1,7 +1,9 @@
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  plugins: [reactCompiler()],
   test: {
     coverage: {
       exclude: ['**/__tests__/**', '**/*.d.ts', '**/dist/**', '**/index.ts'],

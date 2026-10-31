@@ -52,13 +52,19 @@ type EnvelopeInputs = readonly [
   resync: number,
 ];
 
-function repositoryEnvelope(
-  repository: Repository,
-  selectedHeadId: string | null | undefined
-): Repository {
-  return selectedHeadId === undefined
-    ? { ...repository }
-    : { ...repository, headId: selectedHeadId };
+// Built from the whole inputs tuple: the React Compiler memoizes a call on its
+// arguments, so an envelope built from the repository and head alone would come
+// back from its cache on a resync and never reach the vendor.
+function publishedEnvelope(inputs: EnvelopeInputs): {
+  readonly inputs: EnvelopeInputs;
+  readonly repository: Repository;
+} {
+  const [repository, selectedHeadId] = inputs;
+  return {
+    inputs,
+    repository:
+      selectedHeadId === undefined ? { ...repository } : { ...repository, headId: selectedHeadId },
+  };
 }
 
 /**
@@ -139,14 +145,12 @@ export function useCommittedAssistantRuntime({
     snapshot.error,
     resync,
   ];
-  const [published, publish] = useState(() => ({
-    inputs,
-    repository: repositoryEnvelope(snapshot.repository, selectedHeadId),
-  }));
+  const [published, publish] = useState(() => publishedEnvelope(inputs));
   let repository = published.repository;
   if (inputs.some((input, index) => !Object.is(input, published.inputs[index]))) {
-    repository = repositoryEnvelope(snapshot.repository, selectedHeadId);
-    publish({ inputs, repository });
+    const next = publishedEnvelope(inputs);
+    repository = next.repository;
+    publish(next);
   }
   const queue = useCommittedMessageQueue(store, ports.onNew, snapshot.isRunning);
   const runtime = useExternalStoreRuntime<ThreadMessage>({

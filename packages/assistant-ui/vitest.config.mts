@@ -1,8 +1,8 @@
 import { resolve } from 'node:path';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
 import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 import type { BrowserCommand, BrowserConfigOptions } from 'vitest/node';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
@@ -60,6 +60,7 @@ export default defineConfig({
     fsModuleCachePath: 'node_modules/.vitest-cache',
     projects: [
       {
+        plugins: [reactCompiler()],
         resolve: {
           alias: workspaceAliases,
         },
@@ -77,37 +78,11 @@ export default defineConfig({
             include: ['src/**/*.{ts,tsx}'],
           },
           environment: 'happy-dom',
-          exclude: [
-            'node_modules',
-            'dist',
-            '**/*.browser.test.{ts,tsx}',
-            '**/*.compiled.test.{ts,tsx}',
-          ],
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
           globals: true,
           include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
           maxWorkers: process.env['CI'] ? '50%' : '100%',
           name: 'unit',
-          sequence: {
-            groupOrder: 0,
-          },
-          setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
-        },
-      },
-      {
-        // The shipped renderer runs the React Compiler (apps/desktop/vite.config.mts),
-        // which memoizes on what a body reads and drops unread manual dependencies.
-        // Suites here compile the source the same way, so they can see that.
-        plugins: [react({ compiler: { compilationMode: 'infer' } })],
-        resolve: {
-          alias: workspaceAliases,
-        },
-        test: {
-          environment: 'happy-dom',
-          globals: true,
-          include: ['src/**/*.compiled.test.{ts,tsx}'],
-          // Same as `unit`: one run of both projects needs one maxWorkers per groupOrder.
-          maxWorkers: process.env['CI'] ? '50%' : '100%',
-          name: 'compiled',
           sequence: {
             groupOrder: 0,
           },
@@ -132,6 +107,7 @@ export default defineConfig({
             'react-dom/client',
           ],
         },
+        plugins: [reactCompiler()],
         resolve: {
           alias: workspaceAliases,
           dedupe: ['react', 'react-dom'],

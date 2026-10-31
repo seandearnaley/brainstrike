@@ -1,5 +1,6 @@
 import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useMemo } from 'react';
@@ -15,8 +16,14 @@ import {
 } from '../../assistant-thread-host-context';
 import { WorktreeMapSurface } from '../worktree-map-surface';
 
-const useWorktreeMapMock = vi.fn();
-vi.mock('../use-worktree-map', () => ({ useWorktreeMap: () => useWorktreeMapMock() }));
+// A store, so a new map state re-renders the surface as the real hook does.
+const useMapState = await vi.hoisted(async () =>
+  (await import('zustand')).create<{ readonly value: unknown }>(() => ({ value: undefined }))
+);
+vi.mock('../use-worktree-map', () => ({ useWorktreeMap: () => useMapState((s) => s.value) }));
+function setWorktreeMap(value: unknown): void {
+  act(() => useMapState.setState({ value }));
+}
 
 const publishMock = vi.fn();
 vi.mock('../../stores/worktree-checkout-intent-store', () => ({
@@ -203,7 +210,7 @@ describe('WorktreeMapSurface', () => {
       },
     });
     createThreadMock.mockResolvedValue({ id: 'thread-9' });
-    useWorktreeMapMock.mockReset().mockReturnValue(BASE_STATE);
+    setWorktreeMap(BASE_STATE);
   });
 
   it('renders one section per repository and one card per checkout', () => {
@@ -231,7 +238,7 @@ describe('WorktreeMapSurface', () => {
 
   it('bounds large collections and resets the page when searching', async () => {
     const user = userEvent.setup();
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [
         {
@@ -282,8 +289,8 @@ describe('WorktreeMapSurface', () => {
         ])
       ),
     };
-    useWorktreeMapMock.mockReturnValue(state);
-    const view = render(<Surface />);
+    setWorktreeMap(state);
+    render(<Surface />);
     await user.click(screen.getByRole('button', { name: 'Needs attention' }));
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     await user.click(screen.getByRole('button', { name: 'Next page' }));
@@ -295,11 +302,9 @@ describe('WorktreeMapSurface', () => {
       throw new Error('Missing worktree scrollport');
     }
     scrollport.scrollTop = 500;
-    useWorktreeMapMock.mockReturnValue({ ...state, statusByPath: new Map() });
-    view.rerender(<Surface />);
+    setWorktreeMap({ ...state, statusByPath: new Map() });
     expect(screen.getByText('No matching worktrees')).toBeInTheDocument();
-    useWorktreeMapMock.mockReturnValue(state);
-    view.rerender(<Surface />);
+    setWorktreeMap(state);
     expect(screen.getByText('1–25 of 51')).toBeInTheDocument();
     expect(
       screen.getAllByTestId('worktree-map-card')[0]?.closest('section')?.parentElement?.scrollTop
@@ -309,7 +314,7 @@ describe('WorktreeMapSurface', () => {
 
   it('filters known attention states without treating primary or unknown status as broken', async () => {
     const user = userEvent.setup();
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [
         {
@@ -339,7 +344,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('shows checkout paths and explicit clean status on named rows', () => {
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       statusByPath: new Map([
         ['/wt', { kind: 'ready', value: { ahead: null, behind: null, clean: true } }],
@@ -356,7 +361,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('states that ghost checkouts are missing instead of checking forever', () => {
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [
         {
@@ -378,7 +383,7 @@ describe('WorktreeMapSurface', () => {
       title: 'Improve collection navigation',
     };
     mockSelectedThreadByResourceId = { 'brainstrike:workspace': thread.threadId };
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [{ ...BASE_STATE.repositories[0], cards: [card({ thread })] }],
     });
@@ -390,22 +395,21 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('shows dirty and ahead glyphs from the per-card status, never before it resolves', () => {
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       statusByPath: new Map([['/wt', { kind: 'loading' }]]),
     });
-    const { rerender } = render(<Surface />);
+    render(<Surface />);
     expect(screen.getByText('checking…')).toBeInTheDocument();
     expect(screen.queryByLabelText('Uncommitted changes')).not.toBeInTheDocument();
 
-    useWorktreeMapMock.mockReturnValue(BASE_STATE);
-    rerender(<Surface />);
+    setWorktreeMap(BASE_STATE);
     expect(screen.getByLabelText('Uncommitted changes')).toBeInTheDocument();
     expect(screen.getByLabelText('2 commits ahead of upstream')).toBeInTheDocument();
   });
 
   it('states a per-card status failure instead of a clean glyph', () => {
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       statusByPath: new Map([['/wt', { kind: 'error', message: 'fatal: not a git repository' }]]),
     });
@@ -415,7 +419,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('renders an unusable card present-but-disabled with its stated reason', () => {
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [
         {
@@ -436,7 +440,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('states a list failure instead of rendering an empty map', () => {
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       error: 'The worktree service is not available in this session.',
       repositories: [],
@@ -450,7 +454,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('shows the empty state only when the list genuinely came back empty', () => {
-    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, repositories: [] });
+    setWorktreeMap({ ...BASE_STATE, repositories: [] });
     render(<Surface />);
 
     expect(
@@ -548,7 +552,7 @@ describe('WorktreeMapSurface', () => {
   // refresh here would only paper over that ordering.
   it('does not refresh from onNewThread — the Map re-loads via the root-identity subscription', async () => {
     const refreshMock = vi.fn();
-    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
+    setWorktreeMap({ ...BASE_STATE, refresh: refreshMock });
     render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
@@ -643,7 +647,7 @@ describe('WorktreeMapSurface', () => {
   // card, absent on a differently-bound card, absent with no selection.
   it('shows Hand off to Local on the card bound to the selected thread, and publishes the hand-off intent', async () => {
     mockSelectedThreadByResourceId = { 'brainstrike:workspace': 'thread-selected' };
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [
         {
@@ -677,7 +681,7 @@ describe('WorktreeMapSurface', () => {
 
   it('does not show Hand off to Local on a card bound to a thread OTHER than the selected one', async () => {
     mockSelectedThreadByResourceId = { 'brainstrike:workspace': 'thread-selected' };
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [
         {
@@ -733,7 +737,7 @@ describe('WorktreeMapSurface', () => {
   it('archives through the worktrees bridge with the card worktree id and states a refusal verbatim', async () => {
     const refreshMock = vi.fn();
     archiveMock.mockResolvedValue({ error: 'worktree has uncommitted changes', ok: false });
-    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
+    setWorktreeMap({ ...BASE_STATE, refresh: refreshMock });
     render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
@@ -754,7 +758,7 @@ describe('WorktreeMapSurface', () => {
   // the mount-path race does not apply.
   it('refreshes the Map after a successful archive so the removed card leaves the list', async () => {
     const refreshMock = vi.fn();
-    useWorktreeMapMock.mockReturnValue({ ...BASE_STATE, refresh: refreshMock });
+    setWorktreeMap({ ...BASE_STATE, refresh: refreshMock });
     render(<Surface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
@@ -813,7 +817,7 @@ describe('WorktreeMapSurface', () => {
     // exercises the unmounted case; every other test keeps the shared
     // default.)
     const refreshMock = vi.fn();
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       refresh: refreshMock,
       repositories: [
@@ -844,7 +848,7 @@ describe('WorktreeMapSurface', () => {
   // Mode chip picker's own planned call was unreachable and removed.
   it('adopts through the worktrees bridge with the card path, refreshes on success', async () => {
     const refreshMock = vi.fn();
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       refresh: refreshMock,
       repositories: [
@@ -881,7 +885,7 @@ describe('WorktreeMapSurface', () => {
         'The worktree at "/wt" is outside every open folder. Grant access to its folder first, then adopt it.',
       ok: false,
     });
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       refresh: refreshMock,
       repositories: [
@@ -908,7 +912,7 @@ describe('WorktreeMapSurface', () => {
   // the same idiom the Add-as-root/Open-in-Terminal complementary pair uses
   // below (BST-1457 replaced the old W6 tripwire this used to point at).
   it('offers no Adopt action on a primary, unmanaged card (the service always refuses it)', async () => {
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [
         {
@@ -946,7 +950,7 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('offers Add as root instead of Open in Terminal for a checkout outside every open folder', async () => {
-    useWorktreeMapMock.mockReturnValue({
+    setWorktreeMap({
       ...BASE_STATE,
       repositories: [
         {

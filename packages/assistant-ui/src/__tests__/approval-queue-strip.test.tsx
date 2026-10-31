@@ -2,6 +2,7 @@ import {
   type AssistantToolApprovalRequest,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -33,16 +34,23 @@ const appendMock = vi.hoisted(() => vi.fn());
 // advances on a new array.
 const threadMessagesMock = vi.hoisted(() => ({ current: [] as unknown[] }));
 const threadRunningMock = vi.hoisted(() => ({ isRunning: true }));
+// Re-renders the store's subscribers on a change, as the vendor's does.
+const useThreadRevision = await vi.hoisted(async () => {
+  const { create } = await import('zustand');
+  return create(() => ({ revision: 0 }));
+});
 
 vi.mock('@assistant-ui/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@assistant-ui/react')>()),
   useAui: () => ({ thread: () => ({ append: appendMock }) }),
   useAuiState: (
     selector: (state: { thread: { isRunning: boolean; messages: unknown[] } }) => unknown
-  ) =>
-    selector({
+  ) => {
+    useThreadRevision((thread) => thread.revision);
+    return selector({
       thread: { isRunning: threadRunningMock.isRunning, messages: threadMessagesMock.current },
-    }),
+    });
+  },
 }));
 
 const edge = (n: number) => ({
@@ -82,6 +90,7 @@ const answeredPart = (data: AssistantToolApprovalRequest) => ({
 
 function pushMessage(message: unknown): void {
   threadMessagesMock.current = [...threadMessagesMock.current, message];
+  act(() => useThreadRevision.setState(({ revision }) => ({ revision: revision + 1 })));
 }
 
 function makeHandlers() {
