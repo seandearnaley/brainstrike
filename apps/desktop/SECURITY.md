@@ -61,6 +61,27 @@ The application implements a comprehensive Content Security Policy that differs 
 - `safeDialogs: true`: Enables safe dialog handling
 - `navigateOnDragDrop: false`: Prevents navigation on drag/drop
 
+### Fuses
+electron-builder flips Electron's fuses in every packaged build (`electronFuses`
+in package.json, BST-2357):
+- `onlyLoadAppFromAsar` and `enableEmbeddedAsarIntegrityValidation`: Electron
+  loads the app only from `app.asar` and, on macOS and Windows, refuses an
+  `app.asar` whose contents no longer match the hash electron-builder signed
+  into the app. Linux has no asar integrity check
+- `enableCookieEncryption`: the cookie store is encrypted with the OS key, as
+  Chrome's is. This is one-way: turning it off again corrupts existing profiles
+- `grantFileProtocolExtraPrivileges: false`: no page loads from `file://` (the
+  renderer is served from `brainstrike-app://`), so `file://` pages get no more
+  than a browser gives them
+- `runAsNode`, `enableNodeOptionsEnvironmentVariable` and
+  `enableNodeCliInspectArguments` stay on. The agent host runs the TypeScript
+  LSP, Node skill scripts, hooks and the Windows command wrapper through
+  `ELECTRON_RUN_AS_NODE`, and as a utility process it cannot start utility
+  processes itself. `NODE_OPTIONS` also carries `NODE_EXTRA_CA_CERTS`, which
+  users behind a TLS-inspecting proxy need to reach hosted providers, and the
+  packaged E2E lanes attach Playwright through `--inspect`. The owner kept them
+  on (2026-10-31), to revisit once Windows builds are signed (BST-2349)
+
 ### Navigation Security
 - Blocks navigation to external URLs
 - Only allows navigation within the application
