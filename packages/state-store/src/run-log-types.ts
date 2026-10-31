@@ -13,8 +13,6 @@ export interface AppendItem {
   readonly event: RunEvent;
   /** `false` keeps the row out of the hydration read (StateStore.readHydration); every other read still returns it. */
   readonly hydrate?: false;
-  /** Raw (pre-coalescing) chunk count of a `ui.chunk` row. */
-  readonly rawCount?: number;
   readonly threadId: string;
 }
 
@@ -22,7 +20,6 @@ export interface LogRow {
   readonly event: RunEvent;
   /** The stored payload: the event body with `"seq"` written first. */
   readonly raw: string;
-  readonly rawCount?: number;
   readonly seq: number;
   readonly threadId: string;
   /** Wall-clock append time (ms since epoch). */

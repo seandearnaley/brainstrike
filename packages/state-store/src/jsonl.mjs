@@ -9,7 +9,7 @@ const HEADER = { format: 'brainstrike-run-log', version: 1 };
 const HASH = /^[a-f0-9]{64}$/u;
 /** @param {string} content */
 const hashOf = (content) => createHash('sha256').update(content).digest('hex');
-/** @typedef {{ threadId: string; seq: number; payload: string; crc: number; rawCount: number | null; createdAt: number }} Row */
+/** @typedef {{ threadId: string; seq: number; payload: string; crc: number; createdAt: number }} Row */
 /** @typedef {{ hash: string; content: string }} Blob */
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -28,13 +28,7 @@ function eventRow(value) {
     typeof value['crc'] !== 'number' ||
     !Number.isSafeInteger(value['crc']) ||
     typeof value['createdAt'] !== 'number' ||
-    !Number.isFinite(value['createdAt']) ||
-    !(
-      value['rawCount'] === null ||
-      (typeof value['rawCount'] === 'number' &&
-        Number.isSafeInteger(value['rawCount']) &&
-        value['rawCount'] > 0)
-    )
+    !Number.isFinite(value['createdAt'])
   ) {
     throw new Error('JSONL: malformed event row');
   }
@@ -66,7 +60,7 @@ export function exportJsonl(db, blobsDir, path) {
     const rows = /** @type {IterableIterator<Row>} */ (
       db
         .prepare(
-          'SELECT thread_id AS threadId, seq, payload, crc, raw_count AS rawCount, created_at AS createdAt FROM run_events ORDER BY id'
+          'SELECT thread_id AS threadId, seq, payload, crc, created_at AS createdAt FROM run_events ORDER BY id'
         )
         .iterate()
     );

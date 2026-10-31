@@ -3,7 +3,8 @@
 // is a constructor parameter.
 //
 // The write side is M0-A1's SqliteStore (src/store-sqlite.ts): this thread only posts messages to the writer worker
-// (src/writer-worker.mjs), which holds the ONLY writing connection; an append resolves only after its COMMIT returned; a failed write or an unexpected worker exit fails the store, never a hang or a silent drop.
+// (src/writer-worker.mjs), which holds the ONLY writing connection; an append resolves only after its COMMIT returned;
+// a failed write or an unexpected worker exit fails the store, never a hang or a silent drop.
 // The lifecycle is M0-A2's Host (src/host.ts) without the run host: synced-root refusal and the root lock at open, a
 // damaged DB opened read-only and visibly, purge orchestration with a crash-replayable intent, export/import, reset.
 // Every mutation runs on ONE write chain, so a purge's blob GC can never race an append that references the blob.
@@ -275,10 +276,10 @@ export class StateStore implements MemoryDomainPort {
 
   /**
    * Append rows (possibly across threads) as ONE NORMAL commit. It resolves only after the COMMIT returned, so a caller
-   * that displays rows once it resolves never shows one a process crash loses. `full` makes the rows and existing run_sync marker
-   * one FULL transaction, so terminal success is never committed ahead of its kernel sync.
-   * A write failure fails the store (later calls are refused,
-   * so no seq is ever reused); a damaged thread refuses the batch without failing the store.
+   * that displays rows once it resolves never shows one a process crash loses. `full` makes the rows and the existing
+   * run_sync marker one FULL transaction, so terminal success is never committed ahead of its kernel sync. A write
+   * failure fails the store (later calls are refused, so no seq is ever reused); a damaged thread refuses the batch
+   * without failing the store.
    */
   append(
     items: readonly AppendItem[],
@@ -293,7 +294,6 @@ export class StateStore implements MemoryDomainPort {
       it.event.type,
       runIdOf(it.event),
       bodies[i],
-      it.rawCount ?? null,
       it.hydrate === false ? 0 : 1,
     ]);
     return this.run(async () => {
@@ -319,14 +319,13 @@ export class StateStore implements MemoryDomainPort {
           const seqs = r['seqs'] as number[];
           return items.map((it, i): LogRow => {
             const raw = withSeq(seqs[i] as number, bodies[i] as string);
-            const row = {
+            return {
               event: JSON.parse(raw) as RunEvent,
               raw,
               seq: seqs[i] as number,
               threadId: it.threadId,
               ts: Number(r['ts']),
             };
-            return it.rawCount === undefined ? row : { ...row, rawCount: it.rawCount };
           });
         },
         (e: unknown) => {
@@ -413,7 +412,6 @@ export class StateStore implements MemoryDomainPort {
     const rows = reply['rows'] as Array<{
       seq: number;
       payload: string;
-      rawCount: number | null;
       threadId: string;
       ts: number;
     }>;
@@ -423,7 +421,6 @@ export class StateStore implements MemoryDomainPort {
       seq: row.seq,
       threadId: row.threadId,
       ts: row.ts,
-      ...(row.rawCount === null ? {} : { rawCount: row.rawCount }),
     }));
   }
 
