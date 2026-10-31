@@ -18,9 +18,10 @@ import {
 } from '@brainstrike/build-utils';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import wasm from 'vite-plugin-wasm';
+import { bundledPackageNotices, RENDERER_LICENSE_REPORT } from './scripts/third-party-notices.mjs';
 import { getDevCSP } from './src/csp-utils';
 import { DESKTOP_DEV_RENDERER_PORT } from './src/desktop-renderer-url';
 
@@ -50,6 +51,36 @@ const ReactCompilerConfig = {
  */
 const reactTransformExclude = [/[\\/]node_modules[\\/]/u, /[\\/]\.vite[\\/]/u];
 
+/**
+ * The modules the renderer and its workers bundle, for the app's license
+ * notices (BST-2358, scripts/third-party-notices.mjs). Vite bundles a worker
+ * while it transforms the module that starts it, so every worker's modules are
+ * collected before the renderer bundle is generated and the report written.
+ */
+const rendererModuleIds = new Set<string>();
+function rendererLicenseReport({ write }: { readonly write: boolean }): Plugin {
+  return {
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type === 'chunk') {
+          for (const moduleId of output.moduleIds) {
+            rendererModuleIds.add(moduleId);
+          }
+        }
+      }
+      if (write) {
+        this.emitFile({
+          fileName: RENDERER_LICENSE_REPORT,
+          source: `${JSON.stringify(bundledPackageNotices(rendererModuleIds), null, 2)}\n`,
+          type: 'asset',
+        });
+      }
+    },
+    name: 'brainstrike:renderer-license-report',
+  };
+}
+
 export default defineConfig({
   base: './', // Use relative paths for Electron
   build: {
@@ -59,9 +90,6 @@ export default defineConfig({
     // The 2.3 MB o200k table is fetched as an asset only on accurate-token use.
     chunkSizeWarningLimit: 1300,
     emptyOutDir: true,
-    // The bundled packages' licenses, which scripts/write-third-party-notices.mjs
-    // joins into the app's notices (BST-2358).
-    license: { fileName: 'third-party-licenses.renderer.json' },
     outDir: 'dist/renderer',
     rolldownOptions: {
       external: ['electron', '@mastra/core', /^@mastra\//u],
@@ -136,6 +164,7 @@ export default defineConfig({
       { name: 'apps/desktop/package.json version', read: () => desktopPackage.version },
     ]),
     fullReloadOnCompilerHotspots(),
+    rendererLicenseReport({ write: true }),
     wasm(),
     react({
       compiler: ReactCompilerConfig,
@@ -234,6 +263,11 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [preserveWorkerEntryPlugin(), wasm(), browserBareDynamicImportGuardPlugin()],
+    plugins: () => [
+      preserveWorkerEntryPlugin(),
+      wasm(),
+      browserBareDynamicImportGuardPlugin(),
+      rendererLicenseReport({ write: false }),
+    ],
   },
 });

@@ -288,7 +288,7 @@
     "dev": "pnpm run dev:runtime",
     "dev:agent-debug": "node scripts/start-agent-devtools-session.mjs",
     "dev:electron": "pnpm dev:main && wait-on http://localhost:38181 && electron . --no-sandbox --brainstrike-desktop-launch-mode=dev-server",
-    "dev:main": "node scripts/build-main.mjs",
+    "dev:main": "node scripts/build-main.mjs && node scripts/write-third-party-notices.mjs --without-renderer",
     "dev:renderer": "vite",
     "dev:runtime": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
     "dist": "pnpm build && electron-builder",
