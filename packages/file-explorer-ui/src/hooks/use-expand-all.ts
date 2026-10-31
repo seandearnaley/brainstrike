@@ -156,6 +156,18 @@ function prepareExpandAllWork(args: {
   return { kind: 'run', pendingWork, rootDirectoryPaths };
 }
 
+/**
+ * Finalizes a session however its work settles. Module-level because the
+ * compiler cannot lower try/finally inside a hook.
+ */
+async function runThenFinalize(work: () => Promise<void>, finalize: () => void): Promise<void> {
+  try {
+    await work();
+  } finally {
+    finalize();
+  }
+}
+
 function handleExpandError(err: unknown, onError?: (error: Error) => void): void {
   const isCancelled = isAbortError(err);
   if (!isCancelled) {
@@ -499,6 +511,11 @@ export interface UseExpandAllOptions {
   cancelLoadOperations: () => void;
   getNodeByPath: (path: string) => IFileNode | undefined;
   getRootNodes: () => IFileNode[];
+  /**
+   * True while a session runs. The tree owner creates it, so callbacks it
+   * declares before calling this hook can read it.
+   */
+  isExpandingAllRef: React.RefObject<boolean>;
   loadDirectoryPath: (path: string) => Promise<void>;
   now?: () => number;
   /**
@@ -522,7 +539,6 @@ export interface UseExpandAllReturn {
     currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
   isExpandingAll: boolean;
-  isExpandingAllRef: React.RefObject<boolean>;
 }
 
 export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
@@ -531,6 +547,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     cancelLoadOperations,
     getNodeByPath,
     getRootNodes,
+    isExpandingAllRef,
     loadDirectoryPath,
     now = defaultNow,
     onBatchLoadsSettled,
@@ -551,7 +568,6 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
   const maxDirectoriesPerBatch = batchConfig?.maxDirectoriesPerBatch;
 
   const isExpandAllStartingRef = useRef(false);
-  const isExpandingAllRef = useRef(false);
   const sessionIdRef = useRef(0);
 
   const cancelExpandAll = useCallback(() => {
@@ -562,7 +578,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       isExpandingAllRef,
     });
     setState({ isExpandingAll: false });
-  }, [cancelLoadOperations]);
+  }, [cancelLoadOperations, isExpandingAllRef]);
 
   const expandAllProgressively = useCallback(
     async (
@@ -619,62 +635,65 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       const sessionId = sessionIdRef.current + 1;
       sessionIdRef.current = sessionId;
 
-      try {
-        const result = await runPendingUnloadedExpandAll({
-          batchConfig: buildExpandAllBatchConfig({
-            maxBatchDurationMs,
-            maxConcurrentLoads,
-            maxDirectories,
-            maxDirectoriesPerBatch,
-          }),
-          committedPaths,
-          getNodeByPath,
-          initialPaths: pendingWork.pathsToLoad,
-          isExpandingAllRef,
-          loadDirectoryPath,
-          now,
-          onBatchLoadsSettled,
-          onProgress,
-          pathsToExpand: pendingWork.pathsToExpand,
-          rootDirectoryPaths,
-          runUnloadedExpandAll,
-          sessionId,
-          sessionIdRef,
-          setExpandedPaths,
-          yieldToBrowser,
-        });
-        const metrics = result.metrics ?? createEmptyExpandAllMetrics();
-        commitExecutorResultPaths({
-          committedPaths,
-          metrics,
-          now,
-          pathsToCommit: result.pathsToCommit,
-          setExpandedPaths,
-        });
-        logExpandAllOutcome({
-          discoveredDirectories: result.discoveredDirectories,
-          metrics,
-          now,
-          outcome: 'completed',
-          rootFolderId,
-          startedAt,
-        });
-        if (result.firstError) {
-          handleExpandError(result.firstError, onError);
-        }
-      } catch (err) {
-        if (isAbortError(err)) {
-          logExpandAllOutcome({
-            discoveredDirectories: committedPaths.size,
-            metrics: createEmptyExpandAllMetrics(),
+      const runSession = async (): Promise<void> => {
+        try {
+          const result = await runPendingUnloadedExpandAll({
+            batchConfig: buildExpandAllBatchConfig({
+              maxBatchDurationMs,
+              maxConcurrentLoads,
+              maxDirectories,
+              maxDirectoriesPerBatch,
+            }),
+            committedPaths,
+            getNodeByPath,
+            initialPaths: pendingWork.pathsToLoad,
+            isExpandingAllRef,
+            loadDirectoryPath,
             now,
-            outcome: 'cancelled',
+            onBatchLoadsSettled,
+            onProgress,
+            pathsToExpand: pendingWork.pathsToExpand,
+            rootDirectoryPaths,
+            runUnloadedExpandAll,
+            sessionId,
+            sessionIdRef,
+            setExpandedPaths,
+            yieldToBrowser,
+          });
+          const metrics = result.metrics ?? createEmptyExpandAllMetrics();
+          commitExecutorResultPaths({
+            committedPaths,
+            metrics,
+            now,
+            pathsToCommit: result.pathsToCommit,
+            setExpandedPaths,
+          });
+          logExpandAllOutcome({
+            discoveredDirectories: result.discoveredDirectories,
+            metrics,
+            now,
+            outcome: 'completed',
             rootFolderId,
             startedAt,
           });
+          if (result.firstError) {
+            handleExpandError(result.firstError, onError);
+          }
+        } catch (err) {
+          if (isAbortError(err)) {
+            logExpandAllOutcome({
+              discoveredDirectories: committedPaths.size,
+              metrics: createEmptyExpandAllMetrics(),
+              now,
+              outcome: 'cancelled',
+              rootFolderId,
+              startedAt,
+            });
+          }
+          handleExpandError(err, onError);
         }
-        handleExpandError(err, onError);
-      } finally {
+      };
+      await runThenFinalize(runSession, () => {
         finalizeExpandAllOperation({
           isExpandAllStartingRef,
           isExpandingAllRef,
@@ -682,11 +701,12 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
           sessionIdRef,
           setState,
         });
-      }
+      });
     },
     [
       getNodeByPath,
       getRootNodes,
+      isExpandingAllRef,
       loadDirectoryPath,
       maxBatchDurationMs,
       maxConcurrentLoads,
@@ -706,6 +726,5 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     cancelExpandAll,
     expandAllProgressively,
     isExpandingAll: state.isExpandingAll,
-    isExpandingAllRef,
   };
 }
