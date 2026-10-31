@@ -352,7 +352,7 @@ export function AssistantThreadTabsCore({
       },
       localActions,
     };
-  }, [closes, createNewThread, handleReorderThreadTabs, newThreadDisabled, resourceId, threadById]);
+  }, [closes, createNewThread, handleReorderThreadTabs, newThreadDisabled, threadById]);
 
   useEffect(() => {
     if (hasFactoryResetPreparationStarted()) {
@@ -373,52 +373,56 @@ export function AssistantThreadTabsCore({
       data-testid="assistant-thread-tabs-workspace"
       ref={panelRef}
     >
-      <TabStrip
-        activeId={activeThreadId}
-        aria-label="Open assistant threads"
-        chrome="standalone"
-        contextMenu={contextMenu}
-        items={items}
-        onActivate={handleActivateThreadTab}
-        onClose={closes.close}
-        onCloseAll={closes.closeAll}
-        onReorder={handleReorderThreadTabs}
-        scrollTestId="assistant-thread-tab-scroll"
-        testId="assistant-thread-tab-strip"
-        trailing={
-          <>
-            {statusErrorText ? (
-              <span
-                aria-label={`Thread status unavailable. ${statusErrorText}`}
-                className="text-destructive flex size-7 shrink-0 items-center justify-center"
-                data-testid="assistant-thread-tab-status-error"
-                role="img"
-                title={statusErrorText}
+      {/* The strip is the middle of the window's top row: its empty space moves
+          the window (see `app-window-drag`). */}
+      <div className="app-window-drag shrink-0">
+        <TabStrip
+          activeId={activeThreadId}
+          aria-label="Open assistant threads"
+          chrome="standalone"
+          contextMenu={contextMenu}
+          items={items}
+          onActivate={handleActivateThreadTab}
+          onClose={closes.close}
+          onCloseAll={closes.closeAll}
+          onReorder={handleReorderThreadTabs}
+          scrollTestId="assistant-thread-tab-scroll"
+          testId="assistant-thread-tab-strip"
+          trailing={
+            <>
+              {statusErrorText ? (
+                <span
+                  aria-label={`Thread status unavailable. ${statusErrorText}`}
+                  className="text-destructive flex size-7 shrink-0 items-center justify-center"
+                  data-testid="assistant-thread-tab-status-error"
+                  role="img"
+                  title={statusErrorText}
+                >
+                  <TriangleAlert className="size-3.5" />
+                </span>
+              ) : null}
+              <Button
+                aria-label={newThreadAction.label}
+                className={TAB_STRIP_ICON_BUTTON_CLASS_NAME}
+                data-testid="assistant-new-thread-button"
+                disabled={newThreadDisabled}
+                onClick={handleNewThreadClick}
+                size="xs"
+                type="button"
+                variant="ghost"
               >
-                <TriangleAlert className="size-3.5" />
-              </span>
-            ) : null}
-            <Button
-              aria-label={newThreadAction.label}
-              className={TAB_STRIP_ICON_BUTTON_CLASS_NAME}
-              data-testid="assistant-new-thread-button"
-              disabled={newThreadDisabled}
-              onClick={handleNewThreadClick}
-              size="xs"
-              type="button"
-              variant="ghost"
-            >
-              <Plus className="size-3.5" />
-              <span
-                className="hidden @min-[380px]/tab-strip:inline"
-                data-testid="assistant-new-thread-label"
-              >
-                {newThreadAction.text}
-              </span>
-            </Button>
-          </>
-        }
-      />
+                <Plus className="size-3.5" />
+                <span
+                  className="hidden @min-[380px]/tab-strip:inline"
+                  data-testid="assistant-new-thread-label"
+                >
+                  {newThreadAction.text}
+                </span>
+              </Button>
+            </>
+          }
+        />
+      </div>
 
       {unavailableSavedThread ? (
         <div className="text-muted-foreground p-3 text-sm" role="status">

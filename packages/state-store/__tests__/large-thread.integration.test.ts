@@ -1,6 +1,6 @@
-// M0-A2 items 1, 3d and 5 at full size: purge and export of a large thread while it streams, and the cost of
-// verifying it at open. A soak, so it runs only when STATE_STORE_THREAD_MB names the size (nightly sets 100). The
-// 8 MB runs of the first two are in every unit lane (i1-purge, i5-export).
+// M0-A2 items 1 and 3d at full size: purge of a large thread while it streams, and the cost of verifying it at open.
+// A soak, so it runs only when STATE_STORE_THREAD_MB names the size (nightly sets 100). The 8 MB purge run is in every
+// unit lane (i1-purge).
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterAll, expect, test } from 'vitest';
@@ -8,7 +8,6 @@ import { RunLog } from '../src/run-log.mjs';
 import { migrate } from '../src/schema.mjs';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { prose, rng } from './helpers/testkit.js';
-import { exportWhileStreaming } from './suites/export-while-streaming.js';
 import { purgeWhileStreaming } from './suites/purge-while-streaming.js';
 
 const MB = Number(process.env['STATE_STORE_THREAD_MB'] ?? '0');
@@ -20,15 +19,6 @@ soak(
   async () => {
     const res = await purgeWhileStreaming(MB);
     process.stdout.write(`[i1 ${MB}MB] ${JSON.stringify(res)}\n`);
-  },
-  900_000
-);
-
-soak(
-  `export of a ${MB} MB thread while it streams is a consistent snapshot; import round-trips byte-identically`,
-  async () => {
-    const res = await exportWhileStreaming(MB);
-    process.stdout.write(`[i5 ${MB}MB] ${JSON.stringify(res)}\n`);
   },
   900_000
 );
@@ -59,7 +49,7 @@ soak(
     const log = new RunLog(db, null);
     for (let i = 0; i < bodies.length; i += 1000) {
       log.append(
-        bodies.slice(i, i + 1000).map((b) => ['t1', 'text', null, b, null, 1]),
+        bodies.slice(i, i + 1000).map((b) => ['t1', 'text', null, b, 1] as const),
         Date.now()
       );
     }

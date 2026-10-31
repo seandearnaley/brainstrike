@@ -1,5 +1,5 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
+import type { LoggingPreferences, LoggingPreferencesPatch, LogRecord } from '@brainstrike/logging';
 import type {
   DiagnosticEventsReader,
   mainDiagnosticEventsReader,
@@ -10,6 +10,7 @@ import type { CrashDumpListing } from '../diagnostics/crash-dumps';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
 import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
+import type { appUpdatesContract } from '../ipc-domains/app-updates.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
@@ -36,6 +37,11 @@ declare global {
     appMenu?: {
       onOpenSettings: (callback: () => void) => () => void;
     };
+    /**
+     * Desktop-only: Settings › Updates. Whether update checks offer betas (BST-2367),
+     * and the update status with Check now and Restart to update (BST-2356).
+     */
+    appUpdates?: TransportBridge<typeof appUpdatesContract>;
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no
      * preload) — consumers MUST capability-check `window.assistantPersonas`.
@@ -122,7 +128,7 @@ declare global {
     logging: {
       getPreferences: () => Promise<BoundaryResult<LoggingSettingsPayload>>;
       setPreferences: (
-        preferences: LoggingPreferences
+        patch: LoggingPreferencesPatch
       ) => Promise<BoundaryResult<LoggingSettingsPayload>>;
       selectDestination: () => Promise<BoundaryResult<string | null>>;
       openDestination: (target: string | null) => Promise<BoundaryResult<boolean>>;

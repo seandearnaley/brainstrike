@@ -16,6 +16,7 @@ import {
   type StoredOAuthTokens,
   validateClientMetadataUrl,
 } from '@modelcontextprotocol/client';
+import { Predicate } from 'effect';
 import { McpLifecycleFailure } from './lifecycle-errors.ts';
 import {
   persistedClientSupportsRedirect,
@@ -88,10 +89,6 @@ export interface McpOAuthSafeStorage {
 export interface McpOAuthEncryptedStore {
   get(key: string): unknown;
   set(key: string, value: unknown): void;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 async function assertSafeStorage(storage: McpOAuthSafeStorage): Promise<void> {
@@ -247,7 +244,10 @@ function parseEncryptedRecordMap(value: unknown): EncryptedStoreSchema['records'
   if (value === undefined) {
     return {};
   }
-  if (!isRecord(value) || Object.values(value).some((entry) => typeof entry !== 'string')) {
+  if (
+    !Predicate.isObject(value) ||
+    Object.values(value).some((entry) => typeof entry !== 'string')
+  ) {
     throw new Error('MCP OAuth encrypted store is malformed.');
   }
   return value as EncryptedStoreSchema['records'];
@@ -255,7 +255,7 @@ function parseEncryptedRecordMap(value: unknown): EncryptedStoreSchema['records'
 
 function validatePersistedRecord(value: unknown): void {
   if (
-    !isRecord(value) ||
+    !Predicate.isObject(value) ||
     typeof value['updatedAt'] !== 'number' ||
     !Number.isSafeInteger(value['updatedAt'])
   ) {
@@ -294,7 +294,7 @@ function validatePersistedTokens(value: unknown): void {
     return;
   }
   if (
-    !isRecord(value) ||
+    !Predicate.isObject(value) ||
     typeof value['access_token'] !== 'string' ||
     typeof value['token_type'] !== 'string'
   ) {
@@ -308,7 +308,10 @@ function validatePersistedTokens(value: unknown): void {
 }
 
 function validatePersistedClientInformation(value: unknown): void {
-  if (value !== undefined && (!isRecord(value) || typeof value['client_id'] !== 'string')) {
+  if (
+    value !== undefined &&
+    (!Predicate.isObject(value) || typeof value['client_id'] !== 'string')
+  ) {
     throw new Error('MCP OAuth persisted state is malformed.');
   }
 }
@@ -316,7 +319,7 @@ function validatePersistedClientInformation(value: unknown): void {
 function validatePersistedDiscoveryState(value: unknown): void {
   if (
     value !== undefined &&
-    (!isRecord(value) ||
+    (!Predicate.isObject(value) ||
       typeof value['authorizationServerUrl'] !== 'string' ||
       !URL.canParse(value['authorizationServerUrl']))
   ) {
@@ -634,7 +637,7 @@ export async function createMcpOAuthClientProvider(
       .clone()
       .json()
       .catch(() => undefined)) as unknown;
-    const record = isRecord(payload) ? payload : undefined;
+    const record = Predicate.isObject(payload) ? payload : undefined;
     if (typeof record?.['access_token'] === 'string') {
       tokenGenerations.set(tokenTag(record['access_token']), requestGeneration);
     }

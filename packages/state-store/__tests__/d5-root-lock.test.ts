@@ -228,6 +228,38 @@ describe('D5: data-root lock', () => {
     expect(lockOf(root)?.token).toBe('foreign');
   });
 
+  test('a same-host lock copied from another root is taken over only when the opener confirms it', async () => {
+    const root = newRoot();
+    // A live pid: a copied root's lock cannot be judged by pid, so only the opener's answer decides.
+    const copied = {
+      host: hostname(),
+      pid: process.pid,
+      root: '/some/other/root',
+      start: processStartTime(process.pid) as string,
+      token: 'copied',
+    };
+    plant(root, copied);
+    await expect(RootLock.acquire(root)).rejects.toThrow(ForeignLockError);
+    await expect(RootLock.acquire(root, { onForeignLock: () => false })).rejects.toThrow(
+      ForeignLockError
+    );
+    expect(lockOf(root)?.token).toBe('copied');
+
+    const asked: LockOwner[] = [];
+    const lock = await RootLock.acquire(root, {
+      onForeignLock: (owner) => {
+        asked.push(owner);
+        return true;
+      },
+    });
+    try {
+      expect(asked).toEqual([copied]);
+      expect(lock.owner.root).toBe(canonicalRoot(root));
+    } finally {
+      lock.release();
+    }
+  });
+
   // BST-2234: Node's JS realpathSync keeps a spelling's case (and a Windows 8.3 short name) as given, so the lock
   // recorded one spelling and its comparers derived another. A case-sensitive file system has no second spelling.
   test.skipIf(!tmpFoldsCase)(

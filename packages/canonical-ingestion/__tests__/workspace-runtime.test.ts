@@ -28,13 +28,13 @@ function fixture(): CanonicalWorkspaceRuntimeDependencies {
     publication: {
       abortScan: async () => {},
       beginScan: vi.fn(async (request) => ({ ...request, generation: 1, storeId: 'actual-store' })),
-      commitTextFile: async () => {},
+      commitTextFiles: async () => {},
       finishScan: async (request) => ({
         reason: 'complete',
         scanComplete: true,
         ticket: request.ticket,
       }),
-      removeFile: async () => {},
+      removeFiles: async () => {},
       verifyManifest: async () => ({
         acknowledged: [],
         changed: [],

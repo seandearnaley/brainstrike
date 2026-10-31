@@ -1,12 +1,4 @@
 export type { ThreadGroupsPort, ThreadGroupsReply, ThreadGroupsRequest } from '@brainstrike/types';
-export {
-  Coalescer,
-  type CoalescerLog,
-  type CoalescerProbe,
-  type Deliver,
-  mergeChunk,
-  type RunChunk,
-} from './coalescer.ts';
 export type {
   CollectionMetadata,
   CollectionPort,
@@ -104,11 +96,9 @@ export type { ClearContentResult } from './state-store.ts';
 export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,
-  type ExportedThread,
   type HydrationThread,
   type IndexerPort,
   largeText,
-  type Manifest,
   PREVIEW_CHARS,
   type PurgeReport,
   STATE_DB,

@@ -114,7 +114,9 @@ describe('createWindow', () => {
         minHeight: 600,
         minWidth: 800,
         show: false,
-        titleBarStyle: 'default',
+        ...(process.platform === 'darwin'
+          ? { titleBarOverlay: { height: 36 }, titleBarStyle: 'hidden' }
+          : { titleBarStyle: 'default' }),
         webPreferences: {
           allowRunningInsecureContent: false,
           backgroundThrottling: true,
@@ -154,6 +156,29 @@ describe('createWindow', () => {
       titleUpdateHandler?.(event);
       expect(event.preventDefault).toHaveBeenCalledTimes(1);
       expect(mockBrowserWindow.setTitle).toHaveBeenCalledWith('BrainStrike Agent Debug');
+    });
+
+    it.each([
+      ['darwin', { titleBarOverlay: { height: 36 }, titleBarStyle: 'hidden' }],
+      ['win32', { titleBarStyle: 'default' }],
+      ['linux', { titleBarStyle: 'default' }],
+    ] as const)('on %s, draws the title bar as %o', async (platform, chrome) => {
+      existsSyncMock.mockReturnValue(true);
+      const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { configurable: true, value: platform });
+      try {
+        await createWindow();
+      } finally {
+        if (realPlatform) {
+          Object.defineProperty(process, 'platform', realPlatform);
+        }
+      }
+
+      const options = vi.mocked(BrowserWindow).mock.calls[0]?.[0];
+      expect(options?.titleBarStyle).toBe(chrome.titleBarStyle);
+      expect(options?.titleBarOverlay).toEqual(
+        'titleBarOverlay' in chrome ? chrome.titleBarOverlay : undefined
+      );
     });
 
     it('should apply stored window bounds and maximize preference', async () => {

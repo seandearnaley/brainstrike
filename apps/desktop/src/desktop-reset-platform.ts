@@ -20,6 +20,9 @@ interface DesktopResetLogger {
   readonly info: (message: string) => void;
 }
 
+/** A factory reset wipes everything; a content clear keeps configuration. */
+export type DesktopResetMode = 'factory' | 'content';
+
 interface DesktopContentClearCounts {
   readonly deletedChunks: number | null;
   readonly deletedFiles: number;
@@ -29,9 +32,11 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   /** Terminal clear through the current host writer; retains configuration in place. */
   readonly clearRetainedContent?: () => Promise<DesktopContentClearCounts>;
   /** Replaces the stale visible renderer and resolves only after its explicit
-   * renderer-ready acknowledgement. MCP admission remains closed while this
-   * promise is pending. Terminal quit cancels readiness through the signal. */
-  readonly completeSuccessfulReset: (signal: AbortSignal) => Promise<void>;
+   * renderer-ready acknowledgement. A factory reset also clears the renderer's
+   * session storage between the old document and the new one. MCP admission
+   * remains closed while this promise is pending. Terminal quit cancels
+   * readiness through the signal. */
+  readonly completeSuccessfulReset: (signal: AbortSignal, mode: DesktopResetMode) => Promise<void>;
   /** Crashpad's live database; reset keeps it in place and deletes its reports. */
   readonly crashDumpsPath?: string;
   /** Every on-disk path the durable NDJSON error-log backstop (Flight
@@ -140,7 +145,7 @@ async function resumeDesktopResetRuntime({
 
 async function stopDesktopResetRuntimes(
   runtimes: readonly DesktopResetRuntime[],
-  mode: 'factory' | 'content' = 'factory'
+  mode: DesktopResetMode = 'factory'
 ): Promise<void> {
   const results = await Promise.allSettled(
     runtimes.map((runtime) =>
@@ -180,7 +185,7 @@ export function createDesktopFactoryResetHandler({
 }: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
   const shutdown = new AbortController();
   let profileResetLease: ProfileResetLease | null = null;
-  const runReset = async (mode: 'factory' | 'content'): Promise<DesktopFactoryResetResult> => {
+  const runReset = async (mode: DesktopResetMode): Promise<DesktopFactoryResetResult> => {
     let cleared: DesktopContentClearCounts | undefined;
     let failure: ResetFailure = NO_RESET_FAILURE;
     let resetDataSucceeded = false;
@@ -226,7 +231,7 @@ export function createDesktopFactoryResetHandler({
       profileResetLease?.release();
       profileResetLease = null;
       if (!shutdown.signal.aborted) {
-        await completeSuccessfulReset(shutdown.signal);
+        await completeSuccessfulReset(shutdown.signal, mode);
         rendererReplacementSucceeded = !shutdown.signal.aborted;
       }
     } catch (error) {
@@ -255,11 +260,11 @@ export function createDesktopFactoryResetHandler({
     return { success: true, ...cleared };
   };
   let resetInFlight: {
-    readonly mode: 'factory' | 'content';
+    readonly mode: DesktopResetMode;
     readonly completion: Promise<DesktopFactoryResetResult>;
     readonly result: Promise<DesktopFactoryResetResult>;
   } | null = null;
-  const startReset = (mode: 'factory' | 'content'): Promise<DesktopFactoryResetResult> => {
+  const startReset = (mode: DesktopResetMode): Promise<DesktopFactoryResetResult> => {
     if (shutdown.signal.aborted) {
       return Promise.resolve({
         message: 'The app is quitting: the factory reset did not start.',

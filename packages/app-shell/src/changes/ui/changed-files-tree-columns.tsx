@@ -19,6 +19,7 @@ import {
 import { AlertTriangle } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { CHANGED_FILE_STATUS_PRESENTATION } from '../../git-status-presentation';
+import { ChangedFilePath } from './changed-file-path';
 import type {
   ChangedFilesTreeNodeData,
   ChangedFilesWorktreeNodeData,
@@ -46,8 +47,6 @@ function ChangeStatsCell({ entry }: { readonly entry: ChangedFileEntry }): React
 
 function FileNameCell({ entry }: { readonly entry: ChangedFileEntry }): ReactElement {
   const presentation = CHANGED_FILE_STATUS_PRESENTATION[entry.status];
-  const displayPath =
-    entry.status === 'renamed' && entry.oldPath ? `${entry.oldPath} → ${entry.path}` : entry.path;
   return (
     <span className="flex min-w-0 items-center gap-2">
       <span
@@ -57,9 +56,7 @@ function FileNameCell({ entry }: { readonly entry: ChangedFileEntry }): ReactEle
       >
         {presentation.glyph}
       </span>
-      <span className="truncate text-xs" title={displayPath}>
-        {displayPath}
-      </span>
+      <ChangedFilePath className="text-xs" entry={entry} />
     </span>
   );
 }
@@ -152,20 +149,27 @@ function StatsCell({ node }: TreeTableCellProps<ChangedFilesTreeNodeData>): Reac
 // with a render-counting spy without needing to inject columns as a prop —
 // this component's columns are a fixed internal concern, not a
 // caller-configurable one.
+// The Explorer's compact header and cell padding: TableCell's default `p-4`
+// would stretch every row past the tree's fixed row pitch.
 export const CHANGED_FILES_TREE_COLUMNS: TreeTableColumn<ChangedFilesTreeNodeData>[] = [
   {
     cell: NameCell,
     header: 'Name',
+    headerClassName: 'h-7 py-0 pr-2 pl-1.5 font-medium text-[11px]',
     id: 'name',
+    // Half the default step: the root, repository and worktree levels would
+    // otherwise push every file a fifth of a narrow list to the right.
+    indentWidth: 12,
     minWidth: 200,
   },
   {
     cell: StatsCell,
-    className: 'text-right',
+    className: 'px-2 py-0 text-right',
     header: 'Changes',
+    headerClassName: 'h-7 px-2 py-0 font-medium text-[11px]',
     headerContentClassName: 'justify-end',
     id: 'stats',
     resizable: false,
-    width: 96,
+    width: 80,
   },
 ];

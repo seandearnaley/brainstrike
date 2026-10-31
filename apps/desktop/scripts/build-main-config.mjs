@@ -51,6 +51,9 @@ const shared = {
   absWorkingDir: appRoot,
   bundle: true,
   logLevel: 'info',
+  // Each bundle's inputs, from which build-main.mjs reports the third-party
+  // packages it inlines for the license notices.
+  metafile: true,
   minify: false,
   outdir: path.join(appRoot, 'dist'),
   platform: 'node',

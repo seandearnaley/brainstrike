@@ -175,3 +175,29 @@ test('a shell correlation hears the completed command; without one nothing is co
   });
   expect(nativeChildren.spawnNativeChild).toHaveBeenCalledTimes(2);
 });
+
+test('a command asks as sandboxed only where the sandbox would run it (BST-2360)', async () => {
+  const fenced = { wrap: vi.fn() };
+  const sandboxed = (shell: Omit<ExecuteCommandShell, 'windowsCommandEntry'>) => {
+    const check = shellTool({ ...shell, windowsCommandEntry: vi.fn() }).sandboxed;
+    if (!check) {
+      throw new Error('executeCommand declares no sandbox fact');
+    }
+    return check;
+  };
+
+  // A host with a sandbox runs the command in it, unless the call asks to run outside.
+  const withSandbox = sandboxed({ sandbox: async () => fenced });
+  expect(await withSandbox({ command: 'echo hi' })).toBe(true);
+  expect(await withSandbox({ command: 'echo hi', dangerouslyDisableSandbox: true })).toBe(false);
+  // Windows: the host has a sandbox seam but the platform has no sandbox.
+  expect(await sandboxed({ sandbox: async () => undefined })({ command: 'echo hi' })).toBe(false);
+  // The standalone host supplies none.
+  expect(await sandboxed({})({ command: 'echo hi' })).toBe(false);
+  // A sandbox that fails to load refuses the command, so nothing runs outside it.
+  const broken = sandboxed({
+    sandbox: () => Promise.reject(new Error('sandbox-runtime is missing')),
+  });
+  expect(await broken({ command: 'echo hi' })).toBe(true);
+  expect(fenced.wrap).not.toHaveBeenCalled();
+});

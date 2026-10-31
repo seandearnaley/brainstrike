@@ -16,7 +16,7 @@ import {
   LogBuffer,
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, powerMonitor, session, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
@@ -25,7 +25,9 @@ import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
-import { checkForAppUpdate, clearAppUpdateForReset } from './app-update';
+import { createAppUpdates } from './app-update';
+import { checkForUpdatesFromMenu, offerMoveToApplicationsFolder } from './app-update-dialogs';
+import { readUpdatePreferences, writeUpdatePreferences } from './app-update-preferences';
 import { isAppWindowSender } from './app-windows';
 import { buildFileMenuTemplate } from './application-file-menu';
 import {
@@ -69,7 +71,7 @@ import {
 } from './desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
-import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import { createDesktopFactoryResetHandler, type DesktopResetMode } from './desktop-reset-platform';
 import { createDesktopResetResume } from './desktop-reset-resume';
 import {
   isDesktopShuttingDown,
@@ -115,6 +117,7 @@ import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
 import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
+import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
@@ -178,6 +181,7 @@ import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
+import { resolveThirdPartyNoticesPath } from './third-party-notices-path';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import { enqueueFolderCandidates, filterDirectoryOpenCandidates } from './workspace-open-queue';
@@ -243,7 +247,18 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
   return _settingsStore;
 }
 
+function requireSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> {
+  const store = getSettingsStore();
+  if (!store) {
+    throw new Error('The settings store opens only once the app is ready.');
+  }
+  return store;
+}
+
 const logger = createLogger('DesktopMain');
+// BST-2356: the launch check, a check every few hours, Check for Updates… and
+// Restart to update. The factory reset below stops it for the rest of the launch.
+const appUpdates = createAppUpdates();
 // Preference STATE lives in main/logging-preferences.ts (BST-1648 step 4);
 // the boot ORDER below is unchanged: controller (initial set) → watchdog →
 // log buffer → initializeLogging → applyInitial. The watchdog hook is a
@@ -357,7 +372,9 @@ function reloadVisibleDocument(window: BrowserWindow, reason: string, source: 'm
   });
 }
 
-let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
+let completeFactoryResetRendererReplacement:
+  | ((signal: AbortSignal, mode: DesktopResetMode) => Promise<void>)
+  | null = null;
 
 // One shutdown run's step BODIES, built when the run starts so they capture
 // its state. They live here beside the module state they read and clear. The
@@ -534,12 +551,12 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     }
     return result;
   },
-  completeSuccessfulReset: async (signal) => {
+  completeSuccessfulReset: async (signal, mode) => {
     const completeRendererReplacement = completeFactoryResetRendererReplacement;
     if (completeRendererReplacement === null) {
       throw new Error('Factory reset renderer replacement coordinator is unavailable');
     }
-    await completeRendererReplacement(signal);
+    await completeRendererReplacement(signal, mode);
   },
   crashDumpsPath: app.getPath('crashDumps'),
   // The durable NDJSON backstop (Flight Recorder P2a) is a plaintext mirror
@@ -585,7 +602,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     // is not profile content.
     {
       name: 'app-update',
-      stop: clearAppUpdateForReset,
+      stop: appUpdates.clearForReset,
       stopForContent: () => Promise.resolve(),
     },
     // Close (never null) the durable NDJSON sink before the purge below runs
@@ -622,6 +639,18 @@ ipcDisposers.add(
     recordDurableLog: (record) => errorLogSink?.recordLogRecord(record),
     selectDestination: loggingPreferences.selectDestination,
     setPreferences: loggingPreferences.applyAndPersist,
+  })
+);
+// Settings › Updates (BST-2367, BST-2356): the next update check applies the beta choice.
+ipcDisposers.add(
+  'app-updates',
+  registerAppUpdatesIpcHandlers({
+    checkNow: appUpdates.check,
+    getPreferences: () => readUpdatePreferences(requireSettingsStore(), app.getVersion()),
+    getStatus: appUpdates.status,
+    restartToUpdate: appUpdates.restartToInstall,
+    setBetaUpdates: (betaUpdates) =>
+      writeUpdatePreferences(requireSettingsStore(), { betaUpdates }),
   })
 );
 
@@ -998,8 +1027,16 @@ if (singleInstanceLockAcquired) {
     })
   );
 
-  completeFactoryResetRendererReplacement = async (signal) => {
-    await factoryResetRendererReplacement.replace(BrowserWindow.getAllWindows(), signal);
+  completeFactoryResetRendererReplacement = async (signal, mode) => {
+    await factoryResetRendererReplacement.replace(BrowserWindow.getAllWindows(), {
+      // Content clearing keeps configuration, so only a factory reset wipes the
+      // storage the renderer's preferences live in. clearData skips the app's own
+      // non-web scheme; clearStorageData reaches it.
+      ...(mode === 'factory'
+        ? { clearSessionStorage: () => session.defaultSession.clearStorageData() }
+        : {}),
+      signal,
+    });
   };
 
   desktopBootstrap.bindSecondInstanceFocus(() => {
@@ -1087,8 +1124,8 @@ if (singleInstanceLockAcquired) {
         app.dock?.hide();
       }
 
-      // Re-initialize file logging now that app.getPath() is available.
-      const enabledLogFile = loggingPreferences.enableFileLoggingAfterReady();
+      // The settings store and app.getPath() are available now: apply the stored preferences.
+      const enabledLogFile = loggingPreferences.applyAfterReady();
       if (enabledLogFile) {
         logger.debug('File logging enabled after app.ready', { logFile: enabledLogFile });
       }
@@ -1365,31 +1402,43 @@ if (singleInstanceLockAcquired) {
       const openSettingsFromMenu = (targetWindow?: Electron.BaseWindow): void => {
         pushToMenuTargetWindow(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined, targetWindow);
       };
-      const showFolderFromMenu = (label: string, folderPath: string): void => {
+      const openPathFromMenu = (label: string, targetPath: string): void => {
         shell
-          .openPath(folderPath)
+          .openPath(targetPath)
           .then((failure) => {
             if (failure !== '') {
-              logger.warn(`Failed to show the ${label} folder`, { failure, folderPath });
+              logger.warn(`Failed to open the ${label}`, { failure, targetPath });
             }
           })
           .catch((error: unknown) => {
-            logger.warn(`Failed to show the ${label} folder`, { error, folderPath });
+            logger.warn(`Failed to open the ${label}`, { error, targetPath });
           });
+      };
+      const checkForUpdatesOverWindow = (targetWindow?: Electron.BaseWindow): void => {
+        checkForUpdatesFromMenu(appUpdates, targetWindow).catch((error: unknown) => {
+          logger.error('Check for Updates… failed', { error });
+        });
       };
       const helpMenu = buildHelpMenuTemplate({
         includeAbout: !isMac,
+        onCheckForUpdates: checkForUpdatesOverWindow,
         onOpenReleaseNotes: () => {
           const url = releaseNotesUrl(app.getVersion());
           shell.openExternal(url).catch((error: unknown) => {
             logger.warn('Failed to open the release notes', { error, url });
           });
         },
+        onOpenSourceLicenses: () => {
+          openPathFromMenu(
+            'third-party notices',
+            resolveThirdPartyNoticesPath(app.isPackaged, process.resourcesPath)
+          );
+        },
         onShowCrashReports: () => {
-          showFolderFromMenu('crash reports', app.getPath('crashDumps'));
+          openPathFromMenu('crash reports folder', app.getPath('crashDumps'));
         },
         onShowLogs: () => {
-          showFolderFromMenu('logs', app.getPath('logs'));
+          openPathFromMenu('logs folder', app.getPath('logs'));
         },
       });
 
@@ -1398,7 +1447,13 @@ if (singleInstanceLockAcquired) {
         const recents = await listWorkspaceRecentRootPaths();
         const template: Electron.MenuItemConstructorOptions[] = [
           ...(isMac
-            ? [buildMacAppMenuTemplate({ appName: app.name, onOpenSettings: openSettingsFromMenu })]
+            ? [
+                buildMacAppMenuTemplate({
+                  appName: app.name,
+                  onCheckForUpdates: checkForUpdatesOverWindow,
+                  onOpenSettings: openSettingsFromMenu,
+                }),
+              ]
             : []),
           buildFileMenuTemplate({
             closingItems: isMac ? [] : buildFileMenuClosingItems(openSettingsFromMenu),
@@ -1646,7 +1701,23 @@ if (singleInstanceLockAcquired) {
         return;
       }
       logger.debug('Main window created successfully');
-      checkForAppUpdate();
+      appUpdates.start({
+        publish: (status) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) {
+              pushToRenderer(
+                window.webContents,
+                DESKTOP_IPC_CHANNELS.appUpdates.statusChanged,
+                status
+              );
+            }
+          }
+        },
+        settings: requireSettingsStore(),
+      });
+      offerMoveToApplicationsFolder(requireSettingsStore(), mainWindow).catch((error: unknown) => {
+        logger.warn('The offer to move the app to Applications failed', { error });
+      });
 
       // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
       // never re-enqueued by `app.on('activate')`'s later `createMainWindow()`

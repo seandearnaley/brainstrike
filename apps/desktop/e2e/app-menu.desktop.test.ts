@@ -1,12 +1,17 @@
 /**
  * Desktop E2E for the native application menu (BST-2355): the menu bar follows
- * the platform, Help carries the release notes, logs and crash reports, and
- * Settings… opens Settings in the window it was picked from. The menu lives in
- * main, so the test reads and drives it there: a CDP key press never reaches a
- * native menu accelerator.
+ * the platform, Help carries the release notes, logs, crash reports and
+ * open-source licenses, and Settings… opens Settings in the window it was picked
+ * from. The menu lives in main, so the test reads and drives it there: a CDP key
+ * press never reaches a native menu accelerator.
  */
+import { readFile } from 'node:fs/promises';
 import { expect, test } from './fixtures/electron-fixture';
 import { SettingsPage } from './page-objects/settings-page';
+import {
+  expectNoticesNameShippedPackages,
+  openSourceLicensesFromMenu,
+} from './utils/open-source-licenses';
 
 test.describe('Application menu (desktop)', () => {
   test('follows the platform, and Settings… opens Settings', async ({
@@ -53,5 +58,13 @@ test.describe('Application menu (desktop)', () => {
     }, windowId);
     expect(clicked).toBe(true);
     await settings.expectLoaded();
+  });
+
+  test('Open-Source Licenses opens the notices of the packages the app ships', async ({
+    electronApp,
+  }) => {
+    const opened = await openSourceLicensesFromMenu(electronApp.app);
+    expect(opened).toMatch(/THIRD-PARTY-NOTICES\.txt$/u);
+    expectNoticesNameShippedPackages(await readFile(opened ?? '', 'utf8'));
   });
 });

@@ -1848,6 +1848,74 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.isIndexing).toBe(false);
   });
 
+  it('settles a batch whose worker crashed during its cache read alone, never posting to the dead worker', async () => {
+    vi.useFakeTimers();
+    const staleRead = Promise.withResolvers<Map<string, TokenCacheEntry>>();
+    const store = {
+      get: vi.fn(async () => null),
+      getBatch: vi
+        .fn<() => Promise<Map<string, TokenCacheEntry>>>()
+        .mockReturnValueOnce(staleRead.promise)
+        .mockResolvedValue(new Map()),
+      set: vi.fn(async () => {}),
+    };
+    const onFileError = vi.fn();
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({ mode: 'accurate', onFileError, store })
+    );
+    const crashed = mockWorkers[0]!;
+    await markSpecificWorkerReady(crashed);
+    const stale = { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' };
+    const fresh = { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' };
+    let staleIndexing!: Promise<void>;
+    act(() => {
+      staleIndexing = result.current.indexFiles([stale]);
+    });
+    await flushPromises();
+    expect(store.getBatch).toHaveBeenCalledOnce();
+
+    // The worker crashes during the read; its replacement starts and takes a new batch.
+    act(() => {
+      crashed.onerror?.(new ErrorEvent('error', { message: 'runtime boom' }));
+    });
+    await runPendingTimers();
+    const replacement = mockWorkers[1]!;
+    await markSpecificWorkerReady(replacement);
+    let freshIndexing!: Promise<void>;
+    act(() => {
+      freshIndexing = result.current.indexFiles([fresh]);
+    });
+    await flushPromises();
+    expect(replacement.postMessage).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      staleRead.resolve(new Map());
+      await expect(staleIndexing).rejects.toThrow('worker restarted during the cache read');
+    });
+    expect(crashed.postMessage).not.toHaveBeenCalled();
+
+    // The replacement's batch is untouched and completes.
+    await act(async () => {
+      replacement.emitEvent('message', {
+        data: {
+          compositeKey: fresh.compositeKey,
+          contentHash: 'hash',
+          filePath: fresh.filePath,
+          fileSize: 12,
+          folderId: fresh.folderId,
+          mode: 'accurate',
+          skipped: false,
+          tokenCount: 3,
+          type: 'result',
+        },
+      } as MessageEvent);
+    });
+    await expect(freshIndexing).resolves.toBeUndefined();
+    // A recovered restart reports no terminal error, as for the batches the crash carried.
+    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockLogger.error).not.toHaveBeenCalled();
+  });
+
   it('settles a startup still waiting for ready with the retirement and cancels its readiness timeout', async () => {
     vi.useFakeTimers();
     const onFileError = vi.fn();

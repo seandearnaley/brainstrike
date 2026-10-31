@@ -46,7 +46,6 @@ import {
   sourceBlobRefs,
   sourceGcCandidates,
 } from './deletion-domain.mjs';
-import { exportJsonl, readJsonl } from './jsonl.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
 import { executeMemoryRequest, executeNativeMemoryRequest } from './memory-domain.mjs';
 import { executeModelChoiceRequest } from './model-choice-domain.mjs';
@@ -114,7 +113,7 @@ if (damage) {
 } else {
   migrate(db);
 }
-let log = new RunLog(db, damage);
+const log = new RunLog(db, damage);
 
 const settings = {
   fullfsync: db.pragma('fullfsync', { simple: true }),
@@ -142,13 +141,25 @@ function fsyncDir(dir) {
   }
 }
 
+/** A blob was renamed into place and the blob directory has not been fsynced since, whichever request wrote it. */
+let blobDirUnsynced = false;
+
+/** Make every blob renamed so far durable, including one a failed request left behind. */
+function syncBlobDir() {
+  if (blobDirUnsynced) {
+    fsyncDir(cfg.blobsDir);
+    blobDirUnsynced = false;
+  }
+}
+
 /**
- * Content-addressed blob write (M0-A2 src/host.ts putBlob): temp + fsync + rename + directory fsync, so the blob is
- * durable before the event that references it is appended. An existing blob is left as it is.
+ * Write a content-addressed blob as temp + fsync + rename. The caller syncs the blob directory before it appends
+ * anything that references the blob.
  * @param {string} hash
  * @param {string} content
+ * @param {boolean} verifyExisting re-read and rehash a blob that already exists
  */
-function putBlob(hash, content) {
+function writeBlob(hash, content, verifyExisting) {
   if (
     !/^[a-f0-9]{64}$/u.test(hash) ||
     createHash('sha256').update(content).digest('hex') !== hash
@@ -157,7 +168,7 @@ function putBlob(hash, content) {
   }
   const p = join(cfg.blobsDir, hash);
   if (existsSync(p)) {
-    if (createHash('sha256').update(readFileSync(p)).digest('hex') !== hash) {
+    if (verifyExisting && createHash('sha256').update(readFileSync(p)).digest('hex') !== hash) {
       throw new Error(`existing blob ${hash} checksum mismatch`);
     }
     return;
@@ -175,7 +186,43 @@ function putBlob(hash, content) {
     closeSync(fd);
   }
   renameSync(tmp, p);
-  fsyncDir(cfg.blobsDir);
+  blobDirUnsynced = true;
+}
+
+/**
+ * Content-addressed blob write (M0-A2 src/host.ts putBlob): the blob is durable before the event that references it is
+ * appended. An existing blob is verified and left as it is.
+ * @param {string} hash
+ * @param {string} content
+ */
+function putBlob(hash, content) {
+  writeBlob(hash, content, true);
+  syncBlobDir();
+}
+
+/**
+ * The source catalog's blobs for one request (BST-2377, owner decision 2026-10-31). They are a cache of workspace files
+ * that a rescan rebuilds, so an existing hash-named blob is trusted without a re-read, and the directory is fsynced
+ * once per request, before the transaction that references its new blobs commits. A crash loses at most that request.
+ */
+function sourceCatalogBlobs() {
+  return {
+    flush: syncBlobDir,
+    put: (/** @type {string} */ hash, /** @type {string} */ content) => {
+      writeBlob(hash, content, false);
+    },
+    read: (/** @type {string} */ hash, /** @type {number} */ maxBytes) => {
+      const path = join(cfg.blobsDir, hash);
+      if (statSync(path).size > maxBytes) {
+        return null;
+      }
+      const content = readFileSync(path, 'utf8');
+      if (createHash('sha256').update(content).digest('hex') !== hash) {
+        throw new Error('Canonical source blob checksum mismatch');
+      }
+      return content;
+    },
+  };
 }
 
 /**
@@ -335,20 +382,7 @@ async function handle(m) {
       return executeSourceCatalogRequest(
         db,
         /** @type {import('./source-catalog-types.ts').SourceCatalogRequest} */ (m['request']),
-        {
-          put: putBlob,
-          read: (hash, maxBytes) => {
-            const path = join(cfg.blobsDir, hash);
-            if (statSync(path).size > maxBytes) {
-              return null;
-            }
-            const content = readFileSync(path, 'utf8');
-            if (createHash('sha256').update(content).digest('hex') !== hash) {
-              throw new Error('Canonical source blob checksum mismatch');
-            }
-            return content;
-          },
-        }
+        sourceCatalogBlobs()
       );
     case 'workspace-roots':
       return executeWorkspaceRootRequest(
@@ -457,40 +491,6 @@ async function handle(m) {
     case 'intentDelete':
       deleteDeletionIntent(db, String(m['threadId']), Number(m['seq']));
       return {};
-    case 'exportJsonl':
-      exportJsonl(db, cfg.blobsDir, String(m['path']));
-      return {};
-    case 'importJsonl': {
-      if (db.prepare('SELECT count(*) FROM run_events').pluck().get() !== 0) {
-        throw new Error('JSONL import requires an empty run log');
-      }
-      const data = readJsonl(String(m['path']));
-      for (const blob of data.blobs) {
-        putBlob(blob.hash, blob.content);
-      }
-      db.transaction(() => {
-        for (const row of data.rows) {
-          const event = JSON.parse(row.payload);
-          db.prepare(
-            'INSERT INTO run_events(thread_id,seq,type,run_id,payload,crc,raw_count,created_at) VALUES (?,?,?,?,?,?,?,?)'
-          ).run(
-            row.threadId,
-            row.seq,
-            event.type,
-            typeof event.runId === 'string' ? event.runId : null,
-            row.payload,
-            row.crc,
-            row.rawCount,
-            row.createdAt
-          );
-          db.prepare(
-            'INSERT INTO threads(id,last_seq,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seq=excluded.last_seq,updated_at=excluded.updated_at'
-          ).run(row.threadId, row.seq, row.createdAt, row.createdAt);
-        }
-      })();
-      log = new RunLog(db, damage);
-      return {};
-    }
     case 'setting':
       db.prepare(
         'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'

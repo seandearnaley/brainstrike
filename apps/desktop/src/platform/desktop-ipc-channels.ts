@@ -30,6 +30,16 @@ export const DESKTOP_IPC_CHANNELS = {
     // triggers this on the FOCUSED window so the renderer opens Settings.
     openSettings: 'app-menu:open-settings',
   },
+  // Settings › Updates (BST-2367): whether update checks offer beta releases.
+  appUpdates: {
+    checkNow: 'app-updates:check-now',
+    getPreferences: 'app-updates:get-preferences',
+    getStatus: 'app-updates:get-status',
+    restartToUpdate: 'app-updates:restart-to-update',
+    setBetaUpdates: 'app-updates:set-beta-updates',
+    // Main→renderer push: every change of the update status (BST-2356).
+    statusChanged: 'app-updates:status-changed',
+  },
   // Embedded browser (BST-1174). Invoke methods drive the main-process
   // BrowserViewManager; `tabsChanged` is a main→renderer push.
   browser: {

@@ -476,7 +476,14 @@ function PreviewParseError() {
   );
 }
 
-function ExecuteCommandPreview({ args }: { args: unknown }) {
+function ExecuteCommandPreview({
+  args,
+  sandboxed,
+}: {
+  args: unknown;
+  /** The host's word on whether the command runs in the OS sandbox (BST-2360). */
+  sandboxed: boolean | undefined;
+}) {
   const parsed = narrowExecuteCommandArgs(args);
   if (!parsed) {
     return <PreviewParseError />;
@@ -490,6 +497,11 @@ function ExecuteCommandPreview({ args }: { args: unknown }) {
       {parsed.outsideSandbox ? (
         <p className="text-warning mb-2 text-xs" data-testid="approval-command-outside-sandbox">
           Runs outside the sandbox, with full access to your files and network.
+        </p>
+      ) : sandboxed === false ? (
+        <p className="text-warning mb-2 text-xs" data-testid="approval-command-no-sandbox">
+          Commands run without a sandbox on this computer, with full access to your files and
+          network.
         </p>
       ) : null}
       <p className="text-foreground/90 text-xs font-medium">Command</p>
@@ -646,7 +658,7 @@ export function ApprovalPreview({
 }) {
   const { args, toolName } = approval;
   if (toolName === EXECUTE_COMMAND_TOOL_ID) {
-    return <ExecuteCommandPreview args={args} />;
+    return <ExecuteCommandPreview args={args} sandboxed={approval.sandboxed} />;
   }
   if (toolName === RUN_PYTHON_TOOL_ID) {
     // Needs the whole approval, not just args: the fact rows come from the

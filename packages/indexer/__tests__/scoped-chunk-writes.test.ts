@@ -173,8 +173,11 @@ function writer(
 describe('scoped chunk write admission through the real commit path', () => {
   it('does not update equal actual chunk rows, while still replacing supplied syntax', () => {
     const { index, chunkWrites, syntax } = writer();
-    const plan = index.prepare({ snapshot: canonicalSnapshot });
-    index.commitText({ plan, syntax: { refs: [], symbols: [] } });
+    const { storeId } = index.prepare({ snapshot: canonicalSnapshot });
+    index.commitTexts({
+      files: [{ snapshot: canonicalSnapshot, syntax: { refs: [], symbols: [] } }],
+      storeId,
+    });
     expect(chunkWrites).not.toHaveBeenCalled();
     expect(syntax.validate).toHaveBeenCalled();
     expect(syntax.replace).toHaveBeenCalledWith({ refs: [], symbols: [] }, binding.fileId, false);
@@ -194,7 +197,8 @@ describe('scoped chunk write admission through the real commit path', () => {
     { rootId: null },
   ])('updates a row differing in %j even with the same snapshot hash', (change) => {
     const { index, chunkWrites } = writer(change);
-    index.commitText({ plan: index.prepare({ snapshot: canonicalSnapshot }) });
+    const { storeId } = index.prepare({ snapshot: canonicalSnapshot });
+    index.commitTexts({ files: [{ snapshot: canonicalSnapshot }], storeId });
     expect(chunkWrites).toHaveBeenCalledTimes(1);
   });
 
@@ -208,7 +212,8 @@ describe('scoped chunk write admission through the real commit path', () => {
       sourcePath: '/imports/source.ts',
     };
     const { index, chunkWrites } = writer({}, false, rootless);
-    index.commitText({ plan: index.prepare({ snapshot: rootless }) });
+    const { storeId } = index.prepare({ snapshot: rootless });
+    index.commitTexts({ files: [{ snapshot: rootless }], storeId });
     expect(chunkWrites).not.toHaveBeenCalled();
   });
 
@@ -240,9 +245,11 @@ describe('scoped chunk write admission through the real commit path', () => {
 
   it('refuses a plan after binding replacement before any chunk write', () => {
     const { index, chunkWrites } = writer();
-    const plan = index.prepare({ snapshot: canonicalSnapshot });
+    const plan = index.prepare({ profile, snapshot: canonicalSnapshot });
     index.replaceBindings([binding]);
-    expect(() => index.commitText({ plan })).toThrow('Canonical binding authority changed');
+    expect(() => index.commitVector({ embeddings: [], plan, profile })).toThrow(
+      'Canonical binding authority changed'
+    );
     expect(chunkWrites).not.toHaveBeenCalled();
   });
 });

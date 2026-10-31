@@ -16,8 +16,7 @@
  *    and a decision the host answered meanwhile is dropped instead of sent.
  *
  * Session-lived, deliberately NOT persisted: a queued message that survives a
- * reload the user never saw sent would be a surprise send. Factory reset
- * clears every queue (`register-factory-reset-session-stores.ts`).
+ * reload the user never saw sent would be a surprise send.
  */
 import {
   type AppendMessage,

@@ -87,6 +87,14 @@ export interface ChangedFilesTreeProps {
 }
 
 const EMPTY_ROOT_PATHS: ReadonlyMap<string, string> = new Map();
+
+/**
+ * Painted pitch of one row, in px: the 24px checkbox and disclosure controls
+ * with their `my-0.5` margins, plus the 1px row border; the same pitch as the
+ * Explorer's tree (`optimized-file-tree.tsx`). A numeric height turns off
+ * TreeTable's per-row measurement, so this must equal what the browser paints.
+ */
+const ROW_HEIGHT = 29;
 const EMPTY_ROOT_LABELS: ReadonlyMap<string, string> = new Map();
 
 function EmptyChangedFiles(): ReactElement {
@@ -329,6 +337,7 @@ export function ChangedFilesTree({
           onCheckboxChange={handleCheckboxChange}
           onRowContextMenu={handleRowContextMenu}
           onToggleExpand={toggleExpanded}
+          rowHeight={ROW_HEIGHT}
           selectionMode="none"
           showCheckbox={true}
         />

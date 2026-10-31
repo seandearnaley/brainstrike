@@ -247,9 +247,8 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
       }
     } catch (caught) {
       setCommitError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setCommitting(false);
     }
+    setCommitting(false);
   };
 
   const handlePush = async (): Promise<void> => {
@@ -265,9 +264,8 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
       }
     } catch (caught) {
       setPushError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setPushing(false);
     }
+    setPushing(false);
   };
 
   return (

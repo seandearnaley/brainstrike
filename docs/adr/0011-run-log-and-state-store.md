@@ -198,6 +198,35 @@ it is billing, so BST-2226 records it as a committed fact. The Developer memory
 panel shows the last recall its view received, labelled live; a reload clears
 it.
 
+## Amendment (2026-10-31): what made host open slow
+
+The telemetry amendment above left open slow and said row count was not the
+cause. A profile of `HostCore.open` (BST-2388) found the cause: open validated
+every committed model message against the AI SDK's `modelMessageSchema` again,
+although each message is validated before it commits and the SDK validates the
+prompt it builds. #4859 removed that parse.
+
+Measured on Linux x64 with 1,000 threads x 5 runs (103k rows), seeded from a
+real HostCore recording: `HostCore.open` took 1.33–1.57 s before #4859 and
+0.82–0.90 s after it. Of what remains, the writer worker's hydration read takes
+about 460 ms, decoding rows about 155 ms and every fold together about 170 ms.
+
+Open still reads and folds every thread's hydrating rows. Persisted fold
+checkpoints, which would let open read only each thread's tail, were considered
+and not built: they would add a second durable copy of every view, to version
+with the fold code and invalidate when it changes. Every view stays a fold of
+the log, and checkpoints wait until a measured profile needs them.
+
+## Amendment (2026-10-31): no export or import
+
+The decision above named JSONL as the export and import format. Two mechanisms
+were built: a JSONL interchange of the run log and its blobs, and a bundle that
+copied the state DB through `VACUUM INTO` with its blobs and a checksummed
+manifest. Nothing outside their own tests called either one, so BST-2395 removed
+both. Brainstrike is greenfield (ADR-0020) and has no user data to move. A
+backup or transfer feature starts from its product need, and it is designed
+then, against the schema of that day.
+
 ## Amendment (2026-10-31): tool input deltas are telemetry
 
 Owner decision (BST-2379, 31 Oct) extends the live-telemetry carve-out to a

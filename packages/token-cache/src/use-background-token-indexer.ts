@@ -159,14 +159,68 @@ function createRequestId(): string {
   return `req_${generateUUID()}`;
 }
 
+/** Reads each folder's cached entries once, keyed by folder id and then file path. */
+async function readCachedEntries(
+  store: BackgroundTokenStore,
+  files: readonly FileToIndex[]
+): Promise<Map<string, Map<string, TokenCacheEntry>>> {
+  const folders = await Promise.all(
+    [...Map.groupBy(files, (file) => file.folderId)].map(async ([folderId, folderFiles]) => {
+      const entries = await store
+        .getBatch(
+          folderId,
+          folderFiles.map((file) => file.filePath)
+        )
+        .catch((error: unknown) => {
+          throw new Error(
+            `Cache lookup failed for ${folderFiles.map((file) => file.compositeKey).join(', ')}: ${formatErrorMessage(error)}`
+          );
+        });
+      return [folderId, entries] as const;
+    })
+  );
+  return new Map(folders);
+}
+
+/** One worker request per file; a cached hash and size are reused only under the same counting mode. */
+function buildIndexRequests(
+  files: readonly FileToIndex[],
+  cachedByFolder: ReadonlyMap<string, ReadonlyMap<string, TokenCacheEntry>>,
+  mode: TokenCountingMode
+): IndexerBatchRequest['requests'] {
+  return files.map((file) => {
+    const entry = cachedByFolder.get(file.folderId)?.get(file.filePath);
+    const reusable = entry?.countingMode === mode ? entry : undefined;
+    return {
+      cachedFileSize: reusable?.fileSize,
+      cachedHash: reusable?.contentHash,
+      compositeKey: file.compositeKey,
+      filePath: file.filePath,
+      folderId: file.folderId,
+      id: createRequestId(),
+      mode,
+      // Pre-loaded content and size for Electron files
+      ...(file.content === undefined ? {} : { content: file.content }),
+      ...(file.fileSize === undefined ? {} : { fileSize: file.fileSize }),
+      // File handle for Web files
+      ...(file.fileHandle ? { fileHandle: file.fileHandle } : {}),
+    };
+  });
+}
+
 /**
  * Factory function to create a new worker instance.
  * Uses the URL resolver pattern which is compatible with both Vite and tsup builds.
  * The worker is pre-built to JavaScript by tsup, and Vite copies it to the output.
+ * A constructor failure is returned as its Error rather than thrown.
  */
-function createWorkerInstance(workerUrl?: string): Worker {
-  const url = workerUrl ?? resolveBackgroundIndexerWorkerUrl().href;
-  return new Worker(url, { type: 'module' });
+function createWorkerInstance(workerUrl?: string): Worker | Error {
+  try {
+    const url = workerUrl ?? resolveBackgroundIndexerWorkerUrl().href;
+    return new Worker(url, { type: 'module' });
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 export function useBackgroundTokenIndexer({
@@ -312,7 +366,7 @@ export function useBackgroundTokenIndexer({
   }, []);
 
   const failWorker = useCallback(
-    (error: unknown, context: string, workerGeneration = workerGenerationRef.current) => {
+    (error: unknown, context: string, workerGeneration: number) => {
       // CRITICAL: terminal worker failure is latched. Duplicate failure signals
       // can arrive from queued worker events and must not fan out callbacks/logging.
       if (isWorkerFailureHandled(workerGeneration)) {
@@ -359,7 +413,7 @@ export function useBackgroundTokenIndexer({
   );
 
   const scheduleRecoverableWorkerRestart = useCallback(
-    (error: Error, context: string, workerGeneration = workerGenerationRef.current): boolean => {
+    (error: Error, context: string, workerGeneration: number): boolean => {
       if (isWorkerFailureHandled(workerGeneration)) {
         // A worker may emit the same recoverable failure through multiple event surfaces.
         // Treat the short backoff window as dedupe, not as a new restart decision.
@@ -453,26 +507,17 @@ export function useBackgroundTokenIndexer({
     }
 
     const initPromise = (async (): Promise<Worker> => {
-      let worker: Worker;
       const workerGeneration = workerGenerationRef.current + 1;
       workerGenerationRef.current = workerGeneration;
-      try {
-        worker = createWorkerInstance(workerUrl);
-      } catch (error) {
-        const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const worker = createWorkerInstance(workerUrl);
+      if (worker instanceof Error) {
         // Worker constructor failures are treated as deterministic terminal failures.
         // The scheduler check only preserves an already-latched duplicate signal; this
         // context is intentionally absent from the recoverable allowlist.
-        if (
-          !scheduleRecoverableWorkerRestart(
-            normalizedError,
-            'createWorkerInstance',
-            workerGeneration
-          )
-        ) {
-          failWorker(normalizedError, 'createWorkerInstance', workerGeneration);
+        if (!scheduleRecoverableWorkerRestart(worker, 'createWorkerInstance', workerGeneration)) {
+          failWorker(worker, 'createWorkerInstance', workerGeneration);
         }
-        throw normalizedError;
+        throw worker;
       }
       workerRef.current = worker;
       clearWorkerFailureHandled();
@@ -499,11 +544,6 @@ export function useBackgroundTokenIndexer({
 
       await new Promise<void>((resolve, reject) => {
         rejectReadinessRef.current = reject;
-        const settleReady = (): void => {
-          worker.removeEventListener('messageerror', handleMessageChannelError);
-          resolve();
-        };
-
         const settleFailure = (error: Error, context: string): void => {
           if (scheduleRecoverableWorkerRestart(error, context, workerGeneration)) {
             reject(error);
@@ -511,6 +551,39 @@ export function useBackgroundTokenIndexer({
           }
           failWorker(error, context, workerGeneration);
           reject(error);
+        };
+
+        const handleWorkerError = (
+          error: ErrorEvent | Event,
+          context: 'worker.onerror' | 'worker.onmessageerror'
+        ): void => {
+          if (context === 'worker.onmessageerror') {
+            settleFailure(
+              attachTerminalWorkerErrorDetails(
+                new Error('Worker message channel error (onmessageerror)'),
+                createTerminalWorkerErrorDetails(error)
+              ),
+              context
+            );
+            return;
+          }
+
+          const errEvent = error as ErrorEvent;
+          settleFailure(
+            attachTerminalWorkerErrorDetails(
+              new Error(`Worker runtime error: ${errEvent?.message ?? 'unknown worker error'}`),
+              createTerminalWorkerErrorDetails(error)
+            ),
+            context
+          );
+        };
+
+        const handleMessageChannelError = (event: Event) =>
+          handleWorkerError(event as MessageEvent, 'worker.onmessageerror');
+
+        const settleReady = (): void => {
+          worker.removeEventListener('messageerror', handleMessageChannelError);
+          resolve();
         };
 
         // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker startup and runtime messages are handled in one exhaustive strict-protocol branch.
@@ -587,34 +660,6 @@ export function useBackgroundTokenIndexer({
           }
         };
 
-        const handleWorkerError = (
-          error: ErrorEvent | Event,
-          context: 'worker.onerror' | 'worker.onmessageerror'
-        ): void => {
-          if (context === 'worker.onmessageerror') {
-            settleFailure(
-              attachTerminalWorkerErrorDetails(
-                new Error('Worker message channel error (onmessageerror)'),
-                createTerminalWorkerErrorDetails(error)
-              ),
-              context
-            );
-            return;
-          }
-
-          const errEvent = error as ErrorEvent;
-          settleFailure(
-            attachTerminalWorkerErrorDetails(
-              new Error(`Worker runtime error: ${errEvent?.message ?? 'unknown worker error'}`),
-              createTerminalWorkerErrorDetails(error)
-            ),
-            context
-          );
-        };
-
-        const handleMessageChannelError = (event: Event) =>
-          handleWorkerError(event as MessageEvent, 'worker.onmessageerror');
-
         workerMessageCleanupRef.current = transport.onMessage((message) => {
           void handleMessage({ data: message } as MessageEvent<WorkerResponse | { type: 'ready' }>);
         });
@@ -634,13 +679,11 @@ export function useBackgroundTokenIndexer({
 
     workerInitPromiseRef.current = initPromise;
 
-    try {
-      return await initPromise;
-    } finally {
+    return await initPromise.finally(() => {
       if (workerInitPromiseRef.current === initPromise) {
         workerInitPromiseRef.current = null;
       }
-    }
+    });
   }, [clearWorkerFailureHandled, failWorker, scheduleRecoverableWorkerRestart, workerUrl]);
   useEffect(() => {
     // Restart timers need the latest startup callback without making the
@@ -688,7 +731,7 @@ export function useBackgroundTokenIndexer({
    */
   const handleResult = useCallback(
     async (result: IndexerResult) => {
-      try {
+      const record = async (): Promise<void> => {
         pendingFilesRef.current.delete(result.compositeKey);
         settleBatchTrackersForCompositeKey(result.compositeKey);
 
@@ -715,29 +758,32 @@ export function useBackgroundTokenIndexer({
         }
 
         await persistResultToStore(result, currentStore, currentOnFileIndexed);
-      } catch (error) {
-        logger.error('handleResult failed', {
-          compositeKey: result.compositeKey,
-          error: formatErrorMessage(error),
+      };
+      await record()
+        .catch((error: unknown) => {
+          logger.error('handleResult failed', {
+            compositeKey: result.compositeKey,
+            error: formatErrorMessage(error),
+          });
+          // Emit telemetry for persistence error (BST-154)
+          emitIndexingError({
+            compositeKey: result.compositeKey,
+            errorMessage: `Persistence failed: ${formatErrorMessage(error)}`,
+            filePath: result.filePath,
+            folderId: result.folderId,
+          });
+          const currentOnFileError = onFileErrorRef.current;
+          if (currentOnFileError) {
+            currentOnFileError(result.compositeKey, formatErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          // Check if all done (handles both skipped and counted results)
+          if (pendingFilesRef.current.size === 0) {
+            setIsIndexing(false);
+            setProgress(null);
+          }
         });
-        // Emit telemetry for persistence error (BST-154)
-        emitIndexingError({
-          compositeKey: result.compositeKey,
-          errorMessage: `Persistence failed: ${formatErrorMessage(error)}`,
-          filePath: result.filePath,
-          folderId: result.folderId,
-        });
-        const currentOnFileError = onFileErrorRef.current;
-        if (currentOnFileError) {
-          currentOnFileError(result.compositeKey, formatErrorMessage(error));
-        }
-      } finally {
-        // Check if all done (handles both skipped and counted results)
-        if (pendingFilesRef.current.size === 0) {
-          setIsIndexing(false);
-          setProgress(null);
-        }
-      }
     },
     [settleBatchTrackersForCompositeKey]
   );
@@ -816,7 +862,6 @@ export function useBackgroundTokenIndexer({
    * Uses refs to get the latest store/mode/callbacks at call time.
    */
   const indexFiles = useCallback(
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Batch request building requires multiple conditionals for caching and handle types
     async (files: FileToIndex[]) => {
       if (files.length === 0) {
         return;
@@ -857,68 +902,35 @@ export function useBackgroundTokenIndexer({
       }
 
       // Get latest values from refs
+      const worker = workerRef.current;
       const currentStore = storeRef.current;
       const currentMode = modeRef.current;
 
       setIsIndexing(true);
 
-      try {
-        // Read each folder's cached hashes once before dispatching the worker batch.
-        const cachedByFolder = new Map<string, Map<string, TokenCacheEntry>>();
-        if (currentStore) {
-          const filesByFolder = new Map<string, FileToIndex[]>();
-          for (const file of files) {
-            const folderFiles = filesByFolder.get(file.folderId) ?? [];
-            folderFiles.push(file);
-            filesByFolder.set(file.folderId, folderFiles);
-          }
-          await Promise.all(
-            [...filesByFolder].map(async ([folderId, folderFiles]) => {
-              try {
-                const entries = await currentStore.getBatch(
-                  folderId,
-                  folderFiles.map((file) => file.filePath)
-                );
-                cachedByFolder.set(folderId, entries);
-              } catch (error) {
-                throw new Error(
-                  `Cache lookup failed for ${folderFiles.map((file) => file.compositeKey).join(', ')}: ${formatErrorMessage(error)}`
-                );
-              }
-            })
-          );
-        }
+      // Resolves `false` when the batch's worker was replaced during the cache read.
+      const dispatch = async (): Promise<boolean> => {
+        const cachedByFolder = currentStore
+          ? await readCachedEntries(currentStore, files)
+          : new Map<string, Map<string, TokenCacheEntry>>();
         // Retirement can land during the cache read; nothing dispatches after it.
         if (retirementRef.current) {
           throw retirementRef.current;
         }
-        const requests: IndexerBatchRequest['requests'] = [];
-        for (const file of files) {
-          pendingFilesRef.current.add(file.compositeKey);
-          const cached = cachedByFolder.get(file.folderId)?.get(file.filePath);
-          const cachedFileSize = cached?.countingMode === currentMode ? cached.fileSize : undefined;
-          const cachedHash = cached?.countingMode === currentMode ? cached.contentHash : undefined;
-
-          requests.push({
-            cachedFileSize,
-            cachedHash,
-            compositeKey: file.compositeKey,
-            filePath: file.filePath,
-            folderId: file.folderId,
-            id: createRequestId(),
-            mode: currentMode,
-            // Include pre-loaded content for Electron files
-            ...(file.content === undefined ? {} : { content: file.content }),
-            ...(file.fileSize === undefined ? {} : { fileSize: file.fileSize }),
-            // Include file handle for Web files
-            ...(file.fileHandle ? { fileHandle: file.fileHandle } : {}),
-          });
+        // A worker that crashed during the read is terminated, and its restart already
+        // settled the batches it carried; this one is never posted to it.
+        if (workerRef.current !== worker) {
+          return false;
+        }
+        const requests = buildIndexRequests(files, cachedByFolder, currentMode);
+        for (const request of requests) {
+          pendingFilesRef.current.add(request.compositeKey);
         }
 
         if (requests.length === 0) {
           setIsIndexing(false);
           setProgress(null);
-          return;
+          return true;
         }
 
         // Send batch to worker
@@ -941,9 +953,11 @@ export function useBackgroundTokenIndexer({
         };
 
         pendingBatchTrackersRef.current.push(tracker);
-        workerRef.current.postMessage(batchMessage);
+        worker.postMessage(batchMessage);
         await completionPromise;
-      } catch (error) {
+        return true;
+      };
+      const dispatched = await dispatch().catch((error: unknown) => {
         if (error instanceof Error && cancellationsRef.current.has(error)) {
           // The owner retired this indexer or cancelled this batch: it settles as that cancellation.
           logger.debug('indexFiles settled by owner cancellation', { fileCount: files.length });
@@ -968,6 +982,10 @@ export function useBackgroundTokenIndexer({
         setIsIndexing(false);
         setProgress(null);
         throw normalizedError;
+      });
+      if (!dispatched) {
+        // Settles this batch alone: the replacement worker's batches are not this one's.
+        throw new Error('Background token indexer worker restarted during the cache read.');
       }
     },
     [emitTerminalIndexingError, ensureWorkerReady, rejectAllPendingBatchTrackers]

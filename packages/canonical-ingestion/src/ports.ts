@@ -185,9 +185,12 @@ export interface CanonicalPublicationPort {
     readonly requestId: string;
     readonly scope: CanonicalSourceScope;
   }): Promise<CanonicalScanTicket>;
-  commitTextFile(request: {
-    readonly file: CanonicalFileIdentity;
-    readonly payload: CanonicalIndexPayload;
+  /** Publish a batch of TEXT files at once: every file is acknowledged, or none is. */
+  commitTextFiles(request: {
+    readonly files: readonly {
+      readonly file: CanonicalFileIdentity;
+      readonly payload: CanonicalIndexPayload;
+    }[];
     readonly ticket: CanonicalScanTicket;
   }): Promise<void>;
   finishScan(
@@ -197,8 +200,9 @@ export interface CanonicalPublicationPort {
       readonly ticket: CanonicalScanTicket;
     }
   ): Promise<CanonicalScanReceipt>;
-  removeFile(request: {
-    readonly file: CanonicalFileIdentity;
+  /** Remove a batch of files' derived index rows at once: all of them, or none. */
+  removeFiles(request: {
+    readonly files: readonly CanonicalFileIdentity[];
     readonly ticket: CanonicalScanTicket;
   }): Promise<void>;
   verifyManifest(request: {

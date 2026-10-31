@@ -97,15 +97,13 @@ it('mixed versions catch up and rebuild using current shapes without rewriting t
 it('dev unknowns reject both the reader and background indexer and surface through foundation health', async () => {
   const f = await fixture('dev');
   try {
-    let observed: Promise<unknown> | undefined;
-    await f.store.append(events([v2Text, unknownType]), () => {
-      observed = f.indexer.catchUp(['t1']).then(
-        () => {
-          throw new Error('Unknown committed event was accepted');
-        },
-        (error: unknown) => error
-      );
-    });
+    await f.store.append(events([v2Text, unknownType]));
+    const observed = f.indexer.catchUp(['t1']).then(
+      () => {
+        throw new Error('Unknown committed event was accepted');
+      },
+      (error: unknown) => error
+    );
     await expect(f.store.readEvents('t1', schema, 'dev')).rejects.toThrow(UnknownEventError);
     expect(await observed).toBeInstanceOf(Error);
     expect(String(await observed)).toContain('unknown event type "hologram"');

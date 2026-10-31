@@ -1,12 +1,9 @@
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
+import { Predicate } from 'effect';
 
 /** A message part is a tool call when its discriminant `type` is `'tool-call'`. */
 export function isToolCallPart(part: unknown): part is Record<string, unknown> {
-  return isRecord(part) && part['type'] === 'tool-call';
+  return Predicate.isObject(part) && part['type'] === 'tool-call';
 }
 
 /**

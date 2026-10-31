@@ -10,7 +10,7 @@ The package exposes explicit subpaths only. Import the state you use:
 ```ts
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { clearPersistentUiState } from '@brainstrike/app-state/factory-reset';
+import { prepareFactoryReset } from '@brainstrike/app-state/factory-reset';
 ```
 
 There is no root barrel and no wildcard export. New public state must be added

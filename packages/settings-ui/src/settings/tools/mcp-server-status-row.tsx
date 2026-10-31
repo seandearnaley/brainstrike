@@ -295,11 +295,10 @@ export function McpServerStatusRow({
       if (pendingActionRef.current === invocation) {
         setControlError(cause instanceof Error ? cause.message : 'MCP lifecycle control failed');
       }
-    } finally {
-      if (pendingActionRef.current === invocation) {
-        pendingActionRef.current = null;
-        setPendingAction(null);
-      }
+    }
+    if (pendingActionRef.current === invocation) {
+      pendingActionRef.current = null;
+      setPendingAction(null);
     }
   };
   return (

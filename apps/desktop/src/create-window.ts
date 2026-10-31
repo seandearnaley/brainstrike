@@ -210,6 +210,31 @@ async function loadRenderer(win: BrowserWindow, target: DesktopRendererTarget) {
 }
 
 /**
+ * The app's top row is 36px (the `h-9` panel headers), and on macOS it is the
+ * title bar: no native bar, the traffic lights vertically centred in that row.
+ * `titleBarOverlay` turns on the Window Controls Overlay API, so the renderer
+ * reads the controls' safe area from `env(titlebar-area-*)` instead of
+ * hardcoding traffic-light geometry. Electron reports an empty overlay in
+ * fullscreen, where macOS hides the traffic lights, so the reservation
+ * collapses there by itself.
+ * https://www.electronjs.org/docs/latest/tutorial/custom-title-bar
+ *
+ * Windows and Linux keep the native frame: their overlay buttons draw in system
+ * colours that do not follow the app theme.
+ */
+const TITLE_BAR_HEIGHT = 36;
+
+function macWindowChrome(): Pick<
+  Electron.BrowserWindowConstructorOptions,
+  'titleBarOverlay' | 'titleBarStyle'
+> {
+  if (process.platform !== 'darwin') {
+    return { titleBarStyle: 'default' };
+  }
+  return { titleBarOverlay: { height: TITLE_BAR_HEIGHT }, titleBarStyle: 'hidden' };
+}
+
+/**
  * Create the main application window and load the appropriate renderer.
  */
 interface CreateWindowOptions {
@@ -263,7 +288,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     minHeight: 600,
     minWidth: 800,
     show: false,
-    titleBarStyle: 'default',
+    ...macWindowChrome(),
     webPreferences: {
       allowRunningInsecureContent: false,
       // Keep Chromium's normal background throttling on the visible UI.

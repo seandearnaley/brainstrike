@@ -6,20 +6,18 @@ import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 /** A verified run-log row as the writer worker replies with it (RunLog `Row`). */
 export interface WorkerRow {
   readonly payload: string;
-  readonly rawCount: number | null;
   readonly seq: number;
   readonly ts: number;
 }
 
 export function logRowOf(threadId: string, x: WorkerRow): LogRow {
-  const row = {
+  return {
     event: JSON.parse(x.payload) as RunEvent,
     raw: x.payload,
     seq: x.seq,
     threadId,
     ts: x.ts,
   };
-  return x.rawCount === null ? row : { ...row, rawCount: x.rawCount };
 }
 
 export function errorOf(r: Readonly<Record<string, unknown>>): Error {

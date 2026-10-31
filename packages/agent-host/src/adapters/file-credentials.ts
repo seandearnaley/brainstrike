@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'node:path';
+import { Predicate } from 'effect';
 import type {
   CredentialCipher,
   KeyringCredentialBackend,
@@ -28,12 +29,10 @@ export class CredentialFileFormatError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {
-  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
+  return (
+    Predicate.isObject(value) && Object.values(value).every((entry) => typeof entry === 'string')
+  );
 }
 
 function parseFileCredentialRecords(raw: string): FileCredentialRecords {
@@ -45,7 +44,7 @@ function parseFileCredentialRecords(raw: string): FileCredentialRecords {
     throw new CredentialFileFormatError();
   }
   if (
-    !isRecord(parsed) ||
+    !Predicate.isObject(parsed) ||
     parsed['version'] !== 1 ||
     Object.keys(parsed).some((key) => !['records', 'secrets', 'version'].includes(key)) ||
     !isStringRecord(parsed['records']) ||

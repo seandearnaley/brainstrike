@@ -125,12 +125,18 @@ it('reports each markdown hit on its source line, once, through the real index a
   try {
     const port = await connection.ready;
     const { profile: _profile, ...identity } = binding;
-    const plan = await port.prepareScopedFile({
-      snapshot: { ...identity, content: payload.content, providedChunks: payload.providedChunks },
-    });
-    await port.commitScopedTextFile({
-      plan,
-      ...(payload.syntax ? { syntax: payload.syntax } : {}),
+    await port.commitScopedTextFiles({
+      files: [
+        {
+          snapshot: {
+            ...identity,
+            content: payload.content,
+            providedChunks: payload.providedChunks,
+          },
+          ...(payload.syntax ? { syntax: payload.syntax } : {}),
+        },
+      ],
+      storeId: (await port.info()).storeId,
     });
     const capability = createNativeScopedSearchCapability({
       openQuery: () =>

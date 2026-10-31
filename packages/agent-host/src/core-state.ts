@@ -269,6 +269,8 @@ export interface HostRunState {
   readonly checkpointedResults: Set<string>;
   /** BST-1932: human input a running child takes; it starts the run after this one. */
   childInput?: HostParams<'run/start'> | undefined;
+  /** BST-2360: whether each call that asks the person would run in the OS sandbox. */
+  readonly commandSandboxes: Map<string, boolean>;
   completion?: Promise<void>;
   /** Calls awaiting network consent this step. */
   readonly consents: Map<string, HostConsent>;
@@ -466,6 +468,7 @@ export function createHostRunState(
     artifactSettled: new Set(),
     branch,
     checkpointedResults: new Set(),
+    commandSandboxes: new Map(),
     consents: new Map(),
     controller,
     effects: new Set(),

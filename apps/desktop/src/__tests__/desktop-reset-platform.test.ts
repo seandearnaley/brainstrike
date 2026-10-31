@@ -54,6 +54,7 @@ describe('createDesktopFactoryResetHandler', () => {
 
     await expect(handleReset.reset()).resolves.toEqual({ success: true });
     expect(invocationOrder).toEqual(['application-data', 'main-storage', 'renderer-replacement']);
+    expect(completeSuccessfulReset).toHaveBeenCalledWith(expect.any(AbortSignal), 'factory');
   });
 
   it('stops every background runtime and requires the profile lease before deletion', async () => {
@@ -800,8 +801,8 @@ it('clears content through the same retirement owner without purging retained se
   const storageClear = vi.fn(async () => undefined);
   const reset = createDesktopFactoryResetHandler({
     clearRetainedContent,
-    completeSuccessfulReset: async () => {
-      order.push('replace');
+    completeSuccessfulReset: async (_signal, mode) => {
+      order.push(`replace:${mode}`);
     },
     logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
     prepareDatabaseProfileReset,
@@ -831,7 +832,8 @@ it('clears content through the same retirement owner without purging retained se
     deletedFiles: 2,
     success: true,
   });
-  expect(order).toEqual(['stop', 'clear-content', 'replace', 'resume']);
+  // A content clear keeps configuration, so the renderer's storage is not wiped.
+  expect(order).toEqual(['stop', 'clear-content', 'replace:content', 'resume']);
   expect(resetDesktopApplicationDataMock).toHaveBeenCalledTimes(priorPurges);
   expect(storageClear).not.toHaveBeenCalled();
 });

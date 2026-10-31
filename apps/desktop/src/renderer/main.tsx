@@ -2,7 +2,6 @@ import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/ap
 import { registerFactoryResetPreparation } from '@brainstrike/app-state/factory-reset';
 import { registerDurableFlush } from '@brainstrike/app-state/renderer-close';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   PERMISSION_POLICY_STORE_VERSION,
@@ -41,6 +40,7 @@ import {
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
 import { createIpcCapability } from './ipc-capability';
 import './log-buffer';
+import { useAppUpdateReadyToast } from './use-app-update-ready-toast';
 import './styles.css';
 
 // Import layout component
@@ -114,42 +114,28 @@ const removeRendererErrorHooks =
     ? () => {}
     : installRendererErrorHooks({ scope: 'DesktopRenderer' });
 
-const loggingStore = useLoggingPreferencesStore.getState();
-if (!loggingStore.hasHydrated) {
-  loggingStore.updatePreferences({
-    consoleLevel: rendererConsoleLevel,
-    level: rendererLevel,
-  });
-}
-
-async function syncLoggingPreferencesFromMain(): Promise<void> {
+// Main owns logging preferences: the renderer applies what Main holds now and every change Main broadcasts.
+async function applyLoggingPreferencesFromMain(): Promise<void> {
   if (!window.logging?.getPreferences) {
     return;
   }
   try {
     const payload = await callBoundary(() => window.logging.getPreferences());
-    useLoggingPreferencesStore.getState().setPreferences(payload.preferences);
+    applyLoggingPreferences(payload.preferences, 'electron-renderer');
   } catch (error) {
-    rendererLogger.warn('Failed to synchronize logging preferences from main process', { error });
+    rendererLogger.warn('Failed to read logging preferences from main process', { error });
   }
 }
 
-void syncLoggingPreferencesFromMain();
-
-applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
-
-const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
-  applyLoggingPreferences(state.preferences, 'electron-renderer');
-});
+void applyLoggingPreferencesFromMain();
 
 const unsubscribeLoggingEvents =
   window.logging?.onPreferencesUpdated?.((preferences: LoggingPreferences) => {
-    useLoggingPreferencesStore.getState().setPreferences(preferences);
+    applyLoggingPreferences(preferences, 'electron-renderer');
   }) ?? null;
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    unsubscribeLoggingPreferences();
     unsubscribeLoggingEvents?.();
     removeRendererErrorHooks();
   });
@@ -182,6 +168,8 @@ function requestDocumentReload(): void {
 }
 
 function App() {
+  useAppUpdateReadyToast();
+
   // biome-ignore lint/plugin: Fires a one-time DOM event on mount to signal the desktop app is ready.
   useEffect(() => {
     if (!window.__BRAINSTRIKE_READY__) {
@@ -240,9 +228,14 @@ function DesktopStartupFailure({
 }) {
   return (
     <div
-      className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 py-10 text-[#eef2ff]"
+      className="relative flex min-h-screen items-center justify-center bg-[#0b1020] px-6 py-10 text-[#eef2ff]"
       data-testid="desktop-startup-failure"
     >
+      {/* No app shell here, so this strip is the macOS title bar: it moves the window. */}
+      <div
+        aria-hidden="true"
+        className="app-window-drag absolute inset-x-0 top-0 h-[env(titlebar-area-height,0px)]"
+      />
       <div className="w-full max-w-3xl rounded-xl border border-red-400/30 bg-[#111827] p-6 shadow-2xl">
         <h1 className="text-2xl font-semibold">Desktop startup failed</h1>
         <p className="mt-3 text-sm text-slate-200">{validation.message}</p>

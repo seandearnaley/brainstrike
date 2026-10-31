@@ -84,7 +84,10 @@ async function withStore(
 it('avoids native UPDATE/FTS triggers for equal rows while backfilling and selecting new vector profiles', async () => {
   await withStore(async (port, db) => {
     const textPlan = await port.prepareScopedFile({ snapshot });
-    await port.commitScopedTextFile({ plan: textPlan });
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: textPlan.snapshot }],
+      storeId: textPlan.storeId,
+    });
     const chunksBefore = db.prepare('SELECT * FROM file_chunks ORDER BY pk').all();
     const query = {
       limit: 10,
@@ -119,7 +122,10 @@ it('avoids native UPDATE/FTS triggers for equal rows while backfilling and selec
         .prepare('SELECT id,profile_hash,hex(bin) AS bytes FROM scope_vec_384 ORDER BY id')
         .all();
       await port.commitScopedFile({ embeddings: [], plan: covered, profile: selectedProfile });
-      await port.commitScopedTextFile({ plan: await port.prepareScopedFile({ snapshot }) });
+      await port.commitScopedTextFiles({
+        files: [{ snapshot }],
+        storeId: (await port.info()).storeId,
+      });
       expect(db.prepare('SELECT pk FROM chunk_update_audit').all()).toEqual([]);
       expect(db.prepare('SELECT * FROM file_chunks ORDER BY pk').all()).toEqual(chunksBefore);
       expect(
@@ -154,7 +160,10 @@ it('avoids native UPDATE/FTS triggers for equal rows while backfilling and selec
 it('updates each different actual native field despite the same file snapshot hash', async () => {
   await withStore(async (port, db) => {
     const plan = await port.prepareScopedFile({ snapshot });
-    await port.commitScopedTextFile({ plan });
+    await port.commitScopedTextFiles({
+      files: [{ snapshot: plan.snapshot }],
+      storeId: plan.storeId,
+    });
     const original = db.prepare('SELECT * FROM file_chunks ORDER BY pk').all();
     const first = plan.chunks[0]!;
     for (const [column, value] of [
@@ -171,7 +180,10 @@ it('updates each different actual native field despite the same file snapshot ha
     ] as const) {
       db.prepare(`UPDATE file_chunks SET ${column}=? WHERE id=?`).run(value, first.chunkId);
       db.exec('DELETE FROM chunk_update_audit');
-      await port.commitScopedTextFile({ plan: await port.prepareScopedFile({ snapshot }) });
+      await port.commitScopedTextFiles({
+        files: [{ snapshot }],
+        storeId: (await port.info()).storeId,
+      });
       expect(db.prepare('SELECT pk FROM chunk_update_audit').all()).toHaveLength(1);
       expect(db.prepare('SELECT * FROM file_chunks ORDER BY pk').all()).toEqual(original);
     }

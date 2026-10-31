@@ -10,7 +10,6 @@ import {
   __resetSubagentPersonasStoreForTests,
   buildSubagentPersonasAvailabilityRequest,
   getSubagentPersonasAvailabilityRequest,
-  resetSubagentPersonasStoreToDefaults,
   useSubagentPersonasStore,
 } from '../stores/subagent-personas-store.ts';
 
@@ -69,23 +68,6 @@ describe('subagent-personas-store', () => {
         disabledPersonaIds: [],
       })
     ).toEqual({ delegationEnabled: false });
-  });
-
-  it('factory reset restores defaults in memory AND in the persisted slice', () => {
-    useSubagentPersonasStore.getState().setDelegationEnabled(false);
-    useSubagentPersonasStore.getState().setPersonaEnabled('x', false);
-    resetSubagentPersonasStoreToDefaults();
-    expect(useSubagentPersonasStore.getState().delegationEnabled).toBe(true);
-    expect(useSubagentPersonasStore.getState().disabledPersonaIds).toEqual([]);
-    // clearStorage removes the old slice; the defaults setState re-persists —
-    // either way, nothing non-default survives.
-    const raw = window.localStorage.getItem(STORE_KEY);
-    if (raw !== null) {
-      expect(JSON.parse(raw).state).toEqual({
-        delegationEnabled: true,
-        disabledPersonaIds: [],
-      });
-    }
   });
 
   it('migrate self-heals a malformed persisted payload', () => {

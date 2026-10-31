@@ -1,16 +1,37 @@
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
+import {
+  chunkTypeSchema,
+  commitResultSchema,
+  hash,
+  manifestFileSchema,
+  manifestRequestSchema,
+  nonblank,
+  nonnegative,
+  positive,
+  providedChunkSchema,
+  refSchema,
+  symbolSchema,
+  syntaxSchema,
+} from '@brainstrike/indexing-contract/indexer-producer-schema';
 import { Schema } from 'effect';
 
-const nonblank = Schema.String.check(Schema.isPattern(/\S/u));
-const positive = Schema.Int.check(
-  Schema.isGreaterThan(0),
-  Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-);
-const nonnegative = Schema.Int.check(
-  Schema.isGreaterThanOrEqualTo(0),
-  Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-);
-const hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
+// The producer write shapes are the indexing contract's; the writer decodes with them.
+export type {
+  IndexerCommitResult as CommitResult,
+  IndexerFileSyntax as FileSyntax,
+  IndexerManifestRequest,
+  IndexerProvidedChunk as ProvidedChunk,
+} from '@brainstrike/indexing-contract/indexer-producer-schema';
+export {
+  commitResultSchema,
+  manifestFileSchema,
+  manifestRequestSchema,
+  providedChunkSchema,
+  refSchema,
+  symbolSchema,
+  syntaxSchema,
+};
+
 /** The embedder whose vectors a profile partitions: its provider, model, dimensions and distance. */
 export const vectorProfileSchema = Schema.Struct({
   dimensions: positive.check(Schema.isLessThanOrEqualTo(16_000)),
@@ -129,22 +150,6 @@ const snapshotFields = {
   relativePath: nonblank,
   rootId: nonblank,
 };
-const producerFields = {
-  chunkIndex: nonnegative,
-  chunkSize: positive,
-  chunkType: Schema.Literals(['text', 'sentence', 'recursive']),
-  endOffset: nonnegative,
-  startOffset: nonnegative,
-  tokenCount: positive,
-};
-export const providedChunkSchema = Schema.Struct({
-  ...producerFields,
-  content: nonblank,
-  contentHash: hash,
-  endLine: positive,
-  startLine: positive,
-});
-export type ProvidedChunk = typeof providedChunkSchema.Type;
 const providedSnapshotSchema = Schema.Struct({
   ...snapshotFields,
   providedChunks: Schema.Array(providedChunkSchema),
@@ -158,7 +163,7 @@ export type FileSnapshot = typeof snapshotSchema.Type;
 const chunkMetadata = {
   chunkIndex: Schema.NullOr(nonnegative),
   chunkSize: Schema.NullOr(positive),
-  chunkType: Schema.NullOr(producerFields.chunkType),
+  chunkType: Schema.NullOr(chunkTypeSchema),
   endOffset: Schema.NullOr(nonnegative),
   startOffset: Schema.NullOr(nonnegative),
   tokenCount: Schema.NullOr(positive),
@@ -182,31 +187,6 @@ export const planSchema = Schema.Struct({
   unchanged: Schema.Boolean,
 });
 export type FilePlan = typeof planSchema.Type;
-export const symbolSchema = Schema.Struct({
-  endLine: positive,
-  endOffset: nonnegative,
-  exported: Schema.Boolean,
-  fileRecordId: nonblank,
-  kind: Schema.Literals(['class', 'enum', 'function', 'interface', 'method', 'type', 'variable']),
-  name: Schema.String,
-  seq: nonnegative,
-  startLine: positive,
-  startOffset: nonnegative,
-});
-export const refSchema = Schema.Struct({
-  fileRecordId: nonblank,
-  fromSymbolSeq: Schema.optionalKey(nonnegative),
-  kind: Schema.Literals(['call', 'extends', 'implements', 'import']),
-  line: positive,
-  module: Schema.optionalKey(Schema.String),
-  name: Schema.String,
-  seq: nonnegative,
-});
-export const syntaxSchema = Schema.Struct({
-  refs: Schema.Array(refSchema),
-  symbols: Schema.Array(symbolSchema),
-});
-export type FileSyntax = typeof syntaxSchema.Type;
 export const textCommitSchema = Schema.Struct({
   plan: planSchema,
   syntax: Schema.optional(syntaxSchema),
@@ -257,15 +237,6 @@ export const coverageSchema = Schema.Struct({
   totals: Schema.Struct(textCoverageCounts),
 });
 export type IndexerCoverage = typeof coverageSchema.Type;
-export const manifestFileSchema = Schema.Struct({
-  contentHash: hash,
-  fileId: nonblank,
-  relativePath: nonblank,
-});
-export const manifestRequestSchema = Schema.Struct({
-  files: Schema.Array(manifestFileSchema),
-  rootId: nonblank,
-});
 export const manifestResultSchema = Schema.Struct({
   ...identityStateSchema.fields,
   changed: Schema.Array(manifestFileSchema),
@@ -274,17 +245,7 @@ export const manifestResultSchema = Schema.Struct({
   rootId: nonblank,
   unexpected: Schema.Array(manifestFileSchema),
 });
-export type IndexerManifestRequest = typeof manifestRequestSchema.Type;
 export type IndexerManifestResult = typeof manifestResultSchema.Type;
-export const commitResultSchema = Schema.Struct({
-  reusedEmbeddings: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  syntaxStatus: Schema.Literals(['replaced', 'retained', 'not-provided']),
-  unchanged: Schema.Boolean,
-  writtenChunks: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  writtenRefs: nonnegative,
-  writtenSymbols: nonnegative,
-});
-export type CommitResult = typeof commitResultSchema.Type;
 export const infoSchema = Schema.Struct({
   dbPath: nonblank,
   journalMode: Schema.String,
@@ -321,15 +282,22 @@ export const scopedPlanSchema = Schema.Struct({
   storeId: hash,
 });
 export type ScopedFilePlan = typeof scopedPlanSchema.Type;
-export const scopedTextCommitSchema = Schema.Struct({
-  plan: scopedPlanSchema,
-  syntax: Schema.optional(syntaxSchema),
+/**
+ * A batch of TEXT files the writer prepares and commits in one transaction: all of it lands,
+ * or none. `storeId` is the store the caller's scan began on; another store refuses it whole.
+ */
+export const scopedTextBatchSchema = Schema.Struct({
+  files: Schema.Array(
+    Schema.Struct({ snapshot: scopedSnapshotSchema, syntax: Schema.optional(syntaxSchema) })
+  ),
+  storeId: hash,
 });
 const flexibleVector = Schema.Array(Schema.Finite).check(Schema.isBetweenLength(1, 16_000));
 export const scopedCommitSchema = Schema.Struct({
-  ...scopedTextCommitSchema.fields,
   embeddings: Schema.Array(Schema.Struct({ chunkId: hash, vector: flexibleVector })),
+  plan: scopedPlanSchema,
   profile: vectorProfileSchema,
+  syntax: Schema.optional(syntaxSchema),
 });
 /** Root grants come only from acquisition; thread membership comes from State truth. */
 const stateMessageScopeSchema = Schema.Struct({
@@ -472,6 +440,13 @@ export type StateObservationHit = typeof stateObservationHitSchema.Type;
 export type StateObservationPurge = StateMessagePurge;
 export const stateObservationPurgeSchema = stateMessagePurgeSchema;
 export const scopedRemoveSchema = Schema.Struct({ fileId: nonblank, scope: scopeSchema });
+/** Files of one scope the writer removes in one transaction. */
+export const scopedRemoveBatchSchema = Schema.Struct({
+  fileIds: Schema.Array(nonblank),
+  scope: scopeSchema,
+});
+/** How many of a removal batch's files were stored. */
+export const removedCountSchema = nonnegative;
 export const scopedSearchSchema = Schema.Struct({
   fileIds: Schema.optional(Schema.Array(nonblank)),
   limit: positive.check(Schema.isLessThanOrEqualTo(100)),

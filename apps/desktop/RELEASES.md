@@ -61,13 +61,28 @@ Windows and Linux use `icon.ico` and `icons/*.png`, rendered from
 
 ## In-app updates
 
-A packaged install checks `seandearnaley/brainstrike-releases` once per launch
-(`src/app-update.ts`, electron-updater, the `publish` entry in `package.json`).
-A newer release downloads in the background and installs when the app quits.
-A beta install follows prereleases and a stable install only stable releases,
-because electron-updater sets `allowPrerelease` from the running version. With
-the GitHub provider electron-builder writes `latest*.yml` for every version, and
-GitHub's prerelease flag, not a separate channel file, separates the two.
+A packaged install checks `seandearnaley/brainstrike-releases` at launch and
+every four hours while it runs (`src/app-update.ts`, electron-updater, the
+`publish` entry in `package.json`; BST-2356). A newer release downloads in the
+background; the OS notifies, each open window offers Restart to update, and
+otherwise it installs when the app quits. No check starts while one runs, a
+download is under way or a downloaded update waits: that update installs first.
+Check for Updates… (the app menu on macOS, Help on Windows and Linux) checks now
+and answers in a dialog, and Settings › Updates shows the same status with Check
+now. A factory reset stops the checks until the next launch. On macOS a copy run
+outside Applications (from the DMG, or translocated from Downloads) cannot
+replace itself, so it offers once to move there; Not Now is remembered in the
+settings store.
+
+Settings › Updates' "Get beta updates" switch sets electron-updater's
+`allowPrerelease` (BST-2367). Until the user chooses, a beta install follows
+prereleases and a stable install only stable releases. Main stores that channel
+in the settings store before the first check, so a beta install that updates to
+a stable release keeps getting betas; a factory reset clears it. The switch
+applies at the next check, and turning betas off never downgrades.
+With the GitHub provider electron-builder writes `latest*.yml` for every
+version, and GitHub's prerelease flag, not a separate channel file, separates
+the two.
 
 macOS updates install the `.zip` (Squirrel.Mac), so each macOS leg builds a DMG
 and a zip from the same signed, notarized app, and the signing gate checks both.

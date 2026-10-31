@@ -120,9 +120,8 @@ export function StateStoreDamageNotice({
         }
       } catch (cause) {
         setActionError(`${ACTION_FAILURE[action]}: ${messageOf(cause)}`);
-      } finally {
-        setBusy(null);
       }
+      setBusy(null);
     })();
   };
 

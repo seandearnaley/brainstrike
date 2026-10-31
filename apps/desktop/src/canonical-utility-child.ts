@@ -269,16 +269,16 @@ export class CanonicalUtilityChild {
         await this.call(owner, 'abort-scan', ticket);
       },
       beginScan: (request) => this.call(owner, 'begin-scan', request),
-      commitTextFile: async (request) => {
-        await this.call(owner, 'commit-text', request);
+      commitTextFiles: async (request) => {
+        await this.call(owner, 'commit-texts', request);
       },
       commitVectorFile: async (request) => {
         await this.call(owner, 'commit-vector', request);
       },
       finishScan: (request) => this.call(owner, 'finish-scan', request),
       prepareVectorFile: (request) => this.call(owner, 'prepare-vector', request),
-      removeFile: async (request) => {
-        await this.call(owner, 'remove-file', request);
+      removeFiles: async (request) => {
+        await this.call(owner, 'remove-published', request);
       },
       vectorCoverage: (request) => this.call(owner, 'vector-coverage', request),
       verifyManifest: (request) => this.call(owner, 'verify-manifest', request),

@@ -86,7 +86,7 @@ function fixture(initial: Authority) {
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
     commitScopedFile: unused,
-    commitScopedTextFile: unused,
+    commitScopedTextFiles: unused,
     commitTextFile: unused,
     coverage: unused,
     coverageBatch: unused,
@@ -99,6 +99,7 @@ function fixture(initial: Authority) {
     readScopedFilePage: unused,
     removeFile: unused,
     removeScopedFile,
+    removeScopedFiles: unused,
     replaceFileBindings,
     search: unused,
     searchScopes: unused,

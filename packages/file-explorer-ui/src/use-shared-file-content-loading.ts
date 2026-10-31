@@ -654,7 +654,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         setIsLoading(true);
       }
 
-      try {
+      const loadBatch = async (): Promise<void> => {
         const preparationResults = await Promise.allSettled(
           compositeKeys.map((key) => prepareFileRead(key, expectedGenerations.get(key) ?? 0))
         );
@@ -699,10 +699,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           loadAuthority.recordErrors(errorRecords);
           throw createFileContentLoadError(failures);
         }
-      } finally {
+      };
+      await loadBatch().finally(() => {
         activeExecutionCountRef.current -= 1;
         setIsLoading(activeExecutionCountRef.current > 0);
-      }
+      });
     },
     [prepareFileRead, store, loadAuthority]
   );

@@ -178,7 +178,9 @@ test.describe('@destructive', () => {
         'false'
       );
       await new SettingsPage(page).openCategory(/Factory Reset/iu, 'factory-reset');
-      const reloaded = page.waitForEvent('load');
+      const reloaded = page.waitForEvent('load', {
+        predicate: (loaded) => loaded.url() !== 'about:blank',
+      });
       await confirmReset(page, true);
       await reloaded;
       await waitForAppReady(page);

@@ -1,4 +1,5 @@
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { Predicate } from 'effect';
 
 /** Accumulated live output for one running shell command. */
 export interface ShellOutputAccumulation {
@@ -11,10 +12,6 @@ export interface ShellOutputAccumulation {
   readonly text: string;
   /** True once the streaming cap was hit (further output was not streamed). */
   readonly truncated: boolean;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 /**
@@ -65,11 +62,11 @@ export function createShellOutputAccumulator(): (
     let next: Record<string, { text: string; truncated: boolean }> | null = null;
     for (let index = processedCount; index < parts.length; index += 1) {
       const part = parts[index];
-      if (!(isRecord(part) && part['name'] === SHELL_OUTPUT_DATA_NAME)) {
+      if (!(Predicate.isObject(part) && part['name'] === SHELL_OUTPUT_DATA_NAME)) {
         continue;
       }
       const data = part['data'];
-      if (!isRecord(data)) {
+      if (!Predicate.isObject(data)) {
         continue;
       }
       const toolCallId = data['toolCallId'];

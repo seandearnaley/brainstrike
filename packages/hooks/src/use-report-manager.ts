@@ -104,6 +104,21 @@ const buildContextFilename = (
   });
 };
 
+/** The generated context, refusing a missing generator or a non-string result. */
+async function readGeneratedContext<O>(
+  generate: ContextGenerator<O> | undefined,
+  options: O | undefined
+): Promise<string> {
+  if (!generate) {
+    throw new Error('No context generator provided');
+  }
+  const context: unknown = await generate(options);
+  if (typeof context !== 'string') {
+    throw new Error('Context generator returned a non-string result');
+  }
+  return context;
+}
+
 export const useReportManager = <A = unknown, O = unknown>({
   rootDirectoryHandle,
   generateContextWithContent,
@@ -121,14 +136,10 @@ export const useReportManager = <A = unknown, O = unknown>({
       }
 
       try {
-        if (!generateContextWithContent) {
-          throw new Error('No context generator provided');
-        }
-        const context = await generateContextWithContent(options);
-        if (typeof context !== 'string') {
-          throw new Error('Context generator returned a non-string result');
-        }
-        return { context, ok: true };
+        return {
+          context: await readGeneratedContext(generateContextWithContent, options),
+          ok: true,
+        };
       } catch (error) {
         logError('Error generating context:', error);
         toast({

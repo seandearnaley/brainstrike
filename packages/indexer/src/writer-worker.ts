@@ -89,14 +89,17 @@ try {
         case 'replace-file-bindings':
           value = writer.scoped.replaceBindings(request.payload);
           break;
-        case 'commit-scoped-text-file':
-          value = writer.scoped.commitText(request.payload);
+        case 'commit-scoped-text-files':
+          value = writer.scoped.commitTexts(request.payload);
           break;
         case 'commit-scoped-file':
           value = writer.scoped.commitVector(request.payload);
           break;
         case 'remove-scoped-file':
           value = writer.scoped.remove(request.payload);
+          break;
+        case 'remove-scoped-files':
+          value = writer.scoped.removeBatch(request.payload);
           break;
         case 'commit-text-file':
           value = writer.commitText(request.payload);

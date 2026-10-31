@@ -4,20 +4,17 @@ import {
   type AssistantTaskListSummary,
   type ManageTaskListResult,
 } from '@brainstrike/assistant-contract';
+import { Predicate } from 'effect';
 
 /** Matches the manageTaskList tool name as `brainstrike.manageTaskList` or the Mastra-sanitized `brainstrike_manageTaskList`. */
 const MANAGE_TASK_LIST_NAME = /^brainstrike[._]manageTaskList$/iu;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function isToolCallPart(part: unknown): part is Record<string, unknown> {
-  return isRecord(part) && part['type'] === 'tool-call';
+  return Predicate.isObject(part) && part['type'] === 'tool-call';
 }
 
 function isAssistantTaskItem(value: unknown): value is AssistantTaskItem {
-  if (!isRecord(value)) {
+  if (!Predicate.isObject(value)) {
     return false;
   }
   return (
@@ -31,7 +28,7 @@ function isAssistantTaskItem(value: unknown): value is AssistantTaskItem {
 
 function isSummary(value: unknown): value is AssistantTaskListSummary {
   return (
-    isRecord(value) &&
+    Predicate.isObject(value) &&
     typeof value['total'] === 'number' &&
     typeof value['completed'] === 'number' &&
     typeof value['inProgress'] === 'number' &&
@@ -40,7 +37,7 @@ function isSummary(value: unknown): value is AssistantTaskListSummary {
 }
 
 function asManageTaskListResult(result: unknown): ManageTaskListResult | null {
-  if (!isRecord(result)) {
+  if (!Predicate.isObject(result)) {
     return null;
   }
   const tasks = result['tasks'];

@@ -177,25 +177,14 @@ export function useFileSystemInstance() {
    * might be called before persisted state is loaded, causing empty state to
    * overwrite the persisted selections.
    */
-  const waitForHydration = useCallback((): Promise<void> => {
-    return new Promise((resolve) => {
-      if (!hasPersistHydrationApi(store)) {
-        // No persist API, resolve immediately
-        resolve();
-        return;
-      }
-
-      if (store.persist.hasHydrated()) {
-        resolve();
-        return;
-      }
-
-      // Wait for hydration to complete
-      const unsubscribe = store.persist.onFinishHydration(() => {
-        unsubscribe();
-        resolve();
-      });
-    });
+  const waitForHydration = useCallback(async (): Promise<void> => {
+    if (!hasPersistHydrationApi(store) || store.persist.hasHydrated()) {
+      return;
+    }
+    const hydrated = Promise.withResolvers<void>();
+    const unsubscribe = store.persist.onFinishHydration(() => hydrated.resolve());
+    await hydrated.promise;
+    unsubscribe();
   }, [store]);
 
   /**
@@ -278,10 +267,11 @@ export function useFileSystemInstance() {
     async (rootId: string, options?: { deleteData?: boolean }): Promise<void> => {
       if (options?.deleteData) {
         try {
-          if (!deleteRootData) {
-            throw new Error('Root data deletion is not available in this environment.');
-          }
-          await deleteRootData(rootId);
+          await (deleteRootData
+            ? deleteRootData(rootId)
+            : Promise.reject(
+                new Error('Root data deletion is not available in this environment.')
+              ));
         } catch (error) {
           logger.error('removeRootDirectory: data deletion failed — disconnect aborted', {
             error,

@@ -3,12 +3,13 @@
 // is a constructor parameter.
 //
 // The write side is M0-A1's SqliteStore (src/store-sqlite.ts): this thread only posts messages to the writer worker
-// (src/writer-worker.mjs), which holds the ONLY writing connection; an append is delivered (`onCommitted`) only after its
-// COMMIT returned; a failed write or an unexpected worker exit fails the store, never a hang or a silent drop.
+// (src/writer-worker.mjs), which holds the ONLY writing connection; an append resolves only after its COMMIT returned;
+// a failed write or an unexpected worker exit fails the store, never a hang or a silent drop.
 // The lifecycle is M0-A2's Host (src/host.ts) without the run host: synced-root refusal and the root lock at open, a
-// damaged DB opened read-only and visibly, purge orchestration with a crash-replayable intent, export/import, reset.
+// damaged DB opened read-only and visibly, purge orchestration with a crash-replayable intent, reset.
 // Every mutation runs on ONE write chain, so a purge's blob GC can never race an append that references the blob.
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type {
@@ -39,11 +40,9 @@ import { withSeq } from './run-log-format.mjs';
 import type { AppendItem, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
 import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.ts';
 import { type DeletionWriter, StateDeletion } from './state-deletion.ts';
-import { BLOBS_DIR, exportStateBundle, importStateBundle, STATE_DB } from './state-store-bundle.ts';
 import type {
   HydrationThread,
   IndexerPort,
-  Manifest,
   PurgeReport,
   StateStoreOptions,
   StoreSettings,
@@ -55,7 +54,10 @@ import { errorOf, logRowOf, type WorkerRow } from './worker-reply.ts';
 import type { WorkspaceRootReply, WorkspaceRootRequest } from './workspace-root-types.ts';
 import type { WorktreeLedgerReply, WorktreeLedgerRequest } from './worktree-ledger-types.ts';
 
-export { BLOBS_DIR, STATE_DB, sha256Hex } from './state-store-bundle.ts';
+export const STATE_DB = 'state.db';
+export const BLOBS_DIR = 'blobs';
+export const sha256Hex = (b: Buffer | string): string =>
+  createHash('sha256').update(b).digest('hex');
 /** Every entry the store creates in its data root besides the lock directory, which the lock removes itself. */
 export const STORE_ENTRIES: readonly string[] = [
   STATE_DB,
@@ -68,10 +70,8 @@ export type { ContentClearResult as ClearContentResult } from '@brainstrike/type
 
 export { BLOB_MIN_BYTES, largeText, PREVIEW_CHARS, type StoredText } from './large-text.ts';
 export type {
-  ExportedThread,
   HydrationThread,
   IndexerPort,
-  Manifest,
   PurgeReport,
   StateStoreHooks,
   StateStoreOptions,
@@ -117,8 +117,6 @@ export class StateStore implements MemoryDomainPort {
   readonly settings: StoreSettings;
   /** The integrity_check failure if the state DB opened damaged (read-only); null when healthy. */
   readonly stateDamage: string | null;
-  private readonly statePath: string;
-  private readonly blobsPath: string;
   private readonly worker: Worker;
   private readonly options: StateStoreOptions;
   private indexer: IndexerPort | undefined;
@@ -148,8 +146,6 @@ export class StateStore implements MemoryDomainPort {
     this.stateDamage = ready.damage;
     this.options = options;
     this.indexer = options.indexer;
-    this.statePath = join(root, STATE_DB);
-    this.blobsPath = join(root, BLOBS_DIR);
     this.deletion = new StateDeletion(this.deletionWriter(), {
       indexer: () => this.indexer,
       purgeAfterTruth: () => this.options.hooks?.purgeAfterTruth?.(),
@@ -275,15 +271,14 @@ export class StateStore implements MemoryDomainPort {
   // ---- run log --------------------------------------------------------------------------------------------------------
 
   /**
-   * Append rows (possibly across threads) as ONE NORMAL commit. `onCommitted` runs right after the COMMIT returned and
-   * before the next write starts: the process-crash contract. `full` makes the rows and existing run_sync marker
-   * one FULL transaction, so terminal success is never committed ahead of its kernel sync.
-   * A write failure fails the store (later calls are refused,
-   * so no seq is ever reused); a damaged thread refuses the batch without failing the store.
+   * Append rows (possibly across threads) as ONE NORMAL commit. It resolves only after the COMMIT returned, so a caller
+   * that displays rows once it resolves never shows one a process crash loses. `full` makes the rows and the existing
+   * run_sync marker one FULL transaction, so terminal success is never committed ahead of its kernel sync. A write
+   * failure fails the store (later calls are refused, so no seq is ever reused); a damaged thread refuses the batch
+   * without failing the store.
    */
   append(
     items: readonly AppendItem[],
-    onCommitted?: () => void,
     durability: 'normal' | 'full' = 'normal'
   ): Promise<LogRow[]> {
     if (this.closed) {
@@ -295,7 +290,6 @@ export class StateStore implements MemoryDomainPort {
       it.event.type,
       runIdOf(it.event),
       bodies[i],
-      it.rawCount ?? null,
       it.hydrate === false ? 0 : 1,
     ]);
     return this.run(async () => {
@@ -318,18 +312,16 @@ export class StateStore implements MemoryDomainPort {
               });
             }
           }
-          onCommitted?.();
           const seqs = r['seqs'] as number[];
           return items.map((it, i): LogRow => {
             const raw = withSeq(seqs[i] as number, bodies[i] as string);
-            const row = {
+            return {
               event: JSON.parse(raw) as RunEvent,
               raw,
               seq: seqs[i] as number,
               threadId: it.threadId,
               ts: Number(r['ts']),
             };
-            return it.rawCount === undefined ? row : { ...row, rawCount: it.rawCount };
           });
         },
         (e: unknown) => {
@@ -416,7 +408,6 @@ export class StateStore implements MemoryDomainPort {
     const rows = reply['rows'] as Array<{
       seq: number;
       payload: string;
-      rawCount: number | null;
       threadId: string;
       ts: number;
     }>;
@@ -426,7 +417,6 @@ export class StateStore implements MemoryDomainPort {
       seq: row.seq,
       threadId: row.threadId,
       ts: row.ts,
-      ...(row.rawCount === null ? {} : { rawCount: row.rawCount }),
     }));
   }
 
@@ -678,53 +668,6 @@ export class StateStore implements MemoryDomainPort {
       unlinkBlobs: async (unlink) =>
         (await this.call({ hashes: unlink, op: 'unlinkBlobs' }))['deleted'] as string[],
     };
-  }
-
-  // ---- export / import ------------------------------------------------------------------------------------------------
-
-  /**
-   * A consistent bundle of the root while it keeps streaming: the state DB through `VACUUM INTO` on a worker, every
-   * blob the snapshot references, the root's lock files, and a manifest of sizes and sha256s. Blob GC is deferred
-   * until the export ends, so a purge racing it cannot remove a blob the bundle still needs.
-   */
-  async exportTo(bundleDir: string): Promise<Manifest> {
-    if (existsSync(bundleDir)) {
-      throw new Error(`export: ${bundleDir} already exists`);
-    }
-    mkdirSync(bundleDir, { recursive: true });
-    const release = this.deletion.holdBlobGc();
-    try {
-      await this.run(() => undefined); // the snapshot is not older than any write issued before this call
-      await this.options.hooks?.exportAfterSnapshot?.();
-      return await exportStateBundle({
-        beforeBlobs: () => this.options.hooks?.exportBeforeBlobs?.(),
-        blobsPath: this.blobsPath,
-        bundleDir,
-        lock: this.lock,
-        statePath: this.statePath,
-      });
-    } finally {
-      await release();
-    }
-  }
-
-  /** Export the run log and its referenced blob bytes as versioned, checksummed JSONL on the worker. */
-  exportJsonl(path: string): Promise<void> {
-    return this.run(async () => {
-      await this.call({ op: 'exportJsonl', path });
-    });
-  }
-
-  /** Import validated JSONL into an empty run log. Complete state records use importBundle instead. */
-  importJsonl(path: string): Promise<void> {
-    return this.run(async () => {
-      await this.call({ op: 'importJsonl', path });
-    });
-  }
-
-  /** Restore a bundle into an empty (or new) root. Verifies every file; open the root afterwards with StateStore.open. */
-  static importBundle(bundleDir: string, targetRoot: string): Manifest {
-    return importStateBundle(bundleDir, targetRoot);
   }
 
   // ---- reset / close --------------------------------------------------------------------------------------------------
