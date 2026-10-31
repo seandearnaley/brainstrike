@@ -3,7 +3,7 @@
 // Capability-gated: adapters without `onWatcherHealth` (web today) yield an
 // empty map and an 'unsupported' retry outcome — the UI renders nothing.
 import type { WatcherRetryOutcome, WatcherRootHealthEvent } from '@brainstrike/types';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAdapters } from './adapters-context.js';
 
 export interface WatcherHealthApi {
@@ -33,15 +33,12 @@ export function useWatcherHealth(): WatcherHealthApi {
     return unsubscribe;
   }, [fileSystemAdapter]);
 
-  const retry = useCallback(
-    async (rootPath: string): Promise<WatcherRetryOutcome> => {
-      if (!fileSystemAdapter.retryWatcher) {
-        return { reason: 'unsupported', retried: false };
-      }
-      return await fileSystemAdapter.retryWatcher(rootPath);
-    },
-    [fileSystemAdapter]
-  );
+  const retry = async (rootPath: string): Promise<WatcherRetryOutcome> => {
+    if (!fileSystemAdapter.retryWatcher) {
+      return { reason: 'unsupported', retried: false };
+    }
+    return await fileSystemAdapter.retryWatcher(rootPath);
+  };
 
   return { healthByRoot, retry };
 }

@@ -377,13 +377,10 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
     deferredRollups.setInputs({ resolved: { displayNodeByPath, params }, store: metadata?.store });
   });
 
-  const source = useMemo<FileRowMetadataSource>(
-    () => ({
-      getDirectorySubtree: (path) => deferredRollups.read(path),
-      getNodeSize: (path) => deferredRollups.getNodeSize(path),
-    }),
-    [deferredRollups]
-  );
+  const source: FileRowMetadataSource = {
+    getDirectorySubtree: (path) => deferredRollups.read(path),
+    getNodeSize: (path) => deferredRollups.getNodeSize(path),
+  };
 
   const { folderId, rowStructureRevision } = params;
   const registerSource = metadata?.registerSource;
@@ -405,7 +402,7 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
   // `fileTree` is the DISPLAY tree (view + quick filters already applied) — the
   // same input the panel used — so a single-root workspace's key set is
   // unchanged by the move.
-  const visibleFileKeys = useMemo(() => collectVisibleFileSelectionKeys(fileTree), [fileTree]);
+  const visibleFileKeys = collectVisibleFileSelectionKeys(fileTree);
   const publishVisibleFileKeys = metadata?.publishVisibleFileKeys;
   useEffect(() => {
     if (!(publishVisibleFileKeys && folderId)) {

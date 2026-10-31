@@ -12,7 +12,7 @@
 import { getForeignSelectionCount } from '@brainstrike/file-explorer';
 import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/file-explorer-hooks';
 import type { FolderState } from '@brainstrike/types';
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useSelectionResolver } from '../use-selection-resolver';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 
@@ -106,12 +106,9 @@ export const useSelectionManager = () => {
   const folderStates = useFileExplorerStoreSelector((s) => s.folderStates);
   const setFolderSelection = useFileExplorerStoreSelector((s) => s.setFolderSelection);
 
-  const setSelectedFilesStable = useCallback(
-    (next: ReadonlySet<string>) => {
-      setSelectedFiles(new Set(Array.from(next)));
-    },
-    [setSelectedFiles]
-  );
+  const setSelectedFilesStable = (next: ReadonlySet<string>) => {
+    setSelectedFiles(new Set(Array.from(next)));
+  };
 
   // Pass stable state view and setter to the core hook
   const core = useCoreSelectionManager({
@@ -155,27 +152,14 @@ export const useSelectionManager = () => {
    * selections; in explicit mode the effective selection, already that union.
    * Bulk actions that act on what the selection bar reports read this one.
    */
-  const forestSelection = useMemo(
-    () =>
-      selectionModel.mode === 'query'
-        ? unionSelectionAcrossRoots(resolvedSelection, activeRootIds, currentFolderId, folderStates)
-        : effectiveSelection,
-    [
-      activeRootIds,
-      currentFolderId,
-      effectiveSelection,
-      folderStates,
-      resolvedSelection,
-      selectionModel.mode,
-    ]
-  );
+  const forestSelection =
+    selectionModel.mode === 'query'
+      ? unionSelectionAcrossRoots(resolvedSelection, activeRootIds, currentFolderId, folderStates)
+      : effectiveSelection;
 
   // Array façade for UI - uses effective selection
-  const selectedFilesList = useMemo(
-    () =>
-      selectionModel.mode === 'query' ? resolvedSelectedFilesList : Array.from(effectiveSelection),
-    [effectiveSelection, resolvedSelectedFilesList, selectionModel.mode]
-  );
+  const selectedFilesList =
+    selectionModel.mode === 'query' ? resolvedSelectedFilesList : Array.from(effectiveSelection);
 
   const selectedCount = useMemo(() => {
     // The count is ALWAYS the whole-forest union — other active roots'
@@ -198,33 +182,30 @@ export const useSelectionManager = () => {
     selectionModel.mode,
   ]);
 
-  const setSelectedFilesFromList = useCallback(
-    (list: readonly string[]) => {
-      // Phase 6 cross-root partition: keys belonging to OTHER active roots
-      // must not funnel into the focused top-level set — route each root's
-      // subset to its folderState. Roots that had a selection in the union
-      // but have NO keys left in `list` are cleared.
-      const { focusedKeys, byOtherRoot } = partitionSelectionByRoot(
-        list,
-        currentFolderId,
-        activeRootIds
-      );
-      for (const rootId of activeRootIds) {
-        if (rootId === currentFolderId) {
-          continue;
-        }
-        const next = byOtherRoot.get(rootId);
-        const hadSelection = (folderStates[rootId]?.selectedFilePaths.size ?? 0) > 0;
-        if (next) {
-          setFolderSelection(rootId, next);
-        } else if (hadSelection) {
-          setFolderSelection(rootId, []);
-        }
+  const setSelectedFilesFromList = (list: readonly string[]) => {
+    // Phase 6 cross-root partition: keys belonging to OTHER active roots
+    // must not funnel into the focused top-level set — route each root's
+    // subset to its folderState. Roots that had a selection in the union
+    // but have NO keys left in `list` are cleared.
+    const { focusedKeys, byOtherRoot } = partitionSelectionByRoot(
+      list,
+      currentFolderId,
+      activeRootIds
+    );
+    for (const rootId of activeRootIds) {
+      if (rootId === currentFolderId) {
+        continue;
       }
-      handleCoreSelectionChange(focusedKeys);
-    },
-    [activeRootIds, currentFolderId, folderStates, handleCoreSelectionChange, setFolderSelection]
-  );
+      const next = byOtherRoot.get(rootId);
+      const hadSelection = (folderStates[rootId]?.selectedFilePaths.size ?? 0) > 0;
+      if (next) {
+        setFolderSelection(rootId, next);
+      } else if (hadSelection) {
+        setFolderSelection(rootId, []);
+      }
+    }
+    handleCoreSelectionChange(focusedKeys);
+  };
 
   return {
     ...core,

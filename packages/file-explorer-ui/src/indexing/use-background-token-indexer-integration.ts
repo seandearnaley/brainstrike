@@ -17,7 +17,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';
 import { useIndexingCancellation } from './background-token-indexer-cancellation';
@@ -321,7 +321,7 @@ export function useBackgroundTokenIndexerIntegration({
    * This prevents "debounce reset" behavior where each selection change would restart the timer.
    * Uses refs to avoid callback recreation on selection changes.
    */
-  const scheduleRebuildIfNeeded = useCallback(() => {
+  const scheduleRebuildIfNeeded = () => {
     // Skip rebuild entirely when FileTreeIndex is available - it provides O(1) lookups
     if (indexGetHandleRef.current) {
       logger.debug('Skipping handle map rebuild - using FileTreeIndex');
@@ -375,7 +375,7 @@ export function useBackgroundTokenIndexerIntegration({
         size: map.size,
       });
     }, 500); // Wait 500ms for tree to stabilize before rebuilding
-  }, []); // Empty deps - uses refs for all values
+  }; // Empty deps - uses refs for all values
 
   /**
    * Effect A (tree-driven): When fileTree changes, mark map as stale.
@@ -453,76 +453,70 @@ export function useBackgroundTokenIndexerIntegration({
    * Updates both hot cache (tokens) and file size cache to trigger React re-render.
    * Uses refs to maintain stable callback identity and avoid re-render loops.
    */
-  const handleFileIndexed = useCallback(
-    (compositeKey: string, tokenCount: number, fileSize: number) => {
-      const { folderId, path } = decodeFileSelection(compositeKey);
-      inFlightRef.current.delete(compositeKey);
-      if (inFlightRef.current.size === 0) {
-        bumpInFlightPulse((value) => value + 1);
-      }
-      let normalizedPath: string;
-      try {
-        normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
-      } catch (error) {
-        logger.warn('Skipping hot-cache writeback for unsafe indexed path', {
-          compositeKey,
-          error: error instanceof Error ? error.message : String(error),
-          folderId,
-          path,
-        });
-        return;
-      }
-      tokenCacheRef.current?.updateHotCache(folderId, normalizedPath, tokenCount);
-      tokenCacheRef.current?.updateFileSizeCache(folderId, normalizedPath, fileSize);
+  const handleFileIndexed = (compositeKey: string, tokenCount: number, fileSize: number) => {
+    const { folderId, path } = decodeFileSelection(compositeKey);
+    inFlightRef.current.delete(compositeKey);
+    if (inFlightRef.current.size === 0) {
+      bumpInFlightPulse((value) => value + 1);
+    }
+    let normalizedPath: string;
+    try {
+      normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
+    } catch (error) {
+      logger.warn('Skipping hot-cache writeback for unsafe indexed path', {
+        compositeKey,
+        error: error instanceof Error ? error.message : String(error),
+        folderId,
+        path,
+      });
+      return;
+    }
+    tokenCacheRef.current?.updateHotCache(folderId, normalizedPath, tokenCount);
+    tokenCacheRef.current?.updateFileSizeCache(folderId, normalizedPath, fileSize);
+    indexedFilesRef.current.add(compositeKey);
+    onTokenResolvedRef.current?.(compositeKey, tokenCount);
+  };
+
+  const handleFileError = (compositeKey: string, error: string, reason?: IndexerErrorReason) => {
+    if (compositeKey === '__worker__') {
+      // Terminal worker failures invalidate the whole in-flight queue.
+      // Keep behavior deterministic by clearing all pending file markers.
+      inFlightRef.current.clear();
+      bumpInFlightPulse((value) => value + 1);
+      logger.error('Background indexer terminal worker error', { error });
+      return;
+    }
+
+    inFlightRef.current.delete(compositeKey);
+    if (reason === 'binary') {
+      // A binary verdict is SETTLED, not failed: the read succeeded and the
+      // answer cannot change until the file's bytes do. It has to be marked
+      // like a resolved file (in-flight only ever holds pending work), or
+      // the next visible-files pass hands the key straight back — which is
+      // how 8 files produced 149 identical error records. The retry loop,
+      // not the classification, was the flood.
       indexedFilesRef.current.add(compositeKey);
-      onTokenResolvedRef.current?.(compositeKey, tokenCount);
-    },
-    []
-  );
-
-  const handleFileError = useCallback(
-    (compositeKey: string, error: string, reason?: IndexerErrorReason) => {
-      if (compositeKey === '__worker__') {
-        // Terminal worker failures invalidate the whole in-flight queue.
-        // Keep behavior deterministic by clearing all pending file markers.
-        inFlightRef.current.clear();
-        bumpInFlightPulse((value) => value + 1);
-        logger.error('Background indexer terminal worker error', { error });
-        return;
-      }
-
-      inFlightRef.current.delete(compositeKey);
-      if (reason === 'binary') {
-        // A binary verdict is SETTLED, not failed: the read succeeded and the
-        // answer cannot change until the file's bytes do. It has to be marked
-        // like a resolved file (in-flight only ever holds pending work), or
-        // the next visible-files pass hands the key straight back — which is
-        // how 8 files produced 149 identical error records. The retry loop,
-        // not the classification, was the flood.
-        indexedFilesRef.current.add(compositeKey);
-      } else {
-        indexedFilesRef.current.delete(compositeKey);
-      }
-      if (inFlightRef.current.size === 0) {
-        bumpInFlightPulse((value) => value + 1);
-      }
-      // Expected outcomes are not errors. Binary content is a routine answer
-      // the tree asks for constantly (BST-1207 models it as the `excluded`
-      // row state), and ENOENT means the file vanished between caching its
-      // handle and reading it (delete, rename, git checkout). Both are debug.
-      // Other IO errors are still real bugs and stay at error.
-      if (reason === 'binary') {
-        logger.debug('Background indexer excluded binary file', { compositeKey });
-        return;
-      }
-      if (isMissingFileError(error)) {
-        logger.debug('Background indexer skipping deleted file', { compositeKey });
-        return;
-      }
-      logger.error('Background indexer file error', { compositeKey, error });
-    },
-    []
-  );
+    } else {
+      indexedFilesRef.current.delete(compositeKey);
+    }
+    if (inFlightRef.current.size === 0) {
+      bumpInFlightPulse((value) => value + 1);
+    }
+    // Expected outcomes are not errors. Binary content is a routine answer
+    // the tree asks for constantly (BST-1207 models it as the `excluded`
+    // row state), and ENOENT means the file vanished between caching its
+    // handle and reading it (delete, rename, git checkout). Both are debug.
+    // Other IO errors are still real bugs and stay at error.
+    if (reason === 'binary') {
+      logger.debug('Background indexer excluded binary file', { compositeKey });
+      return;
+    }
+    if (isMissingFileError(error)) {
+      logger.debug('Background indexer skipping deleted file', { compositeKey });
+      return;
+    }
+    logger.error('Background indexer file error', { compositeKey, error });
+  };
 
   // Use the background token indexer when context is available
   const backgroundIndexer = useBackgroundTokenIndexer({
@@ -552,189 +546,177 @@ export function useBackgroundTokenIndexerIntegration({
    * For Electron files, reads content via IPC first (async, non-blocking).
    * Uses refs to maintain stable callback identity and avoid re-render loops.
    */
-  const runIndexing = useCallback(
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Indexing logic requires branching for handle types and batch processing
-    async (compositeKeys: string[]) => {
-      const cache = tokenCacheRef.current;
-      const indexer = backgroundIndexerRef.current;
-      if (!cache?.isOperational) {
-        // Use debug level - this is expected during startup before everything initializes
-        logger.debug('triggerIndexing blocked - not ready', {
-          backgroundIndexerReady: indexer.isReady,
-          requestedFiles: compositeKeys.length,
-          tokenCacheOperational: cache?.isOperational ?? false,
-        });
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Indexing logic requires branching for handle types and batch processing
+  const runIndexing = async (compositeKeys: string[]) => {
+    const cache = tokenCacheRef.current;
+    const indexer = backgroundIndexerRef.current;
+    if (!cache?.isOperational) {
+      // Use debug level - this is expected during startup before everything initializes
+      logger.debug('triggerIndexing blocked - not ready', {
+        backgroundIndexerReady: indexer.isReady,
+        requestedFiles: compositeKeys.length,
+        tokenCacheOperational: cache?.isOperational ?? false,
+      });
+      return;
+    }
+    if (ownedCancellation.isRetired()) {
+      logger.debug('triggerIndexing refused after factory reset retirement', {
+        requestedFiles: compositeKeys.length,
+      });
+      return;
+    }
+
+    logger.debug('triggerIndexing started', { fileCount: compositeKeys.length });
+
+    const dispatchCandidates: TokenIndexingDispatchCandidate[] = [];
+    const handleInfoByCompositeKey = new Map<string, HandleInfo>();
+
+    /** Mark a file as in-flight and bump the pulse counter when transitioning from empty. */
+    const markInFlight = (key: string): void => {
+      const wasEmpty = inFlightRef.current.size === 0;
+      inFlightRef.current.add(key);
+      if (wasEmpty) {
+        bumpInFlightPulse((value) => value + 1);
+      }
+    };
+
+    const dispatchBatches = async (files: FileToIndex[]): Promise<void> => {
+      if (files.length === 0) {
         return;
       }
-      if (ownedCancellation.isRetired()) {
-        logger.debug('triggerIndexing refused after factory reset retirement', {
-          requestedFiles: compositeKeys.length,
+      for (let i = 0; i < files.length; i += INDEX_BATCH_SIZE) {
+        const batch = files.slice(i, i + INDEX_BATCH_SIZE);
+        await indexer.indexFiles(batch);
+        await yieldIfMoreTokenIndexingBatches({
+          nextIndex: i + INDEX_BATCH_SIZE,
+          onYield: () => undefined,
+          totalCount: files.length,
         });
-        return;
+      }
+    };
+
+    for (const compositeKey of compositeKeys) {
+      if (indexedFilesRef.current.has(compositeKey) || inFlightRef.current.has(compositeKey)) {
+        continue;
       }
 
-      logger.debug('triggerIndexing started', { fileCount: compositeKeys.length });
-
-      const dispatchCandidates: TokenIndexingDispatchCandidate[] = [];
-      const handleInfoByCompositeKey = new Map<string, HandleInfo>();
-
-      /** Mark a file as in-flight and bump the pulse counter when transitioning from empty. */
-      const markInFlight = (key: string): void => {
-        const wasEmpty = inFlightRef.current.size === 0;
-        inFlightRef.current.add(key);
-        if (wasEmpty) {
-          bumpInFlightPulse((value) => value + 1);
-        }
-      };
-
-      const dispatchBatches = async (files: FileToIndex[]): Promise<void> => {
-        if (files.length === 0) {
-          return;
-        }
-        for (let i = 0; i < files.length; i += INDEX_BATCH_SIZE) {
-          const batch = files.slice(i, i + INDEX_BATCH_SIZE);
-          await indexer.indexFiles(batch);
-          await yieldIfMoreTokenIndexingBatches({
-            nextIndex: i + INDEX_BATCH_SIZE,
-            onYield: () => undefined,
-            totalCount: files.length,
-          });
-        }
-      };
-
-      for (const compositeKey of compositeKeys) {
-        if (indexedFilesRef.current.has(compositeKey) || inFlightRef.current.has(compositeKey)) {
-          continue;
-        }
-
-        const { folderId, path: selectionPath } = decodeFileSelection(compositeKey);
-        let normalizedFilePath: string;
-        try {
-          normalizedFilePath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
-        } catch (error) {
-          dispatchCandidates.push({
-            compositeKey,
-            errorMessage: error instanceof Error ? error.message : String(error),
-            folderId,
-            kind: 'invalid-path',
-            selectionPath,
-          });
-          continue;
-        }
-
-        // Try FileTreeIndex first (O(1) lookup), then fall back to local map.
-        // NOTE: Use selectionPath (not normalizedFilePath) because FileTreeIndex
-        // stores handles keyed by original file-tree node paths.
-        const indexGetHandleFn = indexGetHandleRef.current;
-        let handleInfo = indexGetHandleFn?.(folderId, selectionPath);
-        if (!handleInfo) {
-          handleInfo = fileHandleMapRef.current.get(compositeKey);
-        }
-
-        let cachedFileSize: number | undefined;
-        if (!handleInfo) {
-          if (electronFileReaderRef.current) {
-            cachedFileSize = cache.getFileSize(folderId, normalizedFilePath);
-          }
-          const syntheticElectronHandle =
-            electronFileReaderRef.current &&
-            buildSyntheticElectronHandle({
-              filePath: normalizedFilePath,
-              fileSize: cachedFileSize,
-              folderId,
-            });
-          if (syntheticElectronHandle) {
-            handleInfo = syntheticElectronHandle;
-          }
-        }
-
-        const dispatchHandle = handleInfo ? createDispatchHandle(handleInfo) : null;
-        if (handleInfo && dispatchHandle) {
-          handleInfoByCompositeKey.set(compositeKey, handleInfo);
-        }
-
+      const { folderId, path: selectionPath } = decodeFileSelection(compositeKey);
+      let normalizedFilePath: string;
+      try {
+        normalizedFilePath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
+      } catch (error) {
         dispatchCandidates.push({
           compositeKey,
+          errorMessage: error instanceof Error ? error.message : String(error),
           folderId,
-          handle: dispatchHandle,
-          kind: 'file',
-          normalizedFilePath,
+          kind: 'invalid-path',
           selectionPath,
         });
+        continue;
       }
 
-      const dispatchPlan = planTokenIndexingDispatch({
-        candidates: dispatchCandidates,
-        indexedKeys: indexedFilesRef.current,
-        inFlightKeys: inFlightRef.current,
-        maxIndexableFileSize: MAX_INDEXABLE_FILE_SIZE,
+      // Try FileTreeIndex first (O(1) lookup), then fall back to local map.
+      // NOTE: Use selectionPath (not normalizedFilePath) because FileTreeIndex
+      // stores handles keyed by original file-tree node paths.
+      const indexGetHandleFn = indexGetHandleRef.current;
+      let handleInfo = indexGetHandleFn?.(folderId, selectionPath);
+      if (!handleInfo) {
+        handleInfo = fileHandleMapRef.current.get(compositeKey);
+      }
+
+      let cachedFileSize: number | undefined;
+      if (!handleInfo) {
+        if (electronFileReaderRef.current) {
+          cachedFileSize = cache.getFileSize(folderId, normalizedFilePath);
+        }
+        const syntheticElectronHandle =
+          electronFileReaderRef.current &&
+          buildSyntheticElectronHandle({
+            filePath: normalizedFilePath,
+            fileSize: cachedFileSize,
+            folderId,
+          });
+        if (syntheticElectronHandle) {
+          handleInfo = syntheticElectronHandle;
+        }
+      }
+
+      const dispatchHandle = handleInfo ? createDispatchHandle(handleInfo) : null;
+      if (handleInfo && dispatchHandle) {
+        handleInfoByCompositeKey.set(compositeKey, handleInfo);
+      }
+
+      dispatchCandidates.push({
+        compositeKey,
+        folderId,
+        handle: dispatchHandle,
+        kind: 'file',
+        normalizedFilePath,
+        selectionPath,
+      });
+    }
+
+    const dispatchPlan = planTokenIndexingDispatch({
+      candidates: dispatchCandidates,
+      indexedKeys: indexedFilesRef.current,
+      inFlightKeys: inFlightRef.current,
+      maxIndexableFileSize: MAX_INDEXABLE_FILE_SIZE,
+    });
+
+    for (const warning of dispatchPlan.invalidPathWarnings) {
+      logger.warn('Skipping file with unsafe path for background indexing', {
+        compositeKey: warning.compositeKey,
+        error: warning.errorMessage,
+        folderId: warning.folderId,
+        selectionPath: warning.selectionPath,
+      });
+    }
+
+    const { electronFilesToRead, missingHandles, webFilesToIndex } =
+      resolvePlannedTokenIndexingHandles({
+        dispatchPlan,
+        handleInfoByCompositeKey,
       });
 
-      for (const warning of dispatchPlan.invalidPathWarnings) {
-        logger.warn('Skipping file with unsafe path for background indexing', {
-          compositeKey: warning.compositeKey,
-          error: warning.errorMessage,
-          folderId: warning.folderId,
-          selectionPath: warning.selectionPath,
-        });
-      }
-
-      const { electronFilesToRead, missingHandles, webFilesToIndex } =
-        resolvePlannedTokenIndexingHandles({
-          dispatchPlan,
-          handleInfoByCompositeKey,
-        });
-
-      for (const missingHandle of missingHandles) {
-        logger.error('Skipping planned token indexing dispatch with missing handle', {
-          compositeKey: missingHandle.compositeKey,
-          dispatchKind: missingHandle.dispatchKind,
-        });
-      }
-
-      for (const key of dispatchPlan.pendingNoHandleKeysToDelete) {
-        pendingNoHandleRef.current.delete(key);
-      }
-      for (const key of dispatchPlan.indexedKeysToAdd) {
-        indexedFilesRef.current.add(key);
-      }
-      for (const key of dispatchPlan.pendingNoHandleKeysToAdd) {
-        pendingNoHandleRef.current.add(key);
-      }
-
-      for (const file of webFilesToIndex) {
-        markInFlight(file.compositeKey);
-      }
-
-      const skippedNoHandle = dispatchPlan.skipped.noHandle;
-      const skippedBinary = dispatchPlan.skipped.binary;
-      const skippedTooLarge = dispatchPlan.skipped.tooLarge;
-      const skippedInvalidPath = dispatchPlan.skipped.invalidPath;
-      const estimatedElectronBytes = dispatchPlan.estimatedElectronBytes;
-
-      const emitLargeSelectionDiagnostics = shouldEmitLargeSelectionDiagnostics({
-        electronFileCount: electronFilesToRead.length,
-        estimatedElectronBytes,
-        totalFileCount: compositeKeys.length,
+    for (const missingHandle of missingHandles) {
+      logger.error('Skipping planned token indexing dispatch with missing handle', {
+        compositeKey: missingHandle.compositeKey,
+        dispatchKind: missingHandle.dispatchKind,
       });
+    }
 
-      if (emitLargeSelectionDiagnostics) {
-        logger.info('Background token indexing prepared large selection', {
-          electronFiles: electronFilesToRead.length,
-          estimatedElectronBytes,
-          indexedCount: indexedFilesRef.current.size,
-          inFlightCount: inFlightRef.current.size,
-          requestedFiles: compositeKeys.length,
-          skippedBinary,
-          skippedInvalidPath,
-          skippedNoHandle,
-          skippedTooLarge,
-          webFiles: webFilesToIndex.length,
-        });
-      }
+    for (const key of dispatchPlan.pendingNoHandleKeysToDelete) {
+      pendingNoHandleRef.current.delete(key);
+    }
+    for (const key of dispatchPlan.indexedKeysToAdd) {
+      indexedFilesRef.current.add(key);
+    }
+    for (const key of dispatchPlan.pendingNoHandleKeysToAdd) {
+      pendingNoHandleRef.current.add(key);
+    }
 
-      logger.debug('Background token indexing classified files', {
+    for (const file of webFilesToIndex) {
+      markInFlight(file.compositeKey);
+    }
+
+    const skippedNoHandle = dispatchPlan.skipped.noHandle;
+    const skippedBinary = dispatchPlan.skipped.binary;
+    const skippedTooLarge = dispatchPlan.skipped.tooLarge;
+    const skippedInvalidPath = dispatchPlan.skipped.invalidPath;
+    const estimatedElectronBytes = dispatchPlan.estimatedElectronBytes;
+
+    const emitLargeSelectionDiagnostics = shouldEmitLargeSelectionDiagnostics({
+      electronFileCount: electronFilesToRead.length,
+      estimatedElectronBytes,
+      totalFileCount: compositeKeys.length,
+    });
+
+    if (emitLargeSelectionDiagnostics) {
+      logger.info('Background token indexing prepared large selection', {
         electronFiles: electronFilesToRead.length,
+        estimatedElectronBytes,
+        indexedCount: indexedFilesRef.current.size,
+        inFlightCount: inFlightRef.current.size,
         requestedFiles: compositeKeys.length,
         skippedBinary,
         skippedInvalidPath,
@@ -742,162 +724,169 @@ export function useBackgroundTokenIndexerIntegration({
         skippedTooLarge,
         webFiles: webFilesToIndex.length,
       });
+    }
 
-      if (webFilesToIndex.length > 0) {
-        try {
-          await dispatchBatches(webFilesToIndex);
-        } catch (error) {
-          if (ownedCancellation.settledByOwner(error, 'web')) {
-            return;
-          }
-          logger.error('triggerIndexing web batch dispatch failed', {
-            error: error instanceof Error ? error.message : String(error),
-          });
+    logger.debug('Background token indexing classified files', {
+      electronFiles: electronFilesToRead.length,
+      requestedFiles: compositeKeys.length,
+      skippedBinary,
+      skippedInvalidPath,
+      skippedNoHandle,
+      skippedTooLarge,
+      webFiles: webFilesToIndex.length,
+    });
+
+    if (webFilesToIndex.length > 0) {
+      try {
+        await dispatchBatches(webFilesToIndex);
+      } catch (error) {
+        if (ownedCancellation.settledByOwner(error, 'web')) {
+          return;
         }
+        logger.error('triggerIndexing web batch dispatch failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // Read Electron file contents via IPC (async, non-blocking)
+    if (electronFilesToRead.length > 0) {
+      const fileReader = electronFileReaderRef.current;
+      if (!fileReader) {
+        throw new Error(
+          'electronFileReader is required for Electron file handles. ' +
+            'The background worker cannot read files directly due to security restrictions.'
+        );
       }
 
-      // Read Electron file contents via IPC (async, non-blocking)
-      if (electronFilesToRead.length > 0) {
-        const fileReader = electronFileReaderRef.current;
-        if (!fileReader) {
-          throw new Error(
-            'electronFileReader is required for Electron file handles. ' +
-              'The background worker cannot read files directly due to security restrictions.'
-          );
-        }
-
-        let electronFilesRead = 0;
-        let electronBytesRead = 0;
-        let electronYieldedBatches = 0;
-        const electronStartedAt = Date.now();
-        for (let i = 0; i < electronFilesToRead.length; i += TOKEN_INDEXER_IO_BATCH_SIZE) {
-          const batch = electronFilesToRead.slice(i, i + TOKEN_INDEXER_IO_BATCH_SIZE);
-          const results = await Promise.all(
-            batch.map(async ({ compositeKey, folderId, filePath, fileSize, handle }) => {
-              try {
-                const content = await fileReader(handle);
-                return { compositeKey, content, error: null, filePath, fileSize, folderId };
-              } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                return {
-                  compositeKey,
-                  content: null,
-                  error: message,
-                  filePath,
-                  fileSize,
-                  folderId,
-                };
-              }
-            })
-          );
-
-          const electronFilesReady: FileToIndex[] = [];
-          for (const result of results) {
-            if (result.error || result.content === null) {
-              const errorMessage = result.error ?? 'No content returned';
-              // Match the level used by handleFileError so ENOENT
-              // doesn't surface here as error AND there as debug.
-              if (isMissingFileError(errorMessage)) {
-                logger.debug('Skipping deleted Electron file', {
-                  compositeKey: result.compositeKey,
-                });
-              } else {
-                logger.error('Failed to read Electron file', {
-                  compositeKey: result.compositeKey,
-                  error: errorMessage,
-                });
-              }
-              handleFileError(result.compositeKey, errorMessage);
-              continue;
+      let electronFilesRead = 0;
+      let electronBytesRead = 0;
+      let electronYieldedBatches = 0;
+      const electronStartedAt = Date.now();
+      for (let i = 0; i < electronFilesToRead.length; i += TOKEN_INDEXER_IO_BATCH_SIZE) {
+        const batch = electronFilesToRead.slice(i, i + TOKEN_INDEXER_IO_BATCH_SIZE);
+        const results = await Promise.all(
+          batch.map(async ({ compositeKey, folderId, filePath, fileSize, handle }) => {
+            try {
+              const content = await fileReader(handle);
+              return { compositeKey, content, error: null, filePath, fileSize, folderId };
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              return {
+                compositeKey,
+                content: null,
+                error: message,
+                filePath,
+                fileSize,
+                folderId,
+              };
             }
+          })
+        );
 
-            markInFlight(result.compositeKey);
-            electronFilesRead += 1;
-            electronBytesRead += result.fileSize ?? new Blob([result.content]).size;
-            electronFilesReady.push({
-              compositeKey: result.compositeKey,
-              content: result.content,
-              filePath: result.filePath,
-              fileSize: result.fileSize ?? new Blob([result.content]).size,
-              folderId: result.folderId,
-            });
+        const electronFilesReady: FileToIndex[] = [];
+        for (const result of results) {
+          if (result.error || result.content === null) {
+            const errorMessage = result.error ?? 'No content returned';
+            // Match the level used by handleFileError so ENOENT
+            // doesn't surface here as error AND there as debug.
+            if (isMissingFileError(errorMessage)) {
+              logger.debug('Skipping deleted Electron file', {
+                compositeKey: result.compositeKey,
+              });
+            } else {
+              logger.error('Failed to read Electron file', {
+                compositeKey: result.compositeKey,
+                error: errorMessage,
+              });
+            }
+            handleFileError(result.compositeKey, errorMessage);
+            continue;
           }
 
-          logger.debug('Background token indexing dispatched Electron batch', {
-            batchFilesReady: electronFilesReady.length,
+          markInFlight(result.compositeKey);
+          electronFilesRead += 1;
+          electronBytesRead += result.fileSize ?? new Blob([result.content]).size;
+          electronFilesReady.push({
+            compositeKey: result.compositeKey,
+            content: result.content,
+            filePath: result.filePath,
+            fileSize: result.fileSize ?? new Blob([result.content]).size,
+            folderId: result.folderId,
+          });
+        }
+
+        logger.debug('Background token indexing dispatched Electron batch', {
+          batchFilesReady: electronFilesReady.length,
+          batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
+          elapsedMs: Date.now() - electronStartedAt,
+          electronBytesRead,
+          electronFilesRead,
+          estimatedElectronBytes,
+          remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+          yieldedBatchCount: electronYieldedBatches,
+        });
+
+        if (
+          emitLargeSelectionDiagnostics &&
+          i + TOKEN_INDEXER_IO_BATCH_SIZE >= electronFilesToRead.length
+        ) {
+          logger.info('Background token indexing dispatched Electron batches', {
             batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
             elapsedMs: Date.now() - electronStartedAt,
             electronBytesRead,
             electronFilesRead,
             estimatedElectronBytes,
-            remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+            queuedFiles: electronFilesToRead.length,
+            remainingFiles: 0,
             yieldedBatchCount: electronYieldedBatches,
           });
+        }
 
-          if (
-            emitLargeSelectionDiagnostics &&
-            i + TOKEN_INDEXER_IO_BATCH_SIZE >= electronFilesToRead.length
-          ) {
-            logger.info('Background token indexing dispatched Electron batches', {
-              batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
-              elapsedMs: Date.now() - electronStartedAt,
-              electronBytesRead,
-              electronFilesRead,
-              estimatedElectronBytes,
-              queuedFiles: electronFilesToRead.length,
-              remainingFiles: 0,
-              yieldedBatchCount: electronYieldedBatches,
-            });
+        try {
+          await dispatchBatches(electronFilesReady);
+        } catch (error) {
+          if (ownedCancellation.settledByOwner(error, 'electron')) {
+            return;
           }
-
-          try {
-            await dispatchBatches(electronFilesReady);
-          } catch (error) {
-            if (ownedCancellation.settledByOwner(error, 'electron')) {
-              return;
-            }
-            logger.error('triggerIndexing electron batch dispatch failed', {
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-
-          await yieldIfMoreTokenIndexingBatches({
-            nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
-            onYield: () => {
-              electronYieldedBatches += 1;
-            },
-            totalCount: electronFilesToRead.length,
+          logger.error('triggerIndexing electron batch dispatch failed', {
+            error: error instanceof Error ? error.message : String(error),
           });
         }
-      }
 
-      logger.debug('triggerIndexing prepared', {
-        electronFiles: electronFilesToRead.length,
-        skippedBinary,
-        skippedInvalidPath,
-        skippedNoHandle,
-        skippedTooLarge,
-        toIndex: webFilesToIndex.length + electronFilesToRead.length,
-        webFiles: webFilesToIndex.length,
-      });
-
-      // Log upfront filtering summary at info level when files are skipped
-      if (skippedBinary > 0 || skippedTooLarge > 0) {
-        logger.info('Upfront filtering applied', {
-          remaining: webFilesToIndex.length + electronFilesToRead.length,
-          skippedBinary,
-          skippedTooLarge,
-          totalSkipped: skippedBinary + skippedTooLarge,
+        await yieldIfMoreTokenIndexingBatches({
+          nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
+          onYield: () => {
+            electronYieldedBatches += 1;
+          },
+          totalCount: electronFilesToRead.length,
         });
       }
-    },
-    [handleFileError, ownedCancellation]
-  );
+    }
+
+    logger.debug('triggerIndexing prepared', {
+      electronFiles: electronFilesToRead.length,
+      skippedBinary,
+      skippedInvalidPath,
+      skippedNoHandle,
+      skippedTooLarge,
+      toIndex: webFilesToIndex.length + electronFilesToRead.length,
+      webFiles: webFilesToIndex.length,
+    });
+
+    // Log upfront filtering summary at info level when files are skipped
+    if (skippedBinary > 0 || skippedTooLarge > 0) {
+      logger.info('Upfront filtering applied', {
+        remaining: webFilesToIndex.length + electronFilesToRead.length,
+        skippedBinary,
+        skippedTooLarge,
+        totalSkipped: skippedBinary + skippedTooLarge,
+      });
+    }
+  };
   // Reset preparation joins every run after retiring the indexer.
-  const triggerIndexing = useCallback(
-    (compositeKeys: string[]) => ownedCancellation.track(runIndexing(compositeKeys)),
-    [ownedCancellation, runIndexing]
-  );
+  const triggerIndexing = (compositeKeys: string[]) =>
+    ownedCancellation.track(runIndexing(compositeKeys));
 
   // Queue newly selected files for indexing when selection changes
   // Uses refs to avoid re-render loops while still accessing latest values

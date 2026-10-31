@@ -10,7 +10,6 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -431,10 +430,7 @@ export function FileExplorerProvider({
   children,
 }: FileExplorerProviderProps) {
   const [fileContentResetRevision, setFileContentResetRevision] = useState(0);
-  const { fileContentLoadAuthority, store } = useMemo(
-    () => createFileExplorerLifecycle(storageAdapter),
-    [storageAdapter]
-  );
+  const { fileContentLoadAuthority, store } = createFileExplorerLifecycle(storageAdapter);
 
   useLayoutEffect(
     () => () => {

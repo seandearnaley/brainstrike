@@ -8,7 +8,7 @@
 
 import type { IFileNode } from '@brainstrike/types';
 import { parseFilterString } from '@brainstrike/utils/quick-filter-utils';
-import { useDeferredValue, useMemo } from 'react';
+import { useDeferredValue } from 'react';
 import { useFileExplorerStoreSelector } from '../shell/file-explorer-provider';
 
 /**
@@ -201,10 +201,7 @@ export function useQuickFilteredTree(tree: IFileNode[]): {
 } {
   const quickFilter = useFileExplorerStoreSelector((s) => s.quickFilter);
   const deferredQuickFilter = useDeferredValue(quickFilter);
-  const filtered = useMemo(
-    () => applyQuickFilterToTree(tree, deferredQuickFilter),
-    [tree, deferredQuickFilter]
-  );
+  const filtered = applyQuickFilterToTree(tree, deferredQuickFilter);
   return {
     isQuickFilterActive: deferredQuickFilter.trim().length > 0,
     quickFilter: deferredQuickFilter,

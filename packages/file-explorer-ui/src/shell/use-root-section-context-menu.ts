@@ -2,7 +2,7 @@ import type { AnyContextAction } from '@brainstrike/context-actions';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { type ContextMenuTargetController, useContextMenuTarget } from '@brainstrike/ui';
-import { type RefObject, useCallback, useMemo, useRef, useState } from 'react';
+import { type RefObject, useRef, useState } from 'react';
 import { buildWorkspaceRootLocalActions } from '../context-actions/workspace-root-local-actions';
 import { workspaceRootToTarget } from '../context-actions/workspace-root-target';
 import { getRootFolderId } from '../utils/get-root-folder-id';
@@ -90,7 +90,7 @@ export function useRootSectionContextMenu({
   const controller = useContextMenuTarget();
   const { setTarget } = controller;
 
-  const claim = useCallback(() => {
+  const claim = () => {
     setTarget(
       workspaceRootToTarget({
         displayName,
@@ -99,37 +99,34 @@ export function useRootSectionContextMenu({
         rootId,
       })
     );
-  }, [displayName, isMain, path, rootId, setTarget]);
+  };
 
-  const reset = useCallback(() => {
+  const reset = () => {
     setTarget(null);
-  }, [setTarget]);
+  };
 
-  const localActions = useMemo<readonly AnyContextAction[]>(
-    () => [
-      ...buildWorkspaceRootLocalActions({
-        ...(onDisconnect ? { onDisconnect } : {}),
-        onSetAsMain: (target) => {
-          // `setMainRoot` warn-and-no-ops for an id `activeRootIds` doesn't
-          // recognize (a legacy path-identity root — `RootSection`'s
-          // `rootIdentity` fallback can still produce one). Check first so
-          // the menu can toast instead of silently doing nothing.
-          if (!activeRootIds.includes(target.rootId)) {
-            return {
-              error: 'Cannot set Main: this root has no durable id.',
-              ok: false,
-            };
-          }
-          setMainRoot(target.rootId);
-          return { ok: true };
-        },
-      }),
-      ...(rootActions ?? []),
-    ],
-    [activeRootIds, onDisconnect, rootActions, setMainRoot]
-  );
+  const localActions: readonly AnyContextAction[] = [
+    ...buildWorkspaceRootLocalActions({
+      ...(onDisconnect ? { onDisconnect } : {}),
+      onSetAsMain: (target) => {
+        // `setMainRoot` warn-and-no-ops for an id `activeRootIds` doesn't
+        // recognize (a legacy path-identity root — `RootSection`'s
+        // `rootIdentity` fallback can still produce one). Check first so
+        // the menu can toast instead of silently doing nothing.
+        if (!activeRootIds.includes(target.rootId)) {
+          return {
+            error: 'Cannot set Main: this root has no durable id.',
+            ok: false,
+          };
+        }
+        setMainRoot(target.rootId);
+        return { ok: true };
+      },
+    }),
+    ...(rootActions ?? []),
+  ];
 
-  const onCloseAutoFocus = useCallback(() => {
+  const onCloseAutoFocus = () => {
     if (isDisconnectDialogOpen) {
       // The staged Disconnect… dialog owns focus (its own FocusScope);
       // restoring here would fight it rather than the menu it closed.
@@ -144,7 +141,7 @@ export function useRootSectionContextMenu({
       return;
     }
     target.focus();
-  }, [isDisconnectDialogOpen, restoreFocusRef, rootId]);
+  };
 
   return { claim, controller, localActions, onCloseAutoFocus, reset };
 }
@@ -202,20 +199,17 @@ export function useSingleRootHeaderMenu({
       ? rootDirectoryHandle.path
       : null;
 
-  const handleDisconnectRequest = useCallback(() => {
+  const handleDisconnectRequest = () => {
     setIsDisconnectDialogOpen(true);
-  }, []);
+  };
 
-  const onDisconnectConfirm = useCallback(
-    (options: { deleteData: boolean }) => {
-      setIsDisconnectDialogOpen(false);
-      // Fire-and-forget is safe here for the same reason RootSectionInner's
-      // handleDisconnectConfirm is: removeRootDirectory catches every
-      // failure path internally and surfaces a toast instead of rejecting.
-      void onRemoveRoot?.(rootIdentity, options);
-    },
-    [onRemoveRoot, rootIdentity]
-  );
+  const onDisconnectConfirm = (options: { deleteData: boolean }) => {
+    setIsDisconnectDialogOpen(false);
+    // Fire-and-forget is safe here for the same reason RootSectionInner's
+    // handleDisconnectConfirm is: removeRootDirectory catches every
+    // failure path internally and surfaces a toast instead of rejecting.
+    void onRemoveRoot?.(rootIdentity, options);
+  };
 
   const restoreFocusRef = useRef<HTMLDivElement | null>(null);
 

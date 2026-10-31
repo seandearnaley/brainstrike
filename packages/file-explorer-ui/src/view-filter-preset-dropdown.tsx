@@ -39,7 +39,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 interface FormState {
   excludes: string;
@@ -445,24 +445,21 @@ export function ViewFilterPresetDropdown({
       : null;
 
   // Reset create form state
-  const resetCreateForm = useCallback(() => {
+  const resetCreateForm = () => {
     dispatchNew({ type: 'RESET' });
-  }, []);
+  };
 
   // Handle dropdown open/close - reset state when closing
-  const handleOpenChange = useCallback(
-    (open: boolean) => {
-      setIsOpen(open);
-      if (!open) {
-        // Reset all state when closing
-        setSearchFilter('');
-        setEditingId(null);
-        setIsCreating(false);
-        resetCreateForm();
-      }
-    },
-    [resetCreateForm]
-  );
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (!open) {
+      // Reset all state when closing
+      setSearchFilter('');
+      setEditingId(null);
+      setIsCreating(false);
+      resetCreateForm();
+    }
+  };
 
   // Focus search input when dropdown opens (using useEffect to handle mount/unmount properly)
   useEffect(() => {
@@ -477,12 +474,12 @@ export function ViewFilterPresetDropdown({
   }, [isOpen]);
 
   // Start editing a preset - initialize edit form with preset values
-  const startEditing = useCallback((preset: ViewFilterPreset) => {
+  const startEditing = (preset: ViewFilterPreset) => {
     setEditingId(preset.id);
     dispatchEdit({ preset, type: 'LOAD' });
-  }, []);
+  };
 
-  const handleCreate = useCallback(async () => {
+  const handleCreate = async () => {
     if (!newForm.name.trim()) {
       return;
     }
@@ -510,9 +507,9 @@ export function ViewFilterPresetDropdown({
     } catch (error) {
       logger.error('Failed to create preset', { error, name: input.name });
     }
-  }, [newForm, onCreate, onSelect, resetCreateForm]);
+  };
 
-  const handleSaveEdit = useCallback(async () => {
+  const handleSaveEdit = async () => {
     if (!(editingId && editForm.name.trim())) {
       return;
     }
@@ -545,61 +542,52 @@ export function ViewFilterPresetDropdown({
       onSelect(updated);
     }
     setEditingId(null);
-  }, [editingId, editForm, onUpdate, selectedPreset, onSelect]);
+  };
 
-  const handleDelete = useCallback(
-    async (id: string) => {
-      const selectedId = selectedPreset?.id;
-      let deleted = false;
-      try {
-        deleted = await onDelete(id);
-      } catch (error) {
-        logger.error('Failed to delete preset', { error, id });
-      }
-      if (deleted) {
-        setEditingId(null);
-        // If deleted preset was selected, select first available
-        if (selectedId === id) {
-          const next = presets.find((p) => p.id !== id);
-          if (next) {
-            onSelect(next);
-          }
+  const handleDelete = async (id: string) => {
+    const selectedId = selectedPreset?.id;
+    let deleted = false;
+    try {
+      deleted = await onDelete(id);
+    } catch (error) {
+      logger.error('Failed to delete preset', { error, id });
+    }
+    if (deleted) {
+      setEditingId(null);
+      // If deleted preset was selected, select first available
+      if (selectedId === id) {
+        const next = presets.find((p) => p.id !== id);
+        if (next) {
+          onSelect(next);
         }
       }
-    },
-    [onDelete, selectedPreset, presets, onSelect]
-  );
+    }
+  };
 
-  const selectPreset = useCallback(
-    (preset: ViewFilterPreset) => {
-      onSelect(preset);
-      setIsOpen(false);
-    },
-    [onSelect]
-  );
+  const selectPreset = (preset: ViewFilterPreset) => {
+    onSelect(preset);
+    setIsOpen(false);
+  };
 
-  const handleSearchKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setIsOpen(false);
-        return;
-      }
-
-      if (event.key !== 'Enter') {
-        return;
-      }
-
-      const [onlyPreset] = filteredPresets;
-      if (filteredPresets.length !== 1 || !onlyPreset) {
-        return;
-      }
-
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
       event.preventDefault();
-      selectPreset(onlyPreset);
-    },
-    [filteredPresets, selectPreset]
-  );
+      setIsOpen(false);
+      return;
+    }
+
+    if (event.key !== 'Enter') {
+      return;
+    }
+
+    const [onlyPreset] = filteredPresets;
+    if (filteredPresets.length !== 1 || !onlyPreset) {
+      return;
+    }
+
+    event.preventDefault();
+    selectPreset(onlyPreset);
+  };
 
   const selectedIconType: React.ElementType = selectedPreset
     ? (ICON_MAP[selectedPreset.icon] ?? File)

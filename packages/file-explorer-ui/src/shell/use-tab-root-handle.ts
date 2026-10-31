@@ -23,13 +23,10 @@ export function useTabRootHandle(compositeKey: string): {
       return null;
     }
   }, [compositeKey]);
-  const handle = useMemo(
-    () =>
-      rootDirectoryHandles.find(
-        (candidate) =>
-          (candidate.rootId ?? rootIdByPath?.get(candidate.path) ?? candidate.path) === folderId
-      ) ?? null,
-    [folderId, rootDirectoryHandles, rootIdByPath]
-  );
+  const handle =
+    rootDirectoryHandles.find(
+      (candidate) =>
+        (candidate.rootId ?? rootIdByPath?.get(candidate.path) ?? candidate.path) === folderId
+    ) ?? null;
   return { folderId, handle };
 }

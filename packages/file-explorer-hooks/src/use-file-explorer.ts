@@ -1,7 +1,7 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useFileFilters } from '@brainstrike/hooks';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useFileContentLoading } from './use-file-content-loading.js';
 import { useFileSystem } from './use-file-system.js';
 import { useFileTree } from './use-file-tree.js';
@@ -12,14 +12,11 @@ export interface UseFileExplorerParams {
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
   // Stabilize callback to avoid dependency churn - memoize the function itself
-  const callback = useCallback(
-    (paths: Set<string>) => {
-      if (onDisplayedFilePathsChange) {
-        onDisplayedFilePathsChange(paths);
-      }
-    },
-    [onDisplayedFilePathsChange]
-  );
+  const callback = (paths: Set<string>) => {
+    if (onDisplayedFilePathsChange) {
+      onDisplayedFilePathsChange(paths);
+    }
+  };
 
   // Split Zustand selectors to avoid dynamic object creation
   const includeFilters = useFileExplorerStore((s) => s.includeFilters);
@@ -35,14 +32,8 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
   const setActiveRoots = useFileExplorerStore((s) => s.setActiveRoots);
 
   // Compute active filters by excluding disabled ones
-  const activeIncludeFilters = useMemo(
-    () => includeFilters.filter((f) => !disabledIncludeFilters.has(f)),
-    [includeFilters, disabledIncludeFilters]
-  );
-  const activeExcludeFilters = useMemo(
-    () => excludeFilters.filter((f) => !disabledExcludeFilters.has(f)),
-    [excludeFilters, disabledExcludeFilters]
-  );
+  const activeIncludeFilters = includeFilters.filter((f) => !disabledIncludeFilters.has(f));
+  const activeExcludeFilters = excludeFilters.filter((f) => !disabledExcludeFilters.has(f));
 
   const { rootDirectoryHandle, selectRootDirectory, isAccessLoading } = useFileSystem({
     addActiveRoot,
@@ -90,29 +81,26 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
     callback(displayedFilePaths);
   }, [displayedFilePaths, callback]);
 
-  const handleRootDirectorySelect = useCallback(async () => {
+  const handleRootDirectorySelect = async () => {
     const handle = await selectRootDirectory();
     return handle;
-  }, [selectRootDirectory]);
+  };
 
-  const refreshFileExplorer = useCallback(async () => {
+  const refreshFileExplorer = async () => {
     if (!rootDirectoryHandle) {
       throw new Error('Cannot refresh: No root directory selected.');
     }
     await refreshTree();
-  }, [rootDirectoryHandle, refreshTree]);
+  };
 
-  const loadFileContentCb = useCallback(
-    async (path: string) => {
-      const folderId = rootDirectoryHandle?.path;
-      if (!folderId) {
-        return;
-      }
-      const key = encodeFileSelection(folderId, path);
-      return handleFileContentLoading([key]);
-    },
-    [rootDirectoryHandle, handleFileContentLoading]
-  );
+  const loadFileContentCb = async (path: string) => {
+    const folderId = rootDirectoryHandle?.path;
+    if (!folderId) {
+      return;
+    }
+    const key = encodeFileSelection(folderId, path);
+    return handleFileContentLoading([key]);
+  };
 
   // Return the comprehensive API for the file explorer
   return {

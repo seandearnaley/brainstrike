@@ -11,7 +11,7 @@
 
 import { cn } from '@brainstrike/ui';
 import { EyeOff, FileDiff } from 'lucide-react';
-import { memo, useCallback, useEffect, useSyncExternalStore } from 'react';
+import { memo, useEffect, useSyncExternalStore } from 'react';
 import {
   type ExplorerThreadFileStatus,
   type ExplorerThreadFreshness,
@@ -54,7 +54,7 @@ function FileThreadValue({
   compositeKey: string;
   store: ExplorerThreadStatusStore;
 }) {
-  const getSnapshot = useCallback(() => store.getFileStatus(compositeKey), [compositeKey, store]);
+  const getSnapshot = () => store.getFileStatus(compositeKey);
   const status = useSyncExternalStore(store.subscribe, getSnapshot);
   const touched = status !== undefined;
   // Only a shown row of a touched file pays for the "changed since read" read.
@@ -108,10 +108,7 @@ function FolderThreadValue({
   compositeKey: string;
   store: ExplorerThreadStatusStore;
 }) {
-  const getSnapshot = useCallback(
-    () => store.getDirectoryFileCount(compositeKey),
-    [compositeKey, store]
-  );
+  const getSnapshot = () => store.getDirectoryFileCount(compositeKey);
   const count = useSyncExternalStore(store.subscribe, getSnapshot);
   if (!count) {
     return null;

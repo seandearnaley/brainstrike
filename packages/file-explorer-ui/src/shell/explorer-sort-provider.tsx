@@ -6,12 +6,12 @@
  * Refresh boundary and trips `react-refresh/only-export-components`.
  */
 import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
-import { type ReactNode, useMemo } from 'react';
+import type { ReactNode } from 'react';
 import { ExplorerSortContext } from './explorer-sort-context';
 
 export function ExplorerSortProvider({ children }: { children: ReactNode }) {
   const sortState = useExplorerSortStateStore((state) => state.sortState);
   const setSortState = useExplorerSortStateStore((state) => state.setSortState);
-  const value = useMemo(() => ({ setSortState, sortState }), [setSortState, sortState]);
+  const value = { setSortState, sortState };
   return <ExplorerSortContext.Provider value={value}>{children}</ExplorerSortContext.Provider>;
 }

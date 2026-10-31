@@ -18,7 +18,6 @@ import type { IFileNode } from '@brainstrike/types';
 import {
   createContext,
   type ReactNode,
-  useCallback,
   useContext,
   useEffect,
   useId,
@@ -185,7 +184,7 @@ export function FileTreeProvider({
   // Coalesced via microtask to avoid excessive re-renders during multi-step updates
   const [indexVersion, setIndexVersion] = useState(0);
   const bumpScheduledRef = useRef(false);
-  const bumpIndexVersion = useCallback(() => {
+  const bumpIndexVersion = () => {
     if (bumpScheduledRef.current) {
       return;
     }
@@ -194,7 +193,7 @@ export function FileTreeProvider({
       bumpScheduledRef.current = false;
       setIndexVersion((v: number) => v + 1);
     });
-  }, []);
+  };
 
   // Storage v5: key the index by rootId (UUID) when available; fall back to path.
   // This ensures the FileTreeIndex and composite keys always carry the same identity
@@ -211,34 +210,28 @@ export function FileTreeProvider({
   // Bind the batch owner at the render/event boundary. A sequential refresh
   // can span multiple awaits; using a latest-value callback here would route
   // already-completed root-A snapshots into root B after a same-path switch.
-  const reconcileSelectionWithDirectorySnapshots = useCallback(
-    (snapshots: readonly { directoryPath: string; entries: readonly IFileNode[] }[]): void => {
-      if (!currentRootIndexKey || snapshots.length === 0) {
-        return;
-      }
-      store.getState().reconcileSelectionWithDirectorySnapshots(currentRootIndexKey, snapshots);
-    },
-    [currentRootIndexKey, store]
-  );
-  const getCurrentSelectionAncestorDirectories = useCallback((): readonly string[] => {
+  const reconcileSelectionWithDirectorySnapshots = (
+    snapshots: readonly { directoryPath: string; entries: readonly IFileNode[] }[]
+  ): void => {
+    if (!currentRootIndexKey || snapshots.length === 0) {
+      return;
+    }
+    store.getState().reconcileSelectionWithDirectorySnapshots(currentRootIndexKey, snapshots);
+  };
+  const getCurrentSelectionAncestorDirectories = (): readonly string[] => {
     if (!(currentRootIndexKey && currentRootPath)) {
       return [];
     }
     return getSelectionAncestorDirectories(store.getState(), currentRootIndexKey, currentRootPath);
-  }, [currentRootIndexKey, currentRootPath, store]);
+  };
   const [selectionProjectionRevisionTracker] = useState(() =>
     createSelectionProjectionRevisionTracker()
   );
-  const getCurrentSelectionProjectionRevision = useCallback(
-    (): number =>
-      selectionProjectionRevisionTracker.read(
-        currentRootIndexKey,
-        currentRootIndexKey
-          ? getSelectionProjectionPaths(store.getState(), currentRootIndexKey)
-          : []
-      ),
-    [currentRootIndexKey, selectionProjectionRevisionTracker, store]
-  );
+  const getCurrentSelectionProjectionRevision = (): number =>
+    selectionProjectionRevisionTracker.read(
+      currentRootIndexKey,
+      currentRootIndexKey ? getSelectionProjectionPaths(store.getState(), currentRootIndexKey) : []
+    );
 
   // Refcounted folder registration replaces clear-on-identity-change: the
   // effect cleanup releases the OLD key (clearing its entries only when this
@@ -259,13 +252,10 @@ export function FileTreeProvider({
   }, [currentRootIndexKey, registry, registrantId, bumpIndexVersion]);
 
   // Callback to add nodes to the index - passed to useFileTree
-  const onNodesIndexed = useCallback(
-    (nodes: IFileNode[], parentPath: string | null) => {
-      index.addNodes(nodes, parentPath);
-      bumpIndexVersion();
-    },
-    [index, bumpIndexVersion]
-  );
+  const onNodesIndexed = (nodes: IFileNode[], parentPath: string | null) => {
+    index.addNodes(nodes, parentPath);
+    bumpIndexVersion();
+  };
 
   // Build options object conditionally to satisfy exactOptionalPropertyTypes.
   // The lazy tree hook (use-file-tree-context → useLazyFileTree) reads `rootId`
@@ -336,45 +326,27 @@ export function FileTreeProvider({
     skipManualFullEvents: inheritedRegistry === null,
   });
 
-  const normalizedContextValue = useMemo<FileTreeNormalizedContextValue>(
-    () => ({
-      getDescendantFileCount: fileTreeState.__internalGetDescendantFileCount ?? (() => 0),
-      getDescendantFilePaths: fileTreeState.__internalGetDescendantFilePaths ?? (() => []),
-      materializeSubtree: fileTreeState.__internalMaterializeSubtree ?? (() => undefined),
-      normalizedTreeRef: fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef,
-      version: fileTreeState.__internalNormalizedTreeVersion ?? 0,
-    }),
-    [
-      fileTreeState.__internalGetDescendantFileCount,
-      fileTreeState.__internalGetDescendantFilePaths,
-      fileTreeState.__internalMaterializeSubtree,
-      fileTreeState.__internalNormalizedTreeRef,
-      fileTreeState.__internalNormalizedTreeVersion,
-    ]
-  );
+  const normalizedContextValue: FileTreeNormalizedContextValue = {
+    getDescendantFileCount: fileTreeState.__internalGetDescendantFileCount ?? (() => 0),
+    getDescendantFilePaths: fileTreeState.__internalGetDescendantFilePaths ?? (() => []),
+    materializeSubtree: fileTreeState.__internalMaterializeSubtree ?? (() => undefined),
+    normalizedTreeRef: fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef,
+    version: fileTreeState.__internalNormalizedTreeVersion ?? 0,
+  };
 
   // Stable lookup functions - identity never changes since index instance is stable
   // This prevents downstream effects from re-running when only version changes
-  const getNode = useCallback(
-    (folderId: string, path: string) => index.getNode(folderId, path),
-    [index]
-  );
-  const getHandle = useCallback(
-    (folderId: string, path: string) => index.getHandle(folderId, path),
-    [index]
-  );
+  const getNode = (folderId: string, path: string) => index.getNode(folderId, path);
+  const getHandle = (folderId: string, path: string) => index.getHandle(folderId, path);
 
   // Create context value with stable function references
   // Version changes trigger re-renders, but getNode/getHandle identities remain stable
-  const indexContextValue = useMemo<FileTreeIndexContextValue>(
-    () => ({
-      getHandle,
-      getNode,
-      stats: index.stats,
-      version: indexVersion,
-    }),
-    [getNode, getHandle, index, indexVersion]
-  );
+  const indexContextValue: FileTreeIndexContextValue = {
+    getHandle,
+    getNode,
+    stats: index.stats,
+    version: indexVersion,
+  };
 
   // The compiler memoizes useFileTree's and useExpandedPathRestoration's
   // results on their fields, so this value keeps its identity until one moves.

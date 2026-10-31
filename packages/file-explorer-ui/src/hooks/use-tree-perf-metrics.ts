@@ -8,7 +8,7 @@
  */
 
 import { checkBudget, createTimer, type PerfBudgetKey } from '@brainstrike/utils/perf-timing';
-import { useCallback, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 /** Performance metric entry */
 export interface PerfMetric {
@@ -71,101 +71,92 @@ export function useTreePerfMetrics() {
   /**
    * Record a metric (internal)
    */
-  const recordMetric = useCallback(
-    (metric: PerfMetric) => {
-      if (!enabled) {
-        return;
-      }
+  const recordMetric = (metric: PerfMetric) => {
+    if (!enabled) {
+      return;
+    }
 
-      setMetrics((prev) => {
-        const next = [...prev, metric];
-        // Keep only last N metrics
-        if (next.length > MAX_METRICS_HISTORY) {
-          return next.slice(-MAX_METRICS_HISTORY);
-        }
-        return next;
-      });
-
-      // Update aggregates
-      if (metric.exceededBudget) {
-        aggregatesRef.current.budgetExceededCount++;
+    setMetrics((prev) => {
+      const next = [...prev, metric];
+      // Keep only last N metrics
+      if (next.length > MAX_METRICS_HISTORY) {
+        return next.slice(-MAX_METRICS_HISTORY);
       }
-    },
-    [enabled]
-  );
+      return next;
+    });
+
+    // Update aggregates
+    if (metric.exceededBudget) {
+      aggregatesRef.current.budgetExceededCount++;
+    }
+  };
 
   /**
    * Measure a flatten operation
    */
-  const measureFlatten = useCallback(
-    <T>(name: string, nodeCount: number, operation: () => T): T => {
-      if (!enabled) {
-        return operation();
-      }
+  const measureFlatten = <T>(name: string, nodeCount: number, operation: () => T): T => {
+    if (!enabled) {
+      return operation();
+    }
 
-      const timer = createTimer();
-      const result = operation();
-      const durationMs = timer.elapsed();
-      const exceededBudget = checkBudget(name, durationMs, 'flattenTree');
+    const timer = createTimer();
+    const result = operation();
+    const durationMs = timer.elapsed();
+    const exceededBudget = checkBudget(name, durationMs, 'flattenTree');
 
-      aggregatesRef.current.flattenTimes.push(durationMs);
-      if (aggregatesRef.current.flattenTimes.length > MAX_METRICS_HISTORY) {
-        aggregatesRef.current.flattenTimes.shift();
-      }
+    aggregatesRef.current.flattenTimes.push(durationMs);
+    if (aggregatesRef.current.flattenTimes.length > MAX_METRICS_HISTORY) {
+      aggregatesRef.current.flattenTimes.shift();
+    }
 
-      recordMetric({
-        budgetKey: 'flattenTree',
-        durationMs,
-        exceededBudget,
-        metadata: { nodeCount },
-        name,
-        timestamp: Date.now(),
-      });
+    recordMetric({
+      budgetKey: 'flattenTree',
+      durationMs,
+      exceededBudget,
+      metadata: { nodeCount },
+      name,
+      timestamp: Date.now(),
+    });
 
-      return result;
-    },
-    [enabled, recordMetric]
-  );
+    return result;
+  };
 
   /**
    * Measure a render cycle
    */
-  const measureRender = useCallback(
-    (name: string, rowCount: number, operation: () => void): void => {
-      if (!enabled) {
-        operation();
-        return;
-      }
-
-      aggregatesRef.current.totalRenders++;
-
-      const timer = createTimer();
+  const measureRender = (name: string, rowCount: number, operation: () => void): void => {
+    if (!enabled) {
       operation();
-      const durationMs = timer.elapsed();
-      // Use treeSnapshot budget as proxy for render budget
-      const exceededBudget = checkBudget(name, durationMs, 'treeSnapshot');
+      return;
+    }
 
-      aggregatesRef.current.renderTimes.push(durationMs);
-      if (aggregatesRef.current.renderTimes.length > MAX_METRICS_HISTORY) {
-        aggregatesRef.current.renderTimes.shift();
-      }
+    aggregatesRef.current.totalRenders++;
 
-      recordMetric({
-        budgetKey: 'treeSnapshot',
-        durationMs,
-        exceededBudget,
-        metadata: { rowCount },
-        name,
-        timestamp: Date.now(),
-      });
-    },
-    [enabled, recordMetric]
-  );
+    const timer = createTimer();
+    operation();
+    const durationMs = timer.elapsed();
+    // Use treeSnapshot budget as proxy for render budget
+    const exceededBudget = checkBudget(name, durationMs, 'treeSnapshot');
+
+    aggregatesRef.current.renderTimes.push(durationMs);
+    if (aggregatesRef.current.renderTimes.length > MAX_METRICS_HISTORY) {
+      aggregatesRef.current.renderTimes.shift();
+    }
+
+    recordMetric({
+      budgetKey: 'treeSnapshot',
+      durationMs,
+      exceededBudget,
+      metadata: { rowCount },
+      name,
+      timestamp: Date.now(),
+    });
+  };
 
   /**
    * Get summary of collected metrics
    */
-  const getSummary = useCallback((): PerfSummary => {
+  const getSummary = (): PerfSummary => {
     const { totalRenders, flattenTimes, renderTimes, budgetExceededCount } = aggregatesRef.current;
 
     const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
@@ -180,12 +171,12 @@ export function useTreePerfMetrics() {
       maxRenderTime: max(renderTimes),
       totalRenders,
     };
-  }, [metrics]);
+  };
 
   /**
    * Clear all metrics
    */
-  const clearMetrics = useCallback(() => {
+  const clearMetrics = () => {
     setMetrics([]);
     aggregatesRef.current = {
       budgetExceededCount: 0,
@@ -193,7 +184,7 @@ export function useTreePerfMetrics() {
       renderTimes: [],
       totalRenders: 0,
     };
-  }, []);
+  };
 
   return {
     /** Clear all metrics */
