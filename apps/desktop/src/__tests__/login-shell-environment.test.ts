@@ -115,16 +115,39 @@ describe('resolveLoginShellEnvironment', () => {
         env: { HOME: home, PATH: LAUNCHD_PATH, SHELL: '/bin/bash' },
         execPath: process.execPath,
         platform: process.platform,
-        timeoutMs: 500,
+        timeoutMs: 2000,
       });
 
       expect(shellEnvironment).toEqual({
-        message: 'The login shell /bin/bash did not print its environment within 0.5 s.',
+        message: 'The login shell /bin/bash did not print its environment within 2 s.',
         shell: '/bin/bash',
         status: 'failed',
       });
       const sleeper = Number((await readFile(path.join(home, 'sleeper'), 'utf8')).trim());
       await expect.poll(() => isRunning(sleeper)).toBe(false);
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'takes the printed environment while a background job still holds the output, and leaves the job running',
+    async () => {
+      const home = await homeWithLoginProfile(() => 'sleep 30 & echo $! > "$HOME/sleeper"\n');
+
+      const shellEnvironment = await resolveLoginShellEnvironment({
+        argv: [],
+        env: { HOME: home, PATH: LAUNCHD_PATH, SHELL: '/bin/bash' },
+        execPath: process.execPath,
+        platform: process.platform,
+        timeoutMs: 20_000,
+      });
+
+      const sleeper = Number((await readFile(path.join(home, 'sleeper'), 'utf8')).trim());
+      try {
+        expect(shellEnvironment).toMatchObject({ shell: '/bin/bash', status: 'resolved' });
+        expect(isRunning(sleeper)).toBe(true);
+      } finally {
+        process.kill(sleeper, 'SIGKILL');
+      }
     }
   );
 
