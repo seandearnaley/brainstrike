@@ -9,7 +9,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { Table, TableBody, TableHead, TableHeader, TableRow, useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useEffect, useMemo, useReducer } from 'react';
 import { CredentialLoadError } from '../credential-load-error';
 // Parsing rules are shared with the Provider Hub page so the two readers of
 // the same listing cannot disagree about what it means (BST-1358).
@@ -211,7 +211,7 @@ export function CredentialInventory({
 
   // listCredentialSlots reads the frozen registry constant; only the derived
   // allocations need memos.
-  const allSlots = useMemo(() => listCredentialSlots(), []);
+  const allSlots = listCredentialSlots();
   const visibleSlots = useMemo(() => {
     if (!providers) {
       return allSlots;
@@ -227,7 +227,7 @@ export function CredentialInventory({
   // independent of slot filtering — matching assistant-preferences-store's
   // CONFIGURED_KEY_PROVIDER_IDS so the two strict consumers of the shared
   // parser cannot drift.
-  const allowedProviderKeyIds = useMemo(() => listAllowedProviderKeyIds(), []);
+  const allowedProviderKeyIds = listAllowedProviderKeyIds();
 
   const [state, dispatch] = useReducer(inventoryReducer, {
     busySlotIds: new Set<string>(),
@@ -286,7 +286,7 @@ export function CredentialInventory({
     return [...visibleSlots].sort((a, b) => rank(a) - rank(b));
   }, [mergedSources, visibleSlots]);
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     dispatch({ type: 'SOURCE_LOAD_STARTED' });
     const listFn = getSecretsCapability()?.list;
     if (!listFn) {
@@ -306,7 +306,7 @@ export function CredentialInventory({
     } catch (error) {
       dispatch({ message: toErrorMessage(error), type: 'SOURCE_LOAD_FAILED' });
     }
-  }, [allowedProviderKeyIds]);
+  };
 
   useEffect(() => {
     void refresh();
@@ -319,50 +319,44 @@ export function CredentialInventory({
     toast,
   });
 
-  const handleSave = useCallback(
-    async (slot: CredentialSlot) => {
-      if (!editor || editor.slotId !== slot.id) {
-        return;
-      }
-      // Symmetric with handleRemove's stored-guard: an env source is
-      // authoritative and its row is read-only, so a Save racing an env
-      // source appearing must never write to the keychain — the stale
-      // editor just closes (BST-1362 review).
-      if (mergedSources.get(slot.id)?.source === 'env') {
-        dispatch({ type: 'CLOSE_EDITOR' });
-        return;
-      }
-      // Profile-chain saves require only a region — the profile is optional
-      // (blank means the chain's default) and there is no secret to demand.
-      const isProfileChain = slot.authType === 'aws' && editor.mode === 'profile_chain';
-      const key = editor.key.trim();
-      const region = editor.region.trim();
-      if (slot.authType === 'aws' && !region) {
-        return;
-      }
-      if (!(key || isProfileChain)) {
-        return;
-      }
-      dispatch({ slotId: slot.id, type: 'MUTATION_STARTED' });
-      const saved = await saveCredential(slot.id, buildCredential(slot, editor));
-      dispatch({ slotId: slot.id, type: saved ? 'SAVE_SUCCESS' : 'MUTATION_FINISHED' });
-    },
-    [editor, mergedSources, saveCredential]
-  );
+  const handleSave = async (slot: CredentialSlot) => {
+    if (!editor || editor.slotId !== slot.id) {
+      return;
+    }
+    // Symmetric with handleRemove's stored-guard: an env source is
+    // authoritative and its row is read-only, so a Save racing an env
+    // source appearing must never write to the keychain — the stale
+    // editor just closes (BST-1362 review).
+    if (mergedSources.get(slot.id)?.source === 'env') {
+      dispatch({ type: 'CLOSE_EDITOR' });
+      return;
+    }
+    // Profile-chain saves require only a region — the profile is optional
+    // (blank means the chain's default) and there is no secret to demand.
+    const isProfileChain = slot.authType === 'aws' && editor.mode === 'profile_chain';
+    const key = editor.key.trim();
+    const region = editor.region.trim();
+    if (slot.authType === 'aws' && !region) {
+      return;
+    }
+    if (!(key || isProfileChain)) {
+      return;
+    }
+    dispatch({ slotId: slot.id, type: 'MUTATION_STARTED' });
+    const saved = await saveCredential(slot.id, buildCredential(slot, editor));
+    dispatch({ slotId: slot.id, type: saved ? 'SAVE_SUCCESS' : 'MUTATION_FINISHED' });
+  };
 
-  const handleRemove = useCallback(
-    async (slot: CredentialSlot) => {
-      // Remove targets a KEYCHAIN entry, so it is only meaningful when one
-      // exists; the button only renders on stored rows, this guards races.
-      if (mergedSources.get(slot.id)?.source !== 'stored') {
-        return;
-      }
-      dispatch({ slotId: slot.id, type: 'MUTATION_STARTED' });
-      await deleteSecret(slot.id);
-      dispatch({ slotId: slot.id, type: 'MUTATION_FINISHED' });
-    },
-    [deleteSecret, mergedSources]
-  );
+  const handleRemove = async (slot: CredentialSlot) => {
+    // Remove targets a KEYCHAIN entry, so it is only meaningful when one
+    // exists; the button only renders on stored rows, this guards races.
+    if (mergedSources.get(slot.id)?.source !== 'stored') {
+      return;
+    }
+    dispatch({ slotId: slot.id, type: 'MUTATION_STARTED' });
+    await deleteSecret(slot.id);
+    dispatch({ slotId: slot.id, type: 'MUTATION_FINISHED' });
+  };
 
   const visibleErrors = [...new Set([statusError, loadError].filter(Boolean))].join(' ');
 

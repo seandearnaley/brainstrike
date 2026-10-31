@@ -1,5 +1,5 @@
 import type { useToast } from '@brainstrike/ui';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 
 // A purge result at this threshold may mean another bounded purge pass is required.
 export const DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD = 500;
@@ -20,7 +20,7 @@ export function useDiagnosticsPurgeAction({
 
   // The catch branch never rethrows, so the trailing reset runs on both paths.
   // A finally clause blocks React Compiler memoization (react-hooks-js/todo).
-  const handlePurgeNow = useCallback(async () => {
+  const handlePurgeNow = async () => {
     if (!onPurgeNow) {
       return;
     }
@@ -43,7 +43,7 @@ export function useDiagnosticsPurgeAction({
       });
     }
     setIsPurgingNow(false);
-  }, [onPurgeNow, toast]);
+  };
 
   return { handlePurgeNow, isPurgingNow };
 }

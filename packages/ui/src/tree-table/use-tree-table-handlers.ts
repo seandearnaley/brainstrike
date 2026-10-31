@@ -76,52 +76,39 @@ export function useTreeTableHandlers<T>({
     return anchorId;
   }, [multiSelectedIds, rowIndexById]);
 
-  const handleRangeSelect = React.useCallback(
-    (nodeId: string) => {
-      const anchor = keyboard.state.focusedId ?? selectedId ?? fallbackMultiSelectAnchor;
-      if (anchor === null || anchor === undefined) {
-        return;
-      }
+  const handleRangeSelect = (nodeId: string) => {
+    const anchor = keyboard.state.focusedId ?? selectedId ?? fallbackMultiSelectAnchor;
+    if (anchor === null || anchor === undefined) {
+      return;
+    }
 
-      const fromIndex = rowIndexById.get(anchor);
-      const toIndex = rowIndexById.get(nodeId);
-      if (fromIndex === undefined || toIndex === undefined) {
-        return;
-      }
+    const fromIndex = rowIndexById.get(anchor);
+    const toIndex = rowIndexById.get(nodeId);
+    if (fromIndex === undefined || toIndex === undefined) {
+      return;
+    }
 
-      const start = Math.min(fromIndex, toIndex);
-      const end = Math.max(fromIndex, toIndex);
-      const rangeIds = new Set<string>();
-      for (let index = start; index <= end; index += 1) {
-        const row = rows[index];
-        if (row) {
-          rangeIds.add(row.node.id);
-        }
+    const start = Math.min(fromIndex, toIndex);
+    const end = Math.max(fromIndex, toIndex);
+    const rangeIds = new Set<string>();
+    for (let index = start; index <= end; index += 1) {
+      const row = rows[index];
+      if (row) {
+        rangeIds.add(row.node.id);
       }
-      onMultiSelectChange?.(rangeIds);
-    },
-    [
-      rows,
-      rowIndexById,
-      onMultiSelectChange,
-      keyboard.state.focusedId,
-      selectedId,
-      fallbackMultiSelectAnchor,
-    ]
-  );
+    }
+    onMultiSelectChange?.(rangeIds);
+  };
 
-  const handleToggleSelect = React.useCallback(
-    (nodeId: string) => {
-      const newSelection = new Set(multiSelectedIds);
-      if (newSelection.has(nodeId)) {
-        newSelection.delete(nodeId);
-      } else {
-        newSelection.add(nodeId);
-      }
-      onMultiSelectChange?.(newSelection);
-    },
-    [multiSelectedIds, onMultiSelectChange]
-  );
+  const handleToggleSelect = (nodeId: string) => {
+    const newSelection = new Set(multiSelectedIds);
+    if (newSelection.has(nodeId)) {
+      newSelection.delete(nodeId);
+    } else {
+      newSelection.add(nodeId);
+    }
+    onMultiSelectChange?.(newSelection);
+  };
 
   // Row-facing handlers are identity-stable (useEventCallback) so the
   // React.memo on TreeTableRow actually bails out: with plain useCallback,
@@ -169,36 +156,27 @@ export function useTreeTableHandlers<T>({
     onRowContextMenu?.(nodeId, node, event);
   });
 
-  const handleSortClick = React.useCallback(
-    (columnId: string) => {
-      if (!onSortChange) {
-        return;
-      }
+  const handleSortClick = (columnId: string) => {
+    if (!onSortChange) {
+      return;
+    }
 
-      const currentDirection = sortState?.columnId === columnId ? sortState.direction : null;
-      onSortChange(columnId, getNextTreeTableSortDirection(currentDirection));
-    },
-    [sortState, onSortChange]
-  );
+    const currentDirection = sortState?.columnId === columnId ? sortState.direction : null;
+    onSortChange(columnId, getNextTreeTableSortDirection(currentDirection));
+  };
 
-  const getRowClassName = React.useCallback(
-    (node: TreeNode<T>): string => {
-      if (typeof rowClassName === 'function') {
-        return rowClassName(node);
-      }
-      return rowClassName ?? '';
-    },
-    [rowClassName]
-  );
+  const getRowClassName = (node: TreeNode<T>): string => {
+    if (typeof rowClassName === 'function') {
+      return rowClassName(node);
+    }
+    return rowClassName ?? '';
+  };
 
-  const measureRow = React.useCallback(
-    (element: HTMLTableRowElement | null) => {
-      if (element) {
-        rowVirtualizer.measureElement(element);
-      }
-    },
-    [rowVirtualizer]
-  );
+  const measureRow = (element: HTMLTableRowElement | null) => {
+    if (element) {
+      rowVirtualizer.measureElement(element);
+    }
+  };
 
   return {
     getRowClassName,

@@ -57,7 +57,7 @@ export function useCredentialSources(
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
   // The preload bridge cannot appear mid-session, so it is resolved once; its
   // presence is the capability gate for editing.
-  const listCredentials = useMemo(() => getSecretsCapability()?.list, []);
+  const listCredentials = getSecretsCapability()?.list;
   const [listed, setListed] = useState<{
     readonly error: string;
     readonly settled: 'error' | 'ready';

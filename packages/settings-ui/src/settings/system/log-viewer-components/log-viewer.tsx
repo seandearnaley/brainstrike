@@ -9,7 +9,7 @@ import {
   type SortingState,
   useTable,
 } from '@tanstack/react-table';
-import { useCallback, useMemo, useReducer, useState } from 'react';
+import { useMemo, useReducer, useState } from 'react';
 import {
   ALL_CODES_VALUE,
   ALL_SOURCES_VALUE,
@@ -450,25 +450,22 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     subscriptionError,
   } = viewerState;
 
-  const applyRetentionLimit = useCallback(
-    (records: readonly LogRecord[]): LogRecord[] => {
-      const sortedRecords = sortLogRecords(records);
-      if (retentionLimit <= 0 || sortedRecords.length <= retentionLimit) {
-        return sortedRecords;
-      }
-      return sortedRecords.slice(sortedRecords.length - retentionLimit);
-    },
-    [retentionLimit]
-  );
-  const onRecordsChange = useCallback((records: readonly LogRecord[]) => {
+  const applyRetentionLimit = (records: readonly LogRecord[]): LogRecord[] => {
+    const sortedRecords = sortLogRecords(records);
+    if (retentionLimit <= 0 || sortedRecords.length <= retentionLimit) {
+      return sortedRecords;
+    }
+    return sortedRecords.slice(sortedRecords.length - retentionLimit);
+  };
+  const onRecordsChange = (records: readonly LogRecord[]) => {
     dispatch({ records, type: 'SET_LOG_RECORDS' });
-  }, []);
-  const onLoadingChange = useCallback((loading: boolean) => {
+  };
+  const onLoadingChange = (loading: boolean) => {
     dispatch({ loading, type: 'SET_LOGS_LOADING' });
-  }, []);
-  const onSubscriptionErrorChange = useCallback((error: string | null) => {
+  };
+  const onSubscriptionErrorChange = (error: string | null) => {
     dispatch({ error, type: 'SET_SUBSCRIPTION_ERROR' });
-  }, []);
+  };
   const { refreshLogs } = useLogRecordSource({
     applyRetentionLimit,
     logSource,
@@ -510,18 +507,14 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     timeStart,
   ]);
 
-  const tableData = useMemo<LogRecordRow[]>(
-    () => filteredRecords.map((record) => getLogRecordRow(record, rowCache)),
-    [filteredRecords, rowCache]
+  const tableData: LogRecordRow[] = filteredRecords.map((record) =>
+    getLogRecordRow(record, rowCache)
   );
 
-  const handleShowDetails = useCallback((record: LogRecord) => {
+  const handleShowDetails = (record: LogRecord) => {
     setSelectedRecord(record);
-  }, []);
-  const columns = useMemo(
-    () => buildLogColumns(wrapLines, handleShowDetails),
-    [handleShowDetails, wrapLines]
-  );
+  };
+  const columns = buildLogColumns(wrapLines, handleShowDetails);
 
   const sortNewestFirst = sorting[0]?.desc ?? false;
   const lastPageIndex = Math.max(0, Math.ceil(filteredRecords.length / pagination.pageSize) - 1);
@@ -561,25 +554,23 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
 
   const rows = table.getRowModel().rows;
 
-  const getExportRecords = useCallback(
-    () => table.getPrePaginatedRowModel().rows.map((row) => row.original.originalRecord),
-    [table]
-  );
+  const getExportRecords = () =>
+    table.getPrePaginatedRowModel().rows.map((row) => row.original.originalRecord);
   const handleExportLogs = useLogExport({
     getExportRecords,
     sourceCoverage: buildSourceCoverage,
   });
 
-  const handleSortNewestFirstChange = useCallback((value: boolean) => {
+  const handleSortNewestFirstChange = (value: boolean) => {
     dispatch({ sorting: [{ desc: value, id: 'timestamp' }], type: 'SET_SORTING' });
-  }, []);
+  };
 
-  const handlePageSizeChange = useCallback((value: number) => {
+  const handlePageSizeChange = (value: number) => {
     dispatch({
       pagination: (previous) => ({ ...previous, pageSize: value }),
       type: 'SET_PAGINATION',
     });
-  }, []);
+  };
 
   const scopeOptions = useMemo(() => {
     const scopes = new Set<string>();
@@ -591,19 +582,16 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     return Array.from(scopes).sort((a, b) => defaultCollator.compare(a, b));
   }, [logRecords]);
 
-  const scopeItems = useMemo(
-    () => (
-      <>
-        <SelectItem value={ALL_SCOPES_VALUE}>All scopes</SelectItem>
-        <SelectItem value={NO_SCOPE_VALUE}>No scope</SelectItem>
-        {scopeOptions.map((scope) => (
-          <SelectItem key={scope} value={scope}>
-            {scope}
-          </SelectItem>
-        ))}
-      </>
-    ),
-    [scopeOptions]
+  const scopeItems = (
+    <>
+      <SelectItem value={ALL_SCOPES_VALUE}>All scopes</SelectItem>
+      <SelectItem value={NO_SCOPE_VALUE}>No scope</SelectItem>
+      {scopeOptions.map((scope) => (
+        <SelectItem key={scope} value={scope}>
+          {scope}
+        </SelectItem>
+      ))}
+    </>
   );
 
   const pageStart = filteredRecords.length === 0 ? 0 : resolvedPageIndex * pagination.pageSize + 1;

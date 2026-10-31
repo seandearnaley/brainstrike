@@ -33,7 +33,7 @@ import {
   Switch,
 } from '@brainstrike/ui';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const TIER_DIR_LABEL: Record<SkillScanEntrySummary['tier'], string> = {
   'global-brainstrike': '~/.brainstrike/skills',
@@ -162,10 +162,10 @@ export function SkillsSettingsSection({
     };
   }, [scanSkills, scanGeneration]);
 
-  const retry = useCallback(() => {
+  const retry = () => {
     setScanState({ kind: 'loading' });
     setScanGeneration((generation) => generation + 1);
-  }, []);
+  };
 
   const groups = useMemo(() => {
     if (scanState.kind !== 'ready') {
@@ -179,10 +179,8 @@ export function SkillsSettingsSection({
     return Array.from(byGroup.entries());
   }, [scanState]);
 
-  const onToggle = useCallback(
-    (preferenceKey: string, enabled: boolean) => setSkillDisabled(preferenceKey, !enabled),
-    [setSkillDisabled]
-  );
+  const onToggle = (preferenceKey: string, enabled: boolean) =>
+    setSkillDisabled(preferenceKey, !enabled);
 
   return (
     <Card>

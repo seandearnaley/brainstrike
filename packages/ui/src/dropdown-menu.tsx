@@ -1,7 +1,7 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronRight, Circle } from 'lucide-react';
 import type * as React from 'react';
-import { useCallback, useRef } from 'react';
+import { useRef } from 'react';
 
 import { POPUP_LAYER_CLASS } from './layers';
 import { isFocusLost } from './lib/focus';
@@ -77,15 +77,12 @@ const DropdownMenuContent = ({
   ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.Content> | null>;
 }) => {
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const setContentRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      contentRef.current = node;
-      if (ref) {
-        ref.current = node;
-      }
-    },
-    [ref]
-  );
+  const setContentRef = (node: HTMLDivElement | null) => {
+    contentRef.current = node;
+    if (ref) {
+      ref.current = node;
+    }
+  };
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
