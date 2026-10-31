@@ -79,9 +79,18 @@ function shippedPersonApproval(): HostTool['personApproval'] {
   return Object.values(tools)[0]?.personApproval;
 }
 
+type CommandPolicy = ReturnType<HostPlatform['readPermissionPolicy']>;
+
+const AUTO_POLICY = {
+  autoReview: { model: 'auto' },
+  policies: { ...DEFAULT_PERMISSION_POLICIES },
+  yolo: false,
+} satisfies CommandPolicy;
+
 async function runCommand(
   reviewModel: (target: string) => Promise<LanguageModel>,
-  input: Readonly<Record<string, unknown>> = { command: 'pnpm test' }
+  input: Readonly<Record<string, unknown>> = { command: 'pnpm test' },
+  policy: CommandPolicy = AUTO_POLICY
 ): Promise<{ events: HostEvent[]; executed: unknown[]; targets: string[] }> {
   const executed: unknown[] = [];
   const targets: string[] = [];
@@ -119,11 +128,7 @@ async function runCommand(
       tools,
     }),
     close: async () => undefined,
-    readPermissionPolicy: () => ({
-      autoReview: { model: 'auto' },
-      policies: { ...DEFAULT_PERMISSION_POLICIES },
-      yolo: false,
-    }),
+    readPermissionPolicy: () => policy,
   };
   const core = await HostCore.open(store, platform, () => () => undefined);
   cleanup.push(async () => {
@@ -226,6 +231,55 @@ test('a command run outside the sandbox asks the user, and the quick model is ne
   expect(requested(events)?.reason).toBe(
     'This command runs outside the sandbox, so only you can approve it.'
   );
+});
+
+const ESCAPE = { command: 'curl https://example.com', dangerouslyDisableSandbox: true };
+const ESCAPE_REASON = 'This command runs outside the sandbox, so only you can approve it.';
+
+test.each([
+  {
+    name: 'an Always allow on commands',
+    policy: { ...AUTO_POLICY, perToolOverrides: { 'brainstrike.executeCommand': 'allow' } },
+  },
+  { name: 'commands allowed this session', policy: { ...AUTO_POLICY, sessionGrants: ['execute'] } },
+  {
+    name: 'Ask mode with commands allowed',
+    policy: {
+      policies: { ...DEFAULT_PERMISSION_POLICIES, execute: 'allow' },
+      yolo: false,
+    },
+  },
+] satisfies { name: string; policy: CommandPolicy }[])(
+  'a command run outside the sandbox still asks the user under $name',
+  async ({ policy }) => {
+    const { events, executed } = await runCommand(
+      async () =>
+        reviewer(
+          { decision: 'approve', rationale: 'Fine.', risk: 'low', userAuthorization: 'high' },
+          []
+        ),
+      ESCAPE,
+      policy
+    );
+
+    expect(executed).toEqual([]);
+    expect(requested(events)?.reason).toBe(ESCAPE_REASON);
+  }
+);
+
+test('Full access runs a command outside the sandbox without asking', async () => {
+  const { events, executed } = await runCommand(
+    async () =>
+      reviewer(
+        { decision: 'approve', rationale: 'Fine.', risk: 'low', userAuthorization: 'high' },
+        []
+      ),
+    ESCAPE,
+    { policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: true }
+  );
+
+  expect(requested(events)).toBeUndefined();
+  expect(executed).toEqual([ESCAPE]);
 });
 
 test('a review that fails asks the user instead of approving', async () => {
