@@ -129,6 +129,8 @@ const AWAITING_INTERACTION: MessageStatus = { reason: 'interrupt', type: 'requir
 interface ProjectedRun {
   readonly authoritativeInputs: Set<string>;
   readonly authoritativeResults: Set<string>;
+  /** Calls whose committed `tool-call` owns their input: live deltas no longer apply. */
+  readonly committedInputs: Set<string>;
   readonly createdAt: Date;
   /** A refused call's reason, from its approval response, until its denial settles it. */
   readonly denialReasons: Map<string, string>;
@@ -553,6 +555,7 @@ export class CommittedAssistantLogProjection {
     this.runs.set(runId, {
       authoritativeInputs: new Set(),
       authoritativeResults: new Set(),
+      committedInputs: new Set(),
       createdAt: identity.createdAt,
       denialReasons: new Map(),
       messageId: message.id,
@@ -590,9 +593,7 @@ export class CommittedAssistantLogProjection {
       const id = requiredString(live, 'id');
       // The committed `tool-call` owns the input from then on.
       this.updateTool(run, id, (part) =>
-        run.authoritativeInputs.has(id)
-          ? part
-          : withLiveInputDelta(part, requiredText(live, 'delta'))
+        run.committedInputs.has(id) ? part : withLiveInputDelta(part, requiredText(live, 'delta'))
       );
       return this.view;
     }
@@ -714,7 +715,7 @@ export class CommittedAssistantLogProjection {
       this.tool(run, { ...chunk, toolCallId: chunk['id'] });
       return;
     } else if (type === 'tool-call') {
-      this.tool(run, chunk);
+      run.committedInputs.add(this.tool(run, chunk));
       return;
     } else if (type === 'tool-result' || type === 'tool-error') {
       const id = this.tool(run, chunk);

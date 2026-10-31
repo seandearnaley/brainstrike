@@ -102,4 +102,22 @@ describe('a provider that streams its tool input incrementally', () => {
     });
     expect(call()).toMatchObject({ argsText: '{"path":"README.md"}' });
   });
+
+  it('keeps the committed input when replayed deltas arrive before the call runs', () => {
+    const projection = projector();
+    const committed = rows.findIndex(
+      ({ event }) =>
+        event['type'] === 'stream.chunk' &&
+        (event['chunk'] as Record<string, unknown>)['type'] === 'tool-call'
+    );
+    projection.acceptCommitted(rows.slice(0, committed + 1));
+    const call = () => answer(projection).content.find((part) => part.type === 'tool-call');
+    expect(call()).toMatchObject({ argsText: '{"path":"README.md"}' });
+    // A view that subscribes now replays the step's telemetry, deltas included.
+    for (const delta of ['', '{', '"path":"README.md"}']) {
+      projection.acceptLive(runId, { delta, id: 'call_incremental_1', type: 'tool-input-delta' });
+    }
+    expect(call()).toMatchObject({ args: { path: 'README.md' }, argsText: '{"path":"README.md"}' });
+    expect(projection.getSnapshot()).toMatchObject({ activeRunId: runId, isRunning: true });
+  });
 });
