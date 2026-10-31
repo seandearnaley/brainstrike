@@ -18,7 +18,7 @@ import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import { useAbortControllers } from '../hooks/use-abort-controllers';
 import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from '../hooks/use-expand-all';
@@ -418,7 +418,9 @@ export function useLazyFileTree(
 
   // Ref for callback to avoid stale closures
   const onNodesIndexedRef = useRef(onNodesIndexed);
-  onNodesIndexedRef.current = onNodesIndexed;
+  useLayoutEffect(() => {
+    onNodesIndexedRef.current = onNodesIndexed;
+  });
   const dispatchRootRefreshSnapshot = useEventCallback(
     (snapshotRootId: string, directoryPath: string, entries: readonly IFileNode[]): void => {
       onRootRefreshSnapshot?.(snapshotRootId, directoryPath, entries);
@@ -439,11 +441,14 @@ export function useLazyFileTree(
     total: number;
   } | null>(null);
 
-  // Use ref to access current tree without adding it as a dependency
+  // Refs give callbacks the committed tree without adding it as a dependency.
+  // Published at commit, so a render React discards never reaches them.
   const fileTreeRef = useRef(state.fileTree);
-  fileTreeRef.current = state.fileTree;
   const loadingPathsRef = useRef(state.loadingPaths);
-  loadingPathsRef.current = state.loadingPaths;
+  useLayoutEffect(() => {
+    fileTreeRef.current = state.fileTree;
+    loadingPathsRef.current = state.loadingPaths;
+  });
   const normalizedTreeRef = useRef<NormalizedFileTreeState>(createEmptyNormalizedFileTreeState());
   const [normalizedTreeVersion, setNormalizedTreeVersion] = useState(0);
   const inFlightChildLoadsRef = useRef<Map<string, { promise: Promise<void>; token: symbol }>>(
@@ -451,6 +456,8 @@ export function useLazyFileTree(
   );
   const activeWorkerTreeOperationRef = useRef<ActiveWorkerTreeOperation | null>(null);
   const loadChildrenRef = useRef<(path: string) => Promise<void>>(async () => {});
+  // Shared with useExpandAll below; owned here so loadRoot can read it.
+  const isExpandingAllRef = useRef(false);
   const specificPathProgressRef = useRef<
     ((loaded: number, total: number, currentPath: string) => void) | null
   >(null);
@@ -836,78 +843,82 @@ export function useLazyFileTree(
         )
       );
       let rootConsumerController: AbortController | null = null;
-      try {
-        await enforceForcedRootLoadBoundary({
-          currentRunId,
-          forceFreshBoundary,
-          isUnmountedRef,
-          loadRootRunIdRef,
-          resolvedRootFolderId,
-          rootPath,
-        });
-        rootConsumerController = createAbortController(null);
-        const rootLoadRequest = loadRootChildren({
-          consumerSignal: rootConsumerController.signal,
-          fileSystemAdapter: preflight.fileSystemAdapter,
-          rootDirectoryHandle: preflight.rootDirectoryHandle,
-          rootFolderId: resolvedRootFolderId,
-          rootPath,
-        });
+      // The attempt resolves every outcome itself, so the flag reset below runs
+      // on each path without a try/finally, which the compiler cannot lower.
+      const attemptRootLoad = async (): Promise<RootLoadOutcome> => {
+        try {
+          await enforceForcedRootLoadBoundary({
+            currentRunId,
+            forceFreshBoundary,
+            isUnmountedRef,
+            loadRootRunIdRef,
+            resolvedRootFolderId,
+            rootPath,
+          });
+          rootConsumerController = createAbortController(null);
+          const rootLoadRequest = loadRootChildren({
+            consumerSignal: rootConsumerController.signal,
+            fileSystemAdapter: preflight.fileSystemAdapter,
+            rootDirectoryHandle: preflight.rootDirectoryHandle,
+            rootFolderId: resolvedRootFolderId,
+            rootPath,
+          });
 
-        logStartedRootLoad(
-          rootLoadRequest,
-          fileTreeRef.current.length,
-          initializedRootRef.current,
-          rootPath
-        );
+          logStartedRootLoad(
+            rootLoadRequest,
+            fileTreeRef.current.length,
+            initializedRootRef.current,
+            rootPath
+          );
 
-        const requestAlreadyApplied = lastAppliedRootLoadRef.current === rootLoadRequest.request;
+          const requestAlreadyApplied = lastAppliedRootLoadRef.current === rootLoadRequest.request;
 
-        const children = await rootLoadRequest.consumerPromise;
+          const children = await rootLoadRequest.consumerPromise;
 
-        if (!isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
-          return { status: 'cancelled' };
-        }
-        if (requestAlreadyApplied || lastAppliedRootLoadRef.current === rootLoadRequest.request) {
-          setState((currentState) => ({ ...currentState, isInitialLoading: false }));
+          if (!isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
+            return { status: 'cancelled' };
+          }
+          if (requestAlreadyApplied || lastAppliedRootLoadRef.current === rootLoadRequest.request) {
+            setState((currentState) => ({ ...currentState, isInitialLoading: false }));
+            return { status: 'completed' };
+          }
+
+          handleLoadRootSuccess(
+            children,
+            rootPath,
+            handleMapRef,
+            portRef,
+            setState,
+            initializedRootRef,
+            // Storage v5: worker init uses the resolved RootId so that worker-
+            // side composite keys match the store's identity.
+            resolvedRootFolderId
+          );
+          syncNormalizedTree(children);
+          if (force) {
+            dispatchRootRefreshSnapshot(resolvedRootFolderId, rootPath, children);
+          }
+          committedRootIdentityRef.current = rootIdentity;
+          lastAppliedRootLoadRef.current = rootLoadRequest.request;
+          notifyRootNodesIndexed(children, onNodesIndexedRef);
           return { status: 'completed' };
+        } catch (err) {
+          return resolveRootLoadError({
+            currentRunId,
+            error: err,
+            isUnmountedRef,
+            loadRootRunIdRef,
+            rootConsumerController,
+            setState,
+          });
         }
-
-        handleLoadRootSuccess(
-          children,
-          rootPath,
-          handleMapRef,
-          portRef,
-          setState,
-          initializedRootRef,
-          // Storage v5: worker init uses the resolved RootId so that worker-
-          // side composite keys match the store's identity.
-          resolvedRootFolderId
-        );
-        syncNormalizedTree(children);
-        if (force) {
-          dispatchRootRefreshSnapshot(resolvedRootFolderId, rootPath, children);
-        }
-        committedRootIdentityRef.current = rootIdentity;
-        lastAppliedRootLoadRef.current = rootLoadRequest.request;
-        notifyRootNodesIndexed(children, onNodesIndexedRef);
-        return { status: 'completed' };
-      } catch (err) {
-        return resolveRootLoadError({
-          currentRunId,
-          error: err,
-          isUnmountedRef,
-          loadRootRunIdRef,
-          rootConsumerController,
-          setState,
-        });
-      } finally {
-        if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
-          isLoadingRootRef.current = false;
-        }
+      };
+      const outcome = await attemptRootLoad();
+      if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
+        isLoadingRootRef.current = false;
       }
+      return outcome;
     },
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- isExpandingAllRef is a stable ref returned by the later useExpandAll declaration, which itself consumes callbacks declared after loadRoot; reading .current at call time is intentional.
     [
       rootDirectoryHandle,
       fileSystemAdapter,
@@ -1171,10 +1182,19 @@ export function useLazyFileTree(
       // replace it, so every late success/error/abort path from this request is
       // rejected even after the replacement request has already settled.
       const loadPromise = Promise.resolve().then(async (): Promise<void> => {
-        try {
-          if (!node) {
-            throw new Error(`Directory node not found for path: ${path}`);
+        const settle = (): void => {
+          if (inFlightChildLoadsRef.current.get(path)?.token === loadToken) {
+            inFlightChildLoadsRef.current.delete(path);
           }
+          removeChildController(path, abortController);
+        };
+        // try/catch rather than try/finally, which the compiler cannot lower;
+        // it cannot lower a throw inside the try either.
+        if (!node) {
+          settle();
+          throw new Error(`Directory node not found for path: ${path}`);
+        }
+        try {
           await performDirectoryLoad(
             path,
             node,
@@ -1183,12 +1203,11 @@ export function useLazyFileTree(
             'batched',
             canCommit
           );
-        } finally {
-          if (inFlightChildLoadsRef.current.get(path)?.token === loadToken) {
-            inFlightChildLoadsRef.current.delete(path);
-          }
-          removeChildController(path, abortController);
+        } catch (error) {
+          settle();
+          throw error;
         }
+        settle();
       });
 
       inFlightChildLoadsRef.current.set(path, { promise: loadPromise, token: loadToken });
@@ -1196,7 +1215,9 @@ export function useLazyFileTree(
     },
     [fileSystemAdapter, createAbortController, performDirectoryLoad, removeChildController]
   );
-  loadChildrenRef.current = loadChildren;
+  useLayoutEffect(() => {
+    loadChildrenRef.current = loadChildren;
+  });
 
   /**
    * Check if a node needs loading
@@ -1372,7 +1393,6 @@ export function useLazyFileTree(
     isExpandingAll,
     expandAllProgressively: expandAllFromHook,
     cancelExpandAll,
-    isExpandingAllRef,
   } = useExpandAll({
     cancelLoadOperations: cancelExpandAllLoads,
     getNodeByPath: (path: string) =>
@@ -1383,6 +1403,7 @@ export function useLazyFileTree(
         .map((p) => materializeNormalizedShallowNode(normalizedTreeRef.current, p))
         .filter((n): n is import('@brainstrike/types').IFileNode => n !== undefined);
     },
+    isExpandingAllRef,
     loadDirectoryPath: (path: string) => loadChildrenRef.current(path),
     // Publish buffered directory results once per traversal batch, before the
     // session's discovery phase reads the tree.
@@ -1455,6 +1476,12 @@ export function useLazyFileTree(
         inFlightChildLoadsRef.current.get(path)?.token === loadToken;
       let completedAsCurrent = false;
       const loadPromise = Promise.resolve().then(async (): Promise<void> => {
+        const settle = (): void => {
+          if (inFlightChildLoadsRef.current.get(path)?.token === loadToken) {
+            inFlightChildLoadsRef.current.delete(path);
+          }
+          removeChildController(path, abortController);
+        };
         try {
           await performDirectoryLoad(
             path,
@@ -1465,12 +1492,11 @@ export function useLazyFileTree(
             canCommit
           );
           completedAsCurrent = canCommit();
-        } finally {
-          if (inFlightChildLoadsRef.current.get(path)?.token === loadToken) {
-            inFlightChildLoadsRef.current.delete(path);
-          }
-          removeChildController(path, abortController);
+        } catch (error) {
+          settle();
+          throw error;
         }
+        settle();
       });
       inFlightChildLoadsRef.current.set(path, { promise: loadPromise, token: loadToken });
       await loadPromise;
@@ -1567,14 +1593,7 @@ export function useLazyFileTree(
       }
 
       expandAllProgressListenerRef.current = onProgress ?? null;
-      try {
-        await expandAllFromHook(setExpandedPaths, currentExpandedPaths);
-      } catch (err) {
-        logger.error('expandAllProgressively failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        throw err;
-      } finally {
+      const teardown = (): void => {
         expandAllProgressListenerRef.current = null;
         // Disarm batching BEFORE the final flush so any load resolving after
         // teardown commits directly instead of parking in the buffer.
@@ -1584,7 +1603,17 @@ export function useLazyFileTree(
         flushPendingExpandAllUpdates();
         // Clear progress after operation completes (success or failure)
         setExpandAllProgress(null);
+      };
+      try {
+        await expandAllFromHook(setExpandedPaths, currentExpandedPaths);
+      } catch (err) {
+        logger.error('expandAllProgressively failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        teardown();
+        throw err;
       }
+      teardown();
     },
     [fileSystemAdapter, expandAllFromHook, flushPendingExpandAllUpdates]
   );
@@ -1603,6 +1632,7 @@ export function useLazyFileTree(
 
       logger.debug('loadSpecificPaths starting', { pathCount: paths.length });
 
+      let completedByWorker = false;
       try {
         if (paths.length > 1) {
           const port = portRef.current;
@@ -1625,13 +1655,13 @@ export function useLazyFileTree(
                 return true;
               },
             });
-            if (workerCompleted) {
-              return;
+            completedByWorker = workerCompleted === true;
+            if (!workerCompleted) {
+              logger.debug(
+                'loadSpecificPaths continuing serially after authoritative worker retirement',
+                { pathCount: paths.length }
+              );
             }
-            logger.debug(
-              'loadSpecificPaths continuing serially after authoritative worker retirement',
-              { pathCount: paths.length }
-            );
           } else {
             logger.debug(
               'loadSpecificPaths using serial restoration because worker port is unavailable',
@@ -1642,22 +1672,24 @@ export function useLazyFileTree(
           }
         }
 
-        await loadSpecificPathsSerial({
-          loadChildrenRef,
-          normalizedTreeRef,
-          onProgress,
-          paths,
-        });
+        if (!completedByWorker) {
+          await loadSpecificPathsSerial({
+            loadChildrenRef,
+            normalizedTreeRef,
+            onProgress,
+            paths,
+          });
+        }
       } catch (err) {
         const error = toError(err);
         if (!isAbortError(error)) {
           logger.error('loadSpecificPaths failed', { error: String(error) });
           handleWorkerError(error);
         }
-        throw error;
-      } finally {
         specificPathProgressRef.current = null;
+        throw error;
       }
+      specificPathProgressRef.current = null;
     },
     [
       fileSystemAdapter,
@@ -1673,7 +1705,9 @@ export function useLazyFileTree(
   // This prevents the effect from re-running when loadRoot's dependencies change,
   // which was causing multiple loadRoot calls during initialization.
   const loadRootRef = useRef(loadRoot);
-  loadRootRef.current = loadRoot;
+  useLayoutEffect(() => {
+    loadRootRef.current = loadRoot;
+  });
 
   // Auto-load root when handle changes
   // Dependencies are minimal - only things that should actually trigger a reload
