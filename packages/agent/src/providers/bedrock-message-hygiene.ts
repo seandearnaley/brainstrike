@@ -20,27 +20,22 @@
  *     an id that already conforms is returned unchanged.
  *
  * A transient PROVIDER-BOUNDARY rewrite, exactly like the OpenAI compat
- * processors it sits beside: it rewrites the prompt handed to the SDK for this
+ * fixes it sits beside: it rewrites the prompt handed to the SDK for this
  * one request and NEVER the durable history. Persisted messages keep their
  * original ids and parts, so switching a thread back to another provider
  * replays what was actually stored.
  */
+import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import { createLogger } from '@brainstrike/logging';
-import type {
-  ProcessLLMRequestArgs,
-  ProcessLLMRequestResult,
-  Processor,
-} from '@mastra/core/processors';
 
 const logger = createLogger('BedrockMessageHygiene');
 const BEDROCK_NAMESPACE = 'bedrock';
-const BEDROCK_PROVIDER_ID = 'bedrock';
 /** AWS Converse `toolUseId` charset. */
 const UNSUPPORTED_TOOL_CALL_ID_CHARS = /[^a-zA-Z0-9_-]/gu;
 /** AWS Converse `toolUseId` maximum length. */
 const MAX_TOOL_CALL_ID_LENGTH = 64;
 
-type Prompt = ProcessLLMRequestArgs['prompt'];
+type Prompt = LanguageModelV4Prompt;
 type PromptMessage = Prompt[number];
 type MessageContent = PromptMessage['content'];
 type ContentPart = Extract<MessageContent, readonly unknown[]>[number];
@@ -201,45 +196,29 @@ function cleanMessage(
   return { changed: true, message: withCleanedContent(message, cleaned) };
 }
 
-export class BedrockMessageHygiene implements Processor<'bedrock-message-hygiene'> {
-  readonly id = 'bedrock-message-hygiene';
-  readonly name = 'Bedrock message hygiene';
-
-  processLLMRequest(args: ProcessLLMRequestArgs): ProcessLLMRequestResult | undefined {
-    let changed = false;
-    const prompt: PromptMessage[] = [];
-    // Computed ONCE for the whole request so a call and its result — which sit
-    // in different messages — resolve to the same wire id.
-    const toolCallIds = buildToolCallIdMap(args.prompt);
-    for (const message of args.prompt) {
-      const cleaned = cleanMessage(message, toolCallIds);
-      changed = changed || cleaned.changed;
-      if (cleaned.message !== undefined) {
-        prompt.push(cleaned.message);
-      }
+/** The prompt with replayed history normalized for the Converse API; unchanged when clean. */
+export function cleanBedrockPrompt(input: Prompt): Prompt {
+  let changed = false;
+  const prompt: PromptMessage[] = [];
+  // Computed ONCE for the whole request so a call and its result — which sit
+  // in different messages — resolve to the same wire id.
+  const toolCallIds = buildToolCallIdMap(input);
+  for (const message of input) {
+    const cleaned = cleanMessage(message, toolCallIds);
+    changed = changed || cleaned.changed;
+    if (cleaned.message !== undefined) {
+      prompt.push(cleaned.message);
     }
-    if (!changed) {
-      return;
-    }
-    logger.info(
-      {
-        code: 'bedrock_message_hygiene_applied',
-        droppedMessages: args.prompt.length - prompt.length,
-      },
-      'normalized replayed history for the Bedrock Converse API'
-    );
-    return { prompt };
   }
-}
-
-/**
- * Provider-scoped installation, mirroring
- * `buildOpenAIToolSearchHistoryCompatInputProcessor`: the rewrite is only ever
- * correct for Bedrock, so no other provider sees it.
- */
-export function buildBedrockMessageHygieneInputProcessor(provider: string): Processor | undefined {
-  if (provider.trim().toLowerCase() !== BEDROCK_PROVIDER_ID) {
-    return;
+  if (!changed) {
+    return input;
   }
-  return new BedrockMessageHygiene();
+  logger.info(
+    {
+      code: 'bedrock_message_hygiene_applied',
+      droppedMessages: input.length - prompt.length,
+    },
+    'normalized replayed history for the Bedrock Converse API'
+  );
+  return prompt;
 }

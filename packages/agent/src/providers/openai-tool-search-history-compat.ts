@@ -1,15 +1,11 @@
+import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import { createLogger } from '@brainstrike/logging';
-import type {
-  ProcessLLMRequestArgs,
-  ProcessLLMRequestResult,
-  Processor,
-} from '@mastra/core/processors';
 import { Predicate } from 'effect';
 
 const logger = createLogger('OpenAIToolSearchHistoryCompat');
 const OPENAI_NAMESPACE = 'openai';
 const TOOL_SEARCH_NAME = 'tool_search';
-type Prompt = ProcessLLMRequestArgs['prompt'];
+type Prompt = LanguageModelV4Prompt;
 type AssistantMessage = Extract<Prompt[number], { role: 'assistant' }>;
 type AssistantPart = AssistantMessage['content'][number];
 
@@ -168,52 +164,36 @@ function assertToolSearchResultItemId(
  * directly, so the day the remaining defect is fixed a test goes red instead of
  * a doc going stale.
  */
-export class OpenAIToolSearchHistoryCompat
-  implements Processor<'openai-tool-search-history-compat'>
-{
-  readonly id = 'openai-tool-search-history-compat';
-  readonly name = 'OpenAI tool-search history compatibility';
-
-  processLLMRequest(args: ProcessLLMRequestArgs): ProcessLLMRequestResult | undefined {
-    let rewrittenCount = 0;
-    const prompt = args.prompt.map((message) => {
-      if (message.role !== 'assistant') {
-        return message;
-      }
-      const providerExecutedCallIds = collectProviderExecutedToolSearchCallIds(message.content);
-      let contentChanged = false;
-      const content = message.content.map((part) => {
-        const canonicalPart = canonicalizeToolSearchCall(part);
-        assertToolSearchResultItemId(canonicalPart, providerExecutedCallIds);
-        if (canonicalPart !== part) {
-          contentChanged = true;
-          rewrittenCount += 1;
-        }
-        return canonicalPart;
-      });
-      return contentChanged ? { ...message, content } : message;
-    });
-    if (rewrittenCount === 0) {
-      return;
+export function canonicalizeOpenAIToolSearchHistory(input: Prompt): Prompt {
+  let rewrittenCount = 0;
+  const prompt = input.map((message) => {
+    if (message.role !== 'assistant') {
+      return message;
     }
-    logger.info(
-      { code: 'openai_tool_search_history_canonicalized', rewrittenCount },
-      // Only `canonicalizeToolSearchCall` can increment `rewrittenCount` now
-      // that the output half is validation-only, so this counts CALL rewrites.
-      // It is the breadcrumb whoever debugs the next duplicate-`item_reference`
-      // 400 lands on; naming the wrong half would send them to a seam that no
-      // longer rewrites anything.
-      'canonicalized persisted OpenAI tool-search call item references'
-    );
-    return { prompt };
+    const providerExecutedCallIds = collectProviderExecutedToolSearchCallIds(message.content);
+    let contentChanged = false;
+    const content = message.content.map((part) => {
+      const canonicalPart = canonicalizeToolSearchCall(part);
+      assertToolSearchResultItemId(canonicalPart, providerExecutedCallIds);
+      if (canonicalPart !== part) {
+        contentChanged = true;
+        rewrittenCount += 1;
+      }
+      return canonicalPart;
+    });
+    return contentChanged ? { ...message, content } : message;
+  });
+  if (rewrittenCount === 0) {
+    return input;
   }
-}
-
-export function buildOpenAIToolSearchHistoryCompatInputProcessor(
-  provider: string
-): Processor | undefined {
-  if (provider.trim().toLowerCase() !== OPENAI_NAMESPACE) {
-    return;
-  }
-  return new OpenAIToolSearchHistoryCompat();
+  logger.info(
+    { code: 'openai_tool_search_history_canonicalized', rewrittenCount },
+    // Only `canonicalizeToolSearchCall` can increment `rewrittenCount` now
+    // that the output half is validation-only, so this counts CALL rewrites.
+    // It is the breadcrumb whoever debugs the next duplicate-`item_reference`
+    // 400 lands on; naming the wrong half would send them to a seam that no
+    // longer rewrites anything.
+    'canonicalized persisted OpenAI tool-search call item references'
+  );
+  return prompt;
 }

@@ -1,7 +1,7 @@
-import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
+import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import type { ToolProjectionRewriteEntry } from '../types.ts';
 
-type Prompt = ProcessLLMRequestArgs['prompt'];
+type Prompt = LanguageModelV4Prompt;
 type AssistantOrToolMessage = Extract<Prompt[number], { role: 'assistant' | 'tool' }>;
 type RewritablePart = AssistantOrToolMessage['content'][number];
 
