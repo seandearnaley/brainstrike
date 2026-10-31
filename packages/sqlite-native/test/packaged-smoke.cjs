@@ -20,7 +20,7 @@ const path = require('node:path');
 
 const { provenanceFailures } = require('./smoke-lib.cjs');
 
-const PRODUCT = 'BrainStrike Desktop';
+const PRODUCT = 'Brainstrike';
 const LAYOUTS = {
   darwin: {
     directory: { arm64: 'mac-arm64', x64: 'mac' },

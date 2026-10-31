@@ -17,7 +17,7 @@ test.describe('Electron App Launch', () => {
 
     // Check window title
     const title = await window.title();
-    expect(title).toContain('BrainStrike');
+    expect(title).toContain('Brainstrike');
 
     // Verify the main content is loaded
     await homePage.shouldBeVisible();

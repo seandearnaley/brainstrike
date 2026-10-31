@@ -59,7 +59,7 @@ export interface DatabaseLocation {
 }
 
 /** Must equal `build.productName` in `apps/desktop/package.json` (pinned by a test). */
-export const PACKAGED_PRODUCT_DIR_NAME = 'BrainStrike Desktop';
+export const PACKAGED_PRODUCT_DIR_NAME = 'Brainstrike';
 
 const DEVELOPMENT_ROOT_DIR_NAME = 'BrainStrike-dev';
 const PACKAGED_DATA_DIR_NAME = 'data';

@@ -182,7 +182,7 @@ const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 function tryShowStartupErrorDialog(message: string): void {
   try {
     if (typeof dialog?.showErrorBox === 'function') {
-      dialog.showErrorBox('BrainStrike Desktop failed to start', message);
+      dialog.showErrorBox('Brainstrike failed to start', message);
     }
   } catch (dialogError) {
     logger.error('Failed to show startup error dialog', {

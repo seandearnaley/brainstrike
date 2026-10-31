@@ -399,10 +399,10 @@ describe('background-indexing-policy', () => {
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
 
     for (const relativePath of [
-      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app',
-      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents',
-      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents/Frameworks/Electron Framework.framework',
-      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents/Frameworks/Electron Framework.framework/Versions/Current',
+      'apps/desktop/release/mac-arm64/Brainstrike.app',
+      'apps/desktop/release/mac-arm64/Brainstrike.app/Contents',
+      'apps/desktop/release/mac-arm64/Brainstrike.app/Contents/Frameworks/Electron Framework.framework',
+      'apps/desktop/release/mac-arm64/Brainstrike.app/Contents/Frameworks/Electron Framework.framework/Versions/Current',
     ]) {
       expect(
         policy.shouldTraverseDirectory({

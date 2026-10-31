@@ -12,7 +12,7 @@ import {
   resolveDatabaseLocation,
 } from '../database-location';
 
-const PRODUCT = 'BrainStrike Desktop';
+const PRODUCT = 'Brainstrike';
 const GIT = { branch: 'feature/awesome', workspaceSeed: '/repo/worktrees/wt-a' } as const;
 
 function input(overrides: Partial<DatabaseLocationInput> = {}): DatabaseLocationInput {
@@ -33,7 +33,7 @@ describe('resolveDatabaseLocation', () => {
     {
       expected: {
         profile: 'default',
-        rootPath: '/Users/me/Library/Application Support/BrainStrike Desktop/data',
+        rootPath: '/Users/me/Library/Application Support/Brainstrike/data',
         source: 'packaged',
       },
       name: 'packaged macOS (no NODE_ENV involved) keeps data inside userData/data',
@@ -42,7 +42,7 @@ describe('resolveDatabaseLocation', () => {
         paths: {
           documents: '/Users/me/Documents',
           home: '/Users/me',
-          userData: '/Users/me/Library/Application Support/BrainStrike Desktop',
+          userData: '/Users/me/Library/Application Support/Brainstrike',
         },
         platform: 'darwin',
       },
@@ -50,7 +50,7 @@ describe('resolveDatabaseLocation', () => {
     {
       expected: {
         profile: 'default',
-        rootPath: 'C:\\Users\\me\\AppData\\Local\\BrainStrike Desktop\\data',
+        rootPath: 'C:\\Users\\me\\AppData\\Local\\Brainstrike\\data',
         source: 'packaged',
       },
       name: 'packaged Windows uses the non-roaming LOCALAPPDATA',
@@ -60,7 +60,7 @@ describe('resolveDatabaseLocation', () => {
         paths: {
           documents: 'C:\\Users\\me\\Documents',
           home: 'C:\\Users\\me',
-          userData: 'C:\\Users\\me\\AppData\\Roaming\\BrainStrike Desktop',
+          userData: 'C:\\Users\\me\\AppData\\Roaming\\Brainstrike',
         },
         platform: 'win32',
       },
@@ -68,7 +68,7 @@ describe('resolveDatabaseLocation', () => {
     {
       expected: {
         profile: 'default',
-        rootPath: '/xdg/data/BrainStrike Desktop/data',
+        rootPath: '/xdg/data/Brainstrike/data',
         source: 'packaged',
       },
       name: 'packaged Linux honours an absolute XDG_DATA_HOME',
@@ -77,7 +77,7 @@ describe('resolveDatabaseLocation', () => {
     {
       expected: {
         profile: 'default',
-        rootPath: '/home/me/.local/share/BrainStrike Desktop/data',
+        rootPath: '/home/me/.local/share/Brainstrike/data',
         source: 'packaged',
       },
       name: 'packaged Linux without XDG_DATA_HOME uses ~/.local/share',
@@ -94,7 +94,7 @@ describe('resolveDatabaseLocation', () => {
     {
       expected: {
         profile: 'default',
-        rootPath: '/home/me/.local/share/BrainStrike Desktop/data',
+        rootPath: '/home/me/.local/share/Brainstrike/data',
         source: 'packaged',
       },
       name: 'packaged Linux treats an empty XDG_DATA_HOME as unset (XDG spec)',
@@ -112,7 +112,7 @@ describe('resolveDatabaseLocation', () => {
     {
       expected: {
         profile: 'default',
-        rootPath: '/home/me/.local/share/BrainStrike Desktop/data',
+        rootPath: '/home/me/.local/share/Brainstrike/data',
         source: 'packaged',
       },
       name: 'packaged Linux ignores a relative XDG_DATA_HOME (XDG spec: invalid, ignored)',

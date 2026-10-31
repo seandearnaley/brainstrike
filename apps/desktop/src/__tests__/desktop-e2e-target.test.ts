@@ -29,7 +29,7 @@ describe('resolveDesktopE2eTarget (BST-2190)', () => {
   });
 
   it('launches the packaged executable the release layout names', () => {
-    const file = executable('BrainStrike Desktop');
+    const file = executable('Brainstrike');
     expect(resolveDesktopE2eTarget({ [DESKTOP_E2E_TARGET_ENV]: 'packaged' }, () => file)).toEqual({
       executablePath: file,
       kind: 'packaged',
@@ -46,14 +46,14 @@ describe('resolveDesktopE2eTarget (BST-2190)', () => {
   );
 
   it('fails by name when the packaged executable is missing', () => {
-    const missing = path.join(dir, 'release', 'BrainStrike Desktop');
+    const missing = path.join(dir, 'release', 'Brainstrike');
     expect(() =>
       resolveDesktopE2eTarget({ [DESKTOP_E2E_TARGET_ENV]: 'packaged' }, () => missing)
     ).toThrow(missing);
   });
 
   it('fails when the packaged path is a directory, not an executable', () => {
-    const directory = path.join(dir, 'BrainStrike Desktop.app');
+    const directory = path.join(dir, 'Brainstrike.app');
     mkdirSync(directory);
     expect(() =>
       resolveDesktopE2eTarget({ [DESKTOP_E2E_TARGET_ENV]: 'packaged' }, () => directory)
@@ -62,7 +62,7 @@ describe('resolveDesktopE2eTarget (BST-2190)', () => {
 });
 
 describe('assertLaunchedDesktopTarget (BST-2190)', () => {
-  const packaged = { executablePath: '/release/BrainStrike Desktop', kind: 'packaged' } as const;
+  const packaged = { executablePath: '/release/Brainstrike', kind: 'packaged' } as const;
 
   it('accepts the build the target names', () => {
     expect(() => assertLaunchedDesktopTarget(packaged, true)).not.toThrow();

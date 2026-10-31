@@ -18,7 +18,7 @@ const macDirectory = process.arch === 'arm64' ? 'mac-arm64' : 'mac';
 const architectureSuffix = process.arch === 'arm64' ? '-arm64' : '';
 const resources =
   process.platform === 'darwin'
-    ? path.join(desktopRoot, `release/${macDirectory}/BrainStrike Desktop.app/Contents/Resources`)
+    ? path.join(desktopRoot, `release/${macDirectory}/Brainstrike.app/Contents/Resources`)
     : path.join(
         desktopRoot,
         `release/${process.platform === 'win32' ? 'win' : 'linux'}${architectureSuffix}-unpacked/resources`

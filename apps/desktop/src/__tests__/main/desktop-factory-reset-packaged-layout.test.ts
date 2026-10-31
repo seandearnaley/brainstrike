@@ -41,7 +41,7 @@ describe('factory reset with the packaged macOS database layout', () => {
       isTestRun: false,
       paths: { documents: '/unused', home: '/unused', userData },
       platform: 'darwin',
-      productDirName: 'BrainStrike Desktop',
+      productDirName: 'Brainstrike',
       readGitContext: () => null,
     });
     const pgdata = path.join(rootPath, 'profiles', profile, 'pgdata');
@@ -102,7 +102,7 @@ describe('factory reset with the packaged macOS database layout', () => {
         isTestRun: false,
         paths: { documents: '/unused', home: '/unused', userData: respelled },
         platform: 'darwin',
-        productDirName: 'BrainStrike Desktop',
+        productDirName: 'Brainstrike',
         readGitContext: () => null,
       });
       const profileDirectory = path.join(rootPath, 'profiles', profile);

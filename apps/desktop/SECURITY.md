@@ -1,6 +1,6 @@
-# Security Implementation for BrainStrike Desktop
+# Security Implementation for Brainstrike
 
-This document outlines the security measures implemented in the BrainStrike Desktop Electron application.
+This document outlines the security measures implemented in the Brainstrike Electron application.
 
 ## Content Security Policy (CSP)
 
