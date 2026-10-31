@@ -82,6 +82,20 @@ describe('target facts on pages without a form (BST-2375)', () => {
     expect(decide(page, '#more', click)).toBeUndefined();
   });
 
+  it('leaves a formless button beside a real login form to that form', () => {
+    const page = `
+      <div class="profile">
+        <label>Name <input id="name"></label>
+        <button id="save" type="button">Save</button>
+      </div>
+      <form id="login"><input type="password" value="typed"><button>Sign in</button></form>
+      <label>Size <input id="size"></label>
+      <button id="apply" type="button">Apply</button>`;
+    expect(decide(page, '#save', click)).toBeUndefined();
+    // Directly under <body>, nothing stands in for a form.
+    expect(decide(page, '#apply', click)).toBeUndefined();
+  });
+
   it('counts a password field that joins the login form from outside it', () => {
     const page = `
       <form id="login"><input id="user" name="username"><button id="send">Continue</button></form>

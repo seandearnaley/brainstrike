@@ -58,17 +58,20 @@ export const TARGET_FACTS_FUNCTION = `function () {
   const BUTTONS = 'button, input[type="submit"], input[type="button"], input[type="image"], [role="button"]';
   const tag = lower(el.tagName);
   const form = el.form || el.closest('form');
-  // Without a form, a script-driven page groups its fields in some container:
-  // the nearest one holding another field (or, from a field, a button) stands
-  // in for the form, and any button in it may send its fields. Whether a field
-  // is filled is not asked: the browser hides an autofilled password's value
-  // until the page is touched.
+  // Without a form, a script-driven page groups its fields in some container
+  // below <body>: the nearest one holding another field (or, from a field, a
+  // button) stands in for the form, and any button in it may send its fields.
+  // Controls of a real form are that form's, so they never count here. Whether
+  // a field is filled is not asked: the browser hides an autofilled password's
+  // value until the page is touched.
+  const isField = (node) => node.matches(FIELDS) && !node.matches(BUTTONS);
+  const formless = (node) => !node.form;
   let group = null;
   if (!form) {
     // A button sends fields, so a row of buttons alone is not its group.
-    const isField = (node) => node.matches(FIELDS) && !node.matches(BUTTONS);
-    const counts = isField(el) ? () => true : isField;
-    for (let node = el.parentElement; node && !group; node = node.parentElement) {
+    const counts = isField(el) ? formless : (node) => formless(node) && isField(node);
+    const top = el.ownerDocument.body;
+    for (let node = el.parentElement; node && node !== top && !group; node = node.parentElement) {
       const controls = Array.from(node.querySelectorAll(FIELDS + ', ' + BUTTONS));
       if (controls.some((control) => control !== el && !el.contains(control) && counts(control))) {
         group = node;
@@ -86,11 +89,11 @@ export const TARGET_FACTS_FUNCTION = `function () {
   // HTML's implicit submission presses the form's first submit button in tree order.
   const defaultButton = form
     ? formControls.find(isSubmitButton)
-    : group && group.querySelector(BUTTONS);
+    : group && Array.from(group.querySelectorAll(BUTTONS)).find(formless);
   const fields = form
     ? formControls.filter((node) => node.matches(FIELDS))
     : group
-      ? Array.from(group.querySelectorAll(FIELDS))
+      ? Array.from(group.querySelectorAll(FIELDS)).filter(formless)
       : [];
   const scope = form || group;
   return {
