@@ -8,13 +8,7 @@ import {
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { Button } from '@brainstrike/ui';
-import {
-  type ReactElement,
-  type ReactNode,
-  useCallback,
-  useMemo,
-  useSyncExternalStore,
-} from 'react';
+import { type ReactElement, type ReactNode, useMemo, useSyncExternalStore } from 'react';
 import { type HostTreeApprovals, stopHostChildTurns } from './host-tree-approvals';
 
 const logger = createLogger('HostChildTreeNotices');
@@ -35,23 +29,17 @@ export function HostChildrenRunning({
   readonly tree: Pick<HostTreeApprovals, 'getRunning' | 'subscribe' | 'threadId'>;
 }): ReactElement | null {
   const running = useSyncExternalStore(tree.subscribe, tree.getRunning, tree.getRunning);
-  const owners = useMemo(() => running.children.map((child) => child.owner), [running]);
-  const earlier = useMemo(
-    () => running.children.filter((child) => child.turnId !== running.activeTurnId),
-    [running]
-  );
+  const owners = running.children.map((child) => child.owner);
+  const earlier = running.children.filter((child) => child.turnId !== running.activeTurnId);
   const stoppable = useMemo(() => earlier.map((child) => child.owner), [earlier]);
-  const stop = useCallback(
-    () =>
-      stopHostChildTurns(client, tree.threadId, earlier).catch((cause: unknown) => {
-        logger.error('Background subagents could not be stopped', {
-          error: cause,
-          threadId: tree.threadId,
-        });
-        throw new Error(describeBoundaryError(cause));
-      }),
-    [client, earlier, tree.threadId]
-  );
+  const stop = () =>
+    stopHostChildTurns(client, tree.threadId, earlier).catch((cause: unknown) => {
+      logger.error('Background subagents could not be stopped', {
+        error: cause,
+        threadId: tree.threadId,
+      });
+      throw new Error(describeBoundaryError(cause));
+    });
   return <SubagentsRunningStrip onStop={stop} owners={owners} stoppable={stoppable} />;
 }
 

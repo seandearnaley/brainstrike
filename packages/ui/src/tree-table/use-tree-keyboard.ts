@@ -490,9 +490,10 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     isActive,
   };
 
-  // Actions — identity-stable across renders. Row click handlers list this
-  // object in their dependency chain; a per-render literal would give every
-  // TreeTableRow a fresh onClick and defeat the row memo (see
+  // Actions — identity-stable across renders through React Compiler
+  // memoization. Row click handlers list this object in their dependency
+  // chain; if it changed every render, every TreeTableRow would get a fresh
+  // onClick and the row memo would not help (see
   // tree-table-render-stability.test.tsx).
   const actions: KeyboardNavigationActions = {
     collapseOrMoveLeft,

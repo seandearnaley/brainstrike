@@ -109,13 +109,10 @@ function TabStripContent({
   const trailingRef = useRef<HTMLDivElement>(null);
   const [announcement, setAnnouncement] = useState('');
 
-  const allItems = useMemo(() => [...pinnedItems, ...items], [items, pinnedItems]);
-  const allIds = useMemo(() => allItems.map((item) => item.id), [allItems]);
+  const allItems = [...pinnedItems, ...items];
+  const allIds = allItems.map((item) => item.id);
   const scrollIds = useMemo(() => items.map((item) => item.id), [items]);
-  const reorderableIds = useMemo(
-    () => items.flatMap((item) => (item.reorderable === false ? [] : [item.id])),
-    [items]
-  );
+  const reorderableIds = items.flatMap((item) => (item.reorderable === false ? [] : [item.id]));
   const tabStopId = activeId !== null && allIds.includes(activeId) ? activeId : (allIds[0] ?? null);
 
   const overflow = useTabStripOverflow(scrollRef, scrollIds.join('\n'));

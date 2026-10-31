@@ -2,7 +2,7 @@ import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/nat
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolMenuConfig, AssistantToolMenuItem } from '@brainstrike/assistant-ui';
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import { hasDesktopRuntimeBridge } from '../assistant-panel/use-assistant-execution-controls';
 import {
   formatToolLabel,
@@ -57,12 +57,12 @@ export function useAssistantToolMenu({
       }),
     [nativeToolIds, nativeToolStates]
   );
-  const handleOpenToolSettings = useCallback(() => {
+  const handleOpenToolSettings = () => {
     openSettings();
     if (typeof window !== 'undefined') {
       window.location.hash = '#settings/ai-tools';
     }
-  }, [openSettings]);
+  };
 
   return useAssistantMcpMenuState({
     nativeToolItems,

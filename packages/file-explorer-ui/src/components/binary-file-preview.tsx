@@ -52,15 +52,11 @@ export function BinaryFilePreview({ rootPath, tab }: BinaryFilePreviewProps) {
   const registry = useActionRegistry();
   const { toast } = useToast();
 
-  const target = useMemo(
-    () =>
-      fileViewerToTarget(tab, rootPath, {
-        selectionText: null,
-        sourceRange: null,
-        viewMode: 'source',
-      }),
-    [rootPath, tab]
-  );
+  const target = fileViewerToTarget(tab, rootPath, {
+    selectionText: null,
+    sourceRange: null,
+    viewMode: 'source',
+  });
 
   const actions = useMemo(() => pickButtonActions(registry, target), [registry, target]);
 

@@ -375,7 +375,7 @@ export function useBackgroundTokenIndexerIntegration({
         size: map.size,
       });
     }, 500); // Wait 500ms for tree to stabilize before rebuilding
-  }; // Empty deps - uses refs for all values
+  };
 
   /**
    * Effect A (tree-driven): When fileTree changes, mark map as stale.

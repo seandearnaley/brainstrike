@@ -23,6 +23,6 @@ export function useForestExpandConfirm(forestActions: ForestTreeActionsValue | n
     setIsOpen(false);
     void forestActions?.runExpandAll();
   };
-  // Memoized: this object feeds the toolbar's memoized expand-all callback.
+  // The compiler memoizes this object; it feeds the toolbar's expand-all callback.
   return { confirm, dismiss, isOpen, stage };
 }

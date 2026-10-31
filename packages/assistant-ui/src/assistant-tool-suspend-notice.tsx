@@ -19,7 +19,7 @@ import { Button } from '@brainstrike/ui';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { Predicate } from 'effect';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
-import { type ReactNode, use, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, use, useCallback, useEffect, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useApprovalOwnerMessages } from './approval-owner-thread-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
@@ -208,76 +208,73 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
     lockedByRun ||
     readRediscoveredPauseDisplay(request)?.decisionState !== undefined;
 
-  const submit = useCallback(
-    (resumeData: unknown, summary: string): void => {
-      if (!request || locked) {
-        return;
-      }
-      setSendError(null);
-      const action: AssistantToolResumeAction = {
-        resumeData,
-        ...getToolActionTarget(request),
-        // Mirrors the approval echo: the pause's durable host leg is what the
-        // history topology adapter anchors the suspended message on.
-        ...(request.hostRunId ? { hostRunId: request.hostRunId } : {}),
-        toolName: request.toolName,
-      };
-      const message = {
-        content: [{ text: summary, type: 'text' }],
-        metadata: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: action } },
-        role: 'user',
-        runConfig: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: action } },
-        startRun: true,
-      } satisfies CreateAppendMessage;
+  const submit = (resumeData: unknown, summary: string): void => {
+    if (!request || locked) {
+      return;
+    }
+    setSendError(null);
+    const action: AssistantToolResumeAction = {
+      resumeData,
+      ...getToolActionTarget(request),
+      // Mirrors the approval echo: the pause's durable host leg is what the
+      // history topology adapter anchors the suspended message on.
+      ...(request.hostRunId ? { hostRunId: request.hostRunId } : {}),
+      toolName: request.toolName,
+    };
+    const message = {
+      content: [{ text: summary, type: 'text' }],
+      metadata: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: action } },
+      role: 'user',
+      runConfig: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: action } },
+      startRun: true,
+    } satisfies CreateAppendMessage;
 
-      const sendNow = (queued: CreateAppendMessage): void => {
-        setSubmittedOutcomeKey(runOutcomeKey);
-        // `append` returns void in the installed assistant-ui: a failed resumed
-        // run arrives as thread state (`retryable` above), never as a rejection
-        // here. Only a synchronous throw (e.g. an unavailable thread scope) is
-        // ours to report.
-        try {
-          aui.thread().append(queued);
-        } catch (error) {
-          setSubmittedOutcomeKey(null);
-          setSendError(getErrorMessage(error));
-          logger.warn('Failed to append tool resume action', {
-            error,
-            runId: request.runId,
-            toolCallId: request.toolCallId,
-          });
-        }
-      };
-      // Same rule as the approval notice: a typed answer during a run is
-      // delivered into the run when the host offers a live transport, and
-      // otherwise waits in the follow-up queue instead of cancelling the run.
+    const sendNow = (queued: CreateAppendMessage): void => {
       setSubmittedOutcomeKey(runOutcomeKey);
-      const dispatch = decisionRoute
-        ? decisionRoute.dispatch(message)
-        : submitDecisionOrQueue({
-            append: sendNow,
-            isRunning,
-            message,
-          });
-      dispatch.then(
-        (outcome) => {
-          if (outcome === 'queued') {
-            setSubmittedOutcomeKey(null);
-          }
-        },
-        (error: unknown) => {
+      // `append` returns void in the installed assistant-ui: a failed resumed
+      // run arrives as thread state (`retryable` above), never as a rejection
+      // here. Only a synchronous throw (e.g. an unavailable thread scope) is
+      // ours to report.
+      try {
+        aui.thread().append(queued);
+      } catch (error) {
+        setSubmittedOutcomeKey(null);
+        setSendError(getErrorMessage(error));
+        logger.warn('Failed to append tool resume action', {
+          error,
+          runId: request.runId,
+          toolCallId: request.toolCallId,
+        });
+      }
+    };
+    // Same rule as the approval notice: a typed answer during a run is
+    // delivered into the run when the host offers a live transport, and
+    // otherwise waits in the follow-up queue instead of cancelling the run.
+    setSubmittedOutcomeKey(runOutcomeKey);
+    const dispatch = decisionRoute
+      ? decisionRoute.dispatch(message)
+      : submitDecisionOrQueue({
+          append: sendNow,
+          isRunning,
+          message,
+        });
+    dispatch.then(
+      (outcome) => {
+        if (outcome === 'queued') {
           setSubmittedOutcomeKey(null);
-          setSendError(getErrorMessage(error));
-          logger.warn('Failed to deliver tool resume action', {
-            error,
-            runId: request.runId,
-            toolCallId: request.toolCallId,
-          });
         }
-      );
-    },
-    [aui, decisionRoute, isRunning, locked, request, runOutcomeKey]
-  );
+      },
+      (error: unknown) => {
+        setSubmittedOutcomeKey(null);
+        setSendError(getErrorMessage(error));
+        logger.warn('Failed to deliver tool resume action', {
+          error,
+          runId: request.runId,
+          toolCallId: request.toolCallId,
+        });
+      }
+    );
+  };
 
   return { locked, sendError, submit };
 }
@@ -345,10 +342,7 @@ function UnreadableSuspendPayloadNotice({
   title: string;
 }) {
   const pauseKey = `${request.runId}:${request.toolCallId}:${request.toolName}`;
-  const payloadDetail = useMemo(
-    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
-    [request.suspendPayload]
-  );
+  const payloadDetail = serializeSuspendPayloadDiagnostic(request.suspendPayload);
   useEffect(() => {
     if (!rememberUnreadablePauseLogIdentity(pauseKey)) {
       return;
@@ -386,7 +380,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
   const [feedback, setFeedback] = useState('');
   const plan = readSubmitPlanPayload(request.suspendPayload);
 
-  const approve = useCallback(() => {
+  const approve = () => {
     // Exit plan mode BEFORE composing the resume request so the rebuilt server
     // runtime unlocks the mutation tools for the approved plan. Reject keeps
     // plan mode on (handled by NOT calling this on the reject path). Forwarded
@@ -398,7 +392,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
       feedback.trim() ? { action: 'approved', feedback: feedback.trim() } : { action: 'approved' },
       'Approved the plan.'
     );
-  }, [exitPlanMode, feedback, request.delegation, submit]);
+  };
 
   if (plan === null) {
     return (
@@ -505,11 +499,8 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   // never the legacy bare string/array: the 1.56+ suspend-resume transport can
   // only attach the `approved: true` rider to plain-object payloads, and a
   // bare answer to an ask-gated askUser would be denied by Mastra.
-  const submitAnswer = useCallback(
-    (answer: AskUserResumeData['answer'], summary: string) =>
-      submit({ answer } satisfies AskUserResumeData, summary),
-    [submit]
-  );
+  const submitAnswer = (answer: AskUserResumeData['answer'], summary: string) =>
+    submit({ answer } satisfies AskUserResumeData, summary);
   const [freeText, setFreeText] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const payload = readAskUserPayload(request.suspendPayload);
@@ -517,7 +508,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const options: AskUserOption[] = payload?.options ?? [];
   const isMultiSelect = payload?.selectionMode === 'multi_select';
 
-  const toggle = useCallback((label: string) => {
+  const toggle = (label: string) => {
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(label)) {
@@ -527,7 +518,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
       }
       return next;
     });
-  }, []);
+  };
 
   if (payload === null) {
     return (
@@ -662,10 +653,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
  */
 function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const [dismissed, setDismissed] = useState(false);
-  const detail = useMemo(
-    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
-    [request.suspendPayload]
-  );
+  const detail = serializeSuspendPayloadDiagnostic(request.suspendPayload);
   if (dismissed) {
     return null;
   }
@@ -728,14 +716,11 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
   // point: every named domain must be individually acknowledged.
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const domains = narrowNetworkSuspendPayload(request.suspendPayload);
-  const payloadDetail = useMemo(
-    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
-    [request.suspendPayload]
-  );
+  const payloadDetail = serializeSuspendPayloadDiagnostic(request.suspendPayload);
 
-  const deny = useCallback(() => {
+  const deny = () => {
     submit({ action: 'deny' } satisfies { action: 'deny' }, "You didn't allow internet access.");
-  }, [submit]);
+  };
   const allow = useCallback(() => {
     if (!domains) {
       return;

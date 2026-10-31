@@ -283,9 +283,9 @@ export function ChangesetFileDiffCard({
     }
   }, [reloadToken, runLoad]);
 
-  const retry = useCallback(() => {
+  const retry = () => {
     void runLoad();
-  }, [runLoad]);
+  };
 
   return (
     <div data-testid="changeset-file-diff-card" ref={containerRef}>

@@ -39,13 +39,13 @@ function focusAfterAnimation(ref?: RefObject<HTMLElement | null>) {
 }
 
 export function usePanelToggle(toggleFn: () => void, options: UsePanelToggleOptions = {}) {
-  const show = useCallback(() => {
+  const show = () => {
     liftInitGate(options.liftInitGate);
     safeCall(options.onBeforeShow);
     // Panel visibility is controlled via conditional rendering, not expand()
     toggleFn();
     focusAfterAnimation(options.focusRef);
-  }, [toggleFn, options.liftInitGate, options.onBeforeShow, options.focusRef]);
+  };
 
   const hide = useCallback(() => {
     liftInitGate(options.liftInitGate);

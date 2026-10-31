@@ -110,7 +110,7 @@ export function useWriteTailQueue(): WriteTailQueue {
     readonly touched: ReadonlySet<FolderWriteIdentityField>;
   } | null>(null);
 
-  const recordLiveIdentity = useCallback((identity: FolderWriteIdentity) => {
+  const recordLiveIdentity = (identity: FolderWriteIdentity) => {
     const previous = lastKnownIdentityRef.current;
     lastKnownIdentityRef.current = identity;
     if (previous === null) {
@@ -125,9 +125,9 @@ export function useWriteTailQueue(): WriteTailQueue {
       next[field] += 1;
     }
     liveIdentityRevisionsRef.current = next;
-  }, []);
+  };
 
-  const retireWriteTailIfCaughtUp = useCallback(() => {
+  const retireWriteTailIfCaughtUp = () => {
     if (pendingWriteCountRef.current !== 0) {
       return;
     }
@@ -144,19 +144,16 @@ export function useWriteTailQueue(): WriteTailQueue {
     if (threadSwitched || touchedFieldsCaughtUp) {
       writeTailRef.current = null;
     }
-  }, []);
+  };
 
-  const settleWrite = useCallback(
-    (
-      revisionsAtStart: FolderWriteIdentityRevisions,
-      touched: ReadonlySet<FolderWriteIdentityField>
-    ) => {
-      pendingWriteCountRef.current -= 1;
-      retireAfterRef.current = { revisionsAtStart, touched };
-      retireWriteTailIfCaughtUp();
-    },
-    [retireWriteTailIfCaughtUp]
-  );
+  const settleWrite = (
+    revisionsAtStart: FolderWriteIdentityRevisions,
+    touched: ReadonlySet<FolderWriteIdentityField>
+  ) => {
+    pendingWriteCountRef.current -= 1;
+    retireAfterRef.current = { revisionsAtStart, touched };
+    retireWriteTailIfCaughtUp();
+  };
 
   // Stable identity, same reason as the other exports below: consumed by
   // enqueueThreadFoldersWrite's own useCallback, so a fresh function every

@@ -36,7 +36,6 @@ export function useWorkspaceFilterFn(): (tree: IFileNode[]) => IFileNode[] {
   // Get the filter implementation
   const { applyFileFilters } = useFileFilters();
 
-  // Create memoized filter function
   const filterTreeFn = (tree: IFileNode[]) =>
     applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
 

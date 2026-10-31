@@ -262,7 +262,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // This is critical for the slow path in selectAllRecursively to respect workspace filters
   const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
 
-  // Create a memoized filter function for the slow path in selectAllRecursively.
+  // The filter function for the slow path in selectAllRecursively.
   // This function is called when the worker returns an unfiltered tree after loading directories.
   // It ensures workspace include/exclude filters are applied before file selection.
   // Uses activeIncludeFilters/activeExcludeFilters to respect disabled filter toggles.

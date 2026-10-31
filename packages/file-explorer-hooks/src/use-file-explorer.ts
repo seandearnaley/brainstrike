@@ -11,7 +11,6 @@ export interface UseFileExplorerParams {
 }
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
-  // Stabilize callback to avoid dependency churn - memoize the function itself
   const callback = (paths: Set<string>) => {
     if (onDisplayedFilePathsChange) {
       onDisplayedFilePathsChange(paths);

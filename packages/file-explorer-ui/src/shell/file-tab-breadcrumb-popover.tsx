@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactElement, useEffect, useMemo, useState } from 'react';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import { BreadcrumbMiniTree } from './breadcrumb-mini-tree';
 import {
@@ -34,10 +34,7 @@ function PopoverTree({
   segmentPath,
 }: Omit<FileTabBreadcrumbPopoverProps, 'compositeKey'>): ReactElement {
   const treeContext = useFileTreeContext();
-  const parentPath = useMemo(
-    () => resolveMiniTreeParentPath(segmentPath, rootPath),
-    [rootPath, segmentPath]
-  );
+  const parentPath = resolveMiniTreeParentPath(segmentPath, rootPath);
   const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(() => new Set());
   const chain = useMemo(
     () => collectMiniTreeLoadChain(parentPath, rootPath),
@@ -69,10 +66,8 @@ function PopoverTree({
   // the parent node PRESENT but its children unloaded. Ensure the parent's
   // children load whenever it sits unloaded — without this the popover would
   // render an empty tree for a non-empty directory.
-  const parentNode = useMemo(
-    () => (parentPath === null ? null : findMiniTreeNode(treeContext.fileTree, parentPath)),
-    [parentPath, treeContext.fileTree]
-  );
+  const parentNode =
+    parentPath === null ? null : findMiniTreeNode(treeContext.fileTree, parentPath);
   useEffect(() => {
     if (parentNode?.type !== 'directory') {
       return;
@@ -83,34 +78,28 @@ function PopoverTree({
     }
   }, [loadChildren, parentNode]);
 
-  const entries = useMemo(
-    () => flattenMiniTreeEntries(treeContext.fileTree, parentPath, expandedPaths),
-    [expandedPaths, parentPath, treeContext.fileTree]
-  );
+  const entries = flattenMiniTreeEntries(treeContext.fileTree, parentPath, expandedPaths);
 
-  const handleToggleDir = useCallback(
-    (path: string) => {
-      // Side effects stay OUT of the state updater — React may re-invoke
-      // updaters (they must be pure), which would double-fire loadChildren.
-      const expanding = !expandedPaths.has(path);
-      setExpandedPaths((previous) => {
-        const next = new Set(previous);
-        if (next.has(path)) {
-          next.delete(path);
-        } else {
-          next.add(path);
-        }
-        return next;
-      });
-      if (expanding) {
-        const node = findMiniTreeNode(treeContext.fileTree, path);
-        if (node && node.loadState !== 'loaded') {
-          void loadChildren(path);
-        }
+  const handleToggleDir = (path: string) => {
+    // Side effects stay OUT of the state updater — React may re-invoke
+    // updaters (they must be pure), which would double-fire loadChildren.
+    const expanding = !expandedPaths.has(path);
+    setExpandedPaths((previous) => {
+      const next = new Set(previous);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
       }
-    },
-    [expandedPaths, loadChildren, treeContext.fileTree]
-  );
+      return next;
+    });
+    if (expanding) {
+      const node = findMiniTreeNode(treeContext.fileTree, path);
+      if (node && node.loadState !== 'loaded') {
+        void loadChildren(path);
+      }
+    }
+  };
 
   // Three terminal render states, resolved in order — never a silent empty
   // tree (or an eternal spinner) for a directory that failed to enumerate:

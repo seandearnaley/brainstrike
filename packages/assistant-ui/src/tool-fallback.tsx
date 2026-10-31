@@ -1,5 +1,5 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { toolCallRan } from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
@@ -99,7 +99,7 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   // non-interactive group until a result lands. It is a programmatic target
   // only (tabIndex -1), so the Tab order is unchanged.
   const cardRef = useRef<HTMLDivElement>(null);
-  const decisionRef = useCallback((decision: HTMLFieldSetElement | null) => {
+  const decisionRef = (decision: HTMLFieldSetElement | null) => {
     if (!decision) {
       return;
     }
@@ -110,7 +110,7 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         cardRef.current?.focus({ preventScroll: true });
       }
     };
-  }, []);
+  };
 
   const hasResult = result !== undefined;
   const { glyphState, runPythonResult } = resolveCardStatus(
@@ -131,18 +131,12 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
 
   // The verb reads the call's own arguments (a canvas call by its action) and
   // rules which argument, if any, names the row's target.
-  const verb = useMemo(
-    () => verbForTool(toolName, readToolArgs(displayArgs, displayArgsText)),
-    [displayArgs, displayArgsText, toolName]
-  );
+  const verb = verbForTool(toolName, readToolArgs(displayArgs, displayArgsText));
   const primaryArg = useMemo(
     () => extractPrimaryArg(displayArgs, displayArgsText, verb.targetArg),
     [displayArgs, displayArgsText, verb]
   );
-  const resultSummary = useMemo(
-    () => (isError || !policy.showResultSummary ? undefined : summarizeResult(result)),
-    [isError, policy.showResultSummary, result]
-  );
+  const resultSummary = isError || !policy.showResultSummary ? undefined : summarizeResult(result);
   // A failed call says why on its collapsed row (the shared rule).
   const failureReason = useMemo(
     () => failureReasonSummary(isError, errorMessage, policy.showResultSummary),
@@ -157,10 +151,8 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
       : errorMessage;
   // A group spanning one root says so once, in its folder chip; each row
   // names its root only when the group's calls span more than one.
-  const resolvedRootName = useMemo(
-    () => (groupView?.showRootChip === false ? undefined : extractResolvedRootName(result)),
-    [groupView, result]
-  );
+  const resolvedRootName =
+    groupView?.showRootChip === false ? undefined : extractResolvedRootName(result);
 
   const category = classifyToolName(toolName);
   const tint = categoryTintClasses(category);
