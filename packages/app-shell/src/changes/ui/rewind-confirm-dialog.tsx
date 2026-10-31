@@ -279,9 +279,7 @@ function RewindConfirmBody({
     if (preview?.ok !== true) {
       return;
     }
-    setApplying(true);
-    setApplyError(null);
-    try {
+    const applyRewind = async (): Promise<void> => {
       const outcome = await rewind.apply({
         // The flag carries ONLY what the user actually ticked, and only in the
         // mode where it means anything.
@@ -339,9 +337,16 @@ function RewindConfirmBody({
         // repopulation — never a fabricated prompt.
         useRewindComposerStore.getState().requestComposerText(request.composerText);
       }
-    } finally {
+    };
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await applyRewind();
+    } catch (error) {
       setApplying(false);
+      throw error;
     }
+    setApplying(false);
   };
 
   if (result) {

@@ -83,6 +83,16 @@ function clearWorkspaceSaveTimer(timer: { current: ReturnType<typeof setTimeout>
   timer.current = null;
 }
 
+/** Runs one workspace write with the hydrating flag raised, so the save path ignores it. */
+function whileHydrating(hydrating: { current: boolean }, write: () => void): void {
+  hydrating.current = true;
+  try {
+    write();
+  } finally {
+    hydrating.current = false;
+  }
+}
+
 function matchesPendingHydrationSave(
   pending: PendingHydrationSave | null,
   intent: number,
@@ -727,13 +737,13 @@ export function useThreadWorkspaceCoordinator({
       pendingHydrationSaveRef.current = null;
     };
     const hydrate = (snapshot: WorkspaceSnapshotV1) => {
-      hydratingRef.current = true;
       try {
-        applyWorkspaceSnapshot(snapshot, facadeRef.current);
-      } finally {
-        hydratingRef.current = false;
+        whileHydrating(hydratingRef, () => applyWorkspaceSnapshot(snapshot, facadeRef.current));
+      } catch (error) {
         clearHydrationTracking();
+        throw error;
       }
+      clearHydrationTracking();
       navigation?.complete(resourceId, activeThreadId);
     };
     const hydrateLoadedSnapshot = (snapshot: WorkspaceSnapshotV1) => {
@@ -793,12 +803,7 @@ export function useThreadWorkspaceCoordinator({
         // already show it; only the outgoing thread's child conversations,
         // canvases and browser pages stay behind: they belong to that thread.
         if (inheritedThreadTabs.length > 0) {
-          hydratingRef.current = true;
-          try {
-            facadeRef.current.closeApps(inheritedThreadTabs);
-          } finally {
-            hydratingRef.current = false;
-          }
+          whileHydrating(hydratingRef, () => facadeRef.current.closeApps(inheritedThreadTabs));
         }
         clearHydrationTracking();
         navigation?.complete(resourceId, activeThreadId);

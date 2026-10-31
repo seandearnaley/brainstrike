@@ -37,7 +37,8 @@ export function useDatabaseStatusSync(): void {
     let active = true;
     let latest = 0;
     const read = (): void => {
-      const request = ++latest;
+      latest += 1;
+      const request = latest;
       void catalog.read().then(
         () => {
           if (active && request === latest) {

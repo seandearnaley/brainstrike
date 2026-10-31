@@ -170,19 +170,18 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): BranchSwitcher {
       setPending(true);
       try {
         const result = await op();
-        if (!result.ok) {
+        if (result.ok) {
+          // Worktree-affecting mutation: refresh the inventory AND re-read the
+          // repository so the next open describes post-switch topology.
+          await refreshInventory();
+          setReloadNonce((nonce) => nonce + 1);
+        } else {
           reportFailure(title, describeBoundaryFailure(result.error));
-          return;
         }
-        // Worktree-affecting mutation: refresh the inventory AND re-read the
-        // repository so the next open describes post-switch topology.
-        await refreshInventory();
-        setReloadNonce((nonce) => nonce + 1);
       } catch (error) {
         reportFailure(title, error instanceof Error ? error.message : String(error));
-      } finally {
-        setPending(false);
       }
+      setPending(false);
     },
     [refreshInventory]
   );
