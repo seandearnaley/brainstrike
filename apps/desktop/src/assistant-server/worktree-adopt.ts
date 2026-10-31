@@ -244,8 +244,8 @@ export async function adoptWorktree(
     return {
       error:
         existing.archivedAt === null
-          ? `BrainStrike already manages the worktree at "${descriptor.path}".`
-          : `BrainStrike archived a worktree at "${descriptor.path}" — restore that one instead of adopting a new checkout at the same path.`,
+          ? `Brainstrike already manages the worktree at "${descriptor.path}".`
+          : `Brainstrike archived a worktree at "${descriptor.path}" — restore that one instead of adopting a new checkout at the same path.`,
       ok: false,
     };
   }
@@ -260,7 +260,7 @@ export async function adoptWorktree(
   const row: ManagedWorktreeRow = {
     archivedAt: null,
     archiveSnapshotRef: null,
-    // The worktree existed before BrainStrike knew about it, so there is no
+    // The worktree existed before Brainstrike knew about it, so there is no
     // creation base to record. HEAD-at-adoption is the honest reference point:
     // "unpushed" then means "committed here since we started managing it".
     baseRef: headRun.stdout.trim(),
@@ -469,7 +469,7 @@ export async function reconcileWorktreesFromShell(
   // narrowed further still — `adoptWorktree`'s own `ledger.getByPath` check
   // (below) refuses anything with an existing ledger row, live or archived,
   // so under-inclusion can only mis-attribute a worktree that is BOTH new to
-  // the cache AND never previously known to BrainStrike at all: a genuinely
+  // the cache AND never previously known to Brainstrike at all: a genuinely
   // externally-created checkout that lands inside that cache window. Forcing
   // freshness here would not close even that narrow race outright (there is
   // always some latency before "now"), so there is no comparable, always-
@@ -680,7 +680,7 @@ export function ghostListEntry(
  * an unusable row is still returned, still carries its reason, and names the
  * remedy when one exists.
  *
- * An in-root worktree with no ledger row is unusable because BrainStrike did
+ * An in-root worktree with no ledger row is unusable because Brainstrike did
  * not create it, independently of the trust, lock, and prune gates above.
  *
  * `outside-roots` is NOT terminal: a managed worktree is authorized by the

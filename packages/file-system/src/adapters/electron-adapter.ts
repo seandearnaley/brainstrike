@@ -355,7 +355,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       const result = await dialog.showOpenDialog({
         // Add these properties to improve dialog behavior
         buttonLabel: 'Select Folder',
-        message: 'Choose a directory to explore with BrainStrike',
+        message: 'Choose a directory to explore with Brainstrike',
         properties: ['openDirectory'],
         title: 'Select a folder to explore',
       });

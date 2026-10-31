@@ -9,7 +9,7 @@ import {
  *
  * SECURITY POSTURE (ruling S1). A path from any of these is a REQUEST, never a
  * grant. `open-file` and argv are attacker-influencable — any other process can
- * run `open -a BrainStrike <path>` — and a mounted root is read access for the
+ * run `open -a Brainstrike <path>` — and a mounted root is read access for the
  * agent, so this hook never records a grant. It calls the existing picker-less
  * `addRootDirectoryByPath`, whose TWO main-side gates (the recent-roots ledger,
  * then the managed-worktree authorizer) decide, and renders a refusal that
@@ -125,7 +125,7 @@ export function useConnectFolder(): ConnectFolderApi {
             // Persistent for the same reason the rewind redo toast is: this
             // toast IS the remedy, and a 5s default would strand it.
             persistent: true,
-            title: 'BrainStrike has not been granted access to this folder',
+            title: 'Brainstrike has not been granted access to this folder',
             variant: 'destructive',
           });
           return null;
