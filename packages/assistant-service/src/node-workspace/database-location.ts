@@ -172,7 +172,7 @@ function packagedRootPath(input: DatabaseLocationInput): string {
       return platformPath.join(input.paths.userData, PACKAGED_DATA_DIR_NAME);
     case 'win32': {
       // Non-roaming: userData lives under %APPDATA% (Roaming), which Windows
-      // may sync to the cloud, and a PGlite data directory must never be.
+      // may sync to the cloud, and a database directory must never be.
       const localAppData = input.env.localAppData?.trim();
       if (!(localAppData && isFullyQualified(localAppData, input.platform))) {
         throw new Error(

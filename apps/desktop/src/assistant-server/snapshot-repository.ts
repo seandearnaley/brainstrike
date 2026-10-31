@@ -31,12 +31,11 @@ let monotonicCounter = 0;
 /**
  * App-side UUIDv7 (RFC 9562): 48-bit millisecond timestamp, version and
  * variant bits, a 12-bit per-millisecond MONOTONIC counter in rand_a (RFC
- * 9562 §6.2 method 2), and 62 random bits in rand_b. Postgres 18's
- * `uuidv7()` exists, but the id is minted here so the caller owns it before
- * the INSERT round trip — and so ids from this process sort in MINT ORDER
- * even within one millisecond, which is what makes `ORDER BY created_at, id`
- * deterministic when PGlite stamps two snapshot rows with a tied timestamp
- * (empirically observed: consecutive inserts can tie `NOW()`).
+ * 9562 §6.2 method 2), and 62 random bits in rand_b. The id is minted here so
+ * the caller owns it before the INSERT round trip — and so ids from this
+ * process sort in MINT ORDER even within one millisecond, which is what makes
+ * `ORDER BY created_at, id` deterministic when two snapshot rows carry a tied
+ * timestamp (consecutive inserts can tie).
  */
 export function generateWorkspaceSnapshotId(nowMs = Date.now()): string {
   if (!(Number.isSafeInteger(nowMs) && nowMs >= 0 && nowMs < UUID_V7_MAX_TIMESTAMP_MS)) {

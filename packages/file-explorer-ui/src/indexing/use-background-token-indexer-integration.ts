@@ -118,7 +118,7 @@ function doesPreloadedSnapshotCoverSelection(
 
 // Foreground selection-driven dispatch is intentionally NOT gated on
 // `isImporting` or `isEmbeddingActive`. The tokenizer worker is CPU-only, and
-// PGLite serializes cache writes internally so concurrent `TokenCacheStore.set`
+// the in-memory cache store applies each `set` synchronously, so concurrent
 // calls from the foreground and background paths cannot corrupt data.
 function getSelectionSkipState(params: {
   hasHandleSource: boolean;
@@ -1081,8 +1081,8 @@ export function useBackgroundTokenIndexerIntegration({
     }
 
     // NOTE: Warm-cache hydration is intentionally not gated on `isImporting`.
-    // This is a READ from PGLite and does not contend with the collection
-    // sync's writes (PGLite serializes internally). Gating it here would
+    // This is a READ from the in-memory cache store and does not contend with
+    // the collection sync's writes. Gating it here would
     // strand already-persisted token counts for the entire duration of a
     // background scan, which is the opposite of what the persistent cache
     // exists to provide.

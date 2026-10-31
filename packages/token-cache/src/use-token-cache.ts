@@ -2,7 +2,7 @@
  * useTokenCache React Hook
  *
  * Provides a React-friendly API for the persistent token cache.
- * Manages hot cache (in-memory) and cold cache (PGlite) with background worker.
+ * Manages a hot in-memory cache over the supplied store, with a background worker.
  */
 
 import { createLogger } from '@brainstrike/logging';

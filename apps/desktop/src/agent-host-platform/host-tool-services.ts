@@ -40,7 +40,7 @@ export interface HostToolServiceCapabilities {
   readonly diagnostics?: DiagnosticsReader;
   /** Main's workspace index (search, grep, coverage); it stays Main-owned in M3. */
   readonly indexSearch?: IndexSearchCapability;
-  /** The retrieval catalog over Main's PGlite (embedding sets, file records, spaces). */
+  /** The retrieval catalog over Main's SQLite catalog (embedding sets, file records, spaces). */
   readonly retrievalStore?: RetrievalStore;
 }
 

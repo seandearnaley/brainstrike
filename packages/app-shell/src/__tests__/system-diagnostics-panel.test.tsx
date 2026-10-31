@@ -55,7 +55,7 @@ describe('SystemDiagnosticsPanel', () => {
       render(<SystemDiagnosticsPanel />);
 
       expect(screen.getByText('Database')).toBeInTheDocument();
-      expect(screen.getByText('PGlite database connection')).toBeInTheDocument();
+      expect(screen.getByText('Local SQLite database')).toBeInTheDocument();
     });
 
     it('renders token cache worker section', () => {
