@@ -908,13 +908,19 @@ export function useBackgroundTokenIndexer({
 
       setIsIndexing(true);
 
-      const dispatch = async (): Promise<void> => {
+      // Resolves `false` when the batch's worker was replaced during the cache read.
+      const dispatch = async (): Promise<boolean> => {
         const cachedByFolder = currentStore
           ? await readCachedEntries(currentStore, files)
           : new Map<string, Map<string, TokenCacheEntry>>();
         // Retirement can land during the cache read; nothing dispatches after it.
         if (retirementRef.current) {
           throw retirementRef.current;
+        }
+        // A worker that crashed during the read is terminated, and its restart already
+        // settled the batches it carried; this one is never posted to it.
+        if (workerRef.current !== worker) {
+          return false;
         }
         const requests = buildIndexRequests(files, cachedByFolder, currentMode);
         for (const request of requests) {
@@ -924,7 +930,7 @@ export function useBackgroundTokenIndexer({
         if (requests.length === 0) {
           setIsIndexing(false);
           setProgress(null);
-          return;
+          return true;
         }
 
         // Send batch to worker
@@ -949,8 +955,9 @@ export function useBackgroundTokenIndexer({
         pendingBatchTrackersRef.current.push(tracker);
         worker.postMessage(batchMessage);
         await completionPromise;
+        return true;
       };
-      await dispatch().catch((error: unknown) => {
+      const dispatched = await dispatch().catch((error: unknown) => {
         if (error instanceof Error && cancellationsRef.current.has(error)) {
           // The owner retired this indexer or cancelled this batch: it settles as that cancellation.
           logger.debug('indexFiles settled by owner cancellation', { fileCount: files.length });
@@ -976,6 +983,10 @@ export function useBackgroundTokenIndexer({
         setProgress(null);
         throw normalizedError;
       });
+      if (!dispatched) {
+        // Settles this batch alone: the replacement worker's batches are not this one's.
+        throw new Error('Background token indexer worker restarted during the cache read.');
+      }
     },
     [emitTerminalIndexingError, ensureWorkerReady, rejectAllPendingBatchTrackers]
   );
