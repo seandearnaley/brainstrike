@@ -1,16 +1,11 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  __resetDatabaseStatusStoreForTests,
   databaseStatusSelectors,
   useDatabaseStatusStore,
 } from '../stores/database-status-store.ts';
 
 describe('database-status-store', () => {
-  beforeEach(() => {
-    __resetDatabaseStatusStoreForTests();
-  });
-
   it('starts in loading state', () => {
     const state = useDatabaseStatusStore.getState();
     expect(state.loading).toBe(true);

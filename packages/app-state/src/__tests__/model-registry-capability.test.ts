@@ -1,10 +1,7 @@
 import { type ModelCatalogCapability, projectModelCatalog } from '@brainstrike/assistant-contract';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetModelRegistryStoreForTests,
-  useModelRegistryStore,
-} from '../stores/model-registry-store.ts';
+import { describe, expect, it, vi } from 'vitest';
+import { useModelRegistryStore } from '../stores/model-registry-store.ts';
 
 const { diagnosticError } = vi.hoisted(() => ({ diagnosticError: vi.fn() }));
 vi.mock('@brainstrike/logging', () => ({
@@ -31,8 +28,6 @@ function capability(): ModelCatalogCapability {
     setProvider: vi.fn(async () => initial),
   };
 }
-
-beforeEach(() => __resetModelRegistryStoreForTests());
 
 describe('model registry authoritative platform capability', () => {
   it('loads the complete typed catalog without any SQL capability', async () => {

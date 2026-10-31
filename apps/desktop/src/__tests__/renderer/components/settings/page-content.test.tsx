@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/agent/client';
-import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { ThemeProvider, type ThemeStorageAdapter, TooltipProvider } from '@brainstrike/ui';
@@ -169,9 +167,6 @@ beforeEach(() => {
   const extendedWindow = getWindowWithExtensions();
   extendedWindow.secrets = secrets;
   extendedWindow.mcp = mcp;
-
-  __resetAssistantPreferencesStoreForTests();
-  __resetNativeToolPreferencesStoreForTests();
 });
 
 afterEach(() => {

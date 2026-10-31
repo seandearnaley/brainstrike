@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../../stores/tab-manager-store';
+import { useTabManagerStore } from '../../stores/tab-manager-store';
 
 describe('tab-manager-store migration', () => {
   beforeEach(() => {
-    __resetTabManagerStoreForTests();
     // Clear any prior localStorage
     try {
       localStorage.removeItem('tab-manager.v1');
@@ -119,7 +118,6 @@ describe('tab-manager-store migration', () => {
 
 describe('hydrateTabs (thread-workspace coordinator entry point)', () => {
   it('replaces the tab list and active id atomically with content reset', () => {
-    __resetTabManagerStoreForTests();
     const store = useTabManagerStore.getState();
     store.openTab('src/old.ts', 'k-old', 'k-old');
 
@@ -135,13 +133,10 @@ describe('hydrateTabs (thread-workspace coordinator entry point)', () => {
     expect(state.tabs.map((tab) => tab.id)).toEqual(['folderA|@|src/a.ts', 'folderA|@|src/b.ts']);
     expect(state.activeTabId).toBe('folderA|@|src/b.ts');
     expect(state.tabs.every((tab) => tab.content === null && tab.isLoading === false)).toBe(true);
-    __resetTabManagerStoreForTests();
   });
 
   it('drops an activeTabId that is not in the hydrated list', () => {
-    __resetTabManagerStoreForTests();
     useTabManagerStore.getState().hydrateTabs([{ compositeKey: 'k1', path: 'a.ts' }], 'missing-id');
     expect(useTabManagerStore.getState().activeTabId).toBeNull();
-    __resetTabManagerStoreForTests();
   });
 });

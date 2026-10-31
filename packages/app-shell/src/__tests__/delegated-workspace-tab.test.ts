@@ -1,12 +1,7 @@
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { afterEach, describe, expect, it } from 'vitest';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { describe, expect, it } from 'vitest';
 import { delegatedWorkspaceTabId } from '../delegated-workspace-tab';
-
-afterEach(__resetWorkspaceTabSelectionStoreForTests);
 
 describe('child identity in the existing workspace tabs', () => {
   it('restores two independent children and focuses an already open child only once', () => {
@@ -29,7 +24,6 @@ describe('child identity in the existing workspace tabs', () => {
       openAppIds: store.getState().openAppIds,
       selection: store.getState().selection,
     });
-    __resetWorkspaceTabSelectionStoreForTests();
     store.getState().hydrate(saved.openAppIds, saved.selection);
     expect(store.getState().openAppIds).toEqual([a, b]);
     expect(store.getState().selection).toEqual({ appId: a, kind: 'app' });

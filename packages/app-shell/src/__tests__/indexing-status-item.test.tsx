@@ -1,6 +1,5 @@
 import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
 import {
-  __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
   type IndexingManagedCollectionStatsState,
@@ -8,10 +7,7 @@ import {
 } from '@brainstrike/app-state/stores/indexing-activity-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import {
-  __resetWorkspaceCollectionSyncStatusStoreForTests,
-  useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   DEFAULT_INDEX_CONFIG,
@@ -132,10 +128,8 @@ afterEach(async () => {
 
 describe('IndexingStatusItem', () => {
   beforeEach(() => {
-    __resetIndexingActivityStoreForTests();
     savedConfig(DEFAULT_INDEX_CONFIG);
     useModelRegistryStore.setState({ models: [] });
-    __resetWorkspaceCollectionSyncStatusStoreForTests();
     setManagedCollectionStats({
       collectionId: null,
       error: null,

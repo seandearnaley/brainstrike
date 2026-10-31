@@ -7,10 +7,7 @@
  */
 
 import '@testing-library/jest-dom/vitest';
-import {
-  __resetSkillsPreferencesStoreForTests,
-  useSkillsPreferencesStore,
-} from '@brainstrike/app-state/stores/skills-preferences-store';
+import { useSkillsPreferencesStore } from '@brainstrike/app-state/stores/skills-preferences-store';
 import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -57,7 +54,6 @@ const SCAN: SkillsScanResultSummary = {
 
 beforeEach(() => {
   window.localStorage.clear();
-  __resetSkillsPreferencesStoreForTests();
 });
 
 afterEach(() => {

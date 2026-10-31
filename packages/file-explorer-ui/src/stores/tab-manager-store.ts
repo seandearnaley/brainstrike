@@ -386,16 +386,3 @@ export const useTabManagerStore = create<TabManagerStore>()(
 );
 
 // Test-only helper to reset store and persistence between tests
-export function __resetTabManagerStoreForTests() {
-  try {
-    // Clear in-memory state
-    useTabManagerStore.setState({ activeTabId: null, tabs: [] });
-    // Clear persisted storage if available
-    const persistApi = (
-      useTabManagerStore as unknown as {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {}
-}

@@ -1,7 +1,4 @@
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { Changeset } from '@brainstrike/types';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useChangesNavigationStore } from '../changes-navigation-store';
@@ -23,7 +20,6 @@ describe('useChangesNavigationStore', () => {
       handoffThreadIdentity: null,
       isOnLastTurn: false,
     });
-    __resetWorkspaceTabSelectionStoreForTests();
   });
 
   it('starts with nothing selected', () => {

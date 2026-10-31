@@ -6,11 +6,7 @@
  */
 
 import '@testing-library/jest-dom/vitest';
-import {
-  __resetAssistantSubagentPreferencesStoreForTests,
-  useAssistantSubagentPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
-import { __resetSubagentPersonasStoreForTests } from '@brainstrike/app-state/stores/subagent-personas-store';
+import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,8 +24,6 @@ vi.mock('@brainstrike/assistant-contract', async (importOriginal) => {
 
 beforeEach(() => {
   window.localStorage.clear();
-  __resetSubagentPersonasStoreForTests();
-  __resetAssistantSubagentPreferencesStoreForTests();
   // Tree and per-child limits are USER SETTINGS; the panel must read them
   // from the preferences store, never from a constant.
   useAssistantSubagentPreferencesStore.setState({
@@ -47,7 +41,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  __resetAssistantSubagentPreferencesStoreForTests();
 });
 
 describe('SubagentPersonasSettingsSection delegation limits', () => {

@@ -23,8 +23,3 @@ export const useDiagnosticsSeenStore = create<DiagnosticsSeenState>((set) => ({
   ...initialDiagnosticsSeenState(),
   markAllSeen: (nowMs) => set({ lastSeenAtMs: nowMs }),
 }));
-
-/** Forgets the person's last look (session reset / factory reset). */
-export function resetDiagnosticsSeenStore(): void {
-  useDiagnosticsSeenStore.setState(initialDiagnosticsSeenState());
-}

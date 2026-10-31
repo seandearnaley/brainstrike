@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -25,7 +22,6 @@ import { useHostChildSidebar } from '../use-host-child-sidebar';
 const threads = useAssistantThreadStore.getState();
 afterEach(() => {
   cleanup();
-  __resetWorkspaceTabSelectionStoreForTests();
   useAssistantThreadStore.setState(threads, true);
   // No root's workspace stays ready for the next test's navigation.
   threadWorkspaceNavigation.loading('workspace', null);

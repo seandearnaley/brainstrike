@@ -1,6 +1,5 @@
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { clearPersistedStorageForTests } from './persist-api.ts';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
 interface TokenPreferencesData {
@@ -121,7 +120,3 @@ export const tokenPreferencesSelectors = {
 };
 
 // Test-only helper to reset state between suites
-export function __resetTokenPreferencesStoreForTests() {
-  clearPersistedStorageForTests(useTokenPreferencesStore);
-  useTokenPreferencesStore.setState({ accurateCounting: true });
-}

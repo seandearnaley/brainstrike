@@ -1,8 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../../stores/workspace-tab-selection-store';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useWorkspaceTabSelectionStore } from '../../stores/workspace-tab-selection-store';
 
 const STORE_KEY = 'workspace-tab-selection.v1';
 
@@ -17,14 +14,9 @@ async function rehydrate() {
 
 describe('workspace-tab-selection-store', () => {
   beforeEach(() => {
-    __resetWorkspaceTabSelectionStoreForTests();
     try {
       localStorage.removeItem(STORE_KEY);
     } catch {}
-  });
-
-  afterEach(() => {
-    __resetWorkspaceTabSelectionStoreForTests();
   });
 
   it('defaults to the Context Explorer app selection', () => {

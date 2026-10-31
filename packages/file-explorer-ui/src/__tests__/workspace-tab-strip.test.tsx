@@ -3,7 +3,7 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fileEntryActions } from '../context-actions';
 import {
   CHANGES_APP_ID,
@@ -11,11 +11,8 @@ import {
   TERMINAL_APP_ID,
   WORKTREE_MAP_APP_ID,
 } from '../shell/workspace-app';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../stores/workspace-tab-selection-store';
+import { useTabManagerStore } from '../stores/tab-manager-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import {
   CANVAS_APP,
   CHANGES_APP,
@@ -96,18 +93,11 @@ describe('workspace tab strip on the shared TabStrip', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    __resetWorkspaceTabSelectionStoreForTests();
-    __resetTabManagerStoreForTests();
     const uiModule = await import('@brainstrike/ui');
     vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
       openFileInTab: vi.fn(),
       registerOpenFileInTab: vi.fn(),
     });
-  });
-
-  afterEach(() => {
-    __resetWorkspaceTabSelectionStoreForTests();
-    __resetTabManagerStoreForTests();
   });
 
   describe('groups', () => {

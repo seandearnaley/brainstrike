@@ -135,18 +135,3 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
     }
   )
 );
-
-/** Test-only reset helper. */
-export function __resetAssistantSubagentPreferencesStoreForTests(): void {
-  try {
-    const persistApi = (
-      useAssistantSubagentPreferencesStore as typeof useAssistantSubagentPreferencesStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  }
-  useAssistantSubagentPreferencesStore.setState(defaultData());
-}

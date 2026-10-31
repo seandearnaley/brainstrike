@@ -2,7 +2,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTabManager } from '../../hooks/use-tab-manager';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../../stores/tab-manager-store';
+import { useTabManagerStore } from '../../stores/tab-manager-store';
 
 beforeAll(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -23,7 +23,6 @@ describe('useTabManager', () => {
   beforeEach(() => {
     // Reset mocks before each test
     vi.clearAllMocks();
-    __resetTabManagerStoreForTests();
     Object.defineProperty(window, 'localStorage', {
       value: localStorageMock,
       writable: true,

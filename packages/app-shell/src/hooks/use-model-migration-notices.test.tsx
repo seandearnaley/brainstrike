@@ -1,7 +1,4 @@
-import {
-  __resetAssistantPreferencesStoreForTests,
-  useAssistantPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import { StrictMode } from 'react';
@@ -32,7 +29,6 @@ const NOTICE = {
  */
 describe('useModelMigrationNotices', () => {
   beforeEach(() => {
-    __resetAssistantPreferencesStoreForTests();
     toastMock.mockReset();
   });
 

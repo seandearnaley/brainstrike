@@ -1,8 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  __resetNativeToolPreferencesStoreForTests,
-  useNativeToolPreferencesStore,
-} from '../stores/native-tool-preferences-store.ts';
+import { describe, expect, it } from 'vitest';
+import { useNativeToolPreferencesStore } from '../stores/native-tool-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useNativeToolPreferencesStore as PersistApi<
@@ -10,10 +7,6 @@ const storeWithPersist = useNativeToolPreferencesStore as PersistApi<
 >;
 
 describe('native-tool-preferences-store', () => {
-  beforeEach(() => {
-    __resetNativeToolPreferencesStoreForTests();
-  });
-
   it('defaults to enabled for known tools', () => {
     const snapshot = useNativeToolPreferencesStore.getState();
     expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);

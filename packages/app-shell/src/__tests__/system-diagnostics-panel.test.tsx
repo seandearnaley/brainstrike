@@ -2,10 +2,7 @@
  * Tests for SystemDiagnosticsPanel (BST-181)
  */
 
-import {
-  __resetDatabaseStatusStoreForTests,
-  useDatabaseStatusStore,
-} from '@brainstrike/app-state/stores/database-status-store';
+import { useDatabaseStatusStore } from '@brainstrike/app-state/stores/database-status-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -22,13 +19,11 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 
 describe('SystemDiagnosticsPanel', () => {
   beforeEach(() => {
-    __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
   afterEach(() => {
-    __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
     vi.unstubAllGlobals();
@@ -430,12 +425,10 @@ describe('SystemDiagnosticsPanel', () => {
 
 describe('createSystemDiagnosticsSettingsCategory', () => {
   beforeEach(() => {
-    __resetDatabaseStatusStoreForTests();
     mockUseOptionalTokenCacheContext.mockReturnValue(null);
   });
 
   afterEach(() => {
-    __resetDatabaseStatusStoreForTests();
     vi.clearAllMocks();
   });
 

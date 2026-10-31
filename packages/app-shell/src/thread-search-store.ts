@@ -129,7 +129,3 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
     ),
   setQuery: (query) => set({ query }),
 }));
-
-export function resetThreadSearchStore(): void {
-  useThreadSearchStore.getState().reset();
-}

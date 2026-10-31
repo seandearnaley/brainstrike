@@ -138,12 +138,10 @@ describe('FileTree', () => {
       );
       await Promise.resolve();
     });
-    // A loaded root directory auto-expands, so its child row is visible and
-    // the toggle reads Collapse. (The old /expand/i assertions only held
-    // because the fixture lacked loadState and expansion silently no-oped.)
+    expect(screen.queryByText('index.ts')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /expand/iu }));
     expect(screen.getByText('index.ts')).toBeInTheDocument();
-    const collapseButton = screen.getByRole('button', { name: /collapse/iu });
-    await user.click(collapseButton);
+    await user.click(screen.getByRole('button', { name: /collapse/iu }));
     expect(screen.getByRole('button', { name: /expand/iu })).toBeInTheDocument();
     expect(screen.queryByText('index.ts')).not.toBeInTheDocument();
   });

@@ -1,7 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import {
-  __resetAssistantMemoryPreferencesStoreForTests,
   ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
   useAssistantMemoryPreferencesStore,
 } from '../stores/assistant-memory-preferences-store.ts';
@@ -20,10 +19,6 @@ type MemoryPersistApi = typeof useAssistantMemoryPreferencesStore & {
 };
 
 describe('assistant-memory-preferences-store', () => {
-  beforeEach(() => {
-    __resetAssistantMemoryPreferencesStoreForTests();
-  });
-
   it('migrates a dropped observational memory model target to a supported one', async () => {
     const persistApi = (useAssistantMemoryPreferencesStore as MemoryPersistApi).persist;
     const options = persistApi?.getOptions?.();

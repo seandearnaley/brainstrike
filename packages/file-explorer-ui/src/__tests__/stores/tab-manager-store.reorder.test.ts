@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../../stores/tab-manager-store';
+import { useTabManagerStore } from '../../stores/tab-manager-store';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -33,7 +33,6 @@ async function rehydrate(): Promise<void> {
 describe('tab-manager-store reorderTabs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    __resetTabManagerStoreForTests();
     try {
       localStorage.removeItem(STORE_KEY);
     } catch {}

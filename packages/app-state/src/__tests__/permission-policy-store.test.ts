@@ -1,8 +1,8 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract/tool-metadata';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  __resetPermissionPolicyStoreForTests,
   buildPermissionToolGateSnapshotInput,
+  discardSavedPermissionPolicy,
   getPermissionToolGateSnapshotInput,
   restorePersistedPermissionPolicy,
   usePermissionPolicyStore,
@@ -26,8 +26,8 @@ function readPersistedState(): {
 }
 
 describe('permission-policy-store', () => {
-  beforeEach(() => {
-    __resetPermissionPolicyStoreForTests();
+  beforeEach(async () => {
+    await discardSavedPermissionPolicy();
   });
 
   it('defaults to enforce ON, read:allow, edit/execute:ask, mcp:allow, ask access, no grants or overrides', () => {
@@ -201,21 +201,21 @@ describe('permission-policy-store', () => {
     expect('sessionGrants' in restored).toBe(false);
   });
 
-  it('reset clears both in-memory state and persisted storage', async () => {
+  it('discarding the saved policy restores defaults in memory and in storage', async () => {
     const store = usePermissionPolicyStore.getState();
     await Promise.all([store.setEnforce(false), store.setAccess('full')]);
     store.grantSessionCategory('edit');
     expect(window.localStorage.getItem(STORE_KEY)).not.toBeNull();
 
-    __resetPermissionPolicyStoreForTests();
+    await discardSavedPermissionPolicy();
 
     const state = usePermissionPolicyStore.getState();
-    // Reset re-applies defaultData() → enforce ON (the secure default).
+    // Discarding re-applies defaultData() → enforce ON (the secure default).
     expect(state.enforce).toBe(true);
     expect(state.access).toBe('ask');
     expect(state.sessionGrants.size).toBe(0);
     expect(state.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
-    await vi.waitFor(() => expect(window.localStorage.getItem(STORE_KEY)).toBeNull());
+    expect(window.localStorage.getItem(STORE_KEY)).toBeNull();
   });
 
   it('restoring adopts the secure default (enforce:true) for a PRE-V2 enforce:false slice', () => {
@@ -240,8 +240,8 @@ describe('permission-policy-store', () => {
 });
 
 describe('buildPermissionToolGateSnapshotInput / getPermissionToolGateSnapshotInput', () => {
-  beforeEach(() => {
-    __resetPermissionPolicyStoreForTests();
+  beforeEach(async () => {
+    await discardSavedPermissionPolicy();
   });
 
   it('produces the serializable gate-input shape from store state (sessionGrants as array)', async () => {

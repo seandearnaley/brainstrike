@@ -1,14 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  resetDiagnosticSinkHealthStore,
-  useDiagnosticSinkHealthStore,
-} from '../diagnostics/diagnostic-sink-health-store';
+import { describe, expect, it } from 'vitest';
+import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 
 describe('diagnostic-sink-health-store', () => {
-  beforeEach(() => {
-    resetDiagnosticSinkHealthStore();
-  });
-
   it('starts with no disabled reason', () => {
     expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
   });
@@ -37,14 +30,5 @@ describe('diagnostic-sink-health-store', () => {
     expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBe(
       'new first cause after clear'
     );
-  });
-
-  it('resetDiagnosticSinkHealthStore restores the initial null state', () => {
-    useDiagnosticSinkHealthStore.getState().markDisabled('some cause');
-    expect(useDiagnosticSinkHealthStore.getState().disabledReason).not.toBeNull();
-
-    resetDiagnosticSinkHealthStore();
-
-    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
   });
 });

@@ -7,7 +7,6 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  __resetSubagentPersonasStoreForTests,
   buildSubagentPersonasAvailabilityRequest,
   getSubagentPersonasAvailabilityRequest,
   useSubagentPersonasStore,
@@ -17,7 +16,6 @@ const STORE_KEY = 'subagent-personas.v1';
 
 beforeEach(() => {
   window.localStorage.clear();
-  __resetSubagentPersonasStoreForTests();
 });
 
 describe('subagent-personas-store', () => {
@@ -75,7 +73,6 @@ describe('subagent-personas-store', () => {
       STORE_KEY,
       JSON.stringify({ state: { delegationEnabled: 'nope', disabledPersonaIds: [42] }, version: 1 })
     );
-    __resetSubagentPersonasStoreForTests();
     // Rehydrate happens on store creation; after reset-to-defaults the state is
     // valid regardless. The migrate path is exercised via persist rehydration.
     const state = useSubagentPersonasStore.getState();

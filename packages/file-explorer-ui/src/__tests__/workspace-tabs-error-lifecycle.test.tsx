@@ -7,7 +7,6 @@ import { useFileContentLoadAuthority } from '../file-content-load-authority-cont
 import { useWorkspaceTabs, type WorkspaceTabsValue } from '../shell/use-workspace-tabs';
 import { WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
 import { useTabManagerStore } from '../stores/tab-manager-store';
-import { __resetWorkspaceTabSelectionStoreForTests } from '../stores/workspace-tab-selection-store';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 vi.mock('../shell/use-file-explorer-context', () => ({
@@ -97,7 +96,6 @@ describe('workspace tab file-content error ownership', () => {
     authority = null;
     workspaceTabs = null;
     useTabManagerStore.getState().clearTabs();
-    __resetWorkspaceTabSelectionStoreForTests();
   });
 
   it('prunes a terminal error when its single file tab closes', async () => {

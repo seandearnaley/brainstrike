@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
+import { describe, expect, it } from 'vitest';
+import { useThreadSearchStore } from '../thread-search-store';
 
 const RESULT = {
   matches: [],
@@ -10,10 +10,6 @@ const RESULT = {
 };
 
 describe('thread-search-store', () => {
-  beforeEach(() => {
-    resetThreadSearchStore();
-  });
-
   it('resolves results only for the current generation', () => {
     const store = useThreadSearchStore.getState();
     const staleGeneration = store.beginSearch();
@@ -61,7 +57,7 @@ describe('thread-search-store', () => {
 
   it('reset keeps the generation monotonic', () => {
     const beforeReset = useThreadSearchStore.getState().beginSearch();
-    resetThreadSearchStore();
+    useThreadSearchStore.getState().reset();
     expect(useThreadSearchStore.getState().generation).toBeGreaterThan(beforeReset);
   });
 });

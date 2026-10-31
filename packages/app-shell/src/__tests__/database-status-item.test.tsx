@@ -1,17 +1,10 @@
-import {
-  __resetDatabaseStatusStoreForTests,
-  useDatabaseStatusStore,
-} from '@brainstrike/app-state/stores/database-status-store';
+import { useDatabaseStatusStore } from '@brainstrike/app-state/stores/database-status-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { DatabaseStatusItem } from '../status-items/database-status-item';
 
 describe('DatabaseStatusItem', () => {
-  beforeEach(() => {
-    __resetDatabaseStatusStoreForTests();
-  });
-
   it('shows loading state when database is connecting', () => {
     // Initial state is loading
     render(<DatabaseStatusItem />);

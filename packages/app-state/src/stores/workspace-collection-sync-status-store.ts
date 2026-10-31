@@ -176,9 +176,3 @@ useWorkspaceCollectionSyncStatusStore.subscribe((state, prevState) => {
   }
   errorTransitionLogger.error('Workspace collection sync entered an error state', context);
 });
-
-export function __resetWorkspaceCollectionSyncStatusStoreForTests(): void {
-  useWorkspaceCollectionSyncStatusStore.setState({
-    ...DEFAULT_STATE,
-  });
-}

@@ -1,7 +1,6 @@
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
   type IndexingManagedCollectionStats,
@@ -67,10 +66,6 @@ function createDatabaseWorkSnapshot(
 }
 
 describe('indexing-activity-store', () => {
-  beforeEach(() => {
-    __resetIndexingActivityStoreForTests();
-  });
-
   it('starts unavailable instead of defaulting unknown queue state to idle zeroes', () => {
     expect(useIndexingActivityStore.getState().snapshot).toEqual({
       activeBackfills: [],

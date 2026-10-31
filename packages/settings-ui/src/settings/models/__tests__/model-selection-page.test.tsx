@@ -7,10 +7,7 @@
 
 import '@testing-library/jest-dom/vitest';
 import { useModelRegistrySource } from '@brainstrike/app-state/hooks/use-model-registry';
-import {
-  __resetModelRegistryStoreForTests,
-  useModelRegistryStore,
-} from '@brainstrike/app-state/stores/model-registry-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -63,7 +60,6 @@ vi.mock('../subagent-settings-section', () => ({
 
 beforeEach(() => {
   installCatalogDomStubs({ width: null });
-  __resetModelRegistryStoreForTests();
   catalogProps.current = null;
   vi.mocked(useModelRegistrySource).mockReturnValue(null);
   toggleMany.mockReset();

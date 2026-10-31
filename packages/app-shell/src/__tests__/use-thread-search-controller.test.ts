@@ -2,7 +2,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ThreadSearchExtraArms } from '../thread-search-service';
-import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
+import { useThreadSearchStore } from '../thread-search-store';
 import {
   THREAD_SEARCH_DEBOUNCE_MS,
   useThreadSearchController,
@@ -30,7 +30,6 @@ async function flushAsync(): Promise<void> {
 describe('useThreadSearchController', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    resetThreadSearchStore();
   });
 
   afterEach(() => {

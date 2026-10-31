@@ -1,4 +1,3 @@
-import { __resetSecretsStoreForTests } from '@brainstrike/app-state/stores/secrets-store';
 import type { ProviderCredential, ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -196,7 +195,6 @@ const waitForReady = async (): Promise<void> => {
 describe('CredentialInventory aws slot', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    __resetSecretsStoreForTests();
     listProvidersMock.mockReturnValue([OPENAI_DEFINITION, GOOGLE_DEFINITION]);
     providerVendorEnvKeyMock.mockImplementation((provider: string) =>
       provider === 'openai'

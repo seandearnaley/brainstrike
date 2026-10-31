@@ -37,7 +37,10 @@ export default defineConfig({
     reporters: ['default', new LostTestFileReporter()],
     // The timeout-only setup scales waitFor/findBy without shared cleanup
     // hooks (BST-1299), in files whose environment has a DOM.
-    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware-timeouts.setup'],
+    setupFiles: [
+      '@brainstrike/test-utils/vitest.dom-aware-timeouts.setup',
+      '@brainstrike/test-utils/zustand-store-reset',
+    ],
     testTimeout: 15_000,
   },
 });
