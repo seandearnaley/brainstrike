@@ -1,7 +1,4 @@
-import { createLogger } from '@brainstrike/logging';
 import { clipboard, Menu, type WebContents } from 'electron';
-
-const logger = createLogger('PageContextMenu');
 
 /** What a right-click reports about the spot it landed on. */
 type PageContextMenuParams = Pick<
@@ -16,7 +13,6 @@ type PageContextMenuParams = Pick<
 >;
 
 interface PageContextMenuActions {
-  readonly addToDictionary: (word: string) => void;
   readonly copyImage: () => void;
   readonly copyLink: (url: string) => void;
   readonly replaceMisspelling: (suggestion: string) => void;
@@ -27,30 +23,28 @@ interface PageContextMenuActions {
  * then the edit commands. Cut, Copy, Paste and Select All are Electron roles,
  * which run Chromium's own editing commands. Empty when nothing applies, so no
  * empty menu opens.
+ *
+ * There is no Add to Dictionary: a learned word is durable state that factory
+ * reset does not clear (it lives in the protected session data, and on macOS
+ * and Windows in the OS dictionary too).
  */
 function buildPageContextMenuTemplate(
   params: PageContextMenuParams,
   actions: PageContextMenuActions
 ): Electron.MenuItemConstructorOptions[] {
   const sections: Electron.MenuItemConstructorOptions[][] = [];
-  const { editFlags, misspelledWord } = params;
-  if (params.isEditable && misspelledWord !== '') {
-    sections.push([
-      ...(params.dictionarySuggestions.length > 0
+  const { editFlags } = params;
+  if (params.isEditable && params.misspelledWord !== '') {
+    sections.push(
+      params.dictionarySuggestions.length > 0
         ? params.dictionarySuggestions.map((suggestion) => ({
             click: () => {
               actions.replaceMisspelling(suggestion);
             },
             label: suggestion,
           }))
-        : [{ enabled: false, label: 'No Guesses Found' }]),
-      {
-        click: () => {
-          actions.addToDictionary(misspelledWord);
-        },
-        label: 'Add to Dictionary',
-      },
-    ]);
+        : [{ enabled: false, label: 'No Guesses Found' }]
+    );
   }
   if (params.linkURL !== '') {
     const { linkURL } = params;
@@ -91,11 +85,6 @@ function buildPageContextMenuTemplate(
 export function attachPageContextMenu(webContents: WebContents): void {
   webContents.on('context-menu', (_event, params) => {
     const template = buildPageContextMenuTemplate(params, {
-      addToDictionary: (word) => {
-        if (!webContents.session.addWordToSpellCheckerDictionary(word)) {
-          logger.warn('Could not add the word to the spellchecker dictionary');
-        }
-      },
       copyImage: () => {
         webContents.copyImageAt(params.x, params.y);
       },

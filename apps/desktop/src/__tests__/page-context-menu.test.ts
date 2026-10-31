@@ -39,7 +39,6 @@ function fakePage() {
       listeners.set(event, listener);
     },
     replaceMisspelling: vi.fn(),
-    session: { addWordToSpellCheckerDictionary: vi.fn(() => true) },
   };
   attachPageContextMenu(webContents as unknown as Electron.WebContents);
   const frame = { routingId: 1 } as unknown as Electron.WebFrameMain;
@@ -112,7 +111,7 @@ describe('the page context menu', () => {
     expect(shown(menu)).toEqual(['cut (disabled)', 'copy (disabled)', 'paste', '---', 'selectAll']);
   });
 
-  it('offers spelling fixes over a misspelled word, and replaces it or learns it', () => {
+  it('offers spelling fixes over a misspelled word, and replaces it', () => {
     const { rightClick, webContents } = fakePage();
     const params = {
       dictionarySuggestions: ['hello', 'help'],
@@ -124,7 +123,6 @@ describe('the page context menu', () => {
     expect(shown(menu)).toEqual([
       'hello',
       'help',
-      'Add to Dictionary',
       '---',
       'cut',
       'copy',
@@ -134,14 +132,11 @@ describe('the page context menu', () => {
     ]);
     clickItem(menu, 'help');
     expect(webContents.replaceMisspelling).toHaveBeenCalledExactlyOnceWith('help');
-    clickItem(menu, 'Add to Dictionary');
-    expect(webContents.session.addWordToSpellCheckerDictionary).toHaveBeenCalledExactlyOnceWith(
-      'helo'
-    );
 
+    // No Add to Dictionary: factory reset could not clear a learned word.
     expect(shown(rightClick({ ...params, dictionarySuggestions: [] }))?.slice(0, 2)).toEqual([
       'No Guesses Found (disabled)',
-      'Add to Dictionary',
+      '---',
     ]);
   });
 
