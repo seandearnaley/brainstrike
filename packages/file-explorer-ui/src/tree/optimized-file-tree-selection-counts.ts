@@ -8,7 +8,7 @@ import {
   lastPathSeparatorIndex,
   slashSeparatedPath,
 } from '@brainstrike/utils/path-ancestors';
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo, useState } from 'react';
 
 // Bound ancestor-path cache growth for large workspaces (15k+ files) while
 // keeping hot paths resident across frequent selection changes.
@@ -536,28 +536,19 @@ export function useSelectedDirectoryCounts(
   selectionModel: FileExplorerState['selectionModel'],
   querySelectionManifest: FileExplorerState['querySelectionManifest']
 ): Map<string, number> {
-  const selectedDirectoryCountSnapshotRef = useRef<SelectedDirectoryCountSnapshot>(
-    createSelectedDirectoryCountSnapshot(folderId)
-  );
+  const [snapshot, setSnapshot] = useState(() => createSelectedDirectoryCountSnapshot(folderId));
   const queryDirectoryCounts = useMemo(
     () =>
       resolveQuerySelection(selectionModel.queryDescriptor, querySelectionManifest).directoryCounts,
     [querySelectionManifest, selectionModel.queryDescriptor]
   );
 
-  const nextSnapshot = useMemo(
-    () =>
-      computeSelectedDirectoryCountSnapshot(
-        selectedDirectoryCountSnapshotRef.current,
-        selectedFilePaths,
-        folderId
-      ),
-    [selectedFilePaths, folderId]
-  );
-
-  useEffect(() => {
-    selectedDirectoryCountSnapshotRef.current = nextSnapshot;
-  }, [nextSnapshot]);
+  // Counts update incrementally from the previous selection, so the snapshot is
+  // state adjusted during render: an unchanged selection returns the same object.
+  const nextSnapshot = computeSelectedDirectoryCountSnapshot(snapshot, selectedFilePaths, folderId);
+  if (nextSnapshot !== snapshot) {
+    setSnapshot(nextSnapshot);
+  }
 
   return selectionModel.mode === 'query'
     ? queryDirectoryCounts
