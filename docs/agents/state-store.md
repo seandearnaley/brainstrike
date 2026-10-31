@@ -16,11 +16,10 @@ Corruption refuses or contains reads without deleting/replacing canonical data.
 A state DB that fails `integrity_check` opens read-only, and `health()` names the
 failure. The host serves it as `state/health/read`; desktop's damaged-store notice
 reads it and offers a re-read and a host restart, which reopens the store so it
-checks itself again (BST-1880). Neither changes the damaged file. Its writes are
+checks itself again. Neither changes the damaged file. Its writes are
 refusals, not failures: the store raises `StateStoreReadOnlyError` (a thread
 refusal carries `storeDamage`), and the host sends both as the typed
-`state.read-only` refusal, so callers that write on startup stop quietly
-(BST-2144).
+`state.read-only` refusal, so callers that write on startup stop quietly.
 
 Purge, thread delete and blob GC: `state-deletion.ts` orchestrates them over the
 writer's `deletion-domain.mjs` ops, its derived index and its write chain.
@@ -39,7 +38,7 @@ are projections. A data root's identity is `canonicalRoot`: the OS's own realpat
 (`fs.realpathSync.native`). The lock records it, and every check that a lock,
 profile or reset target is that root derives it there. Node's JS `realpathSync`
 keeps another case or an 8.3 short name, so a second derivation refused a
-launcher's own host on Windows (BST-2234).
+launcher's own host on Windows.
 
 Content-addressed blobs store canonical edit baselines and current-format content
 through their existing owner. Hashes and scope must match the bytes; a transient

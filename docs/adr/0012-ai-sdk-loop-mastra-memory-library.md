@@ -45,23 +45,20 @@ Brainstrike state lives in Brainstrike tables.
   consent, and desktop/web parity.
 - ADR-0001 still holds: never import `@mastra/core/harness`, `mastracode` or
   `@mastra/libsql`, and the host owns its loop.
-- `@mastra/core` stays Node-only and externalized from browser bundles. Web chat goes
-  through a stateless serverless proxy running the AI SDK with hosted models and no
-  tools.
+- `@mastra/core` stays Node-only and externalized from browser bundles. (Web chat was
+  planned as a stateless AI SDK proxy with no tools; the web app has since been removed.)
 - The first engine PR pins `ai` exactly and makes the real-account provider replay a
   required check. OpenCode and Kilo Code run their loops directly on `streamText`.
 
 ## Amendment (2026-10-15, ADR-0023)
 
 The Decision's clause "`@mastra/core` stays installed only as its peer" was never
-true and is not made true by retiring the agent loop. Measured on `6a0d027b6`
-(`docs/archive/host-tool-representation-measurement-2026-10-15.md`),
+true and is not made true by retiring the agent loop. Measured on `6a0d027b6`,
 `@mastra/core` is a direct dependency of `packages/agent`, `packages/agent-host`
 and `packages/test-utils`, and after ADR-0022's retirement and ADR-0023's
 tool-representation change it is still reached at runtime by:
 
-- **hosted tool discovery** — `mastra/tool-search-runtime.ts` constructs a real
-  `ToolSearchProcessor`, and `agent-host/src/adapters/host-tool-discovery.ts`
+- **hosted tool discovery** — a real `ToolSearchProcessor`, which `agent-host/src/adapters/host-tool-discovery.ts`
   calls `createTool` to feed it;
 - **skills** — `createSkillTools`, `formatSkillActivation`,
   `formatSkillsCatalog`, `WorkspaceSkills`;

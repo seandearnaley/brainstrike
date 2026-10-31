@@ -1,86 +1,43 @@
 # Desktop E2E tests
 
-The merge queue runs the smoke and regression suites and the packaged MCP lanes
-on hosted runners; the packaged-target smoke run below is local only. Before a
-PR, run the specs for the feature you changed; `pnpm check` selects broader
-checks.
+The merge queue runs the smoke, regression and packaged MCP lanes on hosted runners. Before a PR, run the specs for the feature you changed.
 
 ## Run locally
 
-From the repository root:
+- From the repository root:
 
-```sh
-pnpm build --filter @brainstrike/desktop
-pnpm --filter @brainstrike/desktop test:e2e:lane:smoke
-```
+  ```sh
+  pnpm build --filter @brainstrike/desktop
+  pnpm --filter @brainstrike/desktop test:e2e:lane:smoke
+  ```
 
-From `apps/desktop`, run a focused spec:
+- One spec, from `apps/desktop`:
 
-```sh
-pnpm test:e2e e2e/workspace-bar.desktop.test.ts --project=regression
-```
+  ```sh
+  pnpm test:e2e e2e/workspace-bar.desktop.test.ts --project=regression
+  ```
 
-To run the same specs against the packaged app, package it the way the Native
-Electron Package job in [`test.yml`](../../../.github/workflows/test.yml) does
-(with `CSC_IDENTITY_AUTO_DISCOVERY=false` locally), then:
-
-```sh
-BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged pnpm --filter @brainstrike/desktop test:e2e:lane:smoke
-```
-
-The harness then launches the `release/` executable instead of `dist/main.js`. A
-missing executable, an unpackaged process or any other value fails the run; it
-never falls back to the dev build.
-
-`pnpm test:e2e:ui` opens the test UI; `pnpm test:e2e:debug` enables debugging.
-Smoke, full regression, packaged and stress scripts live in
-[`package.json`](../package.json). Choose the affected lane; performance and
-background-throttling checks are explicit runs, not default smoke acceptance.
+- Against the packaged app (local only):
+  - Package it as the Native Electron Package job in [`test.yml`](../../../.github/workflows/test.yml) does, with `CSC_IDENTITY_AUTO_DISCOVERY=false`.
+  - Run `BRAINSTRIKE_E2E_DESKTOP_TARGET=packaged pnpm --filter @brainstrike/desktop test:e2e:lane:smoke`.
+  - The harness then launches the `release/` executable. A missing executable or any other value fails the run; it never falls back to the dev build.
+- `pnpm test:e2e:ui` opens the Playwright UI; `pnpm test:e2e:debug` enables debugging.
+- Lane scripts (smoke, full regression, packaged, nightly) are in [`package.json`](../package.json). Performance and background-throttling checks are explicit runs, not smoke.
 
 ## Harness boundaries
 
-[`playwright.config.mts`](../playwright.config.mts) and
-[`electron-helpers.mts`](utils/electron-helpers.mts) own launches. Every launch
-requires an isolated `userDataDir`; temporary filesystem/repository fixtures and
-fake credentials keep tests away from Sean's checkout and protected profile.
-Use actual disk operations where the behavior requires them; mocking the native
-picker does not mean all filesystem operations are mocked.
-
-The default harness does not demonstrate native foreground focus or production
-background throttling. It suppresses the `windowFocus` preload bridge by default;
-a focus-specific spec explicitly enables it. Backgrounding checks use the
-existing `BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING=1` launch option. Keep those limits
-visible when reporting coverage. Fake provider streams do not demonstrate a real
-model response.
-
-Desktop catalog/conversation fixtures use current host owners; obsolete renderer
-SQL or `mastra_threads` seeding examples do not describe the product path.
-Packaged MCP Tasks tests have a separate test-only conformance mode and need the
-actual packaged artifact; they do not qualify ordinary desktop storage or enable
-production Tasks registration.
-
-## Shared harness fixture exceptions
-
-Executable `*.test.ts` specs stay below 2,000 LOC. One shared harness module is an
-explicitly documented test fixture exception to that budget: splitting it would
-scatter one import surface across several files without making any spec smaller.
-
-`file-explorer-selection.shared.ts` owns the desktop file-system fixtures,
-persisted selection-state seeders, checkbox/expansion helpers and renderer-settle
-helpers for the two selection lanes, which stay split by purpose:
-
-- `file-explorer-selection.desktop.test.ts` - interactive selection, select-all,
-  limit, expansion, and indeterminate parent/descendant behavior.
-- `file-explorer-selection-restore.desktop.test.ts` - restored explicit, query,
-  materialized-snapshot and manual-path selection behavior after a restart.
-
-The exception covers this harness module only. The executable specs it serves
-stay under the budget, and `runtime-host-boundary.test.ts` enforces both halves:
-the per-spec line ceiling and this documentation.
+- [`playwright.config.mts`](../playwright.config.mts) and [`electron-helpers.mts`](utils/electron-helpers.mts) own launches; fixtures are described in [`fixtures/README.md`](fixtures/README.md).
+- Every launch uses an isolated `userDataDir`, temporary filesystem/repository fixtures and fake credentials, away from Sean's checkout and protected profile.
+- Use real disk operations where behavior needs them; only the native picker is mocked.
+- Coverage limits to keep visible when reporting:
+  - Native foreground focus: the `windowFocus` preload bridge is off by default; focus specs enable it.
+  - Production background throttling: opt in with `BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING=1`.
+  - Fake provider streams do not prove a real model response.
+- Seed catalog and conversation state through the current host owners, not renderer SQL.
+- Packaged MCP Tasks tests use a test-only conformance mode and need the packaged artifact.
 
 ## Diagnose failures
 
-Read the runner's artifact paths and main/renderer logs. Use
-`pnpm exec playwright show-report` or `show-trace <trace.zip>` for artifacts that
-were actually recorded. Preserve missing verdicts and cleanup failures; a retry
-alone is not a diagnosis. Stop/join through the existing harness lifecycle.
+- Read the runner's artifact paths and main/renderer logs.
+- Open recorded artifacts with `pnpm exec playwright show-report` or `pnpm exec playwright show-trace <trace.zip>`.
+- A retry is not a diagnosis; report missing verdicts and cleanup failures.

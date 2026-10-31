@@ -22,7 +22,7 @@
  * A thread's log is folded incrementally: each read asks only for rows after
  * the last folded `seq`, and folding skips any row at or below it, so a live
  * refresh reads only new rows and concurrent reads fold each row once. No
- * PGlite read happens here.
+ * database read happens here.
  */
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';

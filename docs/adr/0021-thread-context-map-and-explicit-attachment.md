@@ -34,7 +34,8 @@ the workspace-context snapshot that decides which checked files reach the model.
   becomes a visible unmapped entry.
 - **Context is a workspace tab.** It sits next to Changes, follows the active
   thread, and shows that thread's spans per file and per index chunk. It is
-  desktop-only, gated by omission, because web has no committed run log. Its
+  desktop-only, gated by omission (web had no committed run log; the web app has since been
+  removed). Its
   state is session-only and rebuilt from the log. Chunk boundaries come from a
   read-only indexer query; the indexer stays the sole writer.
 - **The explorer is the Files app's main surface.** Checkboxes are a bulk

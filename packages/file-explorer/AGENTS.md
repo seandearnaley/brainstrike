@@ -1,6 +1,6 @@
 # File explorer state
 
-Follow root instructions. This package owns explorer state/actions/cache and is
+This package owns explorer state/actions/cache and is
 UI-agnostic; React and platform adapters belong to its consumers.
 
 - Preserve canonical composite selection keys and current-format serialization.

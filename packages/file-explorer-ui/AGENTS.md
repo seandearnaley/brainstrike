@@ -1,6 +1,6 @@
 # File explorer UI
 
-Follow root instructions. Reuse the explorer state package and shared UI rather
+Reuse the explorer state package and shared UI rather
 than creating another selection, content-loading or virtualization owner.
 
 - Explorer trees use shared TreeTable; preserve its scrollport, keyboard/focus

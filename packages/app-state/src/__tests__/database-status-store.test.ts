@@ -44,7 +44,7 @@ describe('database-status-store', () => {
   it('setLoading resets to loading state', () => {
     // First set connected state
     const store = useDatabaseStatusStore.getState();
-    store.setConnected('PGlite WASM', 'OK');
+    store.setConnected('SQLite', 'OK');
 
     expect(useDatabaseStatusStore.getState().connected).toBe(true);
 
@@ -116,7 +116,7 @@ describe('database-status-store', () => {
     it('loading -> connected', () => {
       expect(useDatabaseStatusStore.getState().loading).toBe(true);
 
-      useDatabaseStatusStore.getState().setConnected('PGlite', 'OK');
+      useDatabaseStatusStore.getState().setConnected('SQLite', 'OK');
 
       const state = useDatabaseStatusStore.getState();
       expect(state.loading).toBe(false);
@@ -134,7 +134,7 @@ describe('database-status-store', () => {
     });
 
     it('connected -> disconnected', () => {
-      useDatabaseStatusStore.getState().setConnected('PGlite', 'OK');
+      useDatabaseStatusStore.getState().setConnected('SQLite', 'OK');
       expect(useDatabaseStatusStore.getState().connected).toBe(true);
 
       useDatabaseStatusStore.getState().setDisconnected('Unknown', 'Lost connection');
@@ -145,7 +145,7 @@ describe('database-status-store', () => {
     });
 
     it('connected -> loading -> connected', () => {
-      useDatabaseStatusStore.getState().setConnected('PGlite', 'OK');
+      useDatabaseStatusStore.getState().setConnected('SQLite', 'OK');
 
       useDatabaseStatusStore.getState().setLoading();
       expect(useDatabaseStatusStore.getState().loading).toBe(true);

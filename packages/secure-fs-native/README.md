@@ -66,6 +66,5 @@ Root establishment distinguishes genuine `ENOENT` from `ERR_SECURE_FS_ROOT`.
 so close the owned descriptor rather than unlocking the shared lock. Windows
 same-directory replacement uses its separate native primitive.
 
-Builds/scripts belong to [`package.json`](package.json). See
-[lease](../../docs/agents/host-lease.md) and
-[shared contribution/validation policy](../../AGENTS.md).
+Built with `node-gyp` (`pnpm --filter @brainstrike/secure-fs-native build`). See the
+[host lease contract](../../docs/agents/host-lease.md).
