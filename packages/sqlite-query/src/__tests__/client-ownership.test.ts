@@ -26,10 +26,13 @@ describe('startup acquisition ownership', () => {
       postMessage: (request) =>
         queueMicrotask(() =>
           messageListener({
-            id: request.id,
-            kind: 'error',
-            message: 'Index could not open.',
-            name: 'Error',
+            error: {
+              code: -32_603,
+              data: { kind: 'engine', name: 'Error' },
+              message: 'Index could not open.',
+            },
+            id: 'id' in request ? request.id : null,
+            jsonrpc: '2.0',
           })
         ),
     };

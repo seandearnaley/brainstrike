@@ -1,7 +1,7 @@
 import { fork } from 'node:child_process';
 import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { QueryRequest } from './protocol.ts';
+import type { Message } from 'vscode-jsonrpc/node';
 
 export interface QueryProcess {
   readonly kill: () => void;
@@ -9,7 +9,7 @@ export interface QueryProcess {
   readonly onExit: (listener: () => void) => () => void;
   readonly onMessage: (listener: (message: unknown) => void) => () => void;
   readonly pid?: number | undefined;
-  readonly postMessage: (message: QueryRequest) => void;
+  readonly postMessage: (message: Message) => void;
 }
 
 export interface SpawnQueryProcessOptions {
@@ -68,7 +68,7 @@ export function spawnQueryProcess(options: SpawnQueryProcessOptions = {}): Query
     get pid(): number | undefined {
       return child.pid;
     },
-    postMessage: (message: QueryRequest): void => {
+    postMessage: (message: Message): void => {
       if (!child.connected) {
         throw new Error('SQLite query process IPC is disconnected.');
       }
