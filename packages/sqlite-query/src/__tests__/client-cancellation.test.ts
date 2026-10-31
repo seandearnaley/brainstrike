@@ -249,6 +249,9 @@ it.each([
     (id: number) => ({ error: { code: -32_603, message: 'no data' }, id, jsonrpc: '2.0' }),
   ],
   ['a frame that is not JSON-RPC', (id: number) => ({ id, kind: 'grepRows' })],
+  // The vendor drops these silently; a coverage read has no deadline, so it would hang.
+  ['a reply to an id it was not sent', (id: number) => grepRows(id + 1000)],
+  ['a reply with a null id', () => ({ ...grepRows(0), id: null })],
 ] as const)(
   'settles %s once as a protocol fault and detaches only on exit',
   async (_name, reply) => {
@@ -259,6 +262,7 @@ it.each([
     owner.message(reply(owner.requestId(1)));
     const error = await outcome;
     expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(SqliteQueryDeadlineError);
     expect(owner.process.kill).toHaveBeenCalledOnce();
     owner.message(grepRows(owner.requestId(1)));
     await expect(client.grep(options)).rejects.toBe(error);
@@ -273,6 +277,24 @@ it.each([
     }
   }
 );
+it('a misrouted reply ends a read that has no deadline instead of leaving it waiting', async () => {
+  const owner = reader();
+  const client = await SqliteQueryClient.open({
+    databasePath: '/recorded/index.sqlite',
+    spawn: () => owner.process,
+  });
+  const outcome = client.grep(options).catch((error: unknown) => error);
+  await posted(owner, 2);
+  owner.message(grepRows(owner.requestId(1) + 1000));
+  const error = await outcome;
+  expect(error).toMatchObject({
+    message: 'SQLite query process replied to a request it was not sent.',
+  });
+  await expect(client.grep(options)).rejects.toBe(error);
+  const closing = client.close();
+  owner.exit();
+  await closing;
+});
 it('a synchronous post failure rejects the request and keeps its original error through joined close', async () => {
   const owner = reader();
   const client = await open(owner);

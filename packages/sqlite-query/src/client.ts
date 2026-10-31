@@ -11,6 +11,7 @@ import {
 import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store';
 import {
   createMessageConnection,
+  Message,
   type MessageConnection,
   ResponseError,
 } from 'vscode-jsonrpc/node';
@@ -75,9 +76,18 @@ export class SqliteQueryClient {
     this.#onSlowExit = onSlowExit;
     this.#terminated.promise.catch(() => undefined);
     const reader = new EndpointMessageReader();
+    // The vendor drops a reply whose id it never sent without reporting it (an unknown id is
+    // not even logged), and a read with no deadline would then wait forever. So the ids sent
+    // are tracked here, and a reply to any other id is a protocol fault.
+    const sent = new Set<number | string | null>();
     this.#connection = createMessageConnection(
       reader,
-      new EndpointMessageWriter((message) => process.postMessage(message))
+      new EndpointMessageWriter((message) => {
+        if (Message.isRequest(message)) {
+          sent.add(message.id);
+        }
+        process.postMessage(message);
+      })
     );
     this.#connection.onError(([error]) => {
       this.#stop(error);
@@ -96,7 +106,16 @@ export class SqliteQueryClient {
         })
       );
     });
-    this.#detach.push(process.onMessage((message) => reader.deliver(message)));
+    this.#detach.push(
+      process.onMessage((message) => {
+        const reply = message as Message;
+        if (Message.isResponse(reply) && !sent.delete(reply.id)) {
+          this.#stop(new TypeError('SQLite query process replied to a request it was not sent.'));
+          return;
+        }
+        reader.deliver(message);
+      })
+    );
     this.#detach.push(
       process.onError((error) => {
         this.#stop(error);
