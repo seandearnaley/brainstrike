@@ -2297,6 +2297,9 @@ importers:
 
   packages/hooks:
     dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
@@ -3407,9 +3410,6 @@ importers:
 
   packages/utils:
     dependencies:
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../assistant-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging

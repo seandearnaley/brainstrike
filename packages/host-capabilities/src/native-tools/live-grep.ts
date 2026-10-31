@@ -1,11 +1,12 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
+import type { GrepMatch } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import type { LineMatcher } from '@brainstrike/utils/grep-line-matcher';
-import { collectGrepMatchesInContent, type GrepMatch } from '@brainstrike/utils/grep-search';
 import { createAgentIgnoreGuard } from './agent-ignore-guard.ts';
+import { collectGrepMatchesInContent } from './grep-search.ts';
 import { resolveScopedGrepFile } from './live-grep-files.ts';
 import { buildLiveNote } from './live-grep-note.ts';
 import {

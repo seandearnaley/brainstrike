@@ -3,7 +3,7 @@ import {
   type GrepCandidate,
   type GrepCandidateOptions,
   GrepSearchService,
-} from '../grep-search.js';
+} from '../src/native-tools/grep-search.ts';
 
 function stubRepository(candidates: GrepCandidate[], calls: GrepCandidateOptions[] = []) {
   return {

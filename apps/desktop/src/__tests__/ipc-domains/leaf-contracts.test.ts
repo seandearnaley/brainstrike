@@ -1,4 +1,4 @@
-import { WINDOW_FOCUS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/utils/window-focus-bridge';
+import { WINDOW_FOCUS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/window-focus-bridge';
 import { describe, expect, it } from 'vitest';
 import { clipboardArgs } from '../../ipc-clipboard-handlers';
 import { clipboardContract } from '../../ipc-domains/clipboard.contract';
