@@ -9,6 +9,7 @@
  * using `appMenu`/`windowMenu`, whose default submenus carry Close.
  */
 export const APP_MENU_IDS = {
+  checkForUpdates: 'app-check-for-updates',
   openSourceLicenses: 'help-open-source-licenses',
   releaseNotes: 'help-release-notes',
   settings: 'app-settings',
@@ -23,6 +24,20 @@ export function releaseNotesUrl(version: string): string {
 
 /** Receives the click-handler window, as the File menu's items do. */
 type OpenSettings = (targetWindow?: Electron.BaseWindow) => void;
+/** Checks now and answers in a dialog over the click-handler window (BST-2356). */
+type CheckForUpdates = (targetWindow?: Electron.BaseWindow) => void;
+
+function checkForUpdatesItem(
+  onCheckForUpdates: CheckForUpdates
+): Electron.MenuItemConstructorOptions {
+  return {
+    click: (_menuItem, browserWindow) => {
+      onCheckForUpdates(browserWindow);
+    },
+    id: APP_MENU_IDS.checkForUpdates,
+    label: 'Check for Updates…',
+  };
+}
 
 function settingsItem(
   accelerator: string,
@@ -40,18 +55,24 @@ function settingsItem(
 
 export interface MacAppMenuDeps {
   readonly appName: string;
+  readonly onCheckForUpdates: CheckForUpdates;
   readonly onOpenSettings: OpenSettings;
 }
 
-/** The macOS app menu, in Apple's order: About, Settings…, Services, Hide, Quit. */
+/**
+ * The macOS app menu, in Apple's order: About, Check for Updates…, Settings…,
+ * Services, Hide, Quit.
+ */
 export function buildMacAppMenuTemplate({
   appName,
+  onCheckForUpdates,
   onOpenSettings,
 }: MacAppMenuDeps): Electron.MenuItemConstructorOptions {
   return {
     label: appName,
     submenu: [
       { role: 'about' },
+      checkForUpdatesItem(onCheckForUpdates),
       { type: 'separator' },
       settingsItem('Cmd+,', onOpenSettings),
       { type: 'separator' },
@@ -82,8 +103,12 @@ export function buildMacWindowMenuTemplate(): Electron.MenuItemConstructorOption
 }
 
 export interface HelpMenuDeps {
-  /** Windows and Linux have no app menu, so About sits at the end of Help. */
+  /**
+   * Windows and Linux have no app menu, so Check for Updates… and About sit at
+   * the end of Help.
+   */
   readonly includeAbout: boolean;
+  readonly onCheckForUpdates: CheckForUpdates;
   readonly onOpenReleaseNotes: () => void;
   /** Opens the notices of the third-party software the app ships. */
   readonly onOpenSourceLicenses: () => void;
@@ -94,6 +119,7 @@ export interface HelpMenuDeps {
 
 export function buildHelpMenuTemplate({
   includeAbout,
+  onCheckForUpdates,
   onOpenReleaseNotes,
   onOpenSourceLicenses,
   onShowCrashReports,
@@ -117,6 +143,7 @@ export function buildHelpMenuTemplate({
       ...(includeAbout
         ? ([
             { type: 'separator' },
+            checkForUpdatesItem(onCheckForUpdates),
             { role: 'about' },
           ] satisfies Electron.MenuItemConstructorOptions[])
         : []),
