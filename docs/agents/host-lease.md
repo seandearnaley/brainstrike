@@ -83,7 +83,11 @@ CLI host closes after its last client and active run lease leave; explicit persi
 start has a different lifetime. A CLI host no client ever attached closes once its
 startup grace has elapsed and no run lease is held, including a run it recovered on
 start that releases after the grace. A client its launcher connects privately (a
-port, not the socket) counts as attached like a socket client. Cooperative close fences admission, joins
+port, not the socket) counts as attached like a socket client. Each authorized
+renderer frame gets one end of such a channel from Main; the host holds the other,
+so Main forwards nothing. The end closes with the frame's document, and Main tells
+the frame when the host exits so it connects again. A host the app only attached to
+hands out no private port, so its frames are refused. Cooperative close fences admission, joins
 Core/platform/native tails and SQLite, then removes discovery and releases Root.
 The requesting transport remains through its actual response write and final socket
 join.

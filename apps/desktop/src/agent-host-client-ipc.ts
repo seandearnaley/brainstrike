@@ -1,12 +1,8 @@
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
-import { ipcMain, type MessagePortMain } from 'electron';
-import {
-  type AgentHostPortRelay,
-  openAgentHostChildRelay,
-  openAgentHostPortRelay,
-} from './agent-host-port-relay';
+import { ipcMain } from 'electron';
+import type { AgentHostPrivateClientPort } from './agent-host-private-clients';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToFrame } from './platform/desktop-ipc-push';
 import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
@@ -15,16 +11,18 @@ const CONNECT_FAILURE = { category: 'availability', code: 'agent-host-connect-fa
 
 /**
  * Visible clients borrow the profile's existing lease; they never acquire another root.
- * A host this app launched receives each client port privately, as the desktop
- * origin. A host the app only attached to (a CLI `host start`) is reached over its
- * public socket like any CLI client, so origin-bound capabilities refuse there.
+ * Each authorized frame gets one end of a channel whose other end the host this app
+ * launched received privately, as the desktop origin (ADR-0029): the frame and the host
+ * talk directly, and Main forwards nothing. Chromium closes the frame's end when its
+ * document goes (reload, navigation, renderer loss), which closes the host's end. A host
+ * the app only attached to (a CLI `host start`) hands out no private port, so the frame
+ * is refused there.
  */
 export function registerAgentHostClientIpc(
   acquireProfile: () => Promise<HostAttachment>,
-  openPrivateClientPort: () => MessagePortMain | undefined
+  openPrivateClientPort: () => AgentHostPrivateClientPort | undefined
 ) {
   const registry = createDesktopIpcRegistry({ ipcMain });
-  const relays = new Set<AgentHostPortRelay>();
   const pending = new Set<Promise<void>>();
   let closing: Promise<void> | undefined;
   registry.handle(
@@ -44,47 +42,50 @@ export function registerAgentHostClientIpc(
         if (attachment.record.protocolVersion !== AGENT_HOST_PROTOCOL_VERSION) {
           throw new Error('The current profile host does not support assistant commands');
         }
-        const privatePort = openPrivateClientPort();
-        const relay = privatePort
-          ? openAgentHostChildRelay(privatePort)
-          : await openAgentHostPortRelay(attachment.record);
-        relays.add(relay);
-        let clientGone = false;
-        const retire = (): void => {
-          clientGone = true;
-          void relay.close();
-        };
-        event.sender.once('destroyed', retire);
-        event.sender.once('render-process-gone', retire);
-        event.sender.once('did-navigate', retire);
-        void relay.closed.then(() => {
-          relays.delete(relay);
-          event.sender.off('destroyed', retire);
-          event.sender.off('render-process-gone', retire);
-          event.sender.off('did-navigate', retire);
-          if (!(clientGone || event.sender.isDestroyed())) {
-            try {
-              pushToFrame(frame, DESKTOP_IPC_CHANNELS.agent.hostDisconnected, { requestId: id });
-            } catch {
-              /* A detached frame already lost its transport. */
-            }
-          }
-        });
+        const client = openPrivateClientPort();
+        if (!client) {
+          throw new Error(
+            'The assistant runs only on the agent host this app launched; stop the external host and retry.'
+          );
+        }
+        const { sender } = event;
         try {
-          if (closing || event.sender.isDestroyed()) {
+          if (closing || sender.isDestroyed()) {
             throw new Error('Agent client closed during attach');
           }
           pushToFrame(
             frame,
             DESKTOP_IPC_CHANNELS.agent.hostConnected,
             { record: attachment.record, requestId: id },
-            [relay.port]
+            [client.port]
           );
         } catch (cause) {
-          relay.port.close();
-          await relay.close();
+          client.port.close();
           throw cause;
         }
+        // Main holds neither end now. It still sees the host exit, and tells this
+        // document so it connects again through this same call.
+        let attached = true;
+        const detach = (): void => {
+          attached = false;
+          sender.off('destroyed', detach);
+          sender.off('render-process-gone', detach);
+          sender.off('did-navigate', detach);
+        };
+        sender.once('destroyed', detach);
+        sender.once('render-process-gone', detach);
+        sender.once('did-navigate', detach);
+        void client.hostExited.then(() => {
+          if (!attached || sender.isDestroyed()) {
+            return;
+          }
+          detach();
+          try {
+            pushToFrame(frame, DESKTOP_IPC_CHANNELS.agent.hostDisconnected, { requestId: id });
+          } catch {
+            /* A detached frame already lost its port with its document. */
+          }
+        });
       })();
       pending.add(operation);
       operation.then(
@@ -100,7 +101,6 @@ export function registerAgentHostClientIpc(
       closing ??= (async () => {
         registry.unregisterAll();
         await Promise.allSettled([...pending]);
-        await Promise.all([...relays].map((relay) => relay.close()));
       })();
       return closing;
     },
