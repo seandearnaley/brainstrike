@@ -2,7 +2,6 @@ import { createLogger } from '@brainstrike/logging';
 import { FileExplorerStrings, PartialRefreshError } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
-import { useCallback } from 'react';
 
 /**
  * `useToastManager` hook for File Explorer contexts.
@@ -48,95 +47,80 @@ export const useToastManager = () => {
    * @param {ToastActionElement} [options.action] - Optional action element for the toast.
    * @param {number} [options.duration=DEFAULT_TOAST_DURATION_MS] - Auto-dismiss delay in ms; 0 = sticky.
    */
-  const showToast = useCallback(
-    ({
-      title,
-      description,
-      variant = 'default',
-      action,
-      duration,
-    }: {
-      title: string;
-      description: string;
-      variant?: 'default' | 'destructive';
+  const showToast = ({
+    title,
+    description,
+    variant = 'default',
+    action,
+    duration,
+  }: {
+    title: string;
+    description: string;
+    variant?: 'default' | 'destructive';
+    action?: ToastActionElement;
+    duration?: number;
+  }) => {
+    // Informational toasts auto-dismiss; errors stay until dismissed
+    // (explicit duration always wins, 0 = sticky).
+    const resolvedDuration =
+      duration ?? (variant === 'destructive' ? 0 : DEFAULT_TOAST_DURATION_MS);
+    // Define local type for toast options, consistent with useToast's expectations
+    interface ResolvedToastOptions {
       action?: ToastActionElement;
-      duration?: number;
-    }) => {
-      // Informational toasts auto-dismiss; errors stay until dismissed
-      // (explicit duration always wins, 0 = sticky).
-      const resolvedDuration =
-        duration ?? (variant === 'destructive' ? 0 : DEFAULT_TOAST_DURATION_MS);
-      // Define local type for toast options, consistent with useToast's expectations
-      interface ResolvedToastOptions {
-        action?: ToastActionElement;
-        description: string;
-        duration: number;
-        title: string;
-        variant?: 'default' | 'destructive';
-      }
+      description: string;
+      duration: number;
+      title: string;
+      variant?: 'default' | 'destructive';
+    }
 
-      const toastOptions: ResolvedToastOptions = {
-        description,
-        duration: resolvedDuration,
-        title,
-        variant,
-      };
-      if (action) {
-        toastOptions.action = action;
-      }
-      toast(toastOptions);
-    },
-    [toast]
-  );
+    const toastOptions: ResolvedToastOptions = {
+      description,
+      duration: resolvedDuration,
+      title,
+      variant,
+    };
+    if (action) {
+      toastOptions.action = action;
+    }
+    toast(toastOptions);
+  };
 
-  const handlePartialRefreshError = useCallback(
-    (error: PartialRefreshError) => {
+  const handlePartialRefreshError = (error: PartialRefreshError) => {
+    showToast({
+      description: error.message,
+      title: FileExplorerStrings.error.title,
+      variant: 'destructive',
+    });
+  };
+
+  const handleRefreshError = (error: unknown) => {
+    if (error instanceof PartialRefreshError) {
+      handlePartialRefreshError(error);
+    } else {
       showToast({
-        description: error.message,
+        description: FileExplorerStrings.error.refreshFailed,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
-    },
-    [showToast]
-  );
+    }
+  };
 
-  const handleRefreshError = useCallback(
-    (error: unknown) => {
-      if (error instanceof PartialRefreshError) {
-        handlePartialRefreshError(error);
-      } else {
-        showToast({
-          description: FileExplorerStrings.error.refreshFailed,
-          title: FileExplorerStrings.error.title,
-          variant: 'destructive',
-        });
-      }
-    },
-    [handlePartialRefreshError, showToast]
-  );
+  const handleBrowserCompatibilityError = (reason: string) => {
+    showToast({
+      description: reason,
+      title: FileExplorerStrings.error.browserCompatibility,
+      variant: 'destructive',
+    });
+  };
 
-  const handleBrowserCompatibilityError = useCallback(
-    (reason: string) => {
-      showToast({
-        description: reason,
-        title: FileExplorerStrings.error.browserCompatibility,
-        variant: 'destructive',
-      });
-    },
-    [showToast]
-  );
-
-  const handleDirectorySelectError = useCallback(
-    (error: unknown) => {
-      logger.error('Failed to select root directory. Raw error:', error);
-      showToast({
-        description: FileExplorerStrings.error.rootDirectoryFailed,
-        title: FileExplorerStrings.error.title,
-        variant: 'destructive',
-      });
-    },
-    [showToast]
-  );
+  const handleDirectorySelectError = (error: unknown) => {
+    logger.error('Failed to select root directory. Raw error:', error);
+    showToast({
+      description: FileExplorerStrings.error.rootDirectoryFailed,
+      title: FileExplorerStrings.error.title,
+      variant: 'destructive',
+    });
+  };
 
   return {
     handleBrowserCompatibilityError,

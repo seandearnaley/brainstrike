@@ -13,7 +13,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, IFileNode, RecentRootEntry } from '@brainstrike/types';
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { FileContentLoadIntent } from '../file-content-load-authority-context';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import { useOptionalFileTreeContext } from '../tree/file-tree-provider';
@@ -214,14 +214,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const disabledExcludeFilters = useFileExplorerStoreSelector(selectDisabledExcludeFilters);
 
   // Compute active filters by excluding disabled ones
-  const activeIncludeFilters = useMemo(
-    () => includeFilters.filter((f) => !disabledIncludeFilters.has(f)),
-    [includeFilters, disabledIncludeFilters]
-  );
-  const activeExcludeFilters = useMemo(
-    () => excludeFilters.filter((f) => !disabledExcludeFilters.has(f)),
-    [excludeFilters, disabledExcludeFilters]
-  );
+  const activeIncludeFilters = includeFilters.filter((f) => !disabledIncludeFilters.has(f));
+  const activeExcludeFilters = excludeFilters.filter((f) => !disabledExcludeFilters.has(f));
 
   // Defer filter values to prevent UI blocking during expensive tree filtering.
   // useDeferredValue allows React to show the old tree while filtering in background.
@@ -272,11 +266,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // This function is called when the worker returns an unfiltered tree after loading directories.
   // It ensures workspace include/exclude filters are applied before file selection.
   // Uses activeIncludeFilters/activeExcludeFilters to respect disabled filter toggles.
-  const filterTreeFn = useCallback(
-    (tree: IFileNode[]) =>
-      applyFiltersUtil(tree, activeIncludeFilters, activeExcludeFilters, useRegex),
-    [applyFiltersUtil, activeIncludeFilters, activeExcludeFilters, useRegex]
-  );
+  const filterTreeFn = (tree: IFileNode[]) =>
+    applyFiltersUtil(tree, activeIncludeFilters, activeExcludeFilters, useRegex);
 
   // Try to get shared tree state from FileTreeProvider context.
   // This ensures all components using useFileExplorer share the same tree
@@ -356,48 +347,39 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     applyFiltersUtil,
   ]);
 
-  const loadFileContent = useCallback(
-    async (compositeKey: string, intent: FileContentLoadIntent) => {
-      await handleFileContentLoading([compositeKey], intent);
-    },
-    [handleFileContentLoading]
-  );
+  const loadFileContent = async (compositeKey: string, intent: FileContentLoadIntent) => {
+    await handleFileContentLoading([compositeKey], intent);
+  };
 
-  const handleRootDirectorySelect = useCallback(
-    async () => selectRootDirectory(),
-    [selectRootDirectory]
-  );
+  const handleRootDirectorySelect = async () => selectRootDirectory();
 
-  const refreshFileExplorer = useCallback(() => {
+  const refreshFileExplorer = () => {
     if (!rootDirectoryHandle) {
       return Promise.reject(new Error('No root directory selected'));
     }
     return refreshTree();
-  }, [rootDirectoryHandle, refreshTree]);
+  };
 
   // Wrapper for external filter application (maintains API compatibility)
   // Updates store filters, which causes filteredTree useMemo to recompute on next render
   // Returns a synchronously filtered tree so callers receive immediately filtered results
-  const wrappedApplyFileFilters = useCallback(
-    (
-      currentIncludeFilters: string[],
-      currentExcludeFilters: string[],
-      currentUseRegex: boolean
-    ) => {
-      // Update the store filters - filteredTree useMemo will recompute on next render
-      setFilters(currentIncludeFilters, currentExcludeFilters);
-      setUseRegex(currentUseRegex);
+  const wrappedApplyFileFilters = (
+    currentIncludeFilters: string[],
+    currentExcludeFilters: string[],
+    currentUseRegex: boolean
+  ) => {
+    // Update the store filters - filteredTree useMemo will recompute on next render
+    setFilters(currentIncludeFilters, currentExcludeFilters);
+    setUseRegex(currentUseRegex);
 
-      // Compute and return filtered results immediately for API compatibility
-      return applyFiltersUtil(
-        fileTree,
-        currentIncludeFilters,
-        currentExcludeFilters,
-        currentUseRegex
-      );
-    },
-    [applyFiltersUtil, fileTree, setFilters, setUseRegex]
-  );
+    // Compute and return filtered results immediately for API compatibility
+    return applyFiltersUtil(
+      fileTree,
+      currentIncludeFilters,
+      currentExcludeFilters,
+      currentUseRegex
+    );
+  };
 
   // Tree/filter failures affect the explorer as a whole. File-content read
   // failures stay keyed to their viewer tab so one broken file cannot replace

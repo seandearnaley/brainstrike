@@ -9,7 +9,7 @@
  */
 
 import type { FileTreeWorkerPort, FlattenedNode } from '@brainstrike/file-tree-worker';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
 
@@ -109,7 +109,7 @@ export function useWorkerFlattenedTree(
   }, [portRef, isWorkerEnabled]);
 
   // Request flatten from worker
-  const requestFlatten = useCallback(() => {
+  const requestFlatten = () => {
     const port = portRef.current;
     if (!(port && isWorkerEnabled)) {
       return;
@@ -117,7 +117,7 @@ export function useWorkerFlattenedTree(
 
     // Convert Set to array for worker
     port.flattenTree(Array.from(expandedPaths));
-  }, [portRef, expandedPaths, isWorkerEnabled]);
+  };
 
   // Auto-request flatten when visible paths or tree contents change.
   useEffect(() => {

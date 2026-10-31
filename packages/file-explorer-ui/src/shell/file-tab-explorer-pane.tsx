@@ -1,5 +1,4 @@
 import type { ReactElement } from 'react';
-import { useCallback, useMemo } from 'react';
 import { useFileTabPaneStore } from '../stores/file-tab-pane-store';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
@@ -34,12 +33,9 @@ function PaneTree({
   const treeContext = useFileTreeContext();
   const expandedPathList = useFileTabPaneStore((state) => state.panes[compositeKey]?.expandedPaths);
   const toggleExpandedPath = useFileTabPaneStore((state) => state.toggleExpandedPath);
-  const expandedPaths = useMemo(() => new Set(expandedPathList ?? []), [expandedPathList]);
-  const onToggle = useCallback(
-    (path: string) => toggleExpandedPath(compositeKey, path),
-    [compositeKey, toggleExpandedPath]
-  );
-  const expansionScope = useMemo(() => ({ expandedPaths, onToggle }), [expandedPaths, onToggle]);
+  const expandedPaths = new Set(expandedPathList ?? []);
+  const onToggle = (path: string) => toggleExpandedPath(compositeKey, path);
+  const expansionScope = { expandedPaths, onToggle };
 
   return (
     <OptimizedFileTree

@@ -3,7 +3,7 @@ import {
   registerFactoryResetPreparation,
 } from '@brainstrike/app-state/factory-reset';
 import { createLogger } from '@brainstrike/logging';
-import { type RefObject, useEffect, useMemo, useRef } from 'react';
+import { type RefObject, useEffect, useRef } from 'react';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 
@@ -66,36 +66,31 @@ export function useIndexingCancellation(
     });
   }, [indexerRef]);
 
-  return useMemo(
-    () => ({
-      cancel: (): void => {
-        const cancellation = new Error(
-          'The selection was cleared; its token indexing is cancelled'
-        );
-        cancellationsRef.current.add(cancellation);
-        indexerRef.current.cancelIndexing(cancellation);
-      },
-      isRetired: () => retirementRef.current !== null,
-      settledByOwner: (error: unknown, dispatch: string): boolean => {
-        if (retirementRef.current !== null && error === retirementRef.current) {
-          logger.debug('triggerIndexing settled by factory reset retirement', { dispatch });
-          return true;
-        }
-        if (error instanceof Error && cancellationsRef.current.has(error)) {
-          logger.debug('triggerIndexing settled by user cancellation', { dispatch });
-          return true;
-        }
-        return false;
-      },
-      track: (run: Promise<void>): Promise<void> => {
-        runsRef.current.add(run);
-        const settle = (): void => {
-          runsRef.current.delete(run);
-        };
-        void run.then(settle, settle);
-        return run;
-      },
-    }),
-    [indexerRef]
-  );
+  return {
+    cancel: (): void => {
+      const cancellation = new Error('The selection was cleared; its token indexing is cancelled');
+      cancellationsRef.current.add(cancellation);
+      indexerRef.current.cancelIndexing(cancellation);
+    },
+    isRetired: () => retirementRef.current !== null,
+    settledByOwner: (error: unknown, dispatch: string): boolean => {
+      if (retirementRef.current !== null && error === retirementRef.current) {
+        logger.debug('triggerIndexing settled by factory reset retirement', { dispatch });
+        return true;
+      }
+      if (error instanceof Error && cancellationsRef.current.has(error)) {
+        logger.debug('triggerIndexing settled by user cancellation', { dispatch });
+        return true;
+      }
+      return false;
+    },
+    track: (run: Promise<void>): Promise<void> => {
+      runsRef.current.add(run);
+      const settle = (): void => {
+        runsRef.current.delete(run);
+      };
+      void run.then(settle, settle);
+      return run;
+    },
+  };
 }

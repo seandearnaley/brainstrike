@@ -344,9 +344,9 @@ export function useSelectionResolver(): SelectionResolverState {
     store,
   ]);
 
-  const resolvedQuerySelection = useMemo(
-    () => resolveQuerySelection(selectionModel.queryDescriptor, querySelectionManifest),
-    [querySelectionManifest, selectionModel.queryDescriptor]
+  const resolvedQuerySelection = resolveQuerySelection(
+    selectionModel.queryDescriptor,
+    querySelectionManifest
   );
 
   const isQuerySelectionReady =
@@ -412,10 +412,7 @@ export function useSelectionResolver(): SelectionResolverState {
     return compositeKeys;
   }, [currentFolderId, effectiveRelativePaths, selectedFilePaths, selectionModel.mode]);
 
-  const selectedFilesList = useMemo(
-    () => Array.from(effectiveSelection).sort(defaultCollator.compare),
-    [effectiveSelection]
-  );
+  const selectedFilesList = Array.from(effectiveSelection).sort(defaultCollator.compare);
 
   const selectedCount = useMemo(() => {
     if (selectionModel.mode === 'query' && selectionModel.queryDescriptor) {

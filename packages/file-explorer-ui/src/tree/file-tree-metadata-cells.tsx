@@ -24,7 +24,7 @@
  */
 
 import { getFileExtension } from '@brainstrike/utils/file-utils';
-import { memo, useCallback, useSyncExternalStore } from 'react';
+import { memo, useSyncExternalStore } from 'react';
 import { ExtensionBadge } from '../extension-badge';
 import { useFileRowMetadata } from '../indexing/file-row-metadata-context';
 import type {
@@ -93,11 +93,8 @@ function NumericValue({ children, title }: { children: string; title: string }) 
 const UNIDENTIFIED_ROW_TITLE = 'Metadata unavailable — this row has no workspace identity';
 
 function useFileSnapshot(store: FileRowMetadataStore, compositeKey: string): FileRowMetadata {
-  const subscribe = useCallback(
-    (listener: () => void) => store.subscribe(compositeKey, listener),
-    [compositeKey, store]
-  );
-  const getSnapshot = useCallback(() => store.getSnapshot(compositeKey), [compositeKey, store]);
+  const subscribe = (listener: () => void) => store.subscribe(compositeKey, listener);
+  const getSnapshot = () => store.getSnapshot(compositeKey);
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
@@ -105,14 +102,8 @@ function useDirectoryRollup(
   store: FileRowMetadataStore,
   compositeKey: string
 ): FileRowDirectoryRollup {
-  const subscribe = useCallback(
-    (listener: () => void) => store.subscribe(compositeKey, listener),
-    [compositeKey, store]
-  );
-  const getSnapshot = useCallback(
-    () => store.getDirectorySnapshot(compositeKey),
-    [compositeKey, store]
-  );
+  const subscribe = (listener: () => void) => store.subscribe(compositeKey, listener);
+  const getSnapshot = () => store.getDirectorySnapshot(compositeKey);
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 

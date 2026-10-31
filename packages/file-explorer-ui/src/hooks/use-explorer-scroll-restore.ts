@@ -26,7 +26,7 @@
  * backstop so capture is never wedged off forever.
  */
 import type { RefObject } from 'react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 
 /** Trailing debounce for the persisted scroll commit. */
@@ -147,7 +147,7 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
   //  3. fallback → the outer root itself
   // Forest sections' own viewports are overflow-visible (external scroll), so
   // (1) is checked first and (2) only resolves in single-root mode.
-  const getScrollEl = useCallback((): HTMLElement | null => {
+  const getScrollEl = (): HTMLElement | null => {
     const root = rootRef.current;
     if (!root) {
       return null;
@@ -157,7 +157,7 @@ export function useExplorerScrollRestore(rootRef: RefObject<HTMLElement | null>)
       root.querySelector<HTMLElement>('[data-testid="tree-table-viewport"]') ??
       root
     );
-  }, [rootRef]);
+  };
 
   // Capture: trailing-debounced persisted commit. Disabled until restore resolves.
   useEffect(() => {

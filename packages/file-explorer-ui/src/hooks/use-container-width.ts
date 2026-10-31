@@ -12,18 +12,15 @@
  */
 
 import { useResizeObserver } from '@brainstrike/ui';
-import { type RefObject, useCallback, useState } from 'react';
+import { type RefObject, useState } from 'react';
 
 export function useContainerWidth(elementRef: RefObject<HTMLElement | null>): number {
   const [width, setWidth] = useState(0);
 
-  useResizeObserver(
-    elementRef,
-    useCallback((entry: ResizeObserverEntry) => {
-      const nextWidth = entry.contentRect.width;
-      setWidth((previous) => (Math.abs(previous - nextWidth) < 1 ? previous : nextWidth));
-    }, [])
-  );
+  useResizeObserver(elementRef, (entry: ResizeObserverEntry) => {
+    const nextWidth = entry.contentRect.width;
+    setWidth((previous) => (Math.abs(previous - nextWidth) < 1 ? previous : nextWidth));
+  });
 
   return width;
 }

@@ -1,5 +1,4 @@
 import type { IFileNode } from '@brainstrike/types';
-import * as React from 'react';
 import { ActionButtons } from './action-buttons';
 import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
@@ -47,15 +46,12 @@ const ActionButtonsArrayFacade = (props: Props) => {
   const { displayedFiles, selectedFiles, setSelectedFiles } = props;
 
   // Reuse Set instances to reduce GC pressure for large arrays
-  const displayedSet = React.useMemo(() => new Set(displayedFiles), [displayedFiles]);
-  const selectedSet = React.useMemo(() => new Set(selectedFiles), [selectedFiles]);
+  const displayedSet = new Set(displayedFiles);
+  const selectedSet = new Set(selectedFiles);
 
-  const setSelectedSet = React.useCallback(
-    (nextSet: Set<string>) => {
-      setSelectedFiles(Array.from(nextSet));
-    },
-    [setSelectedFiles]
-  );
+  const setSelectedSet = (nextSet: Set<string>) => {
+    setSelectedFiles(Array.from(nextSet));
+  };
 
   return (
     <ActionButtons

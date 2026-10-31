@@ -10,7 +10,7 @@
 
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
-import { useCallback } from 'react';
+
 import { useFileExplorerStoreSelector } from '../shell/file-explorer-provider';
 import {
   selectExcludeFilters,
@@ -37,10 +37,8 @@ export function useWorkspaceFilterFn(): (tree: IFileNode[]) => IFileNode[] {
   const { applyFileFilters } = useFileFilters();
 
   // Create memoized filter function
-  const filterTreeFn = useCallback(
-    (tree: IFileNode[]) => applyFileFilters(tree, includeFilters, excludeFilters, useRegex),
-    [applyFileFilters, includeFilters, excludeFilters, useRegex]
-  );
+  const filterTreeFn = (tree: IFileNode[]) =>
+    applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
 
   return filterTreeFn;
 }

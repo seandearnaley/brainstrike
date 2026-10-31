@@ -5,7 +5,7 @@ import {
   type TreeTableHandle,
 } from '@brainstrike/ui';
 import { AlertTriangle, FileText, Folder, Info } from 'lucide-react';
-import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
+import { type ReactElement, useEffect, useMemo, useRef } from 'react';
 import type { MiniTreeEntry } from './breadcrumb-mini-tree-entries';
 
 /**
@@ -102,26 +102,23 @@ export function BreadcrumbMiniTree({
     });
   }, [entries]);
 
-  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-  const loadingNodeIds = useMemo(() => new Set(loadingPaths), [loadingPaths]);
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const loadingNodeIds = new Set(loadingPaths);
 
-  const handleSelect = useCallback(
-    (nodeId: string | null) => {
-      if (nodeId === null) {
-        return;
-      }
-      const entry = nodeById.get(nodeId)?.data;
-      if (entry?.kind !== 'node') {
-        return;
-      }
-      if (entry.node.type === 'directory') {
-        onToggleDir(entry.node.path);
-        return;
-      }
-      onPickFile(entry.node.path);
-    },
-    [nodeById, onPickFile, onToggleDir]
-  );
+  const handleSelect = (nodeId: string | null) => {
+    if (nodeId === null) {
+      return;
+    }
+    const entry = nodeById.get(nodeId)?.data;
+    if (entry?.kind !== 'node') {
+      return;
+    }
+    if (entry.node.type === 'directory') {
+      onToggleDir(entry.node.path);
+      return;
+    }
+    onPickFile(entry.node.path);
+  };
 
   // Land on the clicked segment: reveal scrolls its row into the virtualized
   // window once on mount (entries for the initial listing are already there).

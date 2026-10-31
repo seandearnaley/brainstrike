@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { ForestTreeActionsValue } from './forest-tree-actions-context';
 
 /**
@@ -17,12 +17,12 @@ export function useForestExpandConfirm(forestActions: ForestTreeActionsValue | n
   stage: () => void;
 } {
   const [isOpen, setIsOpen] = useState(false);
-  const stage = useCallback(() => setIsOpen(true), []);
-  const dismiss = useCallback(() => setIsOpen(false), []);
-  const confirm = useCallback(() => {
+  const stage = () => setIsOpen(true);
+  const dismiss = () => setIsOpen(false);
+  const confirm = () => {
     setIsOpen(false);
     void forestActions?.runExpandAll();
-  }, [forestActions]);
+  };
   // Memoized: this object feeds the toolbar's memoized expand-all callback.
-  return useMemo(() => ({ confirm, dismiss, isOpen, stage }), [confirm, dismiss, isOpen, stage]);
+  return { confirm, dismiss, isOpen, stage };
 }

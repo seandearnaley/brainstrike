@@ -21,7 +21,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import { CheckCheck, X } from 'lucide-react';
 import * as React from 'react';
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
@@ -97,60 +97,43 @@ export const ActionButtons = React.memo(
      * Performs recursive selection using the tree worker API.
      * Loads all directories then selects files up to the limit.
      */
-    const performRecursiveSelection = useCallback(
-      async (folderId: string): Promise<SelectAllResult | undefined> => {
-        if (!(selectAllRecursively && addMultipleSelectedFiles && filteredTree)) {
-          return;
-        }
+    const performRecursiveSelection = async (
+      folderId: string
+    ): Promise<SelectAllResult | undefined> => {
+      if (!(selectAllRecursively && addMultipleSelectedFiles && filteredTree)) {
+        return;
+      }
 
-        return selectAllRecursively(
-          filteredTree,
-          folderId,
-          addMultipleSelectedFiles,
-          maxSelectionCount,
-          addMultipleSelectedFilesChunked
-        );
-      },
-      [
-        selectAllRecursively,
-        addMultipleSelectedFiles,
+      return selectAllRecursively(
         filteredTree,
+        folderId,
+        addMultipleSelectedFiles,
         maxSelectionCount,
-        addMultipleSelectedFilesChunked,
-      ]
-    );
+        addMultipleSelectedFilesChunked
+      );
+    };
 
     /**
      * Fallback selection for when recursive API is not available.
      * Only selects from currently displayed files.
      */
-    const performFallbackSelection = useCallback(
-      (folderId: string): void => {
-        const sourcePaths =
-          hasActiveQuickFilter && visibleFilePaths && visibleFilePaths.length > 0
-            ? visibleFilePaths
-            : Array.from(displayedFiles);
+    const performFallbackSelection = (folderId: string): void => {
+      const sourcePaths =
+        hasActiveQuickFilter && visibleFilePaths && visibleFilePaths.length > 0
+          ? visibleFilePaths
+          : Array.from(displayedFiles);
 
-        const filesToSelect = sourcePaths
-          .slice(0, maxSelectionCount)
-          .map((path) => encodeFileSelection(folderId, path));
+      const filesToSelect = sourcePaths
+        .slice(0, maxSelectionCount)
+        .map((path) => encodeFileSelection(folderId, path));
 
-        setSelectedFiles(new Set(filesToSelect));
-      },
-      [
-        hasActiveQuickFilter,
-        displayedFiles,
-        visibleFilePaths,
-        maxSelectionCount,
-        encodeFileSelection,
-        setSelectedFiles,
-      ]
-    );
+      setSelectedFiles(new Set(filesToSelect));
+    };
 
     /**
      * Main selection handler - routes to recursive or fallback strategy.
      */
-    const handleSelectAll = useCallback(async () => {
+    const handleSelectAll = async () => {
       if (!currentFolderId) {
         return;
       }
@@ -171,28 +154,19 @@ export const ActionButtons = React.memo(
       } else {
         performFallbackSelection(currentFolderId);
       }
-    }, [
-      currentFolderId,
-      selectAllRecursively,
-      addMultipleSelectedFiles,
-      filteredTree,
-      performRecursiveSelection,
-      performFallbackSelection,
-      hasActiveQuickFilter,
-      quickFilterSelectAllOverride,
-    ]);
+    };
 
     // Clears all selected files
-    const handleDeselectAll = useCallback(() => {
+    const handleDeselectAll = () => {
       setSelectedFiles(new Set());
-    }, [setSelectedFiles]);
+    };
 
     // Handle cancel of recursive selection
-    const handleCancel = useCallback(() => {
+    const handleCancel = () => {
       if (cancelSelectAll) {
         cancelSelectAll();
       }
-    }, [cancelSelectAll]);
+    };
 
     const hasDisplayedFiles = displayedFiles.size > 0;
     const hasSelectedFiles = selectedFilePaths.size > 0;

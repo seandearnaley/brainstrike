@@ -20,7 +20,7 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { Check, CheckSquare, Settings2, X } from 'lucide-react';
-import { memo, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, type RefObject, useEffect, useRef, useState } from 'react';
 import { parseCountInput, SELECTION_PRESETS } from './selection-counter';
 
 export interface SelectionModeBadgeProps {
@@ -156,41 +156,38 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
   const inputRef = useRef<HTMLInputElement | null>(null);
   const focusFrameRef = useRef<number | null>(null);
 
-  const cleanupFocusFrame = useCallback(() => {
+  const cleanupFocusFrame = () => {
     if (focusFrameRef.current !== null) {
       cancelAnimationFrame(focusFrameRef.current);
     }
-  }, []);
+  };
 
   useEffect(() => cleanupFocusFrame, [cleanupFocusFrame]);
 
-  const handleOpenChange = useCallback(
-    (open: boolean) => {
-      if (focusFrameRef.current !== null) {
-        cancelAnimationFrame(focusFrameRef.current);
+  const handleOpenChange = (open: boolean) => {
+    if (focusFrameRef.current !== null) {
+      cancelAnimationFrame(focusFrameRef.current);
+      focusFrameRef.current = null;
+    }
+
+    setIsOpen(open);
+    if (open) {
+      setDraft(String(maxSelectionCount ?? ''));
+      setError(null);
+      focusFrameRef.current = requestAnimationFrame(() => {
         focusFrameRef.current = null;
-      }
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    }
+  };
 
-      setIsOpen(open);
-      if (open) {
-        setDraft(String(maxSelectionCount ?? ''));
-        setError(null);
-        focusFrameRef.current = requestAnimationFrame(() => {
-          focusFrameRef.current = null;
-          inputRef.current?.focus();
-          inputRef.current?.select();
-        });
-      }
-    },
-    [maxSelectionCount]
-  );
-
-  const handleDraftChange = useCallback((value: string) => {
+  const handleDraftChange = (value: string) => {
     setDraft(value);
     setError(null);
-  }, []);
+  };
 
-  const commitMaxSelectionCount = useCallback(() => {
+  const commitMaxSelectionCount = () => {
     if (typeof onMaxSelectionCountChange !== 'function') {
       return;
     }
@@ -213,7 +210,7 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
 
     onMaxSelectionCountChange(parsed);
     setIsOpen(false);
-  }, [draft, onMaxSelectionCountChange]);
+  };
 
   const tooltipText = triggerVariant === 'icon' ? 'Selection settings.' : 'Manual selection mode';
 
