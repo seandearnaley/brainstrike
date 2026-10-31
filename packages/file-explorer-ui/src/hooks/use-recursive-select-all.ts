@@ -450,7 +450,7 @@ export function useRecursiveSelectAll(
         loadingProgress: null,
       });
 
-      try {
+      const attempt = async () => {
         const result = await querySelectableFiles({
           fileSystemAdapter: adapter,
           roots: filteredTree,
@@ -492,17 +492,20 @@ export function useRecursiveSelectAll(
           store,
           useRegex,
         });
-      } catch (err) {
-        if (!isAbortError(err)) {
-          logger.error('selectAllRecursively failed', { error: err });
-        }
-        return handleSelectAllError(err, onError);
-      } finally {
-        abortControllerRef.current = null;
-        isOperationInProgressRef.current = false;
-        isLoadingForSelectAllRef.current = false;
-        setState(RESET_STATE);
-      }
+      };
+      return attempt()
+        .catch((err: unknown) => {
+          if (!isAbortError(err)) {
+            logger.error('selectAllRecursively failed', { error: err });
+          }
+          return handleSelectAllError(err, onError);
+        })
+        .finally(() => {
+          abortControllerRef.current = null;
+          isOperationInProgressRef.current = false;
+          isLoadingForSelectAllRef.current = false;
+          setState(RESET_STATE);
+        });
     },
     [
       currentFolderId,

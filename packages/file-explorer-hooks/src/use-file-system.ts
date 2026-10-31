@@ -451,7 +451,7 @@ export function useFileSystem({
       throw new Error(reason);
     }
     dispatch({ loading: true, type: 'setAccessLoading' });
-    try {
+    const addRoot = async (): Promise<DirectoryHandle> => {
       if (
         typeof (fileSystemAdapter as { addRoot?: () => Promise<RootDescriptor> }).addRoot ===
         'function'
@@ -479,14 +479,15 @@ export function useFileSystem({
       addActiveRoot({ displayName: handle.name, path: getCanonicalFolderId(handle), rootId });
       dispatch({ type: 'recordRecentRootMutation' });
       return handle;
-    } catch (error) {
-      if (isUserCancellation(error)) {
-        return null;
-      }
-      throw mapFileSystemError(error);
-    } finally {
-      dispatch({ loading: false, type: 'setAccessLoading' });
-    }
+    };
+    return addRoot()
+      .catch((error: unknown) => {
+        if (isUserCancellation(error)) {
+          return null;
+        }
+        throw mapFileSystemError(error);
+      })
+      .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
   }, [fileSystemAdapter, isFileSystemAccessSupported, updateCurrentFolderId, addActiveRoot]);
 
   const adapterAddRootByPath = fileSystemAdapter.addRootByPath;
@@ -506,7 +507,7 @@ export function useFileSystem({
     }
     return async (rootPath: string): Promise<DirectoryHandle | null> => {
       dispatch({ loading: true, type: 'setAccessLoading' });
-      try {
+      const addRoot = async (): Promise<DirectoryHandle> => {
         const { handle, rootId, displayName, persisted } = await adapterAddRootByPath.call(
           fileSystemAdapter,
           rootPath
@@ -518,11 +519,12 @@ export function useFileSystem({
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;
-      } catch (error) {
-        throw mapFileSystemError(error);
-      } finally {
-        dispatch({ loading: false, type: 'setAccessLoading' });
-      }
+      };
+      return addRoot()
+        .catch((error: unknown) => {
+          throw mapFileSystemError(error);
+        })
+        .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
     };
   }, [adapterAddRootByPath, addActiveRoot, fileSystemAdapter, updateCurrentFolderId]);
 
@@ -680,7 +682,7 @@ export function useFileSystem({
         // existing stamp is what lets an injected fixture handle and its
         // auto-restore reconcile to ONE root now that identity is rootId-only.
         const rootId = handle.rootId ?? adapterRootIdByPath.get(handle.path) ?? crypto.randomUUID();
-        firstRootId ??= rootId;
+        firstRootId = firstRootId ?? rootId;
         dispatch({ handle, rootId, type: 'addOrFocusHandle' });
         addActiveRoot({
           displayName: handle.name,
@@ -827,34 +829,36 @@ export function useFileSystem({
 
     let cancelled = false;
 
-    const run = async () => {
-      try {
-        const restoreFn = (
-          fileSystemAdapter as { restoreLastFolder?: () => Promise<DirectoryHandle | null> }
-        ).restoreLastFolder;
-        if (!restoreFn) {
-          return;
-        }
-        // BIND: same unbound-method hazard as restoreRoots above.
-        const restored = await restoreFn.call(fileSystemAdapter);
-        if (!restored || cancelled) {
-          return;
-        }
-        await applyRestoredFolderState(restored, () => cancelled);
-      } catch (error) {
-        if (!cancelled) {
-          logger.warn('Failed to restore last folder', { error });
-        }
-      } finally {
-        if (!cancelled) {
-          // Mark as attempted only after a non-cancelled completion.
-          // This allows retries when a run is cancelled (e.g. effect preflight cleanup).
-          hasAttemptedRestoreRef.current = true;
-          dispatch({ loading: false, type: 'setAccessLoading' });
-        }
-        isRestoringRef.current = false;
+    const restore = async () => {
+      const restoreFn = (
+        fileSystemAdapter as { restoreLastFolder?: () => Promise<DirectoryHandle | null> }
+      ).restoreLastFolder;
+      if (!restoreFn) {
+        return;
       }
+      // BIND: same unbound-method hazard as restoreRoots above.
+      const restored = await restoreFn.call(fileSystemAdapter);
+      if (!restored || cancelled) {
+        return;
+      }
+      await applyRestoredFolderState(restored, () => cancelled);
     };
+    const run = () =>
+      restore()
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            logger.warn('Failed to restore last folder', { error });
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            // Mark as attempted only after a non-cancelled completion.
+            // This allows retries when a run is cancelled (e.g. effect preflight cleanup).
+            hasAttemptedRestoreRef.current = true;
+            dispatch({ loading: false, type: 'setAccessLoading' });
+          }
+          isRestoringRef.current = false;
+        });
     void run();
     return () => {
       cancelled = true;

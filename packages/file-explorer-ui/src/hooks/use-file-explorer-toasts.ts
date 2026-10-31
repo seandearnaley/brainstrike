@@ -35,7 +35,7 @@ export function useFileExplorerToasts({
     }
 
     setIsRefreshing(true);
-    try {
+    const attempt = async () => {
       const refreshResult = await refreshFileExplorer();
       if (refreshResult.status === 'cancelled') {
         return;
@@ -44,11 +44,14 @@ export function useFileExplorerToasts({
         description: FileExplorerStrings.success.refreshSuccess,
         title: FileExplorerStrings.success.title,
       });
-    } catch (error) {
-      handleRefreshError(error);
-    } finally {
-      setIsRefreshing(false);
-    }
+    };
+    return attempt()
+      .catch((error: unknown) => {
+        handleRefreshError(error);
+      })
+      .finally(() => {
+        setIsRefreshing(false);
+      });
   }, [rootDirectoryHandle, refreshFileExplorer, showToast, handleRefreshError]);
 
   const handleDirectorySelect = useCallback(async () => {

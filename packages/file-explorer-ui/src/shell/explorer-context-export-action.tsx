@@ -96,14 +96,15 @@ export function ExplorerContextExportAction(): ReactElement {
     exportContext: (options: ContextGenerationOverrides) => Promise<{ readonly ok: boolean }>
   ) => {
     setBusy(true);
-    try {
+    const attempt = async () => {
       const outcome = await exportContext({ projectTreeUsesViewFilters: treeUsesViewFilters });
       if (outcome.ok) {
         setOpen(false);
       }
-    } finally {
+    };
+    return attempt().finally(() => {
       setBusy(false);
-    }
+    });
   };
 
   const files = `${selectedCount.toLocaleString()} ${selectedCount === 1 ? 'file' : 'files'}`;
