@@ -1,10 +1,7 @@
 import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import type { MastraDBMessage } from '@mastra/core/agent';
-import type { ProcessLLMRequestArgs, ProcessLLMRequestResult } from '@mastra/core/processors';
-import { ProviderHistoryCompat } from '@mastra/core/processors';
 import { collectToolCallOccurrences, toolPartPositionKey } from './request-history.ts';
 
-type Prompt = ProcessLLMRequestArgs['prompt'];
 export type ProviderCallProvenance = ReadonlyMap<object, string>;
 
 function providerFamily(provider: string): string {
@@ -80,19 +77,20 @@ export function collectProviderCallProvenance(
 }
 
 /**
- * BST-1927: the installed rule drops foreign calls but retains results embedded
- * in the assistant turn. Run one complete-pair pass before the vendor rule in
- * both request paths. Remove this extension when the vendor handles both roles.
+ * BST-1927: Mastra's `ProviderHistoryCompat` drops foreign provider-executed
+ * calls but retains results embedded in the assistant turn. Run this
+ * complete-pair pass before the vendor rules. Remove it when the vendor
+ * handles both roles.
  * Upstream: https://github.com/mastra-ai/mastra/blob/main/packages/core/src/processors/provider-history-compat.ts
  */
-function stripForeignExecutedToolPairs(
-  prompt: Prompt,
+export function stripForeignExecutedToolPairs(
+  prompt: LanguageModelV4Prompt,
   provider: string,
-  provenance: ProviderCallProvenance = new Map()
-): Prompt {
+  provenance: ProviderCallProvenance
+): LanguageModelV4Prompt {
   const foreignPositions = new Set<string>();
   const target = providerFamily(provider);
-  for (const occurrence of collectToolCallOccurrences(prompt as unknown as LanguageModelV4Prompt)) {
+  for (const occurrence of collectToolCallOccurrences(prompt)) {
     const part = occurrence.call;
     if (part.providerExecuted !== true) {
       continue;
@@ -113,36 +111,21 @@ function stripForeignExecutedToolPairs(
   if (foreignPositions.size === 0) {
     return prompt;
   }
-  return prompt.flatMap<Prompt[number]>((message, messageIndex) => {
-    if (message.role !== 'assistant' && message.role !== 'tool') {
-      return [message];
-    }
-    const content = message.content.filter(
-      (_part, partIndex) => !foreignPositions.has(toolPartPositionKey({ messageIndex, partIndex }))
-    );
-    return content.length === 0 ? [] : [{ ...message, content } as Prompt[number]];
-  });
-}
-
-export class CanonicalProviderHistoryCompat extends ProviderHistoryCompat {
-  private readonly provider: string;
-  private readonly provenance: ProviderCallProvenance | undefined;
-
-  constructor(provider: string, provenance?: ProviderCallProvenance) {
-    super();
-    this.provider = provider;
-    this.provenance = provenance;
-  }
-
-  override processLLMRequest(args: ProcessLLMRequestArgs): ProcessLLMRequestResult {
-    const provenance =
-      this.provenance ??
-      collectProviderCallProvenance(
-        args.prompt as unknown as LanguageModelV4Prompt,
-        args.messageList?.get.all.db() ?? []
+  return prompt.flatMap((message, messageIndex): LanguageModelV4Prompt => {
+    if (message.role === 'assistant') {
+      const content = message.content.filter(
+        (_part, partIndex) =>
+          !foreignPositions.has(toolPartPositionKey({ messageIndex, partIndex }))
       );
-    const prompt = stripForeignExecutedToolPairs(args.prompt, this.provider, provenance);
-    const result = super.processLLMRequest({ ...args, prompt });
-    return result ?? (prompt === args.prompt ? undefined : { prompt });
-  }
+      return content.length === 0 ? [] : [{ ...message, content }];
+    }
+    if (message.role === 'tool') {
+      const content = message.content.filter(
+        (_part, partIndex) =>
+          !foreignPositions.has(toolPartPositionKey({ messageIndex, partIndex }))
+      );
+      return content.length === 0 ? [] : [{ ...message, content }];
+    }
+    return [message];
+  });
 }

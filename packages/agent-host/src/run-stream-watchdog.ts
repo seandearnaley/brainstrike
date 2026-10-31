@@ -37,8 +37,14 @@ const SCAFFOLDING_PARTS: ReadonlySet<Part['type']> = new Set([
  * typed error and reports it to `onTimeout` first, so the caller can abort the
  * provider before the stream unwinds.
  *
- * SDK output timeouts do not express the host's separate first-output and
- * reasoning-gap windows, or the streamed-input deadline.
+ * `streamText`'s `timeout` (ai 7.0.143) covers none of these windows as the
+ * host needs them, so none is handed to it:
+ * - `firstChunkMs` starts only once the provider call has returned its
+ *   response headers, so it never ends a provider that holds them.
+ * - `chunkMs` is one window for every output gap: it cannot keep reasoning
+ *   pauses wide and answer gaps tight.
+ * - `stepMs` includes local tool execution, which this watchdog never judges.
+ * - Nothing bounds the assembly of one streamed tool input.
  */
 export function watchHostStream(
   source: AsyncIterable<Part>,

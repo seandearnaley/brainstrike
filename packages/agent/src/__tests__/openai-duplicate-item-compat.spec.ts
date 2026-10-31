@@ -1,12 +1,9 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
-import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
 import { describe, expect, it } from 'vitest';
-import {
-  buildOpenAIDuplicateItemCompatInputProcessor,
-  OpenAIDuplicateItemCompat,
-} from '../mastra-processors/openai-duplicate-item-compat';
+import { prepareProviderRequest } from '../provider-request.ts';
 import { materializeHostProviderModel } from '../providers/model-router-sdk';
+import { canonicalizeOpenAIDuplicateItems } from '../providers/openai-duplicate-item-compat.ts';
 
 const REASONING_EMPTY_ID = 'rs_dup_empty';
 const REASONING_SUMMARY_ID = 'rs_dup_summary';
@@ -14,7 +11,7 @@ const FUNCTION_CALL_ITEM_ID = 'fc_dup_read';
 const TOOL_CALL_ID = 'call_dup_read';
 const LIVE_TEXT_ITEM_ID = 'msg_live_answer';
 
-type Prompt = ProcessLLMRequestArgs['prompt'];
+type Prompt = LanguageModelV4Prompt;
 
 /**
  * Mirrors the BST-1095 corruption: Mastra's sealed-boundary re-key persisted
@@ -81,38 +78,30 @@ function createDuplicatedPrompt(): Prompt {
   ] as Prompt;
 }
 
-function processPrompt(
-  processor: OpenAIDuplicateItemCompat,
-  prompt: Prompt
-): ReturnType<OpenAIDuplicateItemCompat['processLLMRequest']> {
-  const abort = (reason?: string): never => {
-    throw new Error(reason ?? 'processor aborted');
-  };
-  return processor.processLLMRequest({
-    abort,
-    model: {} as ProcessLLMRequestArgs['model'],
-    prompt,
-    retryCount: 0,
-    state: {},
-    stepNumber: 1,
-    steps: [],
-  });
+/** The canonical prompt, or undefined when the input came back untouched. */
+function processPrompt(prompt: Prompt): { prompt: Prompt } | undefined {
+  const canonical = canonicalizeOpenAIDuplicateItems(prompt);
+  return canonical === prompt ? undefined : { prompt: canonical };
 }
 
 describe('OpenAIDuplicateItemCompat', () => {
-  it('is installed only for OpenAI hosted requests', () => {
-    expect(buildOpenAIDuplicateItemCompatInputProcessor(' openAI ')?.id).toBe(
-      'openai-duplicate-item-compat'
-    );
-    expect(buildOpenAIDuplicateItemCompatInputProcessor('anthropic')).toBeUndefined();
-    expect(buildOpenAIDuplicateItemCompatInputProcessor('google')).toBeUndefined();
+  it('an OpenAI request carries only the newest copy of a duplicated response', async () => {
+    const model = createOpenAI({ apiKey: 'not-used' }).responses('gpt-5.6-luna');
+    const prepared = await prepareProviderRequest({ prompt: createDuplicatedPrompt() }, model, {
+      provider: 'openai',
+    });
+    expect(prepared.params.prompt.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+    ]);
   });
 
   it('drops the stale copy (and its orphaned tool output), keeping the newest occurrence intact', () => {
     const input = createDuplicatedPrompt();
     const before = structuredClone(input);
 
-    const result = processPrompt(new OpenAIDuplicateItemCompat(), input);
+    const result = processPrompt(input);
 
     expect(result).toBeDefined();
     expect(input).toEqual(before);
@@ -138,7 +127,7 @@ describe('OpenAIDuplicateItemCompat', () => {
     const healthy = [input[0], input[3], input[4]] as Prompt;
     const before = structuredClone(healthy);
 
-    expect(processPrompt(new OpenAIDuplicateItemCompat(), healthy)).toBeUndefined();
+    expect(processPrompt(healthy)).toBeUndefined();
     expect(healthy).toEqual(before);
   });
 
@@ -169,7 +158,7 @@ describe('OpenAIDuplicateItemCompat', () => {
       },
     ] as Prompt;
 
-    expect(processPrompt(new OpenAIDuplicateItemCompat(), prompt)).toBeUndefined();
+    expect(processPrompt(prompt)).toBeUndefined();
   });
 
   it('never leaves a tool output without a preceding call when only the call is duplicated', () => {
@@ -217,7 +206,7 @@ describe('OpenAIDuplicateItemCompat', () => {
       },
     ] as Prompt;
 
-    const result = processPrompt(new OpenAIDuplicateItemCompat(), prompt);
+    const result = processPrompt(prompt);
 
     expect(result).toBeDefined();
     const canonical = result?.prompt ?? [];
@@ -266,7 +255,7 @@ describe('OpenAIDuplicateItemCompat', () => {
       },
     ] as Prompt;
 
-    const result = processPrompt(new OpenAIDuplicateItemCompat(), prompt);
+    const result = processPrompt(prompt);
 
     expect(result).toBeDefined();
     const canonical = result?.prompt ?? [];
@@ -344,7 +333,7 @@ describe('OpenAIDuplicateItemCompat', () => {
       },
     ] as Prompt;
 
-    const result = processPrompt(new OpenAIDuplicateItemCompat(), prompt);
+    const result = processPrompt(prompt);
 
     expect(result).toBeDefined();
     const canonical = result?.prompt ?? [];
@@ -382,9 +371,9 @@ describe('OpenAIDuplicateItemCompat', () => {
       },
     });
 
-    const result = processPrompt(new OpenAIDuplicateItemCompat(), createDuplicatedPrompt());
+    const result = processPrompt(createDuplicatedPrompt());
     await materializeHostProviderModel(provider.responses('gpt-5.6-luna')).doGenerate({
-      prompt: (result?.prompt ?? []) as LanguageModelV4Prompt,
+      prompt: result?.prompt ?? [],
       providerOptions: { openai: { store: false } },
     });
 
