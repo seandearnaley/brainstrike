@@ -321,7 +321,7 @@ describe('OpenRouterModelMetadataService', () => {
     await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
       freshness: 'stale-cache',
       metadata: { checkedAt: 1000 },
-      warning: 'OpenRouter Models API returned status 503',
+      warning: 'OpenRouter Models API returned status 503.',
     });
   });
 
@@ -356,7 +356,7 @@ describe('OpenRouterModelMetadataService', () => {
       await expect(refresh).resolves.toMatchObject({
         freshness: 'stale-cache',
         metadata: { checkedAt: 1000 },
-        warning: 'OpenRouter Models API request timed out after 5ms',
+        warning: 'OpenRouter Models API request timed out after 5ms.',
       });
       expect(fetchImpl.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
       expect(vi.getTimerCount()).toBe(0);
@@ -459,13 +459,16 @@ describe('OpenRouterModelMetadataService', () => {
     );
   });
 
-  it('preserves the original request error when no snapshot exists', async () => {
+  it('refuses an unreachable OpenRouter as unreachable, keeping the request error as its cause', async () => {
     const failure = new TypeError('fetch failed');
     const service = createOpenRouterModelMetadataService({
       fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(failure),
     });
 
-    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toBe(failure);
+    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toMatchObject({
+      cause: failure,
+      failure: { code: 'provider.unreachable', kind: 'refusal' },
+    });
   });
 
   it.each(['', 'gpt-5.4-mini', 'openai/model/extra'])('rejects invalid model id %j', async (id) => {
