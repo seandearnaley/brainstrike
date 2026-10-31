@@ -282,7 +282,7 @@ function McpCatalogTokenDialog({
           <DialogHeader>
             <DialogTitle>Install {entry.name}</DialogTitle>
             <DialogDescription>
-              BrainStrike stores the token in your system keychain and writes only a reference to it
+              Brainstrike stores the token in your system keychain and writes only a reference to it
               in the MCP config.
             </DialogDescription>
           </DialogHeader>

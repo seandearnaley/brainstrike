@@ -105,7 +105,7 @@ export function ComposerAccessModeControl({ access }: { access: AccessModeCompos
         sideOffset={8}
       >
         <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
-          How should BrainStrike’s actions be approved?
+          How should Brainstrike’s actions be approved?
         </DropdownMenuLabel>
         <DropdownMenuRadioGroup
           onValueChange={(value) => {

@@ -82,7 +82,7 @@ function loginShellText(loginShell: EnvBootstrapLoginShell): string | null {
   }
   return loginShell.reason === 'test-mode'
     ? 'Login shell: disabled (test mode)'
-    : 'Login shell: environment inherited from the terminal that launched BrainStrike';
+    : 'Login shell: environment inherited from the terminal that launched Brainstrike';
 }
 
 function LoginShellFailureBanner({ message }: { readonly message: string }) {
@@ -96,7 +96,7 @@ function LoginShellFailureBanner({ message }: { readonly message: string }) {
       {/* Names the shell and its exit status or error. */}
       <p className="mt-1">{message}</p>
       <p className="mt-1 text-xs opacity-80">
-        BrainStrike is running on the environment it was launched with, so commands may not find
+        Brainstrike is running on the environment it was launched with, so commands may not find
         tools your shell adds to PATH. Fix your shell startup files and restart.
       </p>
     </div>

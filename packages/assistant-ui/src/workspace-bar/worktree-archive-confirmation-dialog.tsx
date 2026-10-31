@@ -41,7 +41,7 @@ export function WorktreeArchiveConfirmationDialog({
           <DialogDescription>
             Archiving “{confirmation.worktreeName}” will permanently delete{' '}
             {preview.ignoredEntryCount} ignored {noun}. Ignored files are not included in the
-            archive snapshot and cannot be recovered by BrainStrike.
+            archive snapshot and cannot be recovered by Brainstrike.
           </DialogDescription>
         </DialogHeader>
         <div className="border-destructive/30 bg-destructive/5 rounded-md border p-3">

@@ -889,7 +889,7 @@ function ToolsAccordionList({
                 };
           const description =
             group.source === 'native'
-              ? 'Built-in BrainStrike tools'
+              ? 'Built-in Brainstrike tools'
               : `MCP server: ${serverName ?? 'unknown'}`;
 
           return (

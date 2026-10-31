@@ -252,7 +252,7 @@ function ChunkLoadFallback({
       <p className="text-muted-foreground max-w-sm text-xs break-words">
         {reloadAlreadyAttempted
           ? "Reloading didn't fix this. Copy the details and report the problem."
-          : 'Part of BrainStrike failed to download, usually after an update or a dropped connection. Reload the app to fix it.'}
+          : 'Part of Brainstrike failed to download, usually after an update or a dropped connection. Reload the app to fix it.'}
       </p>
       <div className="flex items-center gap-2">
         {primary}

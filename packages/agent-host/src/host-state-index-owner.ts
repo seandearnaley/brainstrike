@@ -168,7 +168,7 @@ export function createStateIndexOwner(options: {
           category: 'availability',
           code: 'state-index.retired',
           message: `The agent host's state index stopped ${STATE_INDEX_REPLACEMENTS + 1} times in a row and was not restarted again.`,
-          remedy: 'Restart BrainStrike.',
+          remedy: 'Restart Brainstrike.',
         }),
         { cause: previous.cause }
       );
