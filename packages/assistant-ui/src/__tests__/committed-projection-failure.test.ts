@@ -20,7 +20,7 @@ const rows: readonly CommittedAssistantLogRow[] = recording;
 const malformedIndex = rows.findIndex(
   ({ event }) =>
     event['type'] === 'stream.chunk' &&
-    (event['chunk'] as Record<string, unknown>)['type'] === 'tool-input-delta'
+    (event['chunk'] as Record<string, unknown>)['type'] === 'tool-input-start'
 );
 const { malformed, runId } = (() => {
   const recorded = rows.find(({ event }) => event['type'] === 'run.started')?.event['runId'];
@@ -30,12 +30,12 @@ const { malformed, runId } = (() => {
   }
   return { malformed: row, runId: recorded };
 })();
-// A delta that is not text at all: no reading of it is truthful.
+// A call whose ID is not a string: no reading of it is truthful.
 const corrupted: readonly CommittedAssistantLogRow[] = rows.map((row, index) =>
   index === malformedIndex
     ? {
         ...row,
-        event: { ...row.event, chunk: { ...(row.event['chunk'] as object), delta: 42 } },
+        event: { ...row.event, chunk: { ...(row.event['chunk'] as object), id: 42 } },
       }
     : row
 );
@@ -87,7 +87,7 @@ describe('a committed row the presentation cannot read', () => {
     expect(() => owner.append(corrupted.slice(malformedIndex, malformedIndex + 1))).not.toThrow();
     expect(published).toBe(1);
     expect(view.getSnapshot().error).toBe(
-      `This conversation cannot be shown past committed row ${malformed.seq} (stream.chunk tool-input-delta): Committed host event is missing delta.`
+      `This conversation cannot be shown past committed row ${malformed.seq} (stream.chunk tool-input-start): Committed host event is missing toolCallId.`
     );
   });
 
