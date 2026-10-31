@@ -11,6 +11,8 @@ export const PRELOAD_BUNDLE_ENTRY_NAMES = ['preload'];
 export const ALLOWED_PRELOAD_REQUIRES = ['electron'];
 
 const REQUIRE_CALL_PATTERN = /\brequire\(\s*(['"])([^'"]+)\1\s*\)/gu;
+// esbuild cannot inline a computed specifier, so it leaves the call in the bundle.
+const COMPUTED_LOAD_PATTERN = /\b(require|import)\((?!\s*['"])/gu;
 
 /**
  * Specifiers required by `source` that a sandboxed preload cannot resolve, deduped and sorted.
@@ -24,6 +26,9 @@ export function findPreloadBundleRequireViolations(source) {
     if (specifier !== undefined && !ALLOWED_PRELOAD_REQUIRES.includes(specifier)) {
       violations.add(specifier);
     }
+  }
+  for (const [, call] of source.matchAll(COMPUTED_LOAD_PATTERN)) {
+    violations.add(`${call}(<computed>)`);
   }
   return [...violations].sort();
 }
