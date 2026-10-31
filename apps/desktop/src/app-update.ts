@@ -2,6 +2,7 @@ import { rm } from 'node:fs/promises';
 import { createLogger } from '@brainstrike/logging';
 import { app } from 'electron';
 import electronUpdater, { type UpdateCheckResult } from 'electron-updater';
+import { keepUpdateChannel, type UpdatePreferencesStore } from './app-update-preferences';
 import { isIsolatedDesktopTestRun } from './desktop-database-location';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 
@@ -17,15 +18,18 @@ function updatesEnabled(): boolean {
  * A packaged install checks the public release feed once per launch (the
  * `publish` entry in package.json: seandearnaley/brainstrike-releases). A newer
  * release downloads in the background, the OS shows a notification, and it
- * installs when the app quits. A beta install follows prereleases and a stable
- * install only stable releases: electron-updater sets `allowPrerelease` from
- * the running version. Unpackaged and test runs never reach the network.
+ * installs when the app quits. Settings › Updates picks whether the check
+ * offers betas (`allowPrerelease`); until the user chooses, a beta install
+ * follows betas and a stable install only stable releases, and that channel is
+ * stored before the first check so an update never changes it. Unpackaged and
+ * test runs never reach the network.
  */
-export function checkForAppUpdate(): void {
+export function checkForAppUpdate(settings: UpdatePreferencesStore): void {
   if (!updatesEnabled()) {
     return;
   }
   const { autoUpdater } = electronUpdater;
+  autoUpdater.allowPrerelease = keepUpdateChannel(settings, app.getVersion()).betaUpdates;
   autoUpdater.logger = {
     debug: (message: string) => logger.debug(message),
     error: (message?: unknown) => logger.error(String(message)),

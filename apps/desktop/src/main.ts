@@ -26,6 +26,7 @@ import { productionDesktopCapabilities } from './agent-host-platform/production-
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
 import { checkForAppUpdate, clearAppUpdateForReset } from './app-update';
+import { readUpdatePreferences, writeUpdatePreferences } from './app-update-preferences';
 import { isAppWindowSender } from './app-windows';
 import { buildFileMenuTemplate } from './application-file-menu';
 import {
@@ -115,6 +116,7 @@ import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
 import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
+import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
@@ -241,6 +243,14 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
     });
   }
   return _settingsStore;
+}
+
+function requireSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> {
+  const store = getSettingsStore();
+  if (!store) {
+    throw new Error('The settings store opens only once the app is ready.');
+  }
+  return store;
 }
 
 const logger = createLogger('DesktopMain');
@@ -622,6 +632,15 @@ ipcDisposers.add(
     recordDurableLog: (record) => errorLogSink?.recordLogRecord(record),
     selectDestination: loggingPreferences.selectDestination,
     setPreferences: loggingPreferences.applyAndPersist,
+  })
+);
+// Settings › Updates (BST-2367): the next launch's update check applies the choice.
+ipcDisposers.add(
+  'app-updates',
+  registerAppUpdatesIpcHandlers({
+    getPreferences: () => readUpdatePreferences(requireSettingsStore(), app.getVersion()),
+    setBetaUpdates: (betaUpdates) =>
+      writeUpdatePreferences(requireSettingsStore(), { betaUpdates }),
   })
 );
 
@@ -1646,7 +1665,7 @@ if (singleInstanceLockAcquired) {
         return;
       }
       logger.debug('Main window created successfully');
-      checkForAppUpdate();
+      checkForAppUpdate(requireSettingsStore());
 
       // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
       // never re-enqueued by `app.on('activate')`'s later `createMainWindow()`
