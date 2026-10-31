@@ -10,9 +10,11 @@
  */
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
+import {
+  disposeLspServers,
+  resetToolCallLoopGuards,
+} from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';

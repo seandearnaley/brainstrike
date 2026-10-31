@@ -1,13 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
-  assertNotAgentIgnored,
-  createAgentIgnoreGuard,
-  isWithinRoot,
-  QUERY_TIMEOUT_MS,
-} from '@brainstrike/host-capabilities/native-tools';
 import type { MessageConnection } from 'vscode-jsonrpc/node';
+import { assertNotAgentIgnored, createAgentIgnoreGuard } from './agent-ignore-guard.ts';
+import { QUERY_TIMEOUT_MS } from './lsp-inspection-shapes.ts';
+import { isWithinRoot } from './workspace-path.ts';
 
 /** No semantic group is verified when its inputs cannot clear read policy. */
 export class LspReadPolicyError extends Error {

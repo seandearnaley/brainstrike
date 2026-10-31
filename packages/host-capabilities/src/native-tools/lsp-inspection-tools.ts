@@ -8,9 +8,10 @@
  */
 import type { LspInspectInput, RuntimeData } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
-import { getLspInspection, type LspInspectionResult } from './lsp-diagnostics';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
+import { getLspInspection } from './lsp-diagnostics.ts';
+import type { LspInspectionResult } from './lsp-inspection-shapes.ts';
+import { readWorkspaceTextFile } from './workspace-text-file-reader.ts';
 
 /** The cursor marker the model inserts into `match` to point at a symbol. */
 const LSP_CURSOR_MARKER = '<<<';

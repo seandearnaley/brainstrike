@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { resolveBundledTsserverPath } from '../../assistant-server/lsp-diagnostics';
+import { resolveBundledTsserverPath } from '../src/native-tools/lsp-diagnostics.js';
 
 describe('bundled TypeScript server path', () => {
   const wrapperEntry = path.join(
