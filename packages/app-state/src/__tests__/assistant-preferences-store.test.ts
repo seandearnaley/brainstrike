@@ -7,7 +7,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import { MODEL_ID_MIGRATIONS } from '../stores/assistant-model-id-migrations.ts';
 import {
-  __resetAssistantPreferencesStoreForTests,
   ASSISTANT_PREFERENCES_STORE_VERSION,
   useAssistantPreferencesStore,
 } from '../stores/assistant-preferences-store.ts';
@@ -34,7 +33,6 @@ const storeWithPersist = useAssistantPreferencesStore as PersistApi<
 
 describe('assistant-preferences-store', () => {
   beforeEach(() => {
-    __resetAssistantPreferencesStoreForTests();
     __resetSettingsTestOverridesForTests();
     storeWithPersist.persist?.clearStorage?.();
     vi.restoreAllMocks();

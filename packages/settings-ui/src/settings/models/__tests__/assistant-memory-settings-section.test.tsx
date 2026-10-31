@@ -1,12 +1,6 @@
 import '@testing-library/jest-dom/vitest';
-import {
-  __resetAssistantMemoryPreferencesStoreForTests,
-  useAssistantMemoryPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
-import {
-  __resetModelRegistryStoreForTests,
-  useModelRegistryStore,
-} from '@brainstrike/app-state/stores/model-registry-store';
+import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, within } from '@testing-library/react';
@@ -135,8 +129,6 @@ function renderMemorySettings(
 
 describe('AssistantMemorySettingsSection', () => {
   beforeEach(() => {
-    __resetAssistantMemoryPreferencesStoreForTests();
-    __resetModelRegistryStoreForTests();
     seedRegistry();
   });
 

@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -85,7 +82,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   openThreadTab.mockReset();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 it('names a grandchild’s ancestry from its root, through its parent, to its own call sign', async () => {

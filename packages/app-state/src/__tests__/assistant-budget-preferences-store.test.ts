@@ -1,8 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import {
-  __resetAssistantBudgetPreferencesStoreForTests,
-  useAssistantBudgetPreferencesStore,
-} from '../stores/assistant-budget-preferences-store.ts';
+import { describe, expect, it } from 'vitest';
+import { useAssistantBudgetPreferencesStore } from '../stores/assistant-budget-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useAssistantBudgetPreferencesStore as PersistApi<
@@ -10,10 +7,6 @@ const storeWithPersist = useAssistantBudgetPreferencesStore as PersistApi<
 >;
 
 describe('assistant budget preferences store', () => {
-  afterEach(() => {
-    __resetAssistantBudgetPreferencesStoreForTests();
-  });
-
   it('defaults both caps to null (off)', () => {
     const state = useAssistantBudgetPreferencesStore.getState();
     expect(state.dailyCapUsd).toBeNull();

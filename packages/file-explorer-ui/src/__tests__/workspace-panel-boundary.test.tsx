@@ -3,12 +3,9 @@ import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../stores/workspace-tab-selection-store';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useTabManagerStore } from '../stores/tab-manager-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { CANVAS_APP, FILES_APP, renderWorkspace } from './workspace-tabs-test-support';
 
 vi.mock('../shell/file-tab-explorer-pane', () => ({
@@ -80,18 +77,11 @@ function tabNamed(name: RegExp): HTMLElement {
 describe('workspace panel error boundaries (TabPanelBoundary)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    __resetWorkspaceTabSelectionStoreForTests();
-    __resetTabManagerStoreForTests();
     const uiModule = await import('@brainstrike/ui');
     vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
       openFileInTab: vi.fn(),
       registerOpenFileInTab: vi.fn(),
     });
-  });
-
-  afterEach(() => {
-    __resetWorkspaceTabSelectionStoreForTests();
-    __resetTabManagerStoreForTests();
   });
 
   it('contains a crashing app to its panel; the strip and the other apps stay interactive', async () => {

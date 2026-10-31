@@ -7,10 +7,7 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,7 +87,6 @@ beforeEach(() => {
   push = null;
   seed.mockResolvedValue([]);
   useBrowserTabsStore.getState().reset();
-  __resetWorkspaceTabSelectionStoreForTests();
   resetAssistantThreadStore();
   show('thread-a');
 });

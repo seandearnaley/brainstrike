@@ -307,20 +307,3 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
     }
   )
 );
-
-export function __resetAssistantMemoryPreferencesStoreForTests(): void {
-  try {
-    useAssistantMemoryPreferencesStore.setState({
-      hasHydrated: false,
-      ...initialMemorySettings,
-    });
-    const persistApi = (
-      useAssistantMemoryPreferencesStore as typeof useAssistantMemoryPreferencesStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Tests still get the in-memory state reset even when browser storage is unavailable.
-  }
-}

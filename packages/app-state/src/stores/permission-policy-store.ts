@@ -533,10 +533,3 @@ export function buildPermissionToolGateSnapshotInput(
 export function getPermissionToolGateSnapshotInput(): PermissionToolGateSnapshotInput {
   return buildPermissionToolGateSnapshotInput(usePermissionPolicyStore.getState());
 }
-
-/** Test-only reset helper. */
-export function __resetPermissionPolicyStoreForTests(): void {
-  clearSavedPermissionPolicy().catch(() => {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  });
-}

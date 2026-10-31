@@ -1,5 +1,5 @@
 import {
-  __resetPermissionPolicyStoreForTests,
+  discardSavedPermissionPolicy,
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import { PERMISSION_POLICY_UNREADABLE_CODE } from '@brainstrike/assistant-contract/tool-metadata';
@@ -12,8 +12,9 @@ const { PermissionSettingsSection } = await import(
 );
 
 describe('PermissionSettingsSection', () => {
-  beforeEach(() => {
-    __resetPermissionPolicyStoreForTests();
+  // The shipped default loads before each case, as after the person discards a saved policy.
+  beforeEach(async () => {
+    await discardSavedPermissionPolicy();
   });
 
   it('renders the enforce toggle, four category controls, and the access mode', () => {

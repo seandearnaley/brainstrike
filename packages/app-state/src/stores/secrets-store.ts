@@ -32,11 +32,3 @@ export const useSecretsStore = create<SecretsState>()((set) => ({
   },
   secretsVersion: 0,
 }));
-
-/**
- * Test helper to reset state between tests.
- * @internal
- */
-export function __resetSecretsStoreForTests() {
-  useSecretsStore.setState({ secretsVersion: 0 });
-}

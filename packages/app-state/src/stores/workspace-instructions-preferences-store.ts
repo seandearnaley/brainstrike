@@ -130,18 +130,3 @@ export const workspaceInstructionsPreferencesSelectors = {
   oversizedOptInByRootId: (store: WorkspaceInstructionsPreferencesStore): Record<string, boolean> =>
     store.oversizedOptInByRootId,
 };
-
-/** Test-only reset helper. */
-export function __resetWorkspaceInstructionsPreferencesStoreForTests(): void {
-  try {
-    const persistApi = (
-      useWorkspaceInstructionsPreferencesStore as typeof useWorkspaceInstructionsPreferencesStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  }
-  useWorkspaceInstructionsPreferencesStore.setState(defaultData());
-}

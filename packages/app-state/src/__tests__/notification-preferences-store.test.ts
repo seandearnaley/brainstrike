@@ -1,8 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  __resetNotificationPreferencesStoreForTests,
-  useNotificationPreferencesStore,
-} from '../stores/notification-preferences-store.ts';
+import { describe, expect, it } from 'vitest';
+import { useNotificationPreferencesStore } from '../stores/notification-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useNotificationPreferencesStore as PersistApi<
@@ -10,10 +7,6 @@ const storeWithPersist = useNotificationPreferencesStore as PersistApi<
 >;
 
 describe('notification-preferences-store', () => {
-  beforeEach(() => {
-    __resetNotificationPreferencesStoreForTests();
-  });
-
   it('defaults the master toggle OFF', () => {
     expect(useNotificationPreferencesStore.getState().masterEnabled).toBe(false);
   });

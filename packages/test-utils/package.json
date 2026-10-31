@@ -15,7 +15,8 @@
     "jsdom": "catalog:",
     "react": "^19.3.0",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zustand": "catalog:"
   },
   "exports": {
     "./fixtures/canonical-provided-chunks.json": "./fixtures/canonical-provided-chunks.json",
@@ -26,6 +27,7 @@
     "./vitest.dom-aware-timeouts.setup": "./src/vitest.dom-aware-timeouts.setup.ts",
     "./vitest.browser.setup": "./src/vitest.browser.setup.ts",
     "./vitest.timeouts.setup": "./src/vitest.timeouts.setup.ts",
+    "./zustand-store-reset": "./src/zustand-store-reset.ts",
     "./vitest-provided-context": "./src/vitest-provided-context.ts",
     "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
     "./test-timeouts": "./src/test-timeouts.ts",
