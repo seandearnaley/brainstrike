@@ -1,7 +1,6 @@
 import { createCohere } from '@ai-sdk/cohere';
 import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
-import { extractProviderRunError } from '@brainstrike/agent/provider-runtime';
 import { listProviderEmbeddingModels } from '@brainstrike/assistant-contract/provider-registry';
 import { resolveProviderBaseUrl } from '@brainstrike/host-capabilities/provider-base-url';
 import {
@@ -86,10 +85,9 @@ export async function generateHostedEmbeddings(input: {
     }
     const refusal = hostedRefusal(input.provider, error);
     // Keep the provider diagnostic in Main before the utility fault channel
-    // projects causes to Error text: its bounded status, message and request
-    // id, never the request body, which carries the indexed file text.
+    // projects causes to Error text.
     logger.error('Hosted embedding request failed', {
-      error: refusal ? extractProviderRunError(error) : error,
+      error: refusal ? refusal.cause : error,
       provider: input.provider,
     });
     throw refusal ?? error;

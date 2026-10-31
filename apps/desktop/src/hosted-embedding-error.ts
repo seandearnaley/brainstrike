@@ -85,7 +85,10 @@ export function hostedRefusal(
   provider: EmbeddingProviderType,
   cause: unknown
 ): HostedEmbeddingError | undefined {
-  const { code, httpStatus } = extractProviderRunError(cause);
+  // The bounded diagnostic (status, message, request id, cause chain) is the
+  // cause, never the SDK error: that carries the request body, the embedded text.
+  const evidence = extractProviderRunError(cause);
+  const { code, httpStatus } = evidence;
   if (isLocalRunErrorClassification(code)) {
     return;
   }
@@ -93,10 +96,10 @@ export function hostedRefusal(
     return new HostedEmbeddingError(
       'network',
       `Embedding provider ${provider} could not be reached.`,
-      { cause }
+      { cause: evidence }
     );
   }
-  const options = { cause, httpStatus };
+  const options = { cause: evidence, httpStatus };
   switch (httpStatus) {
     case 429:
       return new HostedEmbeddingError(

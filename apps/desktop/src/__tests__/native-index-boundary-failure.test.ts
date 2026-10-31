@@ -189,7 +189,9 @@ it.each([
       .catch((error: unknown) => error);
     unsubscribe();
     expect(generated).toBeInstanceOf(HostedEmbeddingError);
-    expect(generated).toMatchObject({ cause: { statusCode: status }, httpStatus: status, kind });
+    expect(generated).toMatchObject({ cause: { httpStatus: status }, httpStatus: status, kind });
+    // Main logs the refusal with its cause; neither may carry the embedded text.
+    expect(JSON.stringify((generated as Error).cause)).not.toContain('notarize release');
     expect(
       records.find((record) => record.scope === 'DesktopHostedEmbeddings')?.args.at(-1)
     ).toMatchObject({ error: { httpStatus: status }, provider: 'openai' });
@@ -251,7 +253,8 @@ it('retains provider diagnostic facts privately through the real redacting logge
   } finally {
     unsubscribe();
   }
-  expect(failure).toMatchObject({ cause: { cause: original }, kind: 'network' });
+  expect(failure).toMatchObject({ cause: { causeChain: expect.any(Array) }, kind: 'network' });
+  expect(JSON.stringify((failure as Error).cause)).not.toContain('notarize release');
   const diagnostic = records
     .find((record) => record.scope === 'DesktopHostedEmbeddings')
     ?.args.at(-1);

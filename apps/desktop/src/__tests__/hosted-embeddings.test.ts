@@ -65,6 +65,18 @@ describe.each(existing)('existing $provider dispatch', (selected) => {
       if (selected.provider === 'voyage') {
         expect(body['input_type']).toBe(purpose);
       }
+      // A tunable model is asked for the index's size; a fixed one is not.
+      const requested =
+        selected.provider === 'google'
+          ? ((body['requests'] as Record<string, unknown>[] | undefined)?.[0] ?? body)[
+              'outputDimensionality'
+            ]
+          : (body['dimensions'] ?? body['output_dimension']);
+      expect(requested).toBe(
+        selected.provider === 'openai' || selected.provider === 'google'
+          ? selected.dimensions
+          : undefined
+      );
     }
   );
 });
@@ -168,7 +180,8 @@ describe('typed hosted embedding refusals', () => {
     );
     const error = await refusal();
     expect(error).toBeInstanceOf(HostedEmbeddingError);
-    expect(error).toMatchObject({ cause: { cause: failure.cause }, kind: 'network' });
+    expect(error).toMatchObject({ kind: 'network' });
+    expect(JSON.stringify((error as Error).cause)).toContain('getaddrinfo ENOTFOUND');
   });
 
   it.each(['google', 'cohere', 'voyage'] as const)(
