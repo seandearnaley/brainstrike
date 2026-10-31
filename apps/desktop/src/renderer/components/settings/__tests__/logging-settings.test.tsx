@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-import {
-  __resetLoggingPreferencesStoreForTests,
-  useLoggingPreferencesStore,
-} from '@brainstrike/app-state/stores/logging-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import {
@@ -14,7 +10,7 @@ import {
   type LoggingPreferences,
   LogLevel,
 } from '@brainstrike/logging';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { LoggingSettingsPayload } from '../../../../logging-shared';
 import { DesktopLoggingSettings } from '../logging-settings';
@@ -29,10 +25,17 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+const defaults = createDefaultLoggingPreferences({
+  consoleLevel: LogLevel.WARN,
+  includeTimestamp: true,
+  level: LogLevel.INFO,
+});
+let broadcast: ((preferences: LoggingPreferences) => void) | undefined;
+
 describe('DesktopLoggingSettings', () => {
   beforeEach(() => {
-    __resetLoggingPreferencesStoreForTests();
     toastSpy.mockReset();
+    broadcast = undefined;
     const preferences = createDefaultLoggingPreferences({
       consoleLevel: LogLevel.INFO,
       file: {
@@ -60,16 +63,22 @@ describe('DesktopLoggingSettings', () => {
         ok: true,
         value: {
           capabilities,
+          defaults,
           preferences,
         },
       }),
       onDurableRecord: vi.fn(() => () => undefined),
+      onPreferencesUpdated: vi.fn((callback: (next: LoggingPreferences) => void) => {
+        broadcast = callback;
+        return () => undefined;
+      }),
       openDestination: vi.fn().mockResolvedValue({ ok: true, value: true }),
       selectDestination: vi.fn().mockResolvedValue({ ok: true, value: '/tmp/desktop.log' }),
       setPreferences: vi.fn(async (nextPreferences: LoggingPreferences) => ({
         ok: true,
         value: {
           capabilities,
+          defaults,
           preferences: nextPreferences,
         },
       })),
@@ -96,7 +105,28 @@ describe('DesktopLoggingSettings', () => {
     const setPreferencesMock = window.logging?.setPreferences as unknown as Mock;
     const sentPreferences = setPreferencesMock.mock.calls[0]?.[0];
     expect(sentPreferences.consoleEnabled).toBe(false);
-    expect(useLoggingPreferencesStore.getState().preferences.consoleEnabled).toBe(false);
+    await waitFor(() => expect(consoleSwitch).not.toBeChecked());
+  });
+
+  it('shows a change another window committed, as Main broadcasts it', async () => {
+    render(<DesktopLoggingSettings />);
+    const timestampSwitch = await screen.findByRole('switch', { name: /include timestamp/iu });
+    expect(timestampSwitch).toBeChecked();
+
+    act(() => {
+      broadcast?.({ ...defaults, includeTimestamp: false });
+    });
+
+    expect(timestampSwitch).not.toBeChecked();
+  });
+
+  it("restores Main's defaults", async () => {
+    render(<DesktopLoggingSettings />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /reset/iu }));
+
+    await waitFor(() => expect(window.logging?.setPreferences).toHaveBeenCalledWith(defaults));
+    expect(toastSpy).toHaveBeenCalledWith({ title: 'Logging preferences reset' });
   });
 
   it('renders an error card when loading fails', async () => {

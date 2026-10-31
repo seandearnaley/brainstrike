@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import {
-  __resetLoggingPreferencesStoreForTests,
-  useLoggingPreferencesStore,
-} from '@brainstrike/app-state/stores/logging-preferences-store';
-import { type LoggingPreferences, LogLevel } from '@brainstrike/logging';
+  createDefaultLoggingPreferences,
+  type LoggingPreferences,
+  LogLevel,
+} from '@brainstrike/logging';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { type ComponentProps, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoggingSettingsSection } from '../settings/system/logging-settings-section';
 
@@ -119,125 +120,112 @@ vi.mock('@brainstrike/ui', async () => {
   };
 });
 
+const defaults = createDefaultLoggingPreferences({
+  consoleLevel: LogLevel.WARN,
+  includeTimestamp: true,
+  level: LogLevel.INFO,
+});
+const initial = createDefaultLoggingPreferences({ includeTimestamp: false, level: LogLevel.DEBUG });
+
+type SectionProps = ComponentProps<typeof LoggingSettingsSection>;
+
+/** The section over a writer that holds what it commits, as Main does. */
+function renderWithWriter(
+  props: Partial<SectionProps> = {},
+  write: (next: LoggingPreferences) => Promise<void> = async () => {}
+) {
+  const committed: LoggingPreferences[] = [];
+  function Harness() {
+    const [preferences, setPreferences] = useState(props.preferences ?? initial);
+    return (
+      <LoggingSettingsSection
+        defaults={defaults}
+        onCommitPreferences={async (next) => {
+          committed.push(next);
+          await write(next);
+          setPreferences(next);
+        }}
+        preferences={preferences}
+        runtime="electron-renderer"
+        {...props}
+      />
+    );
+  }
+  render(<Harness />);
+  return committed;
+}
+
+const fileCapabilities = {
+  canSelectDestination: true,
+  defaultDestination: '/var/log/brainstrike.log',
+  fileLoggingSupported: true,
+};
+
 describe('LoggingSettingsSection', () => {
   beforeEach(() => {
-    __resetLoggingPreferencesStoreForTests();
     toastSpy.mockReset();
   });
 
-  it('updates console logging preference and commits changes', async () => {
-    const onCommit = vi.fn(async (preferences) => preferences);
-
-    render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
+  it('commits a changed switch and shows what the writer holds', async () => {
+    const committed = renderWithWriter();
 
     const consoleSwitch = screen.getByRole('switch', { name: /console logging/iu });
     expect(consoleSwitch).toBeChecked();
-
     fireEvent.click(consoleSwitch);
 
-    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
-    expect(onCommit.mock.calls[0]?.[0].consoleEnabled).toBe(false);
-    expect(useLoggingPreferencesStore.getState().preferences.consoleEnabled).toBe(false);
+    await waitFor(() => expect(consoleSwitch).not.toBeChecked());
+    expect(committed).toEqual([{ ...initial, consoleEnabled: false }]);
   });
 
-  it('resets preferences and invokes reset handler', async () => {
-    const onCommit = vi.fn(async (preferences) => preferences);
-    const onReset = vi.fn(async () => {});
-
-    render(
-      <LoggingSettingsSection
-        onCommitPreferences={onCommit}
-        onResetPreferences={onReset}
-        runtime="browser"
-      />
-    );
-
-    fireEvent.click(screen.getByRole('switch', { name: /console logging/iu }));
-    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+  it("restores the writer's defaults", async () => {
+    const committed = renderWithWriter();
 
     fireEvent.click(screen.getByRole('button', { name: /reset/iu }));
 
-    await waitFor(() => expect(onReset).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(2));
-
-    const { preferences } = useLoggingPreferencesStore.getState();
-    expect(preferences.level).toBe(LogLevel.INFO);
-    expect(preferences.consoleEnabled).toBe(true);
-    expect(preferences.includeTimestamp).toBe(false);
-    expect(preferences.file.enabled).toBe(false);
-    expect(preferences.file.destination).toBeNull();
+    await waitFor(() => expect(committed).toEqual([defaults]));
+    expect(toastSpy).toHaveBeenCalledWith({ title: 'Logging preferences reset' });
   });
 
-  it('selects a file destination when supported', async () => {
-    const onCommit = vi.fn(async (preferences) => preferences);
-    const onSelect = vi.fn(async () => '/tmp/brainstrike.log');
-
-    render(
-      <LoggingSettingsSection
-        fileCapabilities={{
-          canSelectDestination: true,
-          defaultDestination: '/var/log/brainstrike.log',
-          fileLoggingSupported: true,
-        }}
-        onCommitPreferences={onCommit}
-        onSelectLogDestination={onSelect}
-        runtime="electron-renderer"
-      />
-    );
+  it('commits a chosen file destination, enabling file logging', async () => {
+    const committed = renderWithWriter({
+      fileCapabilities,
+      onSelectLogDestination: async () => '/tmp/brainstrike.log',
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Choose…' }));
 
-    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(onCommit).toHaveBeenCalled());
-
-    const { preferences } = useLoggingPreferencesStore.getState();
-    expect(preferences.file.enabled).toBe(true);
-    expect(preferences.file.destination).toBe('/tmp/brainstrike.log');
+    await waitFor(() => expect(committed).toHaveLength(1));
+    expect(committed[0]?.file).toMatchObject({
+      destination: '/tmp/brainstrike.log',
+      enabled: true,
+    });
   });
 
-  it('updates redact paths from text input', async () => {
-    const onCommit = vi.fn(async (preferences) => preferences);
-
-    render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
-
+  it('commits redacted fields when the field loses focus, keeping what was typed until then', async () => {
+    const committed = renderWithWriter();
     const redactInput = screen.getByLabelText(/redacted fields/iu);
-    fireEvent.change(redactInput, { target: { value: 'token, password, token' } });
 
-    await waitFor(() => expect(onCommit).toHaveBeenCalled());
-    expect(useLoggingPreferencesStore.getState().preferences.redactPaths).toEqual([
-      'token',
-      'password',
-      'token',
-    ]);
+    fireEvent.change(redactInput, { target: { value: 'token, ' } });
+    expect(redactInput).toHaveValue('token, ');
+    fireEvent.change(redactInput, { target: { value: 'token, password' } });
+    expect(committed).toEqual([]);
+    fireEvent.blur(redactInput);
+
+    await waitFor(() => expect(committed).toHaveLength(1));
+    expect(committed[0]?.redactPaths).toEqual(['token', 'password']);
+    await waitFor(() => expect(redactInput).toHaveValue('token, password'));
   });
 
   it('shows an error toast when opening destination fails', async () => {
-    const onCommit = vi.fn(async (preferences) => preferences);
     const onOpen = vi.fn(async () => false);
-
-    useLoggingPreferencesStore.setState({
+    renderWithWriter({
+      fileCapabilities,
+      onOpenLogDestination: onOpen,
       preferences: {
-        ...useLoggingPreferencesStore.getState().preferences,
-        file: {
-          ...useLoggingPreferencesStore.getState().preferences.file,
-          destination: '/tmp/existing.log',
-          enabled: true,
-        },
+        ...initial,
+        file: { ...initial.file, destination: '/tmp/existing.log', enabled: true },
       },
     });
-
-    render(
-      <LoggingSettingsSection
-        fileCapabilities={{
-          canSelectDestination: true,
-          defaultDestination: '/var/log/brainstrike.log',
-          fileLoggingSupported: true,
-        }}
-        onCommitPreferences={onCommit}
-        onOpenLogDestination={onOpen}
-        runtime="electron-renderer"
-      />
-    );
 
     fireEvent.click(screen.getByRole('button', { name: /open destination/iu }));
 
@@ -247,35 +235,25 @@ describe('LoggingSettingsSection', () => {
     );
   });
 
-  it('does not revert new updates when earlier commit fails later', async () => {
-    let rejectFirst: ((reason?: unknown) => void) | undefined;
-    const onCommit = vi.fn((preferences: LoggingPreferences) => {
-      if (!rejectFirst) {
-        return new Promise<LoggingPreferences>((_resolve, reject) => {
-          rejectFirst = reject;
-        });
-      }
-      return Promise.resolve(preferences);
+  it('keeps showing what the writer holds when a commit fails, and says so once', async () => {
+    const committed = renderWithWriter({}, async () => {
+      throw new Error('simulated failure');
     });
+    const consoleSwitch = screen.getByRole('switch', { name: /console logging/iu });
 
-    render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
-
-    fireEvent.click(screen.getByRole('switch', { name: /console logging/iu }));
-    expect(onCommit).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole('switch', { name: /include timestamp/iu }));
-    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(2));
-
-    rejectFirst?.(new Error('simulated failure'));
+    fireEvent.click(consoleSwitch);
 
     await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
-    const state = useLoggingPreferencesStore.getState().preferences;
-    expect(state.consoleEnabled).toBe(false);
-    expect(state.includeTimestamp).toBe(true);
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Failed to update logging preferences' })
+    );
+    expect(committed).toHaveLength(1);
+    expect(consoleSwitch).toBeChecked();
+    expect(consoleSwitch).toBeEnabled();
   });
 
   it('leaves the log source and its export to the Logs page', () => {
-    render(<LoggingSettingsSection onCommitPreferences={vi.fn()} runtime="browser" />);
+    renderWithWriter({ runtime: 'browser' });
 
     expect(screen.queryByText('Persistent errors')).not.toBeInTheDocument();
     expect(screen.queryByText('Session')).not.toBeInTheDocument();

@@ -82,23 +82,7 @@ describe('createDesktopLoggingPreferencesController', () => {
     });
   });
 
-  it('migrates the legacy debug-everything defaults back to the current defaults', () => {
-    const legacy = createController({ store: null }).controller.initial;
-    const stored = createStore({
-      v1: {
-        ...legacy,
-        consoleLevel: LogLevel.INFO,
-        file: { ...legacy.file, level: LogLevel.DEBUG },
-        level: LogLevel.DEBUG,
-      },
-    });
-    const { controller } = createController({ store: stored });
-    expect(controller.initial.level).toBe(LogLevel.INFO);
-    expect(controller.initial.file.level).toBe(LogLevel.INFO);
-    expect(controller.initial.consoleLevel).toBe(LogLevel.WARN);
-  });
-
-  it('keeps a genuinely customized stored preference set', () => {
+  it('keeps a stored preference set, sanitized', () => {
     const base = createController({ store: null }).controller.initial;
     const stored = createStore({
       v1: { ...base, level: LogLevel.TRACE, redactPaths: [' a ', ''] },

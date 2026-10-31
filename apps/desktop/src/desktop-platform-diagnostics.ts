@@ -1,4 +1,4 @@
-import { LogLevel } from '@brainstrike/logging';
+import { type LoggingPreferences, LogLevel } from '@brainstrike/logging';
 import type { DatabaseIntegritySnapshot } from '@brainstrike/types';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
@@ -7,6 +7,22 @@ import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/ma
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+
+/** What the diagnostics report names when Main's logging state cannot be read. */
+const UNAVAILABLE_LOGGING_PREFERENCES: LoggingPreferences = {
+  consoleEnabled: false,
+  consoleLevel: LogLevel.INFO,
+  file: {
+    append: true,
+    destination: null,
+    enabled: false,
+    level: LogLevel.INFO,
+    mkdir: true,
+  },
+  includeTimestamp: false,
+  level: LogLevel.INFO,
+  redactPaths: [],
+};
 
 export const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL =
   DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot;
@@ -161,20 +177,8 @@ export async function collectDesktopPlatformDiagnostics(
         reason: 'logging diagnostics unavailable',
         runtime: 'electron',
       },
-      preferences: {
-        consoleEnabled: false,
-        consoleLevel: LogLevel.INFO,
-        file: {
-          append: true,
-          destination: null,
-          enabled: false,
-          level: LogLevel.INFO,
-          mkdir: true,
-        },
-        includeTimestamp: false,
-        level: LogLevel.INFO,
-        redactPaths: [],
-      },
+      defaults: UNAVAILABLE_LOGGING_PREFERENCES,
+      preferences: UNAVAILABLE_LOGGING_PREFERENCES,
     }),
     migration: {
       attemptCount: getNumberValue(database, 'initializationAttemptCount'),

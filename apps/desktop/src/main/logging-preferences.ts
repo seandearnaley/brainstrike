@@ -1,7 +1,7 @@
 /**
  * Desktop logging-preferences lifecycle, moved out of `main.ts` (BST-1648
  * step 4 — bookkeeping only, behaviour preserved line for line): the
- * desktop/legacy defaults, stored-preference migration + sanitization,
+ * desktop defaults, stored-preference sanitization,
  * persistence into the settings store, the Settings payload, destination
  * selection/open, on-disk verification, and the app-ready file-logging
  * re-enable. `main.ts` still owns the ORDER of the module-scope boot
@@ -116,22 +116,6 @@ function withConsoleLevelOverride(
   return { ...preferences, consoleLevel: override, level };
 }
 
-function areLoggingPreferencesEqual(left: LoggingPreferences, right: LoggingPreferences): boolean {
-  return (
-    left.level === right.level &&
-    left.consoleEnabled === right.consoleEnabled &&
-    left.consoleLevel === right.consoleLevel &&
-    left.includeTimestamp === right.includeTimestamp &&
-    left.file.enabled === right.file.enabled &&
-    left.file.destination === right.file.destination &&
-    left.file.level === right.file.level &&
-    left.file.append === right.file.append &&
-    left.file.mkdir === right.file.mkdir &&
-    left.redactPaths.length === right.redactPaths.length &&
-    left.redactPaths.every((path, index) => path === right.redactPaths[index])
-  );
-}
-
 function mergeStoredPreferences(
   base: LoggingPreferences,
   stored: LoggingPreferences | undefined
@@ -231,22 +215,6 @@ export function createDesktopLoggingPreferencesController(
     });
   }
 
-  function createLegacyDesktopDefaultPreferences(): LoggingPreferences {
-    const logPath = getLogFilePath();
-    return createDefaultLoggingPreferences({
-      consoleLevel: LogLevel.INFO,
-      file: {
-        append: true,
-        destination: logPath ?? null,
-        enabled: !disableFileLogs && Boolean(logPath),
-        level: LogLevel.DEBUG,
-        mkdir: true,
-      },
-      includeTimestamp: true,
-      level: LogLevel.DEBUG,
-    });
-  }
-
   function sanitizeDesktopPreferences(preferences: LoggingPreferences): LoggingPreferences {
     const normalized: LoggingPreferences = {
       ...preferences,
@@ -305,27 +273,6 @@ export function createDesktopLoggingPreferencesController(
     return normalized;
   }
 
-  function migrateStoredLoggingPreferences(stored: LoggingPreferences): LoggingPreferences {
-    const sanitizedStored = sanitizeDesktopPreferences(stored);
-    const legacyDefaults = sanitizeDesktopPreferences(createLegacyDesktopDefaultPreferences());
-    const currentDefaults = createDesktopDefaultPreferences();
-    const debugFileDefaults = sanitizeDesktopPreferences({
-      ...currentDefaults,
-      file: {
-        ...currentDefaults.file,
-        level: LogLevel.DEBUG,
-      },
-      level: LogLevel.DEBUG,
-    });
-    if (
-      areLoggingPreferencesEqual(sanitizedStored, legacyDefaults) ||
-      areLoggingPreferencesEqual(sanitizedStored, debugFileDefaults)
-    ) {
-      return sanitizeDesktopPreferences(createDesktopDefaultPreferences());
-    }
-    return sanitizedStored;
-  }
-
   function readStoredLoggingPreferences(): LoggingPreferences | undefined {
     try {
       const store = getSettingsStore();
@@ -340,7 +287,7 @@ export function createDesktopLoggingPreferencesController(
       if (!record?.v1) {
         return;
       }
-      return migrateStoredLoggingPreferences(record.v1);
+      return sanitizeDesktopPreferences(record.v1);
     } catch {
       return;
     }
@@ -439,6 +386,7 @@ export function createDesktopLoggingPreferencesController(
   function getSettingsPayload(): LoggingSettingsPayload {
     return cloneLoggingSettingsPayload({
       capabilities: getLoggingCapabilities(),
+      defaults: sanitizeDesktopPreferences(createDesktopDefaultPreferences()),
       preferences: currentLoggingPreferences,
     });
   }
