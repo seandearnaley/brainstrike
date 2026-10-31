@@ -10,7 +10,7 @@ import {
   Label,
   Switch,
 } from '@brainstrike/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AppUpdateStatus } from '../../../ipc-domains/app-updates.contract';
 
 type UpdateSettingsState =
@@ -62,11 +62,15 @@ function UpdateStatusRow({ bridge }: { readonly bridge: NonNullable<Window['appU
     requesting: false,
     update: null,
   });
+  // Main pushes every status change. A request's answer is a snapshot taken
+  // earlier, so a push that lands while the request is out is newer than it.
+  const pushes = useRef(0);
 
   // biome-ignore lint/plugin: Not derived state — an async read of Main's update status over the preload bridge, then every status Main pushes; `cancelled` discards a response that lands after unmount.
   useEffect(() => {
     let cancelled = false;
     const unsubscribe = bridge.onStatusChange((update) => {
+      pushes.current += 1;
       setState((previous) => ({ ...previous, update }));
     });
     const load = async () => {
@@ -90,8 +94,10 @@ function UpdateStatusRow({ bridge }: { readonly bridge: NonNullable<Window['appU
 
   const request = (run: () => Promise<AppUpdateStatus | undefined>) => {
     setState((previous) => ({ ...previous, error: null, requesting: true }));
+    const pushesBefore = pushes.current;
     run().then(
-      (update) => {
+      (answer) => {
+        const update = pushes.current === pushesBefore ? answer : undefined;
         setState((previous) => ({
           error: null,
           requesting: false,

@@ -143,3 +143,22 @@ it('a copy that does not update itself says so and offers no check (BST-2356)', 
   );
   expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull();
 });
+
+it('a status Main pushes while Check now is out wins over its earlier answer (BST-2356)', async () => {
+  const bridge = installBridge({ betaUpdates: false });
+  const answer = Promise.withResolvers<Awaited<ReturnType<AppUpdatesBridge['checkNow']>>>();
+  bridge.checkNow.mockImplementationOnce(() => answer.promise);
+  render(<DesktopUpdateSettings />);
+
+  await waitFor(() => expect(updateStatus()).toHaveTextContent('Brainstrike is up to date.'));
+  fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+  // A cached download finishes before the check's own answer arrives.
+  act(() => bridge.push({ state: 'ready', version: '1.1.0' }));
+  await act(async () => {
+    answer.resolve({ ok: true, value: { state: 'downloading', version: '1.1.0' } });
+    await answer.promise;
+  });
+
+  expect(updateStatus()).toHaveTextContent('Version 1.1.0 is ready to install.');
+  expect(screen.getByRole('button', { name: 'Restart to update' })).toBeEnabled();
+});
