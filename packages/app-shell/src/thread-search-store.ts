@@ -9,6 +9,11 @@ type ThreadSearchStatus = 'idle' | 'searching' | 'results' | 'error';
  * `generation` token gates every async completion, so a superseded run can
  * never clobber or resurrect state. Session-only.
  */
+
+// Run tokens come from these counters, not from store state, so no reset can
+// rewind them and let a run started before it match one started after it.
+let lastGeneration = 0;
+let lastNavigationRevision = 0;
 interface ThreadSearchNavigationTarget {
   readonly messageId: string;
   readonly ownerResourceId: string;
@@ -70,39 +75,41 @@ const initialState = {
   | 'setQuery'
 >;
 
-export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
+export const useThreadSearchStore = create<ThreadSearchState>((set) => ({
   ...initialState,
   beginNavigation: () => {
-    const navigationRevision = get().navigationRevision + 1;
+    lastNavigationRevision += 1;
+    const navigationRevision = lastNavigationRevision;
     set({ navigationError: null, navigationRevision, navigationTarget: null });
     return navigationRevision;
   },
   beginSearch: () => {
-    const generation = get().generation + 1;
+    lastGeneration += 1;
+    const generation = lastGeneration;
     set({ error: null, generation, status: 'searching' });
     return generation;
   },
   clearResults: () =>
-    set((state) => ({
+    set({
       error: null,
-      generation: state.generation + 1,
+      generation: ++lastGeneration,
       navigationError: null,
-      navigationRevision: state.navigationRevision + 1,
+      navigationRevision: ++lastNavigationRevision,
       navigationTarget: null,
       results: null,
       status: 'idle',
-    })),
+    }),
   clearSearch: () =>
-    set((state) => ({
+    set({
       error: null,
-      generation: state.generation + 1,
+      generation: ++lastGeneration,
       navigationError: null,
-      navigationRevision: state.navigationRevision + 1,
+      navigationRevision: ++lastNavigationRevision,
       navigationTarget: null,
       query: '',
       results: null,
       status: 'idle',
-    })),
+    }),
   failSearch: (message, generation) =>
     set((state) => (state.generation === generation ? { error: message, status: 'error' } : {})),
   finishNavigation: (requestId, error) =>
@@ -111,14 +118,8 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
         ? { navigationError: error ?? null, navigationTarget: null }
         : {}
     ),
-  // Keep `generation` monotonic across resets so a run started before the
-  // reset can never match a run started after it.
-  reset: () =>
-    set((state) => ({
-      ...initialState,
-      generation: state.generation + 1,
-      navigationRevision: state.navigationRevision + 1,
-    })),
+  // The reset tokens (0) never match a run's token, so an in-flight run is invalidated.
+  reset: () => set(initialState),
   resolveResults: (results, generation) =>
     set((state) =>
       state.generation === generation ? { results: [...results], status: 'results' } : {}

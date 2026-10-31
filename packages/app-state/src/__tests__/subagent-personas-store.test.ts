@@ -68,15 +68,17 @@ describe('subagent-personas-store', () => {
     ).toEqual({ delegationEnabled: false });
   });
 
-  it('migrate self-heals a malformed persisted payload', () => {
+  it('self-heals a malformed persisted payload on rehydration', async () => {
+    const defaults = useSubagentPersonasStore.getInitialState();
     window.localStorage.setItem(
       STORE_KEY,
       JSON.stringify({ state: { delegationEnabled: 'nope', disabledPersonaIds: [42] }, version: 1 })
     );
-    // Rehydrate happens on store creation; after reset-to-defaults the state is
-    // valid regardless. The migrate path is exercised via persist rehydration.
+
+    await useSubagentPersonasStore.persist.rehydrate();
+
     const state = useSubagentPersonasStore.getState();
-    expect(typeof state.delegationEnabled).toBe('boolean');
-    expect(Array.isArray(state.disabledPersonaIds)).toBe(true);
+    expect(state.delegationEnabled).toBe(defaults.delegationEnabled);
+    expect(state.disabledPersonaIds).toEqual([]);
   });
 });

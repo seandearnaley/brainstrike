@@ -384,5 +384,3 @@ export const useTabManagerStore = create<TabManagerStore>()(
     }
   )
 );
-
-// Test-only helper to reset store and persistence between tests

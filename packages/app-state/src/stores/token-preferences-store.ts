@@ -118,5 +118,3 @@ export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
 export const tokenPreferencesSelectors = {
   accurateCounting: (store: TokenPreferencesStore) => store.accurateCounting,
 };
-
-// Test-only helper to reset state between suites

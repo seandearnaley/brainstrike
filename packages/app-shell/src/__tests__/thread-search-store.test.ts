@@ -55,9 +55,13 @@ describe('thread-search-store', () => {
     expect(useThreadSearchStore.getState().status).toBe('idle');
   });
 
-  it('reset keeps the generation monotonic', () => {
+  it('a run started before a reset never resolves into a run started after it', () => {
     const beforeReset = useThreadSearchStore.getState().beginSearch();
-    useThreadSearchStore.getState().reset();
-    expect(useThreadSearchStore.getState().generation).toBeGreaterThan(beforeReset);
+    useThreadSearchStore.setState(useThreadSearchStore.getInitialState(), true);
+    const afterReset = useThreadSearchStore.getState().beginSearch();
+
+    expect(afterReset).not.toBe(beforeReset);
+    useThreadSearchStore.getState().resolveResults([RESULT], beforeReset);
+    expect(useThreadSearchStore.getState().results).toBeNull();
   });
 });
