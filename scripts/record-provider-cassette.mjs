@@ -122,7 +122,6 @@ function recordInDesktop(scenario) {
         'playwright',
         'test',
         'e2e/provider-cassettes.desktop.test.ts',
-        '--workers=1',
         '--retries=0',
         '--trace=off',
         '--grep',

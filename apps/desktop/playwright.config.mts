@@ -104,9 +104,8 @@ const playwrightConfig: PlaywrightTestConfig = {
     video: 'retain-on-failure',
   },
 
-  // Worker count based on environment capabilities. The Electron fixture derives
-  // userDataDir from shard + worker index, so CI workers are isolated.
-  workers: config.workers,
+  // No `workers`: Playwright's default, half the logical cores, decides. Each
+  // test owns its app, profile and workspace root (e2e/fixtures/electron-fixture.ts).
 };
 
 export default playwrightConfig;
