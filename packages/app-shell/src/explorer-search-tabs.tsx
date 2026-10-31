@@ -6,7 +6,7 @@ import {
   FileExplorerPanel,
 } from '@brainstrike/file-explorer-ui/shell';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
-import { lazy, type ReactElement, Suspense, useCallback, useMemo } from 'react';
+import { lazy, type ReactElement, Suspense } from 'react';
 import { ExplorerThreadStatusProvider } from './context-map/explorer-thread-status-provider';
 import { ExplorerAttachAction } from './explorer-attach-action';
 import { useAttachFilesToThread } from './use-attach-files-to-thread';
@@ -35,7 +35,7 @@ function isExplorerActiveTab(value: string): value is ExplorerActiveTab {
 function WorkspaceSearchTabContent(): ReactElement {
   const controller = useWorkspaceSearchController();
   const attachFiles = useAttachFilesToThread();
-  const onAttachFile = useCallback((fileKey: string) => attachFiles([fileKey], 1), [attachFiles]);
+  const onAttachFile = (fileKey: string) => attachFiles([fileKey], 1);
   return (
     <Suspense fallback={<div className="text-muted-foreground p-3 text-sm">Loading search…</div>}>
       <LazyWorkspaceSearchPanel
@@ -66,27 +66,21 @@ export function ExplorerSearchTabs(): ReactElement {
   const activeTab = useContextExplorerLayoutStore((state) => state.explorerActiveTab);
   const setExplorerActiveTab = useContextExplorerLayoutStore((state) => state.setExplorerActiveTab);
 
-  const handleValueChange = useCallback(
-    (value: string): void => {
-      if (isExplorerActiveTab(value)) {
-        setExplorerActiveTab(value);
-      }
-    },
-    [setExplorerActiveTab]
-  );
+  const handleValueChange = (value: string): void => {
+    if (isExplorerActiveTab(value)) {
+      setExplorerActiveTab(value);
+    }
+  };
 
   // FileExplorerPanelInner is memoized; a fresh element identity here would
   // re-render the whole tree panel on every tab switch.
   // "Attach to thread" needs the desktop assistant host to read the mentions
   // it writes.
-  const selectionActions = useMemo(
-    () => (
-      <>
-        {hasDurableAssistantUsageCapability() ? <ExplorerAttachAction /> : null}
-        <ExplorerContextExportAction />
-      </>
-    ),
-    []
+  const selectionActions = (
+    <>
+      {hasDurableAssistantUsageCapability() ? <ExplorerAttachAction /> : null}
+      <ExplorerContextExportAction />
+    </>
   );
   const rootActions = useWorkspaceRootActions();
   const explorer = (

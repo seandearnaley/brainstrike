@@ -20,7 +20,7 @@
  * ended.
  */
 import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useChangesNavigationStore } from './changes-navigation-store';
 
 /**
@@ -61,14 +61,11 @@ export function useLastTurnFollower(
     setActiveThreadIdentity({ latestRunId: activationRunIdRef.current, threadId });
   }, [threadId, isActiveThread, setActiveThreadIdentity]);
 
-  const publishRun = useCallback(
-    (runId: string) => {
-      if (threadId && isActiveThreadRef.current) {
-        setActiveThreadIdentity({ latestRunId: runId, threadId });
-      }
-    },
-    [threadId, setActiveThreadIdentity]
-  );
+  const publishRun = (runId: string) => {
+    if (threadId && isActiveThreadRef.current) {
+      setActiveThreadIdentity({ latestRunId: runId, threadId });
+    }
+  };
 
   const throttleRef = useRef<{
     timer: ReturnType<typeof setTimeout> | null;
@@ -83,7 +80,7 @@ export function useLastTurnFollower(
       }
     };
   }, []);
-  const refresh = useCallback(() => {
+  const refresh = () => {
     if (!threadId) {
       return;
     }
@@ -103,7 +100,7 @@ export function useLastTurnFollower(
       throttle.lastFiredAt = Date.now();
       requestLiveLastTurnRefresh(threadId);
     }, LIVE_CHANGES_REFRESH_THROTTLE_MS - elapsed);
-  }, [requestLiveLastTurnRefresh, threadId]);
+  };
 
-  return useMemo(() => ({ publishRun, refresh }), [publishRun, refresh]);
+  return { publishRun, refresh };
 }

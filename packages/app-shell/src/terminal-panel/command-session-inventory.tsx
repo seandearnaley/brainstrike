@@ -1,6 +1,6 @@
 import { Button } from '@brainstrike/ui';
 import { CircleStop, RefreshCw, Send, Trash2 } from 'lucide-react';
-import { type FormEvent, type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
+import { type FormEvent, type ReactElement, useEffect, useRef, useState } from 'react';
 import { useCommandSessionBridge } from '../workspace-terminal-services';
 import type { CommandSessionInfo } from './command-session-bridge';
 
@@ -36,51 +36,48 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
   const selectedIdRef = useRef<string | undefined>(undefined);
   const [sessions, setSessions] = useState<readonly CommandSessionInfo[]>([]);
 
-  const readSession = useCallback(
-    async (sessionId: string, nextCursor?: number): Promise<void> => {
-      if (!bridge) {
-        setError('Command-session controls are unavailable in this runtime.');
-        return;
+  const readSession = async (sessionId: string, nextCursor?: number): Promise<void> => {
+    if (!bridge) {
+      setError('Command-session controls are unavailable in this runtime.');
+      return;
+    }
+    const requestVersion = readRequestVersionRef.current + 1;
+    readRequestVersionRef.current = requestVersion;
+    const result = await bridge.read({
+      rootId,
+      sessionId,
+      ...(nextCursor === undefined ? {} : { cursor: nextCursor }),
+    });
+    if (selectedIdRef.current !== sessionId || readRequestVersionRef.current !== requestVersion) {
+      return;
+    }
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    setError(undefined);
+    setHasMore(result.value.hasMore);
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === result.value.session.id ? result.value.session : session
+      )
+    );
+    cursorRef.current = result.value.nextCursor;
+    setOutput((current) => {
+      const combined =
+        nextCursor === undefined ? result.value.output : `${current}${result.value.output}`;
+      if (combined.length <= MAX_DISPLAY_CHARS) {
+        return combined;
       }
-      const requestVersion = readRequestVersionRef.current + 1;
-      readRequestVersionRef.current = requestVersion;
-      const result = await bridge.read({
-        rootId,
-        sessionId,
-        ...(nextCursor === undefined ? {} : { cursor: nextCursor }),
-      });
-      if (selectedIdRef.current !== sessionId || readRequestVersionRef.current !== requestVersion) {
-        return;
-      }
-      if (!result.ok) {
-        setError(result.error.message);
-        return;
-      }
-      setError(undefined);
-      setHasMore(result.value.hasMore);
-      setSessions((current) =>
-        current.map((session) =>
-          session.id === result.value.session.id ? result.value.session : session
-        )
-      );
-      cursorRef.current = result.value.nextCursor;
-      setOutput((current) => {
-        const combined =
-          nextCursor === undefined ? result.value.output : `${current}${result.value.output}`;
-        if (combined.length <= MAX_DISPLAY_CHARS) {
-          return combined;
-        }
-        setOutputOmitted(true);
-        return combined.slice(-MAX_DISPLAY_CHARS);
-      });
-      if (result.value.truncatedBeforeCursor) {
-        setOutputOmitted(true);
-      }
-    },
-    [bridge, rootId]
-  );
+      setOutputOmitted(true);
+      return combined.slice(-MAX_DISPLAY_CHARS);
+    });
+    if (result.value.truncatedBeforeCursor) {
+      setOutputOmitted(true);
+    }
+  };
 
-  const refresh = useCallback(async (): Promise<void> => {
+  const refresh = async (): Promise<void> => {
     if (!bridge) {
       setError('Command-session controls are unavailable in this runtime.');
       setLoading(false);
@@ -112,7 +109,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
       await readSession(selected, selectionChanged ? undefined : cursorRef.current);
     }
     setLoading(false);
-  }, [bridge, readSession, rootId]);
+  };
 
   useEffect(() => {
     const refreshTimer = globalThis.setTimeout(() => {

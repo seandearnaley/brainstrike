@@ -1,7 +1,7 @@
 import { formatCanvasLink } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { PanelsTopLeft } from 'lucide-react';
-import { type ReactElement, useCallback } from 'react';
+import type { ReactElement } from 'react';
 import { useAssistantLinkCapabilities } from './assistant-link-capabilities';
 
 const logger = createLogger('CanvasLinkChip');
@@ -28,7 +28,7 @@ export function CanvasLinkChip({
   const capabilities = useAssistantLinkCapabilities();
   const href = formatCanvasLink(canvasId);
 
-  const open = useCallback(() => {
+  const open = () => {
     if (!capabilities) {
       return;
     }
@@ -41,7 +41,7 @@ export function CanvasLinkChip({
     } catch (error) {
       logger.error('Assistant link host threw instead of resolving', { error, href });
     }
-  }, [capabilities, href]);
+  };
 
   return (
     <div className="px-2 pb-1.5">

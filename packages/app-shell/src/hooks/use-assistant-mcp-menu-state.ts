@@ -1,5 +1,5 @@
 import type { AssistantToolMenuConfig, AssistantToolMenuItem } from '@brainstrike/assistant-ui';
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useEffect, useMemo, useReducer, useRef } from 'react';
 import {
   buildMcpMenuItems,
   type McpAction,
@@ -40,13 +40,13 @@ export function useAssistantMcpMenuState({
     };
   }, []);
 
-  const dispatchMcpIfMounted = useCallback((action: McpAction) => {
+  const dispatchMcpIfMounted = (action: McpAction) => {
     if (isMountedRef.current) {
       dispatchMcp(action);
     }
-  }, []);
+  };
 
-  const loadMcpTools = useCallback(async () => {
+  const loadMcpTools = async () => {
     if (!mcpTools) {
       dispatchMcpIfMounted({ tools: [], type: 'LOADED' });
       return;
@@ -58,7 +58,7 @@ export function useAssistantMcpMenuState({
     } catch {
       dispatchMcpIfMounted({ type: 'ERROR' });
     }
-  }, [dispatchMcpIfMounted, mcpTools]);
+  };
 
   useEffect(() => {
     void loadMcpTools();
@@ -73,48 +73,41 @@ export function useAssistantMcpMenuState({
     });
   }, [dispatchMcpIfMounted, mcpTools]);
 
-  const enabledNativeToolIds = useMemo(
-    () => nativeToolItems.filter((tool) => tool.enabled !== false).map((tool) => tool.id),
-    [nativeToolItems]
-  );
+  const enabledNativeToolIds = nativeToolItems
+    .filter((tool) => tool.enabled !== false)
+    .map((tool) => tool.id);
 
   // Legacy threads no longer carry MCP (BST-1930): there the tools stay listed,
   // visibly unavailable, because new (host) threads run them.
-  const toolMenuItems = useMemo(
-    () => [
-      ...nativeToolItems,
-      ...(runsMcpTools
-        ? mcpState.tools
-        : mcpState.tools.map((tool) => ({
-            ...tool,
-            description: MCP_LEGACY_THREAD_NOTICE,
-            disabled: true,
-          }))),
-    ],
-    [nativeToolItems, mcpState.tools, runsMcpTools]
-  );
+  const toolMenuItems = [
+    ...nativeToolItems,
+    ...(runsMcpTools
+      ? mcpState.tools
+      : mcpState.tools.map((tool) => ({
+          ...tool,
+          description: MCP_LEGACY_THREAD_NOTICE,
+          disabled: true,
+        }))),
+  ];
 
   const toolSourceById = useMemo(() => {
     const entries = toolMenuItems.map((tool) => [tool.id, tool.source] as const);
     return new Map(entries);
   }, [toolMenuItems]);
 
-  const handleToggleTool = useCallback(
-    async (toolId: string, enabled: boolean) => {
-      const source = toolSourceById.get(toolId);
-      if (!source) {
-        return;
-      }
-      if (source === 'native') {
-        setNativeToolEnabled(toolId, enabled);
-        return;
-      }
+  const handleToggleTool = async (toolId: string, enabled: boolean) => {
+    const source = toolSourceById.get(toolId);
+    if (!source) {
+      return;
+    }
+    if (source === 'native') {
+      setNativeToolEnabled(toolId, enabled);
+      return;
+    }
 
-      await mcpTools?.setEnabled([toolId], enabled);
-      await loadMcpTools();
-    },
-    [loadMcpTools, mcpTools, setNativeToolEnabled, toolSourceById]
-  );
+    await mcpTools?.setEnabled([toolId], enabled);
+    await loadMcpTools();
+  };
 
   const canRefreshMcp = mcpTools !== null;
 

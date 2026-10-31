@@ -29,7 +29,7 @@ import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { ToastAction, toast } from '@brainstrike/ui';
-import { useCallback } from 'react';
+
 import type { WorkspaceOpenPathRequest } from './workspace-connect-bridge';
 
 const logger = createLogger('ConnectFolder');
@@ -66,7 +66,7 @@ export function useConnectFolder(): ConnectFolderApi {
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
   const isFileSystemAccessSupported = fileSystem.isFileSystemAccessSupported;
 
-  const openPicker = useCallback(async (): Promise<void> => {
+  const openPicker = async (): Promise<void> => {
     try {
       await addRootDirectory();
     } catch (error: unknown) {
@@ -77,69 +77,69 @@ export function useConnectFolder(): ConnectFolderApi {
         variant: 'destructive',
       });
     }
-  }, [addRootDirectory]);
+  };
 
-  const connectPath = useCallback(
-    async ({ origin, path }: WorkspaceOpenPathRequest): Promise<DirectoryHandle | null> => {
-      if (!addRootDirectoryByPath) {
-        // Structurally unreachable: the caller only exists behind the desktop
-        // bridge. Loud rather than a silent no-op.
-        logger.error('Folder connection requested without the picker-less capability', {
-          origin,
-          path,
-        });
-        return null;
-      }
-      try {
-        const handle = await addRootDirectoryByPath(path);
-        if (!handle) {
-          toast({
-            description: `${path} could not be connected as a workspace folder.`,
-            title: 'Could not open that folder',
-            variant: 'destructive',
-          });
-          return null;
-        }
-        return handle;
-      } catch (error: unknown) {
-        const message = describeBoundaryError(error);
-        logger.warn('Folder connection refused', { message, origin, path });
-        if (
-          error instanceof BoundaryFailureError &&
-          error.failure.kind === 'refusal' &&
-          error.failure.category === 'authorization' &&
-          (error.code === 'workspace.never-granted' ||
-            error.code === 'workspace.managed-not-authorized')
-        ) {
-          toast({
-            action: (
-              <ToastAction
-                altText="Choose this folder in the system picker to grant access"
-                data-testid="workspace-connect-grant-action"
-                onClick={() => void openPicker()}
-              >
-                Add folder…
-              </ToastAction>
-            ),
-            description: `${path}: ${message}`,
-            // Persistent for the same reason the rewind redo toast is: this
-            // toast IS the remedy, and a 5s default would strand it.
-            persistent: true,
-            title: 'Brainstrike has not been granted access to this folder',
-            variant: 'destructive',
-          });
-          return null;
-        }
+  const connectPath = async ({
+    origin,
+    path,
+  }: WorkspaceOpenPathRequest): Promise<DirectoryHandle | null> => {
+    if (!addRootDirectoryByPath) {
+      // Structurally unreachable: the caller only exists behind the desktop
+      // bridge. Loud rather than a silent no-op.
+      logger.error('Folder connection requested without the picker-less capability', {
+        origin,
+        path,
+      });
+      return null;
+    }
+    try {
+      const handle = await addRootDirectoryByPath(path);
+      if (!handle) {
         toast({
-          description: message,
+          description: `${path} could not be connected as a workspace folder.`,
           title: 'Could not open that folder',
           variant: 'destructive',
         });
         return null;
       }
-    },
-    [addRootDirectoryByPath, openPicker]
-  );
+      return handle;
+    } catch (error: unknown) {
+      const message = describeBoundaryError(error);
+      logger.warn('Folder connection refused', { message, origin, path });
+      if (
+        error instanceof BoundaryFailureError &&
+        error.failure.kind === 'refusal' &&
+        error.failure.category === 'authorization' &&
+        (error.code === 'workspace.never-granted' ||
+          error.code === 'workspace.managed-not-authorized')
+      ) {
+        toast({
+          action: (
+            <ToastAction
+              altText="Choose this folder in the system picker to grant access"
+              data-testid="workspace-connect-grant-action"
+              onClick={() => void openPicker()}
+            >
+              Add folder…
+            </ToastAction>
+          ),
+          description: `${path}: ${message}`,
+          // Persistent for the same reason the rewind redo toast is: this
+          // toast IS the remedy, and a 5s default would strand it.
+          persistent: true,
+          title: 'Brainstrike has not been granted access to this folder',
+          variant: 'destructive',
+        });
+        return null;
+      }
+      toast({
+        description: message,
+        title: 'Could not open that folder',
+        variant: 'destructive',
+      });
+      return null;
+    }
+  };
 
   // The CAPABILITY decides whether the entry point exists — gating the spread
   // on `addRootDirectoryByPath` rather than on the callback keeps the

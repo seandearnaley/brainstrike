@@ -20,7 +20,7 @@ import {
   type NativeWorkspaceSearchDependencies,
   NativeWorkspaceSearchProvider,
 } from '@brainstrike/workspace-search/core';
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { generateDesktopQueryEmbedding } from '../query-embeddings';
 
 type ReadyStatus = Extract<IndexerStatus, { kind: 'ready' }>;
@@ -194,45 +194,45 @@ export function NativeSearchProvider({
     semantic && execution.kind === 'ready' && execution.embedding.indexMode === 'vector-configured'
       ? execution.embedding.profile
       : null;
-  const embedQuery = useCallback(
-    async (
-      requested: IndexerEmbeddingProfile,
-      query: string,
-      options: { readonly signal: AbortSignal }
-    ): Promise<readonly number[]> => {
-      const queryPlan = vectorExecution?.kind === 'ready' ? vectorExecution.queryPlan : undefined;
-      options.signal.throwIfAborted();
-      const current = await capability.status();
-      options.signal.throwIfAborted();
-      if (
-        !queryPlan ||
-        current.kind !== 'ready' ||
-        !matchesSavedChoices(current, selectIndexConfig(useIndexConfigStore.getState())) ||
-        JSON.stringify(executionStatus(current)) !== JSON.stringify(vectorExecution) ||
-        current.embedding.indexMode !== 'vector-configured' ||
-        JSON.stringify(current.embedding.profile) !== JSON.stringify(requested) ||
-        JSON.stringify(current.queryPlan) !== JSON.stringify(queryPlan)
-      ) {
-        throw new Error(
-          'Native query inference no longer matches the explicit saved execution plan.'
-        );
-      }
-      return generateDesktopQueryEmbedding(
-        {
-          dimensions: requested.dimensions,
-          modelId: requested.modelId,
-          modelKey: queryPlan.modelKey,
-          query,
-        },
-        options
+  const embedQuery = async (
+    requested: IndexerEmbeddingProfile,
+    query: string,
+    options: { readonly signal: AbortSignal }
+  ): Promise<readonly number[]> => {
+    const queryPlan = vectorExecution?.kind === 'ready' ? vectorExecution.queryPlan : undefined;
+    options.signal.throwIfAborted();
+    const current = await capability.status();
+    options.signal.throwIfAborted();
+    if (
+      !queryPlan ||
+      current.kind !== 'ready' ||
+      !matchesSavedChoices(current, selectIndexConfig(useIndexConfigStore.getState())) ||
+      JSON.stringify(executionStatus(current)) !== JSON.stringify(vectorExecution) ||
+      current.embedding.indexMode !== 'vector-configured' ||
+      JSON.stringify(current.embedding.profile) !== JSON.stringify(requested) ||
+      JSON.stringify(current.queryPlan) !== JSON.stringify(queryPlan)
+    ) {
+      throw new Error(
+        'Native query inference no longer matches the explicit saved execution plan.'
       );
-    },
-    [capability, vectorExecution]
-  );
-  const dependencies = useMemo(
-    () => searchDependencies(observation, { capability, embedQuery, lifecycle, mode, profile }),
-    [capability, embedQuery, lifecycle, mode, observation, profile]
-  );
+    }
+    return generateDesktopQueryEmbedding(
+      {
+        dimensions: requested.dimensions,
+        modelId: requested.modelId,
+        modelKey: queryPlan.modelKey,
+        query,
+      },
+      options
+    );
+  };
+  const dependencies = searchDependencies(observation, {
+    capability,
+    embedQuery,
+    lifecycle,
+    mode,
+    profile,
+  });
   return (
     <NativeWorkspaceSearchProvider dependencies={dependencies}>
       {children}

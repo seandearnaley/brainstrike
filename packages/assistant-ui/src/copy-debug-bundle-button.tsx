@@ -3,7 +3,7 @@ import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { Button, saveDownload } from '@brainstrike/ui';
 import { Predicate } from 'effect';
 import { ClipboardCopy, Download } from 'lucide-react';
-import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactElement, useEffect, useRef, useState } from 'react';
 import { useDebugBundleContext } from './debug-bundle-context';
 import { formatDebugBundleFilename } from './debug-bundle-download';
 
@@ -77,7 +77,7 @@ const COPIED_RESET_MS = 3000;
  */
 export function CopyDebugBundleButton(): ReactElement | null {
   const parts = useAuiState((state) => state.message.parts);
-  const runId = useMemo(() => selectFailedRunId(parts), [parts]);
+  const runId = selectFailedRunId(parts);
   const hasErrorState = useAuiState(selectHasErrorState);
   const context = useDebugBundleContext();
   const [phase, setPhase] = useState<ButtonPhase>({ kind: 'idle' });

@@ -19,7 +19,7 @@ import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { resolveMcpPromptBridge } from './mcp-prompts/mcp-prompt-bridge';
 import { type McpPromptEntry, selectMcpPromptEntries } from './mcp-prompts/mcp-prompt-catalog';
@@ -94,13 +94,13 @@ export function useMcpPromptSlashCommands(threadId: string | undefined): readonl
   // token that closes it: an older snapshot is dropped, never applied.
   const generationRef = useRef(0);
   const appliedRevisionRef = useRef(-1);
-  const applySnapshot = useCallback((next: McpHostSnapshot, generation: number) => {
+  const applySnapshot = (next: McpHostSnapshot, generation: number) => {
     if (generation !== generationRef.current || next.revision < appliedRevisionRef.current) {
       return;
     }
     appliedRevisionRef.current = next.revision;
     setSnapshot(next);
-  }, []);
+  };
 
   useEffect(() => {
     if (!bridge) {
@@ -126,7 +126,7 @@ export function useMcpPromptSlashCommands(threadId: string | undefined): readonl
     };
   }, [applySnapshot, bridge]);
 
-  const entries = useMemo(() => selectMcpPromptEntries(snapshot), [snapshot]);
+  const entries = selectMcpPromptEntries(snapshot);
 
   return useMemo<readonly SlashCommand[]>(
     () =>

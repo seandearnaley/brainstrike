@@ -18,7 +18,7 @@ import { useAuiState } from '@assistant-ui/react';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { cn, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import {
   type ConversationTokenEstimate,
   estimateConversationTokens,
@@ -319,13 +319,9 @@ export const ContextUsageMeter = ({
   // The thread context fold's latest window (ADR-0021): the same figure the
   // Context tab's header shows. Absent where no committed fold exists.
   const contextRecord = useThreadContextStore((s) => s.byThread[key]);
-  const workspaceFileTokens = useMemo(
-    () =>
-      contextRecord
-        ? fileWindowTokens(threadContextAt(contextRecord.snapshot, contextRecord.branchRunIds))
-        : undefined,
-    [contextRecord]
-  );
+  const workspaceFileTokens = contextRecord
+    ? fileWindowTokens(threadContextAt(contextRecord.snapshot, contextRecord.branchRunIds))
+    : undefined;
   const contextMapLink = useContextMapLink();
   // In-flight run's billed step usage (BST-953 live tick) — added to the
   // durable cumulative figure until the run's own row lands and the settle
@@ -516,7 +512,7 @@ export const ThreadContextMeter = ({
   const messages = useAuiState((s) => s.thread.messages);
   const isRunning = useAuiState((s) => s.thread.isRunning);
 
-  const conversationEstimate = useMemo(() => estimateConversationTokens(messages), [messages]);
+  const conversationEstimate = estimateConversationTokens(messages);
 
   return (
     <ContextUsageMeter

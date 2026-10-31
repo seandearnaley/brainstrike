@@ -50,7 +50,7 @@ export function ChangesReviewLink({
   readonly threadId: string | undefined;
 }): ReactElement | null {
   const parts = useAuiState((state) => state.message.parts);
-  const runId = useMemo(() => selectFinishedRunId(parts), [parts]);
+  const runId = selectFinishedRunId(parts);
   const entries = useEditCheckpointEntries();
   const context = useChangesReviewContext();
 

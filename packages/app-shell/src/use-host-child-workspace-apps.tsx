@@ -2,7 +2,7 @@ import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { isAgentColor } from '@brainstrike/types/agent-color';
 import { MessageSquare } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
 import {
   type AssistantThreadHostCapability,
@@ -112,19 +112,15 @@ function hostChildApp(
 export function useHostChildWorkspaceApps(): readonly WorkspaceApp[] {
   const host = useAssistantThreadHost();
   const openIds = useWorkspaceTabSelectionStore((state) => state.openAppIds);
-  const addresses = useMemo(
-    () =>
-      openIds.flatMap(
-        (id): { readonly id: string; readonly tab: HostChildWorkspaceTab | Error }[] => {
-          try {
-            const tab = readHostChildWorkspaceTab(id);
-            return tab ? [{ id, tab }] : [];
-          } catch (error) {
-            return [{ id, tab: asError(error) }];
-          }
-        }
-      ),
-    [openIds]
+  const addresses = openIds.flatMap(
+    (id): { readonly id: string; readonly tab: HostChildWorkspaceTab | Error }[] => {
+      try {
+        const tab = readHostChildWorkspaceTab(id);
+        return tab ? [{ id, tab }] : [];
+      } catch (error) {
+        return [{ id, tab: asError(error) }];
+      }
+    }
   );
   const [resolutions, setResolutions] = useState<ReadonlyMap<string, Resolution>>(() => new Map());
   // Each address resolves once per host; a later host's answer replaces it.
@@ -167,21 +163,17 @@ export function useHostChildWorkspaceApps(): readonly WorkspaceApp[] {
       );
     }
   }, [addresses, host]);
-  return useMemo(
-    () =>
-      addresses.map(({ id, tab }): WorkspaceApp => {
-        if (tab instanceof Error) {
-          return {
-            icon,
-            id,
-            label: 'Child conversation',
-            placement: 'dynamic',
-            render: () => <HostChildFailure error={tab} />,
-          };
-        }
-        const resolution = resolutions.get(id);
-        return hostChildApp(id, tab, resolution?.host === host ? resolution : undefined);
-      }),
-    [addresses, host, resolutions]
-  );
+  return addresses.map(({ id, tab }): WorkspaceApp => {
+    if (tab instanceof Error) {
+      return {
+        icon,
+        id,
+        label: 'Child conversation',
+        placement: 'dynamic',
+        render: () => <HostChildFailure error={tab} />,
+      };
+    }
+    const resolution = resolutions.get(id);
+    return hostChildApp(id, tab, resolution?.host === host ? resolution : undefined);
+  });
 }

@@ -1,6 +1,6 @@
 import { cn } from '@brainstrike/ui';
 import type { ReactElement, ReactNode } from 'react';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 
 /**
  * True when a drag originates from the OS and carries files/folders.
@@ -36,36 +36,33 @@ export function WorkspaceBarDropZone({
 }: WorkspaceBarDropZoneProps): ReactElement {
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const handleDragOver = useCallback((event: React.DragEvent<HTMLElement>) => {
+  const handleDragOver = (event: React.DragEvent<HTMLElement>) => {
     if (!dragCarriesFiles(event)) {
       return;
     }
     event.preventDefault();
     setIsDragOver(true);
-  }, []);
+  };
 
-  const handleDragLeave = useCallback((event: React.DragEvent<HTMLElement>) => {
+  const handleDragLeave = (event: React.DragEvent<HTMLElement>) => {
     const related = event.relatedTarget;
     if (related instanceof Node && event.currentTarget.contains(related)) {
       return;
     }
     setIsDragOver(false);
-  }, []);
+  };
 
-  const handleDrop = useCallback(
-    (event: React.DragEvent<HTMLElement>) => {
-      if (!dragCarriesFiles(event)) {
-        // Internal drags (thread tabs, text selections) pass through
-        // untouched; this surface only mounts real OS folders.
-        setIsDragOver(false);
-        return;
-      }
-      event.preventDefault();
+  const handleDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (!dragCarriesFiles(event)) {
+      // Internal drags (thread tabs, text selections) pass through
+      // untouched; this surface only mounts real OS folders.
       setIsDragOver(false);
-      onDropItems(Array.from(event.dataTransfer.items));
-    },
-    [onDropItems]
-  );
+      return;
+    }
+    event.preventDefault();
+    setIsDragOver(false);
+    onDropItems(Array.from(event.dataTransfer.items));
+  };
 
   return (
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: drag-and-drop mount surface; the keyboard-accessible path is the Folder chip's Add folder… action.

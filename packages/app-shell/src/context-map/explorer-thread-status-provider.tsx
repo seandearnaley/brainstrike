@@ -21,9 +21,7 @@ import {
 import {
   type ReactElement,
   type ReactNode,
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -52,18 +50,12 @@ export function ExplorerThreadStatusProvider({
   );
   const identity = useOptionalRootIdentity();
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
-  const resolveFolder = useCallback(
-    (dbRootId: string): ExplorerFolder | null => {
-      const adapterRootId = identity?.resolveAdapterRootId(dbRootId) ?? null;
-      const path = adapterRootId ? rootDescriptors[adapterRootId]?.path : undefined;
-      return adapterRootId && path ? { adapterRootId, path } : null;
-    },
-    [identity, rootDescriptors]
-  );
-  const touched = useMemo(
-    () => (record ? explorerThreadFiles(record, resolveFolder) : NO_EXPLORER_THREAD_FILES),
-    [record, resolveFolder]
-  );
+  const resolveFolder = (dbRootId: string): ExplorerFolder | null => {
+    const adapterRootId = identity?.resolveAdapterRootId(dbRootId) ?? null;
+    const path = adapterRootId ? rootDescriptors[adapterRootId]?.path : undefined;
+    return adapterRootId && path ? { adapterRootId, path } : null;
+  };
+  const touched = record ? explorerThreadFiles(record, resolveFolder) : NO_EXPLORER_THREAD_FILES;
   const watched = useSyncExternalStore(store.subscribeWatched, store.getWatchedKeys);
   const { fileContentErrors, fileContents, loadingFiles, onRetryFileContent } = useWorkspaceTabs();
 

@@ -19,6 +19,8 @@ import { useSkillSlashCommands } from './use-skill-slash-commands';
 import { useUserDefinedSlashCommands } from './use-user-defined-slash-commands';
 
 const logger = createLogger('AssistantSlashCommands');
+/** App-lifetime warn-once set for app-vs-user/skill/MCP id collisions (F4). */
+const warnedCollisionIds = new Set<string>();
 
 /**
  * Projects the app's command registry into the composer's "/" slash menu. The
@@ -47,9 +49,6 @@ const logger = createLogger('AssistantSlashCommands');
  * `threadId` is the active assistant thread, threaded to user commands so their
  * `execute` can read the live composer draft and write the expansion back.
  */
-/** App-lifetime warn-once set for app-vs-user/skill/MCP id collisions (F4). */
-const warnedCollisionIds = new Set<string>();
-
 export function useAssistantSlashCommands(threadId: string | undefined): readonly SlashCommand[] {
   const { toast } = useToast();
   const handlers = useGlobalCommandHandlers();

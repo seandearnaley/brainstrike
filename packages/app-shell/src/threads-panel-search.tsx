@@ -1,7 +1,7 @@
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { Button } from '@brainstrike/ui';
 import { Loader2, Search, X } from 'lucide-react';
-import { type KeyboardEvent, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, useRef, useState } from 'react';
 import { renderMarkedText } from './thread-search-headline';
 import type { ThreadSearchResultItem } from './thread-search-service';
 import { useThreadSearchStore } from './thread-search-store';
@@ -144,14 +144,10 @@ export function ThreadsPanelSearch({
     setActiveIndex(0);
   }
 
-  const visibleResults = useMemo(
-    () =>
-      (results ?? []).flatMap((result) =>
-        result.matches.length
-          ? result.matches.map((match) => ({ ...result, matches: [match] }))
-          : [result]
-      ),
-    [results]
+  const visibleResults = (results ?? []).flatMap((result) =>
+    result.matches.length
+      ? result.matches.map((match) => ({ ...result, matches: [match] }))
+      : [result]
   );
   const resultCount = visibleResults.length;
 

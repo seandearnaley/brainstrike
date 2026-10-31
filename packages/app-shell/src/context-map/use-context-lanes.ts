@@ -157,9 +157,9 @@ export function useContextLanes(
   branchRunIds: readonly string[]
 ): ContextLanes {
   const host = useAssistantThreadHost();
-  const list = useMemo(() => host?.childThreads?.bind(host), [host]);
-  const open = useMemo(() => host?.openThreadContext?.bind(host), [host]);
-  const subscribeChildren = useMemo(() => host?.subscribeChildren?.bind(host), [host]);
+  const list = host?.childThreads?.bind(host);
+  const open = host?.openThreadContext?.bind(host);
+  const subscribeChildren = host?.subscribeChildren?.bind(host);
   const readable = Boolean(threadId && list && open);
 
   // The host says when this thread's children changed; nothing is polled.
@@ -205,10 +205,7 @@ export function useContextLanes(
 
   // One set per thread. Constructing opens nothing; the sync below opens lanes,
   // and a disposed set reopens on its next sync (StrictMode's replayed effects).
-  const sources = useMemo(
-    () => (threadId && open ? new ContextLaneSources(open) : undefined),
-    [open, threadId]
-  );
+  const sources = threadId && open ? new ContextLaneSources(open) : undefined;
   useEffect(() => () => sources?.dispose(), [sources]);
 
   const current = listed?.threadId === threadId ? listed : undefined;

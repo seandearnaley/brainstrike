@@ -3,7 +3,7 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { useCallback } from 'react';
+
 import { useAssistantThreadHost } from '../assistant-thread-host-context';
 
 /**
@@ -15,9 +15,7 @@ import { useAssistantThreadHost } from '../assistant-thread-host-context';
 export function useStartThreadInFolder(): ((folder: ThreadFolderRow) => void) | null {
   const host = useAssistantThreadHost();
   const startNewThread = useAssistantThreadStore((state) => state.startNewThread);
-  const startThreadInFolder = useCallback(
-    (folder: ThreadFolderRow): void => startNewThread(WORKSPACE_MEMORY_RESOURCE_ID, folder),
-    [startNewThread]
-  );
+  const startThreadInFolder = (folder: ThreadFolderRow): void =>
+    startNewThread(WORKSPACE_MEMORY_RESOURCE_ID, folder);
   return host ? startThreadInFolder : null;
 }

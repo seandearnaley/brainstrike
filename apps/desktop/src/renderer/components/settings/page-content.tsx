@@ -278,11 +278,11 @@ export default function SettingsPageContent() {
 
   // The agent host owns the MCP config, extension dials, tool preferences,
   // server status and lifecycle control; a window without the host has none.
-  const mcpSettings = useMemo(() => resolveDesktopHostMcpSettings(), []);
-  const browserOrigins = useMemo(() => resolveDesktopHostBrowserOrigins(), []);
+  const mcpSettings = resolveDesktopHostMcpSettings();
+  const browserOrigins = resolveDesktopHostBrowserOrigins();
   // BST-1585: user-initiated MCP content browsing comes from the agent host
   // (BST-1930 c5d); web has none, so the Settings affordance is absent.
-  const mcpContent = useMemo(() => resolveDesktopMcpContent(), []);
+  const mcpContent = resolveDesktopMcpContent();
   // Create non-executing tool catalog and MCP configuration operations.
   const toolOperations = useMemo(() => {
     return {

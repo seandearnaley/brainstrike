@@ -10,7 +10,7 @@ import type {
 import type { WorktreeArchiveConfirmation } from '@brainstrike/assistant-ui/worktree-archive-confirmation-dialog';
 import type { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import type { TerminalTargetState } from '../stores/terminal-target-store';
 import type { WorktreeCheckoutIntentState } from '../stores/worktree-checkout-intent-store';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
@@ -98,208 +98,189 @@ export function useWorktreeMapCardActions(
     };
   } | null>(null);
 
-  const onNewThread = useCallback(
-    (card: WorktreeMapCardModel) => {
-      const worktreeId = card.entry.id;
-      if (!worktreeId) {
-        // An unadopted row cannot be bound; the card is disabled in that state,
-        // so reaching here at all is a wiring bug worth stating.
-        setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
-        return;
-      }
-      if (!repository) {
-        // Unlike the worktreeId guard above, "New thread here" is NOT
-        // disabled while the database is still resolving — this is a real,
-        // reachable, user-visible state (not just a wiring bug), so it gets
-        // its own stated reason rather than a silent no-op.
-        setActionError(
-          'Starting a new thread is unavailable until the workspace database is ready.'
-        );
-        return;
-      }
-      if (!addRootDirectoryByPath) {
-        // Same desktop-only seam `onAddAsRoot` already gates on below.
-        setActionError('Adding a workspace root by path is unavailable in this build.');
-        return;
-      }
-      setActionError(null);
-      // Adoption (worktree-map-card-actions → Adopt) only inserts the
-      // brainstrike_worktrees ledger row; it does not mount the checkout as a
-      // workspace root. The intent-consumer's bind (use-workspace-bar.ts's
-      // resolveRootIdAfterReconciliation) waits up to 5s for a LIVE `roots`
-      // row to appear, but nothing ever creates one for a freshly-adopted
-      // worktree, so the wait always exhausts (BST-1392 W5 e2e finding). The
-      // OTHER two flows that bind a thread to a worktree path — creating one
-      // and picking an existing one (use-worktree-mode.ts's `mountWorktree`/
-      // `onSelectExisting`) — both mount first and select second; mirror that
-      // ordering here rather than relying on some other reconciliation to
-      // race the bind.
-      void addRootDirectoryByPath(card.entry.path)
-        .then((handle) => {
-          if (!handle) {
-            setActionError(`Could not add "${card.entry.name}" as a workspace root.`);
-            return;
-          }
-          // Deliberately NO refresh() here (PR #2671 review): the mount
-          // resolving does not mean the `roots` row exists yet — the row is
-          // written later by the mid-session registration, and a refresh now
-          // would race it and re-read `rootId: null`. `useWorktreeMap`
-          // re-loads itself off the root-identity context once the row lands.
-          return createThread(repository, resourceId).then((thread) => {
-            selectThread(resourceId, thread.id);
-            publishIntent({
-              branch: card.entry.branch,
-              path: card.entry.path,
-              threadId: thread.id,
-              worktreeId,
-            });
-          });
-        })
-        .catch((caught: unknown) => {
-          logger.error('worktree map could not start a thread', { error: caught });
-          const message = errorMessage(caught);
-          // This callback only reaches `addRootDirectoryByPath` once
-          // `worktreeId` is non-null (the guard above) — i.e. the worktree is
-          // ALREADY adopted. The picker-less grant covers every adopted
-          // checkout the app can REACH — a live ledger row under the managed
-          // directory OR inside a granted root (`isAuthorizedWorktreeMountPath`,
-          // worktree-adopt.ts; the BST-1392 follow-up widening) — so the
-          // generic "never granted" refusal here usually means the checkout is
-          // outside BOTH (e.g. its granting root was disconnected after
-          // adoption), but the authorizer can also refuse when it could not
-          // VERIFY reachability (inventory unavailable). The copy is hedged
-          // ("couldn't confirm") rather than asserting a cause the renderer
-          // cannot observe (PR #2681 review). `errorMessage` alone would
-          // surface the generic "use Add Folder to grant it" copy, which is
-          // confusing right after a successful Adopt; state the likely cause
-          // and the ONE remedy that is verified to work: the real folder
-          // picker ("Add Folder" on the workspace bar, NOT this card's "Add
-          // as root" — that item calls the exact same picker-less grant and
-          // would fail the same way) records an exact-path recents match,
-          // after which this retries successfully.
-          setActionError(
-            message === NEVER_GRANTED_MOUNT_MESSAGE
-              ? `"${card.entry.name}" was adopted, but Brainstrike couldn't confirm it's inside an open folder or its managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
-              : message
-          );
-        });
-    },
-    [addRootDirectoryByPath, createThread, publishIntent, repository, resourceId, selectThread]
-  );
-
-  const onAddAsRoot = useCallback(
-    (card: WorktreeMapCardModel) => {
-      if (!addRootDirectoryByPath) {
-        // The Map only registers on desktop, so a missing by-path seam is a
-        // wiring bug worth stating, never a silent no-op.
-        setActionError('Adding a workspace root by path is unavailable in this build.');
-        return;
-      }
-      setActionError(null);
-      addRootDirectoryByPath(card.entry.path)
-        .then((handle) => {
-          if (!handle) {
-            setActionError(`Could not add "${card.entry.name}" as a workspace root.`);
-          }
-          // No refresh() on success — same racy-write reason as onNewThread's
-          // mount above; the root-identity subscription re-loads the Map.
-        })
-        .catch((caught: unknown) => {
-          logger.error('worktree map could not add a root', {
-            error: caught,
+  const onNewThread = (card: WorktreeMapCardModel) => {
+    const worktreeId = card.entry.id;
+    if (!worktreeId) {
+      // An unadopted row cannot be bound; the card is disabled in that state,
+      // so reaching here at all is a wiring bug worth stating.
+      setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
+      return;
+    }
+    if (!repository) {
+      // Unlike the worktreeId guard above, "New thread here" is NOT
+      // disabled while the database is still resolving — this is a real,
+      // reachable, user-visible state (not just a wiring bug), so it gets
+      // its own stated reason rather than a silent no-op.
+      setActionError('Starting a new thread is unavailable until the workspace database is ready.');
+      return;
+    }
+    if (!addRootDirectoryByPath) {
+      // Same desktop-only seam `onAddAsRoot` already gates on below.
+      setActionError('Adding a workspace root by path is unavailable in this build.');
+      return;
+    }
+    setActionError(null);
+    // Adoption (worktree-map-card-actions → Adopt) only inserts the
+    // brainstrike_worktrees ledger row; it does not mount the checkout as a
+    // workspace root. The intent-consumer's bind (use-workspace-bar.ts's
+    // resolveRootIdAfterReconciliation) waits up to 5s for a LIVE `roots`
+    // row to appear, but nothing ever creates one for a freshly-adopted
+    // worktree, so the wait always exhausts (BST-1392 W5 e2e finding). The
+    // OTHER two flows that bind a thread to a worktree path — creating one
+    // and picking an existing one (use-worktree-mode.ts's `mountWorktree`/
+    // `onSelectExisting`) — both mount first and select second; mirror that
+    // ordering here rather than relying on some other reconciliation to
+    // race the bind.
+    void addRootDirectoryByPath(card.entry.path)
+      .then((handle) => {
+        if (!handle) {
+          setActionError(`Could not add "${card.entry.name}" as a workspace root.`);
+          return;
+        }
+        // Deliberately NO refresh() here (PR #2671 review): the mount
+        // resolving does not mean the `roots` row exists yet — the row is
+        // written later by the mid-session registration, and a refresh now
+        // would race it and re-read `rootId: null`. `useWorktreeMap`
+        // re-loads itself off the root-identity context once the row lands.
+        return createThread(repository, resourceId).then((thread) => {
+          selectThread(resourceId, thread.id);
+          publishIntent({
+            branch: card.entry.branch,
             path: card.entry.path,
+            threadId: thread.id,
+            worktreeId,
           });
-          setActionError(errorMessage(caught));
         });
-    },
-    [addRootDirectoryByPath]
-  );
+      })
+      .catch((caught: unknown) => {
+        logger.error('worktree map could not start a thread', { error: caught });
+        const message = errorMessage(caught);
+        // This callback only reaches `addRootDirectoryByPath` once
+        // `worktreeId` is non-null (the guard above) — i.e. the worktree is
+        // ALREADY adopted. The picker-less grant covers every adopted
+        // checkout the app can REACH — a live ledger row under the managed
+        // directory OR inside a granted root (`isAuthorizedWorktreeMountPath`,
+        // worktree-adopt.ts; the BST-1392 follow-up widening) — so the
+        // generic "never granted" refusal here usually means the checkout is
+        // outside BOTH (e.g. its granting root was disconnected after
+        // adoption), but the authorizer can also refuse when it could not
+        // VERIFY reachability (inventory unavailable). The copy is hedged
+        // ("couldn't confirm") rather than asserting a cause the renderer
+        // cannot observe (PR #2681 review). `errorMessage` alone would
+        // surface the generic "use Add Folder to grant it" copy, which is
+        // confusing right after a successful Adopt; state the likely cause
+        // and the ONE remedy that is verified to work: the real folder
+        // picker ("Add Folder" on the workspace bar, NOT this card's "Add
+        // as root" — that item calls the exact same picker-less grant and
+        // would fail the same way) records an exact-path recents match,
+        // after which this retries successfully.
+        setActionError(
+          message === NEVER_GRANTED_MOUNT_MESSAGE
+            ? `"${card.entry.name}" was adopted, but Brainstrike couldn't confirm it's inside an open folder or its managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
+            : message
+        );
+      });
+  };
 
-  const onOpenTerminal = useCallback(
-    (card: WorktreeMapCardModel) => {
-      const { name, path, rootId } = card.entry;
-      if (!rootId) {
-        // The card renders this item only when `rootId` is non-null, so
-        // reaching here is a wiring bug worth stating, never a silent no-op.
-        setActionError(`"${name}" is not inside an open folder, so it has no terminal to open.`);
-        return;
-      }
-      setActionError(null);
-      openTerminalAt({ cwd: path, rootId });
-    },
-    [openTerminalAt]
-  );
-
-  const archiveCard = useCallback(
-    (card: WorktreeMapCardModel, confirmIgnoredEntries?: string): void => {
-      const worktreeId = card.entry.id;
-      if (!(worktreeId && worktrees)) {
-        setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
-        return;
-      }
-      worktrees
-        .archive({ ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}), worktreeId })
-        .then((result) => {
-          // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
-          if (!result.ok) {
-            setActionError(`Worktree not archived: ${result.error}`);
-            return;
-          }
-          // Unlike the mount paths (whose `roots` write lands later, in the
-          // registration effect), the archive IPC resolves only after the
-          // ledger row is archived — this refresh observes a completed write,
-          // mirroring onAdopt below, so the removed card leaves the list now
-          // instead of on the next unrelated invalidation.
-          void refresh();
-        })
-        .catch((caught: unknown) => {
-          logger.error('worktree map could not archive', { error: caught, worktreeId });
-          setActionError(errorMessage(caught));
+  const onAddAsRoot = (card: WorktreeMapCardModel) => {
+    if (!addRootDirectoryByPath) {
+      // The Map only registers on desktop, so a missing by-path seam is a
+      // wiring bug worth stating, never a silent no-op.
+      setActionError('Adding a workspace root by path is unavailable in this build.');
+      return;
+    }
+    setActionError(null);
+    addRootDirectoryByPath(card.entry.path)
+      .then((handle) => {
+        if (!handle) {
+          setActionError(`Could not add "${card.entry.name}" as a workspace root.`);
+        }
+        // No refresh() on success — same racy-write reason as onNewThread's
+        // mount above; the root-identity subscription re-loads the Map.
+      })
+      .catch((caught: unknown) => {
+        logger.error('worktree map could not add a root', {
+          error: caught,
+          path: card.entry.path,
         });
-    },
-    [refresh, worktrees]
-  );
+        setActionError(errorMessage(caught));
+      });
+  };
 
-  const onArchive = useCallback(
-    (card: WorktreeMapCardModel) => {
-      const worktreeId = card.entry.id;
-      if (!(worktreeId && worktrees)) {
-        setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
-        return;
-      }
-      setActionError(null);
-      worktrees
-        .inspectArchive({ worktreeId })
-        .then((result) => {
-          if (!result.ok) {
-            setActionError(`Could not inspect worktree for archive: ${result.error}`);
-            return;
-          }
-          if (result.value.ignoredEntryCount === 0) {
-            archiveCard(card);
-            return;
-          }
-          if (result.value.confirmationToken === null) {
-            setActionError(
-              'Archive inspection did not provide an ignored-file confirmation token.'
-            );
-            return;
-          }
-          setArchiveConfirmationState({
-            card,
-            preview: {
-              ...result.value,
-              confirmationToken: result.value.confirmationToken,
-            },
-          });
-        })
-        .catch((caught: unknown) => {
-          logger.error('worktree map could not inspect archive', { error: caught, worktreeId });
-          setActionError(errorMessage(caught));
+  const onOpenTerminal = (card: WorktreeMapCardModel) => {
+    const { name, path, rootId } = card.entry;
+    if (!rootId) {
+      // The card renders this item only when `rootId` is non-null, so
+      // reaching here is a wiring bug worth stating, never a silent no-op.
+      setActionError(`"${name}" is not inside an open folder, so it has no terminal to open.`);
+      return;
+    }
+    setActionError(null);
+    openTerminalAt({ cwd: path, rootId });
+  };
+
+  const archiveCard = (card: WorktreeMapCardModel, confirmIgnoredEntries?: string): void => {
+    const worktreeId = card.entry.id;
+    if (!(worktreeId && worktrees)) {
+      setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
+      return;
+    }
+    worktrees
+      .archive({ ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}), worktreeId })
+      .then((result) => {
+        // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
+        if (!result.ok) {
+          setActionError(`Worktree not archived: ${result.error}`);
+          return;
+        }
+        // Unlike the mount paths (whose `roots` write lands later, in the
+        // registration effect), the archive IPC resolves only after the
+        // ledger row is archived — this refresh observes a completed write,
+        // mirroring onAdopt below, so the removed card leaves the list now
+        // instead of on the next unrelated invalidation.
+        void refresh();
+      })
+      .catch((caught: unknown) => {
+        logger.error('worktree map could not archive', { error: caught, worktreeId });
+        setActionError(errorMessage(caught));
+      });
+  };
+
+  const onArchive = (card: WorktreeMapCardModel) => {
+    const worktreeId = card.entry.id;
+    if (!(worktreeId && worktrees)) {
+      setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
+      return;
+    }
+    setActionError(null);
+    worktrees
+      .inspectArchive({ worktreeId })
+      .then((result) => {
+        if (!result.ok) {
+          setActionError(`Could not inspect worktree for archive: ${result.error}`);
+          return;
+        }
+        if (result.value.ignoredEntryCount === 0) {
+          archiveCard(card);
+          return;
+        }
+        if (result.value.confirmationToken === null) {
+          setActionError('Archive inspection did not provide an ignored-file confirmation token.');
+          return;
+        }
+        setArchiveConfirmationState({
+          card,
+          preview: {
+            ...result.value,
+            confirmationToken: result.value.confirmationToken,
+          },
         });
-    },
-    [archiveCard, worktrees]
-  );
+      })
+      .catch((caught: unknown) => {
+        logger.error('worktree map could not inspect archive', { error: caught, worktreeId });
+        setActionError(errorMessage(caught));
+      });
+  };
 
   const archiveConfirmation: WorktreeArchiveConfirmation | null = archiveConfirmationState
     ? {
@@ -325,56 +306,50 @@ export function useWorktreeMapCardActions(
   // `card.thread.threadId` and `selectedThreadId` agree by construction, but
   // reading `card.thread` keeps this callback correct even if a future
   // caller wires it differently.
-  const onHandOffToLocal = useCallback(
-    (card: WorktreeMapCardModel) => {
-      const threadId = card.thread?.threadId;
-      if (!threadId) {
-        // The card only renders "Hand off to Local" when it has a bound
-        // thread (see the render in worktree-map-surface.tsx, `onHandOffToLocal`
-        // prop), so reaching here is a wiring bug worth stating, never a
-        // silent no-op.
-        setActionError(`"${card.entry.name}" has no thread bound to hand off.`);
-        return;
-      }
-      setActionError(null);
-      publishIntent({
-        branch: card.entry.branch,
-        path: card.entry.path,
-        threadId,
-        worktreeId: null,
-      });
-    },
-    [publishIntent]
-  );
+  const onHandOffToLocal = (card: WorktreeMapCardModel) => {
+    const threadId = card.thread?.threadId;
+    if (!threadId) {
+      // The card only renders "Hand off to Local" when it has a bound
+      // thread (see the render in worktree-map-surface.tsx, `onHandOffToLocal`
+      // prop), so reaching here is a wiring bug worth stating, never a
+      // silent no-op.
+      setActionError(`"${card.entry.name}" has no thread bound to hand off.`);
+      return;
+    }
+    setActionError(null);
+    publishIntent({
+      branch: card.entry.branch,
+      path: card.entry.path,
+      threadId,
+      worktreeId: null,
+    });
+  };
 
   // The FIRST real caller of `worktrees.adopt` (Task 2 shipped the service
   // and bridge method, but the picker's own call turned out unreachable and
   // was removed — A1/A7). `WorktreeAdoptParams` takes `createdBy` + `path`
   // only, never `branch` — match that real shipped shape, not a guess at it.
-  const onAdopt = useCallback(
-    (card: WorktreeMapCardModel) => {
-      if (!worktrees) {
-        setActionError('Adopting a worktree is unavailable in this build.');
-        return;
-      }
-      setActionError(null);
-      worktrees
-        .adopt({ createdBy: 'user', path: card.entry.path })
-        .then((result) => {
-          // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
-          if (!result.ok) {
-            setActionError(`Could not adopt "${card.entry.name}": ${result.error}`);
-            return;
-          }
-          void refresh();
-        })
-        .catch((caught: unknown) => {
-          logger.error('worktree map could not adopt', { error: caught, path: card.entry.path });
-          setActionError(errorMessage(caught));
-        });
-    },
-    [refresh, worktrees]
-  );
+  const onAdopt = (card: WorktreeMapCardModel) => {
+    if (!worktrees) {
+      setActionError('Adopting a worktree is unavailable in this build.');
+      return;
+    }
+    setActionError(null);
+    worktrees
+      .adopt({ createdBy: 'user', path: card.entry.path })
+      .then((result) => {
+        // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
+        if (!result.ok) {
+          setActionError(`Could not adopt "${card.entry.name}": ${result.error}`);
+          return;
+        }
+        void refresh();
+      })
+      .catch((caught: unknown) => {
+        logger.error('worktree map could not adopt', { error: caught, path: card.entry.path });
+        setActionError(errorMessage(caught));
+      });
+  };
 
   return {
     actionError,

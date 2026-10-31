@@ -27,7 +27,6 @@ import { McpAppBridgeProvider } from '@brainstrike/mcp-app-host-ui';
 import {
   type ReactElement,
   type ReactNode,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -141,14 +140,14 @@ function HostChildDetails({
 }): ReactElement | null {
   // A new source replays its log from the first row, so each source has its own fold.
   const folds = useRef(new WeakMap<object, HostChildDetailsFold>());
-  const read = useCallback(() => {
+  const read = () => {
     let fold = folds.current.get(source);
     if (!fold) {
       fold = new HostChildDetailsFold();
       folds.current.set(source, fold);
     }
     return fold.apply(source.getSnapshot().rows);
-  }, [source]);
+  };
   const details = useSyncExternalStore(source.subscribe, read, read);
   // The bar keeps its height while the child's log replays, so the
   // conversation below it does not jump down when the details arrive.
@@ -235,7 +234,7 @@ function HostThread({
   const conversationColor = useConversationColor(threadId, agentColor);
   // ADR-0019: the composer's model is the host thread's selection.
   const selection = useHostThreadSelection(client, threadId);
-  const readSelectionFolderId = useCallback(() => explorer.getState().currentFolderId, [explorer]);
+  const readSelectionFolderId = () => explorer.getState().currentFolderId;
   const { catalogKey, readConfiguration, readModelId, readPlanMode, ...presentation } =
     useDesktopHostPresentation(threadId, selection, readSelectionFolderId, providerReadErrors);
   const configuration = useRef(readConfiguration);
@@ -261,7 +260,7 @@ function HostThread({
   }, [readConfiguration, readModelId, readPlanMode]);
   const [conversation, setConversation] = useState<CommittedHostConversation>();
   // MCP Apps this thread's results mount: Main serves the shell, Core runs each call.
-  const appBridge = useMemo(() => hostMcpAppBridge(client), [client]);
+  const appBridge = hostMcpAppBridge(client);
   useEffect(() => {
     // Commit-time view ownership survives StrictMode render replay without
     // starting duplicate subscriptions or disposing a still-mounted source.
@@ -286,18 +285,15 @@ function HostThread({
   // The meter's memory segment and the memory send gate: what admission would
   // answer for the run the next send starts.
   const planModeEnabled = presentation.planMode?.enabled === true;
-  const readMemoryRequest = useCallback(
-    () => ({
-      ...hostRunSettings({
-        modelId: '',
-        readConfiguration: () => readConfiguration(explorer.getState().currentFolderId),
-        readModelId,
-        readPlanMode: () => planModeEnabled,
-      }),
-      threadId,
+  const readMemoryRequest = () => ({
+    ...hostRunSettings({
+      modelId: '',
+      readConfiguration: () => readConfiguration(explorer.getState().currentFolderId),
+      readModelId,
+      readPlanMode: () => planModeEnabled,
     }),
-    [explorer, planModeEnabled, readConfiguration, readModelId, threadId]
-  );
+    threadId,
+  });
   const memory = useHostMemorySegment({
     blocked: presentation.isComposerDisabled === true,
     catalog: catalogKey,
@@ -341,11 +337,11 @@ function HostThread({
   // Steer (BST-588): the queue holds the message at its front while Core ends
   // the run after its step in flight; the message then starts the next turn.
   const [steeredRunId, setSteeredRunId] = useState<string>();
-  const steer = useCallback(async (): Promise<boolean> => {
+  const steer = async (): Promise<boolean> => {
     const runId = await conversation?.steer();
     setSteeredRunId(runId);
     return runId !== undefined;
-  }, [conversation]);
+  };
   return conversation ? (
     <McpAppBridgeProvider bridge={appBridge}>
       <div className="flex h-full min-h-0 flex-col">
@@ -422,7 +418,7 @@ function ConnectedHost({
   if (state.kind === 'connected' && state.client !== client) {
     setClient(state.client);
   }
-  const replacement = useCallback((lost: HostClient) => connection.replacement(lost), [connection]);
+  const replacement = (lost: HostClient) => connection.replacement(lost);
   if (!client) {
     return <div role="status">Connecting to the agent host…</div>;
   }

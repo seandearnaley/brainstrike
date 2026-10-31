@@ -30,7 +30,7 @@
  */
 import { createLogger } from '@brainstrike/logging';
 import type { GitInventory } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useChangesBridge } from '../workspace-git-services';
 import { useChangesLiveRefreshStore } from './changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from './use-changes-live-refresh';
@@ -90,7 +90,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
   // older activation stay retained internally but are not exposed while the
   // mandatory re-entry refresh is unresolved. The token is derived from `active`,
   // so the React Compiler (which memoizes on what a body reads) re-creates it.
-  const activation = useMemo<object>(() => ({ active }), [active]);
+  const activation: object = { active };
   // Resolved ONCE per hook instance, not per render — see doc comment.
   const bridge = useChangesBridge();
   const [inventory, setInventory] = useState<GitInventory | null>(null);
@@ -112,7 +112,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
   useChangesLiveRefreshSubscription();
   const anyInvalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
 
-  const refresh = useCallback(async (): Promise<void> => {
+  const refresh = async (): Promise<void> => {
     loadRequestedRef.current = true;
     generationRef.current += 1;
     const generation = generationRef.current;
@@ -156,7 +156,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
         setLoading(false);
       }
     }
-  }, [activation, bridge]);
+  };
 
   useEffect(() => {
     // A surface that has gone inactive must stop paying for full inventory
