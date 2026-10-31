@@ -1,4 +1,4 @@
-/** The renderer's key-value store. No store clears itself: Main owns the reset (ADR-0015). */
+/** Main's string key-value store (`ElectronStorageAdapter`). */
 export interface StorageAdapter {
   /**
    * Get all keys in storage
@@ -18,12 +18,4 @@ export interface StorageAdapter {
    * Set a value in storage
    */
   setItem: (key: string, value: string) => Promise<void>;
-}
-
-export interface PersistConfig<TState> {
-  name: string;
-  onRehydrateStorage?: () => (state?: TState) => void;
-  partialize?: (state: TState) => Partial<TState>;
-  storage: StorageAdapter;
-  version?: number;
 }

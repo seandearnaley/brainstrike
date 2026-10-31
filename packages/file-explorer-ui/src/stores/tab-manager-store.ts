@@ -1,6 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import { createSafeJsonStateStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 const logger = createLogger('TabManagerStore');
@@ -74,100 +73,8 @@ interface PersistedState {
   tabs: PersistedTab[];
 }
 
-const STORE_NAME = 'tab-manager.v1' as const;
-const LEGACY_STORE_KEY = 'fileEditorTabs.v1' as const;
+const STORE_NAME = 'brainstrike:tab-manager.v1' as const;
 const MAX_TABS = 20;
-
-/**
- * One-time migration from the pre-rename `fileEditorTabs.v1` key into the canonical
- * `tab-manager.v1` shape. Wired into the shared safe-state-storage's `migrateOnGet`
- * hook so a clean install never pays the cost.
- */
-function migrateLegacyTabKey(name: string): string | null {
-  if (name !== STORE_NAME || typeof localStorage === 'undefined') {
-    return null;
-  }
-  let legacy: string | null = null;
-  try {
-    legacy = localStorage.getItem(LEGACY_STORE_KEY);
-  } catch {
-    return null;
-  }
-  if (!legacy) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(legacy) as {
-      tabs?: Array<{ id: string; path: string; compositeKey: string }>;
-      activeTabId?: string | null;
-    };
-    const migrated: PersistedState = {
-      activeTabId: (parsed.activeTabId ?? null) as string | null,
-      // Filter out malformed legacy entries before stringifying — without this, a
-      // missing field would produce String(undefined) === 'undefined' and create a
-      // phantom tab with that literal id. Unlikely on existing installs but cheap
-      // insurance for any localStorage tampering or partial-write corruption.
-      tabs: Array.isArray(parsed.tabs)
-        ? parsed.tabs
-            .filter(
-              (t): t is { id: string; path: string; compositeKey: string } =>
-                typeof t?.id === 'string' &&
-                typeof t.path === 'string' &&
-                typeof t.compositeKey === 'string'
-            )
-            .map((t) => ({
-              compositeKey: t.compositeKey,
-              id: t.id,
-              path: t.path,
-            }))
-        : [],
-    };
-    const wrapped = JSON.stringify({ state: migrated, version: 1 });
-    try {
-      localStorage.setItem(name, wrapped);
-      localStorage.removeItem(LEGACY_STORE_KEY);
-    } catch {
-      // If we can't persist the migrated value, still return it so the runtime store
-      // hydrates correctly for this session.
-    }
-    return wrapped;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * v1 → v2: legacy tabIds were `${rootFolderId}:${compositeKey}` to dedupe per-folder.
- * The compositeKey already encodes folder identity, so we collapse the tabId to the
- * compositeKey itself. This makes opens stable across reloads on web (where the
- * rootDirectoryHandle's identity does not survive page reloads). Also dedupes any
- * cross-rootFolderId duplicates and remaps activeTabId.
- */
-function migrateV1ToV2(ps: PersistedState): PersistedState {
-  const remap = new Map<string, string>();
-  const seen = new Set<string>();
-  const tabs: PersistedTab[] = [];
-  for (const t of ps.tabs) {
-    const nextId = t.compositeKey;
-    if (t.id !== nextId) {
-      remap.set(t.id, nextId);
-    }
-    // Dedupe by compositeKey: in v1 a user could have the same file opened under
-    // different rootFolderId prefixes; collapsing to compositeKey would otherwise
-    // produce duplicate ids (and React-key conflicts). Keep the first occurrence.
-    if (seen.has(nextId)) {
-      continue;
-    }
-    seen.add(nextId);
-    tabs.push({ compositeKey: t.compositeKey, id: nextId, path: t.path });
-  }
-  const remappedActive =
-    ps.activeTabId === null ? null : (remap.get(ps.activeTabId) ?? ps.activeTabId);
-  // If the originally-active id deduped away, fall back to the first remaining tab.
-  const activeTabId =
-    remappedActive !== null && seen.has(remappedActive) ? remappedActive : (tabs[0]?.id ?? null);
-  return { activeTabId, tabs };
-}
 
 /** `tabs` in `orderedTabIds` order, or null unless the ids are an exact permutation. */
 function permuteTabs(
@@ -190,15 +97,9 @@ function permuteTabs(
   return reordered;
 }
 
-const storage = createJSONStorage(() =>
-  createSafeJsonStateStorage({
-    migrateOnGet: migrateLegacyTabKey,
-    scope: 'TabManagerStore',
-  })
-);
-
 export const useTabManagerStore = create<TabManagerStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set, get) => ({
       activeTabId: null,
 
@@ -358,29 +259,11 @@ export const useTabManagerStore = create<TabManagerStore>()(
         }));
         return { ...current, activeTabId: ps.activeTabId, tabs: reconstructed } as TabManagerStore;
       },
-      // Migrations are written as a per-version chain so adding a v3 step is purely
-      // additive — no need to update an existing guard. Future shape:
-      //   let next = ps;
-      //   if (version < 2) next = migrateV1ToV2(next);
-      //   if (version < 3) next = migrateV2ToV3(next);
-      //   return next;
-      migrate: (persisted, version) => {
-        let ps = (persisted as PersistedState | undefined) ?? {
-          activeTabId: null,
-          tabs: [],
-        };
-        if (version < 2) {
-          ps = migrateV1ToV2(ps);
-        }
-        return ps;
-      },
-      name: STORE_NAME,
       partialize: (s): PersistedState => ({
         activeTabId: s.activeTabId,
         tabs: s.tabs.map((t) => ({ compositeKey: t.compositeKey, id: t.id, path: t.path })),
       }),
-      storage,
-      version: 2,
+      version: 1,
     }
   )
 );

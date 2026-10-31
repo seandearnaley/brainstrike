@@ -134,7 +134,7 @@ describe('Adapter Integration', () => {
         store.getState().toggleDirectoryExpansion(dir.path);
       }
 
-      expect(localStorage.getItem('file-explorer-storage-v5')).not.toBeNull();
+      expect(localStorage.getItem('brainstrike:file-explorer-storage-v5')).not.toBeNull();
 
       const state = store.getState();
       expect(state.currentFolderId).toBe(rootHandle.name);

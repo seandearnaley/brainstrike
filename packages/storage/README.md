@@ -1,34 +1,29 @@
 # @brainstrike/storage
 
-String key/value adapters for browser `localStorage`, Main's workspace-root ledgers and in-memory tests. Separate from the host StateStore, conversation log and derived index.
+Two string stores, separate from the host StateStore, conversation log and derived index.
 
-## API
+## Durable renderer stores
 
-Every async adapter implements `StorageAdapter` ([`types.ts`](src/types.ts)): `getItem`, `setItem`, `removeItem`, `getAllKeys`, `clear`. Values are strings and a missing key returns `null`; serialize and validate structured values at their owning boundary.
+`persistDurable(key, creator, options)` ([`durable-store.ts`](src/durable-store.ts)) is the one way a renderer store keeps state across reloads. It is zustand's [`persist`](https://zustand.docs.pmnd.rs/middlewares/persist) over this renderer's `localStorage` as JSON.
 
 ```ts
-import { createMemoryStorageAdapter } from '@brainstrike/storage';
-
-const storage = createMemoryStorageAdapter();
-await storage.setItem('theme', 'dark');
+export const useExampleStore = create<ExampleState>()(
+  persistDurable('brainstrike:example.v1', (set) => ({ ... }), { partialize, version: 1 })
+);
 ```
 
-## Adapters
+- Keys are `DurableKey`s, under `DURABLE_KEY_PREFIX` (`brainstrike:`). Tests and E2E seeds read and write the same key.
+- `name` and `storage` are the factory's; every other `persist` option passes through. Validate saved state in `merge` or `migrate`.
+- A saved value that is not JSON reads as nothing saved: the store hydrates on its defaults, the discard is logged and reported to `onUnreadable`, and the next change overwrites it. (zustand's own read rejects and leaves `hasHydrated()` false.)
+- Writes are synchronous: a change is saved when `set` returns. A store owns no fallback, write-behind or reset code.
+- Main's Factory Reset clears the whole origin's storage (`clearStorageData`, ADR-0015), so every store joins reset by construction.
+- Tests get a clean store from `@brainstrike/test-utils/zustand-store-reset` (zustand's testing guide).
+- Preferences are not a secret store; credentials use the credential owner.
 
-- `createBrowserStorageAdapter()` / `WebStorageAdapter`: browser `localStorage` (or an injected `Storage`). The async interface doesn't make the underlying I/O nonblocking.
-- `createMemoryStorageAdapter()` / `MemoryStorageAdapter`: explicitly ephemeral; never a persistence fallback.
-- `ElectronStorageAdapter` (from `@brainstrike/storage/electron`, Electron main only). It holds Main's workspace-root ledgers (`rootsList`, `recentRootsList`, `lastFolderPath`); the renderer has no IPC path to it. Renderer-only preferences use zustand `persist` on `localStorage`.
-  - Optional filename, default `electron-storage.json` under `app.getPath('userData')`.
-  - JSON files with ordered temp-file/rename writes.
-  - Invalid paths and corrupt or unreadable storage reject visibly.
+## Main's ledgers
 
-## Other helpers
+`ElectronStorageAdapter` (from `@brainstrike/storage/electron`, Electron main only) implements `StorageAdapter` ([`types.ts`](src/types.ts)). It holds Main's workspace-root ledgers (`rootsList`, `recentRootsList`, `lastFolderPath`); the renderer has no IPC path to it.
 
-- [`safe-storage.ts`](src/safe-storage.ts): a separate synchronous JSON storage interface with persistence-issue reporting. Read its failure policy before using it for durable state.
-- [`write-behind-writer.ts`](src/write-behind-writer.ts): the one renderer write-behind writer.
-  - Buffers writes per key for `delayMs`; reads see pending values, and a removal cancels the pending write.
-  - `flush()` resolves only when nothing is buffered or in flight, including values buffered while it waits.
-  - `flush()` rejects while any key's newest write was refused, until a newer write of that key lands.
-  - It owns no unload listener; document unload joins the flush through `@brainstrike/app-state/renderer-close`.
-  - A queued save is not proof of persistence; a resolved `flush()` is.
-- Preferences are not a secret store; credentials use the credential owner. New durable state joins the [reset lifecycle](../../docs/agents/platform-contracts.md).
+- Optional filename, default `electron-storage.json` under `app.getPath('userData')`.
+- JSON files with ordered temp-file/rename writes.
+- Invalid paths and corrupt or unreadable storage reject visibly.

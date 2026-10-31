@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceTabSelectionStore } from '../../stores/workspace-tab-selection-store';
 
-const STORE_KEY = 'workspace-tab-selection.v1';
+const STORE_KEY = 'brainstrike:workspace-tab-selection.v1';
 
 async function rehydrate() {
   const persistApi = (
@@ -179,7 +179,7 @@ describe('workspace-tab-selection-store', () => {
             openAppIds: ['context-explorer', 'changes', 'canvas'],
             selection: { appId: 'canvas', kind: 'app' },
           },
-          version: 2,
+          version: 1,
         })
       );
       await rehydrate();
@@ -357,7 +357,7 @@ describe('workspace-tab-selection-store', () => {
             openAppIds: ['canvas'],
             selection: { appId: 'canvas', kind: 'app' },
           },
-          version: 2,
+          version: 1,
         })
       );
       await rehydrate();
@@ -369,7 +369,7 @@ describe('workspace-tab-selection-store', () => {
         STORE_KEY,
         JSON.stringify({
           state: { openAppIds: ['context-explorer'], selection: { kind: 'file', tabId: 't' } },
-          version: 2,
+          version: 1,
         })
       );
       await rehydrate();
@@ -433,7 +433,7 @@ describe('workspace-tab-selection-store', () => {
     });
   });
 
-  describe('v2 persistence', () => {
+  describe('persistence', () => {
     it('persists and restores openAppIds and selection together', async () => {
       useWorkspaceTabSelectionStore.getState().openApp('canvas');
       await rehydrate();
@@ -454,44 +454,12 @@ describe('workspace-tab-selection-store', () => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({ kind: 'empty' });
     });
 
-    it('migrates a v1 payload, seeding openAppIds with context-explorer', async () => {
-      localStorage.setItem(
-        STORE_KEY,
-        JSON.stringify({
-          state: { selection: { kind: 'file', tabId: 'folderA|@|src/index.ts' } },
-          version: 1,
-        })
-      );
-      await rehydrate();
-      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual(['context-explorer']);
-      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-        kind: 'file',
-        tabId: 'folderA|@|src/index.ts',
-      });
-    });
-
-    it('migrating a v1 app selection includes that app in openAppIds', async () => {
-      localStorage.setItem(
-        STORE_KEY,
-        JSON.stringify({ state: { selection: { appId: 'canvas', kind: 'app' } }, version: 1 })
-      );
-      await rehydrate();
-      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([
-        'context-explorer',
-        'canvas',
-      ]);
-      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-        appId: 'canvas',
-        kind: 'app',
-      });
-    });
-
     it('coerces an app selection whose id is missing from openAppIds (appends it)', async () => {
       localStorage.setItem(
         STORE_KEY,
         JSON.stringify({
           state: { openAppIds: [], selection: { appId: 'canvas', kind: 'app' } },
-          version: 2,
+          version: 1,
         })
       );
       await rehydrate();
@@ -506,7 +474,7 @@ describe('workspace-tab-selection-store', () => {
             openAppIds: ['changes', 42, 'changes', null],
             selection: { appId: 'changes', kind: 'app' },
           },
-          version: 2,
+          version: 1,
         })
       );
       await rehydrate();
@@ -516,7 +484,7 @@ describe('workspace-tab-selection-store', () => {
     it('falls back to full defaults on a completely garbage v2 payload', async () => {
       localStorage.setItem(
         STORE_KEY,
-        JSON.stringify({ state: { openAppIds: 'nope', selection: 42 }, version: 2 })
+        JSON.stringify({ state: { openAppIds: 'nope', selection: 42 }, version: 1 })
       );
       await rehydrate();
       expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual(['context-explorer']);

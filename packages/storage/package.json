@@ -1,19 +1,18 @@
 {
   "name": "@brainstrike/storage",
-  "description": "Platform-aware storage adapters for web and desktop",
+  "description": "Durable renderer stores (zustand persist on localStorage) and Main's string key-value file store",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/logging": "workspace:*"
+    "@brainstrike/logging": "workspace:*",
+    "zustand": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
-    "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "electron": "catalog:",
     "jsdom": "catalog:",
-    "playwright": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -24,7 +23,6 @@
   },
   "scripts": {
     "test": "vitest run --project unit",
-    "test:browser": "vitest run --project browser",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "type": "module"

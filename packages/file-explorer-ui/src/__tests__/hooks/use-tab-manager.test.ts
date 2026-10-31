@@ -11,22 +11,11 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-describe('useTabManager', () => {
-  // Mock localStorage
-  const localStorageMock = {
-    clear: vi.fn(),
-    getItem: vi.fn(),
-    removeItem: vi.fn(),
-    setItem: vi.fn(),
-  };
+const STORE_KEY = 'brainstrike:tab-manager.v1';
 
+describe('useTabManager', () => {
   beforeEach(() => {
-    // Reset mocks before each test
     vi.clearAllMocks();
-    Object.defineProperty(window, 'localStorage', {
-      value: localStorageMock,
-      writable: true,
-    });
   });
 
   afterEach(() => {
@@ -35,8 +24,6 @@ describe('useTabManager', () => {
 
   describe('initialization', () => {
     it('should initialize with empty state when no localStorage data exists', () => {
-      localStorageMock.getItem.mockReturnValue(null);
-
       const { result } = renderHook(() => useTabManager());
 
       expect(result.current.tabs).toEqual([]);
@@ -54,7 +41,7 @@ describe('useTabManager', () => {
         },
         version: 1,
       };
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(persisted));
+      localStorage.setItem(STORE_KEY, JSON.stringify(persisted));
       // Rehydrate store explicitly before rendering hook
       await act(async () => {
         const mod = await import('../../stores/tab-manager-store');
@@ -91,7 +78,7 @@ describe('useTabManager', () => {
     });
 
     it('should handle corrupted localStorage data gracefully', () => {
-      localStorageMock.getItem.mockReturnValue('invalid json');
+      localStorage.setItem(STORE_KEY, 'invalid json');
 
       const { result } = renderHook(() => useTabManager());
 
@@ -102,7 +89,6 @@ describe('useTabManager', () => {
 
   describe('openTab', () => {
     it('should create a new tab when opening a file', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -121,7 +107,6 @@ describe('useTabManager', () => {
     });
 
     it('should activate existing tab if already open', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       // Open first tab
@@ -150,7 +135,6 @@ describe('useTabManager', () => {
 
   describe('closeTab', () => {
     it('should remove tab and activate next tab', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       // Open three tabs
@@ -174,7 +158,6 @@ describe('useTabManager', () => {
     });
 
     it('should activate previous tab when closing active tab', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       // Open three tabs
@@ -194,7 +177,6 @@ describe('useTabManager', () => {
     });
 
     it('should clear active tab when closing last tab', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -210,7 +192,6 @@ describe('useTabManager', () => {
     });
 
     it('should activate first tab when closing active tab at position 0', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       // Open three tabs
@@ -257,53 +238,53 @@ describe('useTabManager', () => {
 
     it('closes other tabs in one store transition and makes the retained tab active', () => {
       openFourTabs();
-      localStorageMock.setItem.mockClear();
+      const listener = vi.fn();
+      const unsubscribe = useTabManagerStore.subscribe(listener);
 
       let successor: string | null = null;
       act(() => {
         successor = useTabManagerStore.getState().closeOtherTabs('file-b');
       });
+      unsubscribe();
 
       expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual(['file-b']);
       expect(useTabManagerStore.getState().activeTabId).toBe('file-b');
       expect(successor).toBe('file-b');
-      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledTimes(1);
     });
 
     it('closes tabs to the right atomically and chooses the target when active was removed', () => {
       openFourTabs();
-      localStorageMock.setItem.mockClear();
+      const listener = vi.fn();
+      const unsubscribe = useTabManagerStore.subscribe(listener);
 
       let successor: string | null = null;
       act(() => {
         successor = useTabManagerStore.getState().closeTabsToRight('file-b');
       });
+      unsubscribe();
 
       expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual(['file-a', 'file-b']);
       expect(useTabManagerStore.getState().activeTabId).toBe('file-b');
       expect(successor).toBe('file-b');
-      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledTimes(1);
     });
 
     it('keeps current state unchanged when the target tab does not exist', () => {
       openFourTabs();
       const before = useTabManagerStore.getState();
-      localStorageMock.setItem.mockClear();
 
       let successor: string | null = null;
       act(() => {
         successor = useTabManagerStore.getState().closeOtherTabs('missing');
       });
 
-      expect(useTabManagerStore.getState().tabs).toEqual(before.tabs);
-      expect(useTabManagerStore.getState().activeTabId).toBe(before.activeTabId);
+      expect(useTabManagerStore.getState()).toBe(before);
       expect(successor).toBe(before.activeTabId);
-      expect(localStorageMock.setItem).not.toHaveBeenCalled();
     });
 
     it('does not publish or persist a close transition for a missing tab', () => {
       openFourTabs();
-      localStorageMock.setItem.mockClear();
       const listener = vi.fn();
       const unsubscribe = useTabManagerStore.subscribe(listener);
 
@@ -318,13 +299,11 @@ describe('useTabManager', () => {
 
       expect(successor).toBe('file-d');
       expect(listener).not.toHaveBeenCalled();
-      expect(localStorageMock.setItem).not.toHaveBeenCalled();
     });
   });
 
   describe('setActiveTab', () => {
     it('should update active tab', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -344,7 +323,6 @@ describe('useTabManager', () => {
 
   describe('updateTabContent', () => {
     it('should update tab content and clear loading state', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -366,7 +344,6 @@ describe('useTabManager', () => {
 
   describe('setTabLoading', () => {
     it('should update loading state', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -384,7 +361,6 @@ describe('useTabManager', () => {
     });
 
     it('should clear error when setting loading to true', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -404,7 +380,6 @@ describe('useTabManager', () => {
 
   describe('setTabError', () => {
     it('should set error and clear loading state', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -425,7 +400,6 @@ describe('useTabManager', () => {
 
   describe('clearTabs', () => {
     it('should remove all tabs and clear active tab', () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -448,48 +422,22 @@ describe('useTabManager', () => {
 
   describe('localStorage persistence', () => {
     it('should save state to localStorage on changes', async () => {
-      localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
         result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
-      // Expect a call to the new persist key with JSON payload containing state/version
-      expect(localStorageMock.setItem).toHaveBeenCalled();
-      const [key, val] = localStorageMock.setItem.mock.calls.pop() as [string, string];
-      expect(key).toBe('tab-manager.v1');
-      const parsed = JSON.parse(val) as { state: unknown; version: number };
-      expect(parsed.version).toBe(2);
+      const parsed = JSON.parse(localStorage.getItem(STORE_KEY) ?? 'null') as {
+        state: unknown;
+        version: number;
+      };
       const state = parsed.state as {
         tabs: Array<{ id: string; path: string; compositeKey: string }>;
         activeTabId: string;
       };
       expect(state.activeTabId).toBe('file1');
       expect(state.tabs).toEqual([{ compositeKey: 'file1', id: 'file1', path: '/src/index.ts' }]);
-    });
-
-    it('should handle localStorage errors gracefully', async () => {
-      localStorageMock.getItem.mockReturnValue(null);
-      localStorageMock.setItem.mockImplementation(() => {
-        throw new Error('Storage quota exceeded');
-      });
-
-      const { result } = renderHook(() => useTabManager());
-
-      act(() => {
-        result.current.openTab('/src/index.ts', 'file1', 'file1');
-      });
-
-      // The tab should still be opened despite the storage error
-      expect(result.current.tabs).toHaveLength(1);
-      expect(result.current.tabs[0]).toEqual({
-        compositeKey: 'file1',
-        content: null,
-        id: 'file1',
-        isLoading: true,
-        path: '/src/index.ts',
-      });
     });
   });
 });

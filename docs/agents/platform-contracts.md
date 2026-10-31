@@ -152,14 +152,17 @@ amended by ADR-0027).
   - thread workspace snapshot: 500 ms, to the host
   - panel layout resize commit: 150 ms, to its store
 - Each registers one awaited flush with `registerDurableFlush`
-  (`@brainstrike/app-state/renderer-close`) on top of `createWriteBehindWriter`
-  (`@brainstrike/storage`).
+  (`@brainstrike/app-state/renderer-close`).
   - Nothing else is joined at unload (no reads, producers or hydration).
-  - None owns a `beforeunload`/`pagehide` handler. Editor view state stays in
-    localStorage, flushes on `pagehide`, and is not joined by Main.
-  - Explorer state and appearance are renderer-only: zustand `persist` writes them
-    to `localStorage` synchronously, so nothing is left to join. Main's
-    `clearStorageData()` in factory reset clears them.
+  - None owns a `beforeunload`/`pagehide` handler.
+- Every other durable renderer store is made with `persistDurable`
+  (`@brainstrike/storage`): zustand `persist` on `localStorage` under the
+  `brainstrike:` key prefix, written synchronously, so nothing is left to join.
+  - Main's `clearStorageData()` in factory reset clears them all; a store owns no
+    reset code and no store-specific storage, fallback or write-behind.
+  - A saved value that is not JSON reads as nothing saved, so the store still
+    hydrates; the factory logs it and calls the store's `onUnreadable`.
+  - The factory-reset E2E checks that no store's saved value survives a reset.
 - Main runs `prepareDocumentUnload` before every unload of a visible document it
   owns, then unloads regardless of the answer:
   - quit's `renderers` step, then the normal window close

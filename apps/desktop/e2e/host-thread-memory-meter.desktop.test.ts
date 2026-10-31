@@ -11,7 +11,7 @@ const THREAD_TITLE = 'Memory meter';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
-const MEMORY_SETTINGS_KEY = 'assistant-memory-preferences.v1';
+const MEMORY_SETTINGS_KEY = 'brainstrike:assistant-memory-preferences.v1';
 const MEMORY_SETTINGS_VERSION = 2;
 
 // No Google credential reaches this profile, whatever the runner's own environment holds.

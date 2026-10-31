@@ -72,17 +72,20 @@ describe('skills preferences store', () => {
       throw new Error('persist storage unavailable for test');
     }
 
-    await options.storage.setItem(options.name, {
-      state: {
-        disabledSkillKeys: {
-          'global:disabled': true,
-          'global:false-residue': false,
-          'global:malformed': 'yes',
+    await localStorage.setItem(
+      options.name,
+      JSON.stringify({
+        state: {
+          disabledSkillKeys: {
+            'global:disabled': true,
+            'global:false-residue': false,
+            'global:malformed': 'yes',
+          },
+          masterEnabled: 'yes',
         },
-        masterEnabled: 'yes',
-      },
-      version: options.version,
-    });
+        version: options.version,
+      })
+    );
 
     await storeWithPersist.persist.rehydrate();
 

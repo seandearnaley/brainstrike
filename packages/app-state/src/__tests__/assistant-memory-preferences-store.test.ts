@@ -116,7 +116,9 @@ describe('assistant-memory-preferences-store', () => {
   it('enables observations by default with the auto observer target (BST-940) and disables semantic recall', () => {
     const state = useAssistantMemoryPreferencesStore.getState();
 
-    expect(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME).toBe('assistant-memory-preferences.v1');
+    expect(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME).toBe(
+      'brainstrike:assistant-memory-preferences.v1'
+    );
     expect(state.observationalMemory).toEqual({
       enabled: true,
       messageTokens: 30_000,

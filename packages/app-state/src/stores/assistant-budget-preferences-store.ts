@@ -12,13 +12,9 @@
  * Validation is STRICT on set: a cap must be a finite number > 0 or `null`;
  * anything else THROWS (no silent coercion — see AGENTS.md). Persisted
  * hydration sanitizes unknown payloads back to the null default.
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
 
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -38,7 +34,7 @@ interface AssistantBudgetPreferencesActions {
 export type AssistantBudgetPreferencesStore = AssistantBudgetPreferencesData &
   AssistantBudgetPreferencesActions;
 
-const STORE_NAME = 'assistant-budget-preferences.v1' as const;
+const STORE_NAME = 'brainstrike:assistant-budget-preferences.v1' as const;
 const STORE_VERSION = 1 as const;
 
 function defaultData(): AssistantBudgetPreferencesData {
@@ -68,8 +64,6 @@ function sanitizeCapUsd(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
-const storage = createJSONStorage(() => createBrowserJsonStorage());
-
 function sanitizePersistedData(persistedState: unknown): AssistantBudgetPreferencesData {
   if (!(persistedState && typeof persistedState === 'object')) {
     return defaultData();
@@ -82,7 +76,8 @@ function sanitizePersistedData(persistedState: unknown): AssistantBudgetPreferen
 }
 
 export const useAssistantBudgetPreferencesStore = create<AssistantBudgetPreferencesStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       ...defaultData(),
       resetToDefaults: () => set(defaultData()),
@@ -98,12 +93,10 @@ export const useAssistantBudgetPreferencesStore = create<AssistantBudgetPreferen
     {
       merge: createSanitizedPersistMerge(sanitizePersistedData),
       migrate: sanitizePersistedData,
-      name: STORE_NAME,
       partialize: (state) => ({
         dailyCapUsd: state.dailyCapUsd,
         perRunCapUsd: state.perRunCapUsd,
       }),
-      storage,
       version: STORE_VERSION,
     }
   )

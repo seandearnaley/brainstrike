@@ -8,6 +8,7 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { persistDurable } from '@brainstrike/storage';
 import type {
   AnthropicEffort,
   AssistantProviderSettings,
@@ -17,11 +18,10 @@ import type {
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings } from '@brainstrike/types';
-import type { StateStorage } from 'zustand/middleware';
-import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { getAssistantConfiguredProvidersTestOverride } from '../automation-overrides.ts';
 import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations.ts';
+import { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name.ts';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version.ts';
 
 export {
@@ -115,10 +115,9 @@ interface AssistantPreferencesActions {
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
-export { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name.ts';
 export { ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version.ts';
+export { ASSISTANT_PREFERENCES_STORE_NAME };
 
-const STORE_NAME = 'assistant-preferences.v1';
 const STORE_VERSION = LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION;
 
 const SUPPORTED_PROVIDERS = listProviders().map(
@@ -467,63 +466,6 @@ function normalizePersistedPreferences(base: PersistedPreferences): Partial<Stor
   } satisfies Partial<Store>;
 }
 
-function readLocalStorage(): Storage | undefined {
-  try {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    return window.localStorage;
-  } catch {
-    return;
-  }
-}
-
-function createAssistantPreferencesStorage(): StateStorage {
-  const memory = new Map<string, string>();
-
-  return {
-    getItem: (key) => {
-      const storage = readLocalStorage();
-      const raw = storage?.getItem(key) ?? memory.get(key) ?? null;
-      if (raw === null) {
-        return null;
-      }
-
-      try {
-        JSON.parse(raw);
-        return raw;
-      } catch {
-        try {
-          storage?.removeItem(key);
-        } catch {
-          // Local storage cleanup is best-effort; the invalid in-memory copy is still cleared.
-        }
-        memory.delete(key);
-        return null;
-      }
-    },
-    removeItem: (key) => {
-      const storage = readLocalStorage();
-      try {
-        storage?.removeItem(key);
-      } catch {
-        // Local storage cleanup is best-effort; the in-memory copy is still cleared.
-      }
-      memory.delete(key);
-    },
-    setItem: (key, value) => {
-      const storage = readLocalStorage();
-      if (storage) {
-        storage.setItem(key, value);
-        return;
-      }
-      memory.set(key, value);
-    },
-  };
-}
-
-const storage = createJSONStorage(() => createAssistantPreferencesStorage());
-
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,
   provider: SupportedProvider
@@ -662,7 +604,8 @@ function processModelUpdate(
 }
 
 export const useAssistantPreferencesStore = create<Store>()(
-  persist(
+  persistDurable(
+    ASSISTANT_PREFERENCES_STORE_NAME,
     (set, get) => ({
       clearModel: () => set({ selectedModel: null }),
 
@@ -786,9 +729,8 @@ export const useAssistantPreferencesStore = create<Store>()(
             }
           : currentState,
       // `merge` normalizes every snapshot, whatever version wrote it.
-      migrate: (persistedState) => persistedState as Partial<Store>,
-      name: STORE_NAME,
-      partialize: (s) => ({
+      migrate: (persistedState) => persistedState as PersistedPreferences,
+      partialize: (s): PersistedPreferences => ({
         enabledModelsByProvider: s.enabledModelsByProvider,
         modelsByProvider: s.modelsByProvider,
         planModeEnabled: s.planModeEnabled,
@@ -796,7 +738,6 @@ export const useAssistantPreferencesStore = create<Store>()(
         recentModels: s.recentModels,
         selectedModel: s.selectedModel,
       }),
-      storage,
       version: STORE_VERSION,
     }
   )

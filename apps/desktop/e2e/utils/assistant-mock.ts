@@ -53,7 +53,7 @@ function configureAssistantProviderInPage(payload: AssistantProviderInstallPaylo
   };
   try {
     globals.localStorage?.setItem(
-      'assistant-preferences.v1',
+      'brainstrike:assistant-preferences.v1',
       JSON.stringify({
         state: {
           modelsByProvider: payload.models,

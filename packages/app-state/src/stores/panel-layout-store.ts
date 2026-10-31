@@ -6,24 +6,14 @@
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
  * - activeTab: 'explorer' | 'settings' | 'artifacts'
  *
- * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
+ * Persistence: `persistDurable`; the layout subset only (the root tab is per session).
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
  */
 
-import type { StorageAdapter } from '@brainstrike/storage';
-import type { StateCreator } from 'zustand';
-import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import {
-  createAdapterPersistStorage,
-  createPersistedLayoutParser,
-  DEFAULT_MIN_PANEL_SIZE,
-  type PanelSizes,
-  resolveDefaultPersistStorage,
-  resolveGlobalStoreSingleton,
-  resolveNextSizes,
-  type SizeRules,
-} from './persisted-layout-store.ts';
+
+export type PanelSizes = [number, number, number];
 
 /**
  * Top-level shell routes selected from the left nav rail. `'changes'` is NOT
@@ -83,96 +73,94 @@ const DEFAULT_STATE: Omit<
   sizes: [18, 40, 20],
 };
 
-const STORE_NAME = 'panel-layout-store.v1' as const;
-const STORE_VERSION = 4 as const;
+const STORE_NAME = 'brainstrike:panel-layout-store.v1' as const;
+const STORE_VERSION = 1 as const;
+
+/** Panels smaller than this (but non-zero) are corrupted and reset to the defaults. */
+const MIN_PANEL_SIZE = 10;
 
 /**
- * Panels smaller than DEFAULT_MIN_PANEL_SIZE (but non-zero) are considered
- * corrupted and reset to defaults — enforced on write by `resolveNextSizes`
- * and on read by the persisted-layout parser.
+ * Clamp into [0, 100], repair corrupted (non-zero below minimum) values to the
+ * defaults, spread an all-zero tuple evenly, and rescale totals above 100%.
+ * An empty input stays empty so callers can keep the current tuple.
  */
-const SIZE_RULES: SizeRules = {
-  defaultSizes: DEFAULT_STATE.sizes,
-  minPanelSize: DEFAULT_MIN_PANEL_SIZE,
-};
+function normalizeSizes(sizes: readonly unknown[]): number[] {
+  if (sizes.length === 0) {
+    return [];
+  }
+  const clamped = sizes.map((size) => {
+    const num = typeof size === 'number' && !Number.isNaN(size) ? size : 0;
+    return Math.max(0, Math.min(100, num));
+  });
+  if (clamped.some((size) => size > 0 && size < MIN_PANEL_SIZE)) {
+    return [...DEFAULT_STATE.sizes];
+  }
+  const total = clamped.reduce((sum, size) => sum + size, 0);
+  if (total === 0) {
+    return clamped.map(() => 100 / clamped.length);
+  }
+  if (total > 100) {
+    return clamped.map((size) => (size / total) * 100);
+  }
+  return clamped;
+}
 
-const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]], []> = (
-  set,
-  get
-) => ({
-  ...DEFAULT_STATE,
-
-  openSettings: () => set({ activeTab: 'settings' }),
-
-  setActiveTab: (tab: PanelTab) => set({ activeTab: tab }),
-
-  setSizes: (sizes: number[]) => set({ sizes: resolveNextSizes(sizes, get().sizes, SIZE_RULES) }),
-
-  setState: (next: Partial<PanelLayoutStoreState>) => set(next),
-  toggleConsole: () => set({ showConsole: !get().showConsole }),
-
-  toggleLeft: () => set({ showLeftPanel: !get().showLeftPanel }),
-  toggleRight: () => set({ showRightPanel: !get().showRightPanel }),
-});
+/** Normalizes `sizes` and fills any omitted slot from `current`. */
+function resolveNextSizes(sizes: readonly unknown[], current: PanelSizes): PanelSizes {
+  const normalized = normalizeSizes(sizes);
+  return [normalized[0] ?? current[0], normalized[1] ?? current[1], normalized[2] ?? current[2]];
+}
 
 type PersistedPanelState = Pick<
   PanelLayoutStoreState,
   'sizes' | 'showLeftPanel' | 'showRightPanel' | 'showConsole'
 >;
 
-// Root-tab selection is intentionally session-only. Whitelist the persisted
-// layout fields so legacy snapshots containing activeTab: "prompts" cannot
-// restore a route that now lives inside the agent sidebar.
-const parsePersistedPanelState = createPersistedLayoutParser<PersistedPanelState>({
-  defaultSizes: DEFAULT_STATE.sizes,
-  loggerName: 'PanelLayoutStore',
-  persistedKeys: ['showConsole', 'showLeftPanel', 'showRightPanel', 'sizes'],
-});
-
-function persistOptions(
-  storage: PersistStorage<Partial<PersistedPanelState>>
-): PersistOptions<PanelLayoutStoreState, Partial<PersistedPanelState>> {
+/** Only the layout fields restore, each only when it has the right type; sizes are normalized. */
+function mergePersistedLayout(
+  persisted: unknown,
+  current: PanelLayoutStoreState
+): PanelLayoutStoreState {
+  if (typeof persisted !== 'object' || persisted === null) {
+    return current;
+  }
+  const saved = persisted as Partial<Record<keyof PersistedPanelState, unknown>>;
+  const flag = (value: unknown, fallback: boolean) =>
+    typeof value === 'boolean' ? value : fallback;
   return {
-    migrate: (persistedState, version) => {
-      // The outer shell replaced the old three-pane geometry, so pre-v4 sizes do not map
-      // safely. Intentionally hard-reset legacy panel layout state instead of attempting
-      // a fragile migration that could strand users in a broken layout.
-      if (version < STORE_VERSION) {
-        return {
-          ...DEFAULT_STATE,
-        } as PersistedPanelState;
-      }
-      return persistedState as PersistedPanelState;
-    },
-    name: STORE_NAME,
-    partialize: (state): PersistedPanelState => ({
-      showConsole: state.showConsole,
-      showLeftPanel: state.showLeftPanel,
-      showRightPanel: state.showRightPanel,
-      sizes: state.sizes,
-    }),
-    storage,
-    version: STORE_VERSION,
+    ...current,
+    showConsole: flag(saved.showConsole, current.showConsole),
+    showLeftPanel: flag(saved.showLeftPanel, current.showLeftPanel),
+    showRightPanel: flag(saved.showRightPanel, current.showRightPanel),
+    sizes:
+      Array.isArray(saved.sizes) && saved.sizes.length === current.sizes.length
+        ? resolveNextSizes(saved.sizes, current.sizes)
+        : current.sizes,
   };
 }
 
-export function createPanelLayoutStore(storage: StorageAdapter) {
-  return createPanelLayoutStoreWithPersistStorage(
-    createAdapterPersistStorage(storage, parsePersistedPanelState)
-  );
-}
-
-function createPanelLayoutStoreWithPersistStorage(
-  storage: PersistStorage<Partial<PersistedPanelState>>
-) {
-  return create<PanelLayoutStoreState>()(persist(creator, persistOptions(storage)));
-}
-
-// HMR-safe default instance
-const GLOBAL_KEY = '__brainstrike_panel_layout_store__' as const;
-
-type BoundStore = ReturnType<typeof createPanelLayoutStoreWithPersistStorage>;
-
-export const usePanelLayoutStore: BoundStore = resolveGlobalStoreSingleton(GLOBAL_KEY, () =>
-  createPanelLayoutStoreWithPersistStorage(resolveDefaultPersistStorage(parsePersistedPanelState))
+export const usePanelLayoutStore = create<PanelLayoutStoreState>()(
+  persistDurable(
+    STORE_NAME,
+    (set, get) => ({
+      ...DEFAULT_STATE,
+      openSettings: () => set({ activeTab: 'settings' }),
+      setActiveTab: (tab: PanelTab) => set({ activeTab: tab }),
+      setSizes: (sizes: number[]) => set({ sizes: resolveNextSizes(sizes, get().sizes) }),
+      setState: (next: Partial<PanelLayoutStoreState>) => set(next),
+      toggleConsole: () => set({ showConsole: !get().showConsole }),
+      toggleLeft: () => set({ showLeftPanel: !get().showLeftPanel }),
+      toggleRight: () => set({ showRightPanel: !get().showRightPanel }),
+    }),
+    {
+      merge: mergePersistedLayout,
+      partialize: (state): PersistedPanelState => ({
+        showConsole: state.showConsole,
+        showLeftPanel: state.showLeftPanel,
+        showRightPanel: state.showRightPanel,
+        sizes: state.sizes,
+      }),
+      version: STORE_VERSION,
+    }
+  )
 );

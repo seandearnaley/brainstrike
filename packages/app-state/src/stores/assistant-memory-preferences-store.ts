@@ -4,11 +4,11 @@ import type {
   RuntimeAssistantMemorySettings,
 } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export const ASSISTANT_MEMORY_PREFERENCES_STORE_NAME = 'assistant-memory-preferences.v1' as const;
+export const ASSISTANT_MEMORY_PREFERENCES_STORE_NAME =
+  'brainstrike:assistant-memory-preferences.v1' as const;
 
 const STORE_VERSION = 2;
 /**
@@ -138,7 +138,8 @@ function normalizeMemorySettings(
 const initialMemorySettings = normalizeMemorySettings(DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS);
 
 export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferencesStore>()(
-  persist(
+  persistDurable(
+    ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
     (set, get) => ({
       hasHydrated: false,
       ...initialMemorySettings,
@@ -257,13 +258,10 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         }
         return normalizeMemorySettings(persistedState as Partial<RuntimeAssistantMemorySettings>);
       },
-      name: ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
       partialize: (state) => ({
         observationalMemory: state.observationalMemory,
         semanticRecall: state.semanticRecall,
       }),
-      // A saved value that is not JSON reads as nothing saved, so hydration completes.
-      storage: createJSONStorage(() => createBrowserJsonStorage()),
       version: STORE_VERSION,
     }
   )

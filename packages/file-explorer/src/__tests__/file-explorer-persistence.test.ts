@@ -43,18 +43,6 @@ describe('file-explorer-persistence', () => {
     vi.unstubAllEnvs(); // Clean up environment variable stubs
   });
 
-  describe('createPersistOptions', () => {
-    it('should create persist options with the correct configuration', async () => {
-      const persistOptions = await getFreshPersistOptions();
-
-      expect(persistOptions.name).toBe('file-explorer-storage-v5');
-      expect(persistOptions.version).toBe(FILE_EXPLORER_STORAGE_VERSION);
-      expect(persistOptions.partialize).toBeDefined();
-      expect(persistOptions.migrate).toBeDefined();
-      expect(persistOptions.merge).toBeDefined();
-    });
-  });
-
   describe('partialize', () => {
     let partializeFn: NonNullable<Awaited<ReturnType<typeof getFreshPersistOptions>>['partialize']>;
 

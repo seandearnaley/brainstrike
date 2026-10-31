@@ -1,5 +1,4 @@
-import { createSafeJsonStorageAdapter, createWriteBehindWriter } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type Key = string; // use compositeKey (folder:name:path) or tab id
@@ -58,25 +57,6 @@ interface EditorViewStateActions {
 
 export type EditorViewStateStore = EditorViewStateData & EditorViewStateActions;
 
-const STORE_NAME = 'editor-view-state.v1' as const;
-
-const storage = createWriteBehindWriter(createSafeJsonStorageAdapter(), { delayMs: 500 });
-
-// View state lives in this document's localStorage, not with a durable owner Main joins at unload
-// (ADR-0026 R1's three writers). Its owner is synchronous, so a flush from pagehide (or a hidden
-// page) lands before the document goes.
-if (typeof window !== 'undefined') {
-  const flushViewState = (): void => {
-    void storage.flush();
-  };
-  window.addEventListener('pagehide', flushViewState);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      flushViewState();
-    }
-  });
-}
-
 /** Coerce a raw line into a positive, 1-based integer. */
 function normalizeLine(line: number): number {
   return Math.max(1, line | 0);
@@ -94,7 +74,8 @@ function normalizeTarget(target: EditorViewTarget): EditorViewTarget {
 }
 
 export const useEditorViewStateStore = create<EditorViewStateStore>()(
-  persist(
+  persistDurable(
+    'brainstrike:editor-view-state.v1',
     (set, get) => ({
       clear: (key) => {
         if (!key) {
@@ -145,18 +126,9 @@ export const useEditorViewStateStore = create<EditorViewStateStore>()(
       targets: {},
     }),
     {
-      migrate: (persistedState, version) => {
-        if (version < 2) {
-          // v1 payloads predate modes; keep scroll/selection state and start modes fresh.
-          return { ...(persistedState as Partial<EditorViewStateData>), modes: {} };
-        }
-        return persistedState as Partial<EditorViewStateData>;
-      },
-      name: STORE_NAME, // unchanged: 'editor-view-state.v1' — renaming would orphan users' data
       // targets is intentionally excluded: it is a one-shot view target.
       partialize: (s) => ({ modes: s.modes, scrollTops: s.scrollTops, selections: s.selections }),
-      storage: createJSONStorage(() => storage),
-      version: 2,
+      version: 1,
     }
   )
 );

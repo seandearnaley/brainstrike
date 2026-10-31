@@ -29,7 +29,7 @@ describe('persisted store hydration at module load', () => {
     expect(knownToolId).toBeTypeOf('string');
 
     localStorage.setItem(
-      'native-tool-preferences.v1',
+      'brainstrike:native-tool-preferences.v1',
       JSON.stringify({
         state: {
           toolStates: {
@@ -54,7 +54,7 @@ describe('persisted store hydration at module load', () => {
 
   it('remaps a dropped memory model target during the module-load hydration', async () => {
     localStorage.setItem(
-      'assistant-memory-preferences.v1',
+      'brainstrike:assistant-memory-preferences.v1',
       JSON.stringify({
         state: {
           observationalMemory: {

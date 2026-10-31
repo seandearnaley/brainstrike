@@ -11,7 +11,7 @@ describe('store coverage', () => {
 
     createFileExplorerStore().getState().setQuickFilter('saved-filter');
 
-    expect(localStorage.getItem('file-explorer-storage-v5')).toContain('saved-filter');
+    expect(localStorage.getItem('brainstrike:file-explorer-storage-v5')).toContain('saved-filter');
   });
 
   it('stateCreator wires explorer-only setter actions', async () => {

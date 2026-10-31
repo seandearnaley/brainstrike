@@ -115,9 +115,12 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
 
   await page.evaluate(
     ({ nextFileExplorerState, nextTabState }) => {
-      localStorage.setItem('tab-manager.v1', JSON.stringify(nextTabState));
+      localStorage.setItem('brainstrike:tab-manager.v1', JSON.stringify(nextTabState));
 
-      localStorage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
+      localStorage.setItem(
+        'brainstrike:file-explorer-storage-v5',
+        JSON.stringify(nextFileExplorerState)
+      );
     },
     { nextFileExplorerState: fileExplorerState, nextTabState: tabState }
   );

@@ -29,7 +29,7 @@ export interface DurableUiFixture {
 
 const ROOT_ID = 'durable-ui-root-0000-4000-8000-000000000001';
 const FOLDER = 'src';
-const PANEL_LAYOUT_KEY = 'panel-layout-store.v1';
+const PANEL_LAYOUT_KEY = 'brainstrike:panel-layout-store.v1';
 
 /**
  * A seeded root with one folder, and one thread whose workspace the host has stored. The root is

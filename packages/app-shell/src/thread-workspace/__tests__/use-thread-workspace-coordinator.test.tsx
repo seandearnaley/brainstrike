@@ -173,7 +173,7 @@ describe('useThreadWorkspaceCoordinator', () => {
       expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toEqual({});
       expect(useAssistantThreadStore.getState().openThreadIdsByResourceId).toEqual({});
       // Main can replace this frame before replying: inspect the actual persisted bytes now.
-      const persisted = localStorage.getItem('brainstrike-assistant-threads-v1');
+      const persisted = localStorage.getItem('brainstrike:assistant-threads.v1');
       expect(persisted).not.toBeNull();
       expect(JSON.parse(persisted ?? 'null')).toMatchObject({
         state: {
