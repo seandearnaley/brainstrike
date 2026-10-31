@@ -6,7 +6,7 @@ import { LiveShellOutputPane } from './live-shell-output-pane';
 import { RunPythonResultSurface } from './run-python-result';
 import type { RunPythonDisplayResult } from './run-python-result-model';
 import { useShellOutput } from './shell-output-context';
-import { formatResult, type ToolResult } from './tool-fallback-state';
+import { formatToolArguments, formatToolResult, type ToolResult } from './tool-fallback-state';
 
 /**
  * Everything the tool card renders BELOW its step row, in DOM order: the
@@ -152,9 +152,9 @@ function ToolDetailLabel({ children }: { children: ReactNode }) {
 
 /**
  * The expanded args/result panes, plus a developer-only metadata block.
- * Serializes the result HERE (memoized) rather than in ToolFallback: this
+ * Formats the arguments and result HERE (memoized) rather than in ToolFallback: this
  * pane only mounts while expanded, so collapsed cards — which still re-render
- * with the streaming turn — never pay the multi-KB JSON.stringify.
+ * with the streaming turn — never pay the multi-KB JSON parse and stringify.
  */
 function ToolDetailsPane({
   argsText,
@@ -175,8 +175,12 @@ function ToolDetailsPane({
   readonly toolCallId: string;
   readonly toolName: string;
 }) {
+  const formattedArgs = useMemo(
+    () => (argsText ? formatToolArguments(argsText) : undefined),
+    [argsText]
+  );
   const formattedResult = useMemo(
-    () => (hasResult ? formatResult(result) : undefined),
+    () => (hasResult ? formatToolResult(result) : undefined),
     [hasResult, result]
   );
   return (
@@ -196,7 +200,7 @@ function ToolDetailsPane({
         <div className="px-2 py-1">
           <ToolDetailLabel>Arguments:</ToolDetailLabel>
           <pre className="bg-muted/40 max-h-48 overflow-auto rounded p-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
-            {argsText}
+            {formattedArgs}
           </pre>
         </div>
       ) : null}

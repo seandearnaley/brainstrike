@@ -141,18 +141,106 @@ export function failureReasonSummary(
     : undefined;
 }
 
-export const formatResult = (result: ToolResult): string => {
-  if (typeof result === 'string') {
-    return result;
+/**
+ * `JSON.parse` source text access and `JSON.rawJSON` (ES2026), which Node and
+ * Chromium ship but TypeScript's lib does not declare yet.
+ */
+interface SourceTextJson {
+  isRawJSON(value: unknown): boolean;
+  parse(
+    text: string,
+    reviver: (key: string, value: unknown, context: { readonly source?: string }) => unknown
+  ): unknown;
+  rawJSON(text: string): object;
+}
+
+const sourceTextJson = JSON as unknown as SourceTextJson;
+
+/**
+ * Keeps each number as the text it arrived as, so a 64-bit id or `1.50`
+ * displays exactly instead of being rounded through a JavaScript number.
+ */
+function keepNumberSource(
+  _key: string,
+  value: unknown,
+  context: { readonly source?: string }
+): unknown {
+  return typeof value === 'number' && context.source !== undefined
+    ? sourceTextJson.rawJSON(context.source)
+    : value;
+}
+
+/**
+ * Parses a string that holds a JSON object or array. Anything else (plain
+ * text, a bare number, a partial stream) is not JSON worth expanding.
+ */
+function parseJsonContainer(text: string): object | undefined {
+  const trimmed = text.trim();
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    return;
   }
+  try {
+    const parsed = sourceTextJson.parse(trimmed, keepNumberSource);
+    return parsed !== null && typeof parsed === 'object' ? parsed : undefined;
+  } catch {
+    return;
+  }
+}
+
+/**
+ * Replaces every string that holds a JSON object or array with its parsed
+ * value, so a payload nested as text (an MCP `content[].text`, a tool that
+ * returns `JSON.stringify(...)`) reads as structure instead of one escaped line.
+ */
+function expandNestedJson(value: unknown): unknown {
+  if (typeof value === 'string') {
+    const parsed = parseJsonContainer(value);
+    return parsed === undefined ? value : expandNestedJson(parsed);
+  }
+  if (sourceTextJson.isRawJSON(value)) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(expandNestedJson);
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, expandNestedJson(entry)])
+    );
+  }
+  return value;
+}
+
+function stringifyIndented(value: unknown, fallback: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(fallback);
+  } catch {
+    return String(fallback);
+  }
+}
+
+/**
+ * Formats the arguments the model sent for the details pane: complete JSON is
+ * re-indented with every value, string or not, kept as sent, so a string that
+ * holds JSON still reads as a string. Arguments still streaming show as they
+ * arrived.
+ */
+export const formatToolArguments = (argsText: string): string => {
+  const parsed = parseJsonContainer(argsText);
+  return parsed === undefined ? argsText : stringifyIndented(parsed, argsText);
+};
+
+/**
+ * Formats a tool's result for the details pane: JSON, including JSON held in
+ * strings, is indented two spaces; text that is not JSON, such as shell
+ * output, is shown as it arrived.
+ */
+export const formatToolResult = (result: ToolResult): string => {
   if (result === undefined) {
     return '';
   }
-  try {
-    return JSON.stringify(result, null, 2);
-  } catch {
-    return String(result);
-  }
+  const expanded = expandNestedJson(result);
+  return typeof expanded === 'string' ? expanded : stringifyIndented(expanded, result);
 };
 
 export function extractResolvedRootName(result: ToolResult): string | undefined {
