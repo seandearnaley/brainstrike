@@ -59,6 +59,9 @@ export default defineConfig({
     // The 2.3 MB o200k table is fetched as an asset only on accurate-token use.
     chunkSizeWarningLimit: 1300,
     emptyOutDir: true,
+    // The bundled packages' licenses, which scripts/write-third-party-notices.mjs
+    // joins into the app's notices (BST-2358).
+    license: { fileName: 'third-party-licenses.renderer.json' },
     outDir: 'dist/renderer',
     rolldownOptions: {
       external: ['electron', '@mastra/core', /^@mastra\//u],

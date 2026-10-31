@@ -178,6 +178,7 @@ import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
+import { resolveThirdPartyNoticesPath } from './third-party-notices-path';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import { enqueueFolderCandidates, filterDirectoryOpenCandidates } from './workspace-open-queue';
@@ -1365,16 +1366,16 @@ if (singleInstanceLockAcquired) {
       const openSettingsFromMenu = (targetWindow?: Electron.BaseWindow): void => {
         pushToMenuTargetWindow(DESKTOP_IPC_CHANNELS.appMenu.openSettings, undefined, targetWindow);
       };
-      const showFolderFromMenu = (label: string, folderPath: string): void => {
+      const openPathFromMenu = (label: string, targetPath: string): void => {
         shell
-          .openPath(folderPath)
+          .openPath(targetPath)
           .then((failure) => {
             if (failure !== '') {
-              logger.warn(`Failed to show the ${label} folder`, { failure, folderPath });
+              logger.warn(`Failed to open the ${label}`, { failure, targetPath });
             }
           })
           .catch((error: unknown) => {
-            logger.warn(`Failed to show the ${label} folder`, { error, folderPath });
+            logger.warn(`Failed to open the ${label}`, { error, targetPath });
           });
       };
       const helpMenu = buildHelpMenuTemplate({
@@ -1385,11 +1386,17 @@ if (singleInstanceLockAcquired) {
             logger.warn('Failed to open the release notes', { error, url });
           });
         },
+        onOpenSourceLicenses: () => {
+          openPathFromMenu(
+            'third-party notices',
+            resolveThirdPartyNoticesPath(app.isPackaged, process.resourcesPath)
+          );
+        },
         onShowCrashReports: () => {
-          showFolderFromMenu('crash reports', app.getPath('crashDumps'));
+          openPathFromMenu('crash reports folder', app.getPath('crashDumps'));
         },
         onShowLogs: () => {
-          showFolderFromMenu('logs', app.getPath('logs'));
+          openPathFromMenu('logs folder', app.getPath('logs'));
         },
       });
 
