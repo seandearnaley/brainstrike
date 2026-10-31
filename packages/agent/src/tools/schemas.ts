@@ -6,12 +6,6 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 
 export * from '@brainstrike/assistant-contract/native-tool-schemas';
-export * from '@brainstrike/assistant-contract/native-tool-schemas';
-export * from '@brainstrike/assistant-contract/native-tool-schemas';
-export * from '@brainstrike/assistant-contract/native-tool-schemas';
-export * from '@brainstrike/assistant-contract/native-tool-schemas';
-export * from '@brainstrike/assistant-contract/native-tool-schemas';
-export * from '@brainstrike/assistant-contract/native-tool-schemas';
 
 /**
  * The exact registered input schema per desktop native tool, DERIVED from the

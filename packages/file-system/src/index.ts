@@ -1,6 +1,22 @@
-// Re-export IFileNode from types package for convenience
-export type { IFileNode } from '@brainstrike/types';
-export * from '@brainstrike/types';
+export type {
+  DirectoryHandle,
+  DirectoryReadOptions,
+  DirectoryStreamCallback,
+  FileHandle,
+  FileSystemAdapter,
+  FileSystemChange,
+  FileSystemWatchBatchMetadata,
+  FileSystemWatchSignal,
+  IFileNode,
+  RecentRootEntry,
+  StreamingDirectoryReadOptions,
+  WatcherBackendKind,
+  WatcherFailure,
+  WatcherHealthEvent,
+  WatcherHealthState,
+  WatcherHealthTransition,
+} from '@brainstrike/types';
+export { FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT } from '@brainstrike/types';
 export * from './absolute-read-path.ts';
 // Explicit .js extensions keep Node ESM resolution happy in Vitest/SSR.
 export * from './adapters/mock-file-system-adapter.ts';
