@@ -8,7 +8,7 @@
 // the System process) refuses any rename over a file it has open.
 //
 // The lock lives INSIDE the root (`<root>/lock/`), so any file-level copy of a root (Time Machine, Migration Assistant,
-// `cp -R`, the export bundle) carries it, and the owner records the root's canonical path (`canonicalRoot`, BST-2234). A lock from another host is refused unconditionally. A same-host lock copied from another root cannot be judged
+// `cp -R`) carries it, and the owner records the root's canonical path (`canonicalRoot`, BST-2234). A lock from another host is refused unconditionally. A same-host lock copied from another root cannot be judged
 // by pid: the opener confirms the copied-root takeover explicitly.
 //
 // The record names the owner; on POSIX the Root itself is an flock(2) on `<root>/lock/root.flock`, taken right after a
