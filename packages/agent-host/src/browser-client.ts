@@ -8,8 +8,10 @@ import { authenticateHostClient, type HostClient } from './client-connection.ts'
 
 export type { HostClient } from './client-connection.ts';
 /**
- * The owning bridge supplies the private record and reports when the host side is
- * gone. The port this client closes is closed too: nothing on the far side reports it.
+ * The owning bridge supplies the private record and reports when its owner holds the host
+ * as gone (`hostGone`), the moment a reconnect can reach a live host. The port's own
+ * `close` comes first: the connection is disposed then, so a request fails at once instead
+ * of waiting on a port nobody reads. A close this client makes settles `closed` itself.
  */
 export function attachBrowserHost(
   port: MessagePort,
@@ -22,6 +24,7 @@ export function attachBrowserHost(
     new BrowserMessageReader(port),
     new BrowserMessageWriter(port)
   );
+  port.addEventListener('close', () => connection.dispose(), { once: true });
   port.start();
   closed.promise.then(() => connection.dispose());
   return authenticateHostClient(

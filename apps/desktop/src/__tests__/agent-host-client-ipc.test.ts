@@ -1,9 +1,13 @@
 // @vitest-environment node
 import { EventEmitter, once } from 'node:events';
-import type { MessagePort } from 'node:worker_threads';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer, type Socket } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type Message, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node';
 import { registerAgentHostClientIpc } from '../agent-host-client-ipc';
 import { createAgentHostPrivateClients } from '../agent-host-private-clients';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
@@ -13,26 +17,63 @@ import { invokeDesktopIpcFrom } from './helpers/desktop-ipc-sender-test-helpers'
 const APP_WINDOW = 7;
 const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
 vi.mock('../app-windows', () => ({ isAppWindowSender: (id: number) => id === APP_WINDOW }));
-// Node's entangled ports stand in for Electron's: a message posted on one end
-// arrives on the other with no process in between.
-vi.mock('electron', async () => ({
-  ipcMain,
-  MessageChannelMain: (await import('node:worker_threads')).MessageChannel,
-}));
+// Node's entangled ports stand in for Electron's: a message posted on one end arrives on
+// the other with no process in between. Like MessagePortMain, `message` carries `{ data }`.
+vi.mock('electron', async () => {
+  const { EventEmitter: Emitter } = await import('node:events');
+  const { MessageChannel } = await import('node:worker_threads');
+  type NodePort = InstanceType<typeof MessageChannel>['port1'];
+  class MessagePortMain extends Emitter {
+    readonly #port: NodePort;
+    constructor(port: NodePort) {
+      super();
+      this.#port = port;
+      port.on('message', (data: unknown) => this.emit('message', { data }));
+      port.on('close', () => this.emit('close'));
+    }
+    close(): void {
+      this.#port.close();
+    }
+    postMessage(data: unknown): void {
+      this.#port.postMessage(data);
+    }
+    start(): void {
+      /* Node ports start with their first listener. */
+    }
+  }
+  class MessageChannelMain {
+    readonly port1: MessagePortMain;
+    readonly port2: MessagePortMain;
+    constructor() {
+      const channel = new MessageChannel();
+      this.port1 = new MessagePortMain(channel.port1);
+      this.port2 = new MessagePortMain(channel.port2);
+    }
+  }
+  return { ipcMain, MessageChannelMain };
+});
+
+interface Port extends EventEmitter {
+  close(): void;
+  postMessage(data: unknown): void;
+}
 
 const attachment = { record: { protocolVersion: AGENT_HOST_PROTOCOL_VERSION } } as HostAttachment;
 
 /** The host this app launched; it echoes whatever its private clients send. */
 function launchedHost() {
   const exit = Promise.withResolvers<number>();
-  const ports: MessagePort[] = [];
+  const lost = Promise.withResolvers<void>();
+  const ports: Port[] = [];
   return {
     exit,
     exited: exit.promise,
+    lose: lost.resolve,
+    lost: lost.promise,
     ports,
     postClientPort: (port: unknown) => {
-      const hostEnd = port as MessagePort;
-      hostEnd.on('message', (data: unknown) => hostEnd.postMessage({ echo: data }));
+      const hostEnd = port as Port;
+      hostEnd.on('message', ({ data }: { data: unknown }) => hostEnd.postMessage({ echo: data }));
       ports.push(hostEnd);
     },
     stopForRelaunch: () => exit.promise,
@@ -48,7 +89,7 @@ function rendererFrame(senderId = APP_WINDOW) {
       return this.destroyed;
     },
   });
-  const pushes: { method: string; payload: unknown; port?: MessagePort }[] = [];
+  const pushes: { method: string; payload: unknown; port?: Port }[] = [];
   const senderFrame = {
     ...createAllowlistedSenderFrame(),
     postMessage: (
@@ -56,7 +97,7 @@ function rendererFrame(senderId = APP_WINDOW) {
       push: { method: string; payload: unknown },
       transfer: unknown[]
     ) => {
-      pushes.push({ ...push, ...(transfer[0] ? { port: transfer[0] as MessagePort } : {}) });
+      pushes.push({ ...push, ...(transfer[0] ? { port: transfer[0] as Port } : {}) });
     },
   };
   return { event: { sender, senderFrame }, pushes, sender };
@@ -77,7 +118,7 @@ function setup() {
   return { clients, connect, host, ipc };
 }
 
-const open: MessagePort[] = [];
+const open: Port[] = [];
 afterEach(() => {
   for (const port of open.splice(0)) {
     port.close();
@@ -103,59 +144,120 @@ describe('a renderer client of the agent host', () => {
 
     const reply = once(port, 'message');
     port.postMessage({ jsonrpc: '2.0', method: 'host/ping' });
-    await expect(reply).resolves.toEqual([{ echo: { jsonrpc: '2.0', method: 'host/ping' } }]);
+    await expect(reply).resolves.toEqual([
+      { data: { echo: { jsonrpc: '2.0', method: 'host/ping' } } },
+    ]);
 
     // The document goes: Chromium closes its end, and the host's end closes with it.
-    const hostEndClosed = once(host.ports[0] as MessagePort, 'close');
+    const hostEndClosed = once(host.ports[0] as Port, 'close');
     port.close();
     await hostEndClosed;
     await ipc.close();
   });
 
-  it('is told the host exited, so it connects again and gets a fresh port', async () => {
+  it('is told once Main holds the host as gone, and its reconnect reaches the replacement', async () => {
     const { clients, connect, host, ipc } = setup();
     const frame = rendererFrame();
-    const connectedRequest = crypto.randomUUID();
+    const requestId = crypto.randomUUID();
     await invokeDesktopIpcFrom(
       ipcMain,
       frame.event,
       DESKTOP_IPC_CHANNELS.agent.hostConnect,
-      connectedRequest
+      requestId
     );
-    open.push(...host.ports, ...frame.pushes.flatMap((push) => (push.port ? [push.port] : [])));
+    const port = frame.pushes[0]?.port;
+    expect(port).toBeDefined();
+    if (!port) {
+      return;
+    }
+    open.push(port, ...host.ports);
 
-    host.exit.resolve(0);
+    // The host dies: the frame's port closes, and Main's lifetime channel closes before
+    // Electron reports the exit. Main tells the frame only then.
+    const frameEndClosed = once(port, 'close');
+    host.ports[0]?.close();
+    await frameEndClosed;
+    expect(frame.pushes).toHaveLength(1);
+    host.lose();
     await vi.waitFor(() =>
       expect(frame.pushes.at(-1)).toEqual({
         method: DESKTOP_IPC_CHANNELS.agent.hostDisconnected,
-        payload: { requestId: connectedRequest },
+        payload: { requestId },
       })
     );
-    // The profile's next acquisition launches a replacement, which receives the new client.
+    // So the frame's reconnect never reaches the dead host: it waits for the replacement.
     const replacement = launchedHost();
     clients.attach(replacement);
     await expect(connect(frame)).resolves.toEqual({ ok: true, value: undefined });
-    const fresh = frame.pushes.at(-1)?.port;
-    expect(fresh).toBeDefined();
+    expect(host.ports).toHaveLength(1);
     expect(replacement.ports).toHaveLength(1);
+    const fresh = frame.pushes.at(-1)?.port;
     open.push(...replacement.ports, ...(fresh ? [fresh] : []));
     await ipc.close();
   });
 
-  it('a reloaded document is not told about its previous connection', async () => {
-    const { connect, host, ipc } = setup();
+  it('reaches a host this app did not launch over its public socket', async () => {
+    // A CLI `host start`: Main holds no private channel to it, only its socket endpoint.
+    const dir = await mkdtemp(join(tmpdir(), 'bs-external-host-'));
+    const endpoint =
+      process.platform === 'win32'
+        ? `\\\\.\\pipe\\bs-external-host-${crypto.randomUUID()}`
+        : join(dir, 'host.sock');
+    const sockets = new Set<Socket>();
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      const writer = new StreamMessageWriter(socket);
+      new StreamMessageReader(socket).listen((message) => {
+        const id = 'id' in message && typeof message.id === 'number' ? message.id : null;
+        void writer.write({ id, jsonrpc: '2.0', result: 'pong' } as Message);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(endpoint, resolve));
+    const external = {
+      record: { endpoint, protocolVersion: AGENT_HOST_PROTOCOL_VERSION },
+    } as HostAttachment;
+    const ipc = registerAgentHostClientIpc(
+      async () => external,
+      createAgentHostPrivateClients().open
+    );
     const frame = rendererFrame();
-    await connect(frame);
-    open.push(...host.ports, ...frame.pushes.flatMap((push) => (push.port ? [push.port] : [])));
+    const requestId = crypto.randomUUID();
+    try {
+      await expect(
+        invokeDesktopIpcFrom(
+          ipcMain,
+          frame.event,
+          DESKTOP_IPC_CHANNELS.agent.hostConnect,
+          requestId
+        )
+      ).resolves.toEqual({ ok: true, value: undefined });
+      const port = frame.pushes[0]?.port;
+      expect(port).toBeDefined();
+      if (!port) {
+        return;
+      }
+      open.push(port);
+      const reply = once(port, 'message');
+      port.postMessage({ id: 1, jsonrpc: '2.0', method: 'host/ping' });
+      await expect(reply).resolves.toEqual([{ data: { id: 1, jsonrpc: '2.0', result: 'pong' } }]);
 
-    frame.sender.emit('did-navigate');
-    host.exit.resolve(0);
-    await host.exited;
-    await Promise.resolve();
-    expect(frame.pushes.map((push) => push.method)).toEqual([
-      DESKTOP_IPC_CHANNELS.agent.hostConnected,
-    ]);
-    await ipc.close();
+      // The external host goes away: the frame's port closes and Main tells it.
+      const frameEndClosed = once(port, 'close');
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+      await frameEndClosed;
+      await vi.waitFor(() =>
+        expect(frame.pushes.at(-1)).toEqual({
+          method: DESKTOP_IPC_CHANNELS.agent.hostDisconnected,
+          payload: { requestId },
+        })
+      );
+    } finally {
+      await ipc.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(dir, { force: true, recursive: true });
+    }
   });
 
   it('gives a frame that is not an app window no port', async () => {

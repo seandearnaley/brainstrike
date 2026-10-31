@@ -10,7 +10,7 @@ export async function connectDesktopAgentHost(): Promise<HostClient> {
   }
   const requestId = crypto.randomUUID();
   const received = Promise.withResolvers<{ record: HostRecord; port: MessagePort }>();
-  const closed = Promise.withResolvers<void>();
+  const hostGone = Promise.withResolvers<void>();
   const receive = (event: MessageEvent<unknown>): void => {
     if (event.source !== window || !event.data || typeof event.data !== 'object') {
       return;
@@ -27,7 +27,7 @@ export async function connectDesktopAgentHost(): Promise<HostClient> {
       return;
     }
     if (data.type === 'agent-host/disconnected') {
-      closed.resolve();
+      hostGone.resolve();
       received.reject(new Error('Agent client disconnected before attach'));
       window.removeEventListener('message', receive);
     } else if (data.type === 'agent-host/connected' && 'record' in payload) {
@@ -47,13 +47,13 @@ export async function connectDesktopAgentHost(): Promise<HostClient> {
     // Main's refusal (a profile closed for reset or quit) arrives typed.
     await callBoundary(() => bridge.connect(requestId));
     const { port, record } = await received.promise;
-    const client = await attachBrowserHost(port, record, closed.promise);
-    // Main's host-exit report matters only while this client is open.
+    const client = await attachBrowserHost(port, record, hostGone.promise);
+    // Main's report of the host going matters only while this client is open.
     void client.closed.then(() => window.removeEventListener('message', receive));
     return client;
   } catch (cause) {
     window.removeEventListener('message', receive);
-    closed.resolve();
+    hostGone.resolve();
     throw cause;
   }
 }

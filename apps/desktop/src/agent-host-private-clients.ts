@@ -3,8 +3,12 @@ import type { DesktopHostChild } from './host-lease-manager';
 
 /** One end of a channel whose other end the launched host holds as a desktop-origin client. */
 export interface AgentHostPrivateClientPort {
-  /** Settles when the host holding the other end exits, which closes that end. */
-  readonly hostExited: Promise<unknown>;
+  /**
+   * Settles once Main holds that host as gone (its lifetime channel closed, or its exit),
+   * after which it hands out no more ports: a client that reconnects then reaches the
+   * replacement.
+   */
+  readonly hostGone: Promise<unknown>;
   /** Kept by Main for its own client, or transferred whole to a renderer frame. */
   readonly port: MessagePortMain;
 }
@@ -19,25 +23,27 @@ export function createAgentHostPrivateClients(): {
    */
   readonly stopForRelaunch: () => Promise<number> | undefined;
 } {
-  let current: DesktopHostChild | undefined;
+  let current: { readonly child: DesktopHostChild; readonly gone: Promise<unknown> } | undefined;
   return {
     attach: (child) => {
-      current = child;
-      void child.exited.then(() => {
-        if (current === child) {
+      // Its lifetime channel often closes before Electron reports the exit.
+      const gone = Promise.race([child.exited, child.lost]);
+      const attached = { child, gone };
+      current = attached;
+      void gone.then(() => {
+        if (current === attached) {
           current = undefined;
         }
       });
     },
     open: () => {
-      const child = current;
-      if (!child) {
+      if (!current) {
         return;
       }
       const channel = new MessageChannelMain();
-      child.postClientPort(channel.port2);
-      return { hostExited: child.exited, port: channel.port1 };
+      current.child.postClientPort(channel.port2);
+      return { hostGone: current.gone, port: channel.port1 };
     },
-    stopForRelaunch: () => current?.stopForRelaunch(),
+    stopForRelaunch: () => current?.child.stopForRelaunch(),
   };
 }

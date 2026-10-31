@@ -74,7 +74,7 @@ export async function waitForAppHost(page: Page): Promise<void> {
       if (!result.ok) {
         throw new Error(`Agent host attach refused: ${result.error.message}`);
       }
-      // The frame holds its port to the host directly; closing it is the whole detach.
+      // Closing its port is the whole detach; Main reports no close the frame makes.
       (await connected.promise).close();
     } finally {
       window.removeEventListener('message', receive);
