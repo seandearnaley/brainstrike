@@ -1,4 +1,5 @@
 import { Predicate } from 'effect';
+
 /** BST-1927 / ADR-0014: an expired stored item requires an explicit user decision. */
 export class OpenAIStoredItemExpiredError extends Error {
   static readonly publicMessage =
