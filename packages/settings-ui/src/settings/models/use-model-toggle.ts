@@ -84,19 +84,19 @@ export function useModelToggle(): ModelToggleController {
         return false;
       }
       markBusy([modelId], true);
-      try {
-        await toggleModel(db, modelId, enabled);
-        return true;
-      } catch (error: unknown) {
-        toast({
-          description: errorDescription(error),
-          title: `Could not ${enabled ? 'enable' : 'disable'} this model`,
-          variant: 'destructive',
-        });
-        return false;
-      } finally {
-        markBusy([modelId], false);
-      }
+      const toggled = await toggleModel(db, modelId, enabled).then(
+        () => true,
+        (error: unknown) => {
+          toast({
+            description: errorDescription(error),
+            title: `Could not ${enabled ? 'enable' : 'disable'} this model`,
+            variant: 'destructive',
+          });
+          return false;
+        }
+      );
+      markBusy([modelId], false);
+      return toggled;
     },
     [db, markBusy, toast, toggleModel]
   );
@@ -112,19 +112,19 @@ export function useModelToggle(): ModelToggleController {
         return { committed: false };
       }
       markBusy(modelIds, true);
-      try {
-        const previous = await setModelsEnabled(db, modelIds, enabled);
-        return { committed: true, previous };
-      } catch (error: unknown) {
-        toast({
-          description: errorDescription(error),
-          title: `Could not ${enabled ? 'enable' : 'disable'} ${describeModels(modelIds.length)}`,
-          variant: 'destructive',
-        });
-        return { committed: false };
-      } finally {
-        markBusy(modelIds, false);
-      }
+      const outcome = await setModelsEnabled(db, modelIds, enabled).then(
+        (previous): ModelBulkToggleOutcome => ({ committed: true, previous }),
+        (error: unknown): ModelBulkToggleOutcome => {
+          toast({
+            description: errorDescription(error),
+            title: `Could not ${enabled ? 'enable' : 'disable'} ${describeModels(modelIds.length)}`,
+            variant: 'destructive',
+          });
+          return { committed: false };
+        }
+      );
+      markBusy(modelIds, false);
+      return outcome;
     },
     [db, markBusy, setModelsEnabled, toast]
   );
