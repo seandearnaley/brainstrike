@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider } from '../../theme-provider';
@@ -142,6 +142,9 @@ describe('CodeBlockBody', () => {
       </ThemeProvider>
     );
     await screen.findByText('echo hi');
+    // The provider shows the block after its async load, outside act, so the
+    // block's observer effect can still be pending once its text is on screen.
+    await waitFor(() => expect(observers.flatMap(({ targets }) => targets)).not.toHaveLength(0));
     enterViewport();
 
     expect(mocks.capturedShikiProps.at(-1)?.theme).toEqual({
