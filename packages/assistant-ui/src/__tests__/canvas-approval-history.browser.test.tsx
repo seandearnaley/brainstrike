@@ -166,10 +166,7 @@ test.each(
 )(
   'captured canvas approval stays static after $outcome resume with separate notice: $separateNotice',
   async ({ outcome, separateNotice }) => {
-    let release: (() => void) | undefined;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
     const run = vi.fn<ChatModelAdapter['run']>(async function* ({ abortSignal }) {
       yield {
         content: [
@@ -337,10 +334,7 @@ test('a reused surface call on another host remains animated beside the addresse
 });
 
 test('approved execution on the same host and call remains live until its result arrives', async () => {
-  let release: (() => void) | undefined;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const answered = {
     data: { ...request, decision: 'approve', reason: 'user' },
     name: 'brainstrike.tool-approval-answered',

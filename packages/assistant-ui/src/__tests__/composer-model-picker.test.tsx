@@ -197,14 +197,6 @@ const fixtureWithDisabledDeepseek = {
 const ENABLE_FLASH = /Enable and select DeepSeek V4\.1 Flash/u;
 const ENABLE_PRO = /Enable and select DeepSeek V4\.1 Pro/u;
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 /**
  * Temporarily owns process-level unhandled rejections so a test can assert an
  * EXPECTED one (a host contract violation must propagate, not be swallowed)
@@ -431,7 +423,7 @@ describe('ComposerModelPicker', () => {
 
   it('disables every Not-enabled row while an enable is pending, and re-enables them after it settles', async () => {
     const user = setup();
-    const pending = deferred<boolean>();
+    const pending = Promise.withResolvers<boolean>();
     const onEnableModel = vi.fn(() => pending.promise);
     render(
       <ComposerModelPicker
@@ -515,7 +507,7 @@ describe('ComposerModelPicker', () => {
   it('a pending enable that commits after a newer pick never overrides it', async () => {
     const user = setup();
     const onModelChange = vi.fn();
-    const pending = deferred<boolean>();
+    const pending = Promise.withResolvers<boolean>();
     const onEnableModel = vi.fn(() => pending.promise);
     render(
       <ComposerModelPicker
@@ -544,7 +536,7 @@ describe('ComposerModelPicker', () => {
   it('a pending enable that commits after the picker closed does not select', async () => {
     const user = setup();
     const onModelChange = vi.fn();
-    const pending = deferred<boolean>();
+    const pending = Promise.withResolvers<boolean>();
     const onEnableModel = vi.fn(() => pending.promise);
     render(
       <ComposerModelPicker
@@ -571,7 +563,7 @@ describe('ComposerModelPicker', () => {
   it('an external selectedModel change while an enable is pending invalidates it', async () => {
     const user = setup();
     const onModelChange = vi.fn();
-    const pending = deferred<boolean>();
+    const pending = Promise.withResolvers<boolean>();
     const onEnableModel = vi.fn(() => pending.promise);
     const { rerender } = render(
       <ComposerModelPicker
@@ -605,7 +597,7 @@ describe('ComposerModelPicker', () => {
   it('unmounting while an enable is pending invalidates it', async () => {
     const user = setup();
     const onModelChange = vi.fn();
-    const pending = deferred<boolean>();
+    const pending = Promise.withResolvers<boolean>();
     const onEnableModel = vi.fn(() => pending.promise);
     const { unmount } = render(
       <ComposerModelPicker

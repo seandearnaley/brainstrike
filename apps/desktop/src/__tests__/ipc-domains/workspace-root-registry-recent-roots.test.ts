@@ -236,10 +236,8 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
       JSON.stringify([{ addedAt: 1, path: ws('ordinary'), rootId: 'root-ordinary' }])
     );
     const order: string[] = [];
-    let resolveKindQuery!: (value: WorkspaceRootReply) => void;
-    const kindQuery = new Promise<WorkspaceRootReply>((resolve) => {
-      resolveKindQuery = resolve;
-    });
+    const { promise: kindQuery, resolve: resolveKindQuery } =
+      Promise.withResolvers<WorkspaceRootReply>();
     const catalogRequest = createRegistryCatalogRequest();
     const respond = catalogRequest.getMockImplementation()!;
     catalogRequest.mockImplementation(async (request) => {

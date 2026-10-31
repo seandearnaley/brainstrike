@@ -158,10 +158,7 @@ function RegisteredHarness({ renderPart }: { readonly renderPart: () => React.Re
 }
 
 function createGate(): { readonly promise: Promise<void>; readonly release: () => void } {
-  let release: (() => void) | undefined;
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const { promise, resolve: release } = Promise.withResolvers<void>();
   return { promise, release: () => release?.() };
 }
 

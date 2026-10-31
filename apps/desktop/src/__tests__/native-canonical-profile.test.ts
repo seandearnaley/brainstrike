@@ -39,15 +39,6 @@ const request = (requestId = 'request') => ({
 });
 const vector = (fill: number): number[] => new Array<number>(metadata.dimensions).fill(fill);
 const vectors = (): number[][] => [vector(1), vector(2)];
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, reject, resolve };
-}
 function fixture() {
   const collections = vi.fn<CollectionPort['collections']>(async () => ({
     collections: [setRow()],
@@ -259,8 +250,8 @@ describe('canonical inference ownership', () => {
 
   it('holds cancel and join through physical settlement and rejects late success', async () => {
     const f = fixture();
-    const admitted = deferred<AbortSignal>();
-    const held = deferred<number[][]>();
+    const admitted = Promise.withResolvers<AbortSignal>();
+    const held = Promise.withResolvers<number[][]>();
     f.hostedEmbeddings.mockImplementationOnce((input) => {
       admitted.resolve(input.signal);
       return held.promise;
@@ -289,8 +280,8 @@ describe('canonical inference ownership', () => {
 
   it('joins authority reads canceled before admission without sending texts', async () => {
     const f = fixture();
-    const held = deferred<CollectionReply>();
-    const admitted = deferred<void>();
+    const held = Promise.withResolvers<CollectionReply>();
+    const admitted = Promise.withResolvers<void>();
     f.collections.mockImplementationOnce(() => {
       admitted.resolve();
       return held.promise;
@@ -344,8 +335,8 @@ describe('canonical inference ownership', () => {
 
   it('settles cancel and joins once a cancelled request ends, which only generate reports', async () => {
     const f = fixture();
-    const admitted = deferred<void>();
-    const held = deferred<number[][]>();
+    const admitted = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<number[][]>();
     f.hostedEmbeddings.mockImplementationOnce(() => {
       admitted.resolve();
       return held.promise;
@@ -376,8 +367,8 @@ describe('canonical inference ownership', () => {
 
   it('closes once a request it cancelled settles, which only generate reports', async () => {
     const f = fixture();
-    const admitted = deferred<AbortSignal>();
-    const physical = deferred<number[][]>();
+    const admitted = Promise.withResolvers<AbortSignal>();
+    const physical = Promise.withResolvers<number[][]>();
     f.hostedEmbeddings.mockImplementationOnce((input) => {
       admitted.resolve(input.signal);
       return physical.promise;
@@ -402,8 +393,8 @@ describe('canonical inference ownership', () => {
     const f = fixture();
     await f.inference.generate(request('old'));
     await f.inference.join('old');
-    const held = deferred<number[][]>();
-    const admitted = deferred<AbortSignal>();
+    const held = Promise.withResolvers<number[][]>();
+    const admitted = Promise.withResolvers<AbortSignal>();
     f.hostedEmbeddings.mockImplementationOnce((input) => {
       admitted.resolve(input.signal);
       return held.promise;

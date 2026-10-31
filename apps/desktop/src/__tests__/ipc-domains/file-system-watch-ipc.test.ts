@@ -389,10 +389,7 @@ describe('file-system watch IPC domain', () => {
     const owner = new FakeWebContents(1);
     const dir = await makeDir();
     const realStat = fsPromises.stat.bind(fsPromises);
-    let releaseOlderStat: (() => void) | undefined;
-    const olderStatGate = new Promise<void>((resolve) => {
-      releaseOlderStat = resolve;
-    });
+    const { promise: olderStatGate, resolve: releaseOlderStat } = Promise.withResolvers<void>();
     const statSpy = vi
       .spyOn(fsPromises, 'stat')
       .mockImplementationOnce(async (target) => {
@@ -565,10 +562,7 @@ describe('file-system watch IPC domain', () => {
     const owner = new FakeWebContents(1);
     const dir = await makeDir();
     const realStat = fsPromises.stat.bind(fsPromises);
-    let releaseStat: (() => void) | undefined;
-    const statGate = new Promise<void>((resolve) => {
-      releaseStat = resolve;
-    });
+    const { promise: statGate, resolve: releaseStat } = Promise.withResolvers<void>();
     const statSpy = vi.spyOn(fsPromises, 'stat').mockImplementationOnce(async (target) => {
       await statGate;
       return await realStat(target);

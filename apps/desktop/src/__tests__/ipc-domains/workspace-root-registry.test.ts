@@ -504,10 +504,7 @@ describe('WorkspaceRootRegistry', () => {
   });
 
   it('serializes add and restore mutations behind one registry queue', async () => {
-    let releaseProbe!: () => void;
-    const probeBlocked = new Promise<void>((resolve) => {
-      releaseProbe = resolve;
-    });
+    const { promise: probeBlocked, resolve: releaseProbe } = Promise.withResolvers<void>();
     const order: string[] = [];
     // Seed one stored root so restoreRoots emits its own `probe:` marker —
     // that marker must appear only after the blocked `probe:/first`,

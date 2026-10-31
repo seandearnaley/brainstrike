@@ -5,7 +5,7 @@ import { CanonicalIngestionHost } from '../src/host.js';
 import type { CanonicalManifestFile, CanonicalSourceFile } from '../src/ports.js';
 import { CanonicalWorkspaceSource } from '../src/workspace-source.js';
 import type { CanonicalWorkspaceLease } from '../src/workspace-source-ports.js';
-import { deferred, discoveredFixture, fixture } from './host-test-fixture.js';
+import { discoveredFixture, fixture } from './host-test-fixture.js';
 
 describe('utility canonical source ingestion', () => {
   it.each(['registered-then-unresolved', 'unresolved-then-registered', 'same-batch'] as const)(
@@ -84,8 +84,8 @@ describe('utility canonical source ingestion', () => {
 
   it('waits for main preparation and trusted binding acknowledgement before publication', async () => {
     const f = await discoveredFixture();
-    const entered = deferred();
-    const release = deferred();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
     vi.mocked(f.catalog.prepareManagedSourcesBatch).mockImplementation(async () => {
       entered.resolve();
       await release.promise;
@@ -114,8 +114,8 @@ describe('utility canonical source ingestion', () => {
 
   it('cancels held main preparation only after physical settlement and suppresses publication', async () => {
     const f = await discoveredFixture();
-    const entered = deferred();
-    const release = deferred();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
     vi.mocked(f.catalog.prepareManagedSourcesBatch).mockImplementation(async () => {
       entered.resolve();
       await release.promise;
@@ -368,8 +368,8 @@ describe('utility canonical source ingestion', () => {
 
   it('closes admission and joins physical publication before cancellation settles', async () => {
     const f = await fixture();
-    const admitted = deferred();
-    const commit = deferred();
+    const admitted = Promise.withResolvers<void>();
+    const commit = Promise.withResolvers<void>();
     vi.mocked(f.publication.commitTextFile).mockImplementation(async () => {
       admitted.resolve();
       await commit.promise;
@@ -396,8 +396,8 @@ describe('utility canonical source ingestion', () => {
 
   it('joins cancellation during manifest completion and refuses a stale complete receipt', async () => {
     const f = await fixture();
-    const admitted = deferred();
-    const finish = deferred();
+    const admitted = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
     vi.mocked(f.publication.finishScan).mockImplementation(async () => {
       admitted.resolve();
       await finish.promise;
@@ -441,10 +441,10 @@ describe('utility canonical source ingestion', () => {
 
   it('joins source iterator retirement before releasing cancelled ownership', async () => {
     const f = await fixture();
-    const readAdmitted = deferred();
-    const read = deferred();
-    const retiring = deferred();
-    const retired = deferred();
+    const readAdmitted = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<void>();
+    const retiring = Promise.withResolvers<void>();
+    const retired = Promise.withResolvers<void>();
     vi.mocked(f.source.read).mockImplementation(async () => {
       readAdmitted.resolve();
       await read.promise;
@@ -478,8 +478,8 @@ describe('utility canonical source ingestion', () => {
 
   it('settles a cancellation once the scan it cancelled ends, which reports its own failure', async () => {
     const f = await fixture();
-    const admitted = deferred();
-    const release = deferred();
+    const admitted = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
     const failure = new Error('Native transaction failed');
     vi.mocked(f.publication.commitTextFile).mockImplementation(async () => {
       admitted.resolve();
@@ -502,10 +502,10 @@ describe('utility canonical source ingestion', () => {
 
   it('drains yielding finally cleanup before releasing cancellation without publishing cleanup batches', async () => {
     const f = await fixture();
-    const readAdmitted = deferred();
-    const read = deferred();
-    const retiring = deferred();
-    const retired = deferred();
+    const readAdmitted = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<void>();
+    const retiring = Promise.withResolvers<void>();
+    const retired = Promise.withResolvers<void>();
     let generatorRetired = false;
     vi.mocked(f.source.read).mockImplementation(async () => {
       readAdmitted.resolve();
@@ -551,8 +551,8 @@ describe('utility canonical source ingestion', () => {
     const f = await fixture();
     const primary = new Error('Original read failed');
     const cleanup = new Error('Physical source retirement failed');
-    const retiring = deferred();
-    const retired = deferred();
+    const retiring = Promise.withResolvers<void>();
+    const retired = Promise.withResolvers<void>();
     vi.mocked(f.source.read).mockRejectedValue(primary);
     f.source.discover = async function* () {
       try {
@@ -600,8 +600,8 @@ describe('utility canonical source ingestion', () => {
 
   it('retires a scan whose abort notice failed, which the scan alone reports', async () => {
     const f = await fixture();
-    const admitted = deferred();
-    const commit = deferred();
+    const admitted = Promise.withResolvers<void>();
+    const commit = Promise.withResolvers<void>();
     vi.mocked(f.publication.commitTextFile).mockImplementation(async () => {
       admitted.resolve();
       await commit.promise;
