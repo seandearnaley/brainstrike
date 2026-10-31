@@ -300,6 +300,48 @@ test('the standalone host inspects its launch root with the language server', {
   expect(text).toMatch(/^definition \S*main\.ts:1 \| export const answer = 42;$/mu);
 });
 
+test('the standalone host lists the git worktrees of its launch root', {
+  timeout: 120_000,
+}, async () => {
+  // listWorktrees is a deferred tool: the model loads it by name, then calls it.
+  const module = await trustedPlatformModule('trusted-fixture', [
+    { input: { toolName: 'brainstrike_listWorktrees' }, toolId: 'load_tool' },
+    { input: {}, toolId: 'brainstrike_listWorktrees' },
+  ]);
+  const host = await standaloneHost({}, module, { 'README.md': 'repository\n' });
+  const git = (cwd: string, ...args: string[]) =>
+    new Promise<void>((resolve, reject) => {
+      execFile('git', args, { cwd }, (cause) => (cause ? reject(cause) : resolve()));
+    });
+  await git(host.workspace, 'init', '--quiet', '--initial-branch=main');
+  await git(host.workspace, 'add', 'README.md');
+  await git(
+    host.workspace,
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.invalid',
+    'commit',
+    '--quiet',
+    '-m',
+    'initial'
+  );
+  const sibling = `${host.workspace}-feature`;
+  cleanup.push(() => rm(sibling, { force: true, recursive: true }));
+  await git(host.workspace, 'worktree', 'add', '--quiet', '-b', 'feature-2386', sibling);
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  const listed = await host.run('trusted-fixture::probe');
+  expect(listed.result, listed.result.stderr).toMatchObject({ code: 0 });
+  // The model sees both checkouts of the repository, read by this host's own git inventory.
+  const result = recordedToolResults(listed.rows).find(
+    ({ toolCallId }) => toolCallId === 'recorded-call-2'
+  );
+  const text = JSON.stringify(result?.output);
+  expect(text).toContain(host.workspace);
+  expect(text).toContain(sibling);
+  expect(text).toContain('feature-2386');
+});
+
 test("the standalone host loads a trusted launch root's instructions and the home skills", {
   timeout: 120_000,
 }, async () => {

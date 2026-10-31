@@ -43,9 +43,19 @@ import {
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import { createHostCapabilities } from './capabilities.ts';
 import { resolveHostDelegation } from './delegation.ts';
+import {
+  hostShellCorrelation,
+  hostWorktreeToolExecutors,
+} from './git-workspace/executors-worktree.ts';
+import {
+  createWorktreeWorkspace,
+  type WorktreeWorkspace,
+} from './git-workspace/host-git-workspace.ts';
+import { defaultManagedWorktreeDirectory } from './git-workspace/worktree-settings.ts';
 import { getGlobalHooksPath } from './hooks/config.ts';
 import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.ts';
 import {
@@ -67,10 +77,13 @@ import { readHostWorkspaceContext } from './workspace-context/host-system-contex
 import { prepareAdmittedSkills } from './workspace-context/request-skills.ts';
 import { createSecureSkillsFs } from './workspace-context/skills-fs.ts';
 
+const logger = createLogger('StandalonePlatform');
+
 /**
  * The native tools a standalone host runs over its launch roots: the shared
- * ones, grep, language-server inspection, its shell and the Agent Skills
- * reads (skill scripts need an interpreter this host does not choose).
+ * ones, grep, language-server inspection, its shell, the managed worktrees
+ * in its own ledger and the Agent Skills reads (skill scripts need an
+ * interpreter this host does not choose).
  */
 const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceFile,
@@ -87,6 +100,8 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.lspInspect,
   NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.executeCommand,
+  NATIVE_TOOL_ID.listWorktrees,
+  NATIVE_TOOL_ID.manageWorktree,
   ...SKILL_NATIVE_TOOL_IDS,
 ];
 const STANDALONE_NATIVE_TOOL_IDS = [...STANDALONE_HUMAN_TOOL_IDS, ...STANDALONE_WORKSPACE_TOOL_IDS];
@@ -108,24 +123,39 @@ const standaloneCapabilities = {
 const STANDALONE_WORKSPACE_INSTRUCTIONS = { masterEnabled: true, oversizedOptInByRootId: {} };
 
 /**
- * executeCommand as Desktop composes it: the same executor, schema, cwd fence
- * and `execute` risk. This host ships the package's own Windows command
- * wrapper (as its hooks resolve it) and has no worktree ledger to correlate.
+ * This host ships the package's own Windows command wrapper, as its hooks
+ * resolve it.
  */
 const standaloneWindowsCommandEntry = (): string =>
   createRequire(import.meta.url).resolve('@brainstrike/host-capabilities/windows-command-entry');
 
-const STANDALONE_HOST_EXECUTORS = {
-  [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
-    windowsCommandEntry: standaloneWindowsCommandEntry,
-  }),
-  [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
-  ...INSPECTION_TOOL_EXECUTORS,
-};
+/**
+ * A run's host executors. executeCommand is composed as Desktop composes it:
+ * the same executor, schema, cwd fence and `execute` risk, with its worktree
+ * commands correlated on this host's own ledger.
+ */
+function standaloneHostExecutors(worktrees: WorktreeWorkspace, threadId: string) {
+  return {
+    [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
+      correlation: hostShellCorrelation(worktrees.tools, threadId),
+      windowsCommandEntry: standaloneWindowsCommandEntry,
+    }),
+    [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
+    ...INSPECTION_TOOL_EXECUTORS,
+    ...hostWorktreeToolExecutors(worktrees.tools, threadId),
+  };
+}
 
-/** The command trees and language servers this host's runs started, all retired. */
-async function disposeStandaloneChildren(): Promise<void> {
-  const outcomes = await Promise.allSettled([disposeLiveChildProcesses(), disposeLspServers()]);
+/**
+ * The command trees and language servers this host's runs started, and the
+ * worktree service with its git-metadata watchers, all retired.
+ */
+async function disposeStandaloneChildren(worktrees: WorktreeWorkspace): Promise<void> {
+  const outcomes = await Promise.allSettled([
+    disposeLiveChildProcesses(),
+    disposeLspServers(),
+    worktrees.close(),
+  ]);
   const failures = outcomes.flatMap((outcome) =>
     outcome.status === 'rejected' ? [outcome.reason] : []
   );
@@ -204,7 +234,7 @@ function standaloneSystemPrompt(
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
   const unavailable = configuredMcp ? 'Skill scripts' : 'Configured MCP/Tasks, skill scripts';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root, Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder), Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -397,6 +427,14 @@ export async function createHostPlatform(
   const capabilities = mcp
     ? { ...standaloneCapabilities, configuredMcp: 'available', tasks: 'available' }
     : standaloneCapabilities;
+  // The worktree ledger and settings are this host's state store's; its roots are the launch roots.
+  const worktrees = createWorktreeWorkspace({
+    logger,
+    managedWorktreeDirectory: defaultManagedWorktreeDirectory(homedir()),
+    roots: { listRoots: async () => workspaceRoots },
+    store: startup.store,
+  });
+  await startup.register(() => worktrees.close());
   const system = standaloneSystemPrompt(workspaceRoots, mcp !== undefined);
   const subagents = {
     delegationEnabled: true,
@@ -404,9 +442,11 @@ export async function createHostPlatform(
     settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   };
   return createProductionHostPlatform({
+    attachThreadReads: (reads) => worktrees.attachThreadReads(reads),
     auth: host.auth,
     // Live commands are retired before MCP and the host capabilities close.
-    close: () => closeStandaloneOwners({ commands: disposeStandaloneChildren, host, mcp }),
+    close: () =>
+      closeStandaloneOwners({ commands: () => disposeStandaloneChildren(worktrees), host, mcp }),
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),
@@ -497,7 +537,7 @@ export async function createHostPlatform(
       const workspaceTools = createSharedNativeHostTools({
         diagnostics: (args) => getEditDiagnostics(args),
         executors: {
-          ...STANDALONE_HOST_EXECUTORS,
+          ...standaloneHostExecutors(worktrees, request.threadId),
           ...skillToolExecutors(workspaceContext.workspaceSkills),
         },
         ids: STANDALONE_WORKSPACE_TOOL_IDS,
