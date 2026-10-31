@@ -1,13 +1,4 @@
 /// <reference path="./vite-env.d.ts" />
-// Export utilities
-
-export { default as appleTouchIcon } from '../icons/apple-touch-icon.png?url';
-// Export icon assets
-export { default as icon16 } from '../icons/icon-16x16.png?url';
-export { default as icon32 } from '../icons/icon-32x32.png?url';
-export { default as icon48 } from '../icons/icon-48x48.png?url';
-export { default as icon192 } from '../icons/icon-192x192.png?url';
-export { default as icon512 } from '../icons/icon-512x512.png?url';
 // Export components
 export * from './accordion';
 export * from './badge';
