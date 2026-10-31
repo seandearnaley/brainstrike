@@ -1,7 +1,8 @@
 /**
- * The composer's control row stays ONE line at every panel width: chips give
+ * The composer's control row stays ONE line down to a 280px panel: chips give
  * up words, then chevrons, then shrink to icons, and the send button stays in
- * the card. Measured in a real browser because only layout shows the wrap.
+ * the card. Narrower, the icons wrap to a second line rather than run under
+ * Send. Measured in a real browser because only layout shows the wrap.
  */
 import {
   type AppendMessage,
@@ -126,3 +127,31 @@ test.each([280, 360, 480, 720])(
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
   }
 );
+
+test.each([200, 240, 280])('never runs a control under Send at %ipx', async (width) => {
+  render(<Composer width={width} />);
+
+  const footer = await screen.findByTestId('assistant-composer-controls');
+  const send = screen.getByTestId('assistant-composer-send').getBoundingClientRect();
+  const card = footer.closest('.aui-composer-root');
+  if (!card) {
+    throw new Error('The composer footer renders inside its card');
+  }
+  const cardRect = card.getBoundingClientRect();
+  const controls = Array.from(
+    footer.querySelectorAll<HTMLElement>('.bs-composer-chip, .bs-composer-icon-button')
+  );
+  expect(controls.length).toBeGreaterThanOrEqual(5);
+  for (const control of controls) {
+    const rect = control.getBoundingClientRect();
+    expect(rect.left).toBeGreaterThanOrEqual(cardRect.left);
+    expect(rect.right).toBeLessThanOrEqual(cardRect.right);
+    const overlapsSend =
+      rect.left < send.right &&
+      rect.right > send.left &&
+      rect.top < send.bottom &&
+      rect.bottom > send.top;
+    expect(overlapsSend).toBe(false);
+  }
+  expect(send.width).toBeGreaterThanOrEqual(28);
+});

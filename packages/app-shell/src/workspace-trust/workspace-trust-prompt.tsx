@@ -94,13 +94,15 @@ export function WorkspaceTrustPrompt(): ReactElement | null {
         >
           <ShieldQuestion aria-hidden className="size-4 shrink-0 text-amber-600" />
           <div className="min-w-0 flex-1 text-sm">
-            <p className="font-medium">Trust the files in {root.displayName}?</p>
+            <p className="font-medium [overflow-wrap:anywhere]">
+              Trust the files in {root.displayName}?
+            </p>
             <p className="text-muted-foreground">
               This folder has {describeWorkspaceAgentConfiguration(root.agentConfiguration)}, which
               can steer the assistant. Brainstrike loads them only from folders you trust.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               disabled={busyPath === root.path}
               onClick={() => void decide(root, 'trusted')}
