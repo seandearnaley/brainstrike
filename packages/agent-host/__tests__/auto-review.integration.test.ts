@@ -359,3 +359,62 @@ test("a delegated child's review sees the person's request, and its task never r
   expect(childReview).toContain('USER: Write the release notes.');
   expect(childReview).not.toContain('CHILD_TASK');
 });
+
+test("Full access runs a subagent's command outside the sandbox without asking", async () => {
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const answered = call.prompt.some((message) => message.role === 'tool');
+      if (userTexts(call).some((input) => input.includes('CHILD_TASK'))) {
+        return stream(
+          answered
+            ? text('Child ran it.')
+            : toolCall('run_command', { command: 'curl https://example.com' }, 'command-1')
+        );
+      }
+      if (!toolNames(call).includes('agent-worker') || answered) {
+        return stream(text('Parent continues.'));
+      }
+      return stream(
+        toolCall(
+          'agent-worker',
+          { _background: { disposition: 'awaited', enabled: true }, prompt: 'CHILD_TASK: fetch.' },
+          'delegate-1'
+        )
+      );
+    },
+  });
+  const harness = await setupChildRunHost(
+    model,
+    cleanup,
+    {
+      personas: [worker],
+      policy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: true }),
+    },
+    (platform) => async (request) => {
+      const admission = await recordingAdmission([])(platform)?.(request);
+      const command = admission?.tools['run_command'];
+      if (!(admission && command)) {
+        throw new Error('No admission');
+      }
+      // Every call of this fixture command stands for a sandbox escape.
+      return {
+        ...admission,
+        tools: {
+          ...admission.tools,
+          run_command: { ...command, personApproval: () => ESCAPE_REASON },
+        },
+      };
+    }
+  );
+
+  const rootRunId = await harness.start('Fetch the page.');
+  const rows = await rowsUntil(
+    harness,
+    harness.threadId,
+    finished(rootRunId),
+    getAdjustedTimeout('integration')
+  );
+
+  expect(rows.find(finished(rootRunId))?.event).toMatchObject({ outcome: 'completed' });
+  expect(harness.writes).toEqual([JSON.stringify({ command: 'curl https://example.com' })]);
+});

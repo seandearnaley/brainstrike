@@ -737,7 +737,8 @@ async function hostToolPolicy(
       registered.risk,
       registered.permissionToolId ?? toolId
     ),
-    ...(snapshot.yolo ? { yolo: true } : {}),
+    // The ceiling folds Full into its decisions; the mode itself is the live root's.
+    ...(live.yolo ? { yolo: true } : {}),
   };
 }
 /**
