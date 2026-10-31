@@ -24,6 +24,11 @@ export interface LoggingPreferences {
   redactPaths: readonly string[];
 }
 
+/** A change to some preferences; the writer merges it into the record it holds. */
+export type LoggingPreferencesPatch = Partial<Omit<LoggingPreferences, 'file'>> & {
+  readonly file?: Partial<FileLoggingPreferences>;
+};
+
 export function createDefaultLoggingPreferences(
   overrides?: Partial<LoggingPreferences>
 ): LoggingPreferences {

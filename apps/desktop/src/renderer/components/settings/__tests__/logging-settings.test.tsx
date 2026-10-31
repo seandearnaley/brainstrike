@@ -8,6 +8,7 @@ import {
 import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
+  type LoggingPreferencesPatch,
   LogLevel,
 } from '@brainstrike/logging';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -74,12 +75,13 @@ describe('DesktopLoggingSettings', () => {
       }),
       openDestination: vi.fn().mockResolvedValue({ ok: true, value: true }),
       selectDestination: vi.fn().mockResolvedValue({ ok: true, value: '/tmp/desktop.log' }),
-      setPreferences: vi.fn(async (nextPreferences: LoggingPreferences) => ({
+      // Main merges the change into what it holds and answers with the result.
+      setPreferences: vi.fn(async (patch: LoggingPreferencesPatch) => ({
         ok: true,
         value: {
           capabilities,
           defaults,
-          preferences: nextPreferences,
+          preferences: { ...preferences, ...patch, file: { ...preferences.file, ...patch.file } },
         },
       })),
     } as unknown as Window['logging'];

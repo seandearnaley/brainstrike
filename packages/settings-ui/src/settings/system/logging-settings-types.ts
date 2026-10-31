@@ -1,4 +1,4 @@
-import type { LoggingPreferences } from '@brainstrike/logging';
+import type { LoggingPreferences, LoggingPreferencesPatch } from '@brainstrike/logging';
 
 export interface DurableNdjsonExportResult {
   readonly exportedCount: number;
@@ -23,8 +23,8 @@ export interface LoggingSettingsSectionProps {
   /** Main's defaults, which Restore Defaults commits. */
   defaults: LoggingPreferences;
   fileCapabilities?: FileCapabilities;
-  /** Commits to the preferences' one writer; `preferences` reflects the result once it resolves. */
-  onCommitPreferences: (preferences: LoggingPreferences) => Promise<void>;
+  /** Commits a change to the preferences' one writer, which merges it into the record it holds. */
+  onCommitPreferences: (patch: LoggingPreferencesPatch) => Promise<void>;
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
   /** Opens the Logs workspace tab, where the log viewer lives (BST-1791). */
   onOpenLogs?: () => void;

@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import {
   createDefaultLoggingPreferences,
-  type LoggingPreferences,
+  type LoggingPreferencesPatch,
   LogLevel,
 } from '@brainstrike/logging';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -129,21 +129,21 @@ const initial = createDefaultLoggingPreferences({ includeTimestamp: false, level
 
 type SectionProps = ComponentProps<typeof LoggingSettingsSection>;
 
-/** The section over a writer that holds what it commits, as Main does. */
+/** The section over a writer that merges each committed change into what it holds, as Main does. */
 function renderWithWriter(
   props: Partial<SectionProps> = {},
-  write: (next: LoggingPreferences) => Promise<void> = async () => {}
+  write: (patch: LoggingPreferencesPatch) => Promise<void> = async () => {}
 ) {
-  const committed: LoggingPreferences[] = [];
+  const committed: LoggingPreferencesPatch[] = [];
   function Harness() {
     const [preferences, setPreferences] = useState(props.preferences ?? initial);
     return (
       <LoggingSettingsSection
         defaults={defaults}
-        onCommitPreferences={async (next) => {
-          committed.push(next);
-          await write(next);
-          setPreferences(next);
+        onCommitPreferences={async (patch) => {
+          committed.push(patch);
+          await write(patch);
+          setPreferences((held) => ({ ...held, ...patch, file: { ...held.file, ...patch.file } }));
         }}
         preferences={preferences}
         runtime="electron-renderer"
@@ -174,7 +174,7 @@ describe('LoggingSettingsSection', () => {
     fireEvent.click(consoleSwitch);
 
     await waitFor(() => expect(consoleSwitch).not.toBeChecked());
-    expect(committed).toEqual([{ ...initial, consoleEnabled: false }]);
+    expect(committed).toEqual([{ consoleEnabled: false }]);
   });
 
   it("restores the writer's defaults", async () => {
@@ -194,11 +194,10 @@ describe('LoggingSettingsSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Choose…' }));
 
+    // Only the change is committed, so a change another window made while the picker
+    // was open survives: the writer merges this into the record it holds.
     await waitFor(() => expect(committed).toHaveLength(1));
-    expect(committed[0]?.file).toMatchObject({
-      destination: '/tmp/brainstrike.log',
-      enabled: true,
-    });
+    expect(committed[0]).toEqual({ file: { destination: '/tmp/brainstrike.log', enabled: true } });
   });
 
   it('commits redacted fields when the field loses focus, keeping what was typed until then', async () => {

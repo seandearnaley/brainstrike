@@ -4,7 +4,7 @@ import {
   refusalError,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
-import type { LoggingPreferences } from '@brainstrike/logging';
+import type { LoggingPreferencesPatch } from '@brainstrike/logging';
 import { LoggingSettingsSection } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { useCallback, useEffect, useState } from 'react';
@@ -27,6 +27,7 @@ export function DesktopLoggingSettings() {
   );
   const sinkHealthReason = useDiagnosticSinkHealthStore((store) => store.disabledReason);
 
+  // biome-ignore lint/plugin: Not derived state — a one-shot async read of Main's preferences over the preload bridge plus a subscription to Main's broadcast; `cancelled` discards a response that lands after unmount.
   useEffect(() => {
     let cancelled = false;
     const load = async (getPreferences: Window['logging']['getPreferences']) => {
@@ -58,11 +59,11 @@ export function DesktopLoggingSettings() {
     };
   }, []);
 
-  const commitPreferences = useCallback(async (preferences: LoggingPreferences) => {
+  const commitPreferences = useCallback(async (patch: LoggingPreferencesPatch) => {
     if (!window.logging?.setPreferences) {
       throw loggingUnavailable();
     }
-    const payload = await callBoundary(() => window.logging.setPreferences(preferences));
+    const payload = await callBoundary(() => window.logging.setPreferences(patch));
     setState({ kind: 'ready', payload });
   }, []);
 

@@ -1,13 +1,13 @@
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
-import type { LoggingPreferences } from '@brainstrike/logging';
+import type { LoggingPreferences, LoggingPreferencesPatch } from '@brainstrike/logging';
 import type { useToast } from '@brainstrike/ui';
 import { useState } from 'react';
 
 interface UseLoggingPreferenceActionsOptions {
   /** Main's defaults, which Restore Defaults commits. */
   readonly defaults: LoggingPreferences;
-  /** Commits to the preferences' one writer; `preferences` reflects the result once it resolves. */
-  readonly onCommitPreferences: (preferences: LoggingPreferences) => Promise<void>;
+  /** Commits a change to the preferences' one writer, which merges it into the record it holds. */
+  readonly onCommitPreferences: (patch: LoggingPreferencesPatch) => Promise<void>;
   readonly onOpenLogDestination?: ((target: string | null) => Promise<boolean>) | undefined;
   readonly onSelectLogDestination?: (() => Promise<string | null>) | undefined;
   readonly preferences: LoggingPreferences;
@@ -16,7 +16,7 @@ interface UseLoggingPreferenceActionsOptions {
 
 interface LoggingPreferenceActions {
   readonly applyNestedUpdates: (updates: Partial<LoggingPreferences['file']>) => Promise<void>;
-  readonly applyUpdates: (updates: Partial<LoggingPreferences>) => Promise<void>;
+  readonly applyUpdates: (updates: LoggingPreferencesPatch) => Promise<void>;
   readonly handleOpenDestination: () => Promise<void>;
   readonly handleRedactChange: (value: string) => Promise<void>;
   readonly handleReset: () => Promise<void>;
@@ -36,9 +36,11 @@ export function useLoggingPreferenceActions({
 }: UseLoggingPreferenceActionsOptions): LoggingPreferenceActions {
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const commit = async (next: LoggingPreferences, failureTitle: string): Promise<boolean> => {
+  // Only the change goes to the writer, so a commit that lands after another window's
+  // (or after the destination picker closes) never reverts fields it did not touch.
+  const commit = async (patch: LoggingPreferencesPatch, failureTitle: string): Promise<boolean> => {
     setIsSyncing(true);
-    const committed = await onCommitPreferences(next).then(
+    const committed = await onCommitPreferences(patch).then(
       () => true,
       (error: unknown) => {
         toast({
@@ -53,12 +55,12 @@ export function useLoggingPreferenceActions({
     return committed;
   };
 
-  const applyUpdates = async (updates: Partial<LoggingPreferences>) => {
-    await commit({ ...preferences, ...updates }, 'Failed to update logging preferences');
+  const applyUpdates = async (updates: LoggingPreferencesPatch) => {
+    await commit(updates, 'Failed to update logging preferences');
   };
 
   const applyNestedUpdates = async (updates: Partial<LoggingPreferences['file']>) => {
-    await applyUpdates({ file: { ...preferences.file, ...updates } });
+    await applyUpdates({ file: updates });
   };
 
   const handleRedactChange = async (value: string) => {
