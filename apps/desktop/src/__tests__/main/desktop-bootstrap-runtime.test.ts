@@ -54,6 +54,11 @@ vi.mock('electron', () => ({
       fixture.events.push(`path:${name}`);
     },
   },
+  crashReporter: {
+    start: (options: Electron.CrashReporterStartOptions) => {
+      fixture.events.push(`crash-reporter:upload=${String(options.uploadToServer)}`);
+    },
+  },
   MessageChannelMain: class {
     port1 = { close: () => fixture.events.push('port1-close') };
     port2 = { close: () => fixture.events.push('port2-close') };
@@ -120,6 +125,9 @@ it('separates Chromium session storage from app-owned data in ordinary startup',
   const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
   getDesktopBootstrapRuntime();
   expect(fixture.paths.get('sessionData')).toBe(join(userData, 'session-data'));
+  // Minidumps stay in this profile and are never uploaded (BST-2351).
+  expect(fixture.paths.get('crashDumps')).toBe(join(userData, 'Crashpad'));
+  expect(fixture.events).toContain('crash-reporter:upload=false');
   expect(fixture.options).toBeUndefined();
 });
 
@@ -139,6 +147,8 @@ it('resolves the explicit test profile before the single lease opens its StateSt
     'path:userData',
     'path:logs',
     'path:sessionData',
+    'path:crashDumps',
+    'crash-reporter:upload=false',
     'owner',
   ]);
   expect(getDesktopBootstrapRuntime()).toBe(runtime);
@@ -245,6 +255,8 @@ it.each(['incident-a', 'incident-b'])(
       'path:userData',
       'path:logs',
       'path:sessionData',
+      'path:crashDumps',
+      'crash-reporter:upload=false',
       'name:BrainStrike Desktop Dev',
     ]);
     fixture.acquisition.resolve({ kind: 'owned' });

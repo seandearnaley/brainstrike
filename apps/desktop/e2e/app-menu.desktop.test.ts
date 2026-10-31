@@ -1,9 +1,9 @@
 /**
  * Desktop E2E for the native application menu (BST-2355): the menu bar follows
- * the platform, Help carries the release notes and logs, and Settings… opens
- * Settings in the window it was picked from. The menu lives in main, so the
- * test reads and drives it there: a CDP key press never reaches a native
- * menu accelerator.
+ * the platform, Help carries the release notes, logs and crash reports, and
+ * Settings… opens Settings in the window it was picked from. The menu lives in
+ * main, so the test reads and drives it there: a CDP key press never reaches a
+ * native menu accelerator.
  */
 import { expect, test } from './fixtures/electron-fixture';
 import { SettingsPage } from './page-objects/settings-page';
@@ -33,9 +33,10 @@ test.describe('Application menu (desktop)', () => {
     ]);
     const file = menu.find((item) => item.label === 'File')?.submenu ?? [];
     expect(file.includes('Settings…')).toBe(!isMac);
-    expect(menu.find((item) => item.label === 'Help')?.submenu.slice(0, 2)).toEqual([
+    expect(menu.find((item) => item.label === 'Help')?.submenu.slice(0, 3)).toEqual([
       'Release Notes',
       'Show Logs',
+      'Show Crash Reports',
     ]);
 
     const settings = new SettingsPage(page);

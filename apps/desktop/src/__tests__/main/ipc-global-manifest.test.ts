@@ -153,6 +153,7 @@ vi.mock('electron', () => ({
   app: mockApp,
   BrowserWindow: mockBrowserWindow,
   clipboard: { writeText: vi.fn() },
+  crashReporter: { start: vi.fn() },
   ipcMain: mockIpcMain,
   Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
   powerMonitor: { on: vi.fn() },

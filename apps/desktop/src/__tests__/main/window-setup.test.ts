@@ -70,6 +70,7 @@ vi.mock('electron', () => ({
   clipboard: {
     writeText: vi.fn(),
   },
+  crashReporter: { start: vi.fn() },
   ipcMain: {
     handle: vi.fn(),
   },

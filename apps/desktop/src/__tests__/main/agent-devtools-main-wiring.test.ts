@@ -11,6 +11,7 @@ vi.mock('electron', () => ({
     on: vi.fn(),
     setPath: (name: string, value: string) => events.push([name, value]),
   },
+  crashReporter: { start: vi.fn() },
 }));
 vi.mock('node:fs', async (original) => ({
   ...(await original<typeof import('node:fs')>()),

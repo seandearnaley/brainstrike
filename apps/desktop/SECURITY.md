@@ -93,6 +93,10 @@ The application implements a comprehensive Content Security Policy that differs 
 - Local storage adapter with validation
 - No sensitive data stored in plain text
 - Proper cleanup of temporary data
+- Crash reports stay on the machine (BST-2351): Crashpad writes a minidump for
+  a crashed process into `<userData>/Crashpad` with upload off. A minidump can
+  hold memory from the crashed process, so the thread debug pack lists only
+  names, times and sizes, and factory reset deletes the folder
 
 ### Credential storage
 - Provider keys, MCP bearer tokens and MCP OAuth records live in one private
