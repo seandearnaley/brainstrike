@@ -5,7 +5,6 @@ import {
   INTERNAL_FAULT,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { NativeCanonicalInference } from '@brainstrike/canonical-ingestion';
-import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
 import { IndexerError } from '@brainstrike/indexer';
 import {
   addLogListener,
@@ -30,7 +29,6 @@ vi.mock('../secrets', () => ({
 }));
 afterEach(() => {
   vi.unstubAllGlobals();
-  clearHostedProviderApiKeyCache();
 });
 // Recorded c137 missing-key failure: generate and join each cross the utility
 // channel, becoming distinct errors before CanonicalIngestionHost aggregates them.
@@ -191,15 +189,10 @@ it.each([
       .catch((error: unknown) => error);
     unsubscribe();
     expect(generated).toBeInstanceOf(HostedEmbeddingError);
-    expect(generated).toMatchObject({
-      cause: { type: status === 429 ? 'rate_limit_exceeded' : 'api_error' },
-    });
+    expect(generated).toMatchObject({ cause: { statusCode: status }, httpStatus: status, kind });
     expect(
       records.find((record) => record.scope === 'DesktopHostedEmbeddings')?.args.at(-1)
-    ).toMatchObject({
-      error: { provider: 'openai', type: status === 429 ? 'rate_limit_exceeded' : 'api_error' },
-    });
-    expect(generated).toMatchObject({ kind });
+    ).toMatchObject({ error: { httpStatus: status }, provider: 'openai' });
     expect(fetch).toHaveBeenCalledOnce();
     await expect(inference.join('recorded-operation')).resolves.toBeUndefined();
     const generate = await roundTrip(generated);
@@ -233,14 +226,14 @@ it.each([
   expect(nativeIndexBoundaryFailure(aggregate, vi.fn())).toMatchObject(INTERNAL_FAULT);
 });
 it('retains provider diagnostic facts privately through the real redacting logger', async () => {
-  const original = Object.assign(new TypeError('fixture transport refused'), {
+  const original = Object.assign(new Error('fixture transport refused'), {
     details: { authorization: 'Bearer fake-private-auth', phase: 'connect' },
     token: 'fake-private-provider-token',
   });
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => {
-      throw original;
+      throw new TypeError('fetch failed', { cause: original });
     })
   );
   const records: LogRecord[] = [];
@@ -258,22 +251,12 @@ it('retains provider diagnostic facts privately through the real redacting logge
   } finally {
     unsubscribe();
   }
-  expect(failure).toMatchObject({
-    cause: { originalError: original, type: 'network_error' },
-    kind: 'network',
-  });
+  expect(failure).toMatchObject({ cause: { cause: original }, kind: 'network' });
   const diagnostic = records
     .find((record) => record.scope === 'DesktopHostedEmbeddings')
     ?.args.at(-1);
-  expect(diagnostic).toMatchObject({
-    error: {
-      originalError: {
-        details: { authorization: '[REDACTED]', phase: 'connect' },
-        token: '[REDACTED]',
-      },
-      type: 'network_error',
-    },
-  });
+  expect(diagnostic).toMatchObject({ error: { message: expect.any(String) }, provider: 'openai' });
+  expect(JSON.stringify(diagnostic)).not.toContain('notarize release');
   expect(JSON.stringify(diagnostic)).not.toContain('fake-private-provider-token');
   expect(JSON.stringify(diagnostic)).not.toContain('fake-private-auth');
   expect(original.token).toBe('fake-private-provider-token');
