@@ -74,9 +74,7 @@ describe('NavigationSidebar', () => {
   // never runs Tailwind, so this passes whether or not `bg-sidebar` and
   // `border-sidebar-border` actually emit any CSS — they produced nothing at all
   // until BST-1611 registered `--color-sidebar*` in both apps' `@theme` blocks.
-  // The check that these utilities resolve to real paint lives at the source
-  // level in `scripts/__tests__/sidebar-theme-contract.test.mjs`; do not read a
-  // green here as evidence that the sidebar is styled.
+  // Do not read a green here as evidence that the sidebar is styled.
   it('renders with correct layout classes', () => {
     renderSidebar();
 

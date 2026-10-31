@@ -24,8 +24,7 @@
  * THE reasoning-effort vocabulary, weakest to strongest.
  *
  * Mirrors the `reasoningEffort` enum of the installed `@ai-sdk/openai` (4.0.96)
- * chat-options declaration; policed by
- * `scripts/__tests__/ai-sdk-openai-mirror-contract.test.mjs`.
+ * chat-options declaration; re-read it when the provider is upgraded.
  *
  * This is the union's MEMBERSHIP, not an offered list. Nothing here says a
  * given model accepts every value: what a particular model offers is resolved
@@ -61,9 +60,7 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
  * strictly narrower range than the provider accepts.
  *
  * The provider ships this as a zod schema it never exports as a value, so the
- * union is retyped by hand. It is no longer only a comment:
- * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs` compares this
- * declaration — and the version named above — against the installed package.
+ * union is retyped by hand; re-read it when the provider is upgraded.
  */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /**
