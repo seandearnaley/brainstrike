@@ -1,7 +1,7 @@
 # Desktop E2E tests
 
-**CI is disabled due to cost; validation must run locally.** Select checks with
-`pnpm check`.
+The merge queue runs every desktop E2E lane on hosted runners. Before a PR, run
+the specs for the feature you changed; `pnpm check` selects broader checks.
 
 ## Run locally
 
