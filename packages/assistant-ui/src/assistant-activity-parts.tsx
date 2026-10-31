@@ -272,22 +272,18 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
   const isMessageRunning = useAuiState(
     (state) => state.message.role === 'assistant' && state.message.status.type === 'running'
   );
-  const groupParts = useMemo(
-    () =>
-      indices
-        .map((index) => messageParts[index])
-        .filter(
-          (part): part is PartState =>
-            part !== undefined &&
-            !(
-              part.type === 'tool-call' &&
-              part.result === undefined &&
-              part.status.type === 'requires-action' &&
-              cardedCalls.has(part.toolCallId)
-            )
-        ),
-    [indices, messageParts, cardedCalls]
-  );
+  const groupParts = indices
+    .map((index) => messageParts[index])
+    .filter(
+      (part): part is PartState =>
+        part !== undefined &&
+        !(
+          part.type === 'tool-call' &&
+          part.result === undefined &&
+          part.status.type === 'requires-action' &&
+          cardedCalls.has(part.toolCallId)
+        )
+    );
   const preserveBodyEffects = useMemo(
     () => groupParts.some((part) => toolResultPartPreservesEffectsWhenHidden(renderers, part)),
     [groupParts, renderers]
@@ -346,10 +342,7 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
   // header names what the CURRENTLY running tool is working on — the last
   // running step wins, so parallel calls read as the most recent one rather
   // than flickering between them.
-  const steps = useMemo(
-    () => deriveActivitySteps(groupParts, toolDurations),
-    [groupParts, toolDurations]
-  );
+  const steps = deriveActivitySteps(groupParts, toolDurations);
   const summary = useMemo(() => summarizeActivity(steps), [steps]);
   // The one presentation fact a card cannot derive from its own props
   // (BST-1681): which step is the group's LAST running one — the only row
@@ -359,7 +352,7 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
   // step list: the list is re-derived on every streamed delta, and a new
   // context value would re-render every row of the group (BST-2313).
   const { lastRunningId } = deriveStepMeta(steps);
-  const stepMeta = useMemo(() => ({ lastRunningId }), [lastRunningId]);
+  const stepMeta = { lastRunningId };
   const restingOverride = useAuiState((state) => readActivitySummaryOverride(state.message));
   // Clusters, filters, the live tail, the run strip, jumps and keys (activity
   // trace at scale): derived from the same step list, before any early return.
@@ -451,10 +444,7 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
 export function AssistantActivityParts(): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
   const { cardedSurfaceCalls, requests } = useAnsweredApprovals();
-  const cardedCalls = useMemo(
-    () => approvalCardToolCallIds(messageParts, cardedSurfaceCalls, requests),
-    [messageParts, cardedSurfaceCalls, requests]
-  );
+  const cardedCalls = approvalCardToolCallIds(messageParts, cardedSurfaceCalls, requests);
   const trailingGroupHoldsActivity = useAuiState((state) =>
     trailingGroupHasActivity(state.message.parts)
   );

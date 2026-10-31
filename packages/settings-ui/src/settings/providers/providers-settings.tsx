@@ -8,7 +8,7 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { Card, CardContent, CardHeader, CardTitle } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useModelToggle } from '../models/use-model-toggle';
 import { CredentialInventory } from '../secrets/credential-inventory/credential-inventory';
 import { listCredentialSlots } from '../secrets/credential-inventory/credential-slots';
@@ -88,7 +88,7 @@ export function ProvidersSettings({
   const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
   const [highlight, setHighlight] = useState<HighlightTarget | null>(null);
 
-  const availableDefinitions = useMemo(() => listProviders(), []);
+  const availableDefinitions = listProviders();
 
   const groups = useMemo(
     () =>
@@ -152,15 +152,14 @@ export function ProvidersSettings({
     return byProvider;
   }, []);
 
-  const anyConnected = useMemo(
-    () => groups.some((group) => group.providers.some((card) => card.connection === 'connected')),
-    [groups]
+  const anyConnected = groups.some((group) =>
+    group.providers.some((card) => card.connection === 'connected')
   );
-  const recommendations = useMemo(() => listRecommendedProviders(groups), [groups]);
+  const recommendations = listRecommendedProviders(groups);
 
-  const highlightSlot = useCallback((slotId: string) => {
+  const highlightSlot = (slotId: string) => {
     setHighlight((previous) => ({ nonce: (previous?.nonce ?? 0) + 1, slotId }));
-  }, []);
+  };
 
   // The ring is a pointer, not a selection: it expires on its own. A fresh
   // activation replaces the object, which restarts the timer.
@@ -182,27 +181,21 @@ export function ProvidersSettings({
    * (Tavily) already sits in the always-visible other-credentials table, so it
    * only needs the ring.
    */
-  const handleSelectCredentialSlot = useCallback(
-    (slotId: string) => {
-      if (!unclaimedSlotIds.includes(slotId)) {
-        setExpandedProviderId(slotId);
-      }
-      highlightSlot(slotId);
-    },
-    [highlightSlot, unclaimedSlotIds]
-  );
+  const handleSelectCredentialSlot = (slotId: string) => {
+    if (!unclaimedSlotIds.includes(slotId)) {
+      setExpandedProviderId(slotId);
+    }
+    highlightSlot(slotId);
+  };
 
-  const handleConnectRecommendation = useCallback(
-    (providerId: string) => {
-      setExpandedProviderId(providerId);
-      highlightSlot(providerId);
-    },
-    [highlightSlot]
-  );
+  const handleConnectRecommendation = (providerId: string) => {
+    setExpandedProviderId(providerId);
+    highlightSlot(providerId);
+  };
 
-  const handleToggleExpanded = useCallback((providerId: string) => {
+  const handleToggleExpanded = (providerId: string) => {
     setExpandedProviderId((current) => (current === providerId ? null : providerId));
-  }, []);
+  };
 
   return (
     <div className="space-y-6" data-testid="providers-settings">

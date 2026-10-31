@@ -55,47 +55,47 @@ export function useCredentialMutations({
   sourceState,
   toast,
 }: CredentialMutationOptions): CredentialMutations {
-  const saveCredential = useCallback(
-    async (provider: string, credential: ProviderCredential): Promise<boolean> => {
-      if (sourceState !== 'ready') {
-        return false;
-      }
-      const saveFn = getSecretsCapability()?.saveCredential;
-      if (!saveFn) {
-        toast({
-          description: 'Secure credential storage is unavailable.',
-          title: 'Failed to save key',
-          variant: 'destructive',
-        });
-        return false;
-      }
+  const saveCredential = async (
+    provider: string,
+    credential: ProviderCredential
+  ): Promise<boolean> => {
+    if (sourceState !== 'ready') {
+      return false;
+    }
+    const saveFn = getSecretsCapability()?.saveCredential;
+    if (!saveFn) {
+      toast({
+        description: 'Secure credential storage is unavailable.',
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
+      return false;
+    }
 
-      let saveResult: unknown;
-      try {
-        saveResult = await saveFn(provider, credential);
-      } catch {
-        toast({
-          description: 'The credential store rejected the save operation.',
-          title: 'Failed to save key',
-          variant: 'destructive',
-        });
-        return false;
-      }
-      if (saveResult !== true) {
-        toast({
-          description: describeSaveFailure(saveResult),
-          title: 'Failed to save key',
-          variant: 'destructive',
-        });
-        return false;
-      }
+    let saveResult: unknown;
+    try {
+      saveResult = await saveFn(provider, credential);
+    } catch {
+      toast({
+        description: 'The credential store rejected the save operation.',
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
+      return false;
+    }
+    if (saveResult !== true) {
+      toast({
+        description: describeSaveFailure(saveResult),
+        title: 'Failed to save key',
+        variant: 'destructive',
+      });
+      return false;
+    }
 
-      await refresh();
-      notifySecretsChanged();
-      return true;
-    },
-    [notifySecretsChanged, refresh, sourceState, toast]
-  );
+    await refresh();
+    notifySecretsChanged();
+    return true;
+  };
 
   const deleteSecret = useCallback(
     async (provider: string): Promise<boolean> => {

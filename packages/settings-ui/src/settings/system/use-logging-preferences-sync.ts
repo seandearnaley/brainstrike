@@ -47,69 +47,57 @@ export function useLoggingPreferencesSync({
   const [isSyncing, setIsSyncing] = useState(false);
   const updateTokenRef = useRef(0);
 
-  const commitPreferences = useCallback(
-    async (nextPreferences: LoggingPreferences) => {
-      if (!onCommitPreferences) {
-        return;
+  const commitPreferences = async (nextPreferences: LoggingPreferences) => {
+    if (!onCommitPreferences) {
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const result = await onCommitPreferences(nextPreferences);
+      if (result) {
+        setPreferences(result);
       }
-      setIsSyncing(true);
-      try {
-        const result = await onCommitPreferences(nextPreferences);
-        if (result) {
-          setPreferences(result);
-        }
-      } catch (error) {
-        setIsSyncing(false);
-        const message = describeBoundaryError(error);
-        toast({
-          description: message,
-          title: 'Failed to update logging preferences',
-          variant: 'destructive',
-        });
-        throw error;
-      }
+    } catch (error) {
       setIsSyncing(false);
-    },
-    [onCommitPreferences, setPreferences, toast]
-  );
+      const message = describeBoundaryError(error);
+      toast({
+        description: message,
+        title: 'Failed to update logging preferences',
+        variant: 'destructive',
+      });
+      throw error;
+    }
+    setIsSyncing(false);
+  };
 
-  const applyUpdates = useCallback(
-    async (updates: Partial<LoggingPreferences>) => {
-      const previous = clonePreferences(useLoggingPreferencesStore.getState().preferences);
-      updatePreferences(updates);
-      const requestId = updateTokenRef.current + 1;
-      updateTokenRef.current = requestId;
-      const next = clonePreferences(useLoggingPreferencesStore.getState().preferences);
-      try {
-        await commitPreferences(next);
-      } catch {
-        if (updateTokenRef.current === requestId) {
-          setPreferences(previous);
-        }
+  const applyUpdates = async (updates: Partial<LoggingPreferences>) => {
+    const previous = clonePreferences(useLoggingPreferencesStore.getState().preferences);
+    updatePreferences(updates);
+    const requestId = updateTokenRef.current + 1;
+    updateTokenRef.current = requestId;
+    const next = clonePreferences(useLoggingPreferencesStore.getState().preferences);
+    try {
+      await commitPreferences(next);
+    } catch {
+      if (updateTokenRef.current === requestId) {
+        setPreferences(previous);
       }
-    },
-    [commitPreferences, setPreferences, updatePreferences]
-  );
+    }
+  };
 
-  const applyNestedUpdates = useCallback(
-    async (updates: Partial<LoggingPreferences['file']>) => {
-      await applyUpdates({ file: { ...preferences.file, ...updates } });
-    },
-    [applyUpdates, preferences.file]
-  );
+  const applyNestedUpdates = async (updates: Partial<LoggingPreferences['file']>) => {
+    await applyUpdates({ file: { ...preferences.file, ...updates } });
+  };
 
-  const handleRedactChange = useCallback(
-    async (value: string) => {
-      const entries = value
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0);
-      await applyUpdates({ redactPaths: entries });
-    },
-    [applyUpdates]
-  );
+  const handleRedactChange = async (value: string) => {
+    const entries = value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    await applyUpdates({ redactPaths: entries });
+  };
 
-  const handleSelectDestination = useCallback(async () => {
+  const handleSelectDestination = async () => {
     if (!onSelectLogDestination) {
       return;
     }
@@ -130,7 +118,7 @@ export function useLoggingPreferencesSync({
       });
     }
     setIsSyncing(false);
-  }, [applyNestedUpdates, onSelectLogDestination, toast]);
+  };
 
   const handleOpenDestination = useCallback(async () => {
     if (!onOpenLogDestination) {
@@ -152,7 +140,7 @@ export function useLoggingPreferencesSync({
 
   // The catch branch never rethrows, so the trailing reset runs on both paths.
   // A finally clause blocks React Compiler memoization (react-hooks-js/todo).
-  const handleReset = useCallback(async () => {
+  const handleReset = async () => {
     const previous = useLoggingPreferencesStore.getState().preferences;
     resetPreferences();
     const next = useLoggingPreferencesStore.getState().preferences;
@@ -172,7 +160,7 @@ export function useLoggingPreferencesSync({
       });
     }
     setIsSyncing(false);
-  }, [commitPreferences, onResetPreferences, resetPreferences, setPreferences, toast]);
+  };
 
   return {
     applyNestedUpdates,

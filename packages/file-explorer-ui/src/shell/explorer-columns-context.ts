@@ -316,8 +316,5 @@ export function useExplorerColumnsValue(
   const widthsContentKey = serializeColumnWidths(resolvedColumnWidths);
   const columnWidths = useMemo(() => deserializeColumnWidths(widthsContentKey), [widthsContentKey]);
 
-  return useMemo(
-    () => ({ areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds }),
-    [areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds]
-  );
+  return { areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds };
 }

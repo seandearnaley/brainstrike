@@ -69,11 +69,10 @@ export function WorktreeMapSurface(): ReactElement {
   const publishIntent = useWorktreeCheckoutIntentStore((state) => state.publish);
   // Committed mode creates the thread through the host's existing thread
   // owner, exactly as the threads panel does.
-  const repository = useMemo<AssistantThreadCatalogRepository | null>(
-    () => (host ? createHostAssistantThreadRepository(host) : null),
-    [host]
-  );
-  const platform = useMemo(() => resolvePlatformBridge(), []);
+  const repository: AssistantThreadCatalogRepository | null = host
+    ? createHostAssistantThreadRepository(host)
+    : null;
+  const platform = resolvePlatformBridge();
   // The capability IS the gate: a tree without a provided terminal bridge
   // (web) has no item at all.
   const terminalAvailable = useTerminalBridge() !== null;
@@ -82,12 +81,8 @@ export function WorktreeMapSurface(): ReactElement {
   // Desktop-only, `undefined` on web (`use-workspace-bar.ts:918` is the precedent).
   const addRootDirectoryByPath = useFileSystem().addRootDirectoryByPath;
   const hostRuns = useAssistantThreadHostRuns();
-  const runningThreadIds = useMemo(
-    () =>
-      new Set(
-        [...hostRuns].filter(([, run]) => run.status === 'running').map(([threadId]) => threadId)
-      ),
-    [hostRuns]
+  const runningThreadIds = new Set(
+    [...hostRuns].filter(([, run]) => run.status === 'running').map(([threadId]) => threadId)
   );
   const { error, loading, refresh, repositories, statusByPath } = useWorktreeMap({
     resourceId,

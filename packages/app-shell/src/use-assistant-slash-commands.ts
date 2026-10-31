@@ -2,7 +2,7 @@ import type { SlashCommand } from '@brainstrike/assistant-ui';
 import type { CommandContext, RunCommand } from '@brainstrike/context-actions/commands';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   buildAppActionRegistryParts,
   buildAppCommandContext,
@@ -55,17 +55,14 @@ export function useAssistantSlashCommands(threadId: string | undefined): readonl
 
   // Stable for the window's lifetime (capability detection reads preload bridges
   // that exist before React mounts) — build once, single source of truth.
-  const parts = useMemo(() => buildAppActionRegistryParts(), []);
+  const parts = buildAppActionRegistryParts();
 
   // Targetless: the composer captures no right-click target.
   const registry = useMemo(
     () => createAppCommandRegistry({ handlers, parts, target: null }),
     [parts, handlers]
   );
-  const context = useMemo<CommandContext>(
-    () => buildAppCommandContext({ parts, target: null }),
-    [parts]
-  );
+  const context: CommandContext = buildAppCommandContext({ parts, target: null });
 
   // Capability-gated + danger-excluded list, computed during render.
   const availableCommands = useMemo(
@@ -73,25 +70,19 @@ export function useAssistantSlashCommands(threadId: string | undefined): readonl
     [registry, context]
   );
 
-  const runCommand = useCallback(
-    (command: RunCommand): Promise<void> => runSlashCommand(command, context, { logger, toast }),
-    [context, toast]
-  );
+  const runCommand = (command: RunCommand): Promise<void> =>
+    runSlashCommand(command, context, { logger, toast });
 
   // Map to the presentational SlashCommand shape, pre-binding execute. Derived
   // during render — no setState-in-effect.
-  const appCommands = useMemo<readonly SlashCommand[]>(
-    () =>
-      availableCommands.map((command) => ({
-        id: command.id,
-        label: command.label,
-        ...(command.icon ? { icon: command.icon } : {}),
-        execute: () => {
-          void runCommand(command);
-        },
-      })),
-    [availableCommands, runCommand]
-  );
+  const appCommands: readonly SlashCommand[] = availableCommands.map((command) => ({
+    id: command.id,
+    label: command.label,
+    ...(command.icon ? { icon: command.icon } : {}),
+    execute: () => {
+      void runCommand(command);
+    },
+  }));
 
   const userCommands = useUserDefinedSlashCommands(threadId);
   // User-invocable Agent Skills (desktop-only): a third entry kind whose

@@ -59,17 +59,14 @@ function useScrollbarGutterWidth(scrollerRef: RefObject<HTMLElement | null>): nu
   // A scrollbar appearing shrinks the scroller's CONTENT box while its border
   // box is unchanged, which is exactly what a contentRect observer reports —
   // so content growth is covered without polling layout every render.
-  useResizeObserver(
-    scrollerRef,
-    useCallback(() => {
-      const scroller = scrollerRef.current;
-      if (!scroller) {
-        return;
-      }
-      const nextGutter = Math.max(0, scroller.offsetWidth - scroller.clientWidth);
-      setGutterWidth((previous) => (Math.abs(previous - nextGutter) < 1 ? previous : nextGutter));
-    }, [scrollerRef])
-  );
+  useResizeObserver(scrollerRef, () => {
+    const scroller = scrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+    const nextGutter = Math.max(0, scroller.offsetWidth - scroller.clientWidth);
+    setGutterWidth((previous) => (Math.abs(previous - nextGutter) < 1 ? previous : nextGutter));
+  });
 
   return gutterWidth;
 }

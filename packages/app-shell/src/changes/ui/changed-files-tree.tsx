@@ -56,7 +56,7 @@ import {
   type TreeTableCheckboxRenderState,
   useContextMenuTarget,
 } from '@brainstrike/ui';
-import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
+import { type ReactElement, useEffect, useMemo, useRef } from 'react';
 import { useChangesStore } from '../changes-store';
 import { CHANGED_FILES_TREE_COLUMNS, lastPathSegment } from './changed-files-tree-columns';
 import {
@@ -212,10 +212,7 @@ export function ChangedFilesTree({
   const setExpandedIds = useChangesStore((state) => state.setExpandedIds);
   const toggleExpanded = useChangesStore((state) => state.toggleExpanded);
 
-  const nodes = useMemo(
-    () => buildChangedFilesTree(files, inventory, rootLabelById),
-    [files, inventory, rootLabelById]
-  );
+  const nodes = buildChangedFilesTree(files, inventory, rootLabelById);
   const { descendantFileKeysById } = useMemo(() => buildTreeIndexes(nodes), [nodes]);
 
   const groupNodeIds = useMemo(() => {
@@ -251,67 +248,61 @@ export function ChangedFilesTree({
   // object, which is not referentially stable — see the module doc comment.
   const contextMenuController = useContextMenuTarget();
   const { setTarget: setContextMenuTarget } = contextMenuController;
-  const handleRowContextMenu = useCallback(
-    (_nodeId: string, node: ChangedFilesTreeNode) => {
-      setContextMenuTarget(nodeToContextTarget(node, rootPathById));
-    },
-    [rootPathById, setContextMenuTarget]
-  );
-  const resetContextMenuTarget = useCallback(() => {
+  const handleRowContextMenu = (_nodeId: string, node: ChangedFilesTreeNode) => {
+    setContextMenuTarget(nodeToContextTarget(node, rootPathById));
+  };
+  const resetContextMenuTarget = () => {
     setContextMenuTarget(null);
-  }, [setContextMenuTarget]);
+  };
 
-  const getCheckboxState = useCallback(
-    (node: ChangedFilesTreeNode): TreeTableCheckboxRenderState => {
-      if (node.data.kind === 'file') {
-        return selectedFileKeys.has(node.id) ? 'checked' : 'unchecked';
+  const getCheckboxState = (node: ChangedFilesTreeNode): TreeTableCheckboxRenderState => {
+    if (node.data.kind === 'file') {
+      return selectedFileKeys.has(node.id) ? 'checked' : 'unchecked';
+    }
+    const fileKeys = descendantFileKeysById.get(node.id) ?? [];
+    if (fileKeys.length === 0) {
+      return 'unchecked';
+    }
+    let checkedCount = 0;
+    for (const key of fileKeys) {
+      if (selectedFileKeys.has(key)) {
+        checkedCount += 1;
       }
-      const fileKeys = descendantFileKeysById.get(node.id) ?? [];
-      if (fileKeys.length === 0) {
-        return 'unchecked';
-      }
-      let checkedCount = 0;
+    }
+    if (checkedCount === 0) {
+      return 'unchecked';
+    }
+    return checkedCount === fileKeys.length ? 'checked' : 'indeterminate';
+  };
+
+  const handleCheckboxChange = (
+    node: ChangedFilesTreeNode,
+    nextState: TreeTableCheckboxNextState
+  ) => {
+    const fileKeys =
+      node.data.kind === 'file' ? [node.id] : (descendantFileKeysById.get(node.id) ?? []);
+    if (fileKeys.length === 0) {
+      return;
+    }
+    const next = new Set(selectedFileKeys);
+    if (nextState === 'checked') {
       for (const key of fileKeys) {
-        if (selectedFileKeys.has(key)) {
-          checkedCount += 1;
-        }
+        next.add(key);
       }
-      if (checkedCount === 0) {
-        return 'unchecked';
+    } else {
+      for (const key of fileKeys) {
+        next.delete(key);
       }
-      return checkedCount === fileKeys.length ? 'checked' : 'indeterminate';
-    },
-    [descendantFileKeysById, selectedFileKeys]
-  );
+    }
+    setSelectedFileKeys(next);
+  };
 
-  const handleCheckboxChange = useCallback(
-    (node: ChangedFilesTreeNode, nextState: TreeTableCheckboxNextState) => {
-      const fileKeys =
-        node.data.kind === 'file' ? [node.id] : (descendantFileKeysById.get(node.id) ?? []);
-      if (fileKeys.length === 0) {
-        return;
-      }
-      const next = new Set(selectedFileKeys);
-      if (nextState === 'checked') {
-        for (const key of fileKeys) {
-          next.add(key);
-        }
-      } else {
-        for (const key of fileKeys) {
-          next.delete(key);
-        }
-      }
-      setSelectedFileKeys(next);
-    },
-    [descendantFileKeysById, selectedFileKeys, setSelectedFileKeys]
-  );
-
-  const getCheckboxAriaLabel = useCallback((node: ChangedFilesTreeNode): string => {
+  const getCheckboxAriaLabel = (node: ChangedFilesTreeNode): string => {
     if (node.data.kind === 'file') {
       return `Select ${node.data.entry.path}`;
     }
     return `Select all files in ${describeGroupNode(node.data)}`;
-  }, []);
+  };
 
   if (loading) {
     return <LoadingFallback message="Loading changed files…" />;

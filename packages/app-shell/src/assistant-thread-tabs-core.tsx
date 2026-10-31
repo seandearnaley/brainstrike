@@ -25,7 +25,7 @@ import {
 } from '@brainstrike/ui';
 import { Plus, TriangleAlert } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
@@ -166,10 +166,7 @@ export function AssistantThreadTabsCore({
 
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
   const threads = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
-  const threadById = useMemo(
-    () => new Map(threads.map((thread) => [thread.id, thread])),
-    [threads]
-  );
+  const threadById = new Map(threads.map((thread) => [thread.id, thread]));
   const openThreadIds = openThreadIdsByResourceId[resourceId] ?? EMPTY_THREAD_IDS;
   const activeThreadId = activeThreadIdByResourceId[resourceId] ?? null;
   const unavailableSavedThread = useAssistantThreadStore(
@@ -263,28 +260,23 @@ export function AssistantThreadTabsCore({
   );
 
   // New opens the new-thread screen; nothing is created until its first send.
-  const createNewThread = useCallback(async (): Promise<void> => {
+  const createNewThread = async (): Promise<void> => {
     if (retryCatalog) {
       await ensureResourceThreads(repository, resourceId);
       return;
     }
     startNewThread(resourceId);
-  }, [ensureResourceThreads, repository, resourceId, retryCatalog, startNewThread]);
+  };
 
-  const handleNewThreadClick = useCallback((): void => {
+  const handleNewThreadClick = (): void => {
     createNewThread().catch(() => {
       // The store records the explicit error state; no fallback thread source is used.
     });
-  }, [createNewThread]);
+  };
 
-  const handleActivateThreadTab = useCallback(
-    (threadId: string): void => openThreadTab(resourceId, threadId),
-    [openThreadTab, resourceId]
-  );
-  const handleReorderThreadTabs = useCallback(
-    (orderedThreadIds: readonly string[]): void => reorderThreadTabs(resourceId, orderedThreadIds),
-    [reorderThreadTabs, resourceId]
-  );
+  const handleActivateThreadTab = (threadId: string): void => openThreadTab(resourceId, threadId);
+  const handleReorderThreadTabs = (orderedThreadIds: readonly string[]): void =>
+    reorderThreadTabs(resourceId, orderedThreadIds);
 
   const { mountedThreadIds, onRunningChange, onTabsRemoved } = useRetainedThreadPanels(
     resourceId,

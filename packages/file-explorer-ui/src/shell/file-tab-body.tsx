@@ -102,61 +102,49 @@ export function FileTabBody({
     nonce: 0,
     path,
   });
-  const handleTogglePane = useCallback(() => {
+  const handleTogglePane = () => {
     setRevealRequest((previous) => ({ nonce: previous.nonce + 1, path }));
     togglePane(tab.compositeKey);
-  }, [path, tab.compositeKey, togglePane]);
-  const breadcrumbSegments = useMemo(
-    () => buildFileBreadcrumbSegments(path, rootPath),
-    [path, rootPath]
-  );
+  };
+  const breadcrumbSegments = buildFileBreadcrumbSegments(path, rootPath);
   // Breadcrumb popover mini-tree (BST-1319): a segment click opens a picker
   // of that segment's siblings; picking a file opens it in a NEW tab via the
   // same flow tree file-clicks use. The pane is untouched by breadcrumbs.
-  const handleBreadcrumbPick = useCallback(
-    (filePath: string) => {
-      let folderId: string;
-      try {
-        folderId = decodeFileSelection(tab.compositeKey).folderId;
-      } catch {
-        toast({ description: filePath, title: 'Could not resolve file', variant: 'destructive' });
-        return;
-      }
-      const openFileInTab = ideEditor.openFileInTab;
-      if (!openFileInTab) {
-        toast({ description: filePath, title: 'File opening unavailable', variant: 'destructive' });
-        return;
-      }
-      openFileInTab(encodeFileSelection(folderId, filePath));
-    },
-    [ideEditor.openFileInTab, tab.compositeKey, toast]
+  const handleBreadcrumbPick = (filePath: string) => {
+    let folderId: string;
+    try {
+      folderId = decodeFileSelection(tab.compositeKey).folderId;
+    } catch {
+      toast({ description: filePath, title: 'Could not resolve file', variant: 'destructive' });
+      return;
+    }
+    const openFileInTab = ideEditor.openFileInTab;
+    if (!openFileInTab) {
+      toast({ description: filePath, title: 'File opening unavailable', variant: 'destructive' });
+      return;
+    }
+    openFileInTab(encodeFileSelection(folderId, filePath));
+  };
+  const renderBreadcrumbPopover = (segment: { label: string; path: string }, close: () => void) => (
+    <FileTabBreadcrumbPopover
+      compositeKey={tab.compositeKey}
+      onPickFile={(filePath) => {
+        handleBreadcrumbPick(filePath);
+        close();
+      }}
+      rootPath={rootPath}
+      segmentPath={segment.path}
+    />
   );
-  const renderBreadcrumbPopover = useCallback(
-    (segment: { label: string; path: string }, close: () => void) => (
-      <FileTabBreadcrumbPopover
-        compositeKey={tab.compositeKey}
-        onPickFile={(filePath) => {
-          handleBreadcrumbPick(filePath);
-          close();
-        }}
-        rootPath={rootPath}
-        segmentPath={segment.path}
-      />
-    ),
-    [handleBreadcrumbPick, rootPath, tab.compositeKey]
-  );
-  const handlePaneLayoutChanged = useCallback(
-    (layout: Layout, meta: { isUserInteraction: boolean }) => {
-      if (!meta.isUserInteraction) {
-        return;
-      }
-      const width = layout['file-tab-pane'];
-      if (typeof width === 'number') {
-        setPaneWidthPct(tab.compositeKey, width);
-      }
-    },
-    [setPaneWidthPct, tab.compositeKey]
-  );
+  const handlePaneLayoutChanged = (layout: Layout, meta: { isUserInteraction: boolean }) => {
+    if (!meta.isUserInteraction) {
+      return;
+    }
+    const width = layout['file-tab-pane'];
+    if (typeof width === 'number') {
+      setPaneWidthPct(tab.compositeKey, width);
+    }
+  };
 
   // A line-targeted open (search match) forces source for THIS open only; the
   // user's persisted preference is untouched. Captured once on mount (FileTabBody
@@ -169,27 +157,18 @@ export function FileTabBody({
   const effectiveMode: FileViewMode =
     !isMarkdown || forceSource ? 'source' : (storedMode ?? 'preview');
 
-  const handleModeChange = useCallback(
-    (mode: FileViewMode) => {
-      setForceSource(false);
-      setMode(tab.compositeKey, mode);
-    },
-    [setMode, tab.compositeKey]
-  );
+  const handleModeChange = (mode: FileViewMode) => {
+    setForceSource(false);
+    setMode(tab.compositeKey, mode);
+  };
 
-  const handleScrollTopChange = useCallback(
-    (scrollTop: number) => {
-      setScrollTop(tab.compositeKey, scrollTop);
-    },
-    [setScrollTop, tab.compositeKey]
-  );
+  const handleScrollTopChange = (scrollTop: number) => {
+    setScrollTop(tab.compositeKey, scrollTop);
+  };
 
-  const handlePreviewScrollTopChange = useCallback(
-    (scrollTop: number) => {
-      setScrollTop(`preview:${tab.compositeKey}`, scrollTop);
-    },
-    [setScrollTop, tab.compositeKey]
-  );
+  const handlePreviewScrollTopChange = (scrollTop: number) => {
+    setScrollTop(`preview:${tab.compositeKey}`, scrollTop);
+  };
 
   const {
     controller: contextMenuController,
@@ -199,30 +178,27 @@ export function FileTabBody({
     resetContextMenuTarget,
   } = useFileViewerContextMenu({ rootPath, tab, viewMode: effectiveMode });
 
-  const resolveImage = useCallback(
-    async (src: string): Promise<string> => {
-      // Remote images are blocked in previews regardless of CSP (which allows
-      // localhost in dev and is deployment-dependent on web): untrusted file
-      // content must not trigger network requests (file-explorer-ui AGENTS.md
-      // resource-loading restriction). Failure surfaces as the visible
-      // image-unavailable placeholder.
-      if (/^https?:/iu.test(src)) {
-        throw new Error('Remote images are blocked in previews');
-      }
-      if (/^data:/iu.test(src)) {
-        return src;
-      }
-      if (!capabilities) {
-        throw new Error('Image preview unavailable');
-      }
-      const resolved = src.startsWith('/') ? src : resolveRelativePath(path, src);
-      if (!resolved) {
-        throw new Error('Path escapes the workspace');
-      }
-      return capabilities.resolveImageSrc(resolved);
-    },
-    [capabilities, path]
-  );
+  const resolveImage = async (src: string): Promise<string> => {
+    // Remote images are blocked in previews regardless of CSP (which allows
+    // localhost in dev and is deployment-dependent on web): untrusted file
+    // content must not trigger network requests (file-explorer-ui AGENTS.md
+    // resource-loading restriction). Failure surfaces as the visible
+    // image-unavailable placeholder.
+    if (/^https?:/iu.test(src)) {
+      throw new Error('Remote images are blocked in previews');
+    }
+    if (/^data:/iu.test(src)) {
+      return src;
+    }
+    if (!capabilities) {
+      throw new Error('Image preview unavailable');
+    }
+    const resolved = src.startsWith('/') ? src : resolveRelativePath(path, src);
+    if (!resolved) {
+      throw new Error('Path escapes the workspace');
+    }
+    return capabilities.resolveImageSrc(resolved);
+  };
 
   const handleOpenLink = useCallback(
     (href: string) => {
@@ -285,20 +261,17 @@ export function FileTabBody({
 
   // A web link the host's own browser can show asks where to open first; the
   // default browser keeps the path above. The host reports each outcome.
-  const linkChoicesFor = useCallback(
-    (href: string): LinkChoices | null => {
-      const choices = capabilities?.linkChoices;
-      if (!choices?.offers(href)) {
-        return null;
-      }
-      return {
-        copyLink: () => void choices.copyLink(href),
-        openInAppBrowser: () => void choices.openInAppBrowser(href),
-        openInDefaultBrowser: () => handleOpenLink(href),
-      };
-    },
-    [capabilities, handleOpenLink]
-  );
+  const linkChoicesFor = (href: string): LinkChoices | null => {
+    const choices = capabilities?.linkChoices;
+    if (!choices?.offers(href)) {
+      return null;
+    }
+    return {
+      copyLink: () => void choices.copyLink(href),
+      openInAppBrowser: () => void choices.openInAppBrowser(href),
+      openInDefaultBrowser: () => handleOpenLink(href),
+    };
+  };
 
   // One-shot consumption: only clear once `content` is actually a string, i.e.
   // once the surface below has genuinely mounted with whatever target

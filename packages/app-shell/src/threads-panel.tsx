@@ -869,24 +869,21 @@ function useThreadBulkSelectionController({
   const [panel, setPanel] = useState<'color' | 'move' | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  const runAction = useCallback(
-    (action: (threadIds: readonly string[]) => Promise<void>): void => {
-      const threadIds = [...selectedThreadIds];
-      setPending(true);
-      setError(null);
-      action(threadIds)
-        .then(() => {
-          onClearSelection();
-          setPanel(null);
-          setConfirmingDelete(false);
-        })
-        .catch((actionError: unknown) => {
-          setError(actionError instanceof Error ? actionError.message : String(actionError));
-        })
-        .finally(() => setPending(false));
-    },
-    [onClearSelection, selectedThreadIds]
-  );
+  const runAction = (action: (threadIds: readonly string[]) => Promise<void>): void => {
+    const threadIds = [...selectedThreadIds];
+    setPending(true);
+    setError(null);
+    action(threadIds)
+      .then(() => {
+        onClearSelection();
+        setPanel(null);
+        setConfirmingDelete(false);
+      })
+      .catch((actionError: unknown) => {
+        setError(actionError instanceof Error ? actionError.message : String(actionError));
+      })
+      .finally(() => setPending(false));
+  };
 
   return {
     confirmingDelete,
@@ -1132,20 +1129,11 @@ function ThreadPanelTree({
   // BST-1932: a host thread's children come from the host.
   const hostChildren = useHostChildSidebar(visibleRows.rows);
   const panelRows = hostChildren.rows;
-  const nodes = useMemo(
-    () => buildThreadPanelTreeNodes(panelRows, hostChildren.hasChildren),
-    [panelRows, hostChildren.hasChildren]
-  );
-  const expandedGroupIds = useMemo(
-    () =>
-      new Set([
-        ...hostChildren.expandedIds,
-        ...visibleRows.rows.flatMap((row) =>
-          row.kind === 'group' && !row.collapsed ? [row.id] : []
-        ),
-      ]),
-    [hostChildren.expandedIds, visibleRows.rows]
-  );
+  const nodes = buildThreadPanelTreeNodes(panelRows, hostChildren.hasChildren);
+  const expandedGroupIds = new Set([
+    ...hostChildren.expandedIds,
+    ...visibleRows.rows.flatMap((row) => (row.kind === 'group' && !row.collapsed ? [row.id] : [])),
+  ]);
   const bulkSelectionController = useThreadBulkSelectionController({
     onBulkColor,
     onBulkDelete,
@@ -1154,73 +1142,48 @@ function ThreadPanelTree({
     selectedThreadIds: selectedAvailableThreadIds,
   });
 
-  const rowsProps = useMemo<ThreadRowContextProps>(
-    () => ({
-      activeThreadIds,
-      branchLookup,
-      failedUnseenThreadIds,
-      folderMode,
-      membershipByThreadId,
-      // A folder is not a custom group, so folder mode offers no "Move to …"
-      // row action: the binding is the thread's own, re-bound from the
-      // composer's folder chip.
-      moveTargets: folderMode ? EMPTY_MOVE_TARGETS : moveTargets,
-      needsYouThreadIds,
-      onDeleteThread,
-      onMoveThreadToGroup,
-      onRenameThread,
-      onSelectThread,
-      onSetThreadPinned,
-      onUpdateThreadAppearance,
-      pinnedAtByThreadId,
-      rowsDraggable: !(viewOrdered || threadFiltersActive),
-      selectedThreadId,
-      unseenThreadIds,
-    }),
-    [
-      activeThreadIds,
-      branchLookup,
-      failedUnseenThreadIds,
-      folderMode,
-      membershipByThreadId,
-      moveTargets,
-      needsYouThreadIds,
-      onDeleteThread,
-      onMoveThreadToGroup,
-      onRenameThread,
-      onSelectThread,
-      onSetThreadPinned,
-      onUpdateThreadAppearance,
-      pinnedAtByThreadId,
-      selectedThreadId,
-      threadFiltersActive,
-      unseenThreadIds,
-      viewOrdered,
-    ]
-  );
-  const columns = useMemo<TreeTableColumn<ThreadPanelVisibleRow>[]>(
-    () => [
-      {
-        cell: ({ node }) => (
-          <ThreadPanelCell
-            groupHandlers={groupHandlers}
-            onNewThreadInFolder={onNewThreadInFolder}
-            onShowMore={handleShowMore}
-            row={node.data}
-            rowsProps={rowsProps}
-          />
-        ),
-        className: 'p-0',
-        id: 'thread',
-        indentWidth: 16,
-        reserveCheckboxSpace: selection.selecting,
-        reserveToggleSpace: true,
-        treeControlLineHeight: (node) => getThreadPanelRowHeightPx(node.data.kind),
-        treeControlsPosition: 'top',
-      },
-    ],
-    [groupHandlers, handleShowMore, onNewThreadInFolder, rowsProps, selection.selecting]
-  );
+  const rowsProps: ThreadRowContextProps = {
+    activeThreadIds,
+    branchLookup,
+    failedUnseenThreadIds,
+    folderMode,
+    membershipByThreadId,
+    // A folder is not a custom group, so folder mode offers no "Move to …"
+    // row action: the binding is the thread's own, re-bound from the
+    // composer's folder chip.
+    moveTargets: folderMode ? EMPTY_MOVE_TARGETS : moveTargets,
+    needsYouThreadIds,
+    onDeleteThread,
+    onMoveThreadToGroup,
+    onRenameThread,
+    onSelectThread,
+    onSetThreadPinned,
+    onUpdateThreadAppearance,
+    pinnedAtByThreadId,
+    rowsDraggable: !(viewOrdered || threadFiltersActive),
+    selectedThreadId,
+    unseenThreadIds,
+  };
+  const columns: TreeTableColumn<ThreadPanelVisibleRow>[] = [
+    {
+      cell: ({ node }) => (
+        <ThreadPanelCell
+          groupHandlers={groupHandlers}
+          onNewThreadInFolder={onNewThreadInFolder}
+          onShowMore={handleShowMore}
+          row={node.data}
+          rowsProps={rowsProps}
+        />
+      ),
+      className: 'p-0',
+      id: 'thread',
+      indentWidth: 16,
+      reserveCheckboxSpace: selection.selecting,
+      reserveToggleSpace: true,
+      treeControlLineHeight: (node) => getThreadPanelRowHeightPx(node.data.kind),
+      treeControlsPosition: 'top',
+    },
+  ];
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1698,17 +1661,10 @@ export function ThreadsPanelCore({
   const [savingGroupId, setSavingGroupId] = useState<string | null>(null);
   const [groupActionError, setGroupActionError] = useState<string | null>(null);
 
-  const groups = useMemo(
-    () => groupsByResourceId[resourceId] ?? [],
-    [groupsByResourceId, resourceId]
-  );
+  const groups = groupsByResourceId[resourceId] ?? [];
   const groupsLoadState = groupsLoadStateByResourceId[resourceId] ?? { status: 'idle' };
-  const placements = useMemo(
-    () =>
-      Object.values(placementsByThreadId).filter(
-        (placement) => placement.resourceId === resourceId
-      ),
-    [placementsByThreadId, resourceId]
+  const placements = Object.values(placementsByThreadId).filter(
+    (placement) => placement.resourceId === resourceId
   );
   const sortPresentation = resolveSortPresentation(groupBy);
   const folderGrouping = sortPresentation === 'folder';
@@ -1750,10 +1706,7 @@ export function ThreadsPanelCore({
   const { byRootId, byRootIdAndPath, byRootPath } = useThreadBranchByRootPath({
     enabled: folderGrouping,
   });
-  const branchLookup = useMemo<ThreadBranchLookup>(
-    () => ({ byRootId, byRootIdAndPath, byRootPath }),
-    [byRootId, byRootIdAndPath, byRootPath]
-  );
+  const branchLookup: ThreadBranchLookup = { byRootId, byRootIdAndPath, byRootPath };
   // Folder sections mint persisted collapse keys; this is the symmetric prune
   // to the one `deleteGroup` does for group keys. The RESOLVED folder rows are
   // the only honest live-root evidence the panel has — an empty map also means
@@ -1772,23 +1725,13 @@ export function ThreadsPanelCore({
   }, [folderRowsByRootId, folderRowsResolved, pruneFolderCollapseIds]);
 
   const threadFiltersActive = hasActiveThreadFilters(threadFilters);
-  const filteredThreads = useMemo(
-    () =>
-      filterThreadsByThreadFilters({
-        filters: threadFilters,
-        needsYouThreadIds: threadsAwaitingApproval.threadIds,
-        runningThreadIds: activeThreads.threadIds,
-        threads,
-        unseenThreadIds: unseenThreadIds.unseen,
-      }),
-    [
-      activeThreads.threadIds,
-      threadFilters,
-      threads,
-      threadsAwaitingApproval.threadIds,
-      unseenThreadIds.unseen,
-    ]
-  );
+  const filteredThreads = filterThreadsByThreadFilters({
+    filters: threadFilters,
+    needsYouThreadIds: threadsAwaitingApproval.threadIds,
+    runningThreadIds: activeThreads.threadIds,
+    threads,
+    unseenThreadIds: unseenThreadIds.unseen,
+  });
 
   const membershipByThreadId = useMemo(
     () => buildThreadMembership({ groups, placements, threads: filteredThreads }),
@@ -1797,14 +1740,11 @@ export function ThreadsPanelCore({
   // Recency is conversation activity, read from the live run projection, so a
   // thread that just ran moves up and a rename or a recolor moves nothing.
   const hostRuns = useAssistantThreadHostRuns();
-  const ordering = useMemo<ThreadListOrdering>(
-    () => ({
-      lastActivityAt: (thread) =>
-        getThreadLastActivityAt(thread, hostRuns.get(thread.id) ?? thread.latestRun),
-      pinnedAtByThreadId,
-    }),
-    [hostRuns, pinnedAtByThreadId]
-  );
+  const ordering: ThreadListOrdering = {
+    lastActivityAt: (thread) =>
+      getThreadLastActivityAt(thread, hostRuns.get(thread.id) ?? thread.latestRun),
+    pinnedAtByThreadId,
+  };
   const now = useLocalDay();
   // The section builder's input is discriminated on `groupBy`: each grouping
   // takes exactly the inputs it reads, so the modes are separate calls rather
@@ -1841,10 +1781,7 @@ export function ThreadsPanelCore({
     placements,
     sortBy,
   ]);
-  const moveTargets = useMemo(
-    () => groups.map((group) => ({ id: group.id, name: group.name })),
-    [groups]
-  );
+  const moveTargets = groups.map((group) => ({ id: group.id, name: group.name }));
   // Disclosure limits + bulk selection live here so the toolbar's count and
   // select-visible toggle read the same state the treegrid renders. FILTERED
   // threads, not all of them: a thread the Show only filters removed is not in
@@ -1878,10 +1815,7 @@ export function ThreadsPanelCore({
   // live toggle would select threads the user cannot see or clear).
   const treeOnScreen = contentState.kind === 'tree' && !searchActive;
   const sidebarHeader = useSidebarHeader();
-  const threadsById = useMemo(
-    () => new Map(threads.map((thread) => [thread.id, thread])),
-    [threads]
-  );
+  const threadsById = new Map(threads.map((thread) => [thread.id, thread]));
   const groupNameByThreadId = useMemo(() => {
     const nameByGroupId = new Map(groups.map((group) => [group.id, group.name]));
     const names = new Map<string, string>();
@@ -1913,15 +1847,12 @@ export function ThreadsPanelCore({
       await removeThreadPlacement(groupsRepository, threadId);
     }
   };
-  const handleSetThreadPinned = useCallback(
-    async (threadId: string, pinned: boolean): Promise<void> => {
-      if (!groupsRepository) {
-        throw new Error('Assistant thread groups database unavailable.');
-      }
-      await setThreadPinned(groupsRepository, resourceId, threadId, pinned);
-    },
-    [groupsRepository, resourceId, setThreadPinned]
-  );
+  const handleSetThreadPinned = async (threadId: string, pinned: boolean): Promise<void> => {
+    if (!groupsRepository) {
+      throw new Error('Assistant thread groups database unavailable.');
+    }
+    await setThreadPinned(groupsRepository, resourceId, threadId, pinned);
+  };
   const handleUpdateThreadAppearance = async (
     threadId: string,
     patch: AssistantThreadAppearancePatch
@@ -1947,21 +1878,19 @@ export function ThreadsPanelCore({
     }
     await moveThreadsToGroup(groupsRepository, resourceId, threadIds, groupId);
   };
-  const handleMoveThreadToGroup = useCallback(
-    async (threadId: string, groupId: string | null): Promise<void> => {
-      if (!groupsRepository) {
-        return;
-      }
-      setGroupActionError(null);
-      await moveThreadToGroup(groupsRepository, resourceId, threadId, groupId);
-    },
-    [groupsRepository, moveThreadToGroup, resourceId]
-  );
+  const handleMoveThreadToGroup = async (
+    threadId: string,
+    groupId: string | null
+  ): Promise<void> => {
+    if (!groupsRepository) {
+      return;
+    }
+    setGroupActionError(null);
+    await moveThreadToGroup(groupsRepository, resourceId, threadId, groupId);
+  };
   // Opens the new-thread screen bound to the folder; its first send creates the thread.
-  const handleNewThreadInFolder = useCallback(
-    (folder: ThreadFolderRow): void => startNewThread(resourceId, folder),
-    [resourceId, startNewThread]
-  );
+  const handleNewThreadInFolder = (folder: ThreadFolderRow): void =>
+    startNewThread(resourceId, folder);
   const handleSortByChange = (nextSortBy: ThreadsPanelSortBy): void => {
     if (sortPresentation === 'folder' || sortPresentation === 'date') {
       // Unreachable through the popover, which binds folder mode to
@@ -2222,27 +2151,21 @@ function HostThreadsPanel({
 }: {
   readonly host: AssistantThreadHostCapability;
 }): ReactElement {
-  const repository = useMemo(() => createHostAssistantThreadRepository(host), [host]);
+  const repository = createHostAssistantThreadRepository(host);
   const capability = getThreadGroupsCapability();
   const groupsRepository = useMemo(
     () => (capability ? createNativeThreadGroupsRepository(capability) : null),
     [capability]
   );
   const runs = useAssistantThreadHostRuns();
-  const activeThreads = useMemo(
-    () => ({
-      error: null,
-      threadIds: new Set([...runs].filter(([, run]) => run.status === 'running').map(([id]) => id)),
-    }),
-    [runs]
-  );
-  const threadsAwaitingApproval = useMemo(
-    () => ({
-      error: null,
-      threadIds: new Set([...runs].filter(([, run]) => run.needsInput).map(([id]) => id)),
-    }),
-    [runs]
-  );
+  const activeThreads = {
+    error: null,
+    threadIds: new Set([...runs].filter(([, run]) => run.status === 'running').map(([id]) => id)),
+  };
+  const threadsAwaitingApproval = {
+    error: null,
+    threadIds: new Set([...runs].filter(([, run]) => run.needsInput).map(([id]) => id)),
+  };
   if (!groupsRepository) {
     return <div role="alert">Thread groups capability unavailable</div>;
   }

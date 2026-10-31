@@ -1,14 +1,6 @@
 import type { DbModel, DbProvider } from '@brainstrike/app-state/stores/model-registry-store';
 import { Button, EmptyState, useResizeObserver } from '@brainstrike/ui';
-import {
-  type ReactNode,
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { CatalogColumnHeader } from './catalog-column-header';
 import {
   type CatalogWidthTier,
@@ -99,21 +91,15 @@ export function ModelCatalog({
   // Container query, not a viewport media query (design §5). Until the first
   // measurement lands (one frame) the catalog lays out as wide.
   const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
-  useResizeObserver(
-    rootRef,
-    useCallback((entry: ResizeObserverEntry) => {
-      setMeasuredWidth(entry.contentRect.width);
-    }, [])
-  );
+  useResizeObserver(rootRef, (entry: ResizeObserverEntry) => {
+    setMeasuredWidth(entry.contentRect.width);
+  });
   const tier: CatalogWidthTier =
     measuredWidth === null ? 'wide' : resolveCatalogWidthTier(measuredWidth);
 
   const [filters, setFilters] = useState<CatalogFilters>(DEFAULT_CATALOG_FILTERS);
   const deferredQuery = useDeferredValue(filters.query);
-  const effectiveFilters = useMemo(
-    () => ({ ...filters, query: deferredQuery }),
-    [filters, deferredQuery]
-  );
+  const effectiveFilters = { ...filters, query: deferredQuery };
   const [sort, setSort] = useState<CatalogSort | null>(null);
   const [detailsOpenIds, setDetailsOpenIds] = useState<ReadonlySet<string>>(NO_IDS);
   // One projector and one node cache per catalog instance: both are keyed on
@@ -122,10 +108,7 @@ export function ModelCatalog({
   const [project] = useState(createCatalogProjector);
   const [getNodes] = useState(createCatalogNodeCache);
 
-  const providerNames = useMemo(
-    () => new Map(providers.map((provider) => [provider.id, provider.name])),
-    [providers]
-  );
+  const providerNames = new Map(providers.map((provider) => [provider.id, provider.name]));
   const rows = useMemo(
     () =>
       models.map((model) =>
@@ -163,16 +146,15 @@ export function ModelCatalog({
   });
   // Chip names come from providerStats: its ids are the SECTION ids the
   // Providers filter selects (including UNKNOWN_PROVIDER_SECTION_ID).
-  const sectionNames = useMemo(
-    () => new Map(view.providerStats.map((stat) => [stat.providerId, stat.providerName])),
-    [view.providerStats]
+  const sectionNames = new Map(
+    view.providerStats.map((stat) => [stat.providerId, stat.providerName])
   );
   const chips = useMemo(
     () => describeActiveFilters(liveFilters, sectionNames),
     [liveFilters, sectionNames]
   );
 
-  const toggleDetails = useCallback((modelId: string): void => {
+  const toggleDetails = (modelId: string): void => {
     setDetailsOpenIds((current) => {
       const next = new Set(current);
       if (next.has(modelId)) {
@@ -182,28 +164,25 @@ export function ModelCatalog({
       }
       return next;
     });
-  }, []);
+  };
 
   // Bulk actions only ever touch SHOWN rows, and only those that would change:
   // an unchanged row must not be written (it would gain a new updated_at, and
   // Undo would then "restore" it too).
-  const handleBulk = useCallback(
-    (section: CatalogSectionModel, enabled: boolean): void => {
-      onBulkChange({
-        enabled,
-        modelIds: section.rows.flatMap((row) => (row.enabled === enabled ? [] : [row.id])),
-        scopeLabel: section.providerName,
-      });
-    },
-    [onBulkChange]
-  );
+  const handleBulk = (section: CatalogSectionModel, enabled: boolean): void => {
+    onBulkChange({
+      enabled,
+      modelIds: section.rows.flatMap((row) => (row.enabled === enabled ? [] : [row.id])),
+      scopeLabel: section.providerName,
+    });
+  };
 
-  const clearChip = useCallback((key: CatalogFilterKey): void => {
+  const clearChip = (key: CatalogFilterKey): void => {
     setFilters((current) => clearCatalogFilter(current, key));
-  }, []);
-  const clearAll = useCallback((): void => {
+  };
+  const clearAll = (): void => {
     setFilters(DEFAULT_CATALOG_FILTERS);
-  }, []);
+  };
 
   const rowActions = useMemo<CatalogRowActions>(
     () => ({

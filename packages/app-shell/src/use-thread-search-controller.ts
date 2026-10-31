@@ -2,7 +2,7 @@ import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect } from 'react';
 import { createThreadSearchService, type ThreadSearchExtraArms } from './thread-search-service';
 import { useThreadSearchStore } from './thread-search-store';
 
@@ -40,33 +40,30 @@ export function useThreadSearchController({
   resourceId,
   searchHost,
 }: UseThreadSearchControllerOptions): ThreadSearchController {
-  const service = useMemo(() => createThreadSearchService(null), []);
+  const service = createThreadSearchService(null);
   const query = useThreadSearchStore((state) => state.query);
 
-  const runSearch = useCallback(
-    (rawQuery: string) => {
-      const trimmed = rawQuery.trim();
-      const store = useThreadSearchStore.getState();
-      if (!searchHost || trimmed.length < THREAD_SEARCH_MIN_QUERY_LENGTH) {
-        return;
+  const runSearch = (rawQuery: string) => {
+    const trimmed = rawQuery.trim();
+    const store = useThreadSearchStore.getState();
+    if (!searchHost || trimmed.length < THREAD_SEARCH_MIN_QUERY_LENGTH) {
+      return;
+    }
+    const generation = store.beginSearch();
+    void (async () => {
+      try {
+        // The host's arms failing fails this search.
+        const hostArms = await searchHost(trimmed);
+        const response = await service.searchThreads(trimmed, {
+          extraArms: hostArms,
+          resourceId,
+        });
+        useThreadSearchStore.getState().resolveResults(response.results, generation);
+      } catch (error) {
+        useThreadSearchStore.getState().failSearch(toThreadSearchErrorMessage(error), generation);
       }
-      const generation = store.beginSearch();
-      void (async () => {
-        try {
-          // The host's arms failing fails this search.
-          const hostArms = await searchHost(trimmed);
-          const response = await service.searchThreads(trimmed, {
-            extraArms: hostArms,
-            resourceId,
-          });
-          useThreadSearchStore.getState().resolveResults(response.results, generation);
-        } catch (error) {
-          useThreadSearchStore.getState().failSearch(toThreadSearchErrorMessage(error), generation);
-        }
-      })();
-    },
-    [resourceId, searchHost, service]
-  );
+    })();
+  };
 
   // Debounced auto-search on query changes; a shrunken query clears results
   // (and bumps the generation) so an in-flight longer-query run cannot

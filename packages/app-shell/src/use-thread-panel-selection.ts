@@ -1,6 +1,6 @@
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { getGroupMemberIds, type ThreadListView } from '@brainstrike/assistant-data';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   buildThreadPanelVisibleRows,
   THREAD_PANEL_DISCLOSURE_INCREMENT,
@@ -57,61 +57,54 @@ export function useThreadPanelSelection({
     () => buildThreadPanelVisibleRows({ collapsedGroupIds, limitsBySectionKey, view }),
     [collapsedGroupIds, limitsBySectionKey, view]
   );
-  const selectableThreadIds = useMemo(() => new Set(threads.map((thread) => thread.id)), [threads]);
-  const selectedAvailableThreadIds = useMemo(
-    () => new Set([...selectedThreadIds].filter((threadId) => selectableThreadIds.has(threadId))),
-    [selectableThreadIds, selectedThreadIds]
+  const selectableThreadIds = new Set(threads.map((thread) => thread.id));
+  const selectedAvailableThreadIds = new Set(
+    [...selectedThreadIds].filter((threadId) => selectableThreadIds.has(threadId))
   );
 
-  const onShowMore = useCallback((sectionKey: string): void => {
+  const onShowMore = (sectionKey: string): void => {
     setLimitsBySectionKey((currentLimits) => ({
       ...currentLimits,
       [sectionKey]:
         (currentLimits[sectionKey] ?? THREAD_PANEL_INITIAL_VISIBLE_LIMIT) +
         THREAD_PANEL_DISCLOSURE_INCREMENT,
     }));
-  }, []);
+  };
 
-  const replaceSelection = useCallback(
-    (nextIds: ReadonlySet<string>): void => {
-      const selectedIds = new Set(
-        [...nextIds].filter((threadId) => selectableThreadIds.has(threadId))
+  const replaceSelection = (nextIds: ReadonlySet<string>): void => {
+    const selectedIds = new Set(
+      [...nextIds].filter((threadId) => selectableThreadIds.has(threadId))
+    );
+    setSelectedThreadIds(selectedIds);
+    if (selectedIds.size > 0) {
+      setSelectionModeOn(true);
+    }
+  };
+
+  const selectGroup = (groupId: string | null, nextState: 'checked' | 'unchecked'): void => {
+    const memberIds = getGroupMemberIds(view, groupId);
+    setSelectedThreadIds((currentIds) => {
+      const nextIds = new Set(
+        [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
       );
-      setSelectedThreadIds(selectedIds);
-      if (selectedIds.size > 0) {
-        setSelectionModeOn(true);
-      }
-    },
-    [selectableThreadIds]
-  );
-
-  const selectGroup = useCallback(
-    (groupId: string | null, nextState: 'checked' | 'unchecked'): void => {
-      const memberIds = getGroupMemberIds(view, groupId);
-      setSelectedThreadIds((currentIds) => {
-        const nextIds = new Set(
-          [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
-        );
-        for (const threadId of memberIds) {
-          if (nextState === 'checked') {
-            nextIds.add(threadId);
-          } else {
-            nextIds.delete(threadId);
-          }
+      for (const threadId of memberIds) {
+        if (nextState === 'checked') {
+          nextIds.add(threadId);
+        } else {
+          nextIds.delete(threadId);
         }
-        return nextIds;
-      });
-    },
-    [selectableThreadIds, view]
-  );
+      }
+      return nextIds;
+    });
+  };
 
-  const clearSelection = useCallback((): void => setSelectedThreadIds(new Set()), []);
-  const setSelecting = useCallback((selecting: boolean): void => {
+  const clearSelection = (): void => setSelectedThreadIds(new Set());
+  const setSelecting = (selecting: boolean): void => {
     setSelectionModeOn(selecting);
     if (!selecting) {
       setSelectedThreadIds(new Set());
     }
-  }, []);
+  };
 
   const allVisibleSelected =
     visibleRows.visibleThreadIds.length > 0 &&
@@ -120,7 +113,7 @@ export function useThreadPanelSelection({
   // The direction is derived inside the updater so the decision and the write
   // come from one snapshot, and so the callback identity does not churn on
   // every selection change.
-  const toggleVisibleSelection = useCallback((): void => {
+  const toggleVisibleSelection = (): void => {
     setSelectedThreadIds((currentIds) => {
       const nextIds = new Set(
         [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
@@ -137,7 +130,7 @@ export function useThreadPanelSelection({
       }
       return nextIds;
     });
-  }, [selectableThreadIds, visibleRows.visibleThreadIds]);
+  };
 
   return {
     allVisibleSelected,

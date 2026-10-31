@@ -23,7 +23,7 @@ import {
   useWorkspaceSearchStore,
   type WorkspaceSearchMode,
 } from '@brainstrike/workspace-search/core';
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { useOptionalRootIdentity } from './roots/root-identity-context';
 
 const logger = createLogger('WorkspaceSearchController');
@@ -154,13 +154,10 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   useEnsureModelRegistry();
   const workspaceDbRootIds = rootIdentity?.workspaceDbRootIds ?? EMPTY_DB_ROOT_IDS;
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
-  const folderName = useCallback(
-    (dbRootId: string): string => {
-      const adapterRootId = rootIdentity?.resolveAdapterRootId(dbRootId);
-      return (adapterRootId ? rootDescriptors[adapterRootId]?.displayName : undefined) ?? dbRootId;
-    },
-    [rootDescriptors, rootIdentity]
-  );
+  const folderName = (dbRootId: string): string => {
+    const adapterRootId = rootIdentity?.resolveAdapterRootId(dbRootId);
+    return (adapterRootId ? rootDescriptors[adapterRootId]?.displayName : undefined) ?? dbRootId;
+  };
   // The open folders the index serves; the others are named, never searched (BST-1988 opt-in).
   // The authorized set by content: every status poll is a new object, and a new
   // scope would send semantic availability back to "being verified".
@@ -183,20 +180,17 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   const nativeProfile = nativeDependencies?.profile ?? null;
   const nativeEmbedQuery = nativeDependencies === null ? null : nativeDependencies.embedQuery;
   const nativeProfileReason = nativeDependencies?.profileUnavailableReason;
-  const nativeExecutor = useMemo(
-    () =>
-      nativeEmbedQuery === null
-        ? null
-        : new NativeWorkspaceSearchExecutor({
-            capability: nativeCapability,
-            embedQuery: nativeEmbedQuery,
-            profile: nativeProfile,
-            ...(nativeProfileReason === undefined
-              ? {}
-              : { profileUnavailableReason: nativeProfileReason }),
-          }),
-    [nativeCapability, nativeProfile, nativeEmbedQuery, nativeProfileReason]
-  );
+  const nativeExecutor =
+    nativeEmbedQuery === null
+      ? null
+      : new NativeWorkspaceSearchExecutor({
+          capability: nativeCapability,
+          embedQuery: nativeEmbedQuery,
+          profile: nativeProfile,
+          ...(nativeProfileReason === undefined
+            ? {}
+            : { profileUnavailableReason: nativeProfileReason }),
+        });
   const retireSearchScope = useEffectEvent(() => {
     const store = useWorkspaceSearchStore.getState();
     const pending = pendingSearch?.generation === store.generation ? pendingSearch : null;
@@ -240,20 +234,17 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     };
     return closeSearch;
   }, []);
-  const availabilityScope = useMemo(
-    () =>
-      nativeEmbedQuery === null
-        ? null
-        : {
-            capability: nativeCapability,
-            profile: nativeProfile,
-            ...(nativeProfileReason === undefined
-              ? {}
-              : { profileUnavailableReason: nativeProfileReason }),
-            rootIds: indexedRootIds,
-          },
-    [nativeCapability, nativeProfile, nativeEmbedQuery, nativeProfileReason, indexedRootIds]
-  );
+  const availabilityScope =
+    nativeEmbedQuery === null
+      ? null
+      : {
+          capability: nativeCapability,
+          profile: nativeProfile,
+          ...(nativeProfileReason === undefined
+            ? {}
+            : { profileUnavailableReason: nativeProfileReason }),
+          rootIds: indexedRootIds,
+        };
   const nothingIndexed = indexedRootIds.length === 0 && unindexedFolders.length > 0;
   const semanticAvailability: NativeSemanticAvailability =
     availabilityResult?.scope === availabilityScope
@@ -299,29 +290,26 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     refreshAvailability.current?.();
   }, [availabilityScope, nativeDependencies]);
 
-  const retainIncompleteSource = useCallback(
-    (
-      generation: number,
-      mode: WorkspaceSearchMode,
-      source: NonNullable<
-        Awaited<ReturnType<NativeWorkspaceSearchExecutor['searchText']>>
-      >['incompleteSource'],
-      query: string,
-      after?: IndexerSourceObservation
-    ): void => {
-      const store = useWorkspaceSearchStore.getState();
-      if (!source || store.generation !== generation || store.query !== query) {
-        return;
-      }
-      useWorkspaceSearchStore.getState().retainNativeSearch({
-        after: null,
-        generation,
-        mode,
-        source: { ...source, query, ...(after ? { after } : {}) },
-      });
-    },
-    []
-  );
+  const retainIncompleteSource = (
+    generation: number,
+    mode: WorkspaceSearchMode,
+    source: NonNullable<
+      Awaited<ReturnType<NativeWorkspaceSearchExecutor['searchText']>>
+    >['incompleteSource'],
+    query: string,
+    after?: IndexerSourceObservation
+  ): void => {
+    const store = useWorkspaceSearchStore.getState();
+    if (!source || store.generation !== generation || store.query !== query) {
+      return;
+    }
+    useWorkspaceSearchStore.getState().retainNativeSearch({
+      after: null,
+      generation,
+      mode,
+      source: { ...source, query, ...(after ? { after } : {}) },
+    });
+  };
 
   const runners = useMemo(() => {
     if (nativeExecutor) {
@@ -380,42 +368,35 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     }
   }, [indexedRootIds, lifecycle, nativeDependencies?.status, pendingSearch, runners]);
 
-  const resolveAdapterRootId = useCallback(
-    (dbRootId: string): string | null => rootIdentity?.resolveAdapterRootId(dbRootId) ?? null,
-    [rootIdentity]
-  );
+  const resolveAdapterRootId = (dbRootId: string): string | null =>
+    rootIdentity?.resolveAdapterRootId(dbRootId) ?? null;
 
-  const onOpenFile = useCallback(
-    (
-      compositeKey: string,
-      target?: { line: number; selection?: { startLine: number; endLine: number } }
-    ): void => {
-      if (!openFileInTab) {
-        logger.error('Workspace search selected a file but the file-open seam is unavailable', {
-          compositeKey,
-        });
-        return;
-      }
-      // Surface the explorer route so the opened tab is visible.
-      setActiveTab('explorer');
-      // Forward the target so the opened tab scrolls to it — and, for a chunk,
-      // selects the block (the tab host's CodeSurface honors `line`/`selection`).
-      // Omit the options object entirely when there is no target, and the
-      // selection field when absent (exactOptionalPropertyTypes: no explicit
-      // `undefined` members).
-      if (!target) {
-        openFileInTab(compositeKey, undefined);
-        return;
-      }
-      openFileInTab(
+  const onOpenFile = (
+    compositeKey: string,
+    target?: { line: number; selection?: { startLine: number; endLine: number } }
+  ): void => {
+    if (!openFileInTab) {
+      logger.error('Workspace search selected a file but the file-open seam is unavailable', {
         compositeKey,
-        target.selection
-          ? { line: target.line, selection: target.selection }
-          : { line: target.line }
-      );
-    },
-    [openFileInTab, setActiveTab]
-  );
+      });
+      return;
+    }
+    // Surface the explorer route so the opened tab is visible.
+    setActiveTab('explorer');
+    // Forward the target so the opened tab scrolls to it — and, for a chunk,
+    // selects the block (the tab host's CodeSurface honors `line`/`selection`).
+    // Omit the options object entirely when there is no target, and the
+    // selection field when absent (exactOptionalPropertyTypes: no explicit
+    // `undefined` members).
+    if (!target) {
+      openFileInTab(compositeKey, undefined);
+      return;
+    }
+    openFileInTab(
+      compositeKey,
+      target.selection ? { line: target.line, selection: target.selection } : { line: target.line }
+    );
+  };
 
   return {
     allowTextPaging: false,

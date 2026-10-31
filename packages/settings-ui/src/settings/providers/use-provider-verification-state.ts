@@ -82,6 +82,9 @@ export function useProviderVerificationState({
     []
   );
 
+  // `verify` may change identity when a caller passes an inline closure; the
+  // one effect that fires it is LATCHED, so a new identity cannot re-trigger
+  // the probe.
   const verify = () => {
     requestSequence.current += 1;
     const sequence = requestSequence.current;
@@ -103,10 +106,6 @@ export function useProviderVerificationState({
         }
         setState({ lookup: { message: toVisibleError(error), state: 'error' }, providerId });
       });
-    // Honest dependencies rather than refs mutated during render: `verify` may
-    // change identity when a caller passes an inline closure, and the one
-    // effect that fires it is LATCHED, so an unstable identity can no longer
-    // re-trigger the probe (the loop this used to cause).
   };
 
   const lookup = state?.providerId === providerId ? state.lookup : IDLE_LOOKUP;

@@ -1,5 +1,5 @@
 import { CommandPalette, useCommandPaletteHotkey } from '@brainstrike/ui';
-import { type ReactElement, useCallback, useEffect, useMemo } from 'react';
+import { type ReactElement, useEffect, useMemo } from 'react';
 import {
   buildAppActionRegistryParts,
   buildAppCommandContext,
@@ -56,7 +56,7 @@ export function CommandPaletteHost(): ReactElement | null {
   // The action/capability/service parts are stable for the window's lifetime
   // (capability detection reads the preload bridges that exist before React
   // mounts), so building them once is correct and keeps a single source of truth.
-  const parts = useMemo(() => buildAppActionRegistryParts(), []);
+  const parts = buildAppActionRegistryParts();
 
   // Rebuild the registry + context with the captured open target. While closed,
   // openTarget is null, so this collapses to the targetless command set.
@@ -72,15 +72,12 @@ export function CommandPaletteHost(): ReactElement | null {
       }),
     [parts, handlers, openTarget, tabScope]
   );
-  const context = useMemo(
-    () => buildAppCommandContext({ parts, target: openTarget }),
-    [parts, openTarget]
-  );
+  const context = buildAppCommandContext({ parts, target: openTarget });
   const commands = useMemo(() => registry.available(context), [registry, context]);
 
-  const handleOpen = useCallback(() => {
+  const handleOpen = () => {
     open({ tabScope: resolveTabChordScope(document.activeElement) });
-  }, [open]);
+  };
 
   // Global ⌘K / Ctrl+K on web AND desktop.
   useCommandPaletteHotkey({ onOpen: handleOpen });
@@ -95,16 +92,13 @@ export function CommandPaletteHost(): ReactElement | null {
     return bridge.onOpen(handleOpen);
   }, [handleOpen]);
 
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      if (next) {
-        handleOpen();
-      } else {
-        close();
-      }
-    },
-    [handleOpen, close]
-  );
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      handleOpen();
+    } else {
+      close();
+    }
+  };
 
   return (
     <CommandPalette

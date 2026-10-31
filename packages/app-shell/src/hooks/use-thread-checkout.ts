@@ -1,7 +1,7 @@
 import type { AssistantThreadMetadata } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import { toast } from '@brainstrike/ui';
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
 
 const logger = createLogger('ThreadCheckout');
@@ -71,98 +71,95 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
   const localRootId =
     checkout.mode === 'worktree' ? (threadMetadata?.checkoutLocalRootId ?? null) : null;
 
-  const selectWorktree = useCallback(
-    async (worktree: {
-      readonly branch: string | null;
-      readonly path: string;
-      readonly worktreeId: string;
-    }) => {
-      const displayName = displayNameForPath(worktree.path);
-      const rootId = await resolveRootIdForPath(worktree.path, displayName);
-      await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
-        // Preserve the original Local root across worktree-to-worktree switches;
-        // only a transition from Local establishes a new one.
-        const rawLocalRootId = current.checkoutLocalRootId ?? current.primaryRootId;
-        // A local root that resolves to the WORKTREE we are switching into is
-        // degenerate (BST-1390): it happens after "Folder didn't follow" hands
-        // off without ever recording a real Local root (leaving `primaryRootId`
-        // still pointing at the worktree), followed by re-selecting that SAME
-        // worktree. Recording it as "the Local root to return to" would make a
-        // later hand-off return to the worktree itself. Refuse it explicitly so
-        // the user sees how to recover instead of the generic missing-root copy.
-        if (rawLocalRootId === rootId) {
-          const message =
-            "You're already in this worktree and no Local folder is recorded — add a folder first.";
-          logger.error(message, {
+  const selectWorktree = async (worktree: {
+    readonly branch: string | null;
+    readonly path: string;
+    readonly worktreeId: string;
+  }) => {
+    const displayName = displayNameForPath(worktree.path);
+    const rootId = await resolveRootIdForPath(worktree.path, displayName);
+    await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
+      // Preserve the original Local root across worktree-to-worktree switches;
+      // only a transition from Local establishes a new one.
+      const rawLocalRootId = current.checkoutLocalRootId ?? current.primaryRootId;
+      // A local root that resolves to the WORKTREE we are switching into is
+      // degenerate (BST-1390): it happens after "Folder didn't follow" hands
+      // off without ever recording a real Local root (leaving `primaryRootId`
+      // still pointing at the worktree), followed by re-selecting that SAME
+      // worktree. Recording it as "the Local root to return to" would make a
+      // later hand-off return to the worktree itself. Refuse it explicitly so
+      // the user sees how to recover instead of the generic missing-root copy.
+      if (rawLocalRootId === rootId) {
+        const message =
+          "You're already in this worktree and no Local folder is recorded — add a folder first.";
+        logger.error(message, {
+          primaryRootId: current.primaryRootId,
+          worktreeId: worktree.worktreeId,
+        });
+        throw new Error(message);
+      }
+      const checkoutLocalRootId = rawLocalRootId;
+      if (!checkoutLocalRootId) {
+        logger.error('Select worktree: current primary root id is unknown', {
+          primaryRootId: current.primaryRootId,
+          worktreeId: worktree.worktreeId,
+        });
+        throw new Error(
+          'Could not switch worktrees: the current primary folder is no longer available.'
+        );
+      }
+      const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
+      const currentPrimaryPath = current.primaryRoot?.path;
+      if (
+        demotesPrimary &&
+        (!current.primaryRoot ||
+          current.primaryRoot.rootId !== current.primaryRootId ||
+          !currentPrimaryPath)
+      ) {
+        logger.error(
+          'Select worktree: current primary root record is missing, stale, or has no path',
+          {
             primaryRootId: current.primaryRootId,
             worktreeId: worktree.worktreeId,
-          });
-          throw new Error(message);
-        }
-        const checkoutLocalRootId = rawLocalRootId;
-        if (!checkoutLocalRootId) {
-          logger.error('Select worktree: current primary root id is unknown', {
-            primaryRootId: current.primaryRootId,
-            worktreeId: worktree.worktreeId,
-          });
-          throw new Error(
-            'Could not switch worktrees: the current primary folder is no longer available.'
-          );
-        }
-        const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
-        const currentPrimaryPath = current.primaryRoot?.path;
-        if (
-          demotesPrimary &&
-          (!current.primaryRoot ||
-            current.primaryRoot.rootId !== current.primaryRootId ||
-            !currentPrimaryPath)
-        ) {
-          logger.error(
-            'Select worktree: current primary root record is missing, stale, or has no path',
-            {
-              primaryRootId: current.primaryRootId,
-              worktreeId: worktree.worktreeId,
-            }
-          );
-          throw new Error(
-            'Could not switch worktrees: the current primary folder is no longer available.'
-          );
-        }
-        const demoted =
-          demotesPrimary && current.primaryRoot && currentPrimaryPath
-            ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
-            : [];
-        const nextRoot = { displayName, path: worktree.path, rootId };
-        const secondaryRoots = [
-          ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
-          ...demoted,
-        ];
-        return {
-          binding: {
-            ...(worktree.branch ? { checkoutBranch: worktree.branch } : {}),
-            checkoutLocalRootId,
-            checkoutMode: 'worktree',
-            checkoutWorktreeId: worktree.worktreeId,
-            checkoutWorktreePath: worktree.path,
-            operatingRootDisplayName: displayName,
-            operatingRootId: rootId,
-            operatingRootPath: worktree.path,
-          },
+          }
+        );
+        throw new Error(
+          'Could not switch worktrees: the current primary folder is no longer available.'
+        );
+      }
+      const demoted =
+        demotesPrimary && current.primaryRoot && currentPrimaryPath
+          ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
+          : [];
+      const nextRoot = { displayName, path: worktree.path, rootId };
+      const secondaryRoots = [
+        ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
+        ...demoted,
+      ];
+      return {
+        binding: {
+          ...(worktree.branch ? { checkoutBranch: worktree.branch } : {}),
           checkoutLocalRootId,
-          ids: [
-            ...current.secondaryRootIds.filter((id) => id !== rootId),
-            ...demoted.map((root) => root.rootId),
-          ],
-          primaryRoot: nextRoot,
-          primaryRootId: rootId,
-          secondaryRoots,
-        };
-      });
-    },
-    [enqueueThreadFoldersWrite, resolveRootIdForPath, selectedMemoryThreadId]
-  );
+          checkoutMode: 'worktree',
+          checkoutWorktreeId: worktree.worktreeId,
+          checkoutWorktreePath: worktree.path,
+          operatingRootDisplayName: displayName,
+          operatingRootId: rootId,
+          operatingRootPath: worktree.path,
+        },
+        checkoutLocalRootId,
+        ids: [
+          ...current.secondaryRootIds.filter((id) => id !== rootId),
+          ...demoted.map((root) => root.rootId),
+        ],
+        primaryRoot: nextRoot,
+        primaryRootId: rootId,
+        secondaryRoots,
+      };
+    });
+  };
 
-  const handOffToLocal = useCallback(async () => {
+  const handOffToLocal = async () => {
     await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current): ThreadCheckoutWrite => {
       const localId = current.checkoutLocalRootId;
       if (!localId) {
@@ -212,7 +209,7 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
         secondaryRoots,
       };
     });
-  }, [enqueueThreadFoldersWrite, selectedMemoryThreadId]);
+  };
 
   return { checkout, handOffToLocal, localRootId, selectWorktree };
 }

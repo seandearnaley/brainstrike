@@ -50,7 +50,7 @@ export function useAbortControllers(): UseAbortControllersReturn {
    * If path is null, creates a root controller.
    * Cancels any existing controller for the same path/root.
    */
-  const createAbortController = useCallback((path: string | null): AbortController => {
+  const createAbortController = (path: string | null): AbortController => {
     const controller = new AbortController();
 
     if (path === null) {
@@ -64,41 +64,41 @@ export function useAbortControllers(): UseAbortControllersReturn {
     }
 
     return controller;
-  }, []);
+  };
 
   /**
    * Cancel the root loading operation.
    */
-  const cancelRootLoading = useCallback(() => {
+  const cancelRootLoading = () => {
     rootAbortControllerRef.current?.abort();
     rootAbortControllerRef.current = null;
-  }, []);
+  };
 
   /**
    * Cancel a specific child loading operation.
    */
-  const cancelChildLoading = useCallback((path: string) => {
+  const cancelChildLoading = (path: string) => {
     childAbortControllersRef.current.get(path)?.abort();
     childAbortControllersRef.current.delete(path);
-  }, []);
+  };
 
   /**
    * Cancel every child directory load while preserving an independent root load.
    */
-  const cancelAllChildLoading = useCallback(() => {
+  const cancelAllChildLoading = () => {
     for (const controller of childAbortControllersRef.current.values()) {
       controller.abort();
     }
     childAbortControllersRef.current.clear();
-  }, []);
+  };
 
   /**
    * Cancel all loading operations (root and all children).
    */
-  const cancelAllLoading = useCallback(() => {
+  const cancelAllLoading = () => {
     cancelRootLoading();
     cancelAllChildLoading();
-  }, [cancelAllChildLoading, cancelRootLoading]);
+  };
 
   /**
    * Remove a child abort controller after operation completes.
