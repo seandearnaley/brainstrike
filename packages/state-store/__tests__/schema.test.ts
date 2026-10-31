@@ -121,7 +121,7 @@ describe('state DB migrations', () => {
     try {
       db.exec(UPGRADES[0] as string);
       db.exec(
-        "INSERT INTO settings VALUES ('existing','preserved'); INSERT INTO run_events VALUES (1,'t',1,'text',NULL,'payload',0,NULL,1); PRAGMA user_version=1;"
+        "INSERT INTO settings VALUES ('existing','preserved'); INSERT INTO run_events VALUES (1,'t',1,'text',NULL,'payload',0,1); PRAGMA user_version=1;"
       );
       migrate(db);
       expect(db.prepare('SELECT value FROM settings').pluck().get()).toBe('preserved');

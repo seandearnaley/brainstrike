@@ -12,7 +12,8 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 //   purge_intent  a purge in progress, replayed at open after a crash (M0-A2 src/host.ts)
 // Version 6 adds `run_events.hydrate`: 0 keeps a row (a streamed text delta) out of the hydration read, which walks the
 // partial index of the rows that keep it. Version 13's tables are retired: the step creates nothing, so a DB that reached
-// it still opens. Version 14 adds `thread_pins`, the Threads panel's pinned threads.
+// it still opens. Version 14 adds `thread_pins`, the Threads panel's pinned threads. Version 1's `run_events.raw_count`
+// (the deleted Coalescer's chunk count) is retired the same way: a DB that has the column keeps it unread and unwritten.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
@@ -31,7 +32,6 @@ const V1 = `
     run_id TEXT,
     payload TEXT NOT NULL,
     crc INTEGER NOT NULL,
-    raw_count INTEGER,
     created_at REAL NOT NULL,
     UNIQUE (thread_id, seq)
   );

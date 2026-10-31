@@ -59,7 +59,7 @@ soak(
     const log = new RunLog(db, null);
     for (let i = 0; i < bodies.length; i += 1000) {
       log.append(
-        bodies.slice(i, i + 1000).map((b) => ['t1', 'text', null, b, null, 1]),
+        bodies.slice(i, i + 1000).map((b) => ['t1', 'text', null, b, 1] as const),
         Date.now()
       );
     }

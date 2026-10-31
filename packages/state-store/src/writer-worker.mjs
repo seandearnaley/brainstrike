@@ -472,7 +472,7 @@ async function handle(m) {
         for (const row of data.rows) {
           const event = JSON.parse(row.payload);
           db.prepare(
-            'INSERT INTO run_events(thread_id,seq,type,run_id,payload,crc,raw_count,created_at) VALUES (?,?,?,?,?,?,?,?)'
+            'INSERT INTO run_events(thread_id,seq,type,run_id,payload,crc,created_at) VALUES (?,?,?,?,?,?,?)'
           ).run(
             row.threadId,
             row.seq,
@@ -480,7 +480,6 @@ async function handle(m) {
             typeof event.runId === 'string' ? event.runId : null,
             row.payload,
             row.crc,
-            row.rawCount,
             row.createdAt
           );
           db.prepare(

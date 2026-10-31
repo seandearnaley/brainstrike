@@ -9,9 +9,9 @@ import { checkpointTruncate } from './sqlite-checkpoint.mjs';
 
 /** @typedef {import('better-sqlite3').Database} Db */
 /** @typedef {{ kind: 'ok'; tail: number } | { kind: 'damaged'; atSeq: number; error: string }} ThreadStatus */
-/** @typedef {{ seq: number; payload: string; crc: number; rawCount: number | null; ts: number }} Row */
-/** One appended row: [threadId, type, runId, body (event JSON without seq), rawCount, hydrate (0 | 1)]. */
-/** @typedef {[string, string, string | null, string, number | null, 0 | 1]} AppendRow */
+/** @typedef {{ seq: number; payload: string; crc: number; ts: number }} Row */
+/** One appended row: [threadId, type, runId, body (event JSON without seq), hydrate (0 | 1)]. */
+/** @typedef {[string, string, string | null, string, 0 | 1]} AppendRow */
 /** @typedef {{ threadId: string; createdAt: number; updatedAt: number; rows: Row[]; damage: ThreadDamage | null }} HydrationThread */
 /** @typedef {{ log: number; checkpointed: number; busy: number }} CheckpointRow */
 
@@ -148,17 +148,17 @@ export class RunLog {
       tails.set(t, s.tail);
     }
     const ins = this.db.prepare(
-      'INSERT INTO run_events (thread_id, seq, type, run_id, payload, crc, raw_count, created_at, hydrate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO run_events (thread_id, seq, type, run_id, payload, crc, created_at, hydrate) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
     /** @type {number[]} */
     const seqs = [];
     const next = new Map(tails);
     this.db.transaction(() => {
-      for (const [t, type, runId, body, rawCount, hydrate] of rows) {
+      for (const [t, type, runId, body, hydrate] of rows) {
         const seq = (next.get(t) ?? 0) + 1;
         next.set(t, seq);
         const payload = withSeq(seq, body);
-        ins.run(t, seq, type, runId, payload, crcOf(payload), rawCount, now, hydrate);
+        ins.run(t, seq, type, runId, payload, crcOf(payload), now, hydrate);
         this.db
           .prepare(
             'INSERT INTO threads (id,last_seq,created_at,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seq=excluded.last_seq, updated_at=excluded.updated_at'
@@ -202,7 +202,7 @@ export class RunLog {
       const it = /** @type {IterableIterator<Row>} */ (
         this.db
           .prepare(
-            'SELECT seq, payload, crc, raw_count AS rawCount, created_at AS ts FROM run_events WHERE thread_id = ? AND seq >= ? AND seq <= ? ORDER BY seq LIMIT ?'
+            'SELECT seq, payload, crc, created_at AS ts FROM run_events WHERE thread_id = ? AND seq >= ? AND seq <= ? ORDER BY seq LIMIT ?'
           )
           .iterate(id, from, last, limit)
       );
@@ -255,7 +255,7 @@ export class RunLog {
       'SELECT count(*) AS n, max(seq) AS hi FROM run_events WHERE thread_id = ?'
     );
     const marked = this.db.prepare(
-      'SELECT seq, payload, crc, raw_count AS rawCount, created_at AS ts FROM run_events WHERE thread_id = ? AND hydrate = 1 AND seq <= ? ORDER BY seq'
+      'SELECT seq, payload, crc, created_at AS ts FROM run_events WHERE thread_id = ? AND hydrate = 1 AND seq <= ? ORDER BY seq'
     );
     return threads.map(({ id, last, createdAt, updatedAt }) => ({
       createdAt,
