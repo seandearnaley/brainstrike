@@ -9,6 +9,7 @@
  * using `appMenu`/`windowMenu`, whose default submenus carry Close.
  */
 export const APP_MENU_IDS = {
+  openSourceLicenses: 'help-open-source-licenses',
   releaseNotes: 'help-release-notes',
   settings: 'app-settings',
   showCrashReports: 'help-show-crash-reports',
@@ -84,6 +85,8 @@ export interface HelpMenuDeps {
   /** Windows and Linux have no app menu, so About sits at the end of Help. */
   readonly includeAbout: boolean;
   readonly onOpenReleaseNotes: () => void;
+  /** Opens the notices of the third-party software the app ships. */
+  readonly onOpenSourceLicenses: () => void;
   /** Opens the folder of local minidumps, so a user can attach one to a report. */
   readonly onShowCrashReports: () => void;
   readonly onShowLogs: () => void;
@@ -92,6 +95,7 @@ export interface HelpMenuDeps {
 export function buildHelpMenuTemplate({
   includeAbout,
   onOpenReleaseNotes,
+  onOpenSourceLicenses,
   onShowCrashReports,
   onShowLogs,
 }: HelpMenuDeps): Electron.MenuItemConstructorOptions {
@@ -104,6 +108,11 @@ export function buildHelpMenuTemplate({
         click: onShowCrashReports,
         id: APP_MENU_IDS.showCrashReports,
         label: 'Show Crash Reports',
+      },
+      {
+        click: onOpenSourceLicenses,
+        id: APP_MENU_IDS.openSourceLicenses,
+        label: 'Open-Source Licenses',
       },
       ...(includeAbout
         ? ([
