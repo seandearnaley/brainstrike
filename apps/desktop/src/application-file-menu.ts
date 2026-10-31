@@ -5,10 +5,11 @@ import path from 'node:path';
  * unit under test — labels, accelerators, ids, the recents projection and the
  * click routing — without importing `main.ts`'s ~850-line boot closure.
  *
- * Only THIS submenu is extracted (ruling M1): the other three close over
+ * Edit, View and Developer stay in `main.ts` (ruling M1): they close over
  * `logger`, `noteNextWindowReload`, `resetDesktopDatabaseProfile` and a
  * module-level in-flight flag, and extracting them would be a refactor of a
- * hot file for zero W6 coverage.
+ * hot file for zero W6 coverage. The platform menus around them live in
+ * `application-menu.ts`.
  *
  * Ids exist so a desktop E2E can drive the items through
  * `Menu.getApplicationMenu().getMenuItemById(...)` — the application menu is
@@ -27,6 +28,8 @@ export const FILE_MENU_IDS = {
 const FILE_MENU_RECENT_LIMIT = 10;
 
 export interface FileMenuDeps {
+  /** Items after a separator at the end: Settings… and Quit where there is no app menu. */
+  readonly closingItems?: readonly Electron.MenuItemConstructorOptions[];
   /**
    * `targetWindow` is the window Electron hands the click handler (the
    * focused window at click time). Passed through — the same
@@ -45,6 +48,7 @@ export interface FileMenuDeps {
 }
 
 export function buildFileMenuTemplate({
+  closingItems = [],
   onOpenFolder,
   onOpenRecentPath,
   recentPaths,
@@ -90,6 +94,9 @@ export function buildFileMenuTemplate({
         label: 'Open Recent',
         submenu: recentSubmenu,
       },
+      ...(closingItems.length > 0
+        ? ([{ type: 'separator' }, ...closingItems] satisfies Electron.MenuItemConstructorOptions[])
+        : []),
     ],
   };
 }
