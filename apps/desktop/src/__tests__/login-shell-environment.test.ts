@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -43,6 +43,15 @@ function runCommand(
     child.on('error', reject);
     child.on('close', (code) => resolve({ code, stdout }));
   });
+}
+
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 describe('resolveLoginShellEnvironment', () => {
@@ -92,6 +101,30 @@ describe('resolveLoginShellEnvironment', () => {
         shell: '/bin/bash',
         status: 'failed',
       });
+    }
+  );
+
+  // The stated per-OS exception: docs/agents/platform-contracts.md, "Login-shell environment".
+  it.skipIf(process.platform === 'win32')(
+    'stops a login shell that hangs, with what it started, and reports it',
+    async () => {
+      const home = await homeWithLoginProfile(() => 'sleep 30 & echo $! > "$HOME/sleeper"\nwait\n');
+
+      const shellEnvironment = await resolveLoginShellEnvironment({
+        argv: [],
+        env: { HOME: home, PATH: LAUNCHD_PATH, SHELL: '/bin/bash' },
+        execPath: process.execPath,
+        platform: process.platform,
+        timeoutMs: 500,
+      });
+
+      expect(shellEnvironment).toEqual({
+        message: 'The login shell /bin/bash did not print its environment within 0.5 s.',
+        shell: '/bin/bash',
+        status: 'failed',
+      });
+      const sleeper = Number((await readFile(path.join(home, 'sleeper'), 'utf8')).trim());
+      await expect.poll(() => isRunning(sleeper)).toBe(false);
     }
   );
 

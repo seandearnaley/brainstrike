@@ -24,9 +24,14 @@ a development path or system installation is not a packaged fallback.
 
 Windows keeps the Explorer environment; Main does not resolve a login shell on
 win32 (the same as VS Code's resolver). This is the one stated exception to the
-rule that every test runs on every OS: the two `login-shell-environment.test.ts`
+rule that every test runs on every OS: the `login-shell-environment.test.ts`
 tests that start a real POSIX login shell are skipped on Windows, and the
 `skipped: windows` outcome is asserted on every OS.
+
+A shell that has not printed its environment within ten seconds (VS Code's
+bound) is stopped with its whole process group, and launch continues with the
+launch environment and a `failed` status Main logs and the environment report
+shows.
 
 ## Reset and physical lifetime
 
