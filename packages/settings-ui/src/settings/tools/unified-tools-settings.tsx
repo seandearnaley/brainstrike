@@ -256,10 +256,9 @@ export function UnifiedToolsSettings({
       }
     } catch (err) {
       setReloadError(err instanceof Error ? err.message : 'Failed to reload tool preferences');
-    } finally {
-      reloadPendingRef.current = false;
-      setReloadPending(false);
     }
+    reloadPendingRef.current = false;
+    setReloadPending(false);
   }, [operations, refreshTools, onToolsChanged]);
 
   const handleErrorBoundaryReset = useCallback(() => {
