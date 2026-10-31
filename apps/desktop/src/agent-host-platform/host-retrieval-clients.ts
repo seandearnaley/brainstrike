@@ -91,7 +91,7 @@ export function hostQueryEmbedding(
 ): NonNullable<RetrievalToolDependencies['queryEmbedder']> {
   return (payload, signal) => mainQueryEmbedding(request, payload, signal);
 }
-/** The retrieval catalog over Main's PGlite; the host has no legacy similarity path. */
+/** The retrieval catalog over Main's SQLite catalog; the host has no legacy similarity path. */
 export function hostRetrievalStore(request: MainRequest, threadId: string): RetrievalStore {
   const read = async <T extends Schema.ConstraintDecoder<unknown>>(
     schema: T,
