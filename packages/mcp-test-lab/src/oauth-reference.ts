@@ -858,10 +858,7 @@ export function createMcpOAuthReferenceHandler(
       if (closed) {
         throw new Error('MCP OAuth reference handler is closed');
       }
-      let finishRequest: (() => void) | undefined;
-      const requestFinished = new Promise<void>((resolve) => {
-        finishRequest = resolve;
-      });
+      const { promise: requestFinished, resolve: finishRequest } = Promise.withResolvers<void>();
       inFlightRequests.add(requestFinished);
       try {
         const url = new URL(request.url);
@@ -883,7 +880,7 @@ export function createMcpOAuthReferenceHandler(
         return await downstream.fetch(boundedRequest, { ...requestOptions, authInfo: auth });
       } finally {
         inFlightRequests.delete(requestFinished);
-        finishRequest?.();
+        finishRequest();
       }
     },
     notify: downstream.notify,
