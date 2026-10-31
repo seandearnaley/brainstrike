@@ -4,9 +4,7 @@
     "test": {
       // src/adapters/private-credential-file.ts imports
       // @brainstrike/secure-fs-native statically. No unit suite reaches it
-      // today: they pass with the binding removed. The edge is preventive. The
-      // contract in scripts/__tests__/native-addon-build-uncached-contract.test.mjs
-      // requires it for any static import.
+      // today: they pass with the binding removed. The edge is preventive.
       // The add-on's uncached `node-gyp rebuild` first removes build/, so a unit
       // suite that comes to load it would otherwise race that rebuild (BST-2243).
       // On Windows the unit suites open stores, and RootLock reads process start

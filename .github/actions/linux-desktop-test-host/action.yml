@@ -9,10 +9,7 @@ description: >-
 # ONE host, two lanes. Nightly Coverage gained xvfb in #3813 while the Unit lane
 # kept its own fence-only copy, so the first hosted Unit run (Test run
 # 39066362173) failed desktop's integration proofs at launch ("Missing X server
-# or $DISPLAY"). Both lanes call this
-# action, so they cannot drift again; scripts/__tests__/
-# linux-desktop-test-host-contract.test.mjs fails any lane that runs desktop's
-# integration without it.
+# or $DISPLAY"). Both lanes call this action, so they cannot drift again.
 runs:
   using: composite
   steps:

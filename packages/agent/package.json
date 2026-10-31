@@ -2,7 +2,7 @@
   "name": "@brainstrike/agent",
   "version": "0.1.0",
   "type": "module",
-  "//@ai-sdk/anthropic": "PINNED EXACTLY on purpose. ai-sdk-anthropic-mirror-contract.test.mjs asserts the three mirrors annotate the INSTALLED version, so a caret range lets a routine lockfile refresh float to 4.0.50 and redden the Unit lane on a doc comment rather than on real drift. An exact pin confines that to bump PRs where someone is already re-deriving the mirrors. REVIEW TRIGGER: raise it in a deliberate bump, re-run the contract, and correct the three annotations in the same change. Cost, stated: this forfeits automatic patch and security uptake for this package.",
+  "//@ai-sdk/anthropic": "PINNED EXACTLY on purpose. Three hand-copied mirrors (packages/types assistant-provider-settings, assistant-contract runtime-data, agent types) name the installed version, and nothing checks them against it. An exact pin confines a change to a deliberate bump PR. REVIEW TRIGGER: raise it in a deliberate bump, re-read the provider's thinking and effort shapes, and correct the three mirrors in the same change. Cost, stated: this forfeits automatic patch and security uptake for this package.",
   "//@ai-sdk/openai": "Exact pin: 4.0.96 uses the declared openai.tool_search provider identity for hosted history (vercel/ai#19754, shipped in 4.0.50). The old regression fixture omitted that declaration; keep it explicit and preserve all distinct call/output ID assertions and ordinary-function controls when bumping. Keep the Mastra hydration compatibility processor. Production discovery remains Brainstrike-owned. Resolve this workspace copy, not Bedrock's nested OpenAI client; preserve the undici security floor.",
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "catalog:",

@@ -2,7 +2,7 @@
 // `test:integration` runs it through the root uncached `test:integration` task.
 // It reuses the base config and REPLACES only `test.include` with the
 // integration suffix, mirroring the pure lane's `--exclude`, so the two lanes
-// partition the suite (scripts/__tests__/integration-suffix-partition.test.mjs).
+// partition the suite.
 import { defineConfig } from 'vitest/config';
 import baseConfig from './vitest.config.mts';
 

@@ -102,7 +102,7 @@ export function createOpenRouterStrictContentFetch(baseFetch?: typeof fetch): ty
  *
  * Resolution parity with the built-in models.dev gateway is deliberate:
  * The qualified pair is Mastra 1.78.0's vendored 2.10.0 and the native V4
- * provider 3.1.0 (guarded by `openrouter-provider-mirror-contract.test.mjs`).
+ * provider 3.1.0; re-check the pair when either is upgraded.
  * Both use the same base URL (`OPENROUTER_BASE_URL` env override honored), missing-auth
  * phrasing — the only delta is the strict-content fetch, pinned by the
  * request-equivalence spec. Everything else the router does
