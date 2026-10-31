@@ -637,8 +637,12 @@ function createRestoredQuerySelectionSnapshot(args: {
 }
 
 /**
- * Saves the Explorer snapshot in the renderer's `localStorage` and the root in Main's ledgers,
+ * Saves the root in Main's ledgers and the Explorer snapshot in the renderer's `localStorage`,
  * reloads so the document restores both as a launch would, then closes the app for a restart.
+ *
+ * The running document owns the snapshot key: the reload flushes its in-memory state (ADR-0026
+ * R1), so a value written behind its back is overwritten. The snapshot is therefore written by
+ * an init script at the start of the replacement document, before its store hydrates.
  */
 async function seedRestoredState(
   electronHarness: SeedableElectronHarness,
@@ -646,12 +650,6 @@ async function seedRestoredState(
   persistedState: unknown
 ): Promise<void> {
   const page = await electronHarness.ensureWindow();
-  await page.evaluate(
-    ({ key, value }) => {
-      localStorage.setItem(key, value);
-    },
-    { key: FILE_EXPLORER_STORAGE_KEY, value: JSON.stringify(persistedState) }
-  );
   // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this entry, so the
   // restored root carries the same RootId the snapshot is keyed by.
   await seedMainLedgers(page, {
@@ -660,6 +658,14 @@ async function seedRestoredState(
       { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
     ]),
   });
+  await page.addInitScript(
+    ({ key, value }) => {
+      if (window.top === window) {
+        localStorage.setItem(key, value);
+      }
+    },
+    { key: FILE_EXPLORER_STORAGE_KEY, value: JSON.stringify(persistedState) }
+  );
   await reloadRenderer(page, 'file-explorer-selection: seed restored state');
   await electronHarness.closeForStateSeeding();
 }
