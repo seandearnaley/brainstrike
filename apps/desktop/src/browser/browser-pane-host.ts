@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/logging';
 import { type BrowserWindow, type WebContents, WebContentsView } from 'electron';
+import { attachPageContextMenu } from '../page-context-menu';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { pushToRenderer } from '../platform/desktop-ipc-push';
 import { type AgentBrowsingRoute, createAgentBrowsingRoute } from './agent-browsing-route';
@@ -87,6 +88,7 @@ function createPaneView(partition: string, hostZoomFactor: () => number): BuiltP
     },
   });
   const { webContents } = view;
+  attachPageContextMenu(webContents);
   if (partition === AGENT_BROWSER_PARTITION) {
     // WebRTC would otherwise reach LAN addresses over UDP, around the proxy.
     webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
