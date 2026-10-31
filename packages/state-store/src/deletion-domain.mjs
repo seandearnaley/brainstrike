@@ -1,7 +1,7 @@
 // @ts-check
 // The writer's side of purge and thread deletion, run by the desktop writer worker. Each function runs on the writing
 // connection; the orchestration (`state-deletion.ts`) calls them in its order, between the derived index's steps.
-import { executeMemoryRequest } from './memory-domain.mjs';
+import { executeMemoryRequest, threadMemoryResources } from './memory-domain.mjs';
 
 /**
  * Records a purge or thread delete before it starts, so the next open completes one a crash interrupted. A retry
@@ -19,12 +19,7 @@ export function recordDeletionIntent(db, intent) {
     intent.seq,
     intent.hashes,
     intent.operation === 'thread' ? 'thread' : 'event',
-    JSON.stringify(
-      db
-        .prepare('SELECT DISTINCT resource_id FROM brainstrike_memory_entities WHERE thread_id=?')
-        .pluck()
-        .all(intent.threadId)
-    )
+    JSON.stringify(threadMemoryResources(db, intent.threadId))
   );
   const row = /** @type {{ hashes: string }} */ (
     db
@@ -71,6 +66,18 @@ export function intentMemoryResources(db, threadId, seq) {
     throw new Error('Memory erasure requires the existing purge intent');
   }
   return JSON.parse(intent.memory_resources);
+}
+
+/**
+ * Every memory resource a recorded intent names: the memory lanes a replay enters.
+ * @param {import('better-sqlite3').Database} db
+ * @returns {string[]}
+ */
+export function allIntentMemoryResources(db) {
+  const recorded = /** @type {string[]} */ (
+    db.prepare('SELECT memory_resources FROM purge_intent').pluck().all()
+  );
+  return [...new Set(recorded.flatMap((resources) => JSON.parse(resources)))];
 }
 
 /**

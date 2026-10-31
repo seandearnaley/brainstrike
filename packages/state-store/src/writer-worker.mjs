@@ -36,6 +36,7 @@ import { clearContentRows } from './clear-content.mjs';
 import { executeCollectionRequest } from './collection-domain.mjs';
 import {
   acknowledgeSourceGc,
+  allIntentMemoryResources,
   deleteDeletionIntent,
   deleteThreadTruth,
   deletionIntents,
@@ -47,7 +48,11 @@ import {
   sourceGcCandidates,
 } from './deletion-domain.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
-import { executeMemoryRequest, sharedObservations } from './memory-domain.mjs';
+import {
+  executeMemoryRequest,
+  sharedObservations,
+  threadMemoryResources,
+} from './memory-domain.mjs';
 import { executeModelChoiceRequest } from './model-choice-domain.mjs';
 import { isCorrupt, RunLog, ThreadDamage, ThreadReadOnlyRefusal } from './run-log.mjs';
 import { blobsOf } from './run-log-format.mjs';
@@ -364,6 +369,13 @@ function handle(m) {
             m['detached']
           )
         ),
+      };
+    case 'memory-resources':
+      return {
+        resources:
+          typeof m['threadId'] === 'string'
+            ? threadMemoryResources(db, m['threadId'])
+            : allIntentMemoryResources(db),
       };
     case 'memory-shared-observations':
       return {

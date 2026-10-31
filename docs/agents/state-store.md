@@ -31,7 +31,9 @@ and reset. The worker only calculates: it opens no database and writes nothing.
 StateStore reads the input, the worker returns a delta, and the delta commits on
 the writer's write chain only if the resource's revision is still the one the
 input was read at. One resource's memory mutations run one at a time, while
-appends and other resources go on. A conflict, a crash or a module that fails to
+appends and other resources go on; purge, thread deletion and their replay enter
+the lanes of the thread's resources first, so earlier memory work commits first
+and later work reads what they leave. A conflict, a crash or a module that fails to
 load fails that request visibly (`MemoryCalculatorError` for the worker); there
 is no retry and no fallback to the writer, and the next request starts a fresh
 worker. Without `memoryCalculatorModule`, native requests are refused.

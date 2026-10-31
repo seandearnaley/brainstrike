@@ -118,7 +118,7 @@ test('deleting a thread keeps the shared working memory and observations, as leg
   }
 });
 
-test('deletion completes during a held native calculation, whose write then fails; a retired thread cannot recreate resource WM', async () => {
+test('held native calculation stays ahead of deletion; retired thread cannot recreate resource WM', async () => {
   const root = freshDir('m3-memory-held');
   let indexer = new TruthIndexer(root);
   let store = await StateStore.open(root, { indexer, memoryCalculatorModule: calculator });
@@ -141,8 +141,8 @@ test('deletion completes during a held native calculation, whose write then fail
           resource: {
             createdAt: new Date('2026-10-06T19:00:00Z').toISOString(),
             id: resourceId,
-            updatedAt: new Date('2026-10-07T19:00:00Z').toISOString(),
-            workingMemory: 'held working memory',
+            updatedAt: new Date('2026-10-06T19:00:00Z').toISOString(),
+            workingMemory: MEMORY_ERASURE_SECRET,
           },
         },
       ],
@@ -156,13 +156,18 @@ test('deletion completes during a held native calculation, whose write then fail
     // hosted-like 2-vCPU throttle, past poll's 1 s default. A test budget, not
     // a product bound.
     await expect.poll(() => existsSync(entered), { timeout: 30_000 }).toBe(true);
-    // The calculation holds neither the writer nor its write chain.
-    await store.deleteThread(threadId);
-    expect(await store.threads()).toEqual([]);
+    let deleted = false;
+    const deletion = store.deleteThread(threadId).then(() => {
+      deleted = true;
+    });
+    await store.memory({ operation: 'read', resourceId });
+    expect(deleted).toBe(false);
+    expect(await store.threads()).toEqual([threadId]);
     await writeFile(release, 'release');
-    await expect(held).rejects.toThrow(/retired/u);
-    // Deleting the thread keeps the shared working memory and observations, as
-    // legacy did; the held write changed nothing.
+    await held;
+    await deletion;
+    // The held write committed ahead of the deletion; deleting the thread keeps
+    // the shared working memory and observations, as legacy did.
     const kept = (await store.memory({ operation: 'read', resourceId })).entities;
     expect(kept.map(({ kind, threadId: owner }) => ({ kind, owner }))).toEqual(
       expect.arrayContaining([
@@ -171,9 +176,6 @@ test('deletion completes during a held native calculation, whose write then fail
       ])
     );
     expect(kept).toHaveLength(2);
-    expect(kept.find(({ kind }) => kind === 'resource')?.payload).toMatchObject({
-      workingMemory: MEMORY_ERASURE_SECRET,
-    });
     await expect(
       store.memory({
         arguments: [{ resource: { id: resourceId, workingMemory: MEMORY_ERASURE_SECRET } }],

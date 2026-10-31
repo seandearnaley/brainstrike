@@ -9,7 +9,7 @@ How Mastra Memory persists through the host StateStore. The host (StateStore wri
   - A memory thread row requires its canonical `threads` row to be committed first.
   - Database reset removes this domain with everything else.
 - Port: the writer exposes `MemoryDomainPort.memory(request): Promise<MemorySnapshot>`.
-  - Native requests are calculated on StateStore's memory calculator worker, never on the writer thread; the writer commits their delta with `executeMemoryRequest` against the revision the snapshot was read at. One resource's mutations run one at a time; appends and other resources go on during a calculation ([state store](../../../../docs/agents/state-store.md)).
+  - Native requests are calculated on StateStore's memory calculator worker, never on the writer thread; the writer commits their delta with `executeMemoryRequest` against the revision the snapshot was read at. One resource's mutations, and the purge or thread deletion that erases from it, run one at a time; appends and other resources go on during a calculation ([state store](../../../../docs/agents/state-store.md)).
   - The calculator is [`memory-storage-calculator.ts`](memory-storage-calculator.ts). The worker also uses its `countObservationTokens` to detach a deleted thread's sections from shared observations. Requests are data-only: no client-supplied URL or function crosses the port.
 - Calculation:
   - Uses Mastra core's public `InMemoryStore` as a transient calculator; opens no file or connection and seeds no transcript.

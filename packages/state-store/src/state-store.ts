@@ -213,9 +213,11 @@ export class StateStore implements MemoryDomainPort {
       }
       if (ready.damage === null) {
         const acquired = store;
-        await acquired.run(async () => {
-          await acquired.deletion.recover();
-        });
+        await acquired.withMemoryLanes(await acquired.memoryResources(), () =>
+          acquired.run(async () => {
+            await acquired.deletion.recover();
+          })
+        );
       }
       return store;
     } catch (e) {
@@ -506,8 +508,9 @@ export class StateStore implements MemoryDomainPort {
    * Native metadata/WM/OM commit on this same writer and write chain; transcript stays in the log. Reads run directly.
    * One resource's mutations run one at a time, in arrival order. A native request reads the resource's snapshot,
    * the memory calculator worker calculates its delta, and the delta commits on the write chain only while the
-   * resource's revision is still the one it read; appends and other resources go on during the calculation. A write
-   * that changed the resource in between (a thread deletion) fails the request visibly, with no retry.
+   * resource's revision is still the one it read; appends and other resources go on during the calculation. Purge and
+   * thread deletion enter the same lanes. The revision check stays the backstop: a write that changed the resource in
+   * between fails the request visibly, with no retry.
    */
   memory(request: MemoryDomainRequest): Promise<MemorySnapshot> {
     if (request.operation === 'read') {
@@ -528,6 +531,23 @@ export class StateStore implements MemoryDomainPort {
       }
       return this.enqueue(() => this.memoryWrite(request));
     });
+  }
+
+  /**
+   * Purge and thread deletion change their thread's memory resources on the write chain. They enter those resources'
+   * lanes first, so a memory request admitted earlier commits first and one admitted later reads what they leave.
+   * Lanes are entered in sorted order; only these multi-resource holders take more than one.
+   */
+  private withMemoryLanes<T>(resourceIds: readonly string[], work: () => Promise<T>): Promise<T> {
+    const [first, ...rest] = [...new Set(resourceIds)].sort();
+    return first === undefined
+      ? work()
+      : this.memoryLane(first, () => this.withMemoryLanes(rest, work));
+  }
+
+  /** The thread's memory resources, or with no thread every resource a recorded deletion intent names. */
+  private async memoryResources(threadId?: string): Promise<string[]> {
+    return (await this.call({ op: 'memory-resources', threadId }))['resources'] as string[];
   }
 
   private memoryLane<T>(resourceId: string, work: () => Promise<T>): Promise<T> {
@@ -704,12 +724,16 @@ export class StateStore implements MemoryDomainPort {
    * Purge event `seq`: when this resolves no byte of it is left in the state DB files, the derived store or the blobs
    * (M0-A2 item 1). An intent is recorded first, so a crash at any point is completed by the next open.
    */
-  purge(threadId: string, seq: number): Promise<PurgeReport> {
-    return this.deletion.purge(threadId, seq);
+  async purge(threadId: string, seq: number): Promise<PurgeReport> {
+    return this.withMemoryLanes(await this.memoryResources(threadId), () =>
+      this.deletion.purge(threadId, seq)
+    );
   }
 
-  deleteThread(threadId: string): Promise<string[]> {
-    return this.deletion.deleteThread(threadId);
+  async deleteThread(threadId: string): Promise<string[]> {
+    return this.withMemoryLanes(await this.memoryResources(threadId), () =>
+      this.deletion.deleteThread(threadId)
+    );
   }
 
   /** The writer worker's deletion ops (`deletion-domain.mjs`), as the shared orchestration calls them. */

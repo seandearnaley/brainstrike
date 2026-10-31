@@ -118,6 +118,19 @@ function applyChange(db, resourceId, change) {
 }
 
 /**
+ * The memory resources holding the thread's own entities.
+ * @param {import('better-sqlite3').Database} db @param {string} threadId
+ * @returns {string[]} */
+export function threadMemoryResources(db, threadId) {
+  return /** @type {string[]} */ (
+    db
+      .prepare('SELECT DISTINCT resource_id FROM brainstrike_memory_entities WHERE thread_id=?')
+      .pluck()
+      .all(threadId)
+  );
+}
+
+/**
  * Each resource's shared observation records with its revision: the input the
  * memory calculator detaches a deleted thread's sections from.
  * @param {import('better-sqlite3').Database} db @param {readonly string[]} resourceIds

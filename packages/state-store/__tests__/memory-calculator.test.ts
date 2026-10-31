@@ -27,8 +27,7 @@ afterEach(async () => {
 
 /**
  * A calculator module. `['hold', id]` announces `{ entered: id }` and waits for `{ release: id }`; `['crash']` ends
- * its worker. Each calculation appends its id to the resource's `items`, or with `['stale', id]` rewrites the shared
- * observation record it read.
+ * its worker. Each calculation appends its id to the resource's `items`.
  */
 function calculatorModule(root: string, channelName: string): string {
   const path = join(root, 'calculator.mjs');
@@ -40,14 +39,10 @@ channel.onmessage = (event) => waiting.get(event.data.release)?.();
 export async function calculateMemoryMutation(snapshot, request) {
   const [action, id] = request.arguments;
   if (action === 'crash') process.exit(3);
-  if (action === 'hold' || action === 'stale') {
+  if (action === 'hold') {
     const released = new Promise((resolve) => waiting.set(id, resolve));
     channel.postMessage({ entered: id });
     await released;
-  }
-  if (action === 'stale') {
-    const record = snapshot.entities.find((entity) => entity.kind === 'observation');
-    return { changes: [{ operation: 'put', entity: { ...record, payload: { ...record.payload, touched: id } } }], value: null };
   }
   const resource = snapshot.entities.find((entity) => entity.kind === 'resource');
   const items = [...(resource?.payload.items ?? []), id];
@@ -99,8 +94,18 @@ async function open(tag: string, options: { indexer?: boolean } = {}): Promise<H
   };
 }
 
-const native = (store: StateStore, args: readonly MemoryJson[]): Promise<MemorySnapshot> =>
-  store.memory({ arguments: args, method: 'saveResource', operation: 'native', resourceId });
+const native = (
+  store: StateStore,
+  args: readonly MemoryJson[],
+  ownerThreadId?: string
+): Promise<MemorySnapshot> =>
+  store.memory({
+    arguments: args,
+    method: 'saveResource',
+    operation: 'native',
+    resourceId,
+    ...(ownerThreadId === undefined ? {} : { ownerThreadId }),
+  });
 
 const items = async (store: StateStore): Promise<unknown> =>
   (await store.memory({ operation: 'read', resourceId })).entities.find(
@@ -137,7 +142,7 @@ test("one resource's concurrent memory mutations each build on the last; none is
   expect(await items(store)).toEqual(['a', 'b']);
 });
 
-test('a thread deletion during a calculation is kept: the stale delta fails and writes nothing', async () => {
+test("deleting one thread waits for another thread's calculation on the shared resource; both writes are kept", async () => {
   const { entered, release, store } = await open('calc-delete', { indexer: true });
   const deleted = 'deleted-thread';
   await store.append([{ event: { type: 'probe' }, threadId: deleted }]);
@@ -173,13 +178,21 @@ test('a thread deletion during a calculation is kept: the stale delta fails and 
     operation: 'commit',
     resourceId,
   });
-  const stale = native(store, ['stale', 's']);
-  await entered('s');
-  await store.deleteThread(deleted);
-  release('s');
-  // The writer's error crosses the worker boundary as its message.
-  await expect(stale).rejects.toThrow(/Memory revision conflict: expected 1, actual 2/u);
-  const { entities } = await store.memory({ operation: 'read', resourceId });
+  const other = native(store, ['hold', 'b']);
+  await entered('b');
+  let deletionDone = false;
+  const deletion = store.deleteThread(deleted).then(() => {
+    deletionDone = true;
+  });
+  // The run log is not held by either.
+  expect(await store.append([{ event: { type: 'probe' }, threadId: 'other' }])).toHaveLength(1);
+  expect(deletionDone).toBe(false);
+  release('b');
+  // Admitted first, committed first: the deletion then erases on top of it.
+  expect((await other).revision).toBe(2);
+  await deletion;
+  const { entities, revision } = await store.memory({ operation: 'read', resourceId });
+  expect(revision).toBe(3);
   const kept = section('other', 'keep me');
   expect(entities).toEqual([
     {
@@ -194,7 +207,15 @@ test('a thread deletion during a calculation is kept: the stale delta fails and 
       },
       threadId: null,
     },
+    {
+      id: resourceId,
+      kind: 'resource',
+      payload: { id: resourceId, items: ['b'] },
+      threadId: null,
+    },
   ]);
+  // A request admitted after the deletion reads what it left: its retired thread cannot write.
+  await expect(native(store, ['put', 'late'], deleted)).rejects.toThrow(/retired/u);
 });
 
 test('a calculator crash fails its request with a typed error; the writer serves and the next request recovers', async () => {
