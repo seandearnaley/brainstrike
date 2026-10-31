@@ -43,6 +43,7 @@ import {
 import {
   createFileRowMetadataStore,
   type FileRowDirectorySubtree,
+  type FileRowMetadataSources,
   type FileRowMetadataStore,
 } from './file-row-metadata-store';
 import { useOptionalTokenCacheContext } from './token-cache-context';
@@ -82,48 +83,48 @@ export interface UseFileRowMetadataStoreResult {
   store: FileRowMetadataStore;
 }
 
+/** Read accessors over one commit's params and token cache. */
+function rowMetadataSources(
+  params: UseFileRowMetadataStoreParams,
+  tokenCache: ReturnType<typeof useOptionalTokenCacheContext>
+): FileRowMetadataSources {
+  return {
+    getCachedSize: (compositeKey) => {
+      if (!tokenCache?.isOperational) {
+        return;
+      }
+      const { folderId, path } = decodeFileSelection(compositeKey);
+      return tokenCache.getFileSize(folderId, path);
+    },
+    getDirectorySubtree: (compositeKey) => params.getDirectorySubtree(compositeKey),
+    getNodeSize: (compositeKey) => params.getNodeSize(compositeKey),
+    getTokenCount: (compositeKey) => {
+      // A non-operational cache means "not counted yet", which the store
+      // renders as `pending` — never as a zero.
+      if (!tokenCache?.isOperational) {
+        return;
+      }
+      const { folderId, path } = decodeFileSelection(compositeKey);
+      return tokenCache.getTokenCount(folderId, path) ?? undefined;
+    },
+  };
+}
+
 export function useFileRowMetadataStore(
   params: UseFileRowMetadataStoreParams
 ): UseFileRowMetadataStoreResult {
   const tokenCache = useOptionalTokenCacheContext();
 
-  // Latest-value refs: the store's source closures are created once, so they
-  // must read through refs rather than capture this render's props/context.
-  const paramsRef = useRef(params);
-  const tokenCacheRef = useRef(tokenCache);
-
-  const [store] = useState<FileRowMetadataStore>(() =>
-    createFileRowMetadataStore({
-      getCachedSize: (compositeKey) => {
-        const cache = tokenCacheRef.current;
-        if (!cache?.isOperational) {
-          return;
-        }
-        const { folderId, path } = decodeFileSelection(compositeKey);
-        return cache.getFileSize(folderId, path);
-      },
-      getDirectorySubtree: (compositeKey) => paramsRef.current.getDirectorySubtree(compositeKey),
-      getNodeSize: (compositeKey) => paramsRef.current.getNodeSize(compositeKey),
-      getTokenCount: (compositeKey) => {
-        const cache = tokenCacheRef.current;
-        // A non-operational cache means "not counted yet", which the store
-        // renders as `pending` — never as a zero.
-        if (!cache?.isOperational) {
-          return;
-        }
-        const { folderId, path } = decodeFileSelection(compositeKey);
-        return cache.getTokenCount(folderId, path) ?? undefined;
-      },
-    })
+  const [store] = useState(() =>
+    createFileRowMetadataStore(rowMetadataSources(params, tokenCache))
   );
 
-  // Sync the source refs AFTER commit, never during render: React can discard
-  // render work, and a ref written in a thrown-away render would leak into the
+  // Swap the sources AFTER commit, never during render: React can discard
+  // render work, and sources from a thrown-away render would leak into the
   // store. Declared BEFORE the invalidation effects so those always observe
   // this commit's values.
   useEffect(() => {
-    paramsRef.current = params;
-    tokenCacheRef.current = tokenCache;
+    store.setSources(rowMetadataSources(params, tokenCache));
   });
 
   // Precise path. `handleFileIndexed` writes the hot cache before invoking this,
