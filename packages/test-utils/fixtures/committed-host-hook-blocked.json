@@ -1,52 +1,61 @@
 [
   {
     "event": {
-      "commandId": "3c82ba98-b97d-4c55-a326-b7592c68ed02",
+      "commandId": "0940ac1d-cd8c-454f-a6a2-0311ac619b59",
       "method": "thread/start",
       "payload": {
-        "commandId": "3c82ba98-b97d-4c55-a326-b7592c68ed02"
+        "commandId": "0940ac1d-cd8c-454f-a6a2-0311ac619b59"
       },
       "result": {
-        "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f"
+        "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f"
       },
       "type": "command.accepted"
     },
     "seq": 1,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119312
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435446960
   },
   {
     "event": {
-      "commandId": "3c82ba98-b97d-4c55-a326-b7592c68ed02",
+      "commandId": "0940ac1d-cd8c-454f-a6a2-0311ac619b59",
       "type": "thread.started"
     },
     "seq": 2,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119312
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435446960
   },
   {
     "event": {
-      "commandId": "84012673-6324-486f-ba5e-720cb50407f7",
+      "commandId": "af5681d9-dd1d-4317-b7c6-16ea4e3f1826",
       "method": "run/start",
       "payload": {
-        "commandId": "84012673-6324-486f-ba5e-720cb50407f7",
-        "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+        "commandId": "af5681d9-dd1d-4317-b7c6-16ea4e3f1826",
+        "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
         "modelId": "openai::gpt-6-sol",
         "prompt": "Use the recorded canonical human interaction."
       },
       "result": {
-        "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26"
+        "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff"
       },
       "type": "command.accepted"
     },
     "seq": 3,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119329
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435446997
+  },
+  {
+    "event": {
+      "modelId": "openai::gpt-6-sol",
+      "type": "thread.selection.updated"
+    },
+    "seq": 4,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435446997
   },
   {
     "event": {
       "type": "run.started",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "modelId": "openai::gpt-6-sol",
       "parentMessageId": null,
       "prompt": "Use the recorded canonical human interaction.",
@@ -55,12 +64,25 @@
           "capabilities": {
             "browserOAuth": "unavailable",
             "configuredMcp": "unavailable",
+            "delegation": "available",
             "localInference": "unavailable",
             "mcpAppUi": "text",
             "nativeTools": {
               "available": [
                 "brainstrike.askUser",
-                "brainstrike.submitPlan"
+                "brainstrike.submitPlan",
+                "brainstrike.readWorkspaceFile",
+                "brainstrike.readWorkspaceDirectory",
+                "brainstrike.writeWorkspaceFile",
+                "brainstrike.stringReplaceWorkspaceFile",
+                "brainstrike.deleteWorkspaceFile",
+                "brainstrike.renameWorkspaceFile",
+                "brainstrike.manageTaskList",
+                "brainstrike.manageCanvas",
+                "brainstrike.globWorkspace",
+                "brainstrike.findWorkspaceSymbol",
+                "brainstrike.readToolOutputArtifact",
+                "brainstrike.executeCommand"
               ],
               "remaining": "unavailable"
             },
@@ -76,7 +98,19 @@
             },
             "enabledNativeToolIds": [
               "brainstrike.askUser",
-              "brainstrike.submitPlan"
+              "brainstrike.submitPlan",
+              "brainstrike.readWorkspaceFile",
+              "brainstrike.readWorkspaceDirectory",
+              "brainstrike.writeWorkspaceFile",
+              "brainstrike.stringReplaceWorkspaceFile",
+              "brainstrike.deleteWorkspaceFile",
+              "brainstrike.renameWorkspaceFile",
+              "brainstrike.manageTaskList",
+              "brainstrike.manageCanvas",
+              "brainstrike.globWorkspace",
+              "brainstrike.findWorkspaceSymbol",
+              "brainstrike.readToolOutputArtifact",
+              "brainstrike.executeCommand"
             ],
             "memoryOptions": {
               "lastMessages": 40,
@@ -116,75 +150,131 @@
               },
               "yolo": false
             },
+            "subagents": {
+              "delegationEnabled": true,
+              "disabledPersonaIds": [],
+              "settings": {
+                "maxChildOutputTokens": 32768,
+                "maxChildRuntimeMs": null,
+                "maxChildSteps": 100,
+                "maxConcurrentWork": 6,
+                "maxDepth": 3,
+                "maxInvocations": 200,
+                "maxStepOutputTokens": 8192,
+                "maxTreeOutputTokens": 6553600,
+                "synthesisOutputTokens": 2048
+              }
+            },
             "workspaceInstructionsPreference": {
               "masterEnabled": false,
               "oversizedOptInByRootId": {}
             }
-          }
+          },
+          "workspaceRoots": [
+            {
+              "displayName": "tmp",
+              "path": "/tmp",
+              "rootId": "/tmp"
+            }
+          ]
         },
         "maxSteps": 100,
         "toolIdentities": {
           "brainstrike_askUser": "brainstrike.askUser",
-          "brainstrike_submitPlan": "brainstrike.submitPlan"
+          "brainstrike_submitPlan": "brainstrike.submitPlan",
+          "brainstrike_readWorkspaceFile": "brainstrike.readWorkspaceFile",
+          "brainstrike_readWorkspaceDirectory": "brainstrike.readWorkspaceDirectory",
+          "brainstrike_writeWorkspaceFile": "brainstrike.writeWorkspaceFile",
+          "brainstrike_stringReplaceWorkspaceFile": "brainstrike.stringReplaceWorkspaceFile",
+          "brainstrike_deleteWorkspaceFile": "brainstrike.deleteWorkspaceFile",
+          "brainstrike_renameWorkspaceFile": "brainstrike.renameWorkspaceFile",
+          "brainstrike_manageTaskList": "brainstrike.manageTaskList",
+          "brainstrike_manageCanvas": "brainstrike.manageCanvas",
+          "brainstrike_globWorkspace": "brainstrike.globWorkspace",
+          "brainstrike_findWorkspaceSymbol": "brainstrike.findWorkspaceSymbol",
+          "brainstrike_readToolOutputArtifact": "brainstrike.readToolOutputArtifact",
+          "brainstrike_executeCommand": "brainstrike.executeCommand",
+          "updateWorkingMemory": "mastra-memory:update-working-memory",
+          "agent-explore": "delegation:explore:e1e0ef43cab17594",
+          "agent-analyze": "delegation:analyze:fa052b6d5d9d81d5",
+          "agent-worker": "delegation:worker:57270ce28681f1c2",
+          "list_available_tools": "host-tool-discovery:list_available_tools",
+          "load_tool": "host-tool-discovery:load_tool",
+          "search_tools": "host-tool-discovery:search_tools"
         }
       }
     },
-    "seq": 4,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119329
+    "seq": 5,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435446997
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "start"
       }
     },
-    "seq": 5,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119763
+    "seq": 6,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447432
   },
   {
     "event": {
       "type": "provider.request.prepared",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "accounting": {
         "measurement": {
           "mode": "declared-compatible-reference",
           "tokenizer": "o200k_base"
         },
-        "promptTokens": 541,
+        "promptTokens": 802,
         "removedMessages": 0,
-        "toolTokens": 817,
-        "totalTokens": 1358,
+        "toolTokens": 4589,
+        "totalTokens": 5391,
         "usedBackstop": false
       },
+      "breakdown": {
+        "attachmentsCount": 0,
+        "historyMessagesTokens": 12,
+        "provenance": "heuristic",
+        "systemInstructionsTokens": 923,
+        "toolCallsByTool": [],
+        "toolCallsTokens": 0,
+        "toolDefinitionsProvenance": "heuristic",
+        "toolDefinitionsTokens": 4589
+      },
       "modelId": "gpt-6-sol",
-      "provider": "openai"
+      "provider": "openai",
+      "toolCallWindow": {
+        "base": "run-start",
+        "removed": [],
+        "upserted": []
+      }
     },
-    "seq": 6,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119883
+    "seq": 7,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447579
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "start-step",
         "request": {},
         "warnings": []
       }
     },
-    "seq": 7,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119904
+    "seq": 8,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447599
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "tool-input-start",
         "id": "call_standalone_human_1",
@@ -192,41 +282,27 @@
         "dynamic": false
       }
     },
-    "seq": 8,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119908
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
-      "chunk": {
-        "type": "tool-input-delta",
-        "id": "call_standalone_human_1",
-        "delta": "{\"options\":[{\"label\":\"Local\"},{\"label\":\"Preview\"}],\"question\":\"Which environment?\",\"selectionMode\":\"multi_select\"}"
-      }
-    },
     "seq": 9,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119915
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447611
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "tool-input-end",
         "id": "call_standalone_human_1"
       }
     },
     "seq": 10,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119923
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447613
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "tool-call",
         "toolCallId": "call_standalone_human_1",
@@ -251,16 +327,16 @@
       }
     },
     "seq": 11,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119927
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447615
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "tool-approval-request",
-        "approvalId": "aitxt-PKwb8lpZ4k23aIHtLKC5NGgL",
+        "approvalId": "aitxt-zgfUJeR2khxHHMYmjMcoEgm3",
         "toolCall": {
           "type": "tool-call",
           "toolCallId": "call_standalone_human_1",
@@ -287,13 +363,13 @@
       }
     },
     "seq": 12,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119941
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447616
   },
   {
     "event": {
       "type": "model.step",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "messages": [
         {
           "role": "assistant",
@@ -322,7 +398,7 @@
             },
             {
               "type": "tool-approval-request",
-              "approvalId": "aitxt-PKwb8lpZ4k23aIHtLKC5NGgL",
+              "approvalId": "aitxt-zgfUJeR2khxHHMYmjMcoEgm3",
               "toolCallId": "call_standalone_human_1",
               "isAutomatic": true
             }
@@ -333,7 +409,7 @@
           "content": [
             {
               "type": "tool-approval-response",
-              "approvalId": "aitxt-PKwb8lpZ4k23aIHtLKC5NGgL",
+              "approvalId": "aitxt-zgfUJeR2khxHHMYmjMcoEgm3",
               "approved": false,
               "reason": "Questions are disabled in this workspace"
             },
@@ -368,21 +444,22 @@
         "totalTokens": 51,
         "raw": {
           "input_tokens": 42,
-          "output_tokens": 9
+          "output_tokens": 9,
+          "total_tokens": 51
         }
       }
     },
     "seq": 13,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119948
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447623
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "tool-approval-response",
-        "approvalId": "aitxt-PKwb8lpZ4k23aIHtLKC5NGgL",
+        "approvalId": "aitxt-zgfUJeR2khxHHMYmjMcoEgm3",
         "approved": false,
         "toolCall": {
           "type": "tool-call",
@@ -410,13 +487,13 @@
       }
     },
     "seq": 14,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119954
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447624
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "tool-output-denied",
         "toolCallId": "call_standalone_human_1",
@@ -424,13 +501,13 @@
       }
     },
     "seq": 15,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119956
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447627
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "finish-step",
         "finishReason": "tool-calls",
@@ -448,25 +525,26 @@
           "totalTokens": 51,
           "raw": {
             "input_tokens": 42,
-            "output_tokens": 9
+            "output_tokens": 9,
+            "total_tokens": 51
           }
         },
         "performance": {
-          "stepTimeMs": 137.2489999999998,
+          "stepTimeMs": 176.2505930000002,
           "toolExecutionMs": {},
-          "responseTimeMs": 128.15091699999994,
-          "effectiveOutputTokensPerSecond": 70.2296964445444,
-          "outputTokensPerSecond": 2413.8121549920065,
-          "inputTokensPerSecond": 337.55986413215686,
-          "effectiveTotalTokensPerSecond": 397.9682798524183,
-          "timeToFirstOutputMs": 124.42237499999919,
+          "responseTimeMs": 171.55999800000018,
+          "effectiveOutputTokensPerSecond": 52.45978144625526,
+          "outputTokensPerSecond": 676.3412523375074,
+          "inputTokensPerSecond": 265.3976345968209,
+          "effectiveTotalTokensPerSecond": 297.2720948621132,
+          "timeToFirstOutputMs": 158.25310600000012,
           "timeBetweenOutputChunksMs": {
-            "min": 1.1529170000003433,
-            "p10": 1.1529170000003433,
-            "median": 1.1529170000003433,
-            "avg": 1.1529170000003433,
-            "p90": 1.1529170000003433,
-            "max": 1.1529170000003433
+            "min": 1.8886279999996987,
+            "p10": 1.8886279999996987,
+            "median": 1.8886279999996987,
+            "avg": 1.8886279999996987,
+            "p90": 1.8886279999996987,
+            "max": 1.8886279999996987
           }
         },
         "providerMetadata": {
@@ -485,35 +563,64 @@
       }
     },
     "seq": 16,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119959
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447631
   },
   {
     "event": {
       "type": "provider.request.prepared",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "accounting": {
         "measurement": {
           "mode": "declared-compatible-reference",
           "tokenizer": "o200k_base"
         },
-        "promptTokens": 674,
+        "promptTokens": 935,
         "removedMessages": 0,
-        "toolTokens": 817,
-        "totalTokens": 1491,
+        "toolTokens": 4589,
+        "totalTokens": 5524,
         "usedBackstop": false
       },
+      "breakdown": {
+        "attachmentsCount": 0,
+        "historyMessagesTokens": 12,
+        "provenance": "heuristic",
+        "systemInstructionsTokens": 923,
+        "toolCallsByTool": [
+          {
+            "calls": 1,
+            "tokens": 39,
+            "toolName": "brainstrike.askUser"
+          }
+        ],
+        "toolCallsTokens": 39,
+        "toolDefinitionsProvenance": "heuristic",
+        "toolDefinitionsTokens": 4589
+      },
       "modelId": "gpt-6-sol",
-      "provider": "openai"
+      "provider": "openai",
+      "toolCallWindow": {
+        "base": "previous",
+        "removed": [],
+        "upserted": [
+          {
+            "inputTokens": 29,
+            "output": "full",
+            "outputTokens": 10,
+            "toolCallId": "call_standalone_human_1",
+            "toolName": "brainstrike.askUser"
+          }
+        ]
+      }
     },
     "seq": 17,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479119987
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447652
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "start-step",
         "request": {},
@@ -521,31 +628,13 @@
       }
     },
     "seq": 18,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479120015
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
-      "chunk": {
-        "type": "text-start",
-        "id": "msg_standalone_1",
-        "providerMetadata": {
-          "openai": {
-            "itemId": "msg_standalone_1"
-          }
-        }
-      }
-    },
-    "seq": 19,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479120016
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447658
   },
   {
     "event": {
       "type": "model.step",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "messages": [
         {
           "role": "assistant",
@@ -581,50 +670,19 @@
         "totalTokens": 51,
         "raw": {
           "input_tokens": 42,
-          "output_tokens": 9
+          "output_tokens": 9,
+          "total_tokens": 51
         }
       }
     },
-    "seq": 20,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479120019
+    "seq": 19,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447660
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
-      "chunk": {
-        "type": "text-delta",
-        "id": "msg_standalone_1",
-        "text": "Offline standalone production reply"
-      }
-    },
-    "seq": 21,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479120025
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
-      "chunk": {
-        "type": "text-end",
-        "id": "msg_standalone_1",
-        "providerMetadata": {
-          "openai": {
-            "itemId": "msg_standalone_1"
-          }
-        }
-      }
-    },
-    "seq": 22,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479120027
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "finish-step",
         "finishReason": "stop",
@@ -642,18 +700,19 @@
           "totalTokens": 51,
           "raw": {
             "input_tokens": 42,
-            "output_tokens": 9
+            "output_tokens": 9,
+            "total_tokens": 51
           }
         },
         "performance": {
-          "stepTimeMs": 32.875208000000384,
+          "stepTimeMs": 17.99952499999972,
           "toolExecutionMs": {},
-          "responseTimeMs": 32.05670800000007,
-          "effectiveOutputTokensPerSecond": 280.75247152639565,
-          "outputTokensPerSecond": 14203.985006895908,
-          "inputTokensPerSecond": 1336.5970487364473,
-          "effectiveTotalTokensPerSecond": 1590.9306719829087,
-          "timeToFirstOutputMs": 31.42308299999968
+          "responseTimeMs": 17.158444000000145,
+          "effectiveOutputTokensPerSecond": 524.523086125987,
+          "outputTokensPerSecond": 5335.24928063075,
+          "inputTokensPerSecond": 2714.660134246371,
+          "effectiveTotalTokensPerSecond": 2972.2974880472593,
+          "timeToFirstOutputMs": 15.471550000000207
         },
         "providerMetadata": {
           "openai": {
@@ -670,14 +729,14 @@
         }
       }
     },
-    "seq": 23,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479120028
+    "seq": 20,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447661
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "chunk": {
         "type": "finish",
         "finishReason": "stop",
@@ -696,18 +755,18 @@
         }
       }
     },
-    "seq": 24,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479120041
+    "seq": 21,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447665
   },
   {
     "event": {
       "type": "run.finished",
-      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "runId": "0ddf91d6-facb-4f06-be46-a2dd66aa98ff",
       "outcome": "completed"
     },
-    "seq": 25,
-    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
-    "ts": 1791479120044
+    "seq": 22,
+    "threadId": "2854f1c5-ccaf-46d2-9cd0-9df0c2edf63f",
+    "ts": 1793435447666
   }
 ]

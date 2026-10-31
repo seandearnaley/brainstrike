@@ -60,7 +60,7 @@ the final spike code, neither lost a displayed chunk.
 ## Amendment (2026-10-09): live telemetry
 
 Live telemetry is the one carve-out from "every view is a fold
-of the log". For a running tool, that means `executeCommand`'s shell-output slices
+of the log" (extended to tool input deltas on 2026-10-31, below). For a running tool, that means `executeCommand`'s shell-output slices
 (`SHELL_OUTPUT_STREAM_PART_TYPE`) and MCP progress
 (`MCP_PROGRESS_STREAM_PART_TYPE`). The host's tool write seam classifies these
 two types with `isToolTelemetryStreamPart` and sends them to the thread's log
@@ -226,6 +226,27 @@ manifest. Nothing outside their own tests called either one, so BST-2395 removed
 both. Brainstrike is greenfield (ADR-0020) and has no user data to move. A
 backup or transfer feature starts from its product need, and it is designed
 then, against the schema of that day.
+
+## Amendment (2026-10-31): tool input deltas are telemetry
+
+Owner decision (BST-2379, 31 Oct) extends the live-telemetry carve-out to a
+call's input stream. The run loop sends `tool-input-delta` to subscribers as
+`run/telemetry` on the run's stream (no `toolCallId`), beside the model's text
+and reasoning. It keeps committing `tool-input-start`, `tool-input-end` and
+`tool-call`. The committed `tool-call` carries the call's whole input and is
+its one durable owner; no reader folds input from deltas.
+
+A provider that streams a call's arguments sent one committed row per
+fragment. A `write_file` with 20 KB of content wrote thousands of rows, each a
+writer round trip that held up the model stream and was folded again at every
+host open. The deltas were never the input of record: the projection already
+replaced them with the `tool-call` input once it committed.
+
+A view shows a call's live input from its deltas between its committed
+`tool-input-start` and its `tool-call`. The deltas are replayed, bounded and
+marked as omitted with the open step's text, as described above, because they
+share its stream. A reload, or a view that subscribes after the `tool-call`
+commits, shows the committed input only.
 
 ## Sources
 
