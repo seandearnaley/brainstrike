@@ -532,4 +532,21 @@ describe('rich committed-log presentation projection', () => {
     );
     expect(tool(malformed).providerMetadata?.['brainstrike']?.['targetRoot']).toBeUndefined();
   });
+  // BST-2360: a command's approval says when it runs with no OS sandbox.
+  it('carries a committed approval’s sandbox fact to its tool card', () => {
+    const withFact = (sandboxed: unknown) => {
+      const projection = projector();
+      projection.acceptCommitted(
+        rows.map((row) =>
+          row.event['type'] === 'interaction.requested'
+            ? { ...row, event: { ...row.event, sandboxed } }
+            : row
+        )
+      );
+      return tool(projection).providerMetadata?.['brainstrike']?.['sandboxed'];
+    };
+    expect(withFact(false)).toBe(false);
+    expect(withFact(true)).toBe(true);
+    expect(withFact('no')).toBeUndefined();
+  });
 });

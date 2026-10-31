@@ -20,6 +20,11 @@ export interface HostToolDefinition<Input = unknown, Output = unknown> {
   readonly id?: string | undefined;
   readonly inputSchema?: FlexibleSchema<Input> | undefined;
   readonly resumeSchema?: FlexibleSchema<unknown> | undefined;
+  /**
+   * BST-2360: whether this call would run inside the OS sandbox, for its
+   * approval card. Only tools that run commands declare it.
+   */
+  readonly sandboxed?: ((input: unknown) => Promise<boolean>) | undefined;
   readonly strict?: boolean | undefined;
   toModelOutput?(output: Output): unknown;
 }
