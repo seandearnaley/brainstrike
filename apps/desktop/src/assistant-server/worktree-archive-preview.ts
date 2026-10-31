@@ -1,5 +1,6 @@
 import { promises as fsPromises } from 'node:fs';
-import type { GitResult, WorktreeArchivePreview } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { WorktreeArchivePreview } from '@brainstrike/types';
 import type { WorktreeSafetyReport } from './worktree-archive';
 
 const EMPTY_ARCHIVE_PREVIEW: WorktreeArchivePreview = {
@@ -38,9 +39,9 @@ export async function worktreePathExists(worktreePath: string): Promise<boolean>
 }
 
 export async function inspectWorktreeArchivePreviewForPath(input: {
-  readonly inspectSafety: () => Promise<GitResult<WorktreeSafetyReport>>;
+  readonly inspectSafety: () => Promise<BoundaryResult<WorktreeSafetyReport>>;
   readonly path: string;
-}): Promise<GitResult<WorktreeArchivePreview>> {
+}): Promise<BoundaryResult<WorktreeArchivePreview>> {
   if (!(await worktreePathExists(input.path))) {
     return { ok: true, value: EMPTY_ARCHIVE_PREVIEW };
   }

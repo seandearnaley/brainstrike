@@ -27,7 +27,7 @@ export function ipcFailure<T = never>(error: BoundaryFailure): BoundaryResult<T>
  * `ipc-result`: the handler returns `BoundaryResult<Result>`; the preload transports the envelope;
  * the renderer capability decodes it into `Promise<Result>`.
  * `raw`: the handler's return value crosses untouched — for domains whose
- * consumers already read a typed envelope of their own (`GitResult`,
+ * consumers already read a typed envelope of their own (`BoundaryResult`,
  * `TerminalResult`) and never throw across IPC.
  */
 type IpcEnvelope = 'ipc-result' | 'raw';

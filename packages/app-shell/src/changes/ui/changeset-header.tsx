@@ -14,6 +14,7 @@
  * `activeThreadIdentity`, not the "→ Review" handoff — see that store's own
  * doc comment.
  */
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { Changeset, ChangesetView, GitInventory } from '@brainstrike/types';
 import { Button, Input } from '@brainstrike/ui';
 import { GitCommitHorizontal, History, Loader2, RefreshCw, Upload } from 'lucide-react';
@@ -242,7 +243,7 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
         setMessage('');
         setCommitOpen(false);
       } else {
-        setCommitError(result.error);
+        setCommitError(describeBoundaryFailure(result.error));
       }
     } catch (caught) {
       setCommitError(caught instanceof Error ? caught.message : String(caught));
@@ -260,7 +261,7 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
       if (result.ok) {
         setPushResult(result.value.output || 'Up to date.');
       } else {
-        setPushError(result.error);
+        setPushError(describeBoundaryFailure(result.error));
       }
     } catch (caught) {
       setPushError(caught instanceof Error ? caught.message : String(caught));

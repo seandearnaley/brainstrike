@@ -2,16 +2,17 @@
  * The worktree service's inputs (its dependencies, setup and archive
  * parameters) and its two process-local helpers, beside the service itself.
  */
+
 import { promises as fsPromises } from 'node:fs';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeLedgerPort } from '@brainstrike/state-store';
 import type {
   GitInventory,
-  GitResult,
   ManagedWorktreeRow,
   WorktreeSettings,
   WorktreeSetupOutcome,
 } from '@brainstrike/types';
+import type { RootCwdResult } from '../workspace-root-cwd';
 import type { GitCommandRunner } from './git-service';
 
 const logger = createLogger('WorktreeService');
@@ -52,7 +53,7 @@ export interface WorktreeServiceDeps {
    * `GitInventoryService.getSnapshot({ maxAgeMs: 0 })`.
    */
   readonly resolveInventory: (options?: { readonly forceFresh?: boolean }) => Promise<GitInventory>;
-  readonly resolveRootCwd: (rootId: string) => Promise<GitResult<string>>;
+  readonly resolveRootCwd: (rootId: string) => Promise<RootCwdResult>;
   readonly resolveRootPaths: () => Promise<
     readonly { readonly id: string; readonly path: string }[]
   >;

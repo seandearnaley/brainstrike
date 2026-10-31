@@ -9,10 +9,12 @@
  * `changes:invalidated` nonce (`anyInvalidationNonce`) is the only repeat
  * trigger, plus an explicit user refresh. No timer.
  */
+
 import {
   selectIndexConfig,
   useIndexConfigStore,
 } from '@brainstrike/app-state/stores/index-config-store';
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { type AssistantMemoryThread, useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeListEntry } from '@brainstrike/types';
@@ -135,7 +137,7 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
           // A failed list is a stated failure, never an empty Map: an empty
           // Map is the honest rendering of "no worktrees", a different fact.
           setEntries([]);
-          setError(result.error);
+          setError(describeBoundaryFailure(result.error));
         })
         .catch((caught: unknown) => {
           logger.error('worktree map list threw', { error: caught });

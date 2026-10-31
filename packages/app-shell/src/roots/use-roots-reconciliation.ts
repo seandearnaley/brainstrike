@@ -26,7 +26,7 @@ const logger = createLogger('useRootsReconciliation');
  * Deliberately best-effort: the Changes surface's own `inventory()` remains the
  * authoritative consumer, so a failure here is a WARN, never a thrown boot
  * error. Both failure shapes are reported — a rejected call AND an `ok: false`
- * `GitResult` — so a refused refresh is never silently dropped.
+ * `BoundaryResult` — so a refused refresh is never silently dropped.
  *
  * `bridge === null` is a host without the Changes bridge (web): there is no
  * desktop inventory to arm, so this is a real no-op and never a stub.

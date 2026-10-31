@@ -1,4 +1,8 @@
 import { useWorktreesBridge } from '@brainstrike/app-shell/workspace-git-services';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type { WorktreeSettingsStatus } from '@brainstrike/settings-ui/settings/system/worktree-settings-section';
 import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
 import { useEffect, useState } from 'react';
@@ -41,7 +45,7 @@ export function useWorktreeSettings(): UseWorktreeSettingsResult {
           setSettings(result.value);
           setStatus({ kind: 'ready' });
         } else {
-          setStatus({ kind: 'error', message: result.error });
+          setStatus({ kind: 'error', message: describeBoundaryFailure(result.error) });
         }
       })
       .catch((error: unknown) => {
@@ -67,7 +71,7 @@ export function useWorktreeSettings(): UseWorktreeSettingsResult {
     }
     const result = await bridge.setSettings(next);
     if (!result.ok) {
-      throw new Error(result.error);
+      throw new BoundaryFailureError(result.error);
     }
     setSettings(result.value);
   };

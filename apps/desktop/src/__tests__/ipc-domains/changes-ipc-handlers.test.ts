@@ -1,8 +1,9 @@
+import type { BoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   Changeset,
   ChangesetView,
   GitInventory,
-  GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
@@ -34,8 +35,8 @@ function fakeService(
       rootId: unknown,
       changeset: Changeset,
       path: string
-    ) => Promise<GitResult<StructuredFileDiff>>;
-    resolveView: (rootId: unknown, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
+    ) => Promise<BoundaryResult<StructuredFileDiff>>;
+    resolveView: (rootId: unknown, changeset: Changeset) => Promise<BoundaryResult<ChangesetView>>;
   }> = {}
 ) {
   return {
@@ -48,7 +49,9 @@ describe('validateChangeset', () => {
   it('rejects a non-object payload', () => {
     const result = validateChangeset('nope');
     expect(result).toEqual({
-      error: 'changeset payload must be an object with an explicit kind',
+      error: expect.objectContaining({
+        message: 'changeset payload must be an object with an explicit kind',
+      }),
       ok: false,
     });
   });
@@ -56,7 +59,7 @@ describe('validateChangeset', () => {
   it('rejects an unknown kind, naming it', () => {
     const result = validateChangeset({ kind: 'mystery' });
     expect(result.ok).toBe(false);
-    expect((result as { error: string }).error).toContain('"mystery"');
+    expect((result as { error: BoundaryFailure }).error.message).toContain('"mystery"');
   });
 
   describe('agent-run', () => {
@@ -71,7 +74,9 @@ describe('validateChangeset', () => {
     it('rejects a missing runId', () => {
       const result = validateChangeset({ kind: 'agent-run', threadId: 't1' });
       expect(result).toEqual({
-        error: 'changeset kind "agent-run" requires a non-empty runId',
+        error: expect.objectContaining({
+          message: 'changeset kind "agent-run" requires a non-empty runId',
+        }),
         ok: false,
       });
     });
@@ -79,7 +84,9 @@ describe('validateChangeset', () => {
     it('rejects an empty threadId', () => {
       const result = validateChangeset({ kind: 'agent-run', runId: 'r1', threadId: '' });
       expect(result).toEqual({
-        error: 'changeset kind "agent-run" requires a non-empty threadId',
+        error: expect.objectContaining({
+          message: 'changeset kind "agent-run" requires a non-empty threadId',
+        }),
         ok: false,
       });
     });
@@ -92,7 +99,9 @@ describe('validateChangeset', () => {
         threadId: 't1',
       });
       expect(result).toEqual({
-        error: 'changeset kind "agent-run" does not accept: extra',
+        error: expect.objectContaining({
+          message: 'changeset kind "agent-run" does not accept: extra',
+        }),
         ok: false,
       });
     });
@@ -128,7 +137,9 @@ describe('validateChangeset', () => {
         toRunId: '',
       });
       expect(result).toEqual({
-        error: 'changeset kind "run-range" toRunId must be a non-empty string when present',
+        error: expect.objectContaining({
+          message: 'changeset kind "run-range" toRunId must be a non-empty string when present',
+        }),
         ok: false,
       });
     });
@@ -136,7 +147,9 @@ describe('validateChangeset', () => {
     it('rejects a missing fromRunId', () => {
       const result = validateChangeset({ kind: 'run-range', threadId: 't1' });
       expect(result).toEqual({
-        error: 'changeset kind "run-range" requires a non-empty fromRunId',
+        error: expect.objectContaining({
+          message: 'changeset kind "run-range" requires a non-empty fromRunId',
+        }),
         ok: false,
       });
     });
@@ -179,7 +192,9 @@ describe('validateChangeset', () => {
         worktreePath: '/repo',
       });
       expect(result).toEqual({
-        error: 'git-scope scope kind "commit" requires a non-empty commitId',
+        error: expect.objectContaining({
+          message: 'git-scope scope kind "commit" requires a non-empty commitId',
+        }),
         ok: false,
       });
     });
@@ -210,7 +225,7 @@ describe('validateChangeset', () => {
         worktreePath: '/repo',
       });
       expect(result.ok).toBe(false);
-      expect((result as { error: string }).error).toContain('"bogus"');
+      expect((result as { error: BoundaryFailure }).error.message).toContain('"bogus"');
     });
 
     it('rejects extra keys inside scope', () => {
@@ -221,7 +236,9 @@ describe('validateChangeset', () => {
         worktreePath: '/repo',
       });
       expect(result).toEqual({
-        error: 'git-scope scope kind "staged" does not accept: extra',
+        error: expect.objectContaining({
+          message: 'git-scope scope kind "staged" does not accept: extra',
+        }),
         ok: false,
       });
     });
@@ -233,7 +250,9 @@ describe('validateChangeset', () => {
         worktreePath: '/repo',
       });
       expect(result).toEqual({
-        error: 'changeset kind "git-scope" requires a non-empty repositoryRoot',
+        error: expect.objectContaining({
+          message: 'changeset kind "git-scope" requires a non-empty repositoryRoot',
+        }),
         ok: false,
       });
     });
@@ -245,7 +264,9 @@ describe('validateChangeset', () => {
         scope: { kind: 'staged' },
       });
       expect(result).toEqual({
-        error: 'changeset kind "git-scope" requires a non-empty worktreePath',
+        error: expect.objectContaining({
+          message: 'changeset kind "git-scope" requires a non-empty worktreePath',
+        }),
         ok: false,
       });
     });
@@ -258,7 +279,9 @@ describe('validateChangeset', () => {
         worktreePath: '/repo',
       });
       expect(result).toEqual({
-        error: 'git-scope changeset requires scope to be an object',
+        error: expect.objectContaining({
+          message: 'git-scope changeset requires scope to be an object',
+        }),
         ok: false,
       });
     });
@@ -272,14 +295,14 @@ describe('validatePath', () => {
 
   it('rejects a non-string path', () => {
     expect(validatePath(42)).toEqual({
-      error: 'changes:fileDiff requires a non-empty path',
+      error: expect.objectContaining({ message: 'changes:fileDiff requires a non-empty path' }),
       ok: false,
     });
   });
 
   it('rejects an empty path', () => {
     expect(validatePath('')).toEqual({
-      error: 'changes:fileDiff requires a non-empty path',
+      error: expect.objectContaining({ message: 'changes:fileDiff requires a non-empty path' }),
       ok: false,
     });
   });
@@ -333,7 +356,10 @@ describe('changes IPC handlers', () => {
 
     const result = await handlers.fileDiff('root-1', changeset, '');
 
-    expect(result).toEqual({ error: 'changes:fileDiff requires a non-empty path', ok: false });
+    expect(result).toEqual({
+      error: expect.objectContaining({ message: 'changes:fileDiff requires a non-empty path' }),
+      ok: false,
+    });
     expect(service.fileDiff).not.toHaveBeenCalled();
   });
 
@@ -351,7 +377,7 @@ describe('changes IPC handlers', () => {
       threadId: 't1',
     });
 
-    expect(result).toEqual({ error: 'boom', ok: false });
+    expect(result).toEqual({ error: expect.objectContaining({ code: 'git.internal' }), ok: false });
   });
 });
 
@@ -432,7 +458,9 @@ describe('createChangesIpcHandlers.inventory (BST-1114 T0)', () => {
     const result = await handlers.inventory();
 
     expect(result.ok).toBe(false);
-    expect((result as { error: string }).error).toContain('git inventory service is not running');
+    expect((result as { error: BoundaryFailure }).error.message).toContain(
+      'git inventory service is not running'
+    );
   });
 
   it('catches a thrown getSnapshot (e.g. GitInventoryStoppedError) as a typed failure', async () => {
@@ -450,7 +478,10 @@ describe('createChangesIpcHandlers.inventory (BST-1114 T0)', () => {
 
     const result = await handlers.inventory();
 
-    expect(result).toEqual({ error: 'the service has been stopped', ok: false });
+    expect(result).toEqual({
+      error: expect.objectContaining({ code: 'git.internal' }),
+      ok: false,
+    });
   });
 
   // BST-1397: the renderer's post-registration nudge forces a rebuild through

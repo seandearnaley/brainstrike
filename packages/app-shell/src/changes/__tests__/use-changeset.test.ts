@@ -1,14 +1,15 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
 import { act } from '@brainstrike/test-utils/react-act';
 import type {
   Changeset,
   ChangesetView,
   ChangesInvalidationEvent,
-  GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { gitFailure } from '../../__tests__/helpers/git-failure';
 import {
   stubChangesBridge,
   workspaceGitWrapper,
@@ -102,13 +103,15 @@ describe('useChangeset', () => {
 
     const diff = await result.current.fileDiff('src/file.ts');
     expect(diff).toEqual({
-      error: 'changeset-unavailable: no active bridge, root, or changeset',
+      error: expect.objectContaining({
+        code: 'changes.unavailable',
+      }),
       ok: false,
     });
   });
 
   it('logs a failed file diff in full before handing it back (BST-2136)', async () => {
-    const failure = { error: 'fatal: bad object\nmore detail', ok: false as const };
+    const failure = gitFailure('fatal: bad object\nmore detail');
     stubBridge({
       fileDiff: vi.fn(async () => failure),
       inventory: vi.fn(),
@@ -120,7 +123,7 @@ describe('useChangeset', () => {
 
     expect(await result.current.fileDiff('src/file.ts')).toEqual(failure);
     expect(loggerWarnSpy).toHaveBeenCalledWith('File diff failed', {
-      error: 'fatal: bad object\nmore detail',
+      error: failure.error,
       path: 'src/file.ts',
     });
   });
@@ -141,7 +144,7 @@ describe('useChangeset', () => {
 
   it('times out a resolveView that never answers, into an error the surface can retry', async () => {
     vi.useFakeTimers();
-    const resolveView = vi.fn(() => new Promise<GitResult<ChangesetView>>(() => undefined));
+    const resolveView = vi.fn(() => new Promise<BoundaryResult<ChangesetView>>(() => undefined));
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
 
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
@@ -159,12 +162,12 @@ describe('useChangeset', () => {
     });
 
     expect(result.current.view).toBeNull();
-    expect(result.current.error).toContain('changeset-resolve-timeout:');
+    expect(result.current.error).toContain('did not answer within');
   });
 
   it('re-resolves the active changeset when the live Last Turn nonce is bumped', async () => {
     const resolveView = vi.fn(
-      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+      async (): Promise<BoundaryResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     act(() => {
@@ -224,7 +227,7 @@ describe('useChangeset', () => {
 
     it('subscribes once, re-resolves a git-scope changeset when ITS repository is invalidated, and unsubscribes on unmount', async () => {
       const resolveView = vi.fn(
-        async (): Promise<GitResult<ChangesetView>> => ({
+        async (): Promise<BoundaryResult<ChangesetView>> => ({
           ok: true,
           value: viewFixture({ changeset: GIT_CHANGESET }),
         })
@@ -260,7 +263,7 @@ describe('useChangeset', () => {
 
     it('never re-resolves a snapshot-sourced (agent-run) changeset on git invalidation', async () => {
       const resolveView = vi.fn(
-        async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+        async (): Promise<BoundaryResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
       );
       const pushed = stubBridgeWithInvalidations(resolveView);
 
@@ -276,10 +279,10 @@ describe('useChangeset', () => {
 
     it('re-resolves a git-scope changeset on a canonical working-tree refresh for its root, but not another root', async () => {
       vi.useFakeTimers();
-      const pendingResolves: Array<(result: GitResult<ChangesetView>) => void> = [];
+      const pendingResolves: Array<(result: BoundaryResult<ChangesetView>) => void> = [];
       const resolveView = vi.fn(
         () =>
-          new Promise<GitResult<ChangesetView>>((resolve) => {
+          new Promise<BoundaryResult<ChangesetView>>((resolve) => {
             pendingResolves.push(resolve);
           })
       );
@@ -374,7 +377,7 @@ describe('useChangeset', () => {
       ],
     });
     const resolveView = vi.fn(
-      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: view })
+      async (): Promise<BoundaryResult<ChangesetView>> => ({ ok: true, value: view })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
@@ -390,10 +393,8 @@ describe('useChangeset', () => {
 
   it('surfaces a failed load with its stable error prefix, and clears the view', async () => {
     const resolveView = vi.fn(
-      async (): Promise<GitResult<ChangesetView>> => ({
-        error: 'changeset-snapshot-missing: no snapshot covers this turn',
-        ok: false,
-      })
+      async (): Promise<BoundaryResult<ChangesetView>> =>
+        gitFailure('changeset-snapshot-missing: no snapshot covers this turn')
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
@@ -407,7 +408,7 @@ describe('useChangeset', () => {
   });
 
   it('delegates fileDiff to the bridge and returns the result to the caller', async () => {
-    const diffResult: GitResult<StructuredFileDiff> = {
+    const diffResult: BoundaryResult<StructuredFileDiff> = {
       ok: true,
       value: {
         additions: null,
@@ -420,7 +421,7 @@ describe('useChangeset', () => {
     };
     const fileDiff = vi.fn(async () => diffResult);
     const resolveView = vi.fn(
-      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+      async (): Promise<BoundaryResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff, inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
@@ -439,7 +440,7 @@ describe('useChangeset', () => {
   // single run — the per-file caller passes the ENTRY's own rootId, which
   // must win over the hook's own `rootId` (the surface's focused root).
   it('uses the entry-supplied rootId over the hook rootId when both are present', async () => {
-    const diffResult: GitResult<StructuredFileDiff> = {
+    const diffResult: BoundaryResult<StructuredFileDiff> = {
       ok: true,
       value: {
         additions: null,
@@ -452,7 +453,7 @@ describe('useChangeset', () => {
     };
     const fileDiff = vi.fn(async () => diffResult);
     const resolveView = vi.fn(
-      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+      async (): Promise<BoundaryResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff, inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-focused', CHANGESET), {
@@ -467,10 +468,10 @@ describe('useChangeset', () => {
   });
 
   it('ignores a stale refresh resolving after a newer one (generation guard)', async () => {
-    const deferred: Array<(result: GitResult<ChangesetView>) => void> = [];
+    const deferred: Array<(result: BoundaryResult<ChangesetView>) => void> = [];
     const resolveView = vi.fn(
       () =>
-        new Promise<GitResult<ChangesetView>>((resolve) => {
+        new Promise<BoundaryResult<ChangesetView>>((resolve) => {
           deferred.push(resolve);
         })
     );
@@ -528,7 +529,7 @@ describe('useChangeset', () => {
 
   it('a rerender with a NEW literal of EQUAL structure does not re-fetch (review finding: identity loop)', async () => {
     const resolveView = vi.fn(
-      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+      async (): Promise<BoundaryResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     // Every render builds a BRAND NEW object literal — the natural way a
@@ -575,7 +576,7 @@ describe('useChangeset', () => {
 describe('useChangeset — rewind invalidation', () => {
   it('re-resolves the view when a rewind applies or is undone', async () => {
     const resolveView = vi.fn(
-      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+      async (): Promise<BoundaryResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     renderHook(() => useChangeset('root-1', CHANGESET), { wrapper: changesHost() });
@@ -592,7 +593,7 @@ describe('useChangeset — rewind invalidation', () => {
 
   it('does not re-resolve while the rewind modal is merely opened and closed', async () => {
     const resolveView = vi.fn(
-      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+      async (): Promise<BoundaryResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     renderHook(() => useChangeset('root-1', CHANGESET), { wrapper: changesHost() });
@@ -615,7 +616,7 @@ describe('useChangeset — rewind invalidation', () => {
 
 describe('useChangeset', () => {
   it('resolves an inline changeset once, not again on the render its own result causes', async () => {
-    const resolveView = vi.fn(async () => ({ error: 'snapshot missing', ok: false }) as const);
+    const resolveView = vi.fn(async () => gitFailure('snapshot missing'));
     const wrapper = workspaceGitWrapper({ changes: stubChangesBridge({ resolveView }) });
 
     const { result } = renderHook(

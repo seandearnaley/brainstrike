@@ -2,6 +2,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useBranchSwitcher } from '../hooks/use-branch-switcher';
+import { gitFailure } from './helpers/git-failure';
 import { stubGitBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const {
@@ -133,7 +134,7 @@ describe('useBranchSwitcher', () => {
     // status read) but stop there: no `repository()` spawn, no warning, on
     // the initial render or on any later invalidation.
     statusSpy.mockResolvedValue({ ok: true, value: NON_REPO_STATUS });
-    repositorySpy.mockResolvedValue({ error: 'not a git repository', ok: false });
+    repositorySpy.mockResolvedValue(gitFailure('not a git repository'));
     const { rerender, result } = renderHook(
       () => useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' }),
       { wrapper }
@@ -182,7 +183,7 @@ describe('useBranchSwitcher', () => {
   });
 
   it('settles with no menu when the repository read fails', async () => {
-    repositorySpy.mockResolvedValue({ error: 'fatal: bad object', ok: false });
+    repositorySpy.mockResolvedValue(gitFailure('fatal: bad object'));
     const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
       wrapper,
     });
@@ -243,7 +244,7 @@ describe('useBranchSwitcher', () => {
   });
 
   it('surfaces a switch failure as a toast and never leaves `pending` stuck', async () => {
-    switchBranchSpy.mockResolvedValue({ error: 'index.lock exists', ok: false });
+    switchBranchSpy.mockResolvedValue(gitFailure('index.lock exists'));
     const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
       wrapper,
     });

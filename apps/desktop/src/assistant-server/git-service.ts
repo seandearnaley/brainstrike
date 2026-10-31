@@ -10,9 +10,9 @@
  *   `execSync`). Every argument (branch name, commit message, path) is passed as
  *   a separate array element, so no value can be shell-interpolated or inject a
  *   command. There is no `exec`/`spawn shell:true` anywhere in this file.
- * - resolves git failures into structured `{ ok: false, error }` results rather
- *   than throwing across the IPC boundary (no-silent-fallbacks: the stderr /
- *   message is surfaced, never swallowed).
+ * - resolves git failures into typed `BoundaryResult` failures (`git-failure.ts`)
+ *   rather than throwing across the boundary (no-silent-fallbacks: git's stderr
+ *   is surfaced as the refusal's message, never swallowed).
  * - bounds the captured output so a runaway diff cannot exhaust memory.
  *
  * The caller (the IPC handler) is responsible for resolving + containment-
@@ -22,20 +22,32 @@
  * path) lives in `git-structured-diff.ts`; this module wires its factory into
  * `createGitService`'s returned op set.
  */
+
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   GitBranchSummary,
   GitCommitResult,
   GitCreateBranchResult,
   GitPushPullResult,
   GitRepository,
-  GitResult,
   GitStatus,
   GitStatusFile,
   GitSwitchBranchResult,
   GitWorktreeSummary,
 } from '@brainstrike/types';
+import {
+  describeFailure,
+  type GitFailed,
+  gitCommandFailed,
+  gitInvalid,
+  gitOutsideFolder,
+  gitRefused,
+  gitThrew,
+  gitUnexpected,
+  isNotARepository,
+} from './git-failure';
 import { parseBranchSummaries, parseWorktreeSummaries } from './git-repository-parsers';
 import { createStructuredDiffOps } from './git-structured-diff';
 
@@ -45,7 +57,6 @@ export type {
   GitCreateBranchResult,
   GitPushPullResult,
   GitRepository,
-  GitResult,
   GitStatus,
   GitSwitchBranchResult,
   GitWorktreeSummary,
@@ -192,46 +203,21 @@ export function boundOutput(text: string): { text: string; truncated: boolean } 
   };
 }
 
-/** True when a failed `git` run was a "not a repository" fatal (exit 128). */
-function isNotARepository(run: GitCommandRun): boolean {
-  return /not a git repository/iu.test(run.stderr);
-}
-
-/**
- * Combine a failed run's stderr/stdout into a single actionable error string.
- * Never silent: a discriminated `failureReason` wins (so a timeout, abort, or
- * missing-binary case reports accurately instead of dumping a stale exit code);
- * otherwise we surface stderr/stdout, then the exit code as a last resort.
- */
-export function describeFailure(run: GitCommandRun): string {
-  if (run.failureReason === 'timeout') {
-    return 'git command timed out';
-  }
-  if (run.failureReason === 'notFound') {
-    return 'git is not installed or not on PATH';
-  }
-  const stderr = run.stderr.trim();
-  if (stderr.length > 0) {
-    return stderr;
-  }
-  const stdout = run.stdout.trim();
-  if (stdout.length > 0) {
-    return stdout;
-  }
-  return `git exited with code ${run.exitCode ?? 'null (terminated by signal)'}`;
-}
-
-export function describeDiffFailure(run: GitCommandRun, untracked: boolean): string | null {
+export function diffFailure(run: GitCommandRun, untracked: boolean): GitFailed | null {
   if (run.exitCode === 0 || run.failureReason === 'maxBuffer') {
     return null;
   }
   if (!(untracked && run.exitCode === 1)) {
-    return describeFailure(run);
+    return gitCommandFailed(run);
   }
   if (run.stdout.length > 0) {
     return null;
   }
-  return run.stderr.trim() || 'git returned no diff for the untracked path';
+  return gitRefused(
+    'conflict',
+    'git.command-failed',
+    run.stderr.trim() || 'git returned no diff for the untracked path'
+  );
 }
 
 /**
@@ -399,18 +385,18 @@ export function parsePorcelainV2Z(stdout: string): Omit<GitStatus, 'isRepository
 export function scopeStatusPaths(
   status: Omit<GitStatus, 'isRepository'>,
   repositoryPrefix: string
-): GitResult<Omit<GitStatus, 'isRepository'>> {
+): BoundaryResult<Omit<GitStatus, 'isRepository'>> {
   if (repositoryPrefix.length === 0) {
     return { ok: true, value: status };
   }
-  const scopePath = (filePath: string): GitResult<string> => {
+  const scopePath = (filePath: string): BoundaryResult<string> => {
     if (!filePath.startsWith(repositoryPrefix)) {
-      return { error: `git returned path "${filePath}" outside the opened folder`, ok: false };
+      return gitUnexpected(`git returned path "${filePath}" outside the opened folder`);
     }
     const relative = filePath.slice(repositoryPrefix.length);
     return relative.length > 0
       ? { ok: true, value: relative }
-      : { error: 'git returned an empty path for the opened folder', ok: false };
+      : gitUnexpected('git returned an empty path for the opened folder');
   };
   const files: GitStatusFile[] = [];
   for (const file of status.files) {
@@ -449,20 +435,20 @@ export function scopeStatusPaths(
 export function resolveContainedPathArg(
   basePath: string,
   rawPath: string | undefined
-): GitResult<string | null> {
+): BoundaryResult<string | null> {
   if (rawPath === undefined) {
     return { ok: true, value: null };
   }
   if (rawPath.length === 0) {
-    return { error: 'path must be a non-empty string', ok: false };
+    return gitInvalid('path must be a non-empty string');
   }
   if (path.isAbsolute(rawPath)) {
-    return { error: `path "${rawPath}" must be relative to the opened folder`, ok: false };
+    return gitInvalid(`path "${rawPath}" must be relative to the opened folder`);
   }
   const resolved = path.resolve(basePath, rawPath);
   const relative = path.relative(basePath, resolved);
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    return { error: `path "${rawPath}" escapes the opened folder`, ok: false };
+    return gitOutsideFolder(`path "${rawPath}" escapes the opened folder`);
   }
   return { ok: true, value: rawPath };
 }
@@ -490,7 +476,7 @@ export function resolveContainedPathArg(
 export async function assertUntrackedDiffPathContained(
   cwd: string,
   pathArg: string
-): Promise<GitResult<null>> {
+): Promise<BoundaryResult<null>> {
   const parent = path.dirname(path.resolve(cwd, pathArg));
   try {
     const [realRoot, realParent] = await Promise.all([realpath(cwd), realpath(parent)]);
@@ -498,13 +484,13 @@ export async function assertUntrackedDiffPathContained(
     // it. A `..`/absolute relative means a symlinked ancestor escaped the root.
     const relative = path.relative(realRoot, realParent);
     if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-      return { error: `path "${pathArg}" resolves outside the opened folder`, ok: false };
+      return gitOutsideFolder(`path "${pathArg}" resolves outside the opened folder`);
     }
     return { ok: true, value: null };
   } catch {
     // realpath throws if the parent directory does not exist; we cannot prove
     // containment, so refuse rather than risk an escape.
-    return { error: `path "${pathArg}" could not be resolved inside the opened folder`, ok: false };
+    return gitOutsideFolder(`path "${pathArg}" could not be resolved inside the opened folder`);
   }
 }
 
@@ -584,8 +570,8 @@ export async function readGitHookFreeFlags(
 /**
  * Build the git operations bound to a single, already-validated `cwd`.
  *
- * Every method returns a {@link GitResult}: a git failure becomes
- * `{ ok: false, error }`, never a throw. The injected `run` is the ONLY way git
+ * Every method returns a {@link BoundaryResult}: a git failure becomes a typed
+ * `{ ok: false, error }` failure, never a throw. The injected `run` is the ONLY way git
  * is invoked, and it always uses `execFile` semantics (args array, no shell).
  */
 export function createGitService({ cwd, run, signal }: GitServiceOptions) {
@@ -604,55 +590,57 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return await invokeGitHookFree(invoke, args, timeoutMs);
   }
 
-  async function resolveWorktreeRoot(): Promise<GitResult<string>> {
+  async function resolveWorktreeRoot(): Promise<BoundaryResult<string>> {
     const run_ = await invoke(['rev-parse', '--path-format=absolute', '--show-toplevel']);
     if (run_.exitCode !== 0) {
-      return { error: describeFailure(run_), ok: false };
+      return gitCommandFailed(run_);
     }
     const worktreeRoot = stripLineEnding(run_.stdout);
     if (worktreeRoot.length === 0) {
-      return { error: 'git returned an empty worktree root', ok: false };
+      return gitUnexpected('git returned an empty worktree root');
     }
     return { ok: true, value: worktreeRoot };
   }
 
-  async function requireNulSafeWorktreeInventory(): Promise<GitResult<null>> {
+  async function requireNulSafeWorktreeInventory(): Promise<BoundaryResult<null>> {
     const run_ = await invoke(['version']);
     if (run_.exitCode !== 0) {
-      return { error: describeFailure(run_), ok: false };
+      return gitCommandFailed(run_);
     }
     const version = parseGitVersion(stripLineEnding(run_.stdout));
     if (!version) {
-      return { error: 'git returned an unrecognized version string', ok: false };
+      return gitUnexpected('git returned an unrecognized version string');
     }
     if (!isAtLeastGit236(version)) {
-      return {
-        error: `Git 2.36 or newer is required for repository and worktree browsing; found ${version.join('.')}`,
-        ok: false,
-      };
+      return gitRefused(
+        'configuration',
+        'git.version-unsupported',
+        `Git 2.36 or newer is required for repository and worktree browsing; found ${version.join('.')}`
+      );
     }
     return { ok: true, value: null };
   }
 
-  async function requireFullWorktreeRoot(action: string): Promise<GitResult<null>> {
+  async function requireFullWorktreeRoot(action: string): Promise<BoundaryResult<null>> {
     const root = await resolveWorktreeRoot();
     if (!root.ok) {
       return root;
     }
     const [openedReal, worktreeReal] = await Promise.all([realpath(cwd), realpath(root.value)]);
     if (openedReal !== worktreeReal) {
-      return {
-        error: `${action} requires the full Git worktree root to be opened`,
-        ok: false,
-      };
+      return gitRefused(
+        'input',
+        'git.worktree-root-required',
+        `${action} requires the full Git worktree root to be opened`
+      );
     }
     return { ok: true, value: null };
   }
 
-  async function listRemoteNames(): Promise<GitResult<readonly string[]>> {
+  async function listRemoteNames(): Promise<BoundaryResult<readonly string[]>> {
     const run_ = await invoke(['remote']);
     if (run_.exitCode !== 0) {
-      return { error: describeFailure(run_), ok: false };
+      return gitCommandFailed(run_);
     }
     const remotes = splitLineRecords(run_.stdout)
       .filter((remote) => remote.length > 0)
@@ -660,30 +648,30 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return { ok: true, value: remotes };
   }
 
-  async function requireRemote(remote: unknown): Promise<GitResult<string>> {
+  async function requireRemote(remote: unknown): Promise<BoundaryResult<string>> {
     if (typeof remote !== 'string' || remote.length === 0) {
-      return { error: 'remote must be a non-empty string', ok: false };
+      return gitInvalid('remote must be a non-empty string');
     }
     const remotes = await listRemoteNames();
     if (!remotes.ok) {
       return remotes;
     }
     if (!remotes.value.includes(remote)) {
-      return { error: `remote "${remote}" does not exist`, ok: false };
+      return gitInvalid(`remote "${remote}" does not exist`);
     }
     return { ok: true, value: remote };
   }
 
-  async function assertCommitScope(): Promise<GitResult<null>> {
+  async function assertCommitScope(): Promise<BoundaryResult<null>> {
     const [allRun, scopedRun] = await Promise.all([
       invoke(['diff', '--cached', '--name-only', '--no-renames', '-z']),
       invoke(['diff', '--cached', '--name-only', '--no-renames', '-z', '--', '.']),
     ]);
     if (allRun.exitCode !== 0) {
-      return { error: describeFailure(allRun), ok: false };
+      return gitCommandFailed(allRun);
     }
     if (scopedRun.exitCode !== 0) {
-      return { error: describeFailure(scopedRun), ok: false };
+      return gitCommandFailed(scopedRun);
     }
     const scopedPaths = new Set(scopedRun.stdout.split('\0').filter(Boolean));
     const outsidePaths = allRun.stdout
@@ -692,10 +680,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       .filter((filePath) => !scopedPaths.has(filePath));
     if (outsidePaths.length > 0) {
       const preview = outsidePaths.slice(0, 3).join(', ');
-      return {
-        error: `Cannot commit: ${outsidePaths.length} staged path${outsidePaths.length === 1 ? '' : 's'} outside the opened folder (${preview})`,
-        ok: false,
-      };
+      return gitOutsideFolder(
+        `Cannot commit: ${outsidePaths.length} staged path${outsidePaths.length === 1 ? '' : 's'} outside the opened folder (${preview})`
+      );
     }
     return { ok: true, value: null };
   }
@@ -703,12 +690,12 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   function buildCommitArgs(params: {
     summary: string;
     description?: string | undefined;
-  }): GitResult<string[]> {
+  }): BoundaryResult<string[]> {
     if (typeof params.summary !== 'string' || params.summary.trim().length === 0) {
-      return { error: 'commit summary must be a non-empty string', ok: false };
+      return gitInvalid('commit summary must be a non-empty string');
     }
     if (params.description !== undefined && typeof params.description !== 'string') {
-      return { error: 'commit description must be a string', ok: false };
+      return gitInvalid('commit description must be a string');
     }
     const args = ['commit', '-m', params.summary.trim()];
     const description = params.description?.trim() ?? '';
@@ -718,20 +705,18 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return { ok: true, value: args };
   }
 
-  async function resolveCreatedCommit(): Promise<GitResult<GitCommitResult>> {
+  async function resolveCreatedCommit(): Promise<BoundaryResult<GitCommitResult>> {
     const hashRun = await invoke(['rev-parse', '--short', 'HEAD']);
     if (hashRun.exitCode !== 0) {
-      return {
-        error: `commit created but resolving its hash failed: ${describeFailure(hashRun)}`,
-        ok: false,
-      };
+      return gitUnexpected(
+        `commit created but resolving its hash failed: ${describeFailure(hashRun)}`
+      );
     }
     const branchRun = await invoke(['rev-parse', '--abbrev-ref', 'HEAD']);
     if (branchRun.exitCode !== 0) {
-      return {
-        error: `commit created but resolving its branch failed: ${describeFailure(branchRun)}`,
-        ok: false,
-      };
+      return gitUnexpected(
+        `commit created but resolving its branch failed: ${describeFailure(branchRun)}`
+      );
     }
     const branchName = branchRun.stdout.trim();
     return {
@@ -748,17 +733,17 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     readonly upstream: string | null;
   }
 
-  async function resolveBranchTracking(): Promise<GitResult<BranchTracking>> {
+  async function resolveBranchTracking(): Promise<BoundaryResult<BranchTracking>> {
     const branchRun = await invoke(['symbolic-ref', '--quiet', '--short', 'HEAD']);
     if (branchRun.exitCode === 1) {
       return { ok: true, value: { branch: null, upstream: null } };
     }
     if (branchRun.exitCode !== 0) {
-      return { error: describeFailure(branchRun), ok: false };
+      return gitCommandFailed(branchRun);
     }
     const branch = branchRun.stdout.trim();
     if (branch.length === 0) {
-      return { error: 'git returned an empty current branch name', ok: false };
+      return gitUnexpected('git returned an empty current branch name');
     }
     const upstreamRun = await invoke([
       'for-each-ref',
@@ -766,7 +751,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       `refs/heads/${branch}`,
     ]);
     if (upstreamRun.exitCode !== 0) {
-      return { error: describeFailure(upstreamRun), ok: false };
+      return gitCommandFailed(upstreamRun);
     }
     return {
       ok: true,
@@ -774,19 +759,23 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     };
   }
 
-  async function resolvePushArgs(remote: unknown): Promise<GitResult<readonly string[]>> {
+  async function resolvePushArgs(remote: unknown): Promise<BoundaryResult<readonly string[]>> {
     const tracking = await resolveBranchTracking();
     if (!tracking.ok) {
       return tracking;
     }
     if (tracking.value.branch === null) {
-      return { error: 'push requires a checked-out local branch', ok: false };
+      return gitRefused(
+        'conflict',
+        'git.detached-head',
+        'push requires a checked-out local branch'
+      );
     }
     if (tracking.value.upstream !== null) {
       return { ok: true, value: ['push'] };
     }
     if (typeof remote !== 'string' || remote.length === 0) {
-      return { error: 'first push requires an explicit remote', ok: false };
+      return gitRefused('input', 'git.remote-required', 'first push requires an explicit remote');
     }
     const configuredRemote = await requireRemote(remote);
     if (!configuredRemote.ok) {
@@ -805,7 +794,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     readonly worktrees: readonly GitWorktreeSummary[];
   }
 
-  async function loadRepositoryInventory(): Promise<GitResult<RepositoryInventory>> {
+  async function loadRepositoryInventory(): Promise<BoundaryResult<RepositoryInventory>> {
     const compatible = await requireNulSafeWorktreeInventory();
     if (!compatible.ok) {
       return compatible;
@@ -825,10 +814,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       listRemoteNames(),
     ]);
     if (worktreeRun.exitCode !== 0) {
-      return { error: describeFailure(worktreeRun), ok: false };
+      return gitCommandFailed(worktreeRun);
     }
     if (branchRun.exitCode !== 0) {
-      return { error: describeFailure(branchRun), ok: false };
+      return gitCommandFailed(branchRun);
     }
     if (!remotes.ok) {
       return remotes;
@@ -836,11 +825,11 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     const worktrees = parseWorktreeSummaries(worktreeRun.stdout, root.value);
     const currentWorktree = worktrees.find((worktree) => worktree.current);
     if (!currentWorktree) {
-      return { error: 'git worktree inventory omitted the current worktree', ok: false };
+      return gitUnexpected('git worktree inventory omitted the current worktree');
     }
     const repositoryRoot = worktrees[0]?.path;
     if (!repositoryRoot) {
-      return { error: 'git worktree inventory omitted the repository root', ok: false };
+      return gitUnexpected('git worktree inventory omitted the repository root');
     }
     const branches = parseBranchSummaries(branchRun.stdout).map((branch) => ({
       ...branch,
@@ -863,7 +852,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   async function resolveDefaultRemote(
     currentBranch: string | null,
     remotes: readonly string[]
-  ): Promise<GitResult<string | null>> {
+  ): Promise<BoundaryResult<string | null>> {
     if (currentBranch === null) {
       return { ok: true, value: null };
     }
@@ -872,19 +861,23 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       return { ok: true, value: null };
     }
     if (remoteRun.exitCode !== 0) {
-      return { error: describeFailure(remoteRun), ok: false };
+      return gitCommandFailed(remoteRun);
     }
     const configured = stripLineEnding(remoteRun.stdout);
     if (configured === '.') {
       return { ok: true, value: null };
     }
     if (!remotes.includes(configured)) {
-      return { error: `current branch names unknown remote "${configured}"`, ok: false };
+      return gitRefused(
+        'configuration',
+        'git.remote-missing',
+        `current branch names unknown remote "${configured}"`
+      );
     }
     return { ok: true, value: configured };
   }
 
-  async function createRepositorySnapshot(): Promise<GitResult<GitRepository>> {
+  async function createRepositorySnapshot(): Promise<BoundaryResult<GitRepository>> {
     const inventory = await loadRepositoryInventory();
     if (!inventory.ok) {
       return inventory;
@@ -927,7 +920,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     commit: async (params: {
       summary: string;
       description?: string | undefined;
-    }): Promise<GitResult<GitCommitResult>> => {
+    }): Promise<BoundaryResult<GitCommitResult>> => {
       try {
         const args = buildCommitArgs(params);
         if (!args.ok) {
@@ -939,11 +932,11 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         }
         const run_ = await invokeHookFree(args.value);
         if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
+          return gitCommandFailed(run_);
         }
         return await resolveCreatedCommit();
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
 
@@ -951,20 +944,20 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     createBranch: async (params: {
       branch: string;
       startPoint?: string;
-    }): Promise<GitResult<GitCreateBranchResult>> => {
+    }): Promise<BoundaryResult<GitCreateBranchResult>> => {
       try {
         if (typeof params.branch !== 'string' || params.branch.length === 0) {
-          return { error: 'branch must be a non-empty string', ok: false };
+          return gitInvalid('branch must be a non-empty string');
         }
         if (params.branch === '-') {
-          return { error: 'local branch "-" is not supported', ok: false };
+          return gitInvalid('local branch "-" is not supported');
         }
         const startPoint = params.startPoint;
         if (
           startPoint !== undefined &&
           (typeof startPoint !== 'string' || startPoint.length === 0)
         ) {
-          return { error: 'startPoint must be a non-empty string when supplied', ok: false };
+          return gitInvalid('startPoint must be a non-empty string when supplied');
         }
         const scope = await requireFullWorktreeRoot('Branch creation');
         if (!scope.ok) {
@@ -975,7 +968,11 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (exists.exitCode === 0) {
           // NEVER fall through to a plain switch: the caller asked to CREATE,
           // and quietly checking out an existing branch is a different action.
-          return { error: `local branch "${branch}" already exists`, ok: false };
+          return gitRefused(
+            'conflict',
+            'git.branch-exists',
+            `local branch "${branch}" already exists`
+          );
         }
         const run_ = await invokeHookFree([
           'switch',
@@ -985,16 +982,16 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           ...(startPoint ? ['--', startPoint] : []),
         ]);
         if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
+          return gitCommandFailed(run_);
         }
         return { ok: true, value: { branch } };
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
 
     /** Fetch one explicit, configured remote without integrating changes. */
-    fetch: async (params: { remote: string }): Promise<GitResult<GitPushPullResult>> => {
+    fetch: async (params: { remote: string }): Promise<BoundaryResult<GitPushPullResult>> => {
       try {
         const remote = await requireRemote(params.remote);
         if (!remote.ok) {
@@ -1005,12 +1002,12 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           GIT_NETWORK_TIMEOUT_MS
         );
         if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
+          return gitCommandFailed(run_);
         }
         const bounded = boundOutput(`${run_.stdout}${run_.stderr}`.trim());
         return { ok: true, value: { output: bounded.text } };
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
 
@@ -1022,7 +1019,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
      */
     push: async (
       params: { remote?: string | undefined } = {}
-    ): Promise<GitResult<GitPushPullResult>> => {
+    ): Promise<BoundaryResult<GitPushPullResult>> => {
       try {
         const scope = await requireFullWorktreeRoot('Push');
         if (!scope.ok) {
@@ -1034,26 +1031,26 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         }
         const run_ = await invokeHookFree(args.value, GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
+          return gitCommandFailed(run_);
         }
         const bounded = boundOutput(`${run_.stdout}${run_.stderr}`.trim());
         return { ok: true, value: { output: bounded.text } };
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
 
     /** Repository/worktree/branch identity. Worktree paths are metadata only. */
-    repository: async (): Promise<GitResult<GitRepository>> => {
+    repository: async (): Promise<BoundaryResult<GitRepository>> => {
       try {
         return await createRepositorySnapshot();
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
 
     /** Porcelain status + branch + ahead/behind, parsed into a typed structure. */
-    status: async (): Promise<GitResult<GitStatus>> => {
+    status: async (): Promise<BoundaryResult<GitStatus>> => {
       try {
         // Scope to the opened root ('-- .') so a root that is a SUBDIR of a
         // larger worktree reports only its own changes — never sibling paths
@@ -1091,10 +1088,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
               },
             };
           }
-          return { error: describeFailure(run_), ok: false };
+          return gitCommandFailed(run_);
         }
         if (prefixRun.exitCode !== 0) {
-          return { error: describeFailure(prefixRun), ok: false };
+          return gitCommandFailed(prefixRun);
         }
         const parsed = scopeStatusPaths(
           parsePorcelainV2Z(run_.stdout),
@@ -1108,7 +1105,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           value: { isRepository: true, ...parsed.value },
         };
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
 
@@ -1123,13 +1120,15 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     structuredFileDiff: structuredDiffOps.structuredFileDiff,
 
     /** Switch the full opened worktree to an existing local branch. */
-    switchBranch: async (params: { branch: string }): Promise<GitResult<GitSwitchBranchResult>> => {
+    switchBranch: async (params: {
+      branch: string;
+    }): Promise<BoundaryResult<GitSwitchBranchResult>> => {
       try {
         if (typeof params.branch !== 'string' || params.branch.length === 0) {
-          return { error: 'branch must be a non-empty string', ok: false };
+          return gitInvalid('branch must be a non-empty string');
         }
         if (params.branch === '-') {
-          return { error: 'local branch "-" is not supported', ok: false };
+          return gitInvalid('local branch "-" is not supported');
         }
         const scope = await requireFullWorktreeRoot('Branch switching');
         if (!scope.ok) {
@@ -1138,15 +1137,19 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         const branch = params.branch;
         const exists = await invoke(['show-ref', '--verify', '--hash', `refs/heads/${branch}`]);
         if (exists.exitCode !== 0) {
-          return { error: `local branch "${branch}" does not exist`, ok: false };
+          return gitRefused(
+            'input',
+            'git.branch-missing',
+            `local branch "${branch}" does not exist`
+          );
         }
         const run_ = await invokeHookFree(['switch', '--no-guess', '--', branch]);
         if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
+          return gitCommandFailed(run_);
         }
         return { ok: true, value: { branch } };
       } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
+        return gitThrew(error);
       }
     },
   };

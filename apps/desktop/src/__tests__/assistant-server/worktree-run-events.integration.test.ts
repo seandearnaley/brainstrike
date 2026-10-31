@@ -40,7 +40,7 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
       const created = await buildService().create({ ...params, createdBy });
       expect(created.ok).toBe(true);
       if (!created.ok) {
-        throw new Error(created.error);
+        throw new Error(created.error.message);
       }
       const stored = await db.worktreeLedger({ id: created.value.worktree.id, operation: 'get' });
       expect(stored.rows).toEqual([created.value.worktree]);
@@ -57,7 +57,7 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
     const created = await buildService().create(withoutRun);
     expect(created.ok).toBe(true);
     if (!created.ok) {
-      throw new Error(created.error);
+      throw new Error(created.error.message);
     }
     expect(created.value.worktree).toMatchObject({
       createdBy: 'user',
@@ -78,7 +78,7 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
     const created = await buildService({ runSetup: async () => setup }).create(params);
     expect(created.ok).toBe(true);
     if (!created.ok) {
-      throw new Error(created.error);
+      throw new Error(created.error.message);
     }
     expect(created.value.setup).toEqual(setup);
     expect(created.value.worktree).toMatchObject({
@@ -100,7 +100,7 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
     }).create(params);
     expect(created.ok).toBe(true);
     if (!created.ok) {
-      throw new Error(created.error);
+      throw new Error(created.error.message);
     }
     expect(created.value.setup.status).toBe('failed');
     expect(created.value.setup.reason).toContain(failure.message);
@@ -114,7 +114,7 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
       const created = await service.create(params);
       expect(created.ok).toBe(true);
       if (!created.ok) {
-        throw new Error(created.error);
+        throw new Error(created.error.message);
       }
       if (missing) {
         rmSync(created.value.worktree.path, { force: true, recursive: true });
@@ -125,7 +125,7 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
       });
       expect(archived.ok).toBe(true);
       if (!archived.ok) {
-        throw new Error(archived.error);
+        throw new Error(archived.error.message);
       }
       expect(archived.value.snapshotRef).toBe(
         `refs/brainstrike/worktree-archive/${created.value.worktree.id}`

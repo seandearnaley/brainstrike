@@ -452,8 +452,8 @@ describe('resolveCommonDir', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain(nativePath('/repo/.git'));
-      expect(result.error).toContain('gitdir:');
+      expect(result.error.message).toContain(nativePath('/repo/.git'));
+      expect(result.error.message).toContain('gitdir:');
     }
   });
 
@@ -469,7 +469,7 @@ describe('resolveCommonDir', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain(nativePath('/repo/.git'));
+      expect(result.error.message).toContain(nativePath('/repo/.git'));
     }
   });
 
@@ -497,7 +497,7 @@ describe('resolveCommonDir', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain('commondir');
+      expect(result.error.message).toContain('commondir');
     }
   });
 });
@@ -545,7 +545,9 @@ describe('resolveGitEntryAtWorktree (bidirectional trust check)', () => {
 
     const gitPath = nativePath('/attack-target/.git');
     expect(result).toEqual({
-      error: `could not stat "${gitPath}": ENOENT: no such file or directory '${gitPath}'`,
+      error: expect.objectContaining({
+        message: `could not stat "${gitPath}": ENOENT: no such file or directory '${gitPath}'`,
+      }),
       ok: false,
     });
     expect(fs.readdirCalls).not.toContain(nativePath('/attack-target'));

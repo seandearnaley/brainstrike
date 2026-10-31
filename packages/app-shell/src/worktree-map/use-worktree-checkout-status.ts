@@ -8,6 +8,7 @@
  * Concurrency is bounded so a workspace with twenty worktrees does not fork
  * twenty gits at once.
  */
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeCheckoutStatus } from '@brainstrike/types';
 import { useEffect, useState } from 'react';
@@ -52,7 +53,7 @@ async function readInBatches(
             path,
             result.ok
               ? { kind: 'ready', value: result.value }
-              : { kind: 'error', message: result.error }
+              : { kind: 'error', message: describeBoundaryFailure(result.error) }
           );
         } catch (error) {
           logger.warn('worktree checkout status threw', { error, path });

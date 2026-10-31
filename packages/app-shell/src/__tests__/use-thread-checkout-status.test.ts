@@ -4,6 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useThreadCheckoutStatus } from '../hooks/use-thread-checkout-status';
+import { gitFailure } from './helpers/git-failure';
 import { stubGitBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 // The two id spaces the chip straddles, deliberately DIFFERENT: the Git bridge
@@ -200,7 +201,7 @@ describe('useThreadCheckoutStatus', () => {
   });
 
   it('surfaces a failed status as undefined and logs — never a fake clean state', async () => {
-    status.mockResolvedValueOnce({ error: 'boom', ok: false });
+    status.mockResolvedValueOnce(gitFailure('boom'));
     const { result } = renderHook(
       () =>
         useThreadCheckoutStatus({
@@ -216,7 +217,10 @@ describe('useThreadCheckoutStatus', () => {
     await waitFor(() => expect(result.current.settled).toBe(true));
     expect(loggerMock.warn).toHaveBeenCalledWith(
       'git status for the workspace bar failed',
-      expect.objectContaining({ dbRootId: DB_ROOT_ID, error: 'boom' })
+      expect.objectContaining({
+        dbRootId: DB_ROOT_ID,
+        error: expect.objectContaining({ message: 'boom' }),
+      })
     );
     // Kept apart from "not a repository" (BST-2133).
     expect(result.current.failure).toBe('boom');
@@ -260,7 +264,7 @@ describe('useThreadCheckoutStatus', () => {
   });
 
   it('never shows one root failure under another root', async () => {
-    status.mockResolvedValueOnce({ error: 'boom', ok: false });
+    status.mockResolvedValueOnce(gitFailure('boom'));
     const pending = Promise.withResolvers<unknown>();
     status.mockReturnValueOnce(pending.promise);
     const { rerender, result } = renderHook(

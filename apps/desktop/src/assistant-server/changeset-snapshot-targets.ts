@@ -4,7 +4,8 @@
  * the host's committed log (`changeset-host-turns.ts`). A leaf module, so
  * neither resolver imports the other.
  */
-import type { GitResult } from '@brainstrike/types';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { gitRefused } from './git-failure';
 import type { SnapshotDiffTarget } from './snapshot-service';
 
 /** One committed tool edit's root-relative identity — content never travels here. */
@@ -32,16 +33,15 @@ export interface ResolvedTurnTargets {
   readonly targets: readonly RootDiffTarget[];
 }
 
-export function captureFailedError(rootId: string, detail: string): GitResult<never> {
-  return {
-    error:
-      `changeset-snapshot-capture-failed: the workspace snapshot for root "${rootId}" ` +
-      `was not captured (${detail}); this changeset cannot be shown. ` +
-      'Partial diffs are never fabricated.',
-    ok: false,
-  };
+export function captureFailedError(rootId: string, detail: string): BoundaryResult<never> {
+  return gitRefused(
+    'availability',
+    'changeset.snapshot-capture-failed',
+    `The workspace snapshot for root "${rootId}" was not captured (${detail}); ` +
+      'this changeset cannot be shown. Partial diffs are never fabricated.'
+  );
 }
 
-export function snapshotMissingError(detail: string): GitResult<never> {
-  return { error: `changeset-snapshot-missing: ${detail}`, ok: false };
+export function snapshotMissingError(detail: string): BoundaryResult<never> {
+  return gitRefused('availability', 'changeset.snapshot-missing', detail);
 }

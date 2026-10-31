@@ -28,6 +28,7 @@
  * failures are reported there rather than dropping the repository, so a
  * consumer that ignores `errors` is hiding real breakage.
  */
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
 import type { GitInventory } from '@brainstrike/types';
 import { useEffect, useRef, useState } from 'react';
@@ -138,7 +139,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
       } else {
         setResolvedActivation(activation);
         setInventory(null);
-        setError(result.error);
+        setError(describeBoundaryFailure(result.error));
       }
       // Mirrored on the catch branch below, rather than a shared `finally`
       // (react-doctor/no-loading-flag-reset-outside-finally): both branches

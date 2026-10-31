@@ -1,3 +1,4 @@
+import { gitRefused } from './git-failure';
 import {
   createShellCorrelation,
   type ShellWorktreeCorrelation,
@@ -32,7 +33,11 @@ export function desktopWorktreeToolDependencies(
         create: async (params) => {
           const open = services.openWorktreeFolder;
           if (!open) {
-            return { error: 'Worktrees cannot be opened as folders in this session.', ok: false };
+            return gitRefused(
+              'configuration',
+              'worktree.open-unavailable',
+              'Worktrees cannot be opened as folders in this session.'
+            );
           }
           const created = await service.create({
             ...params,

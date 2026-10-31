@@ -18,8 +18,9 @@
 
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { type ConcurrencyLimiter, createConcurrencyLimiter } from '@brainstrike/effect-kit';
-import type { GitResult } from '@brainstrike/types';
+import { gitUnexpected } from './git-failure';
 
 /** Directory names the walk never descends into (dedicated `.git` handling is separate — see {@link walkForGitEntries}). */
 export const DEFAULT_WALK_IGNORE_NAMES: readonly string[] = [
@@ -264,20 +265,20 @@ const GITDIR_PREFIX = 'gitdir:';
 async function resolveGitDirFromGitFile(
   fs: InventoryFs,
   gitFilePath: string
-): Promise<GitResult<string>> {
+): Promise<BoundaryResult<string>> {
   let content: string;
   try {
     content = await fs.readFile(gitFilePath);
   } catch (error) {
-    return { error: `could not read gitfile "${gitFilePath}": ${formatError(error)}`, ok: false };
+    return gitUnexpected(`could not read gitfile "${gitFilePath}": ${formatError(error)}`);
   }
   const trimmed = content.trim();
   if (!trimmed.startsWith(GITDIR_PREFIX)) {
-    return { error: `gitfile "${gitFilePath}" has no "gitdir:" pointer`, ok: false };
+    return gitUnexpected(`gitfile "${gitFilePath}" has no "gitdir:" pointer`);
   }
   const pointer = trimmed.slice(GITDIR_PREFIX.length).trim();
   if (pointer.length === 0) {
-    return { error: `gitfile "${gitFilePath}" has an empty gitdir pointer`, ok: false };
+    return gitUnexpected(`gitfile "${gitFilePath}" has an empty gitdir pointer`);
   }
   const resolvedPointer = path.isAbsolute(pointer)
     ? pointer
@@ -286,10 +287,9 @@ async function resolveGitDirFromGitFile(
     const realGitDir = await fs.realpath(resolvedPointer);
     return { ok: true, value: realGitDir };
   } catch (error) {
-    return {
-      error: `gitfile "${gitFilePath}" points at an unresolvable path "${resolvedPointer}": ${formatError(error)}`,
-      ok: false,
-    };
+    return gitUnexpected(
+      `gitfile "${gitFilePath}" points at an unresolvable path "${resolvedPointer}": ${formatError(error)}`
+    );
   }
 }
 
@@ -306,17 +306,16 @@ async function resolveGitDirFromGitFile(
 async function resolveCommonDirFromGitDir(
   fs: InventoryFs,
   realGitDir: string
-): Promise<GitResult<string>> {
+): Promise<BoundaryResult<string>> {
   const commondirPath = path.join(realGitDir, 'commondir');
   let commondirContent: string | null;
   try {
     commondirContent = await fs.readFile(commondirPath);
   } catch (error) {
     if (!isEnoent(error)) {
-      return {
-        error: `could not read commondir file "${commondirPath}": ${formatError(error)}`,
-        ok: false,
-      };
+      return gitUnexpected(
+        `could not read commondir file "${commondirPath}": ${formatError(error)}`
+      );
     }
     commondirContent = null;
   }
@@ -325,17 +324,16 @@ async function resolveCommonDirFromGitDir(
   }
   const trimmed = commondirContent.trim();
   if (trimmed.length === 0) {
-    return { error: `commondir file "${commondirPath}" is empty`, ok: false };
+    return gitUnexpected(`commondir file "${commondirPath}" is empty`);
   }
   const resolvedCommonDir = path.isAbsolute(trimmed) ? trimmed : path.resolve(realGitDir, trimmed);
   try {
     const realCommonDir = await fs.realpath(resolvedCommonDir);
     return { ok: true, value: realCommonDir };
   } catch (error) {
-    return {
-      error: `commondir file "${commondirPath}" points at an unresolvable path "${resolvedCommonDir}": ${formatError(error)}`,
-      ok: false,
-    };
+    return gitUnexpected(
+      `commondir file "${commondirPath}" points at an unresolvable path "${resolvedCommonDir}": ${formatError(error)}`
+    );
   }
 }
 
@@ -355,16 +353,17 @@ export interface ResolveCommonDirParams {
  * mode returns `{ ok: false, error }` naming the exact path and reason —
  * never a silent guess.
  */
-export async function resolveCommonDir(params: ResolveCommonDirParams): Promise<GitResult<string>> {
+export async function resolveCommonDir(
+  params: ResolveCommonDirParams
+): Promise<BoundaryResult<string>> {
   if (params.gitEntryKind === 'dir') {
     try {
       const realCommonDir = await params.fs.realpath(params.gitEntryPath);
       return { ok: true, value: realCommonDir };
     } catch (error) {
-      return {
-        error: `could not resolve git directory "${params.gitEntryPath}": ${formatError(error)}`,
-        ok: false,
-      };
+      return gitUnexpected(
+        `could not resolve git directory "${params.gitEntryPath}": ${formatError(error)}`
+      );
     }
   }
   const gitDirResult = await resolveGitDirFromGitFile(params.fs, params.gitEntryPath);
@@ -392,13 +391,13 @@ export interface ResolveGitEntryAtWorktreeParams {
  */
 export async function resolveGitEntryAtWorktree(
   params: ResolveGitEntryAtWorktreeParams
-): Promise<GitResult<string>> {
+): Promise<BoundaryResult<string>> {
   const gitPath = path.join(params.worktreePath, '.git');
   let stat: InventoryStat;
   try {
     stat = await params.fs.lstat(gitPath);
   } catch (error) {
-    return { error: `could not stat "${gitPath}": ${formatError(error)}`, ok: false };
+    return gitUnexpected(`could not stat "${gitPath}": ${formatError(error)}`);
   }
   if (stat.isDirectory()) {
     return await resolveCommonDir({ fs: params.fs, gitEntryKind: 'dir', gitEntryPath: gitPath });
@@ -410,5 +409,5 @@ export async function resolveGitEntryAtWorktree(
   // worktree whose `.git` is itself a symlink lands here too, not just a
   // fabricated/garbage entry — deliberate fail-closed: this check does not
   // chase that symlink, it only ever trusts a real directory or file.
-  return { error: `"${gitPath}" is neither a directory nor a file`, ok: false };
+  return gitUnexpected(`"${gitPath}" is neither a directory nor a file`);
 }

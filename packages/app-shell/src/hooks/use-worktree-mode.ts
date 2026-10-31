@@ -11,6 +11,10 @@ import {
   useWorktreeSetupConsentStore,
   type WorktreeSetupConsentRecord,
 } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   WorkspaceBarBaseRefOption,
   WorkspaceBarCreateWorktreeRequest,
@@ -119,7 +123,7 @@ async function createWorktree(
     throw error instanceof Error ? error : new Error(message);
   }
   if (!created.ok) {
-    rejectWithToast('Worktree creation failed', created.error);
+    rejectWithToast('Worktree creation failed', describeBoundaryFailure(created.error));
   }
   return created.value;
 }
@@ -425,7 +429,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           return;
         }
         logger.warn('worktree settings unavailable', { error: result.error });
-        setSettings({ kind: 'error', message: result.error });
+        setSettings({ kind: 'error', message: describeBoundaryFailure(result.error) });
       })
       .catch((error: unknown) => {
         if (cancelled) {
@@ -469,7 +473,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
             return;
           }
           setEntries([]);
-          setListError(result.error);
+          setListError(describeBoundaryFailure(result.error));
         })
         .catch((error: unknown) => {
           if (isCancelled?.()) {
@@ -715,7 +719,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       try {
         const result = await bridge.createBranchHere({ branch, worktreeId: currentEntry.id });
         if (!result.ok) {
-          throw new Error(result.error);
+          throw new BoundaryFailureError(result.error);
         }
         await refreshList();
         toast({
@@ -764,7 +768,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       throw error instanceof Error ? error : new Error(message);
     }
     if (!result.ok) {
-      rejectWithToast('Could not prepare worktree creation', result.error);
+      rejectWithToast('Could not prepare worktree creation', describeBoundaryFailure(result.error));
     }
     setCreateSheetContext(result.value);
   }, [args.firstRequestState, args.primaryRootId, bridge]);

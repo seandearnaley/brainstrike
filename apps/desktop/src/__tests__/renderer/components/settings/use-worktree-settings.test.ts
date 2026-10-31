@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
+
 import {
   NO_WORKSPACE_GIT_SERVICES,
   WorkspaceGitServicesProvider,
 } from '@brainstrike/app-shell/workspace-git-services';
 import type { WorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
+import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { WorktreeSettings } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -55,7 +57,11 @@ describe('useWorktreeSettings', () => {
   it('reports a getSettings result error', async () => {
     const bridge = createBridge({
       getSettings: vi.fn(async () => ({
-        error: 'settings could not be read',
+        error: refusal({
+          category: 'conflict',
+          code: 'worktree.settings',
+          message: 'settings could not be read',
+        }),
         ok: false as const,
       })),
       setSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
@@ -91,7 +97,11 @@ describe('useWorktreeSettings', () => {
     const bridge = createBridge({
       getSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
       setSettings: vi.fn(async () => ({
-        error: 'settings could not be saved',
+        error: refusal({
+          category: 'conflict',
+          code: 'worktree.settings',
+          message: 'settings could not be saved',
+        }),
         ok: false as const,
       })),
     });

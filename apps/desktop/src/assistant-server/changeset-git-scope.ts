@@ -14,23 +14,30 @@
  * `createGitService({ cwd, run })`, per the plan's explicit instruction to
  * reuse the W1 engine for per-file content.
  */
+
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   ChangedFileEntry,
   ChangedFileStatus,
   Changeset,
   ChangesetView,
-  GitResult,
   GitScope,
   StructuredFileDiff,
   StructuredFileDiffParams,
 } from '@brainstrike/types';
 import type { RootCwdResult } from '../workspace-root-cwd';
+import {
+  describeFailure,
+  gitCommandFailed,
+  gitInvalid,
+  gitRefused,
+  gitUnexpected,
+} from './git-failure';
 import { parseCommitFiles } from './git-repository-parsers';
 import {
   createGitService,
-  describeFailure,
   GIT_DEFAULT_TIMEOUT_MS,
   type GitCommandRun,
   type GitCommandRunner,
@@ -85,9 +92,9 @@ export function isPathContained(parentPath: string, candidatePath: string): bool
  * without re-deriving it via a `typeof` check that would read as tolerating
  * a non-string input this module never actually accepts.
  */
-function requireStringRootId(rootId: unknown): GitResult<string> {
+function requireStringRootId(rootId: unknown): BoundaryResult<string> {
   if (typeof rootId !== 'string') {
-    return { error: 'git-scope resolution requires a non-empty rootId string.', ok: false };
+    return gitInvalid('git-scope resolution requires a non-empty rootId string.');
   }
   // Return the TRIMMED value (NTH-2, review finding): `resolveRootCwd`
   // (`workspace-root-cwd.ts`) matches against the trimmed rootId internally,
@@ -96,7 +103,7 @@ function requireStringRootId(rootId: unknown): GitResult<string> {
   // renderer's OWN (trimmed) root-id values can never match.
   const trimmed = rootId.trim();
   if (trimmed.length === 0) {
-    return { error: 'git-scope resolution requires a non-empty rootId string.', ok: false };
+    return gitInvalid('git-scope resolution requires a non-empty rootId string.');
   }
   return { ok: true, value: trimmed };
 }
@@ -113,25 +120,27 @@ async function resolveContainedWorktreeCwd(
   resolveRootCwd: (rootId: unknown) => Promise<RootCwdResult>,
   rootId: unknown,
   worktreePath: string
-): Promise<GitResult<string>> {
+): Promise<BoundaryResult<string>> {
   const rootCwd = await resolveRootCwd(rootId);
   if (!rootCwd.ok) {
-    return rootCwd;
+    return gitRefused('input', 'workspace.root-unresolved', rootCwd.error);
   }
   let worktreeReal: string;
   try {
     worktreeReal = await realpath(worktreePath);
   } catch {
-    return {
-      error: `outside-roots-unsupported: git-scope worktreePath "${worktreePath}" could not be resolved on disk.`,
-      ok: false,
-    };
+    return gitRefused(
+      'authorization',
+      'changeset.outside-roots',
+      `git-scope worktreePath "${worktreePath}" could not be resolved on disk.`
+    );
   }
   if (!isPathContained(rootCwd.value, worktreeReal)) {
-    return {
-      error: `outside-roots-unsupported: worktree "${worktreePath}" is not contained by the resolved workspace root.`,
-      ok: false,
-    };
+    return gitRefused(
+      'authorization',
+      'changeset.outside-roots',
+      `worktree "${worktreePath}" is not contained by the resolved workspace root.`
+    );
   }
   return { ok: true, value: worktreeReal };
 }
@@ -150,7 +159,7 @@ async function isHeadUnborn(invoke: InvokeFn): Promise<boolean> {
  * NEVER `@{u}` — that upstream-tracking form is deliberately never used
  * anywhere in this module.
  */
-async function resolveDefaultBaseRef(invoke: InvokeFn): Promise<GitResult<string>> {
+async function resolveDefaultBaseRef(invoke: InvokeFn): Promise<BoundaryResult<string>> {
   const symbolicRun = await invoke(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
   if (symbolicRun.exitCode === 0) {
     const ref = stripLineEnding(symbolicRun.stdout)
@@ -164,17 +173,17 @@ async function resolveDefaultBaseRef(invoke: InvokeFn): Promise<GitResult<string
   if (probeRun.exitCode === 0) {
     return { ok: true, value: 'origin/main' };
   }
-  return {
-    error:
-      'base-ref-unresolved: could not resolve "origin/HEAD" or "origin/main"; specify an explicit baseRef.',
-    ok: false,
-  };
+  return gitRefused(
+    'input',
+    'changeset.base-ref-unresolved',
+    'could not resolve "origin/HEAD" or "origin/main"; specify an explicit baseRef.'
+  );
 }
 
 async function resolveExplicitOrDefaultBaseRef(
   invoke: InvokeFn,
   scope: Extract<GitScope, { kind: 'branch-vs-base' }>
-): Promise<GitResult<string>> {
+): Promise<BoundaryResult<string>> {
   return scope.baseRef === undefined
     ? await resolveDefaultBaseRef(invoke)
     : validateBaseRef(scope.baseRef);
@@ -196,7 +205,7 @@ async function resolveExplicitOrDefaultBaseRef(
 async function resolveBranchVsBaseRefs(
   invoke: InvokeFn,
   scope: Extract<GitScope, { kind: 'branch-vs-base' }>
-): Promise<GitResult<{ newRef: string; oldRef: string; unborn: boolean }>> {
+): Promise<BoundaryResult<{ newRef: string; oldRef: string; unborn: boolean }>> {
   if (await isHeadUnborn(invoke)) {
     const emptyTree = await resolveEmptyTreeHash(invoke);
     if (!emptyTree.ok) {
@@ -210,10 +219,11 @@ async function resolveBranchVsBaseRefs(
   }
   const mergeBaseRun = await invoke(['merge-base', baseRef.value, 'HEAD']);
   if (mergeBaseRun.exitCode !== 0) {
-    return {
-      error: `could not resolve merge-base between "${baseRef.value}" and HEAD: ${describeFailure(mergeBaseRun)}`,
-      ok: false,
-    };
+    return gitRefused(
+      'conflict',
+      'changeset.merge-base-unresolved',
+      `could not resolve merge-base between "${baseRef.value}" and HEAD: ${describeFailure(mergeBaseRun)}`
+    );
   }
   return {
     ok: true,
@@ -236,19 +246,17 @@ function isSafeRevArg(value: unknown): value is string {
 async function resolveFullCommitId(
   invoke: InvokeFn,
   commitId: unknown
-): Promise<GitResult<string>> {
+): Promise<BoundaryResult<string>> {
   if (!isSafeRevArg(commitId)) {
-    return {
-      error: 'commitId must be a non-empty string with no leading "-" or whitespace',
-      ok: false,
-    };
+    return gitInvalid('commitId must be a non-empty string with no leading "-" or whitespace');
   }
   const run_ = await invoke(['rev-parse', '--verify', '--quiet', `${commitId}^{commit}`]);
   if (run_.exitCode !== 0) {
-    return {
-      error: `commit-id-unresolved: "${commitId}" does not resolve to a commit in this repository.`,
-      ok: false,
-    };
+    return gitRefused(
+      'input',
+      'changeset.commit-id-unresolved',
+      `"${commitId}" does not resolve to a commit in this repository.`
+    );
   }
   return validateCommitId(stripLineEnding(run_.stdout).trim());
 }
@@ -315,16 +323,16 @@ const NAME_STATUS_TO_CHANGED_STATUS: ReadonlyMap<string, ChangedFileStatus> = ne
 async function listRefComparisonChanges(
   invoke: InvokeFn,
   target: readonly string[]
-): Promise<GitResult<readonly ScopeChangeRecord[]>> {
+): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
   const [numstatRun, nameStatusRun] = await Promise.all([
     invoke(['diff', ...target, '--numstat', '-z', '--relative', '--find-renames']),
     invoke(['diff', ...target, '--name-status', '-z', '--relative', '--find-renames']),
   ]);
   if (numstatRun.exitCode !== 0) {
-    return { error: describeFailure(numstatRun), ok: false };
+    return gitCommandFailed(numstatRun);
   }
   if (nameStatusRun.exitCode !== 0) {
-    return { error: describeFailure(nameStatusRun), ok: false };
+    return gitCommandFailed(nameStatusRun);
   }
   const numstatEntries = parseNumstatZ(numstatRun.stdout);
   const nameStatusEntries = parseCommitFiles(nameStatusRun.stdout);
@@ -333,10 +341,9 @@ async function listRefComparisonChanges(
 
   for (const statusEntry of nameStatusEntries) {
     if (!numstatPaths.has(statusEntry.path)) {
-      return {
-        error: `git name-status reported "${statusEntry.path}" with no matching numstat entry`,
-        ok: false,
-      };
+      return gitUnexpected(
+        `git name-status reported "${statusEntry.path}" with no matching numstat entry`
+      );
     }
   }
 
@@ -344,10 +351,9 @@ async function listRefComparisonChanges(
   for (const numstatEntry of numstatEntries) {
     const statusEntry = statusByPath.get(numstatEntry.path);
     if (!statusEntry) {
-      return {
-        error: `git numstat reported "${numstatEntry.path}" with no matching name-status entry`,
-        ok: false,
-      };
+      return gitUnexpected(
+        `git numstat reported "${numstatEntry.path}" with no matching name-status entry`
+      );
     }
     if (statusEntry.status === 'U') {
       // DEFENSIVE (NTH-5, review finding): `git diff --name-status` reports
@@ -358,17 +364,17 @@ async function listRefComparisonChanges(
       // conflicted path) for whatever future git version, flag, or scope
       // this module doesn't yet cover MIGHT emit `U` from `--name-status`;
       // it is not known to be reachable today.
-      return {
-        error: `unmerged-path: "${statusEntry.path}" has unresolved merge conflicts — resolve them before viewing this scope's diff.`,
-        ok: false,
-      };
+      return gitRefused(
+        'conflict',
+        'changeset.unmerged-path',
+        `"${statusEntry.path}" has unresolved merge conflicts — resolve them before viewing this scope's diff.`
+      );
     }
     const mappedStatus = NAME_STATUS_TO_CHANGED_STATUS.get(statusEntry.status);
     if (!mappedStatus) {
-      return {
-        error: `git reported an unsupported file status "${statusEntry.status}" for "${numstatEntry.path}"`,
-        ok: false,
-      };
+      return gitUnexpected(
+        `git reported an unsupported file status "${statusEntry.status}" for "${numstatEntry.path}"`
+      );
     }
     records.push({
       additions: numstatEntry.additions,
@@ -388,16 +394,16 @@ async function listRefComparisonChanges(
  * convention — never a fabricated count from reading the file. */
 async function listUntrackedChanges(
   invoke: InvokeFn
-): Promise<GitResult<readonly ScopeChangeRecord[]>> {
+): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
   const [statusRun, prefixRun] = await Promise.all([
     invoke(['status', '--porcelain=v2', '--untracked-files=all', '-z', '--', '.']),
     invoke(['rev-parse', '--show-prefix']),
   ]);
   if (statusRun.exitCode !== 0) {
-    return { error: describeFailure(statusRun), ok: false };
+    return gitCommandFailed(statusRun);
   }
   if (prefixRun.exitCode !== 0) {
-    return { error: describeFailure(prefixRun), ok: false };
+    return gitCommandFailed(prefixRun);
   }
   const scoped = scopeStatusPaths(
     parsePorcelainV2Z(statusRun.stdout),
@@ -423,7 +429,7 @@ async function listUntrackedChanges(
 
 async function resolveUncommittedChanges(
   invoke: InvokeFn
-): Promise<GitResult<readonly ScopeChangeRecord[]>> {
+): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
   const unborn = await isHeadUnborn(invoke);
   let oldTarget = 'HEAD';
   if (unborn) {
@@ -450,7 +456,7 @@ async function resolveUncommittedChanges(
 async function resolveScopeChanges(
   invoke: InvokeFn,
   scope: GitScope
-): Promise<GitResult<readonly ScopeChangeRecord[]>> {
+): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
   switch (scope.kind) {
     case 'uncommitted':
       return await resolveUncommittedChanges(invoke);
@@ -487,7 +493,7 @@ async function resolveScopeChanges(
     }
     default: {
       const exhaustive: never = scope;
-      return { error: `unsupported git scope: ${JSON.stringify(exhaustive)}`, ok: false };
+      return gitUnexpected(`unsupported git scope: ${JSON.stringify(exhaustive)}`);
     }
   }
 }
@@ -509,7 +515,7 @@ export async function resolveGitScopeChangesetView(
   deps: GitScopeDeps,
   rootId: unknown,
   changeset: GitScopeChangeset
-): Promise<GitResult<ChangesetView>> {
+): Promise<BoundaryResult<ChangesetView>> {
   const rootIdResult = requireStringRootId(rootId);
   if (!rootIdResult.ok) {
     return rootIdResult;
@@ -562,16 +568,16 @@ export async function resolveGitScopeChangesetView(
 async function isPathUntrackedInScope(
   invoke: InvokeFn,
   pathArg: string
-): Promise<GitResult<boolean>> {
+): Promise<BoundaryResult<boolean>> {
   const [statusRun, prefixRun] = await Promise.all([
     invoke(['status', '--porcelain=v2', '--untracked-files=all', '-z', '--', pathArg]),
     invoke(['rev-parse', '--show-prefix']),
   ]);
   if (statusRun.exitCode !== 0) {
-    return { error: describeFailure(statusRun), ok: false };
+    return gitCommandFailed(statusRun);
   }
   if (prefixRun.exitCode !== 0) {
-    return { error: describeFailure(prefixRun), ok: false };
+    return gitCommandFailed(prefixRun);
   }
   const scoped = scopeStatusPaths(
     parsePorcelainV2Z(statusRun.stdout),
@@ -615,7 +621,7 @@ export async function resolveGitScopeStructuredFileDiffParams(
   invoke: InvokeFn,
   scope: GitScope,
   path_: string
-): Promise<GitResult<StructuredFileDiffParams>> {
+): Promise<BoundaryResult<StructuredFileDiffParams>> {
   switch (scope.kind) {
     case 'uncommitted': {
       const untracked = await isPathUntrackedInScope(invoke, path_);
@@ -650,11 +656,11 @@ export async function resolveGitScopeStructuredFileDiffParams(
         // looked up (`resolveBranchVsBaseRefs` short-circuits on an unborn
         // HEAD before attempting resolution); the real, distinct condition
         // is that there is no HEAD commit to diff against at all.
-        return {
-          error:
-            'head-unborn: cannot resolve a per-file diff for branch-vs-base — this repository has no commits yet.',
-          ok: false,
-        };
+        return gitRefused(
+          'conflict',
+          'changeset.head-unborn',
+          'cannot resolve a per-file diff for branch-vs-base — this repository has no commits yet.'
+        );
       }
       // CRITICAL (3a review finding): `range` mode receives the MERGE-BASE
       // (`refs.value.oldRef`), never the raw resolved base ref — otherwise the
@@ -664,7 +670,7 @@ export async function resolveGitScopeStructuredFileDiffParams(
     }
     default: {
       const exhaustive: never = scope;
-      return { error: `unsupported git scope: ${JSON.stringify(exhaustive)}`, ok: false };
+      return gitUnexpected(`unsupported git scope: ${JSON.stringify(exhaustive)}`);
     }
   }
 }
@@ -674,7 +680,7 @@ export async function resolveGitScopeFileDiff(
   rootId: unknown,
   changeset: GitScopeChangeset,
   path_: string
-): Promise<GitResult<StructuredFileDiff>> {
+): Promise<BoundaryResult<StructuredFileDiff>> {
   const cwdResult = await resolveContainedWorktreeCwd(
     deps.resolveRootCwd,
     rootId,

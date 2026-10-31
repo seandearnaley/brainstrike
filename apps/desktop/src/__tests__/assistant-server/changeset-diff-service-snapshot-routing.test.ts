@@ -81,17 +81,17 @@ describe('ChangesetDiffService — W7 snapshot routing', () => {
     const view = await service.resolveView('root-a', AGENT_RUN);
     expect(view.ok).toBe(false);
     if (!view.ok) {
-      expect(view.error).toMatch(/^snapshot-engine-unavailable:/u);
+      expect(view.error.code).toBe('changeset.snapshot-engine-unavailable');
     }
     const rangeView = await service.resolveView('root-a', RUN_RANGE);
     expect(rangeView.ok).toBe(false);
     if (!rangeView.ok) {
-      expect(rangeView.error).toMatch(/^snapshot-engine-unavailable:/u);
+      expect(rangeView.error.code).toBe('changeset.snapshot-engine-unavailable');
     }
     const diff = await service.fileDiff('root-a', AGENT_RUN, 'x.txt');
     expect(diff.ok).toBe(false);
     if (!diff.ok) {
-      expect(diff.error).toMatch(/^snapshot-engine-unavailable:/u);
+      expect(diff.error.code).toBe('changeset.snapshot-engine-unavailable');
     }
   });
   it('WITH snapshot deps, agent-run resolves through the committed host turn', async () => {
@@ -129,7 +129,7 @@ describe('ChangesetDiffService — W7 snapshot routing', () => {
     const view = await service.resolveView('root-a', AGENT_RUN);
     expect(view.ok).toBe(false);
     if (!view.ok) {
-      expect(view.error).toMatch(/^snapshot-engine-unavailable:/u);
+      expect(view.error.code).toBe('changeset.snapshot-engine-unavailable');
     }
   });
   it('an unknown host thread refuses without attempting a row read or fabricating an empty view', async () => {
@@ -140,7 +140,7 @@ describe('ChangesetDiffService — W7 snapshot routing', () => {
     });
     const result = await service.resolveView('root-a', AGENT_RUN);
     expect(result).toMatchObject({
-      error: expect.stringMatching(/^changeset-snapshot-missing:/u),
+      error: expect.objectContaining({ code: 'changeset.snapshot-missing' }),
       ok: false,
     });
     expect(readRows).not.toHaveBeenCalled();

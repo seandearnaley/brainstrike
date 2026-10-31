@@ -39,7 +39,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
     });
     expect(created.ok).toBe(true);
     if (!created.ok) {
-      throw new Error(created.error);
+      throw new Error(created.error.message);
     }
     const { worktree } = created.value;
     writeFileSync(path.join(worktree.path, '.env'), 'SECRET=test\n');
@@ -54,7 +54,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
       }),
     });
     if (!preview.ok || preview.value.confirmationToken === null) {
-      throw new Error(preview.ok ? 'Expected ignored-file confirmation.' : preview.error);
+      throw new Error(preview.ok ? 'Expected ignored-file confirmation.' : preview.error.message);
     }
 
     const secondCreated = await service.create({
@@ -65,7 +65,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
       rootId: 'r-1',
     });
     if (!secondCreated.ok) {
-      throw new Error(secondCreated.error);
+      throw new Error(secondCreated.error.message);
     }
     writeFileSync(path.join(secondCreated.value.worktree.path, '.env'), 'SECRET=second\n');
     const secondPreview = await service.inspectArchive({
@@ -73,14 +73,16 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
     });
     if (!(secondPreview.ok && secondPreview.value.confirmationToken)) {
       throw new Error(
-        secondPreview.ok ? 'Expected ignored-file confirmation.' : secondPreview.error
+        secondPreview.ok ? 'Expected ignored-file confirmation.' : secondPreview.error.message
       );
     }
     expect(secondPreview.value.confirmationToken).not.toBe(preview.value.confirmationToken);
 
     await expect(service.archive({ worktreeId: worktree.id })).resolves.toEqual({
-      error:
-        'This worktree has 1 ignored entry that is not in the archive snapshot and will be permanently deleted. Top-level paths: .env. Confirm this deletion to archive.',
+      error: expect.objectContaining({
+        message:
+          'This worktree has 1 ignored entry that is not in the archive snapshot and will be permanently deleted. Top-level paths: .env. Confirm this deletion to archive.',
+      }),
       ok: false,
     });
     expect(existsSync(worktree.path)).toBe(true);
@@ -94,8 +96,10 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
         worktreeId: worktree.id,
       })
     ).resolves.toEqual({
-      error:
-        'This worktree has 2 ignored entries that are not in the archive snapshot and will be permanently deleted. Top-level paths: .cache, .env. Confirm this deletion to archive.',
+      error: expect.objectContaining({
+        message:
+          'This worktree has 2 ignored entries that are not in the archive snapshot and will be permanently deleted. Top-level paths: .cache, .env. Confirm this deletion to archive.',
+      }),
       ok: false,
     });
     expect(existsSync(worktree.path)).toBe(true);
@@ -106,7 +110,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
       throw new Error(
         currentPreview.ok
           ? 'Expected the changed ignored-file set to require confirmation.'
-          : currentPreview.error
+          : currentPreview.error.message
       );
     }
     const archived = await service.archive({
@@ -132,7 +136,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
       rootId: 'r-1',
     });
     if (!created.ok) {
-      throw new Error(created.error);
+      throw new Error(created.error.message);
     }
     const { worktree } = created.value;
     writeFileSync(path.join(worktree.path, '.env'), 'SECRET=test\n');
@@ -152,7 +156,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
 
     const report = await inspect();
     if (!report.ok) {
-      throw new Error(report.error);
+      throw new Error(report.error.message);
     }
     expect(report.value).toMatchObject({
       blockers: [],
@@ -167,7 +171,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
     writeFileSync(path.join(worktree.path, 'data', 'second.sqlite'), 'local-2\n');
     const changedReport = await inspect();
     if (!changedReport.ok) {
-      throw new Error(changedReport.error);
+      throw new Error(changedReport.error.message);
     }
     expect(changedReport.value.ignoredEntryCount).toBe(4);
     expect(changedReport.value.ignoredTopLevelEntries).toEqual(['.env', 'data/', 'node_modules/']);
@@ -176,7 +180,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
     git(worktree.path, ['mv', '!! notes.txt', 'renamed.txt']);
     const renamedReport = await inspect();
     if (!renamedReport.ok) {
-      throw new Error(renamedReport.error);
+      throw new Error(renamedReport.error.message);
     }
     expect(renamedReport.value.ignoredEntryCount).toBe(4);
     expect(renamedReport.value.ignoredTopLevelEntries).toEqual(['.env', 'data/', 'node_modules/']);
@@ -215,7 +219,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
       });
       expect(created.ok).toBe(true);
       if (!created.ok) {
-        throw new Error(created.error);
+        throw new Error(created.error.message);
       }
       const { worktree } = created.value;
       writeFileSync(path.join(worktree.path, '.env'), 'SECRET=test\n');
@@ -223,7 +227,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
       const preview = await service.inspectArchive({ worktreeId: worktree.id });
       expect(preview.ok).toBe(true);
       if (!(preview.ok && preview.value.confirmationToken)) {
-        throw new Error(preview.ok ? 'Expected ignored-file confirmation.' : preview.error);
+        throw new Error(preview.ok ? 'Expected ignored-file confirmation.' : preview.error.message);
       }
       lateSecretPath = path.join(worktree.path, '.late-secret');
 
@@ -234,8 +238,10 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
           worktreeId: worktree.id,
         })
       ).resolves.toEqual({
-        error:
-          'This worktree has 2 ignored entries that are not in the archive snapshot and will be permanently deleted. Top-level paths: .env, .late-secret. Confirm this deletion to archive.',
+        error: expect.objectContaining({
+          message:
+            'This worktree has 2 ignored entries that are not in the archive snapshot and will be permanently deleted. Top-level paths: .env, .late-secret. Confirm this deletion to archive.',
+        }),
         ok: false,
       });
       expect(existsSync(worktree.path)).toBe(true);
@@ -259,7 +265,7 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
       rootId: 'r-1',
     });
     if (!created.ok) {
-      throw new Error(created.error);
+      throw new Error(created.error.message);
     }
     for (const ignoredName of ignoredNames) {
       writeFileSync(path.join(created.value.worktree.path, ignoredName), 'secret\n');
@@ -278,9 +284,11 @@ describe('WorktreeService ignored-file archive confirmation (real git + real SQL
       },
     });
     await expect(service.archive({ worktreeId: created.value.worktree.id })).resolves.toEqual({
-      error: `This worktree has 12 ignored entries that are not in the archive snapshot and will be permanently deleted. Top-level paths: ${ignoredNames
-        .slice(0, 10)
-        .join(', ')}, and 2 other top-level paths. Confirm this deletion to archive.`,
+      error: expect.objectContaining({
+        message: `This worktree has 12 ignored entries that are not in the archive snapshot and will be permanently deleted. Top-level paths: ${ignoredNames
+          .slice(0, 10)
+          .join(', ')}, and 2 other top-level paths. Confirm this deletion to archive.`,
+      }),
       ok: false,
     });
   });

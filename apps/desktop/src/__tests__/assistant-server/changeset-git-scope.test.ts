@@ -121,7 +121,7 @@ describe('resolveGitScopeChangesetView — containment', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^outside-roots-unsupported:/u);
+    expect(result.error.code).toBe('changeset.outside-roots');
   });
 });
 
@@ -325,7 +325,7 @@ describe('resolveGitScopeChangesetView — branch-vs-base base-ref resolution', 
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^base-ref-unresolved:/u);
+    expect(result.error.code).toBe('changeset.base-ref-unresolved');
     // The `@{u}`-never invariant is asserted suite-wide in `afterEach` above.
   });
 });
@@ -420,8 +420,8 @@ describe('resolveGitScopeStructuredFileDiffParams — unborn HEAD (NTH-1)', () =
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^head-unborn:/u);
-    expect(result.error).not.toMatch(/^base-ref-unresolved:/u);
+    expect(result.error.code).toBe('changeset.head-unborn');
+    expect(result.error.code).not.toBe('changeset.base-ref-unresolved');
   });
 });
 
@@ -478,7 +478,7 @@ describe('empty-tree resolution — per-repo object format (review finding, BST-
     if (result.ok) {
       return;
     }
-    expect(result.error).toContain('sha512');
+    expect(result.error.message).toContain('sha512');
   });
 });
 
@@ -497,7 +497,7 @@ describe('resolveGitScopeStructuredFileDiffParams — bogus commitId (NTH-9)', (
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^commit-id-unresolved:/u);
+    expect(result.error.code).toBe('changeset.commit-id-unresolved');
   });
 });
 
@@ -527,7 +527,7 @@ describe('listRefComparisonChanges — bidirectional numstat/name-status merge (
     if (result.ok) {
       return;
     }
-    expect(result.error).toContain('only-in-numstat.txt');
+    expect(result.error.message).toContain('only-in-numstat.txt');
   });
 
   it('a name-status entry with NO matching numstat entry is a visible error, not a silent drop', async () => {
@@ -555,7 +555,7 @@ describe('listRefComparisonChanges — bidirectional numstat/name-status merge (
     if (result.ok) {
       return;
     }
-    expect(result.error).toContain('only-in-namestatus.txt');
+    expect(result.error.message).toContain('only-in-namestatus.txt');
   });
 });
 
@@ -585,7 +585,7 @@ describe('listRefComparisonChanges — unmerged path (R3)', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error).toMatch(/^unmerged-path:/u);
-    expect(result.error).toContain('conflict.txt');
+    expect(result.error.code).toBe('changeset.unmerged-path');
+    expect(result.error.message).toContain('conflict.txt');
   });
 });

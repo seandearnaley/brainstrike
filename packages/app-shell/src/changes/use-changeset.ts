@@ -54,8 +54,15 @@
  *    still wins and reports the REAL reason; this only speaks when nothing
  *    answers at all.
  */
+import {
+  boundaryFailureOf,
+  describeBoundaryFailure,
+  fault,
+  refusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
-import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type { Changeset, ChangesetView, StructuredFileDiff } from '@brainstrike/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChangesBridge } from '../workspace-git-services';
 import type { ChangesBridge } from './changes-bridge';
@@ -79,7 +86,7 @@ const logger = createLogger('UseChangeset');
  */
 export const RESOLVE_VIEW_TIMEOUT_MS = 45_000;
 
-const RESOLVE_VIEW_TIMEOUT_ERROR = `changeset-resolve-timeout: the changes service did not answer within ${Math.round(
+const RESOLVE_VIEW_TIMEOUT_MESSAGE = `The changes service did not answer within ${Math.round(
   RESOLVE_VIEW_TIMEOUT_MS / 1000
 )}s. It may be busy with a long-running database operation.`;
 
@@ -89,15 +96,22 @@ const RESOLVE_VIEW_TIMEOUT_ERROR = `changeset-resolve-timeout: the changes servi
  * settled call never leaves a pending handle behind.
  */
 async function withResolveTimeout(
-  pending: Promise<GitResult<ChangesetView>>
-): Promise<GitResult<ChangesetView>> {
+  pending: Promise<BoundaryResult<ChangesetView>>
+): Promise<BoundaryResult<ChangesetView>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       pending,
-      new Promise<GitResult<ChangesetView>>((resolve) => {
+      new Promise<BoundaryResult<ChangesetView>>((resolve) => {
         timer = setTimeout(() => {
-          resolve({ error: RESOLVE_VIEW_TIMEOUT_ERROR, ok: false });
+          resolve({
+            error: fault({
+              category: 'timeout',
+              code: 'changes.resolve-timeout',
+              message: RESOLVE_VIEW_TIMEOUT_MESSAGE,
+            }),
+            ok: false,
+          });
         }, RESOLVE_VIEW_TIMEOUT_MS);
       }),
     ]);
@@ -117,13 +131,12 @@ async function resolveViewSafely(
   bridge: ChangesBridge,
   rootId: string,
   changeset: Changeset
-): Promise<GitResult<ChangesetView>> {
+): Promise<BoundaryResult<ChangesetView>> {
   try {
     return await withResolveTimeout(bridge.resolveView(rootId, changeset));
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : String(caught);
     logger.error('Failed to resolve changeset view', { error: caught });
-    return { error: message, ok: false };
+    return { error: boundaryFailureOf(caught), ok: false };
   }
 }
 
@@ -161,7 +174,7 @@ export interface UseChangesetResult {
   readonly fileDiff: (
     path: string,
     entryRootId?: string | null
-  ) => Promise<GitResult<StructuredFileDiff>>;
+  ) => Promise<BoundaryResult<StructuredFileDiff>>;
   /** Re-resolve the active changeset's view. A no-op when nothing is active. */
   readonly refresh: () => Promise<void>;
   /**
@@ -227,7 +240,7 @@ export function useChangeset(
       : 0
   );
 
-  const loadView = async (): Promise<GitResult<ChangesetView> | null> => {
+  const loadView = async (): Promise<BoundaryResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
     if (!(bridge && rootId && stableChangeset)) {
@@ -242,7 +255,7 @@ export function useChangeset(
     const result = await resolveViewSafely(bridge, rootId, stableChangeset);
     if (generation === generationRef.current) {
       setView(result.ok ? result.value : null);
-      setError(result.ok ? null : result.error);
+      setError(result.ok ? null : describeBoundaryFailure(result.error));
     }
     return result;
   };
@@ -264,11 +277,15 @@ export function useChangeset(
   const fileDiff = async (
     path: string,
     entryRootId?: string | null
-  ): Promise<GitResult<StructuredFileDiff>> => {
+  ): Promise<BoundaryResult<StructuredFileDiff>> => {
     const resolvedRootId = entryRootId ?? rootId;
     if (!(bridge && resolvedRootId && stableChangeset)) {
       return {
-        error: 'changeset-unavailable: no active bridge, root, or changeset',
+        error: refusal({
+          category: 'availability',
+          code: 'changes.unavailable',
+          message: 'No active changes service, root, or changeset.',
+        }),
         ok: false,
       };
     }
@@ -281,9 +298,8 @@ export function useChangeset(
       }
       return result;
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
       logger.error('Failed to load file diff', { error: caught, path });
-      return { error: message, ok: false };
+      return { error: boundaryFailureOf(caught), ok: false };
     }
   };
 

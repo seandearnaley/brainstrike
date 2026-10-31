@@ -15,13 +15,17 @@ import type { HostToolDefinition } from '@brainstrike/agent/tool-runtime';
 
 import type { ListWorktreesInput, ManageWorktreeInput, RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_INPUT_SCHEMAS, normalizeManageWorktreeInput } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  NATIVE_TOOL_ID,
+  TOOL_DESCRIPTIONS,
+} from '@brainstrike/assistant-contract';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import {
   parseToolExecuteInput,
   type ToolExecuteInput,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import type { GitResult } from '@brainstrike/types';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('WorktreeTools');
@@ -87,9 +91,11 @@ interface WorktreeCreateParams {
 export interface WorktreeToolCapability {
   readonly archive: (
     params: WorktreeArchiveParams
-  ) => Promise<GitResult<WorktreeToolArchiveResult>>;
-  readonly create: (params: WorktreeCreateParams) => Promise<GitResult<WorktreeToolCreateResult>>;
-  readonly list: () => Promise<GitResult<readonly WorktreeToolListEntry[]>>;
+  ) => Promise<BoundaryResult<WorktreeToolArchiveResult>>;
+  readonly create: (
+    params: WorktreeCreateParams
+  ) => Promise<BoundaryResult<WorktreeToolCreateResult>>;
+  readonly list: () => Promise<BoundaryResult<readonly WorktreeToolListEntry[]>>;
 }
 
 interface ListedWorktree {
@@ -159,7 +165,7 @@ export async function runListWorktrees(
 ): Promise<ListWorktreesToolResult> {
   const listed = await requireCapability(capability).list();
   if (!listed.ok) {
-    throw new Error(listed.error);
+    throw new BoundaryFailureError(listed.error);
   }
   if (input.root === undefined) {
     return { worktrees: listed.value.map(project) };
@@ -220,7 +226,7 @@ export async function runManageWorktree(
       worktreeId: input.worktreeId,
     });
     if (!archived.ok) {
-      throw new Error(archived.error);
+      throw new BoundaryFailureError(archived.error);
     }
     return {
       action: 'archive',
@@ -239,7 +245,7 @@ export async function runManageWorktree(
     rootId: root.rootId,
   });
   if (!created.ok) {
-    throw new Error(created.error);
+    throw new BoundaryFailureError(created.error);
   }
   await enterWorktree({
     branch: created.value.worktree.branch,
