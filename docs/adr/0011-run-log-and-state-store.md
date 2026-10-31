@@ -198,6 +198,25 @@ it is billing, so BST-2226 records it as a committed fact. The Developer memory
 panel shows the last recall its view received, labelled live; a reload clears
 it.
 
+## Amendment (2026-10-31): what made host open slow
+
+The telemetry amendment above left open slow and said row count was not the
+cause. A profile of `HostCore.open` (BST-2388) found the cause: open validated
+every committed model message against the AI SDK's `modelMessageSchema` again,
+although each message is validated before it commits and the SDK validates the
+prompt it builds. #4859 removed that parse.
+
+Measured on Linux x64 with 1,000 threads x 5 runs (103k rows), seeded from a
+real HostCore recording: `HostCore.open` took 1.33–1.57 s before #4859 and
+0.82–0.90 s after it. Of what remains, the writer worker's hydration read takes
+about 460 ms, decoding rows about 155 ms and every fold together about 170 ms.
+
+Open still reads and folds every thread's hydrating rows. Persisted fold
+checkpoints, which would let open read only each thread's tail, were considered
+and not built: they would add a second durable copy of every view, to version
+with the fold code and invalidate when it changes. Every view stays a fold of
+the log, and checkpoints wait until a measured profile needs them.
+
 ## Sources
 
 - `docs/agents/assistant-persistence.md:173` (line number at `43daec7fb`): readers
