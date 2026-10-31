@@ -43,6 +43,9 @@ vi.mock('electron', () => ({
       fixture.lockedUserData.add(userData);
       return true;
     },
+    setAppUserModelId: (id: string) => {
+      fixture.events.push(`aumid:${id}`);
+    },
     setName: (name: string) => {
       fixture.events.push(`name:${name}`);
     },
@@ -290,6 +293,33 @@ it('keeps packaged userData and the explicit database selection unchanged', asyn
     path: join(userData, 'brainstrike-credentials.sealed.json'),
   });
 });
+
+it.each([
+  { aumid: ['aumid:com.brainstrike.desktop'], packaged: true, platform: 'win32' },
+  { aumid: [], packaged: false, platform: 'win32' },
+  { aumid: [], packaged: true, platform: 'darwin' },
+  { aumid: [], packaged: true, platform: 'linux' },
+])(
+  'names Windows toasts for the Start-menu shortcut only in a packaged win32 build ($platform, packaged $packaged)',
+  async ({ aumid, packaged, platform }) => {
+    vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
+    fixture.packaged = packaged;
+    fixture.paths.set('userData', resolve('/disposable/aumid-user-data'));
+    fixture.paths.set('home', resolve('/disposable/home'));
+    fixture.paths.set('documents', resolve('/disposable/documents'));
+    const original = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: platform });
+    try {
+      const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
+      getDesktopBootstrapRuntime();
+    } finally {
+      if (original) {
+        Object.defineProperty(process, 'platform', original);
+      }
+    }
+    expect(fixture.events.filter((event) => event.startsWith('aumid:'))).toEqual(aumid);
+  }
+);
 
 it('honors explicit Agent DevTools isolation with an ordinary development database override', async () => {
   vi.stubEnv('NODE_ENV', 'development');

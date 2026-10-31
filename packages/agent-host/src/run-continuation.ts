@@ -34,7 +34,12 @@ import {
   type HostParams,
   type HostPermissionGrant,
 } from './protocol.ts';
-import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.ts';
+import {
+  ensureHostRunAdmission,
+  hostRunPolicyAnswers,
+  hostRunToolDecision,
+  hostRunTools,
+} from './run-admission.ts';
 import { hostStartPosition } from './run-branch.ts';
 
 const logger = createLogger('AgentHost');
@@ -418,7 +423,7 @@ export async function approveHostRunByPolicy(
     !pending ||
     pending.event.kind !== 'approval' ||
     hasHostInteractionResponse(pending) ||
-    (await hostRunToolDecision(owner.platform, run, pending.event.toolId)) !== 'allow'
+    !(await hostRunPolicyAnswers(owner.platform, run, pending.event))
   ) {
     return;
   }

@@ -255,9 +255,27 @@ jobs:
           # bash runs, and the key's lines executed as commands.
           echo "APPLE_API_KEY=$KEY_FILE" >> "$GITHUB_ENV"
 
+      # mac.icon is an Icon Composer asset (apps/desktop/build/icon.icon), and
+      # electron-builder compiles it with actool, which must come from Xcode 26
+      # or later. The runner's default Xcode is older, so the newest installed
+      # Xcode 26+ is handed to Package DMG; with none installed the leg fails.
+      - name: Select Xcode for the app icon
+        id: xcode
+        run: |
+          set -euo pipefail
+          XCODE=$(find /Applications -maxdepth 1 -name 'Xcode_2[6-9]*.app' ! -iname '*beta*' ! -iname '*release_candidate*' | sort -V | tail -1)
+          if [[ -z "$XCODE" ]]; then
+            echo "::error::No Xcode 26 or later on this runner; the macOS icon needs its actool."
+            find /Applications -maxdepth 1 -name 'Xcode*.app'
+            exit 1
+          fi
+          DEVELOPER_DIR="$XCODE/Contents/Developer" xcrun actool --version | grep -A1 short-bundle-version
+          echo "developer-dir=$XCODE/Contents/Developer" >> "$GITHUB_OUTPUT"
+
       - name: Package DMG
         env:
           ARCH: ${{ matrix.arch }}
+          DEVELOPER_DIR: ${{ steps.xcode.outputs.developer-dir }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.signing.outputs.signed }}
           # Credentials reach only a signed build, so an unsigned proof run on a
           # repository that has them configured signs and notarizes nothing.
@@ -481,6 +499,20 @@ jobs:
             Where-Object { $_.Name -eq "Brainstrike.exe" } | Select-Object -First 1
           if (-not $App) { Write-Error "installed executable not found under LOCALAPPDATA\Programs"; exit 1 }
           Write-Host "installed app: $($App.FullName)"
+          # main-bootstrap.ts answers --version and exits before any GUI or host
+          # work, so a package that cannot start fails here, as on the other legs.
+          $Out = Join-Path $env:RUNNER_TEMP "brainstrike-version.out"
+          $Err = Join-Path $env:RUNNER_TEMP "brainstrike-version.err"
+          $run = Start-Process -FilePath $App.FullName -ArgumentList "--version" -NoNewWindow -PassThru `
+            -RedirectStandardOutput $Out -RedirectStandardError $Err
+          if (-not $run.WaitForExit(60000)) { $run.Kill(); Write-Error "installed app did not answer --version within 60 s"; exit 1 }
+          $Reported = "$(Get-Content -Raw $Out)".Trim()
+          Write-Host "installed app --version => $Reported"
+          if ($Reported -notlike "*$Version*") {
+            Get-Content $Err -Tail 40
+            Write-Error "installed app did not report version $Version"
+            exit 1
+          }
 
       - name: Record asset metadata
         shell: bash

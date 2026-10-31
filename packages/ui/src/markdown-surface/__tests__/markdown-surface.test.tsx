@@ -139,6 +139,18 @@ describe('MarkdownSurface', () => {
     });
   });
 
+  it('holds the loading placeholder until the resolved image has loaded', async () => {
+    const resolveImageSrc = vi.fn().mockResolvedValue('blob:fake');
+    renderSurface('![diagram](./ok.png)\n', { resolveImageSrc });
+    const img = await screen.findByRole('img', { name: 'diagram' });
+    expect(screen.getByText('Loading image… diagram')).toBeInTheDocument();
+    fireEvent.load(img);
+    await waitFor(() => {
+      expect(screen.queryByText('Loading image… diagram')).toBeNull();
+    });
+    expect(screen.getByRole('img', { name: 'diagram' })).toHaveAttribute('src', 'blob:fake');
+  });
+
   it('shows an explicit placeholder when a resolved image fails to load', async () => {
     // Resolution succeeds (desktop's asset-protocol resolver never rejects) but the img
     // element still errors — a protocol 404 or CSP-blocked remote image. onError must
