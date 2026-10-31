@@ -77,6 +77,7 @@ import {
   rendererLongTaskTelemetry,
 } from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
+import { useAppMenuSettings } from './hooks/use-app-menu-settings';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import type { StateHealthCapability } from './state-health/state-health-capability';
 import { TabChordHost } from './tab-chords/tab-chord-host';
@@ -588,6 +589,7 @@ export function RootLayoutContent({
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
   const setState = usePanelLayoutStore((state) => state.setState);
+  useAppMenuSettings();
   const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([shellTab]));
   const appConfig = useMemo(
     () => createAppConfig({ navigationItems: orderNavigationItems(navigationItems) }),
