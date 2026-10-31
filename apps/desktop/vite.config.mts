@@ -33,7 +33,13 @@ const desktopPackage: { readonly version?: string } = require('./package.json');
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles.
 // BST-1659: run by `oxc-transform-react` (Rust) through @vitejs/plugin-react, not Babel.
-const ReactCompilerConfig = { compilationMode: 'infer' } as const;
+// `critical_errors` fails the transform when the compiler would silently skip a component
+// or hook for an Error-level reason (refs read during render, unpreserved memoization).
+// Advice-level skips (syntax it cannot lower yet, such as try/finally) still compile out.
+const ReactCompilerConfig = {
+  compilationMode: 'infer',
+  panicThreshold: 'critical_errors',
+} as const;
 
 /**
  * `@vitejs/plugin-react` defaults to excluding `/node_modules/` alone, but `cacheDir` below

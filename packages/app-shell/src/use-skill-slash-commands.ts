@@ -26,7 +26,7 @@ import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
 import { useWorkspaceTrustRevision } from './workspace-trust/workspace-trust-revision';
@@ -112,9 +112,13 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
   const disabledSkillKeys = useSkillsPreferencesStore((state) => state.disabledSkillKeys);
 
   const threadIdRef = useRef(threadId);
-  threadIdRef.current = threadId;
+  useLayoutEffect(() => {
+    threadIdRef.current = threadId;
+  });
   const toastRef = useRef(toast);
-  toastRef.current = toast;
+  useLayoutEffect(() => {
+    toastRef.current = toast;
+  });
 
   const generationRef = useRef(0);
 

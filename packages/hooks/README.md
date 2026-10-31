@@ -1,7 +1,7 @@
 # @brainstrike/hooks
 
 Small shared React hooks. [`index.ts`](src/index.ts) owns exports including
-`useDebouncedValue`, `useFileFilters` and `useLoadingManager`.
+`useDebouncedValue` and `useFileFilters`.
 
 `useDebouncedValue(value, delay)` takes an explicit delay and cancels its prior
 scheduled update when the value/delay changes or the component unmounts:

@@ -7,7 +7,15 @@ import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { getKnownFileSize } from '@brainstrike/utils/file-content';
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { resolveDirectReadPath, supportsDirectPathRead } from './file-content-direct-read-path';
 import type { FileContentLoadIntent } from './file-content-load-authority-context';
 import { useFileContentLoadAuthority } from './file-content-load-authority-context';
@@ -515,7 +523,9 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   // Use ref to access current tree without closure stale state issues.
   const fileTreeRef = useRef(fileTree);
-  fileTreeRef.current = fileTree;
+  useLayoutEffect(() => {
+    fileTreeRef.current = fileTree;
+  });
 
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();

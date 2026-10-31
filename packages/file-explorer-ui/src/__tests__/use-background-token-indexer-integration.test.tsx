@@ -124,9 +124,7 @@ const fileTreeRootA: IFileNode[] = [
   },
 ];
 
-// Separate three-file tree used only by the swap-then-shrink regression
-// test. Keeping it out of `fileTreeRootA` preserves the `fileHandleMapSize
-// === 2` invariant that the P0 handle-map-rebuild tests rely on.
+// Separate three-file tree used only by the swap-then-shrink regression test.
 const fileTreeRootAWithC: IFileNode[] = [
   ...fileTreeRootA,
   {
@@ -1312,7 +1310,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     });
   });
 
-  describe('P0 optimization: decouple fileHandleMap rebuild from selection updates', () => {
+  describe('file handle map rebuilds', () => {
     it('indexes the new selection after the tree changes', () => {
       const { rerender } = renderHook(
         (props: { tree: IFileNode[]; selected: Set<string> }) =>
