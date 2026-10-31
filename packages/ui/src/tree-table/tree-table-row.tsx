@@ -148,39 +148,30 @@ function TreeTableRowInner<T>({
   const isTreegrid = ariaRole === 'treegrid';
 
   // Handle row click
-  const handleClick = React.useCallback(
-    (event: React.MouseEvent) => {
-      onClick?.(node.id, event);
-    },
-    [node.id, onClick]
-  );
+  const handleClick = (event: React.MouseEvent) => {
+    onClick?.(node.id, event);
+  };
 
   // Handle row double-click
-  const handleDoubleClick = React.useCallback(() => {
+  const handleDoubleClick = () => {
     onDoubleClick?.(node.id);
-  }, [node.id, onDoubleClick]);
+  };
 
   // Handle context menu
-  const handleContextMenu = React.useCallback(
-    (event: React.MouseEvent) => {
-      onContextMenu?.(node.id, event);
-    },
-    [node.id, onContextMenu]
-  );
+  const handleContextMenu = (event: React.MouseEvent) => {
+    onContextMenu?.(node.id, event);
+  };
 
   // Handle expand toggle click (stop propagation to prevent row selection)
-  const handleExpandClick = React.useCallback(
-    (event: React.MouseEvent) => {
-      event.stopPropagation();
-      onToggleExpand(node.id);
-    },
-    [node.id, onToggleExpand]
-  );
+  const handleExpandClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    onToggleExpand(node.id);
+  };
 
   // Handle checkbox click (stop propagation to prevent row selection)
-  const handleCheckboxChange = React.useCallback(() => {
+  const handleCheckboxChange = () => {
     onCheckboxChange?.(node.id);
-  }, [node.id, onCheckboxChange]);
+  };
 
   const isGroupHeader = isGroupHeaderNode(node);
 

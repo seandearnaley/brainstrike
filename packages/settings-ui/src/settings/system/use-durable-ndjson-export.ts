@@ -1,7 +1,7 @@
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import { saveDownload, type useToast } from '@brainstrike/ui';
 import { formatTimestampedDownloadFilename } from '@brainstrike/utils/browser-download';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import type { DurableNdjsonExportResult } from './logging-settings-types';
 
 interface UseDurableNdjsonExportOptions {
@@ -21,7 +21,7 @@ export function useDurableNdjsonExport({
   // Guard the DOM before doing the bounded query, and explain an empty result
   // visibly. The trailing reset avoids a finally clause, which blocks React
   // Compiler memoization (react-hooks-js/todo); the catch never rethrows.
-  const handleExportDurableNdjson = useCallback(async () => {
+  const handleExportDurableNdjson = async () => {
     if (!onExportDurableNdjson || typeof window === 'undefined') {
       return;
     }
@@ -62,7 +62,7 @@ export function useDurableNdjsonExport({
       });
     }
     setIsExportingDurableNdjson(false);
-  }, [onExportDurableNdjson, toast]);
+  };
 
   return { handleExportDurableNdjson, isExportingDurableNdjson };
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability.ts';
 import {
   type DailySpendSummary,
@@ -30,7 +30,7 @@ export function useDailySpend(
 ): DailySpendState {
   const available = hasDurableAssistantUsageCapability();
   const [windowEndMs, setWindowEndMs] = useState(() => Date.now());
-  const refresh = useCallback(async (): Promise<void> => setWindowEndMs(Date.now()), []);
+  const refresh = async (): Promise<void> => setWindowEndMs(Date.now());
   useEffect(() => {
     if (!available) {
       return;

@@ -21,7 +21,7 @@ import {
   type McpExtensionKey,
 } from '@brainstrike/assistant-contract';
 import { Label, Switch } from '@brainstrike/ui';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const READ_FAILURE_FALLBACK = 'Failed to read MCP extension preferences';
 const WRITE_FAILURE_FALLBACK = 'Failed to save MCP extension preferences';
@@ -54,14 +54,11 @@ export function McpExtensionSettings({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   /** The single place persisted state lands: initial read, push, and write. */
-  const applyPreferences = useCallback(
-    (next: McpExtensionEnablement) => {
-      setErrorMessage(null);
-      setLoadedPreferences(next);
-      onPreferencesChange?.(next);
-    },
-    [onPreferencesChange]
-  );
+  const applyPreferences = (next: McpExtensionEnablement) => {
+    setErrorMessage(null);
+    setLoadedPreferences(next);
+    onPreferencesChange?.(next);
+  };
 
   // One lifecycle: the push subscription is armed before the initial read
   // resolves, so a change landing mid-read is never dropped.

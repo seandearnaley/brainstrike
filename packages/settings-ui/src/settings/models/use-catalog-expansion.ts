@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import {
   type CatalogExpansionState,
   collapseAllCatalogSections,
@@ -35,18 +35,15 @@ export function useCatalogExpansion({
     setStored(state);
   }
 
-  const toggleSection = useCallback(
-    (providerId: string): void => {
-      setStored((previous) => toggleCatalogSection(previous, providerId, filtering));
-    },
-    [filtering]
-  );
-  const expandAll = useCallback((): void => {
+  const toggleSection = (providerId: string): void => {
+    setStored((previous) => toggleCatalogSection(previous, providerId, filtering));
+  };
+  const expandAll = (): void => {
     setStored((previous) => expandAllCatalogSections(previous, visibleSectionIds, filtering));
-  }, [filtering, visibleSectionIds]);
-  const collapseAll = useCallback((): void => {
+  };
+  const collapseAll = (): void => {
     setStored((previous) => collapseAllCatalogSections(previous, visibleSectionIds, filtering));
-  }, [filtering, visibleSectionIds]);
+  };
 
   return {
     collapseAll,

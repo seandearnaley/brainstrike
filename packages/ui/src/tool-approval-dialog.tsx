@@ -6,7 +6,7 @@
  */
 
 import { AlertTriangle } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from './button';
 import { Checkbox } from './checkbox';
 import {
@@ -114,13 +114,13 @@ export function ToolApprovalDialog({
 }: ToolApprovalDialogProps) {
   const [dontAskAgain, setDontAskAgain] = useState(false);
 
-  const handleApprove = useCallback(() => {
+  const handleApprove = () => {
     onResult({ approved: true, dontAskAgain });
-  }, [onResult, dontAskAgain]);
+  };
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = () => {
     onResult({ approved: false, dontAskAgain: false });
-  }, [onResult]);
+  };
 
   const inputEntries = Object.entries(tool.input);
   const hasInput = inputEntries.length > 0;
@@ -253,75 +253,69 @@ export function useToolApproval(options: UseToolApprovalOptions = {}): UseToolAp
     onCancelRef.current = onCancel;
   }, [onCancel]);
 
-  const startApproval = useCallback(
-    (tool: ToolApprovalInfo, resolve: (result: ToolApprovalResult) => void) => {
-      pendingRef.current = tool;
-      resolveRef.current = (result: ToolApprovalResult) => {
-        if (result.approved) {
-          onApproveRef.current?.(tool.id, result.dontAskAgain);
-        } else {
-          onCancelRef.current?.(tool.id);
-        }
-
-        resolve(result);
-
-        const next = queueRef.current.shift();
-        if (next) {
-          // Use the resolve callback pattern via queueRef to avoid self-reference
-          const nextResolveRef = next.resolve;
-          const nextTool = next.tool;
-          pendingRef.current = nextTool;
-          resolveRef.current = (nextResult: ToolApprovalResult) => {
-            if (nextResult.approved) {
-              onApproveRef.current?.(nextTool.id, nextResult.dontAskAgain);
-            } else {
-              onCancelRef.current?.(nextTool.id);
-            }
-            nextResolveRef(nextResult);
-            pendingRef.current = null;
-            resolveRef.current = null;
-            setPendingTool(null);
-          };
-          setPendingTool(nextTool);
-          return;
-        }
-
-        pendingRef.current = null;
-        resolveRef.current = null;
-        setPendingTool(null);
-      };
-
-      setPendingTool(tool);
-    },
-    []
-  );
-
-  const requestApproval = useCallback(
-    async (tool: ToolApprovalInfo): Promise<ToolApprovalResult> => {
-      // Check if we should skip approval for this tool
-      if (skipApprovalFor?.has(tool.id)) {
-        return { approved: true, dontAskAgain: true };
+  const startApproval = (tool: ToolApprovalInfo, resolve: (result: ToolApprovalResult) => void) => {
+    pendingRef.current = tool;
+    resolveRef.current = (result: ToolApprovalResult) => {
+      if (result.approved) {
+        onApproveRef.current?.(tool.id, result.dontAskAgain);
+      } else {
+        onCancelRef.current?.(tool.id);
       }
 
-      return new Promise((resolve) => {
-        if (pendingRef.current) {
-          queueRef.current.push({ resolve, tool });
-          return;
-        }
+      resolve(result);
 
-        startApproval(tool, resolve);
-      });
-    },
-    [skipApprovalFor, startApproval]
-  );
+      const next = queueRef.current.shift();
+      if (next) {
+        // Use the resolve callback pattern via queueRef to avoid self-reference
+        const nextResolveRef = next.resolve;
+        const nextTool = next.tool;
+        pendingRef.current = nextTool;
+        resolveRef.current = (nextResult: ToolApprovalResult) => {
+          if (nextResult.approved) {
+            onApproveRef.current?.(nextTool.id, nextResult.dontAskAgain);
+          } else {
+            onCancelRef.current?.(nextTool.id);
+          }
+          nextResolveRef(nextResult);
+          pendingRef.current = null;
+          resolveRef.current = null;
+          setPendingTool(null);
+        };
+        setPendingTool(nextTool);
+        return;
+      }
 
-  const resolvePending = useCallback((result: ToolApprovalResult) => {
+      pendingRef.current = null;
+      resolveRef.current = null;
+      setPendingTool(null);
+    };
+
+    setPendingTool(tool);
+  };
+
+  const requestApproval = async (tool: ToolApprovalInfo): Promise<ToolApprovalResult> => {
+    // Check if we should skip approval for this tool
+    if (skipApprovalFor?.has(tool.id)) {
+      return { approved: true, dontAskAgain: true };
+    }
+
+    return new Promise((resolve) => {
+      if (pendingRef.current) {
+        queueRef.current.push({ resolve, tool });
+        return;
+      }
+
+      startApproval(tool, resolve);
+    });
+  };
+
+  const resolvePending = (result: ToolApprovalResult) => {
     resolveRef.current?.(result);
-  }, []);
+  };
 
-  const clearPending = useCallback(() => {
+  const clearPending = () => {
     resolvePending({ approved: false, dontAskAgain: false });
-  }, [resolvePending]);
+  };
 
   return {
     clearPending,

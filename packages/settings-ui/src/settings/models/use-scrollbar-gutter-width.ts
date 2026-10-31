@@ -1,5 +1,5 @@
 import { useResizeObserver } from '@brainstrike/ui';
-import { type RefObject, useCallback, useState } from 'react';
+import { type RefObject, useState } from 'react';
 
 /**
  * Width the scroller's vertical scrollbar takes from its content box: 0 with
@@ -10,16 +10,13 @@ import { type RefObject, useCallback, useState } from 'react';
  */
 export function useScrollbarGutterWidth(scrollerRef: RefObject<HTMLElement | null>): number {
   const [gutterWidth, setGutterWidth] = useState(0);
-  useResizeObserver(
-    scrollerRef,
-    useCallback(() => {
-      const scroller = scrollerRef.current;
-      if (!scroller) {
-        return;
-      }
-      const next = Math.max(0, scroller.offsetWidth - scroller.clientWidth);
-      setGutterWidth((previous) => (Math.abs(previous - next) < 1 ? previous : next));
-    }, [scrollerRef])
-  );
+  useResizeObserver(scrollerRef, () => {
+    const scroller = scrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+    const next = Math.max(0, scroller.offsetWidth - scroller.clientWidth);
+    setGutterWidth((previous) => (Math.abs(previous - next) < 1 ? previous : next));
+  });
   return gutterWidth;
 }

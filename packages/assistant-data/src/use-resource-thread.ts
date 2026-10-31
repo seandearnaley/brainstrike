@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import type { AssistantMemoryThread } from './assistant-memory-repository.ts';
 import { newThread, newThreadId } from './assistant-new-thread.ts';
 import { useAssistantThreadStore } from './assistant-thread-store.ts';
@@ -15,8 +14,5 @@ export function useResourceThread(
       : undefined
   );
   const draft = useAssistantThreadStore((state) => state.newThreadMetadataByResourceId[resourceId]);
-  return useMemo(
-    () => (isNew ? newThread(resourceId, draft) : loaded),
-    [draft, isNew, loaded, resourceId]
-  );
+  return isNew ? newThread(resourceId, draft) : loaded;
 }

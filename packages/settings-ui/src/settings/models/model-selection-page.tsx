@@ -5,7 +5,7 @@ import {
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { Button, cn, useToast } from '@brainstrike/ui';
 import { RefreshCw } from 'lucide-react';
-import { useCallback } from 'react';
+
 import { useShallow } from 'zustand/react/shallow';
 import { ModelCatalog } from './model-catalog';
 import { type ModelBulkChange, useModelBulkToggle } from './use-model-bulk-toggle';
@@ -19,7 +19,7 @@ function useRegistryRefresh(): () => void {
   const db = useModelRegistrySource();
   const fetchRegistry = useModelRegistryStore((state) => state.fetchRegistry);
   const { toast } = useToast();
-  return useCallback((): void => {
+  return (): void => {
     if (!db) {
       toast({
         description: DATABASE_NOT_READY,
@@ -29,7 +29,7 @@ function useRegistryRefresh(): () => void {
       return;
     }
     void fetchRegistry(db);
-  }, [db, fetchRegistry, toast]);
+  };
 }
 
 /** Model Catalog category header controls: registry refresh. */
@@ -72,19 +72,13 @@ export function ModelSelectionPage() {
 
   useEnsureModelRegistry();
 
-  const handleToggle = useCallback(
-    (modelId: string, enabled: boolean): void => {
-      void toggle(modelId, enabled);
-    },
-    [toggle]
-  );
+  const handleToggle = (modelId: string, enabled: boolean): void => {
+    void toggle(modelId, enabled);
+  };
 
-  const handleBulkChange = useCallback(
-    (change: ModelBulkChange): void => {
-      void applyBulkChange(change);
-    },
-    [applyBulkChange]
-  );
+  const handleBulkChange = (change: ModelBulkChange): void => {
+    void applyBulkChange(change);
+  };
 
   const handleRefresh = useRegistryRefresh();
 
