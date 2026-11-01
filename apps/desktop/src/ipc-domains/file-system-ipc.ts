@@ -1,4 +1,3 @@
-import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import {
   BoundaryFailureError,
@@ -9,15 +8,13 @@ import {
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ManagedWorktreeAuthorizer } from '@brainstrike/assistant-service/node-workspace-services';
 import {
-  isFileNotFoundError,
+  createNativeSecureRoot,
   isWorkspaceRootRegistryDisposed,
 } from '@brainstrike/assistant-service/node-workspace-services';
-import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import {
   AccessError,
   DialogError,
-  getFileTooLargeMessage,
-  getTestDirectoryStructure,
   PermissionError,
   UserCancelledError,
 } from '@brainstrike/file-system';
@@ -26,19 +23,13 @@ import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { IFileNode, RootDescriptor } from '@brainstrike/types';
+import type { RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import {
   disposeHostCommandSessionsForRoot,
   evictHostLspServersForRoot,
 } from '../agent-host-platform/host-root-cleanup-client';
 import { isDesktopShuttingDown, isExpectedShutdownRefusal } from '../desktop-shutdown-state';
-import { hasE2eMockPathPrefix } from '../e2e-mock-root';
-import {
-  createFileReadErrorPayload,
-  FILE_READ_ERROR_CODE_NOT_FOUND,
-  type FileReadErrorPayload,
-} from '../file-read-errors';
 import {
   createDesktopIpcRegistry,
   registerDomain,
@@ -64,11 +55,6 @@ interface RegisterFileSystemIpcHandlersOptions {
    * serving disconnected folders.
    */
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
-  /**
-   * Explicit test-harness seam for roots backed by the in-memory adapter.
-   * Production callers omit it and only registered mock paths are synthetic.
-   */
-  readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
   readonly onDeleteRootData?: (rootId: string) => Promise<void>;
   /**
@@ -91,32 +77,7 @@ interface RegisterFileSystemIpcHandlersOptions {
   readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
 }
 
-interface ElectronE2eFileSystemFixture {
-  readonly directoriesByPath: Record<string, SerializableFileNode[]>;
-  /**
-   * Opt-in per-read delay (ms) for fixture-served directory reads. Absent means
-   * no delay, so every fixture that does not ask for one stays instant.
-   *
-   * Exists because a memory-served fixture resolves reads in microseconds,
-   * which collapses cancellable traversals (expand-all) into a window too thin
-   * for a Playwright round-trip to land inside. Mirrors the browser lane's
-   * `directoryReadDelayMs` (packages/file-system/src/dev-fixture-types.ts).
-   */
-  readonly directoryReadDelayMs?: number;
-  readonly fileContentsByPath: Record<string, string>;
-  readonly readDirectoryCalls: string[];
-  readonly readFileByPathCalls: string[];
-  readonly readFileCalls: string[];
-  requestDirectoryAccessCount: number;
-  readonly rootHandle: DirectoryHandle & {
-    readonly id: string;
-    readonly type: 'directory';
-  };
-}
-
-const MOCK_ROOT_PATH = path.resolve('/mock/test/directory');
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
-const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
 
 /**
@@ -153,7 +114,7 @@ function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/u.test(value) || /^\\\\[^\\]+\\[^\\]+/u.test(value);
 }
 
-/** One validation path for every fs:* channel that accepts renderer paths. */
+/** Validates the E2E harness's real root path the test-mode folder picker opens. */
 async function resolveFileSystemIpcPath(
   requestedPath: unknown,
   operation: string
@@ -170,71 +131,6 @@ async function resolveFileSystemIpcPath(
     return resolved.path;
   }
   throw new Error(`Invalid ${operation} path: ${resolved.error.message}`);
-}
-
-async function resolveDirectoryHandle(handle: DirectoryHandle): Promise<DirectoryHandle> {
-  const resolvedPath = await resolveFileSystemIpcPath(handle?.path, 'directory handle');
-  return { ...handle, path: resolvedPath };
-}
-
-async function resolveFileHandle(handle: FileHandle): Promise<FileHandle> {
-  const resolvedPath = await resolveFileSystemIpcPath(handle?.path, 'file handle');
-  return { ...handle, path: resolvedPath };
-}
-
-/**
- * True when a path is owned by the e2e mock file system (mock prefix or a
- * registered fixture) and must never touch the real disk.
- */
-function isMockFileSystemIpcPath(requestedPath: string): boolean {
-  const fixture = getElectronE2eFileSystemFixture();
-  if (
-    fixture &&
-    (requestedPath === fixture.rootHandle.path ||
-      requestedPath in fixture.directoriesByPath ||
-      requestedPath in fixture.fileContentsByPath)
-  ) {
-    return true;
-  }
-  return hasE2eMockPathPrefix(requestedPath);
-}
-
-function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
-  const fixture = (
-    globalThis as typeof globalThis & {
-      [E2E_FILE_SYSTEM_FIXTURE_KEY]?: ElectronE2eFileSystemFixture;
-    }
-  )[E2E_FILE_SYSTEM_FIXTURE_KEY];
-  return fixture ?? null;
-}
-
-/**
- * Read the fixture's opt-in directory-read delay. The fixture arrives from an
- * untyped `globalThis` slot written by the E2E harness, so a malformed value
- * THROWS instead of falling back to zero: a silently ignored delay would hand
- * the test back the microsecond-wide window it was written to widen, and it
- * would pass for months before failing on a loaded CI runner.
- */
-function resolveFixtureDirectoryReadDelayMs(fixture: ElectronE2eFileSystemFixture): number {
-  const delayMs: unknown = fixture.directoryReadDelayMs;
-  if (delayMs === undefined) {
-    return 0;
-  }
-  if (typeof delayMs !== 'number' || !Number.isFinite(delayMs) || delayMs < 0) {
-    throw new Error(
-      `Invalid E2E fixture directoryReadDelayMs: expected a finite number >= 0, received ${typeof delayMs} ${String(delayMs)}`
-    );
-  }
-  return delayMs;
-}
-
-async function waitForFixtureDirectoryReadDelay(delayMs: number): Promise<void> {
-  if (delayMs === 0) {
-    return;
-  }
-  await new Promise((resolve) => {
-    setTimeout(resolve, delayMs);
-  });
 }
 
 function isE2eTestMode(): boolean {
@@ -269,38 +165,22 @@ async function resolveE2eRealRootDirectoryHandle(
 
 /**
  * Resolve the picked directory handle for access-request flows. In test mode
- * the OS dialog cannot open, so the registered E2E fixture's root handle (or
- * the default mock handle) is returned WITHOUT touching the real adapter —
- * the real `requestDirectoryAccess` stats the picked path, which fails with
- * ENOENT for mock paths. Shared by fs:requestDirectoryAccess and fs:addRoot
- * so both pick flows follow the exact same test-mode contract.
- *
- * Precedence: a fixture registered by the CURRENT test beats the
- * BRAINSTRIKE_E2E_REAL_ROOT_PATH env opt-in — the env var is process-wide and
- * can leak across test files sharing a Playwright worker, while a registered
- * fixture is an explicit per-session choice.
+ * the OS dialog cannot open, so the picker answers the real disposable folder
+ * the E2E harness names in BRAINSTRIKE_E2E_REAL_ROOT_PATH, and refuses when it
+ * names none. Shared by fs:requestDirectoryAccess and fs:addRoot so both pick
+ * flows follow the exact same test-mode contract.
  */
 async function resolveRequestedDirectoryHandle(
   fileSystem: ElectronFileSystemAdapter
 ): Promise<DirectoryHandle> {
   if (isE2eTestMode()) {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      fixture.requestDirectoryAccessCount += 1;
-      return fixture.rootHandle;
-    }
     const realRootHandle = await resolveE2eRealRootDirectoryHandle(fileSystem);
-    if (realRootHandle) {
-      return realRootHandle;
+    if (!realRootHandle) {
+      throw new Error(
+        `Test mode's folder picker opens the folder ${E2E_REAL_ROOT_PATH_ENV} names, and it names none.`
+      );
     }
-    return {
-      id: 'mock-directory-handle',
-      kind: 'directory',
-      name: 'mock-test-directory',
-      path: MOCK_ROOT_PATH,
-      platform: 'electron',
-      type: 'directory',
-    } as DirectoryHandle;
+    return realRootHandle;
   }
 
   try {
@@ -353,30 +233,11 @@ async function resolveRequestedDirectoryHandle(
   }
 }
 
-/**
- * Existence check shared by the fs:exists channel and stored-root pruning
- * (fs:restoreRoots). Consults the registered E2E fixture first, then treats
- * mock-prefixed paths as existing (mirrors every other mock-aware handler in
- * this file) — a raw `fileSystem.exists` here would stat the real disk and
- * silently prune e2e-seeded roots from rootsList.
- */
-async function ipcPathExists(
+/** Existence check for stored-root pruning (fs:restoreRoots). */
+async function storedRootExists(
   fileSystem: ElectronFileSystemAdapter,
   requestedPath: string
 ): Promise<boolean> {
-  const fixture = getElectronE2eFileSystemFixture();
-  if (fixture) {
-    return (
-      requestedPath === fixture.rootHandle.path ||
-      requestedPath in fixture.directoriesByPath ||
-      requestedPath in fixture.fileContentsByPath
-    );
-  }
-
-  if (hasE2eMockPathPrefix(requestedPath)) {
-    return true;
-  }
-
   const resolved = await resolveValidatedPath({ requestedPath });
   if (!resolved.ok) {
     logger.debug('Invalid path provided during exists check', {
@@ -387,22 +248,6 @@ async function ipcPathExists(
   }
 
   return fileSystem.exists(resolved.path);
-}
-
-function toFileReadErrorPayload(error: unknown, filePath: string): FileReadErrorPayload | null {
-  const tooLargeMessage = getFileTooLargeMessage(error);
-  if (tooLargeMessage) {
-    logger.debug('Skipping oversized file read', { message: tooLargeMessage, path: filePath });
-    return createFileReadErrorPayload(tooLargeMessage);
-  }
-  if (isFileNotFoundError(error)) {
-    logger.debug('File not found during read', { path: filePath });
-    return createFileReadErrorPayload(
-      error instanceof Error ? error.message : 'File not found',
-      FILE_READ_ERROR_CODE_NOT_FOUND
-    );
-  }
-  return null;
 }
 
 export interface FileSystemIpcDomain {
@@ -424,7 +269,6 @@ export function createFileSystemIpcDomain({
   fileSystem,
   getRootsCatalog,
   whenRootsCatalogOpen,
-  isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
   onWorkspaceRootGranted,
   onWorkspaceRootsChanged,
@@ -440,99 +284,11 @@ export function createFileSystemIpcDomain({
     }
   };
   const registry = createDesktopIpcRegistry({ ipcMain });
-  const syntheticFileSystemClassifications = new Map<string, boolean>();
-  const bindSyntheticFileSystemClassification = (
-    rootPath: string,
-    classification: boolean
-  ): void => {
-    const classificationKey = path.normalize(rootPath);
-    const cached = syntheticFileSystemClassifications.get(classificationKey);
-    if (cached !== undefined && cached !== classification) {
-      throw new Error('Conflicting filesystem classification for canonical workspace root.');
-    }
-    syntheticFileSystemClassifications.set(classificationKey, classification);
-  };
-  const usesSyntheticFileSystem = (rootPath: string): boolean => {
-    const classificationKey = path.normalize(rootPath);
-    const cached = syntheticFileSystemClassifications.get(classificationKey);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const classification = isSyntheticFileSystemPath(rootPath);
-    bindSyntheticFileSystemClassification(classificationKey, classification);
-    return classification;
-  };
   const roots = new WorkspaceRootRegistry({
-    createSecureRoot: async (rootPath): Promise<SecureWorkspaceRoot> => {
-      if (usesSyntheticFileSystem(rootPath)) {
-        return {
-          canonicalPath: path.normalize(rootPath),
-          close: () => undefined,
-          listDir: async (relativePath, maxEntries) => {
-            const directoryPath =
-              relativePath === '.' ? rootPath : path.join(rootPath, relativePath);
-            const nodes = await fileSystem.readDirectory({
-              kind: 'directory',
-              name: path.basename(directoryPath),
-              path: directoryPath,
-              platform: 'electron',
-            });
-            return {
-              entries: nodes.slice(0, maxEntries).map((node) => ({
-                isDirectory: node.type === 'directory',
-                isFile: node.type === 'file',
-                isSymbolicLink: false,
-                ...(node.lastModified === undefined ? {} : { lastModified: node.lastModified }),
-                name: node.name,
-                ...(node.size === undefined ? {} : { size: node.size }),
-              })),
-              inspected: Math.min(nodes.length, maxEntries),
-              truncated: nodes.length > maxEntries,
-            };
-          },
-          readFile: async (relativePath) => {
-            const filePath = path.join(rootPath, relativePath);
-            const fixture = getElectronE2eFileSystemFixture();
-            if (fixture && path.normalize(fixture.rootHandle.path) === path.normalize(rootPath)) {
-              fixture.readFileByPathCalls.push(filePath);
-              const fixtureContent = fixture.fileContentsByPath[filePath];
-              if (fixtureContent === undefined) {
-                return { status: 'not-found' };
-              }
-              return { content: Buffer.from(fixtureContent), status: 'ok' };
-            }
-            const content = await fileSystem.readFile({
-              kind: 'file',
-              name: path.basename(filePath),
-              path: filePath,
-              platform: 'electron',
-            });
-            return { content: Buffer.from(content), status: 'ok' };
-          },
-        };
-      }
-      const root = workspaceRootRegistryFileSystemSeams
+    createSecureRoot: async (rootPath): Promise<SecureWorkspaceRoot> =>
+      workspaceRootRegistryFileSystemSeams
         ? await workspaceRootRegistryFileSystemSeams.createSecureRoot(rootPath)
-        : await (async (): Promise<SecureWorkspaceRoot> => {
-            const { SecureRoot } = await import('@brainstrike/secure-fs-native');
-            const secureRoot = new SecureRoot(rootPath);
-            return {
-              canonicalPath: secureRoot.canonicalPath,
-              close: () => secureRoot.close(),
-              listDir: (relativePath, maxEntries) =>
-                secureRoot.listDirAsync(relativePath, maxEntries),
-              readFile: (relativePath, maxBytes) =>
-                secureRoot.readFileAsync(relativePath, maxBytes),
-            };
-          })();
-      try {
-        bindSyntheticFileSystemClassification(root.canonicalPath, false);
-      } catch (error) {
-        root.close();
-        throw error;
-      }
-      return root;
-    },
+        : await createNativeSecureRoot(rootPath),
     disposeCommandSessionsForRoot,
     evictLspServersForRoot,
     getRootsCatalog,
@@ -543,48 +299,25 @@ export function createFileSystemIpcDomain({
     ...(whenRootsCatalogOpen ? { whenCatalogOpen: whenRootsCatalogOpen } : {}),
     onRestoredRootsChanged: onWorkspaceRootsChanged,
     onRootGranted: notifyRootGranted,
-    pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
-    resolveCanonicalRoot: async (rootPath) => {
-      if (usesSyntheticFileSystem(rootPath)) {
-        return path.normalize(rootPath);
-      }
-      const canonicalRoot = path.normalize(await realpath(rootPath));
-      bindSyntheticFileSystemClassification(canonicalRoot, false);
-      return canonicalRoot;
-    },
+    pathExists: (rootPath) => storedRootExists(fileSystem, rootPath),
     resolveReadPath: async (requestedPath, canonicalRoot) => {
-      if (!usesSyntheticFileSystem(canonicalRoot)) {
-        if (workspaceRootRegistryFileSystemSeams) {
-          return workspaceRootRegistryFileSystemSeams.resolveReadPath(requestedPath, canonicalRoot);
-        }
-        const result = await resolveValidatedPath({
-          allowMissing: false,
-          maxTraversal: 0,
-          requestedPath,
-          rootDir: canonicalRoot,
-        });
-        if (!result.ok) {
-          throw new AccessError(
-            `Path validation failed: ${result.error.message}`,
-            requestedPath,
-            'read'
-          );
-        }
-        return result.path;
+      if (workspaceRootRegistryFileSystemSeams) {
+        return workspaceRootRegistryFileSystemSeams.resolveReadPath(requestedPath, canonicalRoot);
       }
-      const candidate = path.isAbsolute(requestedPath)
-        ? path.normalize(requestedPath)
-        : path.resolve(canonicalRoot, requestedPath);
-      const relative = path.relative(canonicalRoot, candidate);
-      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-        throw refusalError(
-          'authorization',
-          'workspace.path-outside-root',
-          'Path is outside the selected workspace root.',
-          'Choose a file inside the selected folder.'
+      const result = await resolveValidatedPath({
+        allowMissing: false,
+        maxTraversal: 0,
+        requestedPath,
+        rootDir: canonicalRoot,
+      });
+      if (!result.ok) {
+        throw new AccessError(
+          `Path validation failed: ${result.error.message}`,
+          requestedPath,
+          'read'
         );
       }
-      return candidate;
+      return result.path;
     },
     storage,
   });
@@ -634,127 +367,12 @@ export function createFileSystemIpcDomain({
         }
       ),
 
-    exists: async (requestedPath: string) =>
-      settleFileSystemResult({ category: 'files', code: 'files.exists-failed' }, async () =>
-        ipcPathExists(fileSystem, requestedPath)
-      ),
-
     listRecentRoots: async () =>
       settleFileSystemResult(
         { category: 'files', code: 'files.list-recent-roots-failed' },
         async () => roots.listRecentRoots()
       ),
 
-    readDirectory: async (handle: DirectoryHandle) =>
-      settleFileSystemResult(
-        { category: 'files', code: 'files.read-directory-failed' },
-        async () => {
-          const fixture = getElectronE2eFileSystemFixture();
-          if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
-            fixture.readDirectoryCalls.push(handle.path);
-            await waitForFixtureDirectoryReadDelay(resolveFixtureDirectoryReadDelayMs(fixture));
-            const entries = fixture.directoriesByPath[handle.path];
-            if (!entries) {
-              throw new AccessError(
-                `Failed to read directory: no E2E fixture registered for ${handle.path}`,
-                handle.path,
-                'read'
-              );
-            }
-            return entries as unknown as IFileNode[];
-          }
-
-          if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
-            return getTestDirectoryStructure(MOCK_ROOT_PATH) as unknown as IFileNode[];
-          }
-          return roots.readDirectory(await resolveDirectoryHandle(handle));
-        }
-      ),
-
-    readFile: async (handle: FileHandle) =>
-      settleFileSystemResult({ category: 'files', code: 'files.read-file-failed' }, async () => {
-        const fixture = getElectronE2eFileSystemFixture();
-        if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
-          fixture.readFileCalls.push(handle.path);
-          const content = fixture.fileContentsByPath[handle.path];
-          if (content === undefined) {
-            throw new AccessError(
-              `Failed to read file: no E2E fixture registered for ${handle.path}`,
-              handle.path,
-              'read'
-            );
-          }
-          return content;
-        }
-
-        if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
-          return 'Mock file content for testing purposes\nThis is a test file.\n';
-        }
-        try {
-          const resolvedHandle = await resolveFileHandle(handle);
-          return await roots.readFile(resolvedHandle);
-        } catch (error) {
-          const payload = toFileReadErrorPayload(error, handle?.path ?? '');
-          if (payload) {
-            return payload;
-          }
-          throw error;
-        }
-      }),
-
-    readFileByAbsolutePath: async (
-      absolutePath: string,
-      claimedRootPath: string,
-      claimedRootId: string
-    ) =>
-      settleFileSystemResult(
-        { category: 'files', code: 'files.read-file-by-absolute-path-failed' },
-        async () => {
-          try {
-            return await roots.readFileByAbsolutePath(absolutePath, claimedRootPath, claimedRootId);
-          } catch (error) {
-            const payload = toFileReadErrorPayload(error, absolutePath);
-            if (payload) {
-              return payload;
-            }
-            throw error;
-          }
-        }
-      ),
-
-    readFileByPath: async (absolutePath: string) =>
-      settleFileSystemResult(
-        { category: 'files', code: 'files.read-file-by-path-failed' },
-        async () => {
-          const fixture = getElectronE2eFileSystemFixture();
-          if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
-            fixture.readFileByPathCalls.push(absolutePath);
-            const content = fixture.fileContentsByPath[absolutePath];
-            if (content === undefined) {
-              throw new AccessError(
-                `Failed to read file by path: no E2E fixture registered for ${absolutePath}`,
-                absolutePath,
-                'read'
-              );
-            }
-            return content;
-          }
-
-          if (hasE2eMockPathPrefix(absolutePath) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
-            return 'Mock file content for testing purposes\nThis is a test file.\n';
-          }
-
-          try {
-            return await roots.readFile(absolutePath);
-          } catch (error) {
-            const payload = toFileReadErrorPayload(error, absolutePath);
-            if (payload) {
-              return payload;
-            }
-            throw error;
-          }
-        }
-      ),
     removeRoot: async (rootId: string) =>
       settleFileSystemResult({ category: 'files', code: 'files.remove-root-failed' }, async () => {
         // Removing a mounted folder ends the index's borrow of it, even when the removal then
@@ -801,7 +419,6 @@ export function createFileSystemIpcDomain({
       if (errors.length > 0) {
         throw new AggregateError(errors, 'Filesystem IPC owners did not retire.');
       }
-      syntheticFileSystemClassifications.clear();
     },
     roots,
     unregister: () => registry.unregisterAll(),

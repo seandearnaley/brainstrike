@@ -1,7 +1,6 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
@@ -18,8 +17,6 @@ test('a host thread updates working memory through the canonical tool and the ne
   modelProvider,
   window,
 }) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   modelProvider.setScript((request) => {

@@ -6,7 +6,6 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 /** Sends one message in the Assistant region and waits for the host's committed reply. */
 async function runOnce(page: Page, prompt: string, reply: string): Promise<void> {
@@ -21,8 +20,6 @@ async function runOnce(page: Page, prompt: string, reply: string): Promise<void>
 }
 
 async function openHostThread(page: Page): Promise<void> {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(page);
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
   await ensureAssistantShellVisible(page);

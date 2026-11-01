@@ -1,8 +1,4 @@
 import {
-  BoundaryFailureError,
-  INTERNAL_FAULT,
-} from '@brainstrike/assistant-contract/boundary-failure';
-import {
   type DirectoryHandle,
   type FileHandle,
   type FileSystemAdapter,
@@ -20,9 +16,9 @@ import type {
   WatcherRetryOutcome,
   WatcherRootHealthEvent,
 } from '@brainstrike/types';
-import { type FileReadErrorPayload, isFileReadErrorPayload } from '../file-read-errors';
 import { fileSystemContract } from '../ipc-domains/file-system.contract';
 import type { DesktopFileSystemBridge } from '../types/desktop-electron-api';
+import { type DesktopFileReads, resolveDesktopFileReads } from './host-file-reads';
 import { resolveDesktopFileWatches } from './host-file-watches';
 import { createIpcCapability } from './ipc-capability';
 
@@ -40,25 +36,7 @@ function getFileSystemBridge(): DesktopFileSystemBridge | undefined {
   if (!(api && 'fileSystem' in api)) {
     return;
   }
-  const files = createIpcCapability(api.fileSystem, fileSystemContract);
-  return {
-    ...files,
-    readFile: async (handle) => readFileOutcome(await files.readFile(handle)),
-    readFileByAbsolutePath: async (filePath, rootPath, rootId) =>
-      readFileOutcome(await files.readFileByAbsolutePath(filePath, rootPath, rootId)),
-    readFileByPath: async (filePath) => readFileOutcome(await files.readFileByPath(filePath)),
-  };
-}
-
-/** File-size and missing-file outcomes retain their existing explicit codes after transport. */
-function readFileOutcome(result: string | FileReadErrorPayload): string {
-  if (typeof result === 'string') {
-    return result;
-  }
-  if (isFileReadErrorPayload(result)) {
-    throw Object.assign(new Error(result.message), { code: result.code });
-  }
-  throw new BoundaryFailureError(INTERNAL_FAULT);
+  return createIpcCapability(api.fileSystem, fileSystemContract);
 }
 
 function requireFileSystemBridge(): DesktopFileSystemBridge {
@@ -67,6 +45,14 @@ function requireFileSystemBridge(): DesktopFileSystemBridge {
     throw new Error('The desktop file-system capability is not available in this renderer role');
   }
   return fileSystem;
+}
+
+function requireFileReads(): DesktopFileReads {
+  const reads = resolveDesktopFileReads();
+  if (!reads) {
+    throw new Error('Workspace file reads need the agent host, which this window does not have');
+  }
+  return reads;
 }
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
@@ -110,27 +96,27 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     return requireFileSystemBridge().removeRoot(rootId);
   }
 
+  /** The agent host lists a live root's directory (ADR-0029 stage 4). */
   async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
-    return requireFileSystemBridge().readDirectory(handle);
+    return requireFileReads().readDirectory(handle);
   }
 
   async readFile(handle: FileHandle): Promise<string> {
-    return requireFileSystemBridge().readFile(handle);
+    return requireFileReads().readFile(handle);
   }
 
   /**
-   * Read by absolute path within a currently mounted root. This enables loading
-   * persisted tabs before their tree nodes exist without granting rootless disk
-   * access.
+   * Read by absolute path within a live root. This enables loading persisted
+   * tabs before their tree nodes exist without granting rootless disk access.
    */
   async readFileByPath(absolutePath: string): Promise<string> {
-    return requireFileSystemBridge().readFileByPath(absolutePath);
+    return requireFileReads().readFile({ path: absolutePath });
   }
 
   /**
    * Explicit absolute-path capability. The renderer confines the path to
-   * `rootPath`; main exact-binds `rootId` and that path against the mounted
-   * registry before authorizing the file.
+   * `rootPath`; the agent host exact-binds `rootId` and that path against its
+   * live roots before authorizing the file.
    */
   async readFileByAbsolutePath(
     absolutePath: string,
@@ -142,11 +128,11 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     if (!isDurableRootId(rootId)) {
       throw new Error('Mounted root identity must be a durable rootId');
     }
-    return requireFileSystemBridge().readFileByAbsolutePath(absolutePath, rootPath, rootId);
+    return requireFileReads().readFile({ path: absolutePath }, { path: rootPath, rootId });
   }
 
   async exists(path: string): Promise<boolean> {
-    return requireFileSystemBridge().exists(path);
+    return requireFileReads().exists(path);
   }
 
   async restoreLastFolder(): Promise<DirectoryHandle | null> {

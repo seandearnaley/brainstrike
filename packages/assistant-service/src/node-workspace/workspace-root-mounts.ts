@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import { isContained, pathsEqual } from './workspace-root-paths.ts';
+import { pathsEqual } from './workspace-root-paths.ts';
 import type {
   MountedWorkspaceRoot,
   SecureWorkspaceRoot,
@@ -154,51 +154,6 @@ export class WorkspaceRootMountTable {
     }
     this.mounted.clear();
     this.sessionRootIds.clear();
-  }
-
-  /**
-   * Resolves the mounted root for a read, given an optional caller-supplied
-   * rootId. A stale/wrong rootId (e.g. held across a remount) still resolves
-   * when `requestedPath` is itself absolute: it falls back to the same
-   * path-anchored lookup the no-rootId path already uses
-   * (findForAbsolutePath). This is NOT a security downgrade — the fallback
-   * still goes through the identical containment check and realpath
-   * preflight in workspace-root-read; only the requested rootId's authority
-   * is treated as fungible with "an absolute path that resolves into some
-   * mounted root", never a relaxation of what paths are readable. A relative
-   * path with an unknown rootId has no other anchor and keeps throwing.
-   */
-  resolveForRead(
-    requestedPath: string,
-    rootId: string | undefined
-  ): MountedWorkspaceRoot | undefined {
-    if (rootId === undefined) {
-      return this.findForAbsolutePath(requestedPath);
-    }
-    const mounted = this.mounted.get(rootId);
-    if (mounted) {
-      return mounted;
-    }
-    if (path.isAbsolute(requestedPath)) {
-      return this.findForAbsolutePath(requestedPath);
-    }
-    return;
-  }
-
-  /** Deepest containing root wins, so nested roots resolve to the inner one. */
-  private findForAbsolutePath(requestedPath: string): MountedWorkspaceRoot | undefined {
-    const normalized = path.normalize(requestedPath);
-    return this.snapshot()
-      .filter(
-        (candidate) =>
-          isContained(candidate.presentationPath, normalized) ||
-          isContained(candidate.canonicalPath, normalized)
-      )
-      .sort(
-        (left, right) =>
-          Math.max(right.presentationPath.length, right.canonicalPath.length) -
-          Math.max(left.presentationPath.length, left.canonicalPath.length)
-      )[0];
   }
 }
 

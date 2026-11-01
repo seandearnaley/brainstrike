@@ -494,11 +494,6 @@ async function selectPresetBySearch(
 }
 
 test.describe('Desktop filter presets', () => {
-  test.beforeEach(async ({ window }) => {
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
-  });
-
   test('keeps the selected preset after app restart', async ({ electron, window }) => {
     // 120s (the config default) rather than 90s: on the restoration-failed
     // path this test serially spends the 15s restore wait, selectMockRoot's own
@@ -516,9 +511,8 @@ test.describe('Desktop filter presets', () => {
 
     const relaunched = await electron.restart();
     const relaunchedWindow = relaunched.window;
-    const { mockFileSystemOperations, waitForAppReady } = await loadElectronHelpers();
+    const { waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(relaunchedWindow);
-    await mockFileSystemOperations(relaunchedWindow);
     await ensureFileExplorerPanelVisible(relaunchedWindow);
 
     // Root restoration after a relaunch is async, so give it a real chance
