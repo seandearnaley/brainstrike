@@ -347,10 +347,10 @@ function productionClientServices(
   };
 }
 /**
- * The host first learns a thread's model from the composer's memory read
- * (sent when the thread opens and when its model changes), else from the run's
- * admission. A model measured with a local tokenizer starts that tokenizer's
- * one-time load then, not inside its first provider request (BST-2437).
+ * The host first learns a thread's model from the composer's memory read, sent
+ * when the thread opens and when its model changes. A model measured with a
+ * local tokenizer starts that tokenizer's one-time load then, while the person
+ * types, not inside its first provider request (BST-2437).
  */
 function startModelTokenCounter(modelId: string): void {
   const selected = catalogModel(modelId);
@@ -562,7 +562,6 @@ export async function createProductionHostPlatform<Configuration extends Product
         throw new Error('Production host is closing');
       }
       request.signal.throwIfAborted();
-      startModelTokenCounter(request.modelId);
       const selected = await options.readConfiguration(request);
       let acquired: Awaited<ReturnType<typeof acquireMcp>>;
       let joined: Promise<void> | undefined;
