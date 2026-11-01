@@ -18,6 +18,7 @@ import {
   resolveQuickModelTarget,
 } from '@brainstrike/assistant-contract';
 import type { VectorProfile } from '@brainstrike/indexer';
+import { startAccurateTokenCounter } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { LanguageModel, Tool } from 'ai';
 import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.ts';
@@ -469,6 +470,9 @@ export async function createProductionHostPlatform<Configuration extends Product
   await input.startup.register(close);
   // The same owner starts the worker before evaluating desktop configuration.
   stateIndex = openHostStateIndex(input.startup.store.root, input.memoryResourceIds, input.startup);
+  // The o200k counter loads beside startup, so the first measured provider
+  // request of this process does not pay its one-time load (BST-2437).
+  startAccurateTokenCounter();
   const configuring =
     'configure' in input
       ? Promise.resolve().then(() =>
