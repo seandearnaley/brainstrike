@@ -67,6 +67,10 @@ Implementation: `packages/indexer`, `packages/canonical-ingestion`,
 ## Retrieval
 
 - Authorize roots/files before ranking.
+- A worktree root is never in the partition. Retrieval for one reads an open
+  checkout of the same repository (same git common dir) and keeps a hit only
+  while the worktree's file holds that chunk at those lines
+  (`apps/desktop/src/assistant-server/checkout-read-through.ts`, ADR-0034).
 - Capture and revalidate the same store, scope, binding, profile and query plan
   around reads and inference; reject foreign or stale results.
 - Keep exact reranking and canonical hit metadata.

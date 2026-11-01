@@ -1,9 +1,13 @@
 // @vitest-environment node
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { MessageChannel } from 'node:worker_threads';
 import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import type { HostWorktreeServices } from '@brainstrike/host-capabilities/git-workspace';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { vectorProfileHash } from '@brainstrike/indexer';
 import {
@@ -214,7 +218,12 @@ function mainReads(
     }
   });
 }
-function hostTools(request: MainRequest): Record<string, HostTool> {
+function hostTools(
+  request: MainRequest,
+  gitWorkspace: Parameters<typeof desktopHostSharedTools>[0]['gitWorkspace'] = {},
+  /** The thread's operating folder. */
+  boundWorkspaceRootId?: string
+): Record<string, HostTool> {
   const descriptor = (id: string) => ({
     description: id,
     identity: id,
@@ -224,7 +233,7 @@ function hostTools(request: MainRequest): Record<string, HostTool> {
   });
   return desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots', {}),
-    gitWorkspace: {},
+    gitWorkspace,
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -261,6 +270,7 @@ function hostTools(request: MainRequest): Record<string, HostTool> {
         },
       },
       nativeRuntime: {
+        ...(boundWorkspaceRootId ? { boundWorkspaceRootId } : {}),
         provider: 'openai',
         workspaceRoots: [{ displayName: 'A', path: '/workspace/a', rootId: 'root-a' }],
       },
@@ -348,7 +358,7 @@ const folderB = { displayName: 'B', path: '/workspace/b', rootId: 'root-b' };
 test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
   '%s without a folder searches this thread’s indexed folders and names one left out',
   async (name) => {
-    // A is indexed; B (say, a worktree not opted in) is not; C is open in the app, not this thread.
+    // A is indexed; B is not (and is no worktree of A); C is open in the app, not this thread.
     const request = mainReads(twoFolderIndex, [...roots, folderB]);
     const output = await tool(hostTools(request), name).execute({ query: 'marker' }, execution());
     expect(JSON.stringify(output)).toContain('Selected A marker');
@@ -356,6 +366,94 @@ test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
     expect(output).toMatchObject({
       hint: expect.stringContaining('"B" is not in the search index'),
     });
+  }
+);
+/**
+ * B is a worktree of A's repository on disk: git reports one common dir for both,
+ * and the index serves only A (ADR-0034).
+ */
+async function worktreeOfA(fileText: string) {
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'bs-worktree-')));
+  await writeFile(path.join(directory, 'a.txt'), fileText);
+  const worktree = { displayName: 'B', path: directory, rootId: 'root-b' };
+  const cwd = new Map([
+    ['root-a', '/workspace/a'],
+    ['root-b', directory],
+  ]);
+  const gitWorkspace = {
+    resolveWorktreeService: () =>
+      ({
+        repositoryContextForRoot: async (rootId: string) => ({
+          ok: true,
+          value: {
+            commonDir: '/workspace/a/.git',
+            cwd: cwd.get(rootId) ?? '',
+            repositoryRoot: cwd.get(rootId) ?? '',
+          },
+        }),
+      }) as unknown as ReturnType<NonNullable<HostWorktreeServices['resolveWorktreeService']>>,
+  };
+  return { cleanup: () => rm(directory, { force: true, recursive: true }), gitWorkspace, worktree };
+}
+test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
+  '%s in a worktree answers from its repository’s index, as the worktree’s files',
+  async (name) => {
+    const { cleanup, gitWorkspace, worktree } = await worktreeOfA('Selected A marker\n');
+    try {
+      const request = mainReads(undefined, [worktree, ...roots]);
+      const output = await tool(hostTools(request, gitWorkspace, 'root-b'), name).execute(
+        { query: 'marker' },
+        execution()
+      );
+      const text = JSON.stringify(output);
+      expect(text).toContain('Selected A marker');
+      expect(text).toContain(name === 'brainstrike_hybridSearch' ? '"rootName":"B"' : '[B] a.txt');
+      expect(text).not.toContain('"rootName":"A"');
+      expect(text).not.toContain('not in the search index');
+      expect(output).toMatchObject({
+        hint: expect.stringContaining('"B" from "A"'),
+      });
+    } finally {
+      await cleanup();
+    }
+  }
+);
+test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
+  '%s in a worktree leaves out a hit whose file the worktree changed',
+  async (name) => {
+    const { cleanup, gitWorkspace, worktree } = await worktreeOfA('Rewritten in the worktree\n');
+    try {
+      const request = mainReads(undefined, [worktree, ...roots]);
+      const output = await tool(hostTools(request, gitWorkspace, 'root-b'), name).execute(
+        { query: 'marker' },
+        execution()
+      );
+      expect(JSON.stringify(output)).not.toContain('Selected A marker');
+      expect(output).toMatchObject({
+        hint: expect.stringContaining('1 result was left out'),
+      });
+    } finally {
+      await cleanup();
+    }
+  }
+);
+test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
+  '%s in the local checkout answers as the local checkout, with a worktree of it open too',
+  async (name) => {
+    const { cleanup, gitWorkspace, worktree } = await worktreeOfA('Rewritten in the worktree\n');
+    try {
+      const request = mainReads(undefined, [...roots, worktree]);
+      const output = await tool(hostTools(request, gitWorkspace, 'root-a'), name).execute(
+        { query: 'marker' },
+        execution()
+      );
+      const text = JSON.stringify(output);
+      expect(text).toContain('Selected A marker');
+      expect(text).not.toContain('not in the search index');
+      expect(text).not.toContain('left out');
+    } finally {
+      await cleanup();
+    }
   }
 );
 test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(

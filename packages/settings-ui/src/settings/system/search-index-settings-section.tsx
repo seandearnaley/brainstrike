@@ -310,7 +310,8 @@ function FoldersCard({
       <CardHeader>
         <CardTitle>Folders</CardTitle>
         <CardDescription>
-          Every folder open in the Explorer is indexed. Turn worktrees on in the Worktree map.
+          Every folder open in the Explorer is indexed once. A worktree searches its repository's
+          index.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">

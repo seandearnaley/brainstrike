@@ -20,7 +20,6 @@ describe('native index settings from the saved config', () => {
       managedCollectionId: null,
       mode: 'TEXT',
       paused: false,
-      worktreeOptIns: new Set(),
     });
   });
 
@@ -31,14 +30,12 @@ describe('native index settings from the saved config', () => {
           ...DEFAULT_INDEX_CONFIG,
           mode: 'semantic',
           model,
-          worktrees: { wt1: true, wt2: false },
         },
         'space-1'
       )
     ).toMatchObject({
       managedCollectionId: 'space-1',
       mode: 'VECTOR',
-      worktreeOptIns: new Set(['wt1']),
     });
   });
 

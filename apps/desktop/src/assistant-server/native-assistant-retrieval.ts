@@ -12,12 +12,28 @@ import {
   NATIVE_SEARCH_CANDIDATE_LIMIT,
   NATIVE_SEARCH_FINAL_LIMIT,
 } from '@brainstrike/workspace-search/core';
+import {
+  type CheckoutReadThrough,
+  type ReadCheckoutFile,
+  type ResolveCheckout,
+  relocateCheckoutHits,
+  resolveCheckoutReadThrough,
+} from './checkout-read-through';
 import type { QueryEmbedder } from './retrieval-core';
 import type { EmbeddingSetRow } from './retrieval-store';
 
+/** How a worktree folder reads another checkout's index (ADR-0034); absent, it reads none. */
+export interface CheckoutAccess {
+  readonly read: ReadCheckoutFile;
+  readonly resolve: ResolveCheckout;
+}
+
 interface NativeAssistantRequest {
   admittedWorkspaceRootIds?: readonly string[] | undefined;
+  /** The thread's operating folder: a worktree, or the checkout it reads through. */
+  boundRootId?: string | undefined;
   capability: IndexSearchCapability;
+  checkout?: CheckoutAccess | undefined;
   chunkType?: string | undefined;
   embeddingSet: EmbeddingSetRow;
   embeddingSetId: string;
@@ -61,37 +77,59 @@ function refuse(message: string): never {
   throw new ToolInputError(message);
 }
 
-/** Folders the index leaves out, such as a worktree not opted in (BST-1988), and how to read them. */
+function rootName(rootId: string, roots: NativeAssistantRequest['workspaceRoots']): string {
+  return `"${roots?.find((root) => root.rootId === rootId)?.displayName ?? rootId}"`;
+}
+
+/** Folders the index cannot answer for, and how to read them. */
 function unindexedFoldersNote(
   rootIds: readonly string[],
   roots: NativeAssistantRequest['workspaceRoots']
 ): string {
-  const names = rootIds.map(
-    (rootId) => `"${roots?.find((root) => root.rootId === rootId)?.displayName ?? rootId}"`
-  );
-  return `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} not in the search index. A worktree is indexed only once indexing is turned on for it in Search & Indexing settings; grepSearch and readWorkspaceFile read any open folder directly.`;
+  const names = rootIds.map((rootId) => rootName(rootId, roots));
+  return `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} not in the search index; grepSearch and readWorkspaceFile read any open folder directly.`;
 }
 
 /**
- * The requested folders the index authorizes. Main refuses a folder it does
- * not authorize, so one the index leaves out is named to the model rather than
- * asked for, and a request for none of its folders is refused.
+ * The folders to query. A requested folder the index leaves out reads the index
+ * of an open checkout of the same repository when it has one (a worktree,
+ * ADR-0034); any other is named to the model rather than asked for, and a
+ * request the index can answer for none of is refused.
  */
-function indexedScope(
+async function searchScope(
   requested: readonly string[],
   authorized: readonly string[],
-  roots: NativeAssistantRequest['workspaceRoots']
-): { readonly rootIds: readonly string[]; readonly unindexedNote: string | undefined } {
-  const rootIds = requested.filter((rootId) => authorized.includes(rootId));
+  request: NativeAssistantRequest
+): Promise<{
+  readonly readThrough: readonly CheckoutReadThrough[];
+  readonly rootIds: readonly string[];
+  readonly unindexedNote: string | undefined;
+}> {
+  const indexed = requested.filter((rootId) => authorized.includes(rootId));
   const unindexed = requested.filter((rootId) => !authorized.includes(rootId));
-  if (unindexed.length === 0) {
-    return { rootIds, unindexedNote: undefined };
-  }
-  const unindexedNote = unindexedFoldersNote(unindexed, roots);
-  if (rootIds.length === 0) {
+  const paired = request.checkout
+    ? await resolveCheckoutReadThrough({
+        indexed: authorized,
+        resolveCheckout: request.checkout.resolve,
+        roots: request.workspaceRoots ?? [],
+        unindexed,
+      })
+    : [];
+  // A checkout searched for itself answers for its worktrees as itself, unless
+  // the thread works in the worktree: then its rows move onto the worktree.
+  const readThrough = paired.filter(
+    (pair) => !indexed.includes(pair.sourceRootId) || request.boundRootId === pair.worktreeRootId
+  );
+  const rootIds = [...new Set([...indexed, ...readThrough.map((pair) => pair.sourceRootId)])];
+  const missing = unindexed.filter(
+    (rootId) => !paired.some((pair) => pair.worktreeRootId === rootId)
+  );
+  const unindexedNote =
+    missing.length === 0 ? undefined : unindexedFoldersNote(missing, request.workspaceRoots);
+  if (rootIds.length === 0 && unindexedNote !== undefined) {
     refuse(unindexedNote);
   }
-  return { rootIds, unindexedNote };
+  return { readThrough, rootIds, unindexedNote };
 }
 
 /** BST-1943: an omitted root queried the whole collection despite Main's CLI subset. */
@@ -194,6 +232,8 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   hits: NativeAssistantHit[];
   hint?: string;
   limit: number;
+  /** Worktree folders answered from another checkout's index; their hits carry the worktree's root. */
+  readThrough: readonly CheckoutReadThrough[];
   truncated: boolean;
   vectorResultCount: number;
   ftsResultCount: number;
@@ -219,14 +259,27 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   const plan = status.queryPlan;
   assertSelectedQueryIdentity(profile, plan, embeddingSet);
   // With no folder named, the run's open folders: the index's of them, any other named.
-  const { rootIds, unindexedNote } = indexedScope(
+  const { readThrough, rootIds, unindexedNote } = await searchScope(
     admitted ??
       (request.rootId === undefined
         ? (request.workspaceRoots ?? []).map((root) => root.rootId)
         : [request.rootId]),
     status.authorizedRootIds,
-    request.workspaceRoots
+    request
   );
+  signal?.throwIfAborted();
+  const droppedChunks = new Set<string>();
+  // A read-through source's hits move onto the worktree that still holds them.
+  const relocated = async (pool: IndexerSearchResult): Promise<IndexerSearchResult> => {
+    if (readThrough.length === 0 || !request.checkout) {
+      return pool;
+    }
+    const moved = await relocateCheckoutHits(pool.hits, readThrough, request.checkout.read);
+    for (const chunkId of moved.dropped) {
+      droppedChunks.add(chunkId);
+    }
+    return { ...pool, hits: moved.hits };
+  };
   // Main authorizes only the active index's bindings; verify membership again on every hit.
   const scope = { rootIds };
   let coverageHint: string | undefined;
@@ -307,7 +360,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   if (request.mode === 'semantic') {
     const fetched = await read();
     validatePool(fetched);
-    const pool = withoutCredentialHits(fetched);
+    const pool = await relocated(withoutCredentialHits(fetched));
     const selected = pool.hits.filter(
       (hit) => distanceSimilarity(hit.score, embeddingSet.distance) >= request.threshold
     );
@@ -343,13 +396,15 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     if (failures.length > 0) {
       throw new AggregateError(failures, 'Native hybrid search failed.');
     }
-    const pools = arms.map((arm) => {
-      if (arm.status !== 'fulfilled') {
-        throw new Error('Native search settlement invariant failed.');
-      }
-      validatePool(arm.value);
-      return withoutCredentialHits(arm.value);
-    });
+    const pools = await Promise.all(
+      arms.map((arm) => {
+        if (arm.status !== 'fulfilled') {
+          throw new Error('Native search settlement invariant failed.');
+        }
+        validatePool(arm.value);
+        return relocated(withoutCredentialHits(arm.value));
+      })
+    );
     const [vectorPool, bm25, grep] = pools;
     if (!(vectorPool && bm25 && grep)) {
       throw new Error('Native search pool invariant failed.');
@@ -382,20 +437,49 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     truncated = fused.truncated || fused.candidatesTruncated || fused.hits.length > limit;
   }
   await assertCurrent();
-  const hint = retrievalHint(unindexedNote, coverageHint, scanLimited, truncated);
+  const hint = retrievalHint(
+    unindexedNote,
+    readThroughNote(readThrough, droppedChunks.size, request.workspaceRoots),
+    coverageHint,
+    scanLimited,
+    truncated
+  );
   return {
     assertCurrent,
     ftsResultCount,
     hits,
     limit,
+    readThrough,
     truncated,
     vectorResultCount,
     ...(hint ? { hint } : {}),
   };
 }
 
+/** Which checkout answered for each worktree, and how many of its hits the worktree no longer holds. */
+function readThroughNote(
+  readThrough: readonly CheckoutReadThrough[],
+  dropped: number,
+  roots: NativeAssistantRequest['workspaceRoots']
+): string | undefined {
+  if (readThrough.length === 0) {
+    return;
+  }
+  const pairs = readThrough
+    .map(
+      (pair) => `${rootName(pair.worktreeRootId, roots)} from ${rootName(pair.sourceRootId, roots)}`
+    )
+    .join(', ');
+  const changed =
+    dropped === 0
+      ? ''
+      : ` ${dropped} ${dropped === 1 ? 'result was' : 'results were'} left out because the worktree's file differs; grepSearch reads the worktree directly.`;
+  return `Worktree results come from the index of another checkout of the same repository, checked against the worktree's files: ${pairs}.${changed}`;
+}
+
 function retrievalHint(
   unindexedNote: string | undefined,
+  readThroughHint: string | undefined,
   coverageHint: string | undefined,
   scanLimited: boolean,
   truncated: boolean
@@ -404,6 +488,7 @@ function retrievalHint(
     unindexedNote === undefined
       ? undefined
       : `Results cover only the indexed folders: ${unindexedNote}`,
+    readThroughHint,
     coverageHint ??
       (scanLimited
         ? 'Partial index coverage: results cover the indexed subset while source scanning is incomplete.'
