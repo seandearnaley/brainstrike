@@ -154,6 +154,9 @@ catalog:
   minimatch: ^11.0.3
   node-addon-api: 8.9.2
   node-gyp: 13.1.0
+  # The native pty add-on (the one VS Code uses) behind terminals and command sessions,
+  # shipped by host-capabilities and desktop. Owner decision, 2026-11-01.
+  node-pty: ^1.1.0
   oxc-parser: ^0.154.0
   # BST-1659: optional peer of @vitejs/plugin-react and the ONLY backend its
   # `react({ compiler: <options> })` plugin has — it imports this package and hard-errors

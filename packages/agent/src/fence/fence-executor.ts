@@ -423,7 +423,7 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
   // NOTE: 'unsignalable' (EPERM) deliberately does NOT throw here. It is
   // inconclusive, not a denial — every member of this group is our own
   // descendant running as us, so a genuine permission failure is impossible
-  // (the same reasoning agent-host-platform/desktop-terminals.ts records for its own group
+  // (the same reasoning host-capabilities/src/command-sessions/pty-terminals.ts records for its own group
   // kill). What it reports is the post-reap race: a just-SIGKILLed zombie
   // leader the kernel will not route a group signal through. SIGKILL therefore
   // falls through to the confirmation loop below, which resolves it; any other

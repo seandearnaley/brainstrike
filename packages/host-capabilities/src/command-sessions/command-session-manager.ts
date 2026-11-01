@@ -1,10 +1,10 @@
 /**
- * Desktop-main owner for long-lived assistant command sessions.
+ * The agent host's owner of long-lived assistant command sessions.
  *
  * Unlike `executeCommand`, start returns as soon as a PTY is created. Output is
  * retained in a bounded in-memory buffer and addressed with absolute UTF-16
  * cursors, so later callers can resume without duplicate replay. Sessions are
- * scoped to a DB-backed workspace root and never persisted.
+ * scoped to a workspace root and never persisted.
  *
  * Privacy boundary: command text, cwd, environment, and raw output are never
  * logged or persisted. Canonical cwd is returned as local session metadata;
@@ -14,15 +14,6 @@ import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import {
-  acquireWorkspaceMutationLease,
-  isWithinRoot,
-  resolveShellInvocation,
-} from '@brainstrike/host-capabilities/native-tools';
-import {
-  resolveRootCwd,
-  type WorkspaceRootResolver,
-} from '@brainstrike/host-capabilities/workspace-root-cwd';
 import { createLogger } from '@brainstrike/logging';
 import {
   CHILD_SIGNAL_GRACE_MS,
@@ -31,7 +22,11 @@ import {
 } from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
-import { CommandSessionError, commandSessionStartError } from './command-session-error';
+import { resolveShellInvocation } from '../native-tools/execute-command-tool.ts';
+import { acquireWorkspaceMutationLease } from '../native-tools/workspace-mutation-lease.ts';
+import { isWithinRoot } from '../native-tools/workspace-path.ts';
+import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
+import { CommandSessionError, commandSessionStartError } from './command-session-error.ts';
 
 const logger = createLogger('CommandSessionManager');
 
@@ -45,7 +40,7 @@ const BUFFER_BLOCK_CHARS = 16 * 1024;
 const BUFFER_BLOCK_COMPACTION_THRESHOLD = 1024;
 const EMPTY_BUFFER = Buffer.alloc(0);
 
-export { CommandSessionError, type CommandSessionErrorCode } from './command-session-error';
+export { CommandSessionError, type CommandSessionErrorCode } from './command-session-error.ts';
 
 interface CommandSessionBase {
   readonly createdAt: number;
@@ -77,7 +72,7 @@ interface StartCommandSessionInput {
   readonly delegatedThreadId?: string;
   /**
    * The calling run's freshly admitted roots; a manager built without a
-   * resolver (the desktop agent host's) takes its roots only from here.
+   * resolver (an agent host's) takes its roots only from here.
    */
   readonly resolver?: WorkspaceRootResolver;
   readonly rootId: string;
@@ -132,7 +127,7 @@ export interface CommandSessionManagerOptions {
   readonly idFactory?: () => string;
   /** Maximum retained UTF-16 code units per session. */
   readonly maxBufferChars?: number;
-  /** Every known root (Main's roots store); absent where each start names its own roots. */
+  /** Every known root; absent where each start names its own roots. */
   readonly resolver?: WorkspaceRootResolver;
   readonly spawn?: typeof pty.spawn;
   readonly terminateTree?: (pid: number) => Promise<void>;

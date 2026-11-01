@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createCommandSessionHandlers } from '../agent-host-platform/command-session-handlers';
+import { createCommandSessionHandlers } from '../../src/command-sessions/command-session-handlers.ts';
 import {
   CommandSessionError,
   type CommandSessionManager,
-} from '../assistant-server/command-session-manager';
+} from '../../src/command-sessions/command-session-manager.ts';
 
 function createManager(): CommandSessionManager {
   return {
