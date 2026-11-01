@@ -4,10 +4,13 @@
  * actionable refusal when there is none. The POSIX cases put shims on a
  * private PATH.
  */
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
+import { processStartTime } from '@brainstrike/state-store';
 import { afterEach, expect, test, vi } from 'vitest';
+import { disposeHostTools } from '../src/command-sessions/host-tool-process.js';
 import { createSystemPythonResolver } from '../src/native-tools/system-python.js';
 
 const directories: string[] = [];
@@ -18,10 +21,27 @@ afterEach(async () => {
   }
 });
 
-/** A PATH holding only these POSIX shell shims. */
+/** Where the host's original PATH finds `name`. */
+function onPath(name: string): string | undefined {
+  return (process.env['PATH'] ?? '')
+    .split(delimiter)
+    .map((entry) => join(entry, name))
+    .find((file) => existsSync(file));
+}
+
+/**
+ * A PATH holding only these POSIX shell shims, plus the process listers
+ * tree-kill walks a probe's tree with.
+ */
 async function pathWith(shims: Readonly<Record<string, string>>): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'bs-system-python-'));
   directories.push(directory);
+  for (const tool of ['ps', 'pgrep']) {
+    const file = onPath(tool);
+    if (file) {
+      await symlink(file, join(directory, tool));
+    }
+  }
   for (const [name, body] of Object.entries(shims)) {
     await writeFile(join(directory, name), `#!/bin/sh\n${body}\n`);
     await chmod(join(directory, name), 0o755);
@@ -91,5 +111,70 @@ test.skipIf(process.platform === 'win32')(
     await expect(resolve()).resolves.toBe('/usr/bin/python3');
     expect(calls).toEqual(['/usr/bin/python3', '/usr/bin/python3', '/usr/bin/python3']);
     expect((await readFile(probes, 'utf8')).trim().split('\n')).toEqual(['probe']);
+  }
+);
+
+/** A python3 that hangs at startup and records its pid; it never answers. */
+function hangingPython(directory: string): string {
+  return `echo $$ > '${join(directory, 'probe.pid')}'\nexec /bin/sleep 600`;
+}
+
+/** The pid of the hanging probe, once it has started. */
+async function probePid(directory: string): Promise<number> {
+  const read = () => readFile(join(directory, 'probe.pid'), 'utf8').catch(() => '');
+  await expect.poll(read).not.toBe('');
+  return Number((await read()).trim());
+}
+
+test.skipIf(process.platform === 'win32')(
+  'a probe that hangs runs while a call waits, ends when the last call stops, and the next call starts afresh',
+  async () => {
+    const directory = await pathWith({});
+    await writeFile(join(directory, 'python3'), `#!/bin/sh\n${hangingPython(directory)}\n`);
+    await chmod(join(directory, 'python3'), 0o755);
+    const resolve = createSystemPythonResolver();
+    const first = new AbortController();
+    const second = new AbortController();
+    const firstCall = resolve(first.signal);
+    const secondCall = resolve(second.signal);
+    const pid = await probePid(directory);
+    first.abort(new Error('first stopped'));
+    await expect(firstCall).rejects.toThrow('first stopped');
+    // Another call still waits on the shared probe, so it keeps running.
+    expect(processStartTime(pid)).not.toBeNull();
+    second.abort(new Error('second stopped'));
+    await expect(secondCall).rejects.toThrow('second stopped');
+    await expect.poll(() => processStartTime(pid)).toBeNull();
+    // The next call does not wait on the ended probe: it asks the fixed Python.
+    await writeFile(join(directory, 'python3'), '#!/bin/sh\nprintf /usr/bin/python3\n');
+    await expect(resolve()).resolves.toBe('/usr/bin/python3');
+  }
+);
+
+test.skipIf(process.platform === 'win32')(
+  'host close ends a probe in flight and starts no other candidate',
+  async () => {
+    const directory = await pathWith({});
+    await writeFile(join(directory, 'python3'), `#!/bin/sh\n${hangingPython(directory)}\n`);
+    await writeFile(
+      join(directory, 'python'),
+      `#!/bin/sh\n: > '${join(directory, 'python-started')}'\nprintf /usr/bin/python\n`
+    );
+    await chmod(join(directory, 'python3'), 0o755);
+    await chmod(join(directory, 'python'), 0o755);
+    // Held as settled so the refusal arriving during close is observed, not unhandled.
+    const call = createSystemPythonResolver()().then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    const pid = await probePid(directory);
+    await disposeHostTools();
+    expect(await call).toMatchObject({
+      message: 'The host closed while it was looking for Python.',
+    });
+    expect(processStartTime(pid)).toBeNull();
+    await expect(readFile(join(directory, 'python-started'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   }
 );
