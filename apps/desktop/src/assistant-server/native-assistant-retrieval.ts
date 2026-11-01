@@ -14,9 +14,9 @@ import {
 } from '@brainstrike/workspace-search/core';
 import {
   type CheckoutReadThrough,
+  cachedCheckoutReader,
   type ReadCheckoutFile,
   type ResolveCheckout,
-  cachedCheckoutReader,
   relocateCheckoutHits,
   resolveCheckoutReadThrough,
 } from './checkout-read-through';
