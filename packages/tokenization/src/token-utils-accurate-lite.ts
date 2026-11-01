@@ -499,6 +499,15 @@ export function disposeAccurateTokenCountingRuntime(): void {
   disposeResolvedEncoder(pendingBrowserEncoder);
 }
 
+/**
+ * Starts the encoder's one-time load (about 110 ms of synchronous table
+ * parsing) without waiting for it. A counter resolved later shares that load;
+ * a failed load is logged and reaches the counter as before.
+ */
+export function startAccurateTokenCounter(): void {
+  void resolveEncoder();
+}
+
 export async function supportsAccurateTokenCounting(): Promise<boolean> {
   const encoder = await resolveEncoder();
   return encoder !== null && encoder !== DISPOSED_DURING_ENCODER_LOAD;
