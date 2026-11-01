@@ -80,7 +80,9 @@ describe('CostOverviewPanelView', () => {
     expect(screen.getByTestId('cost-overview-empty')).toHaveTextContent(/no assistant runs/iu);
 
     render(<CostOverviewPanelView available={false} totals={totals} trend={[]} />);
-    expect(screen.getAllByTestId('cost-overview-empty')[1]).toHaveTextContent(/desktop/iu);
+    expect(screen.getAllByTestId('cost-overview-empty')[1]).toHaveTextContent(
+      /isn’t recorded here/iu
+    );
     expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
   });
 });
