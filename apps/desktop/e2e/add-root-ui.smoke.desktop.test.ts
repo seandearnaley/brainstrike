@@ -337,10 +337,9 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     expect(asked).toBe('asked');
   });
 
-  test('an open-file event mounts a previously granted folder', { tag: '@smoke' }, async ({
-    electronApp,
-    window: page,
-  }) => {
+  test('an open-file event opens a previously granted folder in place of the open one', {
+    tag: '@smoke',
+  }, async ({ electronApp, window: page }) => {
     test.setTimeout(120_000);
     const repo = freshConnectRepo('openfile-host');
     const granted = freshConnectDir('openfile-granted');
@@ -355,11 +354,12 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
       app.emit('open-file', { preventDefault() {} }, openedPath);
     }, granted);
 
-    // Mounting the second root flips the Explorer into forest mode, whose
-    // per-root section headers carry `root-section-header`.
-    await expect(
-      page.getByTestId('root-section-header').filter({ hasText: path.basename(granted) })
-    ).toBeVisible({ timeout: 60_000 });
+    // ADR-0034: an open replaces the open folders, so the Explorer stays a single root, now the
+    // granted folder, and the seeded repository is no longer listed.
+    await expect(page.getByTestId('single-root-header-row')).toContainText(path.basename(granted), {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId('root-section-header')).toHaveCount(0);
   });
 
   test('an open-file event for a NEVER-granted folder refuses and offers the picker', {

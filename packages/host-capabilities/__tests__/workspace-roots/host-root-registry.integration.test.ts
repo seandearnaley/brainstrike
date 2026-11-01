@@ -10,6 +10,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { HostThreadReads } from '@brainstrike/agent-host';
+import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import {
   StateStore,
   StateStoreReadOnlyError,
@@ -50,6 +52,8 @@ function registry(
   options: {
     readonly e2e?: boolean;
     readonly picked?: string | null;
+    /** Folders the picker answers in turn, then a cancel. */
+    readonly picks?: string[];
     readonly rootsStore?: HostRootRegistryStore;
   } = {}
 ) {
@@ -59,7 +63,8 @@ function registry(
     e2e: options.e2e ?? false,
     evictLspServersForRoot: async () => undefined,
     managedWorktreeAuthorizer: async () => 'unmanaged',
-    pickFolder: async () => options.picked ?? null,
+    pickFolder: async () =>
+      options.picks ? (options.picks.shift() ?? null) : (options.picked ?? null),
     publishRootsChanged,
     store: options.rootsStore ?? store,
   });
@@ -93,6 +98,88 @@ describe('host root registry', () => {
     expect((await owner.roots.listRoots()).map((entry) => entry.rootId)).toEqual([]);
 
     await expect(owner.service['workspace/roots/add']({ path: workspace })).resolves.toEqual(root);
+  });
+
+  it('opens a folder as the project: the others close, a running thread keeps its folder, and the picker can cancel', async () => {
+    const [alpha, beta, gamma, delta] = ['alpha', 'beta', 'gamma', 'delta'].map(folder);
+    const { owner } = registry({ picks: [alpha ?? '', beta ?? '', gamma ?? '', delta ?? ''] });
+    const ids: string[] = [];
+    for (let pick = 0; pick < 3; pick += 1) {
+      const { root } = await owner.service['workspace/roots/pick']({});
+      ids.push(root?.rootId ?? '');
+    }
+    const [alphaId, betaId, gammaId] = ids;
+    // A thread is running in beta, admitted with it as its operating folder.
+    const runStarted: HostLogRow = {
+      event: {
+        modelId: 'test-model',
+        prompt: 'work',
+        runId: 'run-beta',
+        snapshot: {
+          configuration: {},
+          maxSteps: 1,
+          toolIdentities: {},
+          workspaceBinding: { operatingRootDisplayName: 'beta', operatingRootId: betaId ?? '' },
+        },
+        type: 'run.started',
+      },
+      seq: 1,
+      threadId: 'thread-beta',
+    };
+    owner.attachThreadReads({
+      listThreads: () => [],
+      read: async () => [runStarted],
+      readLedger: () =>
+        ({
+          threads: [{ runs: [{ runId: 'run-beta', status: 'running' }], threadId: 'thread-beta' }],
+        }) as unknown as ReturnType<HostThreadReads['readLedger']>,
+    });
+    const openIds = async () =>
+      (await store.workspaceRoots({ operation: 'list-open' })).roots.map((root) => root.id);
+
+    await expect(owner.service['workspace/roots/open']({ path: alpha ?? '' })).resolves.toEqual({
+      root: { available: true, path: alpha, rootId: alphaId, worktree: false },
+    });
+    expect(await openIds()).toEqual([alphaId]);
+    // Beta left the open folders but its run still reads it; gamma is gone.
+    const live = (await owner.roots.listRoots()).map((root) => root.rootId);
+    expect(live.sort()).toEqual([alphaId, betaId].sort());
+    // A window reload restores the open folders and keeps the run's folder mounted.
+    await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
+      roots: [{ available: true, path: alpha, rootId: alphaId, worktree: false }],
+    });
+    expect((await owner.roots.listRoots()).map((root) => root.rootId).sort()).toEqual(
+      [alphaId, betaId].sort()
+    );
+    expect(
+      (await owner.service['workspace/roots/mounted']({})).roots.map((root) => root.rootId)
+    ).toContain(betaId);
+
+    // A new folder through the picker replaces alpha; a cancelled pick changes nothing.
+    const { root: opened } = await owner.service['workspace/roots/open']({});
+    expect(opened).toMatchObject({ path: delta, worktree: false });
+    expect(await openIds()).toEqual([opened?.rootId]);
+    await expect(owner.service['workspace/roots/open']({})).resolves.toEqual({ root: null });
+    expect(await openIds()).toEqual([opened?.rootId]);
+    // Recents still hold every folder, gamma included, so it opens again with its identity.
+    await expect(owner.service['workspace/roots/open']({ path: gamma ?? '' })).resolves.toEqual({
+      root: { available: true, path: gamma, rootId: gammaId, worktree: false },
+    });
+  });
+
+  it('opens only a recent folder by path', async () => {
+    const stranger = folder('stranger');
+    const { owner } = registry();
+    owner.attachThreadReads({
+      listThreads: () => [],
+      read: async () => [],
+      readLedger: () => ({ threads: [] }) as unknown as ReturnType<HostThreadReads['readLedger']>,
+    });
+
+    await expect(owner.service['workspace/roots/open']({ path: stranger })).rejects.toMatchObject({
+      failure: { code: 'workspace.never-granted' },
+    });
+    expect((await store.workspaceRoots({ operation: 'list-open' })).roots).toEqual([]);
   });
 
   it('hides a folder from every reader for its whole data deletion, and restores it if that fails', async () => {

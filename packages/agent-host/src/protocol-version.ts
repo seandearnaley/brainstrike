@@ -57,5 +57,6 @@
 // the Explorer's root watches (`workspace/files/watch`, `workspace/files/unwatch`,
 // `workspace/files/watch-retry` and the `workspace/files/event` stream) and reads
 // (`workspace/files/list`, `workspace/files/read`, `workspace/files/exists`; ADR-0029 stage 4),
-// and the workspace's open folders (`workspace/roots/*`; ADR-0029 stage 4).
+// and the workspace's open folders (`workspace/roots/*`; ADR-0029 stage 4), with
+// `workspace/roots/open`, which replaces them (ADR-0034).
 export const AGENT_HOST_PROTOCOL_VERSION = 16;
