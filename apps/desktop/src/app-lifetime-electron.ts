@@ -32,8 +32,6 @@ function trayMenuTemplate(items: readonly TrayMenuItem[]): MenuItemConstructorOp
     switch (item.kind) {
       case 'action':
         return { click: item.run, label: item.label };
-      case 'status':
-        return { enabled: false, label: item.label };
       case 'separator':
         return { type: 'separator' };
       default:
@@ -42,15 +40,10 @@ function trayMenuTemplate(items: readonly TrayMenuItem[]): MenuItemConstructorOp
   });
 }
 
-/**
- * Electron's Tray with the icon build-main copies beside the bundled main. Where the tray can pop
- * a menu up on demand (Windows: `right-click`, then `popUpContextMenu`), the menu is built as it
- * opens, with what is running. Elsewhere (Linux AppIndicator) the menu is set once and stays
- * fixed, so it carries no status that would go stale.
- */
-function electronTray(iconFileName: string, menuOpensOnDemand: boolean): TrayCapability {
+/** Electron's Tray with the icon build-main copies beside the bundled main; its menu is set once. */
+function electronTray(iconFileName: string): TrayCapability {
   return {
-    show: (menus) => {
+    show: (menu) => {
       const image = nativeImage.createFromPath(
         resolveBundledSiblingPath('tray icon', iconFileName)
       );
@@ -60,18 +53,8 @@ function electronTray(iconFileName: string, menuOpensOnDemand: boolean): TrayCap
       // Held by the returned icon until it is destroyed.
       const tray = new Tray(image);
       tray.setToolTip('Brainstrike');
-      tray.on('click', menus.activate);
-      if (menuOpensOnDemand) {
-        tray.on('right-click', () => {
-          void menus.live().then((items) => {
-            if (!tray.isDestroyed()) {
-              tray.popUpContextMenu(Menu.buildFromTemplate(trayMenuTemplate(items)));
-            }
-          });
-        });
-      } else {
-        tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(menus.fixed)));
-      }
+      tray.on('click', menu.activate);
+      tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(menu.items)));
       return { destroy: () => tray.destroy() };
     },
   };
@@ -139,10 +122,10 @@ export async function resolveBackgroundPresence(): Promise<BackgroundPresence> {
     case 'darwin':
       return { kind: 'dock' };
     case 'win32':
-      return { kind: 'tray', tray: electronTray('tray-icon.ico', true) };
+      return { kind: 'tray', tray: electronTray('tray-icon.ico') };
     default:
       return (await statusNotifierHostRegistered())
-        ? { kind: 'tray', tray: electronTray('tray-icon.png', false) }
+        ? { kind: 'tray', tray: electronTray('tray-icon.png') }
         : { kind: 'none', reason: NO_TRAY_REASON };
   }
 }

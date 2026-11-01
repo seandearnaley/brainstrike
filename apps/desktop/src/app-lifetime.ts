@@ -14,27 +14,24 @@ export type BackgroundPresence =
 
 export type TrayMenuItem =
   | { readonly kind: 'action'; readonly label: string; readonly run: () => void }
-  | { readonly kind: 'status'; readonly label: string }
   | { readonly kind: 'separator' };
 
 export interface TrayIcon {
   destroy(): void;
 }
 
-export interface TrayMenus {
+/**
+ * The tray's one static menu, built once: Open and Quit. It carries no run status; that belongs in
+ * the window and OS notifications, so the menu never waits on the host and Quit is always there.
+ */
+export interface TrayMenu {
   /** The icon's click (Windows) or activation (Linux). */
   readonly activate: () => void;
-  /** Open and Quit, for a tray whose menu is set once (Linux AppIndicator). */
-  readonly fixed: readonly TrayMenuItem[];
-  /**
-   * The menu with what is running, read when it opens. Only a tray that builds its menu as it
-   * opens (Windows) asks for it; a fixed menu would go stale, so it never carries a status.
-   */
-  readonly live: () => Promise<readonly TrayMenuItem[]>;
+  readonly items: readonly TrayMenuItem[];
 }
 
 export interface TrayCapability {
-  show(menus: TrayMenus): TrayIcon;
+  show(menu: TrayMenu): TrayIcon;
 }
 
 export type LoginItems =
@@ -44,12 +41,6 @@ export type LoginItems =
       write(enabled: boolean): void;
     }
   | { readonly available: false; readonly reason: string };
-
-/** What the host's catalog says is under way. */
-export interface RunStatus {
-  readonly running: number;
-  readonly waiting: number;
-}
 
 const STORE_KEY = 'appLifetime' satisfies keyof DesktopSettingsStoreSchema;
 type StoredAppLifetime = NonNullable<DesktopSettingsStoreSchema[typeof STORE_KEY]>;
@@ -67,12 +58,11 @@ export interface AppLifetimeOptions {
   readonly openWindow: () => void;
   readonly presence: Promise<BackgroundPresence>;
   readonly quit: () => void;
-  readonly readRunStatus: () => Promise<RunStatus>;
   readonly store: AppLifetimeStore;
 }
 
 export interface AppLifetime {
-  /** Stops following the run status and removes the tray. */
+  /** Removes the tray for good: the app is quitting. */
   close(): void;
   /** The last visible window has closed and the app stayed: the first time, say so. */
   lastWindowClosed(): void;
@@ -118,19 +108,10 @@ function writeStored(store: AppLifetimeStore, patch: StoredAppLifetime['v1']): v
   store.set(STORE_KEY, { v1: { ...readStored(store), ...patch } });
 }
 
-/** "2 runs running", then "1 waiting for you" when a run waits on the user. */
-export function describeRunStatus(status: RunStatus): readonly string[] {
-  const running =
-    status.running === 0
-      ? 'Nothing running'
-      : `${status.running} ${status.running === 1 ? 'run' : 'runs'} running`;
-  return status.waiting === 0 ? [running] : [running, `${status.waiting} waiting for you`];
-}
-
 /**
  * ADR-0033: the host outlives the window, not the app. Where a tray can show and the user keeps
  * the choice on, closing the last window leaves the app (and its host) running; the tray opens a
- * window, says what is running and quits through the app's one joined quit.
+ * window and quits through the app's one joined quit.
  */
 export function createAppLifetime(options: AppLifetimeOptions): AppLifetime {
   const { loginItems, store } = options;
@@ -141,35 +122,20 @@ export function createAppLifetime(options: AppLifetimeOptions): AppLifetime {
   const keepRunningInTray = (): boolean => readStored(store).keepRunningInTray ?? true;
   const staysInTray = (): boolean => presence?.kind === 'tray' && keepRunningInTray();
 
-  const open: TrayMenuItem = { kind: 'action', label: 'Open Brainstrike', run: options.openWindow };
-  const quit: TrayMenuItem = { kind: 'action', label: 'Quit Brainstrike', run: options.quit };
-  const menus: TrayMenus = {
+  const menu: TrayMenu = {
     activate: options.openWindow,
-    fixed: [open, { kind: 'separator' }, quit],
-    // One catalog read per opening: nothing reads the host while the menu is closed.
-    live: async () => {
-      let status: readonly string[];
-      try {
-        status = describeRunStatus(await options.readRunStatus());
-      } catch (error) {
-        logger.warn('The tray could not read what is running from the agent host', { error });
-        status = ['Run status unavailable'];
-      }
-      return [
-        open,
-        { kind: 'separator' },
-        ...status.map((label) => ({ kind: 'status', label }) as const),
-        { kind: 'separator' },
-        quit,
-      ];
-    },
+    items: [
+      { kind: 'action', label: 'Open Brainstrike', run: options.openWindow },
+      { kind: 'separator' },
+      { kind: 'action', label: 'Quit Brainstrike', run: options.quit },
+    ],
   };
 
   const syncTray = (): void => {
     const shown = !closed && presence?.kind === 'tray' && keepRunningInTray();
     if (shown && presence?.kind === 'tray' && !icon) {
       try {
-        icon = presence.tray.show(menus);
+        icon = presence.tray.show(menu);
       } catch (error) {
         // No icon means no way back to the app: closing the last window quits instead.
         presence = { kind: 'none', reason: 'Brainstrike could not show its tray icon.' };

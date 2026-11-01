@@ -98,8 +98,9 @@ Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
 - "Keep running in the tray" and the one closed-to-tray notice live in Main's
   `brainstrike-settings` store, so factory reset's userData purge clears them. "Open at login"
   is the OS login item, read back, never copied.
-- The tray's run counts come from one `thread/list` read as its menu opens (Windows); a fixed
-  menu (Linux) carries none. No timer reads the host. Quit is the joined quit below.
+- The tray menu is static, Open and Quit, built once on Windows and Linux. It shows no run
+  status and never reads the host; run status belongs in the window and OS notifications. Quit
+  is the joined quit below.
 
 ## Graceful shutdown
 

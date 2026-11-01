@@ -1644,15 +1644,6 @@ if (singleInstanceLockAcquired) {
         openWindow: () => openMainWindow?.(),
         presence: resolveBackgroundPresence(),
         quit: () => app.quit(),
-        // The catalog's latest root run of each thread (no new state).
-        readRunStatus: async () => {
-          const { threads } = await agentHostMainClient.request('thread/list', {});
-          const running = threads.filter(({ latestRun }) => latestRun?.status === 'running');
-          return {
-            running: running.length,
-            waiting: running.filter(({ latestRun }) => latestRun?.needsInput).length,
-          };
-        },
         store: {
           get: (key) => lifetimeStore.get(key),
           set: (key, value) => lifetimeStore.set(key, value),
