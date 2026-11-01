@@ -227,6 +227,28 @@ test('a calculator crash fails its request with a typed error; the writer serves
   expect(await items(store)).toEqual(['after']);
 });
 
+test('the calculator module loads when the store opens, so the first request does not wait for it', async () => {
+  const root = freshDir('calc-open');
+  const channelName = `bst-2398-open-${root}`;
+  const channel = new BroadcastChannel(channelName);
+  channel.unref();
+  channels.push(channel);
+  const loaded = new Promise((resolve) => {
+    channel.onmessage = (event) => resolve(event.data);
+  });
+  const module = join(root, 'announcing.mjs');
+  writeFileSync(
+    module,
+    `new BroadcastChannel(${JSON.stringify(channelName)}).postMessage('loaded');
+export const calculateMemoryMutation = (snapshot) => ({ changes: [], value: snapshot.revision });
+`
+  );
+  const store = await StateStore.open(root, { memoryCalculatorModule: module });
+  closers.push(() => store.close());
+  expect(await loaded).toBe('loaded');
+  expect((await native(store, ['put', 'x'])).value).toBe(0);
+});
+
 test('a calculator module that fails to load fails each request; the writer serves', async () => {
   const root = freshDir('calc-load');
   const broken = join(root, 'broken.mjs');
