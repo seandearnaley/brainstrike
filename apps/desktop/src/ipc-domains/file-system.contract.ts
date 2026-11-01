@@ -6,8 +6,6 @@ import {
   type Bridge,
   type Contract,
   channel,
-  pushEvent,
-  rawChannel,
   type TransportBridge,
 } from '../platform/ipc-contract';
 import type { DesktopFileSystemBridge } from '../types/desktop-electron-api';
@@ -67,32 +65,7 @@ export const fileSystemContract = {
   }),
 } as const satisfies Contract;
 
-export const fileSystemWatchContract = {
-  getWatcherTelemetry: rawChannel<
-    InvokeArgs<'getWatcherTelemetry'>,
-    InvokeResult<'getWatcherTelemetry'>
-  >({
-    channel: DESKTOP_IPC_CHANNELS.files.watchTelemetry,
-  }),
-  onWatchEvent: pushEvent<Parameters<Parameters<DesktopFileSystemBridge['onWatchEvent']>[0]>[0]>({
-    channel: DESKTOP_IPC_CHANNELS.files.watchEvent,
-  }),
-  onWatchHealth: pushEvent<Parameters<Parameters<DesktopFileSystemBridge['onWatchHealth']>[0]>[0]>({
-    channel: DESKTOP_IPC_CHANNELS.files.watchHealth,
-  }),
-  retryWatch: rawChannel<InvokeArgs<'retryWatch'>, InvokeResult<'retryWatch'>>({
-    channel: DESKTOP_IPC_CHANNELS.files.watchRetry,
-  }),
-  unwatchDirectory: rawChannel<InvokeArgs<'unwatchDirectory'>, InvokeResult<'unwatchDirectory'>>({
-    channel: DESKTOP_IPC_CHANNELS.files.unwatch,
-  }),
-  watchDirectory: rawChannel<InvokeArgs<'watchDirectory'>, InvokeResult<'watchDirectory'>>({
-    channel: DESKTOP_IPC_CHANNELS.files.watch,
-  }),
-} as const satisfies Contract;
-
-type GeneratedFileSystemBridge = Bridge<typeof fileSystemContract> &
-  Bridge<typeof fileSystemWatchContract>;
+type GeneratedFileSystemBridge = Bridge<typeof fileSystemContract>;
 type AdaptedFileSystemBridge = Omit<GeneratedFileSystemBridge, ReadMethod> &
   Pick<DesktopFileSystemBridge, ReadMethod>;
 
@@ -105,5 +78,4 @@ export type FileSystemBridgeDerivationProof = AssertTrue<
     : false
 >;
 
-export type DesktopFileSystemTransport = TransportBridge<typeof fileSystemContract> &
-  TransportBridge<typeof fileSystemWatchContract>;
+export type DesktopFileSystemTransport = TransportBridge<typeof fileSystemContract>;

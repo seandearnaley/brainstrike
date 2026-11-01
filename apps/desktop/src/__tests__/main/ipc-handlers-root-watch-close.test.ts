@@ -4,7 +4,6 @@ import { startJoinedRootWatch } from '@brainstrike/file-system/native-watch';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystemIpcDomain } from '../../ipc-domains/file-system-ipc';
-import type { StartFileSystemWatch } from '../../ipc-domains/file-system-watch-ipc';
 import { registerWorkspaceLedgersE2eHandlers } from '../../ipc-domains/workspace-ledgers-e2e-ipc';
 import { createApplicationIpcDomain } from '../../ipc-handlers';
 import {
@@ -17,19 +16,11 @@ const WORKSPACE = path.resolve('/workspace');
 
 const watcherComposition = vi.hoisted(() => ({
   domain: null as FileSystemIpcDomain | null,
-  startWatch: null as StartFileSystemWatch | null,
 }));
 
 vi.mock('@brainstrike/file-system/native-watch', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/file-system/native-watch')>()),
   startJoinedRootWatch: vi.fn(),
-}));
-
-vi.mock('../../ipc-domains/file-system-watch-ipc', () => ({
-  registerFileSystemWatchIpcHandlers: vi.fn((options: { startWatch: StartFileSystemWatch }) => {
-    watcherComposition.startWatch = options.startWatch;
-    return async () => undefined;
-  }),
 }));
 
 vi.mock('../../ipc-domains/file-system-ipc', () => ({
@@ -65,55 +56,29 @@ async function fixture() {
       },
     }
   );
-  const start = watcherComposition.startWatch;
-  if (!start) {
-    throw new Error('Missing test visible watch factory.');
-  }
-  return { createSecureRoot, domain, root, rootId: descriptor.rootId, start, stop };
-}
-
-describe('Explorer watcher composition', () => {
-  beforeEach(() => {
-    watcherComposition.startWatch = null;
-    watcherComposition.domain = null;
-    vi.clearAllMocks();
-  });
-
-  it('uses the existing pinned mount and enables bounded default-filter reporting', async () => {
-    const f = await fixture();
-    const watch = await f.start(WORKSPACE, vi.fn(), vi.fn());
-    expect(startJoinedRootWatch).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ path: WORKSPACE, platform: 'electron' }),
-      expect.any(Function),
-      expect.objectContaining({ reportDefaultFilteredChanges: true })
-    );
-    expect(f.createSecureRoot).toHaveBeenCalledTimes(1);
-    await watch.close();
-    expect(f.root.close).not.toHaveBeenCalled();
-    await f.domain.close();
-  });
-
-  it('retains the utility borrow when the visible subscription closes', async () => {
-    const f = await fixture();
-    const lease = await f.domain.roots.borrowSourceRoot(f.rootId, (mounted, ...callbacks) =>
-      f.domain.watches.subscribe(mounted, ...callbacks)
+  /** The native index's borrow of the folder and its watch. */
+  const start = async () => {
+    const lease = await domain.roots.borrowSourceRoot(descriptor.rootId, (mounted, ...callbacks) =>
+      domain.watches.subscribe(mounted, ...callbacks)
     );
     await lease.subscribe(vi.fn(), vi.fn(), vi.fn(), {
       requestId: 'utility-source-test',
       signal: new AbortController().signal,
     });
-    const visible = await f.start(WORKSPACE, vi.fn(), vi.fn());
-    expect(startJoinedRootWatch).toHaveBeenCalledTimes(1);
-    await visible.close();
-    expect(f.stop).not.toHaveBeenCalled();
-    await lease.retire();
-    expect(f.stop).toHaveBeenCalledTimes(1);
-    await f.domain.close();
+    return lease;
+  };
+  return { createSecureRoot, domain, root, start, stop };
+}
+
+describe('mounted root watch composition', () => {
+  beforeEach(() => {
+    watcherComposition.domain = null;
+    vi.clearAllMocks();
   });
 
   it('joins the actual native watch before application close releases the pinned mount', async () => {
     const f = await fixture();
-    await f.start(WORKSPACE, vi.fn(), vi.fn());
+    await f.start();
     const exit = Promise.withResolvers<void>();
     f.stop.mockReturnValueOnce(exit.promise);
     let closed = false;
@@ -134,7 +99,7 @@ describe('Explorer watcher composition', () => {
       throw failure;
     });
     const f = await fixture();
-    await f.start(WORKSPACE, vi.fn(), vi.fn());
+    await f.start();
 
     await expect(Promise.resolve().then(() => f.domain.close())).rejects.toMatchObject({
       errors: expect.arrayContaining([failure]),

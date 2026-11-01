@@ -114,8 +114,8 @@ amended by ADR-0027).
 - Ordering:
   - Main prepares its workspace mutations before profile retirement.
   - The agent host retires worktree operations, Git inventory, snapshot
-    maintenance, terminals, command sessions, language servers and shell commands
-    in its own close (ADR-0029). Accepted workflows finish while mounts, git,
+    maintenance, terminals, Explorer root watches, command sessions, language
+    servers and shell commands in its own close (ADR-0029). Accepted workflows finish while mounts, git,
     setup and the authenticated catalog stay available; new mutations are refused.
   - The catalog borrower then fences new calls and joins admitted acquisitions and
     replies. A failed deletion keeps its reservation and reports its cause. An
@@ -126,7 +126,10 @@ amended by ADR-0027).
 - Quit's one terminal reason is the native-index refusal of kind `closed`, reason
   `shutdown`. Rethrowing boundaries keep it as the cause; logs record it at debug.
 - File watching:
-  - Main's root watch owners use `startJoinedRootWatch`, never
+  - The Explorer's watches run in the agent host (ADR-0029 stage 4), which stops
+    them in its own close. Main's remaining owner watches the roots the native
+    index borrows.
+  - Root watch owners use `startJoinedRootWatch`, never
     `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and join
     their watches in a shutdown step.
   - The engine is Node's recursive `fs.watch` (arms synchronously; `close()` is

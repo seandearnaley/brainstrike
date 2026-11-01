@@ -7,13 +7,9 @@ const ipcOwners = vi.hoisted(() => ({
   ledgers: vi.fn(async () => undefined),
   path: vi.fn(async () => undefined),
   reset: vi.fn(async () => undefined),
-  watch: vi.fn(async () => undefined),
 }));
 vi.mock('../../ipc-domains/file-system-ipc', () => ({
   createFileSystemIpcDomain: vi.fn(() => ({ close: ipcOwners.files, roots: {} })),
-}));
-vi.mock('../../ipc-domains/file-system-watch-ipc', () => ({
-  registerFileSystemWatchIpcHandlers: vi.fn(() => ipcOwners.watch),
 }));
 vi.mock('../../ipc-domains/workspace-ledgers-e2e-ipc', () => ({
   registerWorkspaceLedgersE2eHandlers: vi.fn(() => ipcOwners.ledgers),
