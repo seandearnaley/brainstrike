@@ -100,12 +100,6 @@ export const DESKTOP_IPC_CHANNELS = {
     saveLastFolder: 'fs:saveLastFolder',
     /** E2E only (`workspace-ledgers-e2e-ipc.ts`); production registers no handler. */
     seedLedgerForE2e: 'fs:seedLedgerForE2e',
-    unwatch: 'fs:unwatch',
-    watch: 'fs:watch',
-    watchEvent: 'fs:watch-event',
-    watchHealth: 'fs:watch-health',
-    watchRetry: 'fs:watch-retry',
-    watchTelemetry: 'fs:watch-telemetry',
   },
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',

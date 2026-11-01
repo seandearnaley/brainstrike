@@ -6,11 +6,12 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * needs its replacement renderer and reopens the agent host), renderers before
  * the hosts they call, the agent host's admission fenced before Main's
  * MCP control closes (a host starting after it would be refused), each
- * `fs.watch` root watcher owner (`root-watchers.ts`, Explorer roots) retiring
- * its watches before Electron frees Main's Node environment, and
+ * `fs.watch` root watcher owner (`root-watchers.ts`, the roots the native
+ * index borrows) retiring its watches before Electron frees Main's Node
+ * environment, and
  * `database-drain` last: it stops everything that issues database work. The
- * git cluster, its snapshot maintenance, terminals, command sessions, language
- * servers and shell commands are the agent host's, which retires them with its
+ * git cluster, its snapshot maintenance, terminals, the Explorer's root
+ * watches, command sessions, language servers and shell commands are the agent host's, which retires them with its
  * own platform (ADR-0029). Two things deliberately sit OUTSIDE this sequence: the
  * database close itself (`DesktopShutdownRunPlan.closeDatabase`, which always
  * runs after it) and the durable error-log close (last of all, so the log can

@@ -33,6 +33,7 @@ import {
   evictHostLspServersForRoot,
 } from '../agent-host-platform/host-root-cleanup-client';
 import { isDesktopShuttingDown, isExpectedShutdownRefusal } from '../desktop-shutdown-state';
+import { hasE2eMockPathPrefix } from '../e2e-mock-root';
 import {
   createFileReadErrorPayload,
   FILE_READ_ERROR_CODE_NOT_FOUND,
@@ -113,12 +114,6 @@ interface ElectronE2eFileSystemFixture {
   };
 }
 
-/**
- * The e2e mock tree lives under the host's own `/mock`, so on Windows it is
- * `C:\mock\...` with `\` separators: the shape a real folder has there, which
- * the renderer must handle and which `path.normalize` leaves unchanged.
- */
-const MOCK_PATH_PREFIX = `${path.resolve('/mock')}${path.sep}`;
 const MOCK_ROOT_PATH = path.resolve('/mock/test/directory');
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
@@ -158,11 +153,8 @@ function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/u.test(value) || /^\\\\[^\\]+\\[^\\]+/u.test(value);
 }
 
-/**
- * Shared by this domain and the fs watch domain (file-system-watch-ipc.ts):
- * one validation path for every fs:* channel that accepts renderer paths.
- */
-export async function resolveFileSystemIpcPath(
+/** One validation path for every fs:* channel that accepts renderer paths. */
+async function resolveFileSystemIpcPath(
   requestedPath: unknown,
   operation: string
 ): Promise<string> {
@@ -192,11 +184,9 @@ async function resolveFileHandle(handle: FileHandle): Promise<FileHandle> {
 
 /**
  * True when a path is owned by the e2e mock file system (mock prefix or a
- * registered fixture) and must never touch the real disk. Shared with the fs
- * watch domain so mock roots get inert watchers instead of a native watcher on
- * nonexistent paths.
+ * registered fixture) and must never touch the real disk.
  */
-export function isMockFileSystemIpcPath(requestedPath: string): boolean {
+function isMockFileSystemIpcPath(requestedPath: string): boolean {
   const fixture = getElectronE2eFileSystemFixture();
   if (
     fixture &&
@@ -206,15 +196,7 @@ export function isMockFileSystemIpcPath(requestedPath: string): boolean {
   ) {
     return true;
   }
-  return hasMockPathPrefix(requestedPath);
-}
-
-/**
- * The registry presents a mounted root as `path.normalize` spells it, `\mock\…`
- * on Windows, so the mock prefix is matched in that spelling too.
- */
-function hasMockPathPrefix(requestedPath: string): boolean {
-  return path.normalize(requestedPath).startsWith(path.normalize(MOCK_PATH_PREFIX));
+  return hasE2eMockPathPrefix(requestedPath);
 }
 
 function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
@@ -391,7 +373,7 @@ async function ipcPathExists(
     );
   }
 
-  if (hasMockPathPrefix(requestedPath)) {
+  if (hasE2eMockPathPrefix(requestedPath)) {
     return true;
   }
 
@@ -758,7 +740,7 @@ export function createFileSystemIpcDomain({
             return content;
           }
 
-          if (hasMockPathPrefix(absolutePath) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
+          if (hasE2eMockPathPrefix(absolutePath) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
             return 'Mock file content for testing purposes\nThis is a test file.\n';
           }
 

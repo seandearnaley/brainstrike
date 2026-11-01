@@ -67,10 +67,15 @@ coverage, not the preview UI.
 
 ## Live refresh
 
-Use the existing watcher capability and event channel. Desktop keeps one `fs.watch`
-subscription per owner/resolved root with independently disposable logical IDs;
-unsupported engines fail rather than falling back. Missing web observation is
-visibly unwatched. Do not add polling to disguise it.
+Use the existing watcher capability and event channel. On desktop the agent host
+owns the Explorer's watches (ADR-0029 stage 4): a window calls
+`workspace/files/watch` on its host connection with the exact path of a live root,
+and batches and health arrive on that connection's `workspace/files/event` stream.
+The host keeps one `fs.watch` per canonical root for every window that watches it,
+with independently disposable watch IDs; a connection's watches end when it closes,
+and a watch whose host ended reports a retryable failure. Unsupported engines fail
+rather than falling back. Missing web observation is visibly unwatched. Do not add
+polling to disguise it.
 
 Watch events invalidate shared state through one pipeline. Filter exclusions
 root-relatively, preserve explicitly opened roots and revalidate active generation
