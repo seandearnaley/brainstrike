@@ -1,10 +1,19 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHostFileReads } from '../../src/workspace-files/file-reads.ts';
+import { createWorkspaceRootPins } from '../../src/workspace-files/root-pins.ts';
 
 const ROOT_ID = '00000000-0000-4000-8000-000000000001';
 const NESTED_ID = '00000000-0000-4000-8000-000000000002';
@@ -37,29 +46,37 @@ interface LiveRoot {
 const catalog = (roots: LiveRoot[]) => ({
   listRoots: async () => roots.map((root) => ({ ...root, displayName: path.basename(root.path) })),
 });
+const opened: { close(): Promise<void> }[] = [];
+afterEach(async () => {
+  await Promise.all(opened.splice(0).map((pins) => pins.close()));
+});
+/** The reads owner over pinned roots, as the desktop host composes it. */
+const reads = (roots: LiveRoot[]) => {
+  const pins = createWorkspaceRootPins({ roots: catalog(roots) });
+  opened.push(pins);
+  return createHostFileReads({ pins });
+};
 const failure = (code: string) => ({ failure: expect.objectContaining({ code }) });
 
 /** ADR-0029 stage 4: the Explorer reads only what the host's catalog records as live. */
 describe('host file reads', () => {
   it('lists a live root, directories first, naming the root that served it', async () => {
-    const { service } = createHostFileReads({
-      roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
-    });
+    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
 
     const listing = await service['workspace/files/list']({ path: workspace });
 
     expect(listing.rootId).toBe(ROOT_ID);
     expect(listing.truncated).toBe(false);
-    expect(listing.entries.map((entry) => [entry.name, entry.isDirectory]).sort()).toEqual([
-      ['README.md', false],
-      ['src', true],
+    expect(
+      listing.entries.map((entry) => [entry.name, entry.isDirectory, entry.path]).sort()
+    ).toEqual([
+      ['README.md', false, path.join(workspace, 'README.md')],
+      ['src', true, path.join(workspace, 'src')],
     ]);
   });
 
   it('reads a file of a live root by its path, and by the root it was listed under', async () => {
-    const { service } = createHostFileReads({
-      roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
-    });
+    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
     const file = path.join(workspace, 'src', 'index.ts');
 
     await expect(service['workspace/files/read']({ path: file })).resolves.toEqual({
@@ -74,9 +91,7 @@ describe('host file reads', () => {
   });
 
   it('refuses a folder the catalog does not record as live, even one on disk', async () => {
-    const { service } = createHostFileReads({
-      roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
-    });
+    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
 
     await expect(service['workspace/files/list']({ path: outside })).rejects.toMatchObject(
       failure('workspace.path-outside-root')
@@ -98,9 +113,7 @@ describe('host file reads', () => {
   it('never follows a symlink out of the root, and names an in-root link', async () => {
     symlinkSync(path.join(outside, 'secret.txt'), path.join(workspace, 'escape.txt'));
     symlinkSync(path.join(workspace, 'README.md'), path.join(workspace, 'alias.md'));
-    const { service } = createHostFileReads({
-      roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
-    });
+    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
 
     await expect(
       service['workspace/files/read']({ path: path.join(workspace, 'escape.txt') })
@@ -112,9 +125,7 @@ describe('host file reads', () => {
 
   it('answers a missing or oversized file with the message the Explorer shows', async () => {
     writeFileSync(path.join(workspace, 'big.bin'), Buffer.alloc(800 * 1024, 1));
-    const { service } = createHostFileReads({
-      roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
-    });
+    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
 
     await expect(
       service['workspace/files/read']({ path: path.join(workspace, 'gone.ts') })
@@ -132,12 +143,10 @@ describe('host file reads', () => {
 
   it('anchors a read to the root it names; without a live one the deepest root serves it', async () => {
     const nested = path.join(workspace, 'src');
-    const { service } = createHostFileReads({
-      roots: catalog([
-        { path: workspace, rootId: ROOT_ID },
-        { path: nested, rootId: NESTED_ID },
-      ]),
-    });
+    const { service } = reads([
+      { path: workspace, rootId: ROOT_ID },
+      { path: nested, rootId: NESTED_ID },
+    ]);
     const deep = path.join(nested, 'nested');
 
     await expect(
@@ -154,12 +163,10 @@ describe('host file reads', () => {
   it('binds a claimed root by identity and path', async () => {
     const other = path.join(base, 'other');
     mkdirSync(other);
-    const { service } = createHostFileReads({
-      roots: catalog([
-        { path: workspace, rootId: ROOT_ID },
-        { path: other, rootId: NESTED_ID },
-      ]),
-    });
+    const { service } = reads([
+      { path: workspace, rootId: ROOT_ID },
+      { path: other, rootId: NESTED_ID },
+    ]);
     const file = path.join(workspace, 'README.md');
 
     await expect(
@@ -173,8 +180,45 @@ describe('host file reads', () => {
     ).rejects.toMatchObject(failure('workspace.root-id-invalid'));
   });
 
+  it('keeps the folder it first opened: a symlink swapped in at its path never grants the outside folder', async () => {
+    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
+    await expect(service['workspace/files/list']({ path: workspace })).resolves.toMatchObject({
+      rootId: ROOT_ID,
+    });
+
+    renameSync(workspace, path.join(base, 'moved'));
+    symlinkSync(outside, workspace);
+
+    await expect(
+      service['workspace/files/read']({ path: 'secret.txt', rootId: ROOT_ID })
+    ).rejects.toMatchObject(failure('workspace.path-outside-root'));
+    await expect(
+      service['workspace/files/read']({ path: path.join(workspace, 'secret.txt') })
+    ).rejects.toMatchObject(failure('workspace.path-outside-root'));
+    await expect(
+      service['workspace/files/list']({ path: workspace, rootId: ROOT_ID })
+    ).rejects.toMatchObject(failure('workspace.path-outside-root'));
+  });
+
+  it('reports a folder that fails to open for another reason than being gone as a fault', async () => {
+    const pins = createWorkspaceRootPins({
+      openRoot: async () => {
+        throw Object.assign(new Error('The native module did not load'), {
+          code: 'ERR_DLOPEN_FAILED',
+        });
+      },
+      roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
+    });
+    opened.push(pins);
+    const { service } = createHostFileReads({ pins });
+
+    await expect(service['workspace/files/list']({ path: workspace })).rejects.toMatchObject({
+      failure: { code: 'workspace.root-open-failed', kind: 'fault' },
+    });
+  });
+
   it('stops reading once the host closes', async () => {
-    const owner = createHostFileReads({ roots: catalog([{ path: workspace, rootId: ROOT_ID }]) });
+    const owner = reads([{ path: workspace, rootId: ROOT_ID }]);
     await owner.close();
 
     await expect(owner.service['workspace/files/list']({ path: workspace })).rejects.toMatchObject(
@@ -204,9 +248,7 @@ describe('host file reads', () => {
       return await realpath(...args);
     });
     try {
-      const { service } = createHostFileReads({
-        roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
-      });
+      const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
       await expect(
         service['workspace/files/read']({ path: requested, rootId: ROOT_ID, rootPath: workspace })
       ).rejects.toThrow();
@@ -231,7 +273,7 @@ describe('host file reads', () => {
     const native = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     const close = vi.fn();
-    const owner = createHostFileReads({
+    const pins = createWorkspaceRootPins({
       openRoot: async (rootPath) => ({
         canonicalPath: rootPath,
         close,
@@ -244,6 +286,7 @@ describe('host file reads', () => {
       }),
       roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
     });
+    const owner = createHostFileReads({ pins });
     const listing = owner.service['workspace/files/list']({ path: workspace });
     await entered.promise;
     let closed = false;
@@ -256,6 +299,8 @@ describe('host file reads', () => {
     native.resolve();
     await expect(listing).resolves.toMatchObject({ rootId: ROOT_ID });
     await closing;
+    expect(close).not.toHaveBeenCalled();
+    await pins.close();
     expect(close).toHaveBeenCalledOnce();
   });
 });

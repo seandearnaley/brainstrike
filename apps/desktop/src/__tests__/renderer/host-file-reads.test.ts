@@ -15,33 +15,48 @@ function readsFrom(answer: (method: string, params: unknown) => unknown) {
 
 /** ADR-0029 stage 4: the Explorer's reads go to the agent host over the window's connection. */
 describe('desktop file reads', () => {
-  it('builds tree nodes from a listing, directories first, under the root that served it', async () => {
+  it('builds tree nodes from a listing at the native paths the host joined', async () => {
     const { reads, request } = readsFrom(() => ({
       entries: [
-        { isDirectory: false, isFile: true, isSymbolicLink: false, name: 'b.ts', size: 3 },
-        { isDirectory: true, isFile: false, isSymbolicLink: false, name: 'src' },
+        {
+          isDirectory: false,
+          isFile: true,
+          isSymbolicLink: false,
+          name: 'b.ts',
+          path: 'C:\\repo\\b.ts',
+          size: 3,
+        },
+        {
+          isDirectory: true,
+          isFile: false,
+          isSymbolicLink: false,
+          name: 'src',
+          path: 'C:\\repo\\src',
+        },
       ],
       inspected: 2,
       rootId: 'root-1',
       truncated: true,
+      truncationPath: 'C:\\repo\\…truncated…',
     }));
 
     const nodes = await reads.readDirectory({
       kind: 'directory',
       name: 'repo',
-      path: '/repo',
+      path: 'C:\\repo',
       platform: 'electron',
       rootId: 'root-1',
     });
 
     expect(request).toHaveBeenCalledWith('workspace/files/list', {
-      path: '/repo',
+      path: 'C:\\repo',
       rootId: 'root-1',
     });
+    // Directories first; a Windows path keeps its separators in a renderer without Node's path.
     expect(nodes.map((node) => [node.name, node.type, node.path, node.rootFolderId])).toEqual([
-      ['src', 'directory', '/repo/src', 'root-1'],
-      ['b.ts', 'file', '/repo/b.ts', 'root-1'],
-      ['Showing first 2 entries', 'truncated', '/repo/…truncated…', 'root-1'],
+      ['src', 'directory', 'C:\\repo\\src', 'root-1'],
+      ['b.ts', 'file', 'C:\\repo\\b.ts', 'root-1'],
+      ['Showing first 2 entries', 'truncated', 'C:\\repo\\…truncated…', 'root-1'],
     ]);
   });
 

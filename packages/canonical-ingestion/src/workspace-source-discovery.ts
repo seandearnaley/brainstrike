@@ -3,6 +3,7 @@ import { readResolvedWorkspaceFile } from '@brainstrike/file-system/secure-file-
 import {
   buildDirectoryListing,
   MAX_DIRECTORY_ENTRIES,
+  pathDirectoryListing,
 } from '@brainstrike/file-system/workspace-root-nodes';
 import { discoverWorkspaceFiles } from '@brainstrike/file-system/workspace-scan';
 import {
@@ -16,7 +17,7 @@ import {
   collectScopedRemovalInvalidations,
 } from '@brainstrike/file-system/workspace-scan-reconciliation';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
-import { hostBasename } from '@brainstrike/utils/host-path';
+import { hostBasename, hostJoin } from '@brainstrike/utils/host-path';
 import type {
   CanonicalDiscoveredSourceFile,
   CanonicalDiscoveryCompletion,
@@ -66,7 +67,7 @@ export async function discoverCanonicalWorkspace(
           if (!listing) {
             throw new AccessError('Directory is not accessible.', handle.path, 'read');
           }
-          return buildDirectoryListing(lease, handle.path, listing);
+          return buildDirectoryListing(lease, pathDirectoryListing(handle.path, listing, hostJoin));
         },
         readFile: async (handle) => {
           if (handle.rootId !== lease.rootId) {

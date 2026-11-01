@@ -9,6 +9,9 @@
  * - Retry is manual only, and escalating minimum intervals bound it, so no
  *   loop can restart a watch on its own.
  * - A failed start is the visible rejection of `workspace/files/watch`.
+ * - A root is watched at the canonical path of its pinned handle (`root-pins.ts`),
+ *   and only while its path still resolves there, so a symlink put in its place
+ *   never turns the watch onto another folder.
  */
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
@@ -19,14 +22,14 @@ import type {
   HostResults,
   WorkspaceFilesEvent,
 } from '@brainstrike/agent-host';
-import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import { isBoundaryRefusal, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { startJoinedRootWatch } from '@brainstrike/file-system/native-watch';
 import type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
   WatcherHealthTransition,
 } from '@brainstrike/types';
-import type { WorkspaceRootResolver } from '../workspace-root-cwd.ts';
+import { type LiveRoot, ROOT_UNMOUNTED, type WorkspaceRootPins } from './root-pins.ts';
 
 /** Minimum wait before each further manual retry of a watch that keeps failing. */
 export const FILE_WATCH_RETRY_BACKOFF_MS = [1000, 5000, 30_000] as const;
@@ -41,7 +44,7 @@ export type StartFileWatch = (
 ) => Promise<() => Promise<void>>;
 
 export interface HostFileWatchOptions {
-  readonly roots: WorkspaceRootResolver;
+  readonly pins: WorkspaceRootPins;
   /** Test seam; production watches with `startJoinedRootWatch`. */
   readonly startWatch?: StartFileWatch;
 }
@@ -257,6 +260,10 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
       };
     }
     const restart = (async (): Promise<void> => {
+      // A restart watches by path again: only while that path is still the pinned folder's.
+      if ((await realpathOrUndefined(producer.rootPath)) !== producer.rootPath) {
+        throw rootUnavailable();
+      }
       const previous = producer.started;
       producer.generation += 1;
       await stopStarted(previous);
@@ -272,30 +279,49 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
     return { retried: true };
   };
 
-  /** The canonical path of the live root the client named. */
+  /** The pinned canonical path of a live root, or `undefined` when its folder is gone. */
+  const pinnedCanonical = (root: LiveRoot): Promise<string | undefined> =>
+    options.pins
+      .use(root, async (pinned) => pinned.canonicalPath)
+      .catch((error: unknown): undefined => {
+        if (isBoundaryRefusal(error) && error.code === ROOT_UNMOUNTED) {
+          return;
+        }
+        throw error;
+      });
+
+  /** The pinned canonical path of the live root the client named, while its path still resolves there. */
   const authorize = async (requestedPath: string): Promise<string> => {
     const requested = path.normalize(requestedPath);
     if (!path.isAbsolute(requested)) {
       throw unknownRoot();
     }
-    const roots = await options.roots.listRoots();
-    const canonical = await realpathOrUndefined(requested);
-    for (const root of roots) {
-      const rootPath = path.normalize(root.path);
-      const rootCanonical = await realpathOrUndefined(rootPath);
-      if (requested !== rootPath && requested !== rootCanonical) {
-        continue;
+    const roots = await options.pins.liveRoots();
+    let named: { canonical: string | undefined; root: LiveRoot } | undefined;
+    const exact = roots.find((root) => root.path === requested);
+    if (exact) {
+      named = { canonical: await pinnedCanonical(exact), root: exact };
+    } else {
+      for (const root of roots) {
+        const canonical = await pinnedCanonical(root);
+        if (canonical === requested) {
+          named = { canonical, root };
+          break;
+        }
       }
-      if (!(canonical && canonical === rootCanonical)) {
-        throw rootUnavailable();
-      }
-      const stats = await fsPromises.stat(canonical).catch(() => undefined);
-      if (!stats?.isDirectory()) {
-        throw rootUnavailable();
-      }
-      return canonical;
     }
-    throw unknownRoot();
+    if (!named) {
+      throw unknownRoot();
+    }
+    const { canonical, root } = named;
+    if (!(canonical && (await realpathOrUndefined(root.path)) === canonical)) {
+      throw rootUnavailable();
+    }
+    const stats = await fsPromises.stat(canonical).catch(() => undefined);
+    if (!stats?.isDirectory()) {
+      throw rootUnavailable();
+    }
+    return canonical;
   };
 
   const open = (send: Send): HostFileWatchSession => {

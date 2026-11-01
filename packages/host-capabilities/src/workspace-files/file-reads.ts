@@ -1,8 +1,8 @@
 /**
  * ADR-0029 stage 4: the Explorer's reads of live workspace roots, owned by the
  * agent host. Every read is confined to a root the host's own catalog records
- * as live, through a `SecureRoot` opened for that read and closed after it, so
- * no handle outlives the read or keeps a removed folder open.
+ * as live, through that root's pinned `SecureRoot` (`root-pins.ts`), the same
+ * handle and canonical path every read and watch of the root uses.
  *
  * A read resolves its root as Main's mounted registry did:
  * - `rootId` anchors it to that live root, even for a path a nested root also contains;
@@ -17,7 +17,6 @@ import type { HostFileReads, HostResults } from '@brainstrike/agent-host';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   assertNativeAbsoluteReadPath,
-  createNativeSecureRoot,
   isContained,
   isFileNotFoundError,
   type MountedWorkspaceRootReadAuthority,
@@ -27,31 +26,26 @@ import {
   resolveCanonicalRootPath,
   resolveReadAgainstMountedRoot,
   resolveValidatedReadPath,
-  type SecureWorkspaceRoot,
   withReadDenialLogging,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { getFileTooLargeMessage, isDurableRootId } from '@brainstrike/file-system';
-import { MAX_DIRECTORY_ENTRIES } from '@brainstrike/file-system/workspace-root-nodes';
+import {
+  MAX_DIRECTORY_ENTRIES,
+  pathDirectoryListing,
+} from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
-import type { WorkspaceRootResolver } from '../workspace-root-cwd.ts';
+import type { LiveRoot, WorkspaceRootPins } from './root-pins.ts';
 
 const logger = createLogger('HostFileReads');
 
 export interface HostFileReadOptions {
-  /** Test seam; production opens the root with `SecureRoot`. */
-  readonly openRoot?: (rootPath: string) => Promise<SecureWorkspaceRoot>;
-  readonly roots: WorkspaceRootResolver;
+  readonly pins: WorkspaceRootPins;
 }
 
 export interface HostFileReadOwner {
   /** Refuses new reads and joins the ones in flight, so no native read outlives the host. */
   close(): Promise<void>;
   readonly service: HostFileReads;
-}
-
-interface LiveRoot {
-  readonly path: string;
-  readonly rootId: string;
 }
 
 interface ReadRequest {
@@ -144,14 +138,9 @@ function readOutcome(error: unknown): ReadResult | undefined {
 }
 
 export function createHostFileReads(options: HostFileReadOptions): HostFileReadOwner {
-  const openRoot = options.openRoot ?? createNativeSecureRoot;
+  const { pins } = options;
   const inFlight = new Set<Promise<unknown>>();
   let closed = false;
-
-  const liveRoots = async (): Promise<LiveRoot[]> =>
-    (await options.roots.listRoots())
-      .filter((root) => path.isAbsolute(root.path))
-      .map((root) => ({ path: path.normalize(root.path), rootId: root.rootId }));
 
   /** The exact live root a bound read claims: `rootId` must name a live root. */
   const selectClaimedRoot = async (request: ReadRequest, rootPath: string): Promise<LiveRoot> => {
@@ -160,7 +149,7 @@ export function createHostFileReads(options: HostFileReadOptions): HostFileReadO
     if (!isDurableRootId(request.rootId)) {
       throw invalidRootId('The workspace folder identity is invalid.');
     }
-    const root = (await liveRoots()).find((candidate) => candidate.rootId === request.rootId);
+    const root = (await pins.liveRoots()).find((candidate) => candidate.rootId === request.rootId);
     if (!root) {
       throw unmounted('The workspace folder is no longer connected.');
     }
@@ -179,7 +168,7 @@ export function createHostFileReads(options: HostFileReadOptions): HostFileReadO
     if (rootId === undefined && !path.isAbsolute(requestedPath)) {
       throw invalidRootId('A relative file read needs a connected folder identity.');
     }
-    const roots = await liveRoots();
+    const roots = await pins.liveRoots();
     const anchored =
       rootId === undefined ? undefined : roots.find((root) => root.rootId === rootId);
     const containing =
@@ -191,7 +180,7 @@ export function createHostFileReads(options: HostFileReadOptions): HostFileReadO
     throw rootId === undefined ? outsideEveryRoot() : unmounted('Workspace root is not mounted.');
   };
 
-  /** Opens the named root for one read, checks the bound path, and closes it after. */
+  /** Runs one read on the named root's pinned handle, after checking the bound path. */
   const withRoot = async <T>(
     request: ReadRequest,
     run: (authority: MountedWorkspaceRootReadAuthority) => Promise<T>
@@ -205,23 +194,7 @@ export function createHostFileReads(options: HostFileReadOptions): HostFileReadO
     }
     const pending = (async () => {
       const live = await selectRoot(request);
-      let root: SecureWorkspaceRoot;
-      try {
-        root = await openRoot(live.path);
-      } catch (cause) {
-        logger.debug('A live workspace root could not be opened for a read', {
-          cause,
-          rootId: live.rootId,
-        });
-        throw unmounted('The workspace folder is not available.');
-      }
-      try {
-        const authority: MountedWorkspaceRootReadAuthority = {
-          canonicalPath: path.normalize(root.canonicalPath),
-          presentationPath: live.path,
-          root,
-          rootId: live.rootId,
-        };
+      return await pins.use(live, async (authority) => {
         if (
           request.rootPath !== undefined &&
           !(
@@ -237,9 +210,7 @@ export function createHostFileReads(options: HostFileReadOptions): HostFileReadO
           );
         }
         return await run(authority);
-      } finally {
-        root.close();
-      }
+      });
     })();
     inFlight.add(pending);
     try {
@@ -288,18 +259,26 @@ export function createHostFileReads(options: HostFileReadOptions): HostFileReadO
               'Check that the folder is available, then refresh.'
             );
           }
+          // The host joins by its own native rules; the Explorer uses each path as it is.
+          // A relative request lists under the root's presented path.
+          const parentPath = path.isAbsolute(request.path)
+            ? path.normalize(request.path)
+            : path.join(authority.presentationPath, resolved.relativePath);
+          const pathed = pathDirectoryListing(parentPath, listing, path.join);
           return {
-            entries: listing.entries.map((entry) => ({
+            entries: pathed.entries.map((entry) => ({
               isDirectory: entry.isDirectory,
               isFile: entry.isFile,
               isSymbolicLink: entry.isSymbolicLink,
               ...(entry.lastModified === undefined ? {} : { lastModified: entry.lastModified }),
               name: entry.name,
+              path: entry.path,
               ...(entry.size === undefined ? {} : { size: entry.size }),
             })),
-            inspected: listing.inspected,
+            inspected: pathed.inspected,
             rootId: authority.rootId,
-            truncated: listing.truncated,
+            truncated: pathed.truncated,
+            truncationPath: pathed.truncationPath,
           };
         })
       ),

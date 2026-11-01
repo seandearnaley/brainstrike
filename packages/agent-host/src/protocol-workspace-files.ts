@@ -12,6 +12,8 @@ const DirectoryEntrySchema = Schema.Struct({
   isSymbolicLink: Schema.Boolean,
   lastModified: Schema.optionalKey(Schema.Finite),
   name: Text,
+  /** The entry's absolute path, joined by the host's native path rules. */
+  path: Text,
   size: Schema.optionalKey(Schema.Finite),
 });
 
@@ -92,6 +94,8 @@ export const WORKSPACE_FILES_RESULT_SCHEMAS = {
     inspected: Schema.Finite,
     rootId: Id,
     truncated: Schema.Boolean,
+    /** The native path of the marker node a truncated listing shows. */
+    truncationPath: Text,
   }),
   /** A missing or oversized file is an answer the Explorer shows, not a failure. */
   'workspace/files/read': Schema.Union(

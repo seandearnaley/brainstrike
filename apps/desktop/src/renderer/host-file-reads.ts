@@ -28,7 +28,8 @@ export function createDesktopFileReads(connection: DesktopHostConnection): Deskt
         path: handle.path,
         ...(handle.rootId === undefined ? {} : { rootId: handle.rootId }),
       });
-      return buildDirectoryListing({ rootId: listing.rootId }, handle.path, listing);
+      // The host joined each path by its native rules; they are used as they are.
+      return buildDirectoryListing({ rootId: listing.rootId }, listing);
     },
     readFile: async ({ path, rootId }, root) => {
       const result = await (await connection.current()).request('workspace/files/read', {

@@ -70,11 +70,15 @@ coverage, not the preview UI.
 On desktop the agent host serves the Explorer's reads (ADR-0029 stage 4):
 `workspace/files/list`, `workspace/files/read` and `workspace/files/exists`, gated to
 the desktop's private client. Each read is confined to a root the host's catalog
-records as live, through a `SecureRoot` opened for that read and closed after it. A
-`rootId` anchors a read to its root; otherwise the deepest live root containing the
+records as live, through that root's pinned `SecureRoot`: the host opens it at first
+use and keeps that handle and canonical path for every read and root watch, closing it
+once the root stops being live or the host closes. A folder renamed and replaced by a
+symlink never redirects the root. A `rootId` anchors a read to its root; otherwise the deepest live root containing the
 path serves it; `rootPath` binds it to exactly that root. Realpath containment
 authorizes the target and native I/O keeps the lexical path, so in-root symlinks are
-never followed. A missing or oversized file answers `NOT_FOUND` or `TOO_LARGE`. E2E
+never followed. A listing carries each entry's native absolute path, joined by the host;
+the sandboxed renderer uses it as it is and never joins paths itself. A missing or
+oversized file answers `NOT_FOUND` or `TOO_LARGE`. E2E
 reads real disposable folders; there is no synthetic tree.
 
 ## Live refresh

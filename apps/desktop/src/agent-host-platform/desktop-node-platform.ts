@@ -39,6 +39,7 @@ import { hostWorkspaceDiscovery } from '@brainstrike/host-capabilities/workspace
 import {
   createHostFileReads,
   createHostFileWatches,
+  createWorkspaceRootPins,
 } from '@brainstrike/host-capabilities/workspace-files';
 import { createWorkspaceRootResolver } from '@brainstrike/host-capabilities/workspace-root-cwd';
 import { createLogger } from '@brainstrike/logging';
@@ -291,11 +292,22 @@ export async function createDesktopHostConfiguration(
     resolver: roots,
   });
   await startup.register(() => terminals.close());
-  // ADR-0029 stage 4: the Explorer's reads of, and root watches on, live workspace roots.
-  const fileReads = createHostFileReads({ roots });
-  await startup.register(() => fileReads.close());
-  const fileWatches = createHostFileWatches({ roots });
-  await startup.register(() => fileWatches.close());
+  // ADR-0029 stage 4: the Explorer's reads of, and root watches on, live workspace roots,
+  // through one pinned handle per root that closes after both owners.
+  const rootPins = createWorkspaceRootPins({ roots });
+  const fileReads = createHostFileReads({ pins: rootPins });
+  const fileWatches = createHostFileWatches({ pins: rootPins });
+  const closeWorkspaceFiles = async (): Promise<void> => {
+    const owners = await Promise.allSettled([fileReads.close(), fileWatches.close()]);
+    await rootPins.close();
+    const failures = owners.flatMap((outcome) =>
+      outcome.status === 'rejected' ? [outcome.reason] : []
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Workspace file reads or watches did not stop');
+    }
+  };
+  await startup.register(closeWorkspaceFiles);
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
   const admissionReads = mainAdmissionReads(request);
@@ -329,8 +341,7 @@ export async function createDesktopHostConfiguration(
       // command sessions this host started.
       const reaped = await Promise.allSettled([
         terminals.close(),
-        fileReads.close(),
-        fileWatches.close(),
+        closeWorkspaceFiles(),
         disposeHostTools(),
       ]);
       const reapFailures = reaped.flatMap((outcome) =>
