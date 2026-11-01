@@ -392,7 +392,7 @@ export function useFileSystemInstance() {
 
   // CRITICAL: Sync isAccessLoading from core hook to store.
   // The stale state clearing effect in use-file-explorer-context checks the STORE's
-  // isAccessLoading value. On Electron, restoreLastFolder sets the core hook's local
+  // isAccessLoading value. On startup, restoreRoots sets the core hook's local
   // isAccessLoading but not the store's. Without this sync, the stale clearing effect
   // sees store.isAccessLoading=false and incorrectly clears selections/expansions.
   useEffect(() => {
