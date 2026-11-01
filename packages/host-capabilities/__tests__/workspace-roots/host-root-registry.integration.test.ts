@@ -193,6 +193,7 @@ describe('host root registry', () => {
         if (request.operation === 'delete') {
           deleting.resolve();
           await release.promise;
+          throw new Error('folder data deletion failed');
         }
         return await store.workspaceRoots(request);
       },
@@ -210,9 +211,9 @@ describe('host root registry', () => {
       'not mounted'
     );
 
-    // This store has no indexer attached, so its deletion refuses: the folder stays connected.
+    // The deletion fails, so the folder stays connected.
     release.resolve();
-    await expect(deletion).rejects.toThrow('needs the indexer port');
+    await expect(deletion).rejects.toThrow('folder data deletion failed');
     expect((await owner.roots.listRoots()).map((entry) => entry.rootId)).toEqual([rootId]);
   });
 
