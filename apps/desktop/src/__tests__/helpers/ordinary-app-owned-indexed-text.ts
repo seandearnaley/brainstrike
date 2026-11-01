@@ -280,7 +280,7 @@ export async function qualifyOrdinaryAppIndexedText(
         }
         await window.modelCatalog.setModels(['anthropic/claude-sonnet-4.6'], true);
         localStorage.setItem(
-          'assistant-preferences.v1',
+          'brainstrike:assistant-preferences.v1',
           JSON.stringify({
             state: {
               modelsByProvider: { openrouter: 'anthropic/claude-sonnet-4.6' },
@@ -300,7 +300,7 @@ export async function qualifyOrdinaryAppIndexedText(
           })
         );
         window.localStorage.setItem(
-          'assistant-memory-preferences.v1',
+          'brainstrike:assistant-memory-preferences.v1',
           JSON.stringify({ state: memory, version: 2 })
         );
       },

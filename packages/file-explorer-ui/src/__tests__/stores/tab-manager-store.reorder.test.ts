@@ -10,7 +10,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   return { ...actual, createLogger: () => loggerMock };
 });
 
-const STORE_KEY = 'tab-manager.v1';
+const STORE_KEY = 'brainstrike:tab-manager.v1';
 
 function openThreeTabs(): void {
   const store = useTabManagerStore.getState();
@@ -116,7 +116,7 @@ describe('tab-manager-store reorderTabs', () => {
           { compositeKey: 'file-a', id: 'file-a', path: 'src/a.ts' },
         ],
       },
-      version: 2,
+      version: 1,
     });
 
     // A reload: the in-memory store is gone, only the persisted payload remains.

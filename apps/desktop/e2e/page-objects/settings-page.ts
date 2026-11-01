@@ -58,7 +58,9 @@ export class SettingsPage {
     await expect
       .poll(() =>
         this.page.evaluate((key) => {
-          const stored = window.localStorage.getItem('assistant-subagent-preferences.v1');
+          const stored = window.localStorage.getItem(
+            'brainstrike:assistant-subagent-preferences.v1'
+          );
           const settings = stored
             ? (JSON.parse(stored) as { state?: { settings?: Record<string, unknown> } }).state
                 ?.settings

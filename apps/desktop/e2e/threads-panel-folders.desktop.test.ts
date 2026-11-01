@@ -67,7 +67,7 @@ function freshRepo(label: string): string {
 async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
   await page.evaluate(() => {
     localStorage.setItem(
-      'panel-layout-store.v1',
+      'brainstrike:panel-layout-store.v1',
       JSON.stringify({
         state: {
           showConsole: false,
@@ -75,7 +75,7 @@ async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
           showRightPanel: true,
           sizes: [45, 15, 20],
         },
-        version: 4,
+        version: 1,
       })
     );
   });

@@ -32,7 +32,7 @@ describe('automation-overrides', () => {
 
   it('falls back to persisted assistant selected model provider for E2E setup', () => {
     window.localStorage.setItem(
-      'assistant-preferences.v1',
+      'brainstrike:assistant-preferences.v1',
       JSON.stringify({ state: { selectedModel: SELECTED_MODEL }, version: 5 })
     );
 
@@ -41,7 +41,7 @@ describe('automation-overrides', () => {
 
   it('ignores persisted assistant models with unsupported providers', () => {
     window.localStorage.setItem(
-      'assistant-preferences.v1',
+      'brainstrike:assistant-preferences.v1',
       JSON.stringify({ state: { selectedModel: 'unsupported::model-id' }, version: 5 })
     );
 

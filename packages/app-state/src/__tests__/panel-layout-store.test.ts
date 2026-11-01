@@ -1,27 +1,17 @@
-import { createMemoryStorageAdapter } from '@brainstrike/storage';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { createPanelLayoutStore } from '../stores/panel-layout-store.ts';
+import { describe, expect, it } from 'vitest';
+import { usePanelLayoutStore } from '../stores/panel-layout-store.ts';
 
-const STORE_NAME = 'panel-layout-store.v1';
+const STORE_NAME = 'brainstrike:panel-layout-store.v1';
 
-function getPersistApi(store: ReturnType<typeof createPanelLayoutStore>): {
-  rehydrate: () => Promise<void>;
-} {
-  const persistApi = (store as unknown as { persist?: { rehydrate?: () => Promise<void> } })
-    .persist;
-  if (!persistApi?.rehydrate) {
-    throw new Error('expected panel layout store persist API');
-  }
-  return { rehydrate: persistApi.rehydrate };
+/** Hydrates the store from a saved snapshot, as the next document does. */
+async function hydrateFrom(saved: string): Promise<void> {
+  localStorage.setItem(STORE_NAME, saved);
+  await usePanelLayoutStore.persist.rehydrate();
 }
 
 describe('panel-layout-store', () => {
   const DEFAULT_SIZES = [18, 40, 20] as const;
-  let store: ReturnType<typeof createPanelLayoutStore>;
-
-  beforeEach(() => {
-    store = createPanelLayoutStore(createMemoryStorageAdapter());
-  });
+  const store = usePanelLayoutStore;
 
   it('initializes with default state', () => {
     const s = store.getState();
@@ -126,78 +116,46 @@ describe('panel-layout-store', () => {
     expect(sizes[2]).toBeCloseTo(100 / 3);
   });
 
-  it('ignores invalid persisted JSON and keeps defaults', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(STORE_NAME, '{invalid json');
+  it('restores the saved layout but not the root tab', async () => {
+    store.getState().setSizes([30, 25, 15]);
+    store.getState().toggleConsole();
+    store.getState().setActiveTab('settings');
+    const saved = localStorage.getItem(STORE_NAME) ?? '';
+    store.setState(store.getInitialState(), true);
 
-    const persistedStore = createPanelLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
+    await hydrateFrom(saved);
 
-    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
-    expect(persistedStore.getState().showLeftPanel).toBe(true);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(false);
+    expect(store.getState()).toMatchObject({
+      activeTab: 'explorer',
+      showConsole: true,
+      sizes: [30, 25, 15],
+    });
   });
 
-  it('resets persisted outer-shell visibility and sizes when the layout version changes', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        state: {
-          showConsole: true,
-          showLeftPanel: false,
-          showRightPanel: true,
-          sizes: [4.488, 5.386, 0],
-        },
-        version: 2,
-      })
-    );
+  it('keeps defaults when the saved value is not JSON', async () => {
+    await hydrateFrom('{invalid json');
 
-    const persistedStore = createPanelLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
-    expect(persistedStore.getState().showLeftPanel).toBe(true);
-    expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(false);
+    expect(store.getState().sizes).toEqual(DEFAULT_SIZES);
+    expect(store.getState().showLeftPanel).toBe(true);
   });
 
-  it('treats persisted snapshots without state as empty', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        version: 2,
-      })
-    );
+  it.each([
+    { label: 'corrupted sizes', state: { showConsole: true, sizes: [4.488, 5.386, 0] } },
+    { label: 'missing sizes', state: { showConsole: true } },
+    { label: 'sizes of the wrong length', state: { showConsole: true, sizes: [25, 20] } },
+  ])('repairs $label to the defaults and keeps the other fields', async ({ state }) => {
+    await hydrateFrom(JSON.stringify({ state, version: 1 }));
 
-    const persistedStore = createPanelLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
-    expect(persistedStore.getState().activeTab).toBe('explorer');
+    expect(store.getState().sizes).toEqual(DEFAULT_SIZES);
+    expect(store.getState().showConsole).toBe(true);
   });
 
-  it('does not restore the removed prompts root tab from a legacy snapshot', async () => {
-    const storage = createMemoryStorageAdapter();
-    await storage.setItem(
-      STORE_NAME,
-      JSON.stringify({
-        state: {
-          activeTab: 'prompts',
-          showConsole: false,
-          showLeftPanel: true,
-          showRightPanel: true,
-          sizes: [18, 40, 20],
-        },
-        version: 4,
-      })
+  it('ignores saved fields of the wrong type and a saved root tab', async () => {
+    await hydrateFrom(
+      JSON.stringify({ state: { activeTab: 'prompts', showLeftPanel: 'no' }, version: 1 })
     );
 
-    const persistedStore = createPanelLayoutStore(storage);
-    await getPersistApi(persistedStore).rehydrate();
-
-    expect(persistedStore.getState().activeTab).toBe('explorer');
+    expect(store.getState().activeTab).toBe('explorer');
+    expect(store.getState().showLeftPanel).toBe(true);
   });
 });

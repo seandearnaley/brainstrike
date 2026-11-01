@@ -13,7 +13,7 @@ const DETAIL_LEVEL_KEY = 'brainstrike.assistant.detail-level';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
-const MEMORY_SETTINGS_KEY = 'assistant-memory-preferences.v1';
+const MEMORY_SETTINGS_KEY = 'brainstrike:assistant-memory-preferences.v1';
 const MEMORY_SETTINGS_VERSION = 2;
 const GENERIC_FAULT = 'Something went wrong. The details were recorded in the diagnostic log.';
 const PROMPT = 'Remember that the launch venue is the riverside hall in Lisbon.';

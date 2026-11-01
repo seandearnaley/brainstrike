@@ -46,10 +46,13 @@ describe('assistant budget preferences store', () => {
     if (options.version === undefined) {
       throw new Error('persist version unavailable for test');
     }
-    options.storage.setItem(options.name, {
-      state: { dailyCapUsd: -5, perRunCapUsd: 'unlimited' },
-      version: options.version,
-    });
+    localStorage.setItem(
+      options.name,
+      JSON.stringify({
+        state: { dailyCapUsd: -5, perRunCapUsd: 'unlimited' },
+        version: options.version,
+      })
+    );
 
     await storeWithPersist.persist.rehydrate();
 

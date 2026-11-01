@@ -17,14 +17,10 @@
  * derived wire snapshot ({@link buildSkillsContextRequest}) to the request as
  * `runtimeData.skillsPreference` — a preference that can only REDUCE the skill
  * set, never inject.
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
 
 import type { SkillsContextRequest } from '@brainstrike/assistant-contract';
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -46,7 +42,7 @@ interface SkillsPreferencesActions {
 
 export type SkillsPreferencesStore = SkillsPreferencesData & SkillsPreferencesActions;
 
-const STORE_NAME = 'skills-preferences.v1' as const;
+const STORE_NAME = 'brainstrike:skills-preferences.v1' as const;
 const STORE_VERSION = 1 as const;
 
 function defaultData(): SkillsPreferencesData {
@@ -86,10 +82,9 @@ function sanitizePersistedData(persistedState: unknown): SkillsPreferencesData {
   };
 }
 
-const storage = createJSONStorage(() => createBrowserJsonStorage());
-
 export const useSkillsPreferencesStore = create<SkillsPreferencesStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       ...defaultData(),
       resetToDefaults: () => set(defaultData()),
@@ -110,12 +105,10 @@ export const useSkillsPreferencesStore = create<SkillsPreferencesStore>()(
         sanitizePersistedData
       ),
       migrate: sanitizePersistedData,
-      name: STORE_NAME,
       partialize: (state) => ({
         disabledSkillKeys: state.disabledSkillKeys,
         masterEnabled: state.masterEnabled,
       }),
-      storage,
       version: STORE_VERSION,
     }
   )

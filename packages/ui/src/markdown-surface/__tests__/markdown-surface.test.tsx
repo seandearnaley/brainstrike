@@ -186,11 +186,29 @@ describe('MarkdownSurface', () => {
     expect(onOpenLink).not.toHaveBeenCalled();
   });
 
-  it('reports scroll position changes', () => {
+  it('reports the scroll position once scrolling settles', () => {
     const onScrollTopChange = vi.fn();
     renderSurface('# a\n', { onScrollTopChange, testId: 'md-surface' });
-    fireEvent.scroll(screen.getByTestId('md-surface'), { target: { scrollTop: 120 } });
+    const surface = screen.getByTestId('md-surface');
+    fireEvent.scroll(surface, { target: { scrollTop: 120 } });
+    expect(onScrollTopChange).not.toHaveBeenCalled();
+    fireEvent(surface, new Event('scrollend'));
     expect(onScrollTopChange).toHaveBeenCalledWith(120);
+  });
+
+  it('reports a scroll that has not settled when it unmounts, and nothing without one', () => {
+    const scrolled = vi.fn();
+    const scrolledView = renderSurface('# a\n', {
+      onScrollTopChange: scrolled,
+      testId: 'md-scrolled',
+    });
+    fireEvent.scroll(screen.getByTestId('md-scrolled'), { target: { scrollTop: 90 } });
+    scrolledView.unmount();
+    expect(scrolled).toHaveBeenCalledExactlyOnceWith(90);
+
+    const untouched = vi.fn();
+    renderSurface('# a\n', { onScrollTopChange: untouched, testId: 'md-untouched' }).unmount();
+    expect(untouched).not.toHaveBeenCalled();
   });
 
   it('shows a truncation notice when truncated', () => {
