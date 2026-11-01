@@ -162,6 +162,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+vi.mock('../roots/workspace-root-identity', () => ({
+  WorkspaceRootIdentity: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('../assistant-chat-panel', () => ({
   AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
   AssistantProviderStatusProvider: ({ children }: { children: React.ReactNode }) => children,
