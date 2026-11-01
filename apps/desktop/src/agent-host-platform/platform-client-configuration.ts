@@ -63,15 +63,8 @@ export const PlatformMemorySettingsSchema = Schema.Struct({
     messageTokens: Schema.Finite.check(Schema.isGreaterThan(0)),
     modelTarget: Id,
     observationTokens: Schema.Finite.check(Schema.isGreaterThan(0)),
-    retrievalMode: Schema.Literals(['off', 'messages', 'vector']),
+    retrievalMode: Schema.Literals(['off', 'messages']),
     scope: Schema.Literals(['thread', 'resource']),
-  }),
-  semanticRecall: Schema.Struct({
-    embeddingModelTarget: Schema.NullOr(Schema.String),
-    enabled: Schema.Boolean,
-    messageRange: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-    scope: Schema.Literals(['thread', 'resource']),
-    topK: Schema.Int.check(Schema.isGreaterThan(0)),
   }),
 });
 /** BST-1932: the renderer's subagent preferences, captured with each run's input. */

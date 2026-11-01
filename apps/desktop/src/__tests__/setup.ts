@@ -166,16 +166,6 @@ const mockProviderDefaultEnabledModels = Object.fromEntries(
   ])
 ) as Record<MockProviderId, string[]>;
 
-type MockModelDefinition = (typeof mockProviderDefinitions)[number]['models'][number];
-type MockEmbeddingModelDefinition = Extract<MockModelDefinition, { type: 'embedding' }>;
-
-const mockEmbeddingModels = Object.fromEntries(
-  mockProviderDefinitions.map((definition) => [
-    definition.id,
-    definition.models.filter((model) => model.type === 'embedding'),
-  ])
-) as Record<MockProviderId, MockEmbeddingModelDefinition[]>;
-
 const mockProviderDisplayNames = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [definition.id, definition.displayName])
 ) as Record<MockProviderId, string>;
@@ -236,8 +226,6 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
     getTierInfo: actual.getTierInfo,
     isNativeTool: actual.isNativeTool,
     isSupportedProvider: (provider: string) => providerIdSet.has(provider as MockProviderId),
-    listEmbeddingModels: (provider: string) =>
-      mockEmbeddingModels[provider as MockProviderId] ?? [],
     // Provider-related mocks
     listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
     // Tool-related exports (pass through from actual module)
@@ -247,10 +235,6 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
     PROVIDER_DISPLAY_NAMES: mockProviderDisplayNames,
     PROVIDER_MODELS: mockProviderModels,
     providerEnvKeys: (provider: string) => ensureDefinition(provider).envKeys ?? [],
-    supportsStandardEmbeddingDimension: (provider: string) =>
-      (mockEmbeddingModels[provider as MockProviderId] ?? []).some(
-        (model) => model.supportsStandardDimension
-      ),
     TOOL_CATEGORIES: actual.TOOL_CATEGORIES,
     TOOL_DESCRIPTIONS: actual.TOOL_DESCRIPTIONS,
     TOOL_LOADING_TIERS: actual.TOOL_LOADING_TIERS,

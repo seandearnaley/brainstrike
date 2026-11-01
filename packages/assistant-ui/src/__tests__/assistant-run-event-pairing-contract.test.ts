@@ -28,7 +28,9 @@ describe('getMatchingCompletedKind', () => {
     expect(getMatchingCompletedKind('tool.started')).toBe('tool.completed');
   });
   it('maps non-run *.started to *.completed', () => {
-    expect(getMatchingCompletedKind('memory.semantic.started')).toBe('memory.semantic.completed');
+    expect(getMatchingCompletedKind('memory.reflection.started')).toBe(
+      'memory.reflection.completed'
+    );
   });
 });
 
@@ -45,7 +47,6 @@ describe('run-event terminal pairing contract', () => {
   const PAIRINGS = [
     ['memory.observation.started', 'memory.observation.completed', 'memory.observation.failed'],
     ['memory.reflection.started', 'memory.reflection.completed', null],
-    ['memory.semantic.started', 'memory.semantic.completed', null],
     ['run.started', 'run.finished', 'run.failed'],
     ['run.step.started', 'run.step.finished', null],
     ['subagent.started', 'subagent.finished', 'subagent.failed'],
@@ -148,7 +149,6 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'memory.observation.completed',
     'memory.observation.failed',
     'memory.reflection.completed',
-    'memory.semantic.completed',
     'memory.working.loaded',
     'memory.working.updated',
     // BST-1602's MCP discovery skip. Emitted `status: 'failed'`

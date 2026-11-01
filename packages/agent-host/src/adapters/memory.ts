@@ -11,11 +11,7 @@ import type { LanguageModelMiddleware, LanguageModelUsage } from 'ai';
 import { correlationIdFor } from '../failure-correlation.ts';
 import type { HostMemoryCycle, HostRunContext, HostRunOwner } from '../ports.ts';
 import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.ts';
-import {
-  classifyMemoryFailure,
-  type HostMemoryEmbedderIdentity,
-  memoryFailureCauses,
-} from './memory-failure.ts';
+import { classifyMemoryFailure, memoryFailureCauses } from './memory-failure.ts';
 import { type MemoryLanguageModel, MemoryProviderLifetime } from './memory-provider-lifetime.ts';
 
 type MemoryConfig = NonNullable<ConstructorParameters<typeof Memory>[0]>;
@@ -33,18 +29,6 @@ type CycleStart = Parameters<NonNullable<CycleHooks['onObservationStart']>>[0];
 type CycleEnd = Parameters<NonNullable<CycleHooks['onObservationEnd']>>[0];
 
 const logger = createLogger('AgentHostMemory');
-/** Embedders already named as unbilled in this process, by reason. */
-const unbilledEmbedders = new Set<string>();
-
-/** An embedder whose spend cannot be recorded, named once per model and reason. */
-function warnUnbilledEmbedding(modelId: string, reason: string): void {
-  const key = `${reason}\u0000${modelId}`;
-  if (unbilledEmbedders.has(key)) {
-    return;
-  }
-  unbilledEmbedders.add(key);
-  logger.warn(reason, { modelId });
-}
 
 /** The lifecycle hooks the host installs to commit each cycle (BST-2224). */
 const CYCLE_HOOKS = [
@@ -77,8 +61,6 @@ export interface HostMemoryIdentity extends Omit<HostRunContext, 'readCommittedR
 export interface HostMemoryCapabilities {
   /** Instantiate the public native leaf only after all run lifetime wrapping. */
   readonly createNativeMemory?: (native: HostMemoryCapabilities['native']) => Memory;
-  /** The run's embedder, as its failures name it (BST-2202); absent without vectors. */
-  readonly embedderIdentity?: HostMemoryEmbedderIdentity;
   /**
    * Optional additional run-owned tails. Called after the patched native
    * barrier joins. The storage owner may close after HostMemory.close completes.
@@ -97,13 +79,13 @@ export interface HostMemoryCapabilities {
    */
   recordMemoryCycle?(identity: HostMemoryIdentity, cycle: HostMemoryCycle): Promise<void>;
   /**
-   * Actual observer, reflector and hosted embedder usage (BST-2226) with the
-   * catalog model it is priced under, for the existing usage ledger.
+   * Actual observer and reflector usage (BST-2226) with the catalog model it
+   * is priced under, for the existing usage ledger.
    */
   recordObserverUsage(
     identity: HostMemoryIdentity,
     receipt: {
-      readonly kind: 'observation' | 'reflection' | 'embedding';
+      readonly kind: 'observation' | 'reflection';
       readonly modelId: string;
       readonly usage: LanguageModelUsage;
     }
@@ -117,7 +99,6 @@ export type HostMemoryStepName =
   | 'open'
   | 'context'
   | 'observe'
-  | 'recall'
   | 'save'
   | 'working memory'
   | 'tool'
@@ -188,11 +169,6 @@ function stillOwnsNativeWork(error: unknown): boolean {
   );
 }
 
-/** A turn's semantic recall: what it found, or the typed failure its notice names. */
-export type HostMemoryRecall =
-  | { readonly messages: readonly MastraDBMessage[] }
-  | { readonly failure: HostMemoryStepError };
-
 export interface HostMemoryStep {
   readonly context: NativeContext;
   readonly messages: readonly MastraDBMessage[];
@@ -233,7 +209,7 @@ export class HostMemory implements HostRunOwner {
   private turnOutcome: Promise<void> | undefined;
   /**
    * Failures already made visible, with their causes: the run's outcome
-   * (`endTurn`) or a failed recall's notice. `close` reports only later ones.
+   * (`endTurn`). `close` reports only later ones.
    */
   private readonly reported = new Set<unknown>();
   private closing: Promise<void> | undefined;
@@ -247,18 +223,10 @@ export class HostMemory implements HostRunOwner {
     this.identity = identity;
     this.capabilities = capabilities;
     this.observerModelId = capabilities.observerModelId;
-    this.providers = new MemoryProviderLifetime(
-      identity.signal,
-      (receipt) => this.recordObserverUsage(receipt),
-      () => this.unreportedEmbedding()
+    this.providers = new MemoryProviderLifetime(identity.signal, (receipt) =>
+      this.recordObserverUsage(receipt)
     );
     let native = capabilities.native;
-    if (native.embedder && typeof native.embedder === 'object') {
-      native = { ...native, embedder: this.providers.embedding(native.embedder) };
-    }
-    if (native.vector) {
-      native = { ...native, vector: this.providers.vector(native.vector) };
-    }
     const observation = native.options?.observationalMemory;
     if (observation && readProperty(observation, 'enabled') !== false) {
       const sharedModel = readModel(observation);
@@ -409,10 +377,7 @@ export class HostMemory implements HostRunOwner {
 
   private expectedCancellation(cause: unknown, providerCancellation: boolean): boolean {
     return (
-      this.providers.ownsCancellation(cause) ||
-      (providerCancellation &&
-        this.identity.signal.aborted &&
-        cause === this.identity.signal.reason)
+      providerCancellation && this.identity.signal.aborted && cause === this.identity.signal.reason
     );
   }
 
@@ -452,11 +417,7 @@ export class HostMemory implements HostRunOwner {
     } catch (cause) {
       return Promise.reject(cause);
     }
-    return this.track(step, operation, providerCancellation).catch((cause: unknown) => {
-      // Keep provenance inside the enclosure; the existing Core contract
-      // receives its original run reason for the expected cancellation.
-      throw this.providers.ownsCancellation(cause) ? this.identity.signal.reason : cause;
-    });
+    return this.track(step, operation, providerCancellation);
   }
 
   /** The memory step a failure this run retained came from, for its run detail. */
@@ -471,7 +432,7 @@ export class HostMemory implements HostRunOwner {
    */
   stepFailure(step: HostMemoryStepName, cause: unknown): HostMemoryStepError {
     // A failure that carries one already reported (a provider join re-reporting
-    // the embedding failure a step surfaced) is that same failure.
+    // the failure a step surfaced) is that same failure.
     for (const candidate of memoryFailureCauses(cause)) {
       const known = this.stepFailures.get(candidate);
       if (known) {
@@ -484,9 +445,6 @@ export class HostMemory implements HostRunOwner {
       cause,
       classifyMemoryFailure(failedStep, cause, {
         attribution: (failed) => this.providers.attribution(failed),
-        ...(this.capabilities.embedderIdentity
-          ? { embedder: this.capabilities.embedderIdentity }
-          : {}),
         ...(this.observerModelId === undefined ? {} : { observerModelId: this.observerModelId }),
       })
     );
@@ -571,52 +529,9 @@ export class HostMemory implements HostRunOwner {
         'response',
         { merge: false }
       );
-      // Preserve the library's semantic indexing and working-memory processing;
-      // raw persistMessages is only the public turn's sealed-message projection.
-      try {
-        await this.memory.saveMessages({ messages: [...committedMessages] });
-      } catch (cause) {
-        // The transcript is already committed. Retiring its cancelled derived
-        // embedding succeeds only after the raw provider has physically joined.
-        if (!this.providers.ownsCancellation(cause)) {
-          throw cause;
-        }
-      }
-    });
-  }
-
-  /**
-   * Semantic recall. A failed recall is not the turn's outcome: it resolves to
-   * its typed failure (BST-2202), logged under its reference, for the run's
-   * notice. Only cancellation rejects.
-   */
-  recall(options: Omit<Parameters<Memory['recall']>[0], 'threadId'>): Promise<HostMemoryRecall> {
-    return this.admit('recall', async () => {
-      try {
-        const { messages } = await this.memory.recall({
-          ...options,
-          threadId: this.identity.threadId,
-        });
-        return { messages };
-      } catch (cause) {
-        if (this.expectedCancellation(cause, true)) {
-          throw cause;
-        }
-        const failure = this.stepFailure('recall', cause);
-        // The notice reports it: the provider join that repeats it is not new.
-        this.markReported(cause);
-        logger.error('Memory recall failed; the turn continues without it', {
-          cause,
-          code: failure.failure.code,
-          ...(failure.failure.correlationId === undefined
-            ? {}
-            : { correlationId: failure.failure.correlationId }),
-          runId: this.identity.runId,
-          step: failure.step,
-          threadId: this.identity.threadId,
-        });
-        return { failure };
-      }
+      // Preserve the library's working-memory processing; raw persistMessages
+      // is only the public turn's sealed-message projection.
+      await this.memory.saveMessages({ messages: [...committedMessages] });
     });
   }
 
@@ -635,8 +550,8 @@ export class HostMemory implements HostRunOwner {
    * working memory, OM recall) with this run's identities, as Mastra's agent
    * runtime supplies them. The vendor tool validates its own input.
    *
-   * The vendor tool's own failure answers its call, so the model sees it; like
-   * a failed recall, it is never the turn's outcome.
+   * The vendor tool's own failure answers its call, so the model sees it; it
+   * is never the turn's outcome.
    */
   async executeTool(name: string, input: unknown, toolCallId: string): Promise<unknown> {
     const outcome = await this.admit('tool', async () => {
@@ -659,9 +574,6 @@ export class HostMemory implements HostRunOwner {
       try {
         return { value: await tool.execute(input, context) };
       } catch (cause) {
-        if (this.providers.ownsCancellation(cause)) {
-          throw cause;
-        }
         return { failure: cause };
       }
     });
@@ -683,20 +595,7 @@ export class HostMemory implements HostRunOwner {
     if (this.joined) {
       return Promise.reject(new Error('Host memory lifetime is already joined'));
     }
-    // An embed call is priced under its embedder's catalog id (BST-2226). A
-    // host composed without one (production always names its vectors'
-    // embedder) cannot attribute it: say so once, as for unreported usage.
-    if (receipt.kind === 'embedding' && !this.capabilities.embedderIdentity) {
-      warnUnbilledEmbedding(
-        receipt.modelId,
-        'Memory embedding usage has no embedder catalog identity; its spend is not recorded'
-      );
-      return Promise.resolve();
-    }
-    const modelId =
-      receipt.kind === 'embedding'
-        ? this.capabilities.embedderIdentity?.modelId
-        : this.observerModelId;
+    const modelId = this.observerModelId;
     if (!modelId) {
       return Promise.reject(
         new Error('Observer usage arrived without an observer catalog model id')
@@ -705,22 +604,6 @@ export class HostMemory implements HostRunOwner {
     // The SDK reports its own model id; the ledger prices the catalog id.
     return this.track('accounting', () =>
       this.capabilities.recordObserverUsage(this.identity, { ...receipt, modelId })
-    );
-  }
-
-  /**
-   * A hosted embedder whose provider reports no tokens (Google's, through the
-   * AI SDK) cannot be billed: say so once per model, instead of costing nothing
-   * silently.
-   */
-  private unreportedEmbedding(): void {
-    const modelId = this.capabilities.embedderIdentity?.modelId;
-    if (modelId === undefined) {
-      return;
-    }
-    warnUnbilledEmbedding(
-      modelId,
-      'Memory embedder reported no token usage; its spend is not recorded'
     );
   }
 

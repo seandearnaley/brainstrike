@@ -18,7 +18,6 @@ import {
   listAutoObservationalMemoryCandidates,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
-import type { VectorProfile } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import type { DesktopAdmissionReads, DesktopRunSelection } from './desktop-run-admission';
 import {
@@ -217,8 +216,7 @@ export function desktopMemorySelection(
   intent: (typeof PlatformClientConfigurationSchema)['Type'],
   provider: string,
   settings: (typeof PlatformClientConfigurationSchema)['Type']['memorySettings'],
-  observerTarget: string | null,
-  vectorProfile: VectorProfile | undefined
+  observerTarget: string | null
 ): DesktopRunSelection['memory'] {
   const awaiting =
     autoObserverCandidates(provider).length === 0 ? 'no-chat-provider' : 'model-not-eligible';
@@ -228,6 +226,5 @@ export function desktopMemorySelection(
       : {}),
     options: intent.memoryOptions,
     settings,
-    ...(vectorProfile ? { vectorProfile } : {}),
   };
 }

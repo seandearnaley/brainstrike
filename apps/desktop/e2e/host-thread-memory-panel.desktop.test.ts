@@ -126,7 +126,6 @@ test('the Developer memory panel shows the observer buffering live, then its buf
       '0 (initial)'
     );
     await expect(memory.getByTestId('context-usage-memory-last-buffered')).toContainText('Never');
-    await expect(memory.getByTestId('context-usage-memory-embedder')).toContainText('Off');
     await testInfo.attach('memory-panel-buffering', {
       body: await page.screenshot(),
       contentType: 'image/png',

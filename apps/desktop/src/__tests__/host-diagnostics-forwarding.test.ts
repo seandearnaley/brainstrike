@@ -48,8 +48,8 @@ describe('agent host diagnostic forwarding (BST-2202)', () => {
     logger.warn('A warning stays on the host');
     logger.error('Assistant model attempt failed', {
       apiKey: 'sk-fixture-forwarding-secret-0123456789',
-      cause: new Error('Recorded embedder failure'),
-      code: 'memory.embedder-failed',
+      cause: new Error('Recorded observer failure'),
+      code: 'memory.observer-failed',
       correlationId,
       runId: 'run-1',
       threadId: 'thread-1',
@@ -68,8 +68,8 @@ describe('agent host diagnostic forwarding (BST-2202)', () => {
       scope: 'AgentHost',
     });
     expect(forwarded?.record.args[1]).toMatchObject({
-      cause: { message: 'Recorded embedder failure', name: 'Error' },
-      code: 'memory.embedder-failed',
+      cause: { message: 'Recorded observer failure', name: 'Error' },
+      code: 'memory.observer-failed',
       correlationId,
       runId: 'run-1',
       threadId: 'thread-1',

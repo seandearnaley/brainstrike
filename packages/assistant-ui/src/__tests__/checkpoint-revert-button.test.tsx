@@ -95,7 +95,7 @@ describe('CheckpointRevertButton', () => {
 
   it('renders nothing for a non-mutation tool even with a provider', () => {
     const value = contextValue(makeEntry(), vi.fn());
-    renderWithProvider(value, 'brainstrike.queryEmbeddingSpace');
+    renderWithProvider(value, 'brainstrike.lspInspect');
     expect(screen.queryByTestId('checkpoint-revert')).toBeNull();
   });
 

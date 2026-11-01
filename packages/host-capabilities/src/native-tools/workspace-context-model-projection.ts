@@ -4,7 +4,6 @@ import {
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import { Predicate } from 'effect';
-import type { WorkspaceIndexSummary } from './workspace-context-read-tools.ts';
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
@@ -17,7 +16,6 @@ import {
 export type WorkspaceContextTextModelOutput = WorkspaceTextModelOutput;
 
 interface ListWorkspaceContextResult {
-  workspaceIndex: WorkspaceIndexSummary;
   workspaceRootPath: string | null;
   workspaceRoots: RuntimeWorkspaceRoot[];
 }
@@ -35,16 +33,6 @@ function isWorkspaceRoot(value: unknown): value is RuntimeWorkspaceRoot {
   );
 }
 
-function isWorkspaceIndex(value: unknown): value is WorkspaceIndexSummary {
-  return (
-    Predicate.isObject(value) &&
-    (value['embeddingSetId'] === null || typeof value['embeddingSetId'] === 'string') &&
-    typeof value['enabled'] === 'boolean' &&
-    (value['mode'] === null || typeof value['mode'] === 'string') &&
-    typeof value['paused'] === 'boolean'
-  );
-}
-
 function throwMalformed(): never {
   throw new ToolProjectionInputRejectedError(
     'listWorkspaceContext model projection received a malformed result'
@@ -55,7 +43,6 @@ function parseListWorkspaceContextResult(output: unknown): ListWorkspaceContextR
   if (
     !(
       Predicate.isObject(output) &&
-      isWorkspaceIndex(output['workspaceIndex']) &&
       (output['workspaceRootPath'] === null || typeof output['workspaceRootPath'] === 'string') &&
       Array.isArray(output['workspaceRoots']) &&
       output['workspaceRoots'].every(isWorkspaceRoot)
@@ -83,19 +70,6 @@ function contextHeader(result: ListWorkspaceContextResult): string {
         ` | main=${clipPath(result.workspaceRootPath ?? '')}`;
 }
 
-function indexLine(result: ListWorkspaceContextResult): string {
-  const { workspaceIndex } = result;
-  return (
-    `index | enabled=${workspaceIndex.enabled} | paused=${workspaceIndex.paused}` +
-    ` | mode=${workspaceIndex.mode ? clipEnd(workspaceIndex.mode, MAX_NAME_CHARS, 'mode') : 'unavailable'}` +
-    ` | embedding_set=${
-      workspaceIndex.embeddingSetId
-        ? clipEnd(workspaceIndex.embeddingSetId, MAX_ID_CHARS, 'embedding-set-id')
-        : 'unavailable'
-    }`
-  );
-}
-
 function rootLine(root: RuntimeWorkspaceRoot, main: boolean): string {
   return (
     `root${main ? ' main' : ''}` +
@@ -109,7 +83,6 @@ function buildLines(result: ListWorkspaceContextResult, keptOtherRoots: number):
   const omittedRoots = Math.max(0, result.workspaceRoots.length - 1) - keptOtherRoots;
   return [
     contextHeader(result),
-    indexLine(result),
     ...result.workspaceRoots
       .slice(0, keptOtherRoots + 1)
       .map((root, index) => rootLine(root, index === 0)),

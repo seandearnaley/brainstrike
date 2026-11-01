@@ -28,13 +28,6 @@ export function desktopHostIntentFixture(): MutableFixture<
         retrievalMode: 'messages',
         scope: 'thread',
       },
-      semanticRecall: {
-        embeddingModelTarget: null,
-        enabled: false,
-        messageRange: 0,
-        scope: 'thread',
-        topK: 2,
-      },
     },
     modelConfiguration: {
       model: 'gpt-6-sol',

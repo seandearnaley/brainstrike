@@ -27,19 +27,17 @@ afterEach(() => {
   storedKey.value = 'test-key';
 });
 describe.each(existing)('existing $provider dispatch', (selected) => {
-  it.each(['document', 'query'] as const)(
+  it.each(['document'] as const)(
     'preserves %s semantics, identity, dimensions and complete batch',
     async (purpose) => {
-      const texts = purpose === 'document' ? ['document one', 'document two'] : ['query'];
+      const texts = ['document one', 'document two'];
       const vectors = texts.map((_, index) =>
         Array.from({ length: selected.dimensions }, () => index + 0.25)
       );
       const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
         const payload =
           selected.provider === 'google'
-            ? vectors.length === 1
-              ? { embedding: { values: vectors[0] } }
-              : { embeddings: vectors.map((values) => ({ values })) }
+            ? { embeddings: vectors.map((values) => ({ values })) }
             : selected.provider === 'cohere'
               ? { embeddings: { float: vectors }, meta: { billed_units: { input_tokens: 1 } } }
               : { data: vectors.map((embedding, index) => ({ embedding, index })) };
@@ -57,9 +55,7 @@ describe.each(existing)('existing $provider dispatch', (selected) => {
       expect(fetch).toHaveBeenCalledOnce();
       const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
       if (selected.provider === 'cohere') {
-        expect(body['input_type']).toBe(
-          purpose === 'document' ? 'search_document' : 'search_query'
-        );
+        expect(body['input_type']).toBe('search_document');
         expect(body['texts']).toEqual(texts);
       }
       if (selected.provider === 'voyage') {
@@ -96,9 +92,9 @@ it('preserves a provider failure that settles independently after cancellation',
       dimensions: 1536,
       modelId: 'text-embedding-3-small',
       provider: 'openai',
-      purpose: 'query',
+      purpose: 'document',
       signal: controller.signal,
-      texts: ['query'],
+      texts: ['document'],
     })
   ).rejects.toBe(failure);
 });
@@ -117,9 +113,9 @@ it('preserves the exact owned cancellation after provider settlement', async () 
       dimensions: 1536,
       modelId: 'text-embedding-3-small',
       provider: 'openai',
-      purpose: 'query',
+      purpose: 'document',
       signal: controller.signal,
-      texts: ['query'],
+      texts: ['document'],
     })
   ).rejects.toBe(reason);
 });
@@ -131,8 +127,8 @@ describe('typed hosted embedding refusals', () => {
     dimensions: 1536,
     modelId: 'text-embedding-3-small',
     provider: 'openai',
-    purpose: 'query',
-    texts: ['query'],
+    purpose: 'document',
+    texts: ['document'],
   } as const;
   async function refusal(): Promise<unknown> {
     return await generateHostedEmbeddings({
@@ -198,9 +194,9 @@ describe('typed hosted embedding refusals', () => {
           dimensions: 768,
           modelId: 'model',
           provider,
-          purpose: 'query',
+          purpose: 'document',
           signal: new AbortController().signal,
-          texts: ['query'],
+          texts: ['document'],
         })
       ).rejects.toMatchObject({ kind: 'missing-key', name: 'HostedEmbeddingError' });
       expect(fetch).not.toHaveBeenCalled();

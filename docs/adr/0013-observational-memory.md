@@ -45,6 +45,8 @@
     visible.
   - An embedder without an official catalog price (`gemini-embedding-001`) reads "cost
     unavailable", never $0.
+- 2026-11-01: semantic recall and memory embeddings are removed (the retrieval decision,
+  BST-2428), so no embedder is billed and the embedder points above no longer apply.
 
 ## Sources
 

@@ -8,12 +8,6 @@ function serializedChars(value: unknown): number {
 
 function baseResult() {
   return {
-    workspaceIndex: {
-      embeddingSetId: 'workspace-index',
-      enabled: true,
-      mode: 'root-folder-cache',
-      paused: false,
-    },
     workspaceRootPath: '/work/brainstrike',
     workspaceRoots: [
       { displayName: 'brainstrike', path: '/work/brainstrike', rootId: 'root-a' },
@@ -25,26 +19,18 @@ function baseResult() {
 describe('workspace context model projection', () => {
   it('projects an authoritative zero-root result without inventing a main root', () => {
     const projected = projectListWorkspaceContextModelOutput({
-      workspaceIndex: { embeddingSetId: null, enabled: false, mode: null, paused: false },
       workspaceRootPath: null,
       workspaceRoots: [],
     });
 
-    expect(projected).toEqual({
-      type: 'text',
-      value: [
-        'workspace context | roots=0 | main=none',
-        'index | enabled=false | paused=false | mode=unavailable | embedding_set=unavailable',
-      ].join('\n'),
-    });
+    expect(projected).toEqual({ type: 'text', value: 'workspace context | roots=0 | main=none' });
   });
 
-  it('projects the main root first, then the other roots, with the index state', () => {
+  it('projects the main root first, then the other roots', () => {
     expect(projectListWorkspaceContextModelOutput(baseResult())).toEqual({
       type: 'text',
       value: [
         'workspace context | roots=2 | main=/work/brainstrike',
-        'index | enabled=true | paused=false | mode=root-folder-cache | embedding_set=workspace-index',
         'root main | name=brainstrike | id=root-a | path=/work/brainstrike',
         'root | name=docs | id=root-b | path=/work/docs',
       ].join('\n'),
@@ -84,16 +70,6 @@ describe('workspace context model projection', () => {
 
     expect(projected.value).toContain(
       String.raw`root main | name=odd | id=root-odd | path=/work/foo  bar\r\nline\u2028separator\u2029root`
-    );
-  });
-
-  it('makes disabled or paused indexing explicit', () => {
-    const projected = projectListWorkspaceContextModelOutput({
-      ...baseResult(),
-      workspaceIndex: { embeddingSetId: null, enabled: true, mode: null, paused: true },
-    });
-    expect(projected.value).toContain(
-      'index | enabled=true | paused=true | mode=unavailable | embedding_set=unavailable'
     );
   });
 

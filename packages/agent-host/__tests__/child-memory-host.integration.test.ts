@@ -53,7 +53,6 @@ function productionMemory(store: StateStore): HostPlatform['openRun'] {
       options: {
         lastMessages: 10,
         observationalMemory: false as const,
-        semanticRecall: false,
         workingMemory: { enabled: true, scope: 'thread' as const },
       },
     },

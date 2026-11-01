@@ -7,13 +7,11 @@ export const THREAD_KIND_APPEARANCE: ExplorerThreadKindAppearance = {
     grep: 'text-warning',
     pinned: 'text-pink-800',
     read: 'text-blue-700',
-    semantic: 'text-purple-700',
   },
   label: {
     edit: 'Edited',
     grep: 'Grep hit',
     pinned: 'Attached by you',
     read: 'Read',
-    semantic: 'Semantic hit',
   },
 };

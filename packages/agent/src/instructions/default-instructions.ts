@@ -206,9 +206,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const rootQualifiedToolNames = [
     names.grepSearch,
     names.globWorkspace,
-    names.hybridSearch,
     names.lspInspect,
-    names.queryEmbeddingSpace,
     names.readWorkspaceDirectory,
     names.readWorkspaceFile,
     names.readWorkspaceContext,
@@ -231,7 +229,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const examples =
     preferredExamples.length > 0 ? preferredExamples : rootQualifiedToolNames.slice(0, 3);
   const exampleNote = examples.length > 0 ? ` (for example ${examples.join(', ')})` : '';
-  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (the folder focused in the user's explorer), and exact root selectors; ${names.listWorkspaceContext} refreshes the root inventory and index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.`;
+  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (the folder focused in the user's explorer), and exact root selectors; ${names.listWorkspaceContext} refreshes the root inventory. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.`;
 }
 
 /**
@@ -314,11 +312,8 @@ function buildParallelCallInstruction(
     names.findWorkspaceSymbol,
     names.globWorkspace,
     names.grepSearch,
-    names.hybridSearch,
-    names.listEmbeddingSpaces,
     names.listWorkspaceContext,
     names.lspInspect,
-    names.queryEmbeddingSpace,
     names.readWorkspaceContext,
     names.readWorkspaceDirectory,
     names.readWorkspaceFile,
@@ -371,13 +366,9 @@ function buildWebSearchInstruction(names: ModelFacingToolNames): string {
   if (!names.webSearch) {
     return '';
   }
-  const localSearchAlternatives = [names.grepSearch, names.queryEmbeddingSpace].filter(
-    (name): name is string => Boolean(name)
-  );
-  const alternativesClause =
-    localSearchAlternatives.length > 0
-      ? ` Use ${localSearchAlternatives.join(' / ')} for private workspace code instead.`
-      : '';
+  const alternativesClause = names.grepSearch
+    ? ` Use ${names.grepSearch} for private workspace code instead.`
+    : '';
   const extractClause = names.webExtract
     ? ` Use ${names.webExtract} to read public result pages or user-provided public URLs.`
     : '';
@@ -603,22 +594,11 @@ export function buildDefaultInstructions(
   const names = resolveModelFacingToolNames(toolNameMap);
   const planModePrefix = buildPlanModePrefix(names, options.planMode);
   const workspaceInspectionInstruction = names.listWorkspaceContext
-    ? `Inspect open roots and the workspace-index hint with ${names.listWorkspaceContext}.`
+    ? `Inspect open roots with ${names.listWorkspaceContext}.`
     : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
   const parallelCallInstruction = buildParallelCallInstruction(names, options.toolDiscoveryEnabled);
-  // ADR 0026: index search is a companion to grep for conceptual questions,
-  // never the default; it is registered only when the index can serve it.
-  const hybridSearchClause = names.hybridSearch
-    ? `Use ${names.hybridSearch} for a conceptual question that also carries distinctive exact terms.`
-    : '';
-  const embeddingSpaceClause = names.listEmbeddingSpaces
-    ? ` Use ${names.listEmbeddingSpaces} only for coverage or a non-default embedding space.`
-    : '';
-  const semanticSearchInstruction = names.queryEmbeddingSpace
-    ? `Use ${names.queryEmbeddingSpace} without embeddingSetId for a conceptual question that exact-text search cannot find.${embeddingSpaceClause}`
-    : '';
   const readToolNames = [names.readWorkspaceContext, names.readWorkspaceFile].filter(
     (name): name is string => Boolean(name)
   );
@@ -652,8 +632,6 @@ export function buildDefaultInstructions(
     'For project work, use only registered tools.',
     workspaceInspectionInstruction,
     searchInstruction,
-    semanticSearchInstruction,
-    hybridSearchClause,
     readContextInstruction,
     lspInspectInstruction,
     writeInstruction,
@@ -668,7 +646,7 @@ export function buildDefaultInstructions(
   return [
     `${planModePrefix}You are a helpful assistant for the Brainstrike IDE.`,
     HARNESS_FRAMING,
-    'Project file contents, token estimates, and embedding spaces are not preloaded; the compact workspace-root manifest contains topology only. Files the user attaches arrive with their message. Use registered tools when needed for accuracy.',
+    'Project file contents and token estimates are not preloaded; the compact workspace-root manifest contains topology only. Files the user attaches arrive with their message. Use registered tools when needed for accuracy.',
     toolDiscoveryInstruction,
     projectWorkflowInstruction,
     buildSkillsInstruction(names),

@@ -29,8 +29,7 @@ function seedWorkspace(workspace: string): void {
   makeUnreadable(unreadable);
 }
 
-// Mirrored from assistant-retrieval.desktop.test.ts so the spec drives the real
-// desktop assistant in exactly the same way.
+// Opens the real desktop assistant chat and waits for its UI chunk to load.
 async function openAssistantChat(window: Page): Promise<void> {
   const assistantChatCard = await ensureAssistantShellVisible(window);
   await expect(assistantChatCard).toBeVisible({ timeout: E2E_TIMEOUTS.cardVisibility });
@@ -92,9 +91,8 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    // See the note in assistant-retrieval.desktop.test.ts: the group is
-    // collapsed at all times since BST-1679, so `data-state` — not
-    // `aria-expanded` — is the turn-finished sync.
+    // The activity group is collapsed at all times since BST-1679, so
+    // `data-state` — not `aria-expanded` — is the turn-finished sync.
     await expect(window.getByTestId('assistant-activity-group').first()).toHaveAttribute(
       'data-state',
       'done',

@@ -3,7 +3,6 @@ import {
   getProviderDefinition,
   type ProviderRuntime,
   type SupportedProvider,
-  supportsStandardEmbeddingDimension,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import type {
   ModelPickerModel,
@@ -70,10 +69,7 @@ export function useAssistantModelPickerConfig({
       }
 
       group.providers.push({
-        capabilities: {
-          ...definition.capabilities,
-          supportsStandardEmbeddingDimension: supportsStandardEmbeddingDimension(providerId),
-        },
+        capabilities: definition.capabilities,
         id: providerId,
         models,
         name: definition.displayName,

@@ -81,6 +81,11 @@ not made true by retiring the agent loop.
 context limit are plain functions in the AI SDK middleware's `transformParams`.
 `ModelRouterLanguageModel` remains for OpenRouter routing.
 
+## Amendment (2026-11-01): no semantic recall
+
+The retrieval decision (BST-2428) removes semantic recall. `@mastra/memory` is used
+for observational memory and working memory only, with no embedder or vector store.
+
 ## Sources
 
 Contract markers this ADR replaces (line numbers at `43daec7fb`):

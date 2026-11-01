@@ -23,7 +23,7 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
   - Recoverable attempts are recorded before retry, stay on the committed branch and never repeat a step that streamed tool input or a call.
   - Context-overflow recovery needs a committed compaction that actually shortens the request.
 - Pre-request compaction measures the request the provider will receive.
-  - With Memory, that is the request Memory builds (selected and recalled turns, rewritten tool outputs, system context), not the branch; only the earlier turns that request holds can be compacted.
+  - With Memory, that is the request Memory builds (selected turns, rewritten tool outputs, system context), not the branch; only the earlier turns that request holds can be compacted.
   - Memory then reassembles the request from the log without re-running its step preparation.
   - When the summarizer fails, the deterministic fallback's `context.compacted` records the typed failure code and its cause's log reference.
 
