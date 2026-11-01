@@ -83,8 +83,8 @@ function escapeTaskListText(value: string): string {
 
 /**
  * Serialize the current thread task list into a `<current-task-list>` block for
- * the system instructions. Injected into the instructions (which the loop's
- * TokenLimiter never trims) so the plan survives observational-memory
+ * the system instructions. Injected into the instructions (which the provider
+ * request's context limit never trims) so the plan survives observational-memory
  * truncation. Tasks render in their stored order (the model's own ordering).
  * Returns `null` for an empty/undefined list — same convention as
  * {@link buildContextBudgetNote}.

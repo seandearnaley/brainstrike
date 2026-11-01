@@ -19,8 +19,8 @@ Implementation: `packages/agent-host` (memory adapters, `HostMemory`) and `packa
 - `@mastra/core` is a direct dependency of `packages/agent`, `packages/agent-host`
   and `packages/test-utils`, used for:
   - hosted tool discovery (`ToolSearchProcessor`), skills
-  - provider-request shaping (`TripWire`, `TokenLimiter`, `ProviderHistoryCompat`,
-    `ModelRouterLanguageModel`)
+  - OpenRouter model routing (`ModelRouterLanguageModel`); provider-request
+    shaping uses no Mastra processor
   - memory and background-task storage adapters, schema
   - Each use is its own decision; none makes Mastra an owner or licenses widening
     the surface.
