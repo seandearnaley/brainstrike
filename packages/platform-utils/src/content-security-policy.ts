@@ -1,13 +1,10 @@
 /**
- * Shared Content-Security-Policy builder for the web and Electron desktop apps.
+ * Content-Security-Policy builder for the Electron desktop app
+ * (`apps/desktop/src/csp-utils.ts` calls it with the `electron` target).
  *
- * `apps/web/src/csp-utils.ts` and `apps/desktop/src/csp-utils.ts` each used to
- * carry their own `getCSP`/`getDevCSP` copy; the two policies drifted by ~66
- * lines (BST-745). This module is the single source of truth, parameterized by
- * the `target` platform so every web-vs-electron difference below is a
- * deliberate, commented decision rather than accidental copy-paste drift. It
- * reproduces each app's exact prior output; the per-app test suites remain the
- * behavior net.
+ * It replaced per-app hand-copied policies that drifted (BST-745). The `target`
+ * parameter still carries the non-Electron branch from when a web app shipped;
+ * every difference between the two is a deliberate, commented decision.
  */
 // Type-only import: `index.ts` re-exports this module's `getContentSecurityPolicy`
 // at runtime, so this edge must stay `import type` (erased under

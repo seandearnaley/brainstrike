@@ -207,7 +207,7 @@ export function CostOverviewPanelView({ available, totals, trend }: CostOverview
           <p className="text-muted-foreground text-sm" data-testid="cost-overview-empty">
             {available
               ? 'No assistant runs recorded yet. Run an assistant turn to start tracking spend.'
-              : 'Spend is recorded for desktop assistant runs.'}
+              : 'Spend isn’t recorded here.'}
           </p>
         )}
       </CardContent>

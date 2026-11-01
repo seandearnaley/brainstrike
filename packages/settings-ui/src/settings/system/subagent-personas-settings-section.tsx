@@ -258,7 +258,7 @@ export function SubagentPersonasSettingsSection({
         <CardTitle>Subagents</CardTitle>
         <CardDescription>
           The assistant can delegate focused tasks to subagent personas: read-only ones survey and
-          analyse, and worker personas can edit and run within the tools and permissions the host
+          analyze, and worker personas can edit and run within the tools and permissions the host
           allows. Add your own personas as markdown files in <code>.brainstrike/agents/</code>{' '}
           (workspace or home directory).
         </CardDescription>

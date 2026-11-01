@@ -101,7 +101,7 @@ export function LogToolbar({
           <Input
             className="border-border/50 bg-muted/50 focus:bg-background h-8 pl-10 transition-colors"
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search logs..."
+            placeholder="Search logs…"
             style={SETTINGS_SEARCH_INPUT_STYLE}
             value={globalFilter}
           />

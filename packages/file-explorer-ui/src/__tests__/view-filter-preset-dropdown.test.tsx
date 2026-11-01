@@ -79,7 +79,7 @@ describe('ViewFilterPresetDropdown', () => {
 
   it('renders with placeholder when no preset selected', () => {
     renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} />);
-    expect(screen.getByRole('button')).toHaveTextContent('Select filter...');
+    expect(screen.getByRole('button')).toHaveTextContent('Select filter…');
   });
 
   it('renders with selected preset name', () => {
@@ -103,7 +103,7 @@ describe('ViewFilterPresetDropdown', () => {
     const trigger = screen.getByRole('button');
     await userEvent.click(trigger);
 
-    expect(screen.getByPlaceholderText('Filter presets...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Filter presets…')).toBeInTheDocument();
   });
 
   it('filters presets based on search', async () => {
@@ -111,7 +111,7 @@ describe('ViewFilterPresetDropdown', () => {
     const trigger = screen.getByRole('button');
     await userEvent.click(trigger);
 
-    const searchInput = screen.getByPlaceholderText('Filter presets...');
+    const searchInput = screen.getByPlaceholderText('Filter presets…');
     await userEvent.type(searchInput, 'Source');
 
     expect(screen.getByText('Source Files')).toBeInTheDocument();
@@ -333,7 +333,7 @@ describe('ViewFilterPresetDropdown', () => {
 
     await userEvent.click(screen.getByRole('button'));
 
-    expect(screen.getByText('Loading presets...')).toBeInTheDocument();
+    expect(screen.getByText('Loading presets…')).toBeInTheDocument();
     expect(screen.queryByText('No presets found')).not.toBeInTheDocument();
   });
 
@@ -342,7 +342,7 @@ describe('ViewFilterPresetDropdown', () => {
     const trigger = screen.getByRole('button');
     await userEvent.click(trigger);
 
-    const searchInput = screen.getByPlaceholderText('Filter presets...');
+    const searchInput = screen.getByPlaceholderText('Filter presets…');
     await userEvent.type(searchInput, 'nonexistent');
 
     expect(screen.getByText('No presets found')).toBeInTheDocument();

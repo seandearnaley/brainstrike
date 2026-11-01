@@ -16,7 +16,7 @@ export interface CliWorkspaceTrustOptions {
  * `workspace trust` (ADR-0032): a standalone host loads a launch root's agent
  * configuration (its instructions file, skills and personas) only once the person trusts it. The
  * prompt names the folder by the canonical path the host keys trust by.
- * Desktop folders are trusted from the composer or Settings › Workspace trust.
+ * Desktop folders are trusted from the composer or Settings › Workspace Trust.
  */
 export async function trustCliWorkspace(
   client: Pick<HostClient, 'request'>,

@@ -43,8 +43,8 @@ export const TreeExpansionButtons = React.memo(
     onExpandAll,
   }: TreeExpansionButtonsProps) => {
     const disabled = resolveTreeExpansionDisabledState({ isExpandingAll, isLoading, isRefreshing });
-    const expandLabel = isExpandingAll ? 'Expanding...' : 'Expand All';
-    const expandTooltip = isExpandingAll ? 'Expanding directories...' : 'Expand all directories';
+    const expandLabel = isExpandingAll ? 'Expanding…' : 'Expand All';
+    const expandTooltip = isExpandingAll ? 'Expanding directories…' : 'Expand all directories';
 
     return (
       <div className="flex shrink-0 items-center gap-0.5" data-testid="tree-expansion-actions">

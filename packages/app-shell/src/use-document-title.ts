@@ -66,15 +66,15 @@ function resolveDescriptionMeta(): HTMLMetaElement {
  * with multiple simultaneous `<title>` tags React documents as undefined), so
  * the per-surface arrangement had no non-deprecated form. One writer keyed on
  * the active route does, and it is pinned by
- * `apps/web/src/app/__tests__/document-title.test.tsx`.
+ * `packages/app-shell/src/__tests__/use-document-title.test.tsx`.
  *
  * Settings is a shell route like every other tab (BST-1668), so `activeTab`
  * alone names the surface on screen — the same value `RootLayoutContent`
  * shows and hides the routes from, so the title cannot describe a surface
  * other than the one the user is looking at.
  *
- * @param metaByRoute - The app's strings; the desktop app names itself
- *   "Brainstrike". Defaults to the web app's.
+ * @param metaByRoute - The app's strings; the desktop app passes its own
+ *   (`DESKTOP_DOCUMENT_META`, "Brainstrike"). Defaults to a generic fallback.
  */
 export function useDocumentTitle(metaByRoute: DocumentMetaByRoute = DOCUMENT_META): void {
   const activeTab = usePanelLayoutStore((state) => state.activeTab);

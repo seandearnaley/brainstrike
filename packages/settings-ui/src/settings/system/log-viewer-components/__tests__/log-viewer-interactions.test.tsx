@@ -192,7 +192,7 @@ describe('LogViewer interactions and export', () => {
         />
       );
       await screen.findByText('Excluded log 10');
-      fireEvent.change(screen.getByPlaceholderText('Search logs...'), {
+      fireEvent.change(screen.getByPlaceholderText('Search logs…'), {
         target: { value: 'Included log' },
       });
       await waitFor(() =>

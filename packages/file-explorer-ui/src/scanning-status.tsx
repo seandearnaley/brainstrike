@@ -44,11 +44,11 @@ export const ScanningStatus = React.memo(
   }: ScanningStatusProps) => {
     const statusText = useMemo(() => {
       if (isCancelling) {
-        return 'Cancelling...';
+        return 'Cancelling…';
       }
 
       if (!depthProgress) {
-        return 'Scanning...';
+        return 'Scanning…';
       }
 
       const { currentDepth, maxDepthSeen, estimatedMaxDepth, filesFound, directoriesCompleted } =

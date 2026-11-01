@@ -31,10 +31,10 @@ export interface RunVerdictContextValue {
 
 /**
  * Capability-injection seam for run verdicts, PARALLEL to EditCheckpointContext
- * by design: verdicts gate on the renderer repository's optional
- * `recordRunOutcome` (present wherever the PGlite repo exists, including web),
- * while checkpoint reverts gate on the desktop IPC bridge. Folding them into
- * one context would wrongly suppress verdicts where reverts are unavailable.
+ * by design: each is fed from its own slice of the thread's committed host
+ * conversation (verdicts vs. edit checkpoints), and either can be absent while
+ * the other is present. Folding them into one context would wrongly suppress
+ * verdicts where reverts are unavailable.
  */
 const RunVerdictContext = createContext<RunVerdictContextValue | null>(null);
 
