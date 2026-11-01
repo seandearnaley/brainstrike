@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   WorkspaceSearchFileResult,
   WorkspaceSearchHit,
+  WorkspaceSearchMatch,
   WorkspaceSearchSummary,
 } from './search-result-model';
 
@@ -71,7 +72,10 @@ const initialState = {
   wholeWord: false,
 };
 
-/** Merges a batch into the file list: one new array per batch, new objects only for files it touched. */
+/**
+ * Merges a batch into the file list in one pass: one new array per batch, and
+ * each file the batch touched is copied once, however many of its lines it holds.
+ */
 function mergeHits(
   files: readonly WorkspaceSearchFileResult[],
   hits: readonly WorkspaceSearchHit[]
@@ -81,19 +85,24 @@ function mergeHits(
   next.forEach((file, index) => {
     indexById.set(fileResultId(file), index);
   });
+  // The match arrays this batch owns: copied (or created) on a file's first hit.
+  const touched = new Map<number, WorkspaceSearchMatch[]>();
   for (const { line, lineText, path, rootId } of hits) {
     const id = fileResultId({ path, rootId });
-    const index = indexById.get(id);
-    const match = { line, lineText };
+    let index = indexById.get(id);
     if (index === undefined) {
-      indexById.set(id, next.length);
-      next.push({ matches: [match], path, rootId });
-      continue;
+      index = next.length;
+      indexById.set(id, index);
+      next.push({ matches: [], path, rootId });
     }
-    const file = next[index];
-    if (file) {
-      next[index] = { ...file, matches: [...file.matches, match] };
+    let matches = touched.get(index);
+    if (!matches) {
+      const file = next[index];
+      matches = file ? [...file.matches] : [];
+      touched.set(index, matches);
+      next[index] = { matches, path, rootId };
     }
+    matches.push({ line, lineText });
   }
   return next;
 }
