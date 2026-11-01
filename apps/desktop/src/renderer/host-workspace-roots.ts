@@ -7,6 +7,12 @@ import { type DesktopHostConnection, windowHostConnection } from './desktop-host
 export interface DesktopWorkspaceRoots {
   addRootByPath(path: string): Promise<RootDescriptor>;
   listRecentRoots(): Promise<readonly RecentRootEntry[]>;
+  /**
+   * Opens a folder as the window's project, closing the other open folders (ADR-0034): a recent
+   * folder by path, else through the picker. Rejects with `UserCancelledError` when the person
+   * cancels the picker.
+   */
+  openRoot(path?: string): Promise<RootDescriptor>;
   /** Rejects with `UserCancelledError` when the person cancels the picker. */
   pickRoot(): Promise<RootDescriptor>;
   removeRoot(rootId: string): Promise<void>;
@@ -44,6 +50,16 @@ export function createDesktopWorkspaceRoots(
       descriptor(await (await connection.current()).request('workspace/roots/add', { path })),
     listRecentRoots: async () =>
       (await (await connection.current()).request('workspace/roots/recent', {})).roots,
+    openRoot: async (path) => {
+      const { root } = await (await connection.current()).request(
+        'workspace/roots/open',
+        path === undefined ? {} : { path }
+      );
+      if (root === null) {
+        throw new UserCancelledError();
+      }
+      return descriptor(root);
+    },
     pickRoot: async () => {
       const { root } = await (await connection.current()).request('workspace/roots/pick', {});
       if (root === null) {
