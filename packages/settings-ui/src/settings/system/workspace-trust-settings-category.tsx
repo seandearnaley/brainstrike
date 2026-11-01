@@ -6,7 +6,7 @@ import {
 } from './workspace-trust-settings-section';
 
 /**
- * Factory for the Workspace trust settings category (ADR-0032). Lives in its
+ * Factory for the Workspace Trust settings category (ADR-0032). Lives in its
  * own (non-component) module, like `skills-settings-category.tsx`, so Fast
  * Refresh can preserve `SettingsPageContent`'s state. Registered by the
  * DESKTOP settings page only, with the agent host's trust.
