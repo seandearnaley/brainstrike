@@ -20,6 +20,10 @@ leaves the root connected.
 - A restore or picker-less reopen whose path resolves to another folder than
   the one granted is refused and shown as needing reconnect, never adopted.
   Only a fresh picker grant re-pins the record.
+- A store that opened damaged is read-only (BST-2144): the registry mounts and
+  serves the open folders but records and converges nothing, and every change
+  (pick, add, remove, delete-data, seed) is refused with the store's read-only
+  refusal before it touches a folder or opens the picker.
 - From `reserveRootDataDeletion` to its release a folder is absent from
   `roots`, `mountedRoots()` and `useMountedRoot`, and run borrows are refused.
 - Main's native index opens its own read handles only on

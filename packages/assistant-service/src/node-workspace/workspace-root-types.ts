@@ -74,6 +74,12 @@ export interface WorkspaceRootRegistryOptions {
   readonly isExpectedCatalogRefusal?: (error: unknown) => boolean;
   readonly onRootGranted?: (grantedPath: string) => void;
   readonly pathExists: (rootPath: string) => Promise<boolean>;
+  /**
+   * The catalog's refusal while it is read-only (a damaged store), or null while it is writable.
+   * A read-only registry mounts and serves the open folders without recording or converging
+   * anything, and refuses every change with this refusal before it touches a folder.
+   */
+  readonly readOnlyRefusal?: () => Error | null;
   /** The recent-folders ledger: the grants that let a folder reopen without the picker. */
   readonly recents: WorkspaceRootStorage;
   readonly resolveReadPath?: (requestedPath: string, canonicalRoot: string) => Promise<string>;

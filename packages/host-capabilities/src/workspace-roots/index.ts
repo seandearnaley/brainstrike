@@ -15,16 +15,19 @@ import {
   type WorkspaceRootStorage,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
-import type { StateStore } from '@brainstrike/state-store';
+import { type StateStore, StateStoreReadOnlyError } from '@brainstrike/state-store';
 import type { RootDescriptor } from '@brainstrike/types';
 import { createWorkspaceRootResolver, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 
 const logger = createLogger('HostRootRegistry');
 
-/** The host store's roots domain and settings, where the recent-folders ledger lives. */
+/**
+ * The host store's roots domain and settings, where the recent-folders ledger lives, and the
+ * damage it opened with: a damaged store is read-only.
+ */
 export type HostRootRegistryStore = Pick<
   StateStore,
-  'deleteSetting' | 'getSetting' | 'setSetting' | 'workspaceRoots'
+  'deleteSetting' | 'getSetting' | 'setSetting' | 'stateDamage' | 'workspaceRoots'
 >;
 
 export interface HostRootRegistryOptions {
@@ -102,6 +105,10 @@ function directoryHandle(folder: string) {
 
 export function createHostRootRegistry(options: HostRootRegistryOptions): HostRootRegistryOwner {
   const { store } = options;
+  // BST-2144: a damaged store opened read-only. The registry still serves the open folders, and
+  // refuses every change with the store's own refusal, which crosses as a typed refusal.
+  const readOnlyRefusal = (): Error | null =>
+    store.stateDamage === null ? null : new StateStoreReadOnlyError(store.stateDamage);
   const recents: WorkspaceRootStorage = {
     getItem: async (key) => (await store.getSetting(`${SETTING_PREFIX}${key}`)) ?? null,
     removeItem: async (key) => {
@@ -137,6 +144,7 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       grantedPath = granted;
     },
     pathExists,
+    readOnlyRefusal,
     recents,
   });
   registry.setManagedWorktreeAuthorizer(options.managedWorktreeAuthorizer);
@@ -175,6 +183,11 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
     },
     'workspace/roots/mounted': async () => ({ roots: registry.mountedRoots() }),
     'workspace/roots/pick': async () => {
+      // A read-only store refuses before the person chooses a folder it could not open.
+      const refused = readOnlyRefusal();
+      if (refused) {
+        throw refused;
+      }
       const folder = await options.pickFolder();
       if (folder === null) {
         return { root: null };
@@ -201,6 +214,10 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
           'workspace.e2e-only',
           'Seeding workspace folders is available only in a desktop E2E session'
         );
+      }
+      const refused = readOnlyRefusal();
+      if (refused) {
+        throw refused;
       }
       const { roots: open } = await store.workspaceRoots({ operation: 'list-open' });
       await store.workspaceRoots({

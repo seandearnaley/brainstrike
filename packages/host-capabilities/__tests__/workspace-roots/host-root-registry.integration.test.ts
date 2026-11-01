@@ -1,7 +1,11 @@
 import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { StateStore, type WorkspaceRootRequest } from '@brainstrike/state-store';
+import {
+  StateStore,
+  StateStoreReadOnlyError,
+  type WorkspaceRootRequest,
+} from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createHostRootRegistry,
@@ -89,6 +93,7 @@ describe('host root registry', () => {
       deleteSetting: (key) => store.deleteSetting(key),
       getSetting: (key) => store.getSetting(key),
       setSetting: (key, value) => store.setSetting(key, value),
+      stateDamage: null,
       workspaceRoots: async (request: WorkspaceRootRequest) => {
         if (request.operation === 'delete') {
           deleting.resolve();
@@ -133,6 +138,69 @@ describe('host root registry', () => {
       roots: [{ available: false, path: workspace, rootId: root?.rootId }],
     });
     await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({ roots: [] });
+  });
+
+  it('serves the open folders of a damaged store without writing to it, and refuses every change', async () => {
+    const workspace = folder('workspace');
+    const other = folder('other');
+    const first = registry({ picked: workspace });
+    const { root } = await first.owner.service['workspace/roots/pick']({});
+    const rootId = root?.rootId ?? '';
+    await first.owner.close();
+    owners.splice(owners.indexOf(first.owner), 1);
+    // BST-2144: a store that opened damaged is read-only; any write that reached it is recorded.
+    const writes: string[] = [];
+    const refuse = (write: string): never => {
+      writes.push(write);
+      throw new StateStoreReadOnlyError('fixture damage');
+    };
+    const damaged: HostRootRegistryStore = {
+      deleteSetting: async (key) => refuse(`delete ${key}`),
+      getSetting: (key) => store.getSetting(key),
+      setSetting: async (key) => refuse(`set ${key}`),
+      stateDamage: 'fixture damage',
+      workspaceRoots: async (request: WorkspaceRootRequest) =>
+        request.operation === 'list' || request.operation === 'list-open'
+          ? await store.workspaceRoots(request)
+          : refuse(request.operation),
+    };
+    const picked = vi.fn(async () => other);
+    const { owner } = registry({ rootsStore: damaged });
+    const service = createHostRootRegistry({
+      disposeCommandSessionsForRoot: async () => 0,
+      e2e: true,
+      evictLspServersForRoot: async () => undefined,
+      managedWorktreeAuthorizer: async () => 'unmanaged',
+      pickFolder: picked,
+      publishRootsChanged: async () => undefined,
+      store: damaged,
+    });
+    owners.push(service);
+
+    await owner.start();
+    await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
+      roots: [{ available: true, path: workspace, rootId }],
+    });
+    await expect(owner.service['workspace/roots/recent']({})).resolves.toMatchObject({
+      roots: [{ path: workspace }],
+    });
+    for (const change of [
+      service.service['workspace/roots/pick']({}),
+      owner.service['workspace/roots/add']({ path: other }),
+      owner.service['workspace/roots/remove']({ rootId }),
+      owner.service['workspace/roots/delete-data']({ rootId }),
+      service.service['workspace/roots/seed-for-e2e']({
+        recentPaths: [],
+        roots: [{ path: other, rootId: crypto.randomUUID() }],
+      }),
+    ]) {
+      await expect(change).rejects.toBeInstanceOf(StateStoreReadOnlyError);
+    }
+    expect(picked).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({
+      roots: [{ canonicalPath: workspace, path: workspace, rootId }],
+    });
   });
 
   it('seeds folders only in a desktop E2E session', async () => {

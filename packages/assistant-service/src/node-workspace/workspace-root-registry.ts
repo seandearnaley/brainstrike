@@ -109,6 +109,7 @@ export class WorkspaceRootRegistry {
     canonicalRoot: string
   ) => Promise<string>;
   private readonly recents: WorkspaceRootRegistryOptions['recents'];
+  private readonly readOnlyRefusal: () => Error | null;
 
   constructor(options: WorkspaceRootRegistryOptions) {
     this.createSecureRoot = options.createSecureRoot ?? createNativeSecureRoot;
@@ -122,11 +123,12 @@ export class WorkspaceRootRegistry {
     this.pathExists = options.pathExists;
     this.resolveReadPath = options.resolveReadPath ?? resolveValidatedReadPath;
     this.recents = options.recents;
+    this.readOnlyRefusal = options.readOnlyRefusal ?? (() => null);
   }
 
   /** A folder the person chose in the picker. */
   addRoot(handle: DirectoryHandle, options: AddRootOptions = {}): Promise<RootDescriptor> {
-    return this.serializeMutation(() =>
+    return this.serializeWrite(() =>
       this.addRootOwned(handle, { grantedAfresh: true, ...options })
     );
   }
@@ -218,7 +220,7 @@ export class WorkspaceRootRegistry {
   }
 
   addRootByPath(requestedPath: string): Promise<RootDescriptor> {
-    return this.serializeMutation(async () => {
+    return this.serializeWrite(async () => {
       const granted = await resolveGrantedRootHandle(
         this.recents,
         requestedPath,
@@ -432,6 +434,7 @@ export class WorkspaceRootRegistry {
 
   reserveRootDataDeletion(rootId: string): RootDataDeletionReservation {
     this.assertActive();
+    this.assertWritable();
     this.mutations.assertAdmission();
     if (!isDurableRootId(rootId)) {
       throw new Error('Root data deletion requires a durable root ID.');
@@ -484,7 +487,7 @@ export class WorkspaceRootRegistry {
 
   /** Resolves whether the removal retired a mounted folder. */
   removeRoot(rootId: string): Promise<boolean> {
-    return this.serializeMutation(() => this.removeRootOwned(rootId));
+    return this.serializeWrite(() => this.removeRootOwned(rootId));
   }
 
   private async removeRootOwned(rootId: string, resourcesRetired = false): Promise<boolean> {
@@ -551,6 +554,10 @@ export class WorkspaceRootRegistry {
       if (!retainedRootIds.has(mountedRootId)) {
         await this.unmountSourceRoot(mountedRootId);
       }
+    }
+    // A read-only catalog is served as it stands: nothing is recorded or converged.
+    if (this.readOnlyRefusal()) {
+      return descriptors;
     }
     await recordRestoredRecentRoots(this.recents, this.getRootsCatalog, recentRootCandidates);
     await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
@@ -688,6 +695,21 @@ export class WorkspaceRootRegistry {
         // eslint-disable-next-line react-doctor/async-await-in-loop -- retirement is intentionally serial: capability close must precede resource cleanup, and the mounted map is mutated while iterating a snapshot.
         await this.retireMount(candidate.rootId);
       }
+    }
+  }
+
+  /** A change to the open folders: refused up front while the catalog is read-only. */
+  private serializeWrite<T>(operation: () => Promise<T>): Promise<T> {
+    return this.serializeMutation(async () => {
+      this.assertWritable();
+      return await operation();
+    });
+  }
+
+  private assertWritable(): void {
+    const refusal = this.readOnlyRefusal();
+    if (refusal) {
+      throw refusal;
     }
   }
 
