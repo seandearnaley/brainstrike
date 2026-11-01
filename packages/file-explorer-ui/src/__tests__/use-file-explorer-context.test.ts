@@ -162,6 +162,7 @@ describe('useFileExplorer (context)', () => {
       isFiltersExpanded: true,
       lastActiveTab: 'files',
       maxSelectionCount: 10,
+      openActiveRoot: vi.fn(),
       persistenceRecoveryNotice: null,
       querySelectionManifest: null,
       quickFilter: '',

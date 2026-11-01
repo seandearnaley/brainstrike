@@ -95,6 +95,11 @@ export class WorkspaceRootRegistry {
   private readonly isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
+  /**
+   * Folders an open closed while a run worked in them (ADR-0034): no longer open, still mounted
+   * and live until this registry ends, so a restore keeps them.
+   */
+  private readonly closedForRuns = new Set<string>();
   private readonly availability = new WorkspaceRootAvailability();
   private readonly mutations = new WorkspaceRootMutationLifetime();
   private rootDataDeletion: RootDataDeletionReservation | undefined;
@@ -200,6 +205,7 @@ export class WorkspaceRootRegistry {
       // Registering the record opened it, in the same commit: unless it is a managed worktree,
       // which is mounted for its thread but never opened (ADR-0034).
       this.mounts.clearSessionMount(entry.rootId);
+      this.closedForRuns.delete(entry.rootId);
       const worktree = kind === 'worktree';
       if (recordInRecentRoots && !worktree) {
         // Retain the ledger read before mounting; a missing snapshot is an
@@ -461,6 +467,7 @@ export class WorkspaceRootRegistry {
   }
 
   private async unmountSourceRoot(rootId: string): Promise<void> {
+    this.closedForRuns.delete(rootId);
     const mounted = this.mounts.get(rootId);
     if (mounted) {
       await this.retireSourceLeases(mounted);
@@ -566,6 +573,11 @@ export class WorkspaceRootRegistry {
     }: { readonly keepMounted?: ReadonlySet<string>; readonly resourcesRetired?: boolean } = {}
   ): Promise<number> {
     const unmounting = rootIds.filter((rootId) => !keepMounted.has(rootId));
+    for (const rootId of rootIds) {
+      if (keepMounted.has(rootId) && this.mounts.get(rootId)) {
+        this.closedForRuns.add(rootId);
+      }
+    }
     let retired = 0;
     for (const rootId of unmounting) {
       const mounted = this.mounts.get(rootId);
@@ -620,7 +632,8 @@ export class WorkspaceRootRegistry {
         : descriptorFor(entry, state);
     this.availability.retain(entries);
     const descriptors: RootDescriptor[] = [];
-    const retainedRootIds = this.mounts.sessionMountIds();
+    // A folder an open closed for a running run stays mounted, though it is not restored.
+    const retainedRootIds = new Set([...this.mounts.sessionMountIds(), ...this.closedForRuns]);
     const retainedCanonicalPaths = new Set<string>();
     const duplicateRootIds: string[] = [];
     const recentRootCandidates: RecordedWorkspaceRoot[] = [];

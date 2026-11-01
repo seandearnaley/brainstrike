@@ -144,9 +144,16 @@ describe('host root registry', () => {
     // Beta left the open folders but its run still reads it; gamma is gone.
     const live = (await owner.roots.listRoots()).map((root) => root.rootId);
     expect(live.sort()).toEqual([alphaId, betaId].sort());
+    // A window reload restores the open folders and keeps the run's folder mounted.
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
       roots: [{ available: true, path: alpha, rootId: alphaId, worktree: false }],
     });
+    expect((await owner.roots.listRoots()).map((root) => root.rootId).sort()).toEqual(
+      [alphaId, betaId].sort()
+    );
+    expect(
+      (await owner.service['workspace/roots/mounted']({})).roots.map((root) => root.rootId)
+    ).toContain(betaId);
 
     // A new folder through the picker replaces alpha; a cancelled pick changes nothing.
     const { root: opened } = await owner.service['workspace/roots/open']({});

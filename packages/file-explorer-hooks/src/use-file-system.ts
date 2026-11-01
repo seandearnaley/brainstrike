@@ -27,6 +27,11 @@ interface UseFileSystemParams {
    */
   getPersistedCurrentFolderId?: () => string | null;
   /**
+   * Store action that makes one folder the only open folder (ADR-0034). Called by
+   * openRootDirectory AFTER the focus shift, as removeActiveRoot. REQUIRED — see addActiveRoot.
+   */
+  openActiveRoot: FileExplorerState['openActiveRoot'];
+  /**
    * Store action to atomically purge a disconnected root from
    * activeRootIds/rootDescriptors/folderStates/folderAccessOrder.
    * Called by removeRootDirectory AFTER the focus shift (setCurrentFolderId
@@ -65,6 +70,8 @@ type FileSystemAction =
   | { type: 'setAccessLoading'; loading: boolean }
   | { type: 'addOrFocusHandle'; handle: DirectoryHandle; rootId?: string }
   | { type: 'removeHandle'; rootId: string }
+  /** ADR-0034: the opened folder replaces every open folder; worktree mounts stay. */
+  | { type: 'openHandle'; handle: DirectoryHandle }
   | { type: 'recordRecentRootMutation' }
   | {
       type: 'setAllHandles';
@@ -250,6 +257,21 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
         rootIdByPath: newRootIdByPath,
       };
     }
+    case 'openHandle': {
+      const key = rootKeyOf(action.handle);
+      const handles = [
+        action.handle,
+        ...state.rootDirectoryHandles.filter(
+          (handle) => handle.worktree === true && rootKeyOf(handle) !== key
+        ),
+      ];
+      return {
+        ...state,
+        rootDirectoryHandle: action.handle,
+        rootDirectoryHandles: handles,
+        rootIdByPath: new Map(handles.map((handle) => [handle.path, rootKeyOf(handle)])),
+      };
+    }
     case 'setAllHandles':
       return {
         ...state,
@@ -388,6 +410,7 @@ export function useFileSystem({
   getPersistedCurrentFolderId,
   getFolderAccessOrder,
   addActiveRoot,
+  openActiveRoot,
   removeActiveRoot,
   setActiveRoots,
 }: UseFileSystemParams) {
@@ -565,25 +588,11 @@ export function useFileSystem({
           rootPath
         );
         const opened = ensureStamped(stampRootId(handle, rootId), 'openRootDirectory');
-        const kept = rootDirectoryHandles.filter(
-          (candidate) => candidate.worktree === true && rootKeyOf(candidate) !== rootId
-        );
-        const closedRootIds = rootDirectoryHandles
-          .map(rootKeyOf)
-          .filter((key) => key !== rootId && !kept.some((worktree) => rootKeyOf(worktree) === key));
-        const handles = [opened, ...kept];
-        dispatch({
-          focused: opened,
-          handles,
-          rootIdByPath: new Map(handles.map((entry) => [entry.path, rootKeyOf(entry)])),
-          type: 'setAllHandles',
-        });
+        // Both replacements read the state they replace, so overlapping opens converge.
+        dispatch({ handle: opened, type: 'openHandle' });
         // Focus first: it snapshots the outgoing folder's state, which the purge below removes.
         updateCurrentFolderId(rootId);
-        for (const closedRootId of closedRootIds) {
-          removeActiveRoot(closedRootId);
-        }
-        addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+        openActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
         dispatch({ type: 'recordRecentRootMutation' });
         return opened;
       };
@@ -596,14 +605,7 @@ export function useFileSystem({
         })
         .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
     };
-  }, [
-    adapterOpenRoot,
-    addActiveRoot,
-    fileSystemAdapter,
-    removeActiveRoot,
-    rootDirectoryHandles,
-    updateCurrentFolderId,
-  ]);
+  }, [adapterOpenRoot, fileSystemAdapter, openActiveRoot, updateCurrentFolderId]);
 
   /** Desktop-only companion to addRootDirectoryByPath; see its note. */
   const listRecentRoots = useMemo(() => {

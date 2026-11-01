@@ -122,6 +122,7 @@ export function useFileSystemInstance() {
   // Multi-root store actions: without these the boot restore never populates
   // activeRootIds and focus-by-recency always falls back to handles[0].
   const addActiveRoot = useFileExplorerStoreSelector((s) => s.addActiveRoot);
+  const openActiveRoot = useFileExplorerStoreSelector((s) => s.openActiveRoot);
   const removeActiveRoot = useFileExplorerStoreSelector((s) => s.removeActiveRoot);
   const setActiveRoots = useFileExplorerStoreSelector((s) => s.setActiveRoots);
   // Token cache seam: the core hook does not own the token cache, so the
@@ -210,6 +211,7 @@ export function useFileSystemInstance() {
     addActiveRoot,
     getFolderAccessOrder,
     getPersistedCurrentFolderId,
+    openActiveRoot,
     removeActiveRoot,
     setActiveRoots,
     setCurrentFolderId,
