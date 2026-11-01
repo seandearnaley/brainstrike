@@ -510,7 +510,12 @@ const windowThreadCapability: AssistantThreadHostCapability & typeof threadCapab
   renderNewThread: (resourceId, providerReadErrors) => (
     <ConnectedHost connection={connection}>
       {(bound) => (
-        <NewHostThread {...bound} providerReadErrors={providerReadErrors} resourceId={resourceId} />
+        <NewHostThread
+          {...bound}
+          providerReadErrors={providerReadErrors}
+          resourceId={resourceId}
+          runs={threadCapability.runs}
+        />
       )}
     </ConnectedHost>
   ),

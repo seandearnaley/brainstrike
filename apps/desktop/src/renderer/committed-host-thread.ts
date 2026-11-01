@@ -144,7 +144,8 @@ export interface CommittedHostThread {
  */
 export async function startCommittedTurn(
   options: Omit<CommittedHostThreadOptions, 'onEntryCommitted'>,
-  message: AppendMessage
+  message: AppendMessage,
+  commandId: string = crypto.randomUUID()
 ): Promise<void> {
   const { client, settleLost, threadId } = options;
   if (message.content.some((part) => part.type !== 'text')) {
@@ -152,7 +153,6 @@ export async function startCommittedTurn(
   }
   const attachments = (message.attachments ?? []).map(hostImageAttachment);
   const prompt = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
-  const commandId = crypto.randomUUID();
   // BST-2004: a send whose host was lost before it answered, or before the
   // send left, is settled from the replacement's committed log; nothing is resent.
   try {
