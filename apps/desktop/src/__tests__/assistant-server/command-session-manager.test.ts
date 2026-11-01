@@ -4,10 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import * as workspaceLeases from '@brainstrike/host-capabilities/native-tools';
 import { acquireWorkspaceMutationLease } from '@brainstrike/host-capabilities/native-tools';
+import type { WorkspaceRootResolver } from '@brainstrike/host-capabilities/workspace-root-cwd';
 import type { IPty } from 'node-pty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCommandSessionManager } from '../../assistant-server/command-session-manager';
-import type { WorkspaceRootResolver } from '../../workspace-root-cwd';
 
 class FakePty {
   readonly pid: number;

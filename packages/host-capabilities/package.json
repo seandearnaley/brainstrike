@@ -18,6 +18,7 @@
     "./delegation": "./src/delegation.ts",
     "./credentials": "./src/credentials.ts",
     "./hooks": "./src/hooks/index.ts",
+    "./git-workspace": "./src/git-workspace/index.ts",
     "./windows-command-entry": "./bin/windows-command-entry.mjs",
     "./windows-command-process": "./src/windows-command-process.ts",
     "./windows-command-wrapper": "./src/windows-command-wrapper.ts",
@@ -30,6 +31,7 @@
     "./grep-search-result-contract": "./src/native-tools/grep-search-result-contract.ts",
     "./workspace-file-walk": "./src/native-tools/workspace-file-walk.ts",
     "./workspace-path": "./src/native-tools/workspace-path.ts",
+    "./workspace-root-cwd": "./src/workspace-root-cwd.ts",
     "./workspace-text-file-reader": "./src/native-tools/workspace-text-file-reader.ts",
     "./mcp/*": "./src/mcp/*.ts",
     "./openrouter-model-metadata": "./src/openrouter-model-metadata.ts",
@@ -58,6 +60,7 @@
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
@@ -75,7 +78,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@brainstrike/state-store": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",

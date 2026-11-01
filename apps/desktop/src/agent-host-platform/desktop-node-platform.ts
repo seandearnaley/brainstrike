@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
+import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { ProviderAuthInput, RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
@@ -21,6 +22,7 @@ import { refusalError } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
+import { createGitWorkspace } from '@brainstrike/host-capabilities/git-workspace';
 import {
   getGlobalHooksPath,
   loadHostRunHooks,
@@ -34,14 +36,14 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 import { hostWorkspaceDiscovery } from '@brainstrike/host-capabilities/workspace-context';
+import { createWorkspaceRootResolver } from '@brainstrike/host-capabilities/workspace-root-cwd';
 import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
-import { createWorkspaceRootResolver } from '../git-ipc-handlers';
+import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
 import { mainPlatformConnection } from './connection';
-import { createDesktopGitWorkspace } from './desktop-git-workspace';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import {
   createDesktopRunAdmission,
@@ -49,6 +51,7 @@ import {
   type DesktopRunSelection,
 } from './desktop-run-admission';
 import { createDesktopTerminals } from './desktop-terminals';
+import { desktopManagedWorktreeDirectory } from './desktop-worktree-directory';
 import { forwardHostDiagnostics } from './host-diagnostics';
 import {
   disposeHostTools,
@@ -254,26 +257,34 @@ export async function createDesktopHostConfiguration(
     throw new Error('The desktop agent host needs its app paths for MCP settings');
   }
   // ADR-0029 stage 2: the git cluster, over this host's own catalog, ledger and settings.
-  const gitWorkspace = createDesktopGitWorkspace({
-    homePath: homedir(),
+  const roots = createWorkspaceRootResolver(startup.store);
+  const gitWorkspace = createGitWorkspace({
     logger,
-    openWorktreeFolder: async (path) =>
+    managedWorktreeDirectory: desktopManagedWorktreeDirectory({
+      e2e: isElectronE2ETestMode(),
+      env: process.env,
+      homeDirectory: homedir(),
+    }),
+    openWorktreeFolder: async (folder) =>
       wireDecoder(PlatformWorktreeFolderResultSchema, { errors: 'all', onExcessProperty: 'error' })(
-        await request('platform/worktree/open-folder', { path })
+        await request('platform/worktree/open-folder', { path: folder })
       ),
     refreshWorkspaceIndex: async (rootId) => {
       wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
         await request('platform/index/refresh', { rootId })
       );
     },
+    roots,
+    // The shadow-git snapshot backbone, under `userData/snapshots/<rootId>/git`;
+    // the factory reset's userData wipe covers it.
+    snapshotsBaseDir: path.join(userDataDir, 'snapshots'),
     store: startup.store,
-    userDataDir,
   });
   await startup.register(() => gitWorkspace.close());
   // ADR-0029 stage 3: the Terminal panel's terminals and command-session inventory.
   const terminals = createDesktopTerminals({
     commandSessions: hostCommandSessionManager(),
-    resolver: createWorkspaceRootResolver(startup.store),
+    resolver: roots,
   });
   await startup.register(() => terminals.close());
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and

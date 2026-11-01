@@ -58,12 +58,12 @@ durable writers keep their owners. Runtime rules: [Effect boundary](effect-bound
 
 ## Remaining Zod imports
 
-Thirteen production files still import Zod, all for vendor or SDK reasons (tests
+Twelve production files still import Zod, all for vendor or SDK reasons (tests
 and generated output excluded):
 
 | Category | Files | Reason |
 | --- | --- | --- |
-| Vendor date-time patterns | 7 | assistant-contract `delegated-conversation-stream`, `mcp-task-presentation`; agent-host `protocol-canvas` and catalog `collection-store`, `source-catalog-store`, `view-filter-preset-store`, `worktree-ledger-store` |
+| Vendor date-time patterns | 6 | assistant-contract `delegated-conversation-stream`, `mcp-task-presentation`; agent-host `protocol-canvas` and catalog `collection-store`, `source-catalog-store`, `view-filter-preset-store` |
 | SDK schema/type adapters | 5 | assistant-contract `sdk-schema`, `mcp-host`; `mcp-tasks-extension/schema`; agent `providers/provider-tool-schema`; agent-host `provider-schema-selection` |
 | Protocol-lab reference | 1 | `mcp-test-lab/reference-server` |
 

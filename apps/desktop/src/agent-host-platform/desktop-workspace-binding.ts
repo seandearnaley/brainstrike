@@ -4,17 +4,17 @@ import type { HostPlatform } from '@brainstrike/agent-host';
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
-import type { ManagedWorktreeRow } from '@brainstrike/types';
 import { Schema } from 'effect';
 
 type BindingRequest = Parameters<NonNullable<HostPlatform['validateWorkspaceBinding']>>[0];
 type RuntimeWorkspaceRoot = NonNullable<RuntimeData['workspaceRoots']>[number];
 export interface DesktopWorkspaceBindingDependencies {
   borrowRoot(root: RuntimeWorkspaceRoot): Promise<CanonicalWorkspaceLease>;
+  /** The path of a live (unarchived) managed worktree, or null when the ledger has none. */
+  readLiveWorktreePath(id: string): Promise<string | null>;
   /** The catalog's display name for each id it still records, live or not. */
   readRootNames(ids: readonly string[]): Promise<ReadonlyMap<string, string>>;
   readRoots(): Promise<readonly RuntimeWorkspaceRoot[]>;
-  readWorktree(id: string): Promise<ManagedWorktreeRow | null>;
 }
 /** A thread folder the workspace no longer serves, named when the catalog still knows it. */
 interface RemovedThreadRoot {
@@ -199,13 +199,14 @@ export class DesktopWorkspaceBindingAuthority {
         throw new Error('Thread operating-root hint conflicts with its catalog mount');
       }
       if (binding.checkoutMode === 'worktree') {
-        const worktree = await this.dependencies.readWorktree(binding.checkoutWorktreeId ?? '');
+        const worktreePath = await this.dependencies.readLiveWorktreePath(
+          binding.checkoutWorktreeId ?? ''
+        );
         currentSignal.throwIfAborted();
         if (
-          !worktree ||
-          worktree.archivedAt !== null ||
+          worktreePath === null ||
           !primaryLease ||
-          path.normalize(worktree.path) !== primaryLease.canonicalPath ||
+          path.normalize(worktreePath) !== primaryLease.canonicalPath ||
           path.normalize(binding.checkoutWorktreePath ?? '') !== primaryLease.canonicalPath
         ) {
           throw new Error(

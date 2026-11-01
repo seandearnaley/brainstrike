@@ -2388,6 +2388,9 @@ importers:
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
         version: link:../secure-fs-native
+      '@brainstrike/state-store':
+        specifier: workspace:*
+        version: link:../state-store
       '@brainstrike/tokenization':
         specifier: workspace:*
         version: link:../tokenization
@@ -2434,9 +2437,6 @@ importers:
         specifier: 'catalog:'
         version: 4.6.7
     devDependencies:
-      '@brainstrike/state-store':
-        specifier: workspace:*
-        version: link:../state-store
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
