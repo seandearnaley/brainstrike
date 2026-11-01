@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { expect, test, vi } from 'vitest';
 import {
   createRegistry,
@@ -86,9 +86,6 @@ test.each(['recent-roots read', 'managed-worktree authorization'] as const)(
       const root = await adding;
       await preparation;
       expect(root).toMatchObject({ handle: { path }, persisted: true });
-      await expect(
-        registry.readFileByAbsolutePath(join(path, 'file.txt'), path, root.rootId)
-      ).resolves.toBe('inside');
       expect(open).toHaveBeenCalledOnce();
       expect(handle.close).not.toHaveBeenCalled();
       expect(authorizer).toHaveBeenCalledTimes(authorization === 'recent-roots read' ? 0 : 1);

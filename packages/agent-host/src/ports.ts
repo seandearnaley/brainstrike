@@ -700,7 +700,20 @@ export type HostTerminals = HostCommandSessionMethods & {
   open(send: (event: TerminalEvent) => void): HostTerminalSession;
 };
 
-export type HostFileWatchMethod = keyof typeof WORKSPACE_FILES_METHOD_SCHEMAS;
+/** The Explorer's reads: answered from the host's live roots, holding nothing between calls. */
+export type HostFileReadMethod =
+  | 'workspace/files/exists'
+  | 'workspace/files/list'
+  | 'workspace/files/read';
+/** ADR-0029 stage 4: the Explorer's reads of live workspace roots. */
+export type HostFileReads = {
+  readonly [M in HostFileReadMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+
+export type HostFileWatchMethod = Exclude<
+  keyof typeof WORKSPACE_FILES_METHOD_SCHEMAS,
+  HostFileReadMethod
+>;
 export type HostFileWatchSessionMethods = {
   readonly [M in HostFileWatchMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
 };
@@ -842,6 +855,8 @@ export interface HostPlatform {
   close(): Promise<void>;
   /** The default admission's delegation capability; `admitRun` sets it per admission. */
   readonly delegation?: HostDelegation | undefined;
+  /** The desktop Explorer's reads; absent where no window shows an Explorer (the CLI). */
+  readonly fileReads?: HostFileReads;
   /** The desktop Explorer's root watches; absent where no window shows an Explorer (the CLI). */
   readonly fileWatches?: HostFileWatches;
   /** Purge process-local caches scoped to a thread Core just deleted. */

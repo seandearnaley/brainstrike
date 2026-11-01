@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type { SecureWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
@@ -16,8 +17,6 @@ import { invokeDesktopIpcFrom } from '../helpers/desktop-ipc-sender-test-helpers
  */
 
 export type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
-
-export const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 
 /**
  * Electron stand-in. `vi.mock` factories are hoisted above imports, so consumers
@@ -103,15 +102,19 @@ export function createStorage(storedItems: Record<string, string> = {}): Electro
   } as unknown as ElectronStorageAdapter;
 }
 
-/** Drop any fixture a previous test registered on the process-wide global. */
-export function clearE2eFileSystemFixture(): void {
-  delete (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY];
-}
-
-export function setE2eFileSystemFixture(fixture: unknown): void {
-  (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY] =
-    fixture;
-}
+/**
+ * Registry seams for a root with nothing on disk: its capability opens at the
+ * path asked for and lists nothing, so the suites drive grants, not reads.
+ */
+export const inMemoryRootSeams = {
+  createSecureRoot: async (rootPath: string): Promise<SecureWorkspaceRoot> => ({
+    canonicalPath: path.normalize(rootPath),
+    close: () => undefined,
+    listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+    readFile: async () => ({ status: 'not-found' as const }),
+  }),
+  resolveReadPath: async (requestedPath: string) => path.normalize(requestedPath),
+};
 
 /** `method` as the renderer calls it from `event`'s sender: the raw wire result. */
 export function ipcMethod(method: string): IpcHandler {

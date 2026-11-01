@@ -65,6 +65,18 @@ excluded-path probe must itself honor hard ignores. Canonical indexing receives
 unchanged parser/chunker output; [indexer](indexer.md) owns publication and
 coverage, not the preview UI.
 
+## Reads
+
+On desktop the agent host serves the Explorer's reads (ADR-0029 stage 4):
+`workspace/files/list`, `workspace/files/read` and `workspace/files/exists`, gated to
+the desktop's private client. Each read is confined to a root the host's catalog
+records as live, through a `SecureRoot` opened for that read and closed after it. A
+`rootId` anchors a read to its root; otherwise the deepest live root containing the
+path serves it; `rootPath` binds it to exactly that root. Realpath containment
+authorizes the target and native I/O keeps the lexical path, so in-root symlinks are
+never followed. A missing or oversized file answers `NOT_FOUND` or `TOO_LARGE`. E2E
+reads real disposable folders; there is no synthetic tree.
+
 ## Live refresh
 
 Use the existing watcher capability and event channel. On desktop the agent host

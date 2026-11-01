@@ -74,9 +74,6 @@ describe('IPC Handlers Expected Behavior', () => {
       // Test that the expected file system handlers would be registered
       const expectedFileSystemHandlers = [
         'fs:requestDirectoryAccess',
-        'fs:readDirectory',
-        'fs:readFile',
-        'fs:exists',
         'fs:restoreLastFolder',
         'fs:saveLastFolder',
       ];
@@ -129,9 +126,6 @@ describe('IPC Handlers Expected Behavior', () => {
 
       const fileSystemChannels = [
         'fs:requestDirectoryAccess',
-        'fs:readDirectory',
-        'fs:readFile',
-        'fs:exists',
         'fs:restoreLastFolder',
         'fs:saveLastFolder',
       ];

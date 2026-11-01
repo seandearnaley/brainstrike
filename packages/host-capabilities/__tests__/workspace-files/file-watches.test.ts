@@ -173,15 +173,13 @@ describe('host file watches', () => {
   });
 
   it('holds a client to its watch limit when its requests arrive together', async () => {
-    const owner = createHostFileWatches({
-      isSyntheticRoot: (rootPath) => rootPath === '/mock/workspace',
-      roots: roots('/mock/workspace'),
-    });
+    const { startWatch } = scriptedWatch();
+    const owner = createHostFileWatches({ roots: roots(workspace), startWatch });
     const session = owner.service.open(vi.fn());
 
     const results = await Promise.allSettled(
       Array.from({ length: MAX_FILE_WATCHES_PER_CLIENT + 3 }, () =>
-        session['workspace/files/watch']({ path: '/mock/workspace' })
+        session['workspace/files/watch']({ path: workspace })
       )
     );
 
@@ -223,26 +221,6 @@ describe('host file watches', () => {
     const failure = new Error('EBUSY: the watch did not close');
     stopping.reject(failure);
     await expect(closing).rejects.toMatchObject({ errors: [failure] });
-  });
-
-  it('registers a synthetic root without watching the disk', async () => {
-    const startWatch = vi.fn<StartFileWatch>();
-    const synthetic = path.resolve('/mock/test/directory');
-    const owner = createHostFileWatches({
-      isSyntheticRoot: (rootPath) => rootPath === synthetic,
-      roots: roots(synthetic),
-      startWatch,
-    });
-    const session = owner.service.open(vi.fn());
-
-    const { watchId } = await session['workspace/files/watch']({ path: synthetic });
-    await expect(session['workspace/files/watch-retry']({ watchId })).resolves.toEqual({
-      reason: 'not-failed',
-      retried: false,
-    });
-    await session['workspace/files/unwatch']({ watchId });
-
-    expect(startWatch).not.toHaveBeenCalled();
   });
 
   it('pushes a file written in the root to the client that watches it', async () => {

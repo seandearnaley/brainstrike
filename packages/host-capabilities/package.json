@@ -25,7 +25,7 @@
     "./native-tools": "./src/native-tools/index.ts",
     "./platform": "./src/platform.ts",
     "./workspace-context": "./src/workspace-context/index.ts",
-    "./workspace-files": "./src/workspace-files/file-watches.ts",
+    "./workspace-files": "./src/workspace-files/index.ts",
     "./agent-ignore-guard": "./src/native-tools/agent-ignore-guard.ts",
     "./extract-url-refusal": "./src/native-tools/extract-url-refusal.ts",
     "./grep-search": "./src/native-tools/grep-search.ts",

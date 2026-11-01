@@ -1,25 +1,14 @@
 import path from 'node:path';
-import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
-import {
-  type DirectoryHandle,
-  type FileHandle,
-  type IFileNode,
-  isDurableRootId,
-} from '@brainstrike/file-system';
-import {
-  buildDirectoryListing,
-  descriptorFor,
-  MAX_DIRECTORY_ENTRIES,
-} from '@brainstrike/file-system/workspace-root-nodes';
+import { type DirectoryHandle, isDurableRootId } from '@brainstrike/file-system';
+import { descriptorFor } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import { NativeAuthorityTransitionError } from '../node-native-index/errors.ts';
-import { projectReadDenialDiagnostic, withReadDenialLogging } from './read-denial-diagnostic.ts';
 import {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
@@ -45,8 +34,6 @@ import { WorkspaceRootMutationLifetime } from './workspace-root-mutation-lifetim
 import { pathKey, pathsEqual } from './workspace-root-paths.ts';
 import {
   assertNativeAbsoluteReadPath,
-  type ResolvedWorkspaceRead,
-  readResolvedWorkspaceFile,
   resolveReadAgainstMountedRoot,
 } from './workspace-root-read.ts';
 import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.ts';
@@ -105,7 +92,6 @@ export class WorkspaceRootRegistry {
   private readonly mounts = new WorkspaceRootMountTable();
   private readonly availability = new WorkspaceRootAvailability();
   private readonly mutations = new WorkspaceRootMutationLifetime();
-  private readonly directReads = new Set<Promise<unknown>>();
   private rootDataDeletion: RootDataDeletionReservation | undefined;
   private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
   private readonly sourceLeases = new Set<{
@@ -258,8 +244,8 @@ export class WorkspaceRootRegistry {
     this.disposed = true;
     this.disposal ??= this.retireSourceLeases()
       .finally(async () => {
-        // Join caller-owned reads and mutations before closing mounts, even if source retirement failed.
-        await Promise.all([this.mutations.settled, Promise.allSettled([...this.directReads])]);
+        // Join mutations before closing mounts, even if source retirement failed.
+        await this.mutations.settled;
       })
       .then(() => {
         this.mounts.closeAll();
@@ -409,134 +395,6 @@ export class WorkspaceRootRegistry {
 
   listRecentRoots(): Promise<readonly RecentRootEntry[]> {
     return this.serializeMutation(() => listRecentRootEntries(this.storage));
-  }
-
-  readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
-    const diagnosticPath = projectReadDenialDiagnostic(handle.path);
-    const diagnosticRootId =
-      handle.rootId === undefined ? undefined : projectReadDenialDiagnostic(handle.rootId);
-    return withReadDenialLogging(logger, 'readDirectory', diagnosticPath, diagnosticRootId, () =>
-      this.ownDirectRead(() => this.readDirectoryUnlogged(handle))
-    );
-  }
-
-  private async readDirectoryUnlogged(handle: DirectoryHandle): Promise<IFileNode[]> {
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
-    await this.mutations.settled;
-    this.assertActive();
-    const resolved = await this.resolveRead(handle.path, handle.rootId);
-    const listing = await resolved.mounted.root.listDir(
-      resolved.relativePath,
-      MAX_DIRECTORY_ENTRIES
-    );
-    if (!listing) {
-      throw refusalError(
-        'availability',
-        'workspace.directory-unavailable',
-        'Directory is not accessible.',
-        'Check that the folder is available, then refresh.'
-      );
-    }
-    return buildDirectoryListing(resolved.mounted, handle.path, listing);
-  }
-
-  readFile(request: FileHandle | string): Promise<string> {
-    const requestedPath = typeof request === 'string' ? request : request.path;
-    const rootId = typeof request === 'string' ? undefined : request.rootId;
-    const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
-    const diagnosticRootId = rootId === undefined ? undefined : projectReadDenialDiagnostic(rootId);
-    return withReadDenialLogging(logger, 'readFile', diagnosticPath, diagnosticRootId, () =>
-      this.ownDirectRead(() => this.readFileUnlogged(requestedPath, rootId))
-    );
-  }
-
-  readFileByAbsolutePath(
-    requestedPath: unknown,
-    claimedRootPath: unknown,
-    claimedRootId: unknown
-  ): Promise<string> {
-    const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
-    return withReadDenialLogging(logger, 'readFileByAbsolutePath', diagnosticPath, undefined, () =>
-      this.ownDirectRead(() => {
-        assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
-        assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
-        if (!isDurableRootId(claimedRootId)) {
-          throw refusalError(
-            'input',
-            'workspace.root-id-invalid',
-            'The workspace folder identity is invalid.',
-            'Reconnect the folder and retry.'
-          );
-        }
-        return this.readFileByAbsolutePathUnlogged(requestedPath, claimedRootPath, claimedRootId);
-      })
-    );
-  }
-
-  private async ownDirectRead<T>(run: () => Promise<T>): Promise<T> {
-    this.assertActive();
-    const pending = run();
-    this.directReads.add(pending);
-    try {
-      return await pending;
-    } finally {
-      this.directReads.delete(pending);
-    }
-  }
-
-  private async readFileByAbsolutePathUnlogged(
-    requestedPath: string,
-    claimedRootPath: string,
-    claimedRootId: string
-  ): Promise<string> {
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
-    await this.mutations.settled;
-    this.assertActive();
-    const mounted = this.mounts.get(claimedRootId);
-    if (!mounted) {
-      throw refusalError(
-        'availability',
-        'workspace.root-unmounted',
-        'The workspace folder is no longer connected.',
-        'Reconnect the folder and retry.'
-      );
-    }
-    if (
-      !(
-        pathsEqual(mounted.presentationPath, claimedRootPath) ||
-        pathsEqual(mounted.canonicalPath, claimedRootPath)
-      )
-    ) {
-      throw refusalError(
-        'authorization',
-        'workspace.root-mismatch',
-        'The requested path does not match the connected folder.',
-        'Choose a file inside the connected folder.'
-      );
-    }
-    const resolved = await resolveReadAgainstMountedRoot(
-      requestedPath,
-      mounted,
-      this.resolveReadPath
-    );
-    return readResolvedWorkspaceFile(requestedPath, resolved);
-  }
-
-  private async readFileUnlogged(
-    requestedPath: string,
-    rootId: string | undefined
-  ): Promise<string> {
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
-    await this.mutations.settled;
-    this.assertActive();
-    const resolved = await this.resolveRead(requestedPath, rootId);
-    return readResolvedWorkspaceFile(requestedPath, resolved);
   }
 
   reserveRootDataDeletion(rootId: string): RootDataDeletionReservation {
@@ -944,38 +802,6 @@ export class WorkspaceRootRegistry {
         await this.retireMount(candidate.rootId);
       }
     }
-  }
-
-  private async resolveRead(
-    requestedPath: string,
-    rootId?: string
-  ): Promise<ResolvedWorkspaceRead> {
-    if (requestedPath.includes('\0')) {
-      throw refusalError(
-        'input',
-        'workspace.path-invalid',
-        'The requested path is invalid.',
-        'Choose a file inside a connected folder.'
-      );
-    }
-    if (rootId === undefined && !path.isAbsolute(requestedPath)) {
-      throw refusalError(
-        'input',
-        'workspace.root-id-invalid',
-        'A relative file read needs a connected folder identity.',
-        'Reconnect the folder and retry.'
-      );
-    }
-    const mounted = this.mounts.resolveForRead(requestedPath, rootId);
-    if (!mounted) {
-      throw refusalError(
-        rootId ? 'availability' : 'authorization',
-        rootId ? 'workspace.root-unmounted' : 'workspace.path-outside-root',
-        rootId ? 'Workspace root is not mounted.' : 'Path is outside every mounted workspace root.',
-        'Reconnect the folder or choose a file inside a connected folder.'
-      );
-    }
-    return resolveReadAgainstMountedRoot(requestedPath, mounted, this.resolveReadPath);
   }
 
   private serializeMutation<T>(

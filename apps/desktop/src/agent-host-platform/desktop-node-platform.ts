@@ -36,14 +36,16 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 import { hostWorkspaceDiscovery } from '@brainstrike/host-capabilities/workspace-context';
-import { createHostFileWatches } from '@brainstrike/host-capabilities/workspace-files';
+import {
+  createHostFileReads,
+  createHostFileWatches,
+} from '@brainstrike/host-capabilities/workspace-files';
 import { createWorkspaceRootResolver } from '@brainstrike/host-capabilities/workspace-root-cwd';
 import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
-import { hasE2eMockPathPrefix } from '../e2e-mock-root';
 import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
@@ -289,11 +291,10 @@ export async function createDesktopHostConfiguration(
     resolver: roots,
   });
   await startup.register(() => terminals.close());
-  // ADR-0029 stage 4: the Explorer's root watches. E2E's synthetic tree has nothing on disk to watch.
-  const fileWatches = createHostFileWatches({
-    ...(isElectronE2ETestMode() ? { isSyntheticRoot: hasE2eMockPathPrefix } : {}),
-    roots,
-  });
+  // ADR-0029 stage 4: the Explorer's reads of, and root watches on, live workspace roots.
+  const fileReads = createHostFileReads({ roots });
+  await startup.register(() => fileReads.close());
+  const fileWatches = createHostFileWatches({ roots });
   await startup.register(() => fileWatches.close());
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
@@ -324,9 +325,11 @@ export async function createDesktopHostConfiguration(
     close: async () => {
       // The MCP runtime joins while Main's platform connection is still open.
       await mcpHost.close();
-      // The terminals, root watches, language servers, command trees and command sessions this host started.
+      // The terminals, Explorer reads and root watches, language servers, command trees and
+      // command sessions this host started.
       const reaped = await Promise.allSettled([
         terminals.close(),
+        fileReads.close(),
         fileWatches.close(),
         disposeHostTools(),
       ]);
@@ -350,6 +353,7 @@ export async function createDesktopHostConfiguration(
         await request('platform/ready', {}, startup.signal)
       );
     },
+    fileReads: fileReads.service,
     fileWatches: fileWatches.service,
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     gitWorkspace: gitWorkspace.service,

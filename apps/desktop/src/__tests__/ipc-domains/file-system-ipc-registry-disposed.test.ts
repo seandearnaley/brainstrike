@@ -9,6 +9,7 @@ import {
   createFileSystem,
   createStorage,
   getRootsCatalog,
+  inMemoryRootSeams,
   ipcMethod,
   resetRootsCatalog,
 } from './file-system-ipc-test-harness';
@@ -33,8 +34,8 @@ async function restoreRootsQueuedBehindClose(): Promise<unknown> {
   const close = registerFileSystemIpcHandlers({
     fileSystem: createFileSystem(),
     getRootsCatalog,
-    isSyntheticFileSystemPath: () => true,
     storage: createStorage(),
+    workspaceRootRegistryFileSystemSeams: inMemoryRootSeams,
   });
   const restoring = ipcMethod('fs:restoreRoots')(createTrustedInvokeEvent());
   await close();

@@ -166,7 +166,8 @@ export * from './workspace-wire.ts';
 // v16 (2026-10-31): `auth/clear` is gone; a factory reset deletes the credential store (ADR-0015).
 // Additions since: `workspace/personas` and `workspace/context-files` (ADR-0029 stage 2a), and
 // the Explorer's root watches (`workspace/files/watch`, `workspace/files/unwatch`,
-// `workspace/files/watch-retry` and the `workspace/files/event` stream; ADR-0029 stage 4).
+// `workspace/files/watch-retry` and the `workspace/files/event` stream) and reads
+// (`workspace/files/list`, `workspace/files/read`, `workspace/files/exists`; ADR-0029 stage 4).
 export const AGENT_HOST_PROTOCOL_VERSION = 16;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));

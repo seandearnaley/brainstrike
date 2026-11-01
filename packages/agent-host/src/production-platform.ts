@@ -124,6 +124,8 @@ export interface ProductionHostPlatformOptions {
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
   close(): Promise<void>;
+  /** ADR-0029 stage 4: the desktop Explorer's reads. */
+  readonly fileReads?: HostPlatform['fileReads'];
   /** ADR-0029 stage 4: the desktop Explorer's root watches. */
   readonly fileWatches?: HostPlatform['fileWatches'];
   /** Purge process-local caches of a deleted thread. */
@@ -311,6 +313,7 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
  */
 type ProductionClientService =
   | 'auth'
+  | 'fileReads'
   | 'fileWatches'
   | 'gitWorkspace'
   | 'mcpContent'
@@ -325,6 +328,7 @@ function productionClientServices(
 ): Pick<HostPlatform, ProductionClientService> {
   return {
     ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.fileReads ? { fileReads: options.fileReads } : {}),
     ...(options.fileWatches ? { fileWatches: options.fileWatches } : {}),
     ...(options.gitWorkspace ? { gitWorkspace: options.gitWorkspace } : {}),
     ...(options.mcpContent ? { mcpContent: options.mcpContent } : {}),

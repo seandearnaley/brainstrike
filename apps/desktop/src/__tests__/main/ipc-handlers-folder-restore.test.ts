@@ -1,3 +1,6 @@
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -20,8 +23,10 @@ describe('IPC handlers - last-folder preference', () => {
   let storage: ElectronStorageAdapter;
   let storedValues: Map<string, string>;
   let close: () => Promise<void>;
+  let workspace: string;
 
   beforeEach(() => {
+    workspace = realpathSync(mkdtempSync(path.join(tmpdir(), 'ipc-handlers-root-')));
     resetRootsCatalog();
     vi.clearAllMocks();
     process.env['NODE_ENV'] = 'development';
@@ -32,8 +37,8 @@ describe('IPC handlers - last-folder preference', () => {
       readFile: vi.fn(async () => ''),
       requestDirectoryAccess: vi.fn(async () => ({
         kind: 'directory',
-        name: 'workspace',
-        path: '/test/workspace',
+        name: path.basename(workspace),
+        path: workspace,
         platform: 'electron',
       })),
       watchDirectory: vi.fn(),
@@ -49,22 +54,22 @@ describe('IPC handlers - last-folder preference', () => {
     } as unknown as ElectronStorageAdapter;
     close = registerIpcHandlers(fileSystem, storage, {
       getRootsCatalog,
-      isSyntheticFileSystemPath: () => true,
     });
   });
 
   afterEach(async () => {
     await close();
+    rmSync(workspace, { force: true, recursive: true });
   });
 
   it('does not let lastFolderPath create a second root authority', async () => {
-    storedValues.set('lastFolderPath', '/test/workspace');
+    storedValues.set('lastFolderPath', workspace);
 
     await expect(
       capabilityHandler('fs:restoreLastFolder')(createTrustedInvokeEvent())
     ).resolves.toBeNull();
     await expect(
-      capabilityHandler('fs:saveLastFolder')(createTrustedInvokeEvent(), '/test/workspace')
+      capabilityHandler('fs:saveLastFolder')(createTrustedInvokeEvent(), workspace)
     ).rejects.toMatchObject({
       code: 'boundary.internal',
       failure: { category: 'internal', kind: 'fault' },

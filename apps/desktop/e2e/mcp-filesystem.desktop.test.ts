@@ -1,14 +1,11 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Assistant chat (desktop)', () => {
   test.skip(!!process.env['CI'], 'Skipped in CI: Electron launch flag incompatibility.');
 
   test.beforeEach(async ({ modelProvider, window }) => {
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
     await configureAssistantProvider(window);
     modelProvider.setScript({ finalText: 'Hello from desktop assistant!' });
     await ensureMockWorkspaceOpen(window);
