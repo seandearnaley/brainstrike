@@ -3021,9 +3021,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      electron:
-        specifier: 'catalog:'
-        version: 45.1.0(supports-color@10.2.2)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@1.8.0)

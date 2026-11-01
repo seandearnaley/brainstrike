@@ -1,6 +1,6 @@
 # @brainstrike/storage
 
-Two string stores, separate from the host StateStore, conversation log and derived index.
+The renderer's durable stores, separate from the host StateStore, conversation log and derived index.
 
 ## Durable renderer stores
 
@@ -19,11 +19,3 @@ export const useExampleStore = create<ExampleState>()(
 - Main's Factory Reset clears the whole origin's storage (`clearStorageData`, ADR-0015), so every store joins reset by construction.
 - Tests get a clean store from `@brainstrike/test-utils/zustand-store-reset` (zustand's testing guide).
 - Preferences are not a secret store; credentials use the credential owner.
-
-## Main's ledgers
-
-`ElectronStorageAdapter` (from `@brainstrike/storage/electron`, Electron main only) implements `StorageAdapter` ([`types.ts`](src/types.ts)). It holds Main's workspace-root ledgers (`rootsList`, `recentRootsList`, `lastFolderPath`); the renderer has no IPC path to it.
-
-- Optional filename, default `electron-storage.json` under `app.getPath('userData')`.
-- JSON files with ordered temp-file/rename writes.
-- Invalid paths and corrupt or unreadable storage reject visibly.
