@@ -242,7 +242,7 @@ it('starts saved Pause cancellation while root registration owns an incomplete f
     acquire: unused,
     captureOwner: unused,
     closeOwner: unused,
-    deleteRootData: unused,
+    reserveRootData: unused,
     resume: unused,
     stopSources: unused,
   });

@@ -7,16 +7,28 @@ interface NativeCleanupOwner {
   readAuthority(): NativeIndexAuthority;
 }
 
+/** The agent host's hold on one folder's data deletion, from its reservation to its end. */
+export interface RootDataDeletionGrant {
+  /**
+   * `workspace/roots/delete-data`: retires the folder's command sessions and LSP servers,
+   * deletes its records and closes it. The host releases the reservation however it ends.
+   */
+  delete(): Promise<void>;
+  /** `workspace/roots/release-data-deletion`: the folder is back, untouched. */
+  release(): Promise<void>;
+}
+
 interface Dependencies {
   acquire(): Promise<unknown>;
   captureOwner(): Promise<NativeCleanupOwner>;
   closeOwner(): Promise<void>;
   /**
-   * The agent host's `workspace/roots/delete-data`: it fences the folder from every host read,
-   * watch, terminal and run borrow, retires the folder's command sessions and LSP servers,
-   * deletes its records and closes it.
+   * `workspace/roots/reserve-data-deletion`: the host refuses a folder it cannot delete (a
+   * read-only store, a folder it does not hold mounted, another change in flight) before
+   * anything is removed, and fences the folder from every host read, watch, terminal and run
+   * borrow until the grant ends.
    */
-  deleteRootData(rootId: string): Promise<void>;
+  reserveRootData(rootId: string): Promise<RootDataDeletionGrant>;
   resume(): Promise<void>;
   stopSources(): Promise<void>;
 }
@@ -50,8 +62,9 @@ export interface NativeRootDataDeletion {
 
 /**
  * Main's native index stops its sources around the agent host's deletion of one folder's data
- * (ADR-0029 stage 4): the index drops the folder's bindings while stopped, the host deletes its
- * records and closes it, and the index resumes. The host owns the folder; this owns the index.
+ * (ADR-0029 stage 4). The host reserves the folder first, so a deletion it would refuse removes
+ * nothing; the index then drops the folder's bindings while stopped, the host deletes its records
+ * and closes it, and the index resumes. The host owns the folder; this owns the index.
  */
 export function createNativeRootDataDeletion(dependencies: Dependencies): NativeRootDataDeletion {
   let running: Promise<void> | undefined;
@@ -60,6 +73,9 @@ export function createNativeRootDataDeletion(dependencies: Dependencies): Native
 
   const execute = async (rootId: string): Promise<void> => {
     await transitions;
+    // Nothing is stopped or removed until the host has reserved the folder.
+    const grant = await dependencies.reserveRootData(rootId);
+    let granted = true;
     let sourcesStopped = false;
     try {
       const owner = await dependencies.captureOwner();
@@ -67,20 +83,29 @@ export function createNativeRootDataDeletion(dependencies: Dependencies): Native
       await dependencies.stopSources();
       await removeCapturedRoot(owner, rootId);
       await dependencies.closeOwner();
-      await dependencies.deleteRootData(rootId);
+      // The host consumes the reservation, and releases it however the deletion ends.
+      granted = false;
+      await grant.delete();
     } catch (error) {
-      // A failed deletion leaves the folder as the host left it, and indexing resumes,
-      // so the user can retry.
+      // A failed deletion leaves the folder as the host left it: a reservation not yet
+      // consumed is released, and indexing resumes, so the user can retry.
+      const recoveries: unknown[] = [];
+      if (granted) {
+        await grant.release().catch((cause: unknown) => recoveries.push(cause));
+      }
       if (sourcesStopped) {
         try {
           await dependencies.resume();
           await dependencies.acquire();
         } catch (recovery) {
-          throw new AggregateError(
-            [error, recovery],
-            'Root data deletion failed and native indexing did not resume.'
-          );
+          recoveries.push(recovery);
         }
+      }
+      if (recoveries.length > 0) {
+        throw new AggregateError(
+          [error, ...recoveries],
+          'Root data deletion failed and did not fully recover.'
+        );
       }
       throw error;
     }

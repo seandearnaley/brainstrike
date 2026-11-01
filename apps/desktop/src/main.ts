@@ -790,8 +790,21 @@ const nativeRootDataDeletion = createNativeRootDataDeletion({
     return nativeIndexActivation.captureAcknowledgedAuthority();
   },
   closeOwner: () => nativeIndexActivation.closeNativeOwner(),
-  deleteRootData: async (rootId) => {
-    await agentHostMainClient.request('workspace/roots/delete-data', { rootId });
+  reserveRootData: async (rootId) => {
+    const { reservationId } = await agentHostMainClient.request(
+      'workspace/roots/reserve-data-deletion',
+      { rootId }
+    );
+    return {
+      delete: async () => {
+        await agentHostMainClient.request('workspace/roots/delete-data', { reservationId });
+      },
+      release: async () => {
+        await agentHostMainClient.request('workspace/roots/release-data-deletion', {
+          reservationId,
+        });
+      },
+    };
   },
   resume: () => nativeIndexActivation.resume(),
   stopSources: () => nativeIndexActivation.stopSources(),

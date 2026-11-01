@@ -107,7 +107,10 @@ describe('host root registry', () => {
     const rootId = root?.rootId ?? '';
     expect((await owner.roots.listRoots()).map((entry) => entry.rootId)).toEqual([rootId]);
 
-    const deletion = owner.service['workspace/roots/delete-data']({ rootId });
+    const { reservationId } = await owner.service['workspace/roots/reserve-data-deletion']({
+      rootId,
+    });
+    const deletion = owner.service['workspace/roots/delete-data']({ reservationId });
     await deleting.promise;
     expect(await owner.roots.listRoots()).toEqual([]);
     await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({ roots: [] });
@@ -188,7 +191,7 @@ describe('host root registry', () => {
       service.service['workspace/roots/pick']({}),
       owner.service['workspace/roots/add']({ path: other }),
       owner.service['workspace/roots/remove']({ rootId }),
-      owner.service['workspace/roots/delete-data']({ rootId }),
+      owner.service['workspace/roots/reserve-data-deletion']({ rootId }),
       service.service['workspace/roots/seed-for-e2e']({
         recentPaths: [],
         roots: [{ path: other, rootId: crypto.randomUUID() }],

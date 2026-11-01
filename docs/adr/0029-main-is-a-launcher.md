@@ -99,9 +99,10 @@ its Main side and quit step:
    on the host's mounted roots. The host removes a folder first and the index learns
    afterwards; a scan in flight on it ends as cancelled. `lastFolderPath`, Main's
    storage adapter and the reset profile reopen go. `fs:deleteRootData` stays in Main
-   while the native index does: it stops the index's sources around the host's
-   `workspace/roots/delete-data`, which fences the folder from every read, watch and
-   run borrow for the whole deletion. The `file-system` step goes once the native
+   while the native index does: the host reserves the folder's deletion first, which
+   refuses before anything is removed and fences the folder from every read, watch and
+   run borrow; the index's sources stop around the host's `workspace/roots/delete-data`,
+   which consumes the reservation. The `file-system` step goes once the native
    index's watches have left.
 5. MCP control, then index activation if the retrieval decision keeps it.
 

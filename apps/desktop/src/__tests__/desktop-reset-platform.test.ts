@@ -674,7 +674,7 @@ describe('createDesktopFactoryResetHandler', () => {
       acquire: async () => {},
       captureOwner: async () => unexpected(),
       closeOwner: async () => {},
-      deleteRootData: unexpected,
+      reserveRootData: async () => unexpected(),
       resume: async () => {},
       stopSources: async () => {},
     });

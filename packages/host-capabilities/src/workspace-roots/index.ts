@@ -10,6 +10,7 @@ import type { HostOpenRoot, HostRootRegistry } from '@brainstrike/agent-host';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type ManagedWorktreeAuthorizer,
+  type RootDataDeletionReservation,
   type SecureWorkspaceRoot,
   WorkspaceRootRegistry,
   type WorkspaceRootStorage,
@@ -149,6 +150,23 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
   });
   registry.setManagedWorktreeAuthorizer(options.managedWorktreeAuthorizer);
   const catalogRoots = createWorkspaceRootResolver(store);
+  // The data deletions Main reserved and has not yet consumed or released.
+  const deletions = new Map<string, RootDataDeletionReservation>();
+  const takeDeletion = (reservationId: string): RootDataDeletionReservation => {
+    const reservation = deletions.get(reservationId);
+    if (!reservation) {
+      throw new Error('The root data deletion reservation is not held.');
+    }
+    deletions.delete(reservationId);
+    return reservation;
+  };
+  /** A reservation Main never ended must not hold the registry's close. */
+  const releaseDeletions = (): void => {
+    for (const reservation of deletions.values()) {
+      reservation.release();
+    }
+    deletions.clear();
+  };
   const roots: WorkspaceRootResolver = {
     listRoots: async () =>
       (await catalogRoots.listRoots()).filter((root) => !registry.isDeletingRootData(root.rootId)),
@@ -160,11 +178,13 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       await publish();
       return wireRoot(added);
     },
-    // Main's native index asks for this with its sources stopped, and re-reads the roots as it
-    // resumes, so this sends Main no change. From the reservation to its release the folder is
-    // fenced: `roots` omits it (reads, watches, terminals, git) and run borrows are refused.
-    'workspace/roots/delete-data': async ({ rootId }) => {
-      const reservation = registry.reserveRootDataDeletion(rootId);
+    // Main's native index reserves first, so a deletion this host would refuse removes nothing,
+    // then stops its sources, drops the folder's bindings and asks for the deletion. It re-reads
+    // the roots as it resumes, so this sends Main no change. From the reservation to its end the
+    // folder is fenced: `roots` omits it (reads, watches, terminals, git), `mountedRoots()` and
+    // `useMountedRoot` refuse it, and run borrows are refused.
+    'workspace/roots/delete-data': async ({ reservationId }) => {
+      const reservation = takeDeletion(reservationId);
       try {
         await reservation.run(async () => {
           await reservation.retireSources();
@@ -172,7 +192,7 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
           await store.workspaceRoots({
             operation: 'delete',
             paths: [mounted.canonicalPath, mounted.presentationPath],
-            rootId,
+            rootId: mounted.rootId,
           });
           await reservation.disconnect();
         });
@@ -197,10 +217,21 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       return { root: wireRoot(added) };
     },
     'workspace/roots/recent': async () => ({ roots: await registry.listRecentRoots() }),
+    'workspace/roots/release-data-deletion': async ({ reservationId }) => {
+      takeDeletion(reservationId).release();
+      return null;
+    },
     'workspace/roots/remove': async ({ rootId }) => {
       await registry.removeRoot(rootId);
       await publish();
       return null;
+    },
+    // Refuses a read-only store, a folder not mounted, or another change holding the folders.
+    'workspace/roots/reserve-data-deletion': async ({ rootId }) => {
+      const reservation = registry.reserveRootDataDeletion(rootId);
+      const reservationId = crypto.randomUUID();
+      deletions.set(reservationId, reservation);
+      return { reservationId };
     },
     'workspace/roots/restore': async () => {
       const restored = await registry.restoreRoots();
@@ -252,8 +283,14 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
   };
 
   return {
-    close: () => registry.dispose(),
-    prepareClose: () => registry.prepareClose(),
+    close: () => {
+      releaseDeletions();
+      return registry.dispose();
+    },
+    prepareClose: () => {
+      releaseDeletions();
+      return registry.prepareClose();
+    },
     registry,
     roots,
     service,

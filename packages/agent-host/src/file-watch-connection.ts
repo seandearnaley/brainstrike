@@ -68,7 +68,9 @@ export function bindHostRootRegistryMethods(
   serve('workspace/roots/mounted');
   serve('workspace/roots/pick');
   serve('workspace/roots/recent');
+  serve('workspace/roots/release-data-deletion');
   serve('workspace/roots/remove');
+  serve('workspace/roots/reserve-data-deletion');
   serve('workspace/roots/restore');
   serve('workspace/roots/seed-for-e2e');
 }

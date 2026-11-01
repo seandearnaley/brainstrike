@@ -126,8 +126,8 @@ interface RegisterFileSystemIpcHandlersOptions {
 
 /**
  * `fs:deleteRootData` stays in Main while the native index does (ADR-0029 stage 5): its
- * transition wraps the host's `workspace/roots/delete-data`. Every other folder change is
- * the agent host's.
+ * transition runs between the host's reservation of the folder's deletion and the deletion
+ * itself. Every other folder change is the agent host's.
  */
 export function registerFileSystemIpcHandlers({
   onDeleteRootData,

@@ -94,7 +94,7 @@ async function twoFolders() {
     acquire: unused,
     captureOwner: unused,
     closeOwner: unused,
-    deleteRootData: unused,
+    reserveRootData: unused,
     resume: unused,
     stopSources: unused,
   });

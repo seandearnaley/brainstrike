@@ -24,8 +24,14 @@ leaves the root connected.
   serves the open folders but records and converges nothing, and every change
   (pick, add, remove, delete-data, seed) is refused with the store's read-only
   refusal before it touches a folder or opens the picker.
-- From `reserveRootDataDeletion` to its release a folder is absent from
-  `roots`, `mountedRoots()` and `useMountedRoot`, and run borrows are refused.
+- A data deletion is reserved on the host first
+  (`workspace/roots/reserve-data-deletion`), so a deletion the host would refuse
+  (read-only store, folder not mounted, another change in flight) removes
+  nothing. Only then does Main's index stop its sources and drop the folder's
+  bindings; `workspace/roots/delete-data` consumes the reservation, and any
+  earlier failure releases it (`release-data-deletion`) and resumes the index.
+- From the reservation to its end a folder is absent from `roots`,
+  `mountedRoots()` and `useMountedRoot`, and run borrows are refused.
 - Main's native index opens its own read handles only on
   `workspace/roots/mounted` and refuses one whose canonical path differs. The
   host removes a folder first; `IndexSourceRoots.followHost()` then retires its

@@ -243,7 +243,7 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
     acquire: f.activation.acquire,
     captureOwner: unused,
     closeOwner: f.activation.close,
-    deleteRootData: unused,
+    reserveRootData: unused,
     resume: f.activation.resume,
     stopSources: f.activation.stopSources,
   });

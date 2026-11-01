@@ -37,6 +37,12 @@ function fixture() {
       { embeddingSetId: 'collection', kind: 'collection' as const },
     ],
   };
+  const hostDelete = vi.fn(async () => {
+    events.push('host-delete');
+  });
+  const hostRelease = vi.fn(async () => {
+    events.push('host-release');
+  });
   const dependencies = {
     acquire: vi.fn(async () => {
       events.push('acquire');
@@ -49,12 +55,14 @@ function fixture() {
     closeOwner: vi.fn(async () => {
       events.push('writer-exited');
     }),
-    // The host's `workspace/roots/delete-data`: it refuses a folder it does not hold open.
-    deleteRootData: vi.fn(async (rootId: string) => {
+    // The host's `workspace/roots/reserve-data-deletion`: it refuses a folder it does not hold
+    // mounted before anything is removed, then deletes (or releases) under the reservation.
+    reserveRootData: vi.fn(async (rootId: string) => {
       if (rootId !== 'root') {
         throw new Error('Root data deletion requires an actually mounted root.');
       }
-      events.push('host-delete');
+      events.push('host-reserve');
+      return { delete: hostDelete, release: hostRelease };
     }),
     resume: vi.fn(async () => {
       events.push('resume');
@@ -68,6 +76,8 @@ function fixture() {
     authority,
     dependencies,
     events,
+    hostDelete,
+    hostRelease,
     removeScopedFile,
     service: createNativeRootDataDeletion(dependencies),
   };
@@ -128,11 +138,12 @@ it('joins source/read/inference work and the held native ACK before the host del
   const f = fixture();
   const deletion = f.service.deleteRootData('root');
   await vi.waitFor(() => expect(f.removeScopedFile).toHaveBeenCalledTimes(1));
-  expect(f.dependencies.deleteRootData).not.toHaveBeenCalled();
-  expect(f.events).toEqual(['sources-readers-inference-joined', 'native-remove']);
+  expect(f.hostDelete).not.toHaveBeenCalled();
+  expect(f.events).toEqual(['host-reserve', 'sources-readers-inference-joined', 'native-remove']);
   f.ack.resolve(true);
   await deletion;
   expect(f.events).toEqual([
+    'host-reserve',
     'sources-readers-inference-joined',
     'native-remove',
     'writer-exited',
@@ -150,27 +161,29 @@ it('keeps the folder on a native cleanup failure, reopens admission and indexing
   const f = fixture();
   f.removeScopedFile.mockRejectedValueOnce(new Error('Native cleanup failed'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Native cleanup failed');
-  expect(f.dependencies.deleteRootData).not.toHaveBeenCalled();
-  expect(f.events.slice(-2)).toEqual(['resume', 'acquire']);
+  expect(f.hostDelete).not.toHaveBeenCalled();
+  expect(f.events.slice(-3)).toEqual(['host-release', 'resume', 'acquire']);
   await expect(f.service.transition(async () => undefined)).resolves.toBeUndefined();
   f.ack.resolve(false);
   await f.service.deleteRootData('root');
-  expect(f.dependencies.deleteRootData).toHaveBeenCalledOnce();
+  expect(f.hostDelete).toHaveBeenCalledOnce();
 });
 
 it('keeps the folder and resumes indexing when physical source or writer retirement fails', async () => {
   const f = fixture();
   f.dependencies.stopSources.mockRejectedValueOnce(new Error('Reader still owns process'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Reader still owns process');
-  expect(f.dependencies.deleteRootData).not.toHaveBeenCalled();
+  expect(f.hostDelete).not.toHaveBeenCalled();
   expect(f.dependencies.resume).toHaveBeenCalledOnce();
   f.ack.resolve(true);
   f.dependencies.closeOwner.mockRejectedValueOnce(new Error('Writer still owns process'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Writer still owns process');
-  expect(f.dependencies.deleteRootData).not.toHaveBeenCalled();
+  expect(f.hostDelete).not.toHaveBeenCalled();
   expect(f.dependencies.resume).toHaveBeenCalledTimes(2);
+  // Each failed attempt gave the folder back to the host.
+  expect(f.hostRelease).toHaveBeenCalledTimes(2);
   await f.service.deleteRootData('root');
-  expect(f.dependencies.deleteRootData).toHaveBeenCalledOnce();
+  expect(f.hostDelete).toHaveBeenCalledOnce();
   expect(f.dependencies.resume).toHaveBeenCalledTimes(3);
 });
 
@@ -191,12 +204,30 @@ it('reports both failures when indexing cannot resume after a failed deletion', 
 it('reports the host refusing the deletion and resumes indexing', async () => {
   const f = fixture();
   f.ack.resolve(true);
-  f.dependencies.deleteRootData.mockRejectedValueOnce(
+  f.hostDelete.mockRejectedValueOnce(
     new Error('The captured root data deletion grant was replaced or retired.')
   );
   await expect(f.service.deleteRootData('root')).rejects.toThrow('replaced or retired');
   expect(f.events.slice(-2)).toEqual(['resume', 'acquire']);
   await expect(f.service.transition(async () => undefined)).resolves.toBeUndefined();
+});
+
+it('keeps every index binding and host record when the host refuses the deletion up front', async () => {
+  for (const refusal of [
+    new Error('the state store is read-only: database damaged'),
+    new Error('Root data deletion requires an actually mounted root.'),
+  ]) {
+    const f = fixture();
+    const bindings = structuredClone(f.authority.fileBindings);
+    f.dependencies.reserveRootData.mockRejectedValueOnce(refusal);
+    await expect(f.service.deleteRootData('root')).rejects.toBe(refusal);
+    // Nothing was stopped or removed: the folder's bindings and records are all still there.
+    expect(f.removeScopedFile).not.toHaveBeenCalled();
+    expect(f.authority.fileBindings).toEqual(bindings);
+    expect(f.hostDelete).not.toHaveBeenCalled();
+    expect(f.dependencies.stopSources).not.toHaveBeenCalled();
+    await expect(f.service.transition(async () => undefined)).resolves.toBeUndefined();
+  }
 });
 
 it('refuses unmounted roots and a second deletion while one runs', async () => {
@@ -206,7 +237,7 @@ it('refuses unmounted roots and a second deletion while one runs', async () => {
   const deletion = f.service.deleteRootData('root');
   await expect(f.service.deleteRootData('root')).rejects.toThrow('already running');
   await deletion;
-  expect(f.dependencies.deleteRootData).toHaveBeenCalledTimes(2);
+  expect(f.hostDelete).toHaveBeenCalledOnce();
 });
 
 it('deletes a folder the index does not own through the host, then reopens admission', async () => {
@@ -217,6 +248,7 @@ it('deletes a folder the index does not own through the host, then reopens admis
   await f.service.deleteRootData('root');
   expect(f.removeScopedFile).not.toHaveBeenCalled();
   expect(f.events).toEqual([
+    'host-reserve',
     'sources-readers-inference-joined',
     'writer-exited',
     'host-delete',
@@ -261,14 +293,14 @@ it('refuses a replaced native owner after a held native ACK before the host dele
   replaced = true;
   f.ack.resolve(true);
   await expect(deletion).rejects.toThrow('Original writer replaced');
-  expect(f.dependencies.deleteRootData).not.toHaveBeenCalled();
+  expect(f.hostDelete).not.toHaveBeenCalled();
 });
 it('reports a failed reacquisition after the disconnect and reopens admission', async () => {
   const f = fixture();
   f.ack.resolve(true);
   f.dependencies.acquire.mockRejectedValueOnce(new Error('Reopen failed'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Reopen failed');
-  expect(f.dependencies.deleteRootData).toHaveBeenCalledOnce();
+  expect(f.hostDelete).toHaveBeenCalledOnce();
   await expect(f.service.transition(async () => undefined)).resolves.toBeUndefined();
 });
 
@@ -278,7 +310,7 @@ it('refuses deletion during an already-admitted native transition without stoppi
   const transition = f.service.transition(() => held.promise);
   await expect(f.service.deleteRootData('root')).rejects.toThrow('already owns admission');
   expect(f.dependencies.stopSources).not.toHaveBeenCalled();
-  expect(f.dependencies.deleteRootData).not.toHaveBeenCalled();
+  expect(f.hostDelete).not.toHaveBeenCalled();
   held.resolve();
   await transition;
   f.ack.resolve(true);
@@ -289,6 +321,6 @@ it('stops nothing when capture refuses before any source/native cleanup starts',
   f.dependencies.captureOwner.mockRejectedValueOnce(new Error('Original owner unavailable'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Original owner unavailable');
   expect(f.dependencies.stopSources).not.toHaveBeenCalled();
-  expect(f.dependencies.deleteRootData).not.toHaveBeenCalled();
+  expect(f.hostDelete).not.toHaveBeenCalled();
   await expect(f.service.transition(async () => undefined)).resolves.toBeUndefined();
 });
