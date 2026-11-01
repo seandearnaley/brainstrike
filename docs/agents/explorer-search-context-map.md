@@ -9,9 +9,9 @@ an explicit mounted-root capability; web reads preserve handle/permission semant
 Late content results are generation-fenced, per-key failures remain visible, and
 Retry targets the failed key instead of restarting every consumer.
 
-Search hits retain exact file/chunk identity, source text, offsets and line ranges.
-Open the actual owning file and range; do not reconstruct snippets or count an
-unverified fragment as an answer. File tabs use those same source ranges. Raw file
+Search hits retain exact file identity, the matching line's text and its line
+number. Open the actual owning file at that line; do not reconstruct snippets or
+count an unverified fragment as an answer. Raw file
 content remains ephemeral in explorer state; it is not copied into durable
 selection snapshots or diagnostics. Markdown previews must not
 execute content or load arbitrary external resources.
@@ -65,6 +65,34 @@ excluded-path probe must itself honor hard ignores. Canonical indexing receives
 unchanged parser/chunker output; [indexer](indexer.md) owns publication and
 coverage, not the preview UI.
 
+## Search
+
+The Search tab reads the open folders on disk (ADR-0035). There is no index to wait
+for, and a saved file is found at once.
+
+- One engine: the host's streaming ripgrep core (`streamLiveGrep` in
+  `host-capabilities`), the same one the agent's grep collects. Entry policy, agent
+  ignore files, credential floor and caps are shared; never add a second search path
+  or a client-side filter.
+- On desktop the window calls `workspace/files/search`, gated to the private client
+  like the reads below. It searches every live root through its pinned handle and
+  reports each match by `rootId` and root-relative path, which are the Explorer's
+  identities. ripgrep only picks candidates; every file is read through the handle,
+  so in-root symlinks are skipped as the reads refuse them, and a root whose path no
+  longer resolves to the handle's canonical path is reported unreadable. Matches stream as `workspace/files/search/batch` on the caller's
+  connection, tagged with the request's `searchId`.
+- A new query, an option change or closing the tab aborts the request: the host kills
+  ripgrep and sends no batch after the abort, and the store's generation drops any
+  that were in flight. Batches reach the store once per animation frame; the tree is
+  the virtualized `TreeTable`.
+- A finished search names every cap it hit (match cap, file cap, a no-literal regex
+  at the file cap, time limit, unreadable folders). The match cap ends the search
+  cleanly (`stop`), keeping what it covered; `signal` is cancellation only. An invalid regex and "no folder
+  open" are refusals with a remedy, shown in the error card.
+- ripgrep is the bundled `@vscode/ripgrep` (unpacked from the asar when packaged).
+  There is no PATH lookup and no walk in its place: a ripgrep that cannot run fails
+  the search visibly.
+
 ## Reads
 
 On desktop the agent host serves the Explorer's reads (ADR-0029 stage 4):
@@ -101,6 +129,8 @@ cannot stand in for a full scan. Disposers join their actual subscriptions and
 cannot remove a replacement owner's watch.
 
 Decisions: [ADR-0016](../adr/0016-workspace-trust-and-ignore-chain.md),
-[ADR-0021](../adr/0021-thread-context-map-and-explicit-attachment.md).
+[ADR-0021](../adr/0021-thread-context-map-and-explicit-attachment.md),
+[ADR-0035](../adr/0035-workspace-retrieval-is-live-search.md).
 Implementation: `packages/file-explorer`, `packages/file-explorer-ui`,
-`packages/file-system` and desktop workspace readers.
+`packages/file-system`, `packages/workspace-search`,
+`packages/host-capabilities/src/workspace-files` and desktop workspace readers.

@@ -107,7 +107,8 @@ parent dies.
     process group);
   - command sessions (node-pty duplicates only the pty into fds 0–2; SIGHUP on hang-up);
   - stdio MCP servers (`StdioClientTransport` uses `[pipe, pipe, stderr]`; stdin reaches EOF);
-  - short `execFile` calls (git, ripgrep), otherwise bounded by their own timeouts.
+  - short `execFile` calls (git) and ripgrep searches, otherwise bounded by their own
+    timeouts.
 
 ## Consequences
 

@@ -17,7 +17,7 @@ describe('projection formats read back by the thread context map', () => {
     { kept: 0, lowerBound: false, offset: 50, total: 50 },
     { kept: 0, lowerBound: true, offset: 0, total: 0 },
   ])('round-trips a grep content page $offset+$kept/$total', (page) => {
-    const header = `grep content ${formatGrepProjectionPageRange(page)} live=js-walk`;
+    const header = `grep content ${formatGrepProjectionPageRange(page)} live=ripgrep`;
     expect(parseGrepContentProjectionPage(`${header}\nsrc/a.ts\n  1: x`)).toEqual({
       kept: page.kept,
       offset: page.offset,

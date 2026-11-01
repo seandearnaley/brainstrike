@@ -1,14 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from '../src/auth-connection.js';
-import { bindHostFileReadMethods, bindHostFileWatchMethods } from '../src/file-watch-connection.js';
+import {
+  bindHostFileReadMethods,
+  bindHostFileSearchMethods,
+  bindHostFileWatchMethods,
+} from '../src/file-watch-connection.js';
 import type {
   HostClientOrigin,
   HostFileReads,
+  HostFileSearch,
   HostFileWatches,
   HostFileWatchSession,
 } from '../src/ports.js';
 import {
+  FILE_SEARCH_BATCH,
   type HostMethod,
   WORKSPACE_FILES_EVENT,
   type WorkspaceFilesEvent,
@@ -17,7 +23,10 @@ import {
 function bound(fileWatches: HostFileWatches, origin: HostClientOrigin) {
   const handlers = new Map<HostMethod, (params: unknown) => Promise<unknown>>();
   const handle: HostMethodHandler = (method, request) => {
-    handlers.set(method, async (params) => await request(params as never));
+    handlers.set(
+      method,
+      async (params) => await request(params as never, new AbortController().signal)
+    );
   };
   const sendNotification = vi.fn(async () => undefined);
   const binding = bindHostFileWatchMethods(
@@ -97,7 +106,10 @@ describe('host file read methods', () => {
   const bind = (fileReads: HostFileReads | undefined, origin: HostClientOrigin) => {
     const handlers = new Map<HostMethod, (params: unknown) => Promise<unknown>>();
     const handle: HostMethodHandler = (method, request) => {
-      handlers.set(method, async (params) => await request(params as never));
+      handlers.set(
+        method,
+        async (params) => await request(params as never, new AbortController().signal)
+      );
     };
     bindHostFileReadMethods(handle, fileReads, origin);
     return handlers;
@@ -126,5 +138,83 @@ describe('host file read methods', () => {
     await expect(
       bind(undefined, 'desktop-ui').get('workspace/files/list')?.({ path: '/repo' })
     ).rejects.toThrow('Workspace file reading is unavailable on this host');
+  });
+});
+
+/** ADR-0035: the Explorer's live text search is the desktop user's, streamed to its own connection. */
+describe('host file search method', () => {
+  const summary = {
+    candidatesTruncated: false,
+    matches: 1,
+    matchLimitReached: false,
+    scanLimited: false,
+    timedOut: false,
+    unreadableRootIds: [],
+  };
+  const match = { line: 3, lineText: 'const needle = 1;', path: 'src/a.ts', rootId: 'root-1' };
+  const params = {
+    caseSensitive: false,
+    isRegex: false,
+    query: 'needle',
+    searchId: 'search-1',
+    wholeWord: false,
+  };
+  const bind = (fileSearch: HostFileSearch | undefined, origin: HostClientOrigin) => {
+    const controller = new AbortController();
+    const sendNotification = vi.fn(async () => undefined);
+    let run: ((value: unknown) => Promise<unknown>) | undefined;
+    const handle: HostMethodHandler = (_method, request) => {
+      run = async (value) => await request(value as never, controller.signal);
+    };
+    bindHostFileSearchMethods(
+      handle,
+      { dispose: vi.fn(), sendNotification } as unknown as MessageConnection,
+      fileSearch,
+      origin
+    );
+    return { controller, run: (value: unknown) => run?.(value), sendNotification };
+  };
+
+  it('streams batches named by the search id, then answers with what the search hit', async () => {
+    const service: HostFileSearch = {
+      search: vi.fn(async (_params, _signal, send) => {
+        send([match]);
+        return summary;
+      }),
+    };
+    const { run, sendNotification } = bind(service, 'desktop-ui');
+
+    await expect(run(params)).resolves.toEqual(summary);
+    expect(sendNotification).toHaveBeenCalledWith(FILE_SEARCH_BATCH, {
+      matches: [match],
+      searchId: 'search-1',
+    });
+  });
+
+  it('sends nothing once the client cancels the search', async () => {
+    const { controller, run, sendNotification } = bind(
+      {
+        search: async (_params, _signal, send) => {
+          controller.abort();
+          send([match]);
+          return summary;
+        },
+      },
+      'desktop-ui'
+    );
+
+    await run(params);
+    expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  it('refuses a public-socket client, and says so where the host has no search', async () => {
+    const search = vi.fn();
+    await expect(bind({ search }, 'public-socket').run(params)).rejects.toThrow(
+      "Workspace file search is available only to the desktop's private client"
+    );
+    expect(search).not.toHaveBeenCalled();
+    await expect(bind(undefined, 'desktop-ui').run(params)).rejects.toThrow(
+      'Workspace file search is unavailable on this host'
+    );
   });
 });

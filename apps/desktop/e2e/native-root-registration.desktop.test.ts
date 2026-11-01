@@ -5,13 +5,12 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { updateIndexConfig } from './utils/index-config';
-import { configureNativeIndex, waitForEmbeddedFolder } from './utils/native-index-build';
-import { textReadiness } from './utils/text-search-mode';
 import {
-  openWorkspaceSearchPanel,
-  runWorkspaceSemanticSearch,
-  waitForWorkspaceSemanticSearchResults,
-} from './utils/workspace-search-helpers';
+  configureNativeIndex,
+  vectorSearch,
+  waitForEmbeddedFolder,
+} from './utils/native-index-build';
+import { textReadiness } from './utils/text-search-mode';
 
 /** Adds a real folder with the explorer's Add Folder button, which picks `folder`. */
 async function addWorkspaceFolder(
@@ -53,11 +52,8 @@ test('indexes and searches a real folder registered while native ingestion is pa
     await addWorkspaceFolder(electronApp.app, window, rootPath, 'proof.ts');
     await updateIndexConfig(window, { paused: false });
     await waitForEmbeddedFolder(window, 1);
-    const panel = await openWorkspaceSearchPanel(window);
-    await runWorkspaceSemanticSearch(panel, 'real native root authority proof');
-    const results = await waitForWorkspaceSemanticSearchResults(panel);
-    expect(results.resultFileCount).toBeGreaterThan(0);
-    await expect(panel.getByRole('row').filter({ hasText: 'proof.ts' })).toBeVisible();
+    const { hits } = await vectorSearch(window, 'real native root authority proof', 5);
+    expect(hits.map((hit) => hit.relativePath)).toContain('proof.ts');
   } finally {
     await electron.closeForStateSeeding();
     await rm(rootPath, { force: true, recursive: true });

@@ -63,13 +63,11 @@ function regexValidationError(isRegex: boolean, query: string): string | null {
 /**
  * Query input + Match Case / Match Whole Word / Use Regular Expression
  * toggles (VS Code order). Invalid regex patterns block submit and surface
- * the parser message; semantic mode surfaces a "press enter" hint since it
- * has no live-as-you-type debounce (Task 10 owns the debounce).
+ * the parser message.
  */
 export function SearchInputBar({ onSubmit }: SearchInputBarProps) {
   const query = useWorkspaceSearchStore((state) => state.query);
   const setQuery = useWorkspaceSearchStore((state) => state.setQuery);
-  const mode = useWorkspaceSearchStore((state) => state.mode);
   const caseSensitive = useWorkspaceSearchStore((state) => state.caseSensitive);
   const wholeWord = useWorkspaceSearchStore((state) => state.wholeWord);
   const isRegex = useWorkspaceSearchStore((state) => state.isRegex);
@@ -131,9 +129,6 @@ export function SearchInputBar({ onSubmit }: SearchInputBarProps) {
           <div className="text-destructive text-xs" role="alert">
             {regexError}
           </div>
-        ) : null}
-        {mode === 'semantic' ? (
-          <p className="text-muted-foreground text-xs">Press Enter to search</p>
         ) : null}
       </div>
     </TooltipProvider>

@@ -10,7 +10,7 @@ import { NativeWorkspaceIndexProvider } from './native-workspace-index-provider'
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
   readonly nativeIndexSearch:
-    | (IndexSearchCapability &
+    | (Omit<IndexSearchCapability, 'grep'> &
         IndexConfigCapability &
         IndexLifecycleCapability &
         IndexRootRegistrationCapability)

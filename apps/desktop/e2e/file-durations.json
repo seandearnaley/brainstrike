@@ -118,7 +118,6 @@
     "native-index-damage-recovery.desktop.test.ts": 37.2,
     "native-index-effect-diagnostics.desktop.test.ts": 7.3,
     "native-index-empty-root.desktop.test.ts": 29.8,
-    "native-index-semantic-results.desktop.test.ts": 15.9,
     "native-index-shutdown-signal.desktop.test.ts": 71.3,
     "native-root-registration.desktop.test.ts": 13.3,
     "openrouter-output-room.desktop.test.ts": 6.8,
