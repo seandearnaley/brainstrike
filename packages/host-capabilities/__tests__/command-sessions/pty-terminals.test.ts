@@ -4,8 +4,8 @@ import path from 'node:path';
 import type { TerminalEvent } from '@brainstrike/agent-host/protocol';
 import type { IDisposable, IPty } from 'node-pty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopTerminals } from '../agent-host-platform/desktop-terminals';
-import { createCommandSessionManager } from '../assistant-server/command-session-manager';
+import { createCommandSessionManager } from '../../src/command-sessions/command-session-manager.ts';
+import { createPtyTerminals } from '../../src/command-sessions/pty-terminals.ts';
 
 const control = vi.hoisted(() => ({
   reaps: [] as ((error?: Error) => void)[],
@@ -61,7 +61,7 @@ let root: string;
 let ptys: ReturnType<typeof fakePty>[];
 
 function terminals() {
-  return createDesktopTerminals({
+  return createPtyTerminals({
     commandSessions: createCommandSessionManager({}),
     resolver: { listRoots: async () => [{ displayName: 'root', path: root, rootId: 'root' }] },
     spawn: () => {
@@ -88,7 +88,7 @@ async function open(owner: ReturnType<typeof terminals>, events: TerminalEvent[]
 beforeEach(async () => {
   control.reaps.length = 0;
   ptys = [];
-  root = await mkdtemp(path.join(tmpdir(), 'desktop-terminals-'));
+  root = await mkdtemp(path.join(tmpdir(), 'pty-terminals-'));
   vi.spyOn(process, 'kill').mockImplementation(() => true);
 });
 afterEach(async () => {

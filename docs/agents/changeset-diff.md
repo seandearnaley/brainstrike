@@ -1,50 +1,37 @@
 # Git changes and managed worktrees
 
+Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilities/src/git-workspace` (changeset, Git-inventory, worktree and snapshot services). Decisions: ADRs 0016, 0017 and 0029.
+
 ## Scope and trust
 
-Use the existing ChangesetDiffService, Git inventory and WorktreeService. Root
-and repository common-dir identity authorize operations; a path, one-way `.git`
-pointer or ledger row is insufficient. Resolve real containment and validate
-outside-root worktrees bidirectionally. Report unvalidated/prunable entries with
-a reason instead of hiding them. Mounting and adoption are separate operations;
-mount before binding a thread.
-
-Setup hooks run only for the explicitly granted checkout and consent. Archive
-captures a restorable snapshot and refuses active or unsafe ownership. Never
-modify the user's primary checkout as a side effect of creating/managing another.
-Physical native command/process retirement must finish before releasing or
-removing its repository directory; preserve failed joins.
+- Use the existing ChangesetDiffService, Git inventory and WorktreeService.
+- Root and repository common-dir identity authorize operations; a path, one-way `.git` pointer or ledger row does not.
+  - Resolve real containment and validate outside-root worktrees in both directions.
+  - Report unvalidated or prunable entries with a reason instead of hiding them.
+- Mounting and adoption are separate operations; mount before binding a thread.
+- Setup hooks run only for the explicitly granted checkout and consent.
+- Archive captures a restorable snapshot and refuses active or unsafe ownership.
+- Never modify the user's primary checkout as a side effect of managing another.
+- Native command/process retirement finishes before a repository directory is released or removed; failed joins are kept.
 
 ## Diff meaning
 
-The changeset kind determines the comparison. Unstaged means index versus working
-tree, not HEAD. Settled turns compare committed start/end snapshots; a live turn
-compares its start to current worktree. The host log owns run boundaries and tool
-attribution, not old SQL timestamps or an edit journal. Validate refs and scoped
-pathspecs, preserve rename pairing and refuse unresolved conflicts.
+- The changeset kind sets the comparison.
+  - Unstaged is index versus working tree, not HEAD.
+  - A settled turn compares committed start/end snapshots; a live turn compares its start to the current worktree.
+- The host log owns run boundaries and tool attribution, not SQL timestamps or an edit journal.
+- Validate refs and scoped pathspecs, keep rename pairing and refuse unresolved conflicts.
+- Unknown totals are null, not zero. Missing attribution is absent, not false.
+- Binary, full-text and hunks-only payloads keep their distinct meanings and explicit truncation reasons.
+- Probe size before reading. An incomplete or failed required snapshot fails the whole view, not one file.
 
-Unknown totals are null, not computed zero. Missing attribution is absent, not
-false. Binary, full-text and hunks-only payloads retain their distinct meanings
-and explicit truncation reasons. Probe size before reading; an incomplete or
-failed required snapshot fails the whole view, not just one file.
+## Snapshots and owners
 
-## Snapshot and UI owners
-
-Keep canonical snapshot ref bindings for opaque thread IDs; refuse mismatched
-metadata rather than reassigning or pruning another owner. Startup retention asks
-the host for live thread ownership. Unavailable ownership preserves refs and
-unreadable chains prevent reclamation. Per-edit undo and whole-turn shadow Git are
-separate restoration paths.
-
-Changes, git and worktrees are agent-host methods refused to every client but the
-desktop's private one, with strict envelopes; web omits them. The host owns the
-worktree ledger: Main reads a live worktree through `worktrees/managed-paths`.
-The standalone CLI host composes the same worktree service over its launch roots
-(listWorktrees, manageWorktree archive, shell correlation); creating a worktree
-and turn snapshots stay desktop-only. Changes uses the structured diff engine, with explicit
-invalidation and safe failure surfaces. A worktree status still
-loading is not a clean checkout; closing UI does not mutate durable run history.
-
-Implementation: `packages/types/src/changeset.ts` and
-`packages/host-capabilities/src/git-workspace` (changeset, Git-inventory,
-worktree and snapshot services). Decisions: ADRs 0016, 0017 and 0029.
+- Keep canonical snapshot ref bindings for opaque thread IDs; refuse mismatched metadata rather than reassigning or pruning another owner's refs.
+- Startup retention asks the host for live thread ownership. Unavailable ownership keeps refs; unreadable chains block reclamation.
+- Per-edit undo and whole-turn shadow Git are separate restoration paths.
+- Changes, git and worktree host methods are refused to every client but the desktop's private one, with strict envelopes.
+- The host owns the worktree ledger; Main reads a live worktree through `worktrees/managed-paths`.
+- The standalone CLI host composes the same worktree service over its launch roots (list, archive, shell correlation). Creating a worktree and turn snapshots stay desktop-only.
+- Changes uses the structured diff engine with explicit invalidation and safe failure surfaces.
+- A worktree status still loading is not a clean checkout. Closing UI never mutates durable run history.

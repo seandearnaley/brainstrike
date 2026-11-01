@@ -18,7 +18,7 @@
  * rule covers inference, not tooling — mirrors executeCommand's spawner). The
  * pool is keyed by workspace `rootId`; every server MUST be torn down on root
  * removal, factory reset, and app quit — see disposeLspServers /
- * evictLspServersForRoot, wired in desktop's host-tool-process.ts and the
+ * evictLspServersForRoot, wired in the hosts' command-sessions/host-tool-process.ts and the
  * standalone platform's close.
  *
  * NO SILENT FALLBACKS: an unresolvable server, an unsupported language, or a

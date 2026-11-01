@@ -1,13 +1,14 @@
 /**
  * The standalone CLI's Python (owner decision, 2026-11-01): the system Python 3
- * on PATH, asked of each candidate in order, and a visible, actionable refusal
- * when there is none. The POSIX cases put shims on a private PATH.
+ * on PATH, asked of each candidate in order once per host, and a visible,
+ * actionable refusal when there is none. The POSIX cases put shims on a
+ * private PATH.
  */
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { resolveSystemPython } from '../src/native-tools/system-python.js';
+import { createSystemPythonResolver } from '../src/native-tools/system-python.js';
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -31,7 +32,7 @@ async function pathWith(shims: Readonly<Record<string, string>>): Promise<string
 
 test('no Python on PATH is a refusal that names what was tried and how to fix it', async () => {
   await pathWith({});
-  const refusal = resolveSystemPython();
+  const refusal = createSystemPythonResolver()();
   await expect(refusal).rejects.toMatchObject({ code: 'python_not_found' });
   await expect(refusal).rejects.toThrow(
     process.platform === 'win32'
@@ -44,7 +45,7 @@ test.skipIf(process.platform === 'win32')(
   'runs the interpreter python3 names, as Python itself reports it',
   async () => {
     await pathWith({ python: 'exit 1', python3: 'printf /opt/python/bin/python3.13' });
-    await expect(resolveSystemPython()).resolves.toBe('/opt/python/bin/python3.13');
+    await expect(createSystemPythonResolver()()).resolves.toBe('/opt/python/bin/python3.13');
   }
 );
 
@@ -52,7 +53,7 @@ test.skipIf(process.platform === 'win32')(
   'skips a python3 that is not Python 3 and reports each candidate when none is',
   async () => {
     await pathWith({ python: 'echo "Unknown option: -I" >&2; exit 2', python3: 'exit 3' });
-    await expect(resolveSystemPython()).rejects.toThrow(
+    await expect(createSystemPythonResolver()()).rejects.toThrow(
       'tried python3 (not Python 3), python (Unknown option: -I)'
     );
   }
@@ -62,7 +63,7 @@ test.skipIf(process.platform === 'win32')(
   'falls through to python when python3 is absent',
   async () => {
     await pathWith({ python: 'printf /usr/bin/python3' });
-    await expect(resolveSystemPython()).resolves.toBe('/usr/bin/python3');
+    await expect(createSystemPythonResolver()()).resolves.toBe('/usr/bin/python3');
   }
 );
 
@@ -70,5 +71,25 @@ test('a stopped call stops resolving', async () => {
   await pathWith({});
   const stopped = new AbortController();
   stopped.abort(new Error('stopped'));
-  await expect(resolveSystemPython(stopped.signal)).rejects.toThrow('stopped');
+  await expect(createSystemPythonResolver()(stopped.signal)).rejects.toThrow('stopped');
 });
+
+test.skipIf(process.platform === 'win32')(
+  'asks Python once per host, and asks again only after a refusal',
+  async () => {
+    const directory = await pathWith({});
+    const resolve = createSystemPythonResolver();
+    await expect(resolve()).rejects.toMatchObject({ code: 'python_not_found' });
+    // Python installed after the refusal is found by the next call.
+    const probes = join(directory, 'probes.log');
+    await writeFile(
+      join(directory, 'python3'),
+      `#!/bin/sh\necho probe >> '${probes}'\nprintf /usr/bin/python3\n`
+    );
+    await chmod(join(directory, 'python3'), 0o755);
+    const calls = await Promise.all([resolve(), resolve(), resolve()]);
+    await expect(resolve()).resolves.toBe('/usr/bin/python3');
+    expect(calls).toEqual(['/usr/bin/python3', '/usr/bin/python3', '/usr/bin/python3']);
+    expect((await readFile(probes, 'utf8')).trim().split('\n')).toEqual(['probe']);
+  }
+);

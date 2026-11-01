@@ -13,7 +13,7 @@ import {
   type CommandSessionInfo,
   type CommandSessionManager,
   type CommandSessionRead,
-} from '../assistant-server/command-session-manager';
+} from './command-session-manager.ts';
 
 const logger = createLogger('HostCommandSessions');
 

@@ -51,14 +51,12 @@ function probeFailure(error: unknown): string {
  * The absolute path of the system Python 3, asked of each candidate in order.
  * None answering is a visible, actionable refusal naming what was tried.
  */
-export async function resolveSystemPython(signal?: AbortSignal): Promise<string> {
+async function probeSystemPython(): Promise<string> {
   const tried: string[] = [];
   for (const [command, ...args] of systemPythonCandidates()) {
-    signal?.throwIfAborted();
     try {
       const { stdout } = await execFileAsync(command, [...args, ...PROBE], {
         encoding: 'utf8',
-        ...(signal ? { signal } : {}),
         windowsHide: true,
       });
       if (stdout !== '') {
@@ -66,7 +64,6 @@ export async function resolveSystemPython(signal?: AbortSignal): Promise<string>
       }
       tried.push(`${[command, ...args].join(' ')} (no interpreter path)`);
     } catch (error) {
-      signal?.throwIfAborted();
       tried.push(`${[command, ...args].join(' ')} (${probeFailure(error)})`);
     }
   }
@@ -77,4 +74,35 @@ export async function resolveSystemPython(signal?: AbortSignal): Promise<string>
         : 'Install Python 3 so `python3` is on the host’s PATH,'
     } then retry.`
   );
+}
+
+/** The shared answer, or the caller's own Stop or deadline, whichever comes first. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) {
+    return work;
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
+/**
+ * One host's system Python: the first call spawns the probe, and every later
+ * run_python or skill-script call reuses its answer without spawning. A
+ * refusal is not kept, so a Python installed afterwards is found by the next
+ * call. Callers share one probe, which a caller's Stop leaves running for the
+ * others.
+ */
+export function createSystemPythonResolver(): (signal?: AbortSignal) => Promise<string> {
+  let resolved: Promise<string> | undefined;
+  return async (signal) => {
+    signal?.throwIfAborted();
+    resolved ??= probeSystemPython().catch((error: unknown) => {
+      resolved = undefined;
+      throw error;
+    });
+    return await untilAborted(resolved, signal);
+  };
 }

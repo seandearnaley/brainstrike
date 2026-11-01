@@ -46,6 +46,11 @@ import type { HostStartOptions } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import { createHostCapabilities } from './capabilities.ts';
+import { commandSessionExecutors } from './command-sessions/executors-sessions.ts';
+import {
+  disposeHostTools,
+  hostCommandSessionManager,
+} from './command-sessions/host-tool-process.ts';
 import { resolveHostDelegation } from './delegation.ts';
 import {
   hostShellCorrelation,
@@ -62,15 +67,13 @@ import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.ts';
 import {
   type CodeExecutionHost,
   createSharedNativeHostTools,
-  disposeLiveChildProcesses,
-  disposeLspServers,
+  createSystemPythonResolver,
   executeCommandExecutor,
   forgetSharedNativeToolThread,
   getEditDiagnostics,
   grepSearchExecutor,
   INSPECTION_TOOL_EXECUTORS,
   ReadWorkspaceFileCursorRegistry,
-  resolveSystemPython,
   runPythonExecutor,
   runSkillScriptExecutor,
   selectHostProjectionRewrites,
@@ -86,9 +89,9 @@ const logger = createLogger('StandalonePlatform');
 
 /**
  * The native tools a standalone host runs over its launch roots: the shared
- * ones, grep, language-server inspection, its shell, the managed worktrees
- * in its own ledger and the Agent Skills with their scripts. run_python joins
- * them where this machine has the OS fence (`standaloneToolIds`).
+ * ones, grep, language-server inspection, its shell and command sessions, the
+ * managed worktrees in its own ledger and the Agent Skills with their scripts.
+ * run_python joins them where this machine has the OS fence (`standaloneToolIds`).
  */
 const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceFile,
@@ -105,6 +108,8 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.lspInspect,
   NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.executeCommand,
+  NATIVE_TOOL_ID.inspectCommandSessions,
+  NATIVE_TOOL_ID.manageCommandSession,
   NATIVE_TOOL_ID.listWorktrees,
   NATIVE_TOOL_ID.manageWorktree,
   NATIVE_TOOL_ID.runSkillScript,
@@ -160,21 +165,28 @@ const standaloneWindowsCommandEntry = (): string =>
 
 /**
  * Owner decision (2026-11-01): this host runs the system Python 3, where
- * Desktop runs its bundled runtime. sandbox-runtime finds its own Linux
- * seccomp helper from its package.
+ * Desktop runs its bundled runtime; it asks for it once per host. sandbox-runtime
+ * finds its own Linux seccomp helper from its package.
  */
-const standaloneCodeExecution: CodeExecutionHost = {
-  resolvePythonExecutable: resolveSystemPython,
-  resolveSeccompApplyPath: () => undefined,
-  windowsCommandEntry: standaloneWindowsCommandEntry,
-};
+function standaloneCodeExecution(): CodeExecutionHost {
+  return {
+    resolvePythonExecutable: createSystemPythonResolver(),
+    resolveSeccompApplyPath: () => undefined,
+    windowsCommandEntry: standaloneWindowsCommandEntry,
+  };
+}
 
 /**
- * A run's host executors. executeCommand is composed as Desktop composes it:
- * the same executor, schema, cwd fence and `execute` risk, with its worktree
- * commands correlated on this host's own ledger.
+ * A run's host executors. executeCommand and the command sessions are composed
+ * as Desktop composes them: the same executors, schemas, cwd fence and
+ * `execute` risk, with shell commands correlated on this host's own ledger and
+ * sessions started only in the run's launch roots.
  */
-function standaloneHostExecutors(worktrees: HostWorktreeServices, threadId: string) {
+function standaloneHostExecutors(
+  worktrees: HostWorktreeServices,
+  threadId: string,
+  codeExecution: CodeExecutionHost
+) {
   return {
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
       correlation: hostShellCorrelation(worktrees, threadId),
@@ -182,21 +194,21 @@ function standaloneHostExecutors(worktrees: HostWorktreeServices, threadId: stri
     }),
     [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
     ...INSPECTION_TOOL_EXECUTORS,
+    ...commandSessionExecutors(() => ({
+      manager: hostCommandSessionManager(),
+      rootsFromRuntime: true,
+    })),
     ...hostWorktreeToolExecutors(worktrees, threadId),
-    [NATIVE_TOOL_ID.runPython]: runPythonExecutor(standaloneCodeExecution),
+    [NATIVE_TOOL_ID.runPython]: runPythonExecutor(codeExecution),
   };
 }
 
 /**
- * The command trees and language servers this host's runs started, and the
- * worktree service with its git-metadata watchers, all retired.
+ * The command trees, command sessions and language servers this host's runs
+ * started, and the worktree service with its git-metadata watchers, all retired.
  */
 async function disposeStandaloneChildren(worktrees: WorktreeWorkspace): Promise<void> {
-  const outcomes = await Promise.allSettled([
-    disposeLiveChildProcesses(),
-    disposeLspServers(),
-    worktrees.close(),
-  ]);
+  const outcomes = await Promise.allSettled([disposeHostTools(), worktrees.close()]);
   const failures = outcomes.flatMap((outcome) =>
     outcome.status === 'rejected' ? [outcome.reason] : []
   );
@@ -275,7 +287,7 @@ function standaloneSystemPrompt(
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
   const unavailable = configuredMcp ? 'Browser OAuth' : 'Configured MCP/Tasks, browser OAuth';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads, search and their scripts, Python ones on the system Python 3), Python code in the OS sandbox where this machine has one, the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands and persistent command sessions started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads, search and their scripts, Python ones on the system Python 3), Python code in the OS sandbox where this machine has one, the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -467,6 +479,8 @@ export async function createHostPlatform(
   }
   // Asked once, by the first run: the check loads the sandbox runtime.
   let codeFence: Promise<boolean> | undefined;
+  // This host's interpreter, probed by its first Python call and reused after.
+  const codeExecution = standaloneCodeExecution();
   // The worktree ledger and settings are this host's state store's; its roots are the launch roots.
   const worktrees = createWorktreeWorkspace({
     logger,
@@ -585,11 +599,11 @@ export async function createHostPlatform(
       const workspaceTools = createSharedNativeHostTools({
         diagnostics: (args) => getEditDiagnostics(args),
         executors: {
-          ...standaloneHostExecutors(worktreeTools, request.threadId),
+          ...standaloneHostExecutors(worktreeTools, request.threadId, codeExecution),
           ...skillToolExecutors(workspaceContext.workspaceSkills),
           [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(
             workspaceContext.workspaceSkills,
-            standaloneCodeExecution
+            codeExecution
           ),
         },
         ids: toolIds.workspace,

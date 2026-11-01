@@ -7,12 +7,15 @@ const owners = vi.hoisted(() => ({
   sessions: vi.fn<() => Promise<void>>(),
 }));
 
-vi.mock('@brainstrike/host-capabilities/native-tools', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/host-capabilities/native-tools')>()),
+vi.mock('../../src/native-tools/execute-command-tool.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/native-tools/execute-command-tool.ts')>()),
   disposeLiveChildProcesses: owners.commands,
+}));
+vi.mock('../../src/native-tools/lsp-diagnostics.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/native-tools/lsp-diagnostics.ts')>()),
   disposeLspServers: owners.languageServers,
 }));
-vi.mock('../assistant-server/command-session-manager', () => ({
+vi.mock('../../src/command-sessions/command-session-manager.ts', () => ({
   createCommandSessionManager: () => ({ dispose: owners.sessions }),
 }));
 
@@ -27,7 +30,7 @@ test('host tool disposal joins physical command retirement before it acknowledge
   const joined = Promise.withResolvers<number>();
   owners.commands.mockReturnValue(joined.promise);
   const { disposeHostTools, hostCommandSessionManager } = await import(
-    '../agent-host-platform/host-tool-process'
+    '../../src/command-sessions/host-tool-process.ts'
   );
   hostCommandSessionManager();
   let completed = false;
@@ -53,7 +56,7 @@ test('independent LSP and session failures do not skip the command join or lose 
   owners.sessions.mockRejectedValue(sessionFailure);
   owners.commands.mockReturnValue(joined.promise);
   const { disposeHostTools, hostCommandSessionManager } = await import(
-    '../agent-host-platform/host-tool-process'
+    '../../src/command-sessions/host-tool-process.ts'
   );
   hostCommandSessionManager();
   let completed = false;

@@ -38,7 +38,7 @@ export interface TerminalBridge {
     /**
      * Absolute path inside the root to pin the shell to; omitted ⇒ the root
      * itself. Mirrors `TerminalCreateParams` in
-     * `apps/desktop/src/agent-host-platform/desktop-terminals.ts`.
+     * `packages/host-capabilities/src/command-sessions/pty-terminals.ts`.
      */
     cwd?: string;
     cols?: number;
