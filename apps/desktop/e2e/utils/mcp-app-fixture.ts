@@ -100,7 +100,9 @@ export async function startMcpAppFixture(): Promise<McpAppFixture> {
       mcp.registerTool(
         MCP_APP_FIXTURE_TOOL,
         {
-          _meta: { ui: { resourceUri: RESOURCE_URI } },
+          // The deprecated flat key hosts must still accept; the lab's
+          // reference fixtures cover the nested `_meta.ui.resourceUri`.
+          _meta: { 'ui/resourceUri': RESOURCE_URI },
           description: 'Increment the counter and show it in its app.',
           inputSchema: z.object({ source: z.string() }),
         },
