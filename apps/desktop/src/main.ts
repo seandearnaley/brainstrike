@@ -481,7 +481,7 @@ const gracefulShutdown = createDesktopGracefulShutdown({
   markShuttingDown: markDesktopShuttingDown,
   planRun: planDesktopShutdownRun,
   // Fence the current native/profile owner before any renderer can request more work. The tray
-  // goes with it, so it stops reading the host quit is about to retire.
+  // goes with it, so its Open item cannot start a window once quit has begun.
   retireBackgroundAdmission: () => {
     nativeIndexActivation.fenceTerminal();
     appLifetime?.close();
@@ -600,6 +600,13 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     {
       name: 'read-workspace-file-cursors',
       stop: clearReadWorkspaceFileCursorRegistry,
+    },
+    // The OS login item lives outside userData: a factory reset turns it off, its default.
+    // Clearing content keeps settings, so it keeps this one too.
+    {
+      name: 'app-lifetime',
+      stop: () => appLifetime?.factoryReset() ?? Promise.resolve(),
+      stopForContent: () => Promise.resolve(),
     },
     // electron-updater's cache (a downloaded update and its pending-install
     // record) lives outside userData. Clearing content retains it: an update

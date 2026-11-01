@@ -64,6 +64,12 @@ export interface AppLifetimeOptions {
 export interface AppLifetime {
   /** Removes the tray for good: the app is quitting. */
   close(): void;
+  /**
+   * Factory reset: the OS login item lives outside the profile, so the reset turns it back to its
+   * default, off. The tray choice is in the settings file the reset deletes, and the icon follows
+   * it at the next close.
+   */
+  factoryReset(): Promise<void>;
   /** The last visible window has closed and the app stayed: the first time, say so. */
   lastWindowClosed(): void;
   /** Closing the last visible window quits now: no tray, the tray choice is off, or not yet known. */
@@ -192,6 +198,12 @@ export function createAppLifetime(options: AppLifetimeOptions): AppLifetime {
     close: () => {
       closed = true;
       syncTray();
+    },
+    factoryReset: () => {
+      if (loginItems.available && loginItems.read()) {
+        loginItems.write(false);
+      }
+      return Promise.resolve();
     },
     lastWindowClosed: () => {
       if (closed || !staysInTray()) {

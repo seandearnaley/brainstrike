@@ -273,6 +273,28 @@ describe('open at login', () => {
     lifetime.close();
   });
 
+  it('a factory reset turns open at login back off', async () => {
+    let openAtLogin = false;
+    const { lifetime } = lifetimeOf({
+      loginItems: {
+        available: true,
+        read: () => openAtLogin,
+        write: (enabled) => {
+          openAtLogin = enabled;
+        },
+      },
+      presence: Promise.resolve(fakeTray().presence),
+    });
+    await lifetime.setOpenAtLogin(true);
+
+    await lifetime.factoryReset();
+
+    await expect(lifetime.settings()).resolves.toMatchObject({
+      openAtLogin: { available: true, enabled: false },
+    });
+    lifetime.close();
+  });
+
   it('is unavailable, with its reason, where the install cannot register a login item', async () => {
     const reason = "Open at login isn't available on Linux yet.";
     const { lifetime } = lifetimeOf({
