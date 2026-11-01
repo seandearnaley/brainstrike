@@ -164,6 +164,7 @@ test("a subagent's canvases are read from the host, whose catalog lists top-leve
     onMcpSettings: () => () => undefined,
     onTelemetry: () => () => undefined,
     onTerminal: () => () => undefined,
+    onWorkspaceFiles: () => () => undefined,
     request: async <Method extends HostMethod>(method: Method): Promise<HostResults[Method]> =>
       replies[method] as HostResults[Method],
   });

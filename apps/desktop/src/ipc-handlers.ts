@@ -1,18 +1,11 @@
 import path from 'node:path';
-import type {
-  ManagedWorktreeAuthorizer,
-  MountedWorkspaceRoot,
-} from '@brainstrike/assistant-service/node-workspace-services';
+import type { ManagedWorktreeAuthorizer } from '@brainstrike/assistant-service/node-workspace-services';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import {
-  RootWatchRetirementError,
-  startJoinedRootWatch,
-} from '@brainstrike/file-system/native-watch';
+import { startJoinedRootWatch } from '@brainstrike/file-system/native-watch';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ContentClearResult } from '@brainstrike/types';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
-import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
 import { registerWorkspaceLedgersE2eHandlers } from './ipc-domains/workspace-ledgers-e2e-ipc';
 import type { WorkspaceRootRegistry } from './ipc-domains/workspace-root-registry';
 import {
@@ -113,44 +106,6 @@ export function createApplicationIpcDomain(
         }
       ),
   });
-  const unregisterFileSystemWatchIpcHandlers = registerFileSystemWatchIpcHandlers({
-    // Recursive Explorer watcher (batched, ignoreInitial, path-filtered). This
-    // concrete MAIN-owned closure is the sole production opt-in to bounded
-    // default-filter boundary reporting; the renderer/wire cannot request it.
-    // Git metadata retains its separate legacy policy.
-    // Health transitions flow back over fs:watch-health (BST-568 slice 3).
-    startWatch: async (directoryPath, onChanges, onHealth) => {
-      let mounted: MountedWorkspaceRoot | undefined;
-      const lease = await fileSystemDomain.roots.borrowSourceRootForPath(
-        directoryPath,
-        (root, ...callbacks) => {
-          mounted = root;
-          return watches.subscribe(root, ...callbacks);
-        }
-      );
-      try {
-        await lease.subscribe(
-          (changes, metadata) => onChanges([...changes], metadata),
-          () => undefined,
-          onHealth,
-          { requestId: 'visible-root-watch', signal: new AbortController().signal }
-        );
-        const captured = mounted;
-        if (!captured) {
-          throw new Error('Visible root watch did not acquire the mounted capability.');
-        }
-        return { close: () => lease.retire(), retry: () => watches.retry(captured) };
-      } catch (error) {
-        try {
-          await lease.retire();
-        } catch (retirementError) {
-          throw new RootWatchRetirementError([error, retirementError], () => lease.retire());
-        }
-        throw error;
-      }
-    },
-  });
-
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async (): Promise<void> => {
@@ -159,7 +114,6 @@ export function createApplicationIpcDomain(
         ...(unregisterContentClear ? [unregisterContentClear] : []),
         ...(unregisterFactoryReset ? [unregisterFactoryReset] : []),
         unregisterWorkspaceLedgersE2eHandlers,
-        unregisterFileSystemWatchIpcHandlers,
         () => watches.close(),
         () => fileSystemDomain.close(),
       ];

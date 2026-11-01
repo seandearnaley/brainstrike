@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createFileReadErrorPayload,
   FILE_READ_ERROR_CODE_NOT_FOUND,
@@ -8,6 +8,9 @@ import {
 } from '../file-read-errors';
 import { ElectronRendererFileSystemAdapter } from '../renderer/adapters';
 import { mockElectronAPI } from './setup';
+
+// The adapter's watches reach the agent host; the window's real connector loads the browser transport.
+vi.mock('../renderer/agent-host-client', () => ({ connectDesktopAgentHost: vi.fn() }));
 
 describe('file-read-errors', () => {
   it('creates the canonical file read error payload', () => {
