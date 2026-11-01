@@ -61,9 +61,8 @@ const MODELS = [
     sortOrder: 0,
   }),
   makeDbModel({
-    capabilities: { defaultDimension: 1536, type: 'embedding' },
-    id: 'text-embedding-3-small',
-    name: 'text-embedding-3-small',
+    id: 'gpt-5.6-mini',
+    name: 'gpt-5.6-mini',
     providerId: 'openai',
     sortOrder: 1,
   }),
@@ -161,31 +160,18 @@ describe('ModelCatalog default view', () => {
     expect(sectionToggle('anthropic')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('keeps Type at All and tags embedding rows, until Chat is chosen', async () => {
-    render(<ModelCatalog {...catalogProps()} />);
-    expect(
-      within(screen.getByTestId('model-row-text-embedding-3-small')).getByText('Embedding')
-    ).toBeInTheDocument();
-    await userEvent.click(
-      within(screen.getByRole('radiogroup', { name: 'Type' })).getByRole('radio', { name: 'Chat' })
-    );
-    await waitFor(() => {
-      expect(screen.queryByTestId('model-row-text-embedding-3-small')).not.toBeInTheDocument();
-    });
-  });
-
   it('keeps row order stable when a model is toggled', async () => {
     const props = catalogProps();
     const { rerender } = render(<ModelCatalog {...props} />);
-    await userEvent.click(screen.getByRole('switch', { name: 'Enable text-embedding-3-small' }));
-    expect(props.onToggle).toHaveBeenCalledWith('text-embedding-3-small', true);
-    rerender(<ModelCatalog {...props} models={withEnabled('text-embedding-3-small', true)} />);
+    await userEvent.click(screen.getByRole('switch', { name: 'Enable gpt-5.6-mini' }));
+    expect(props.onToggle).toHaveBeenCalledWith('gpt-5.6-mini', true);
+    rerender(<ModelCatalog {...props} models={withEnabled('gpt-5.6-mini', true)} />);
     const openai = screen.getByTestId('model-catalog-section-openai');
     expect(
       Array.from(openai.querySelectorAll('[data-testid^="model-row-"]'), (element) =>
         element.getAttribute('data-testid')
       )
-    ).toEqual(['model-row-gpt-5.6-terra', 'model-row-text-embedding-3-small']);
+    ).toEqual(['model-row-gpt-5.6-terra', 'model-row-gpt-5.6-mini']);
   });
 
   it('opens a details row from the row disclosure', async () => {
@@ -224,7 +210,7 @@ describe('ModelCatalog identity contracts', () => {
     const props = catalogProps();
     const { rerender } = render(<ModelCatalog {...props} />);
     const before = lastSectionProps('openai').section.rows;
-    rerender(<ModelCatalog {...props} models={withEnabled('text-embedding-3-small', true)} />);
+    rerender(<ModelCatalog {...props} models={withEnabled('gpt-5.6-mini', true)} />);
     const after = lastSectionProps('openai').section.rows;
     expect(after).not.toBe(before);
     expect(after[0]).toBe(before[0]);
@@ -235,7 +221,7 @@ describe('ModelCatalog identity contracts', () => {
     const props = catalogProps();
     const { rerender } = render(<ModelCatalog {...props} />);
     const { onCollapseAll, onExpandAll } = lastToolbarProps();
-    rerender(<ModelCatalog {...props} models={withEnabled('text-embedding-3-small', true)} />);
+    rerender(<ModelCatalog {...props} models={withEnabled('gpt-5.6-mini', true)} />);
     expect(lastToolbarProps().onExpandAll).toBe(onExpandAll);
     expect(lastToolbarProps().onCollapseAll).toBe(onCollapseAll);
   });
@@ -442,21 +428,18 @@ describe('ModelCatalog / shortcut', () => {
   });
 });
 
-// Ported from the deleted model-list.test.tsx (BST-1805 spec §10 step 3). Its
-// Chat/Embeddings tab assertions were dropped: the Type segment replaces the
-// tabs (see "keeps Type at All …" above).
+// Ported from the deleted model-list.test.tsx (BST-1805 spec §10 step 3).
 describe('ModelCatalog behaviour ported from ModelList', () => {
   const PORTED_PROVIDERS = [
-    makeDbProvider('voyage', 'Voyage AI', 0),
+    makeDbProvider('google', 'Google', 0),
     makeDbProvider('openai', 'OpenAI', 1),
   ];
   const PORTED_MODELS = [
     makeDbModel({
-      capabilities: { defaultDimension: 512, type: 'embedding' },
-      id: 'voyage-3-lite',
+      id: 'gemini-lite',
       isEnabled: true,
-      name: 'Voyage 3 Lite',
-      providerId: 'voyage',
+      name: 'Gemini Lite',
+      providerId: 'google',
       sortOrder: 0,
     }),
     makeDbModel({ id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', providerId: 'openai', sortOrder: 1 }),
@@ -493,7 +476,7 @@ describe('ModelCatalog behaviour ported from ModelList', () => {
     ).toBe('0.75rem');
     await userEvent.type(search(), 'terra');
     expect(await screen.findByTestId('model-row-gpt-5.6-terra')).toBeInTheDocument();
-    expect(screen.queryByTestId('model-row-voyage-3-lite')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('model-row-gemini-lite')).not.toBeInTheDocument();
   });
 
   it('toggles a model on and an enabled model off', async () => {
@@ -502,8 +485,8 @@ describe('ModelCatalog behaviour ported from ModelList', () => {
     await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
     await userEvent.click(screen.getByTestId('model-toggle-gpt-5.6-terra'));
     expect(props.onToggle).toHaveBeenCalledWith('gpt-5.6-terra', true);
-    await userEvent.click(screen.getByTestId('model-toggle-voyage-3-lite'));
-    expect(props.onToggle).toHaveBeenCalledWith('voyage-3-lite', false);
+    await userEvent.click(screen.getByTestId('model-toggle-gemini-lite'));
+    expect(props.onToggle).toHaveBeenCalledWith('gemini-lite', false);
   });
 
   it('disables a model switch while its write is in flight', async () => {

@@ -3,4 +3,4 @@
  * lazy-mounts `ThreadContextPage` from here. Nothing inside app-shell imports
  * this barrel; import the concrete module instead.
  */
-export { ThreadContextPage, type ThreadContextPageProps } from './thread-context-page';
+export { ThreadContextPage } from './thread-context-page';

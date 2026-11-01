@@ -63,4 +63,8 @@
 // v17 (2026-11-01): semantic recall and memory embeddings are gone (the retrieval decision,
 // BST-2428): `memory/embedder/probe`, the `memory.recall.failed` event, `memory.usage` of kind
 // `embedding` and `thread/memory/read`'s embedder model are removed.
-export const AGENT_HOST_PROTOCOL_VERSION = 17;
+// v18 (2026-11-01): the workspace index is gone (BST-2436): `workspace/search`,
+// `workspace/roots/mounted`, `workspace/roots/reserve-data-deletion` and
+// `workspace/roots/release-data-deletion` are removed, and `workspace/roots/delete-data` takes
+// the folder's `rootId` instead of a reservation.
+export const AGENT_HOST_PROTOCOL_VERSION = 18;

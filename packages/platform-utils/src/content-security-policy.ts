@@ -47,16 +47,6 @@ function buildConnectSrc(isDev: boolean, isElectron: boolean): string[] {
       'wss://localhost:*'
     );
   }
-  if (isElectron) {
-    // Desktop calls embedding providers directly; the browser cannot (CORS), so
-    // web routes them server-side and these origins stay Electron-only.
-    connectSrc.push(
-      'https://api.openai.com',
-      'https://generativelanguage.googleapis.com',
-      'https://api.cohere.com',
-      'https://api.voyageai.com'
-    );
-  }
   return connectSrc;
 }
 

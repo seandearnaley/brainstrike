@@ -6,9 +6,6 @@
  *
  * This enables accurate token counting without blocking the main thread or
  * requiring file content to be loaded first.
- *
- * Priority contract: foreground token counting (this hook) is never gated on background-sync
- * flags (`isImporting`, `isEmbeddingActive`).
  */
 
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
@@ -116,9 +113,9 @@ function doesPreloadedSnapshotCoverSelection(
   return normalizedPaths.every((path) => preloadedPaths.has(path));
 }
 
-// Foreground selection-driven dispatch is intentionally NOT gated on
-// `isImporting` or `isEmbeddingActive`. The tokenizer worker is CPU-only, and
-// the in-memory cache store applies each `set` synchronously, so concurrent
+// Foreground selection-driven dispatch is never gated on background work. The
+// tokenizer worker is CPU-only, and the in-memory cache store applies each
+// `set` synchronously, so concurrent
 // calls from the foreground and background paths cannot corrupt data.
 function getSelectionSkipState(params: {
   hasHandleSource: boolean;

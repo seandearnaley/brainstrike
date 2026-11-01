@@ -16,7 +16,6 @@ import {
   THREAD_CONTEXT_APP_ID,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import type { IndexChunkBoundsCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
@@ -119,31 +118,13 @@ function seed(): void {
   useThreadContextStore.getState().record('thread-1', { branchRunIds: ['r1', 'r2'], snapshot });
 }
 
-const chunkBounds: IndexChunkBoundsCapability = {
-  fileChunks: vi.fn<IndexChunkBoundsCapability['fileChunks']>(async ({ paths, rootId: root }) => ({
-    files: paths.map((path) => ({
-      chunks: [
-        { chunkId: `${path}-1`, contentHash: 'h', endLine: 20, startLine: 1, tokenCount: 10 },
-        { chunkId: `${path}-2`, contentHash: 'h', endLine: 40, startLine: 21, tokenCount: 10 },
-      ],
-      contentHash: 'h',
-      kind: 'indexed' as const,
-      path,
-    })),
-    rootId: root,
-    storeId: 's',
-  })),
-};
-
 const adapterRootId = 'adapter-1';
 const onRetryFileContent = vi.fn();
 
 function Page({
-  chunkBounds: bounds,
   fileContents = {},
   host,
 }: {
-  readonly chunkBounds: IndexChunkBoundsCapability | null;
   readonly fileContents?: Record<string, string>;
   readonly host?: AssistantThreadHostCapability;
 }): ReactElement {
@@ -157,7 +138,7 @@ function Page({
     <AssistantThreadHostContext value={host}>
       <WorkspaceTabsContext.Provider value={tabs}>
         <RootIdentityProvider dbRootIdByAdapterRootId={new Map([[adapterRootId, rootId]])}>
-          <ThreadContextPage chunkBounds={bounds} />
+          <ThreadContextPage />
         </RootIdentityProvider>
       </WorkspaceTabsContext.Provider>
     </AssistantThreadHostContext>
@@ -168,7 +149,6 @@ beforeEach(() => {
   onRetryFileContent.mockClear();
   useActiveThread.setState({ threadId: 'thread-1' });
   resetThreadContextStore();
-  vi.mocked(chunkBounds.fileChunks).mockClear();
   // The page is the Context workspace tab, shown.
   useWorkspaceTabSelectionStore.getState().openApp(THREAD_CONTEXT_APP_ID);
 });
@@ -180,27 +160,21 @@ afterEach(() => {
 describe('ThreadContextPage', () => {
   it('asks for an active thread, then for a first run', () => {
     useActiveThread.setState({ threadId: null });
-    render(<Page chunkBounds={null} />);
+    render(<Page />);
     expect(screen.getByText('No active thread')).toBeTruthy();
     act(() => useActiveThread.setState({ threadId: 'thread-1' }));
     expect(screen.getByText('Nothing delivered yet')).toBeTruthy();
   });
 
-  it("shows the latest turn's window, with compacted files still listed and drawn by index chunks", async () => {
+  it("shows the latest turn's window, with compacted files still listed and drawn by line bands", async () => {
     seed();
-    render(<Page chunkBounds={chunkBounds} />);
+    render(<Page />);
     expect(screen.getByTestId('context-map-window-tokens').textContent).toBe('~200 tokens');
     const files = screen.getAllByTestId('context-map-file');
     expect(files.map((file) => within(file).getAllByText(/\.ts$/u)[0]?.textContent)).toEqual([
       'b.ts',
       'a.ts',
     ]);
-    await waitFor(() =>
-      expect(chunkBounds.fileChunks).toHaveBeenCalledWith({
-        paths: ['src/a.ts', 'src/b.ts'],
-        rootId,
-      })
-    );
     await waitFor(() => expect(files[1]?.querySelector('[data-state="gone"]')).toBeTruthy());
     expect(screen.getAllByTestId('context-map-compaction-marker')).toHaveLength(1);
   });
@@ -210,7 +184,7 @@ describe('ThreadContextPage', () => {
     useThreadContextStore
       .getState()
       .recordRing('thread-1', { budgetTokens: 10_000, isEstimated: false, usedTokens: 4500 });
-    render(<Page chunkBounds={null} />);
+    render(<Page />);
     expect(screen.getByTestId('context-map-ring-total').textContent).toBe('4.5K / 10.0K tokens');
     expect(
       screen.getByRole('meter', { name: 'Context in use' }).getAttribute('aria-valuenow')
@@ -219,7 +193,7 @@ describe('ThreadContextPage', () => {
 
   it('scrubs to an earlier turn, where the compacted read was still in the window', () => {
     seed();
-    render(<Page chunkBounds={null} />);
+    render(<Page />);
     act(() => {
       fireEvent.click(screen.getByTestId('context-map-turn-1'));
     });
@@ -228,39 +202,11 @@ describe('ThreadContextPage', () => {
     expect(screen.getAllByTestId('context-map-file')).toHaveLength(1);
   });
 
-  it('reads chunk bounds once per file until the thread starts another turn', async () => {
-    seed();
-    render(<Page chunkBounds={chunkBounds} />);
-    await waitFor(() => expect(chunkBounds.fileChunks).toHaveBeenCalledTimes(1));
-    act(() => {
-      fireEvent.click(screen.getByTestId('context-map-turn-1'));
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('context-map-turn-2'));
-    });
-    expect(chunkBounds.fileChunks).toHaveBeenCalledTimes(1);
-    act(() => {
-      const next = [...rows()];
-      next.push({
-        event: { prompt: 'third', runId: 'r3', type: 'run.started' },
-        seq: next.length + 1,
-        threadId: 'thread-1',
-      });
-      const snapshot = new ThreadContextFold().accept(next);
-      useThreadContextStore
-        .getState()
-        .record('thread-1', { branchRunIds: ['r1', 'r2', 'r3'], snapshot });
-    });
-    await waitFor(() => expect(chunkBounds.fileChunks).toHaveBeenCalledTimes(2));
-  });
-
   it('flags a shown file whose delivered lines no longer match the current file', () => {
     seed();
     const key = encodeFileSelection(adapterRootId, 'src/b.ts');
     const lines = Array.from({ length: 20 }, () => 'x');
-    const { rerender } = render(
-      <Page chunkBounds={null} fileContents={{ [key]: lines.join('\n') }} />
-    );
+    const { rerender } = render(<Page fileContents={{ [key]: lines.join('\n') }} />);
     expect(onRetryFileContent).toHaveBeenCalledWith(key);
     // The lens names the folder the explorer shows, not the root's id.
     expect(screen.getByTestId('context-map-lens').textContent).toContain('project · in window');
@@ -269,7 +215,7 @@ describe('ThreadContextPage', () => {
     );
     expect(screen.queryByTestId('context-map-changed-since-read')).toBeNull();
     lines[2] = 'y';
-    rerender(<Page chunkBounds={null} fileContents={{ [key]: lines.join('\n') }} />);
+    rerender(<Page fileContents={{ [key]: lines.join('\n') }} />);
     expect(screen.getByTestId('context-map-changed-since-read').textContent).toBe(
       'Changed since read: src/b.ts'
     );
@@ -280,7 +226,7 @@ describe('ThreadContextPage', () => {
   it('reads the file again when the watcher reports a change that reaches it', () => {
     seed();
     const key = encodeFileSelection(adapterRootId, 'src/b.ts');
-    render(<Page chunkBounds={null} />);
+    render(<Page />);
     expect(onRetryFileContent).toHaveBeenCalledTimes(1);
     const change = (path: string) =>
       createFileExplorerRefreshEvent({
@@ -307,7 +253,7 @@ describe('ThreadContextPage', () => {
 
   it('leaves freshness unknown when the explorer has no text for the file', () => {
     seed();
-    render(<Page chunkBounds={null} />);
+    render(<Page />);
     expect(screen.getByTestId('context-map-lens-freshness').textContent).toBe(
       'Reading the current file…'
     );
@@ -318,7 +264,7 @@ describe('ThreadContextPage', () => {
 
   it('orders by everything delivered when switched to "Everything seen"', () => {
     seed();
-    render(<Page chunkBounds={null} />);
+    render(<Page />);
     act(() => {
       fireEvent.mouseDown(screen.getByTestId('context-map-mode-all'));
       fireEvent.click(screen.getByTestId('context-map-mode-all'));
@@ -444,7 +390,7 @@ describe('ThreadContextPage subagent lanes', () => {
       () => [child('child-1', 'r2'), child('child-2', 'r-off-branch')],
       async () => source
     );
-    render(<Page chunkBounds={null} host={host} />);
+    render(<Page host={host} />);
     const chip = await screen.findByRole('tab', { name: /Cedar-1a2b3c/u });
     expect(chip.textContent).toBe('Cedar-1a2b3c· working· ~100 tokens');
     expect(screen.queryByRole('tab', { name: /Oak-9f0e1d/u })).toBeNull();
@@ -465,7 +411,7 @@ describe('ThreadContextPage subagent lanes', () => {
       () => [child('child-1', 'r2')],
       async () => source
     );
-    render(<Page chunkBounds={null} host={host} />);
+    render(<Page host={host} />);
     await screen.findByRole('tab', { name: /Cedar-1a2b3c/u });
     chooseLane(/Cedar-1a2b3c/u);
     expect(screen.getByTestId('context-map-title').textContent).toBe(
@@ -495,7 +441,7 @@ describe('ThreadContextPage subagent lanes', () => {
       .mockRejectedValueOnce(new Error('the host refused the read'))
       .mockResolvedValue(source);
     const { host } = laneHost(() => [child('child-1', 'r2')], open);
-    render(<Page chunkBounds={null} host={host} />);
+    render(<Page host={host} />);
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: /Cedar-1a2b3c/u }).textContent).toContain(
         'unavailable'
@@ -530,7 +476,7 @@ describe('ThreadContextPage subagent lanes', () => {
       () => children,
       async () => source
     );
-    const { unmount } = render(<Page chunkBounds={null} host={host} />);
+    const { unmount } = render(<Page host={host} />);
     await waitFor(() => expect(host.childThreads).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole('tab', { name: /This thread/u })).toBeNull();
     children = [child('child-1', 'r2')];
@@ -553,7 +499,7 @@ describe('ThreadContextPage subagent lanes', () => {
       () => [child('child-1', 'r2')],
       async () => source
     );
-    render(<Page chunkBounds={null} host={host} />);
+    render(<Page host={host} />);
     await screen.findByRole('tab', { name: /Cedar-1a2b3c/u });
     expect(host.openThreadContext).toHaveBeenCalledTimes(1);
     // Another workspace tab keeps this one mounted, hidden.
@@ -574,7 +520,7 @@ describe('ThreadContextPage subagent lanes', () => {
       },
       async () => laneSource({ isLoading: true })
     );
-    render(<Page chunkBounds={null} host={host} />);
+    render(<Page host={host} />);
     expect((await screen.findByRole('alert')).textContent).toBe(
       'Subagents could not be listed: host unavailable'
     );

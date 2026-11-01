@@ -25,9 +25,6 @@ describe('resolveModelReasoningSupport', () => {
       'not-in-catalog/anything',
       { reason: 'openrouter-undeclared', state: 'unknown' },
     ],
-    // Embedding-only providers cannot reason.
-    ['cohere', 'embed-english-v3.0', { state: 'unsupported' }],
-    ['voyage', 'voyage-3', { state: 'unsupported' }],
     // Unknown provider ids are visibly unsupported (never guessed).
     ['not-a-provider', 'whatever', { state: 'unsupported' }],
   ] as const)('resolves %s / %s', (provider, model, expected) => {
@@ -275,17 +272,11 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
-  it('hides controls for embedding-only and unknown providers', () => {
-    for (const [provider, model] of [
-      ['cohere', 'embed-english-v3.0'],
-      ['voyage', 'voyage-3'],
-      ['not-a-provider', 'whatever'],
-    ] as const) {
-      expect(resolveReasoningControlsAvailability(provider, model)).toEqual({
-        available: false,
-        reason: 'no-reasoning-controls',
-      });
-    }
+  it('hides controls for unknown providers', () => {
+    expect(resolveReasoningControlsAvailability('not-a-provider', 'whatever')).toEqual({
+      available: false,
+      reason: 'no-reasoning-controls',
+    });
   });
 
   it('normalizes provider id casing', () => {

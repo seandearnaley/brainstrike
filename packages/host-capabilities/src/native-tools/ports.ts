@@ -50,27 +50,6 @@ export interface EditDiagnosticsResult {
   truncated?: boolean;
 }
 
-/** Workspace Index maintenance a shell runs inside the file lock after a mutation. */
-export interface WorkspaceIndexMaintenance {
-  deleted(args: {
-    readonly rootId: string;
-    readonly workspacePath: string;
-  }): Promise<{ readonly invalidated: boolean }>;
-  edited(args: {
-    readonly absolutePath: string;
-    readonly content: string;
-    readonly rootId: string;
-    readonly size: number;
-    readonly workspacePath: string;
-  }): Promise<void>;
-  renamed(args: {
-    readonly absolutePath: string;
-    readonly rootId: string;
-    readonly rootPath: string;
-    readonly workspacePath: string;
-  }): Promise<void>;
-}
-
 /** The file-mutation tools' ports. */
 export interface FileMutationPorts {
   /** Post-edit language-server diagnostics; absent leaves the result without `lsp`. */
@@ -82,8 +61,6 @@ export interface FileMutationPorts {
   }) => Promise<EditDiagnosticsResult>;
   /** The one attribution owner for this execution's edits. */
   edits(call: NativeEditCall): HostWorkspaceEditTracker;
-  /** Absent when the shell's index watches files itself; delete/rename then report no invalidation. */
-  readonly index?: WorkspaceIndexMaintenance;
 }
 
 /** One thread's current plan. */

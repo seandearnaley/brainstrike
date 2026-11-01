@@ -63,15 +63,12 @@ export function createDesktopWorkspaceRootCatalog(
     return work;
   };
   return {
-    collections: (request) => borrow((client) => client.collections(request)),
-    indexConfig: (request) => borrow((client) => client.indexConfig(request)),
     modelChoices: (request) => borrow((client) => client.modelChoices(request)),
     // Joins admitted operations; each outcome stays its caller's, never a close failure.
     prepareClose: () => {
       closing ??= Promise.allSettled([...pending]).then(() => undefined);
       return closing;
     },
-    sourceCatalog: (request) => borrow((client) => client.sourceCatalog(request)),
     threadGroups: (request) => borrow((client) => client.threadGroups(request)),
     viewFilterPresets: (request) => borrow((client) => client.viewFilterPresets(request)),
     workspaceRoots: (request) => borrow((client) => client.workspaceRoots(request)),

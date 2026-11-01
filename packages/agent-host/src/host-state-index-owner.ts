@@ -1,6 +1,6 @@
 import { rm } from 'node:fs/promises';
 import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
-import type { IndexerPort, StateIndexerPort } from '@brainstrike/indexer';
+import type { StateIndexerPort, StateIndexPort } from '@brainstrike/indexer';
 import type { IndexerConnection } from '@brainstrike/indexer/transport';
 import { createLogger } from '@brainstrike/logging';
 
@@ -14,7 +14,7 @@ const logger = createLogger('AgentHostStateIndex');
 const STATE_INDEX_REPLACEMENTS = 3;
 
 /** Every state port the host hands out; each call reaches the owner's current worker. */
-type HostStateIndexPort = StateIndexerPort & Pick<IndexerPort, 'destroy'>;
+type HostStateIndexPort = StateIndexerPort & Pick<StateIndexPort, 'destroy'>;
 
 type ConnectedPort = Awaited<IndexerConnection['ready']>;
 

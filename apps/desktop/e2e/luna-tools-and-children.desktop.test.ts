@@ -82,7 +82,6 @@ test('Luna loads eager tools, runs an extensionless skill and completes three Ex
       const page = context.window;
       await expect(page.getByTestId('new-agent-button')).toBeVisible();
       await seedRoot(page, workspace, {
-        disableBackgroundIndexing: true,
         reloadReason: 'luna-tools',
         rootId,
       });

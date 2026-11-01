@@ -12,9 +12,9 @@ import type {
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
   getWorkspaceRoots,
+  NO_WORKSPACE_FOLDER_MESSAGE,
   resolveWorkspaceRoot,
 } from '@brainstrike/assistant-service/node-workspace-services';
-import { NO_WORKSPACE_FOLDER_MESSAGE } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { runReadWorkspaceFile } from './read-workspace-file-tool.ts';
 import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support.ts';

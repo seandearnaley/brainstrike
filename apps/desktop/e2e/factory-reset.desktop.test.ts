@@ -7,13 +7,11 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostRoot, readOpenWorkspaceFolders } from './utils/agent-host-log';
+import { readHostRoot, readOpenWorkspaceFolders, waitForAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
-import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { captureResetLogs } from './utils/reset-log-capture';
-import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
-import { textReadiness } from './utils/text-search-mode';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const FACTORY_RESET_BROWSER_CACHE_NAME = 'brainstrike-reset-e2e-cache';
@@ -238,22 +236,13 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
           'utf8'
         );
       }
-      const resetProbe = await seedNativeResetProbe(window, firstRoot);
+      await ensureMockWorkspaceOpen(window);
       await expect(window.getByText('reset-folder-0.txt', { exact: true })).toBeVisible();
       await electronApp.app.evaluate((_electron, rootPath) => {
         process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = rootPath;
       }, secondRoot);
       await window.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
       await expect(window.getByText('reset-folder-1.txt', { exact: true })).toBeVisible();
-      // The Explorer is renderer state: wait for the index's own readiness of both folders,
-      // since the new folder opens the next index generation (BST-2152).
-      await expect
-        .poll(() => textReadiness(window), { timeout: 60_000 })
-        .toEqual({ folders: 2, indexMode: 'text-only', kind: 'ready' });
-      expect(await readNativeResetProbe(window, resetProbe)).toEqual({
-        folders: 2,
-        retainedProbeIds: [resetProbe.indexedFileId],
-      });
       const mounted = await readFolders(userDataDir);
       expect(mounted[0]).toHaveLength(roots.length);
       expect(mounted[1]).toHaveLength(roots.length);
@@ -294,34 +283,21 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         });
       const { waitForAppReady } = await loadElectronHelpers();
       await waitForAppReady(window);
+      // The replacement window loaded while the profile was closed; it attaches to the
+      // reopened profile's fresh host without a restart.
+      await waitForAppHost(window);
       // No durable store's saved value survives: the fresh document starts on defaults.
       expect(await markedDurableKeys(window)).toEqual([]);
-      expect(await readNativeResetProbe(window, resetProbe)).toEqual({ folders: 0 });
-      await expect.poll(() => readFolders(userDataDir)).toEqual([[], []]);
+      expect(await readFolders(userDataDir)).toEqual([[], []]);
       await homePage.leaveSettings();
       for (const index of roots.keys()) {
         await expect(window.getByText(`reset-folder-${index}.txt`, { exact: true })).toHaveCount(0);
       }
-      // The replacement window loaded while the profile was closed; it learns the fresh
-      // profile's config from Main once the profile reopens, without a restart.
-      await expect(window.getByTestId('indexing-status-value')).toHaveText('Ready');
-      await homePage.openSettings();
-      const searchSettings = await settingsPage.openCategory(
-        /Search & Indexing/iu,
-        'search-indexing'
-      );
-      await expect(
-        searchSettings
-          .getByRole('group', { name: 'Search mode' })
-          .getByRole('button', { name: /^Text/u })
-      ).toHaveAttribute('aria-pressed', 'true');
-      await expect(searchSettings).not.toContainText('The search index is closed');
-
       const restarted = (await electronHarness.restart(logs.observeApp)).window;
       const restartedHomePage = new HomePage(restarted);
       const restartedSettingsPage = new SettingsPage(restarted);
       await waitForAppReady(restarted);
-      expect(await readNativeResetProbe(restarted, resetProbe)).toEqual({ folders: 0 });
+      await waitForAppHost(restarted);
       expect(await readFolders(userDataDir)).toEqual([[], []]);
       expect(await storedCredentials(restarted)).toEqual([]);
       await restartedHomePage.leaveSettings();

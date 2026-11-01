@@ -79,7 +79,6 @@ import {
   PlatformObserverCandidatesResultSchema,
   PlatformPickFolderResultSchema,
 } from './platform-wire';
-import { IndexSearchResultSchema } from './retrieval-wire';
 
 const logger = createLogger('DesktopNodePlatform');
 function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {
@@ -279,11 +278,6 @@ export async function createDesktopHostConfiguration(
         rootId: root.rootId,
       };
     },
-    refreshWorkspaceIndex: async (rootId) => {
-      wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
-        await request('platform/index/refresh', { rootId })
-      );
-    },
     roots,
     // The shadow-git snapshot backbone, under `userData/snapshots/<rootId>/git`;
     // the factory reset's userData wipe covers it.
@@ -295,10 +289,7 @@ export async function createDesktopHostConfiguration(
   await rootRegistry.start();
   // A run's workspace borrow holds the registry's mounts; removing a folder ends it.
   const workspace = new DesktopWorkspaceBindingAuthority({
-    borrowRoot: (root) =>
-      rootRegistry.registry.borrowSourceRootForPath(root.path, async () => {
-        throw new Error("A run's workspace borrow does not watch its folders");
-      }),
+    borrowRoot: (root) => rootRegistry.registry.borrowSourceRootForPath(root.path),
     readLiveWorktreePath: async (id) =>
       settled(await gitWorkspace.service['worktrees/managed-paths']({}, startup.signal)).find(
         (worktree) => worktree.id === id
@@ -546,49 +537,6 @@ export async function createDesktopHostConfiguration(
     // The shadow-git owner restores a host thread's rewind and its redo.
     rewindFiles: gitWorkspace.rewindFiles,
     rootRegistry: rootRegistry.service,
-    searchWorkspace: async (input, signal) => {
-      const result = Schema.decodeUnknownSync(IndexSearchResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'ignore',
-      })(
-        await request(
-          'desktop-read/index/search',
-          {
-            request: {
-              limit: input.limit,
-              mode: input.mode,
-              rootIds: [input.rootId],
-              text: input.query,
-            },
-            threadId: input.threadId,
-          },
-          signal
-        )
-      );
-      signal.throwIfAborted();
-      return {
-        candidateCount: result.candidateCount,
-        candidatesTruncated: result.candidatesTruncated,
-        hits: result.hits.map((hit) => {
-          if (hit.rootId !== input.rootId || !hit.relativePath) {
-            throw new Error('Native text search returned a file outside the requested root');
-          }
-          return {
-            chunkId: hit.chunkId,
-            content: hit.content,
-            endLine: hit.endLine,
-            fileId: hit.fileId,
-            path: hit.relativePath,
-            rootId: hit.rootId,
-            score: hit.score,
-            startLine: hit.startLine,
-          };
-        }),
-        scanLimited: result.scanLimited,
-        storeId: result.storeId,
-        truncated: result.truncated,
-      };
-    },
     selectProjectionRewrites: selectHostProjectionRewrites,
     terminals: terminals.service,
     validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {

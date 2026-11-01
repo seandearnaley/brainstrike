@@ -5,12 +5,6 @@
 export interface GrepMatch {
   after: string[];
   before: string[];
-  /** 1-based last line of the containing chunk within its file. */
-  chunkEndLine?: number;
-  /** Owning chunk id (file_chunks.id). */
-  chunkId?: string;
-  /** 1-based first line of the containing chunk within its file. */
-  chunkStartLine?: number;
   line: number;
   lineText: string;
   path: string;

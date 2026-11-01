@@ -10,7 +10,6 @@ import type { HostOpenRoot, HostRootRegistry, HostThreadReads } from '@brainstri
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type ManagedWorktreeAuthorizer,
-  type RootDataDeletionReservation,
   type SecureWorkspaceRoot,
   WorkspaceRootRegistry,
   type WorkspaceRootStorage,
@@ -44,9 +43,8 @@ export interface HostRootRegistryOptions {
   /** Main's native folder picker: the chosen folder, or null when the person cancelled. */
   readonly pickFolder: () => Promise<string | null>;
   /**
-   * Tells Main the open folders changed: its native index re-reads the live roots (it learns of a
-   * removal after the host disconnected the folder, D1), and its OS recent documents and File
-   * menu follow the recent-folders ledger.
+   * Tells Main the open folders changed: its OS recent documents and File menu follow the
+   * recent-folders ledger.
    */
   readonly publishRootsChanged: (change: {
     readonly grantedPath?: string;
@@ -154,23 +152,6 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
   });
   registry.setManagedWorktreeAuthorizer(options.managedWorktreeAuthorizer);
   const catalogRoots = createWorkspaceRootResolver(store);
-  // The data deletions Main reserved and has not yet consumed or released.
-  const deletions = new Map<string, RootDataDeletionReservation>();
-  const takeDeletion = (reservationId: string): RootDataDeletionReservation => {
-    const reservation = deletions.get(reservationId);
-    if (!reservation) {
-      throw new Error('The root data deletion reservation is not held.');
-    }
-    deletions.delete(reservationId);
-    return reservation;
-  };
-  /** A reservation Main never ended must not hold the registry's close. */
-  const releaseDeletions = (): void => {
-    for (const reservation of deletions.values()) {
-      reservation.release();
-    }
-    deletions.clear();
-  };
   let threadReads: HostThreadReads | undefined;
   /** The folders running runs were admitted with: an open closes them but keeps them mounted. */
   const runningRoots = (): Promise<Set<string>> => {
@@ -194,13 +175,12 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       await publish();
       return wireRoot(added);
     },
-    // Main's native index reserves first, so a deletion this host would refuse removes nothing,
-    // then stops its sources, drops the folder's bindings and asks for the deletion. It re-reads
-    // the roots as it resumes, so this sends Main no change. From the reservation to its end the
-    // folder is fenced: `roots` omits it (reads, watches, terminals, git), `mountedRoots()` and
-    // `useMountedRoot` refuse it, and run borrows are refused.
-    'workspace/roots/delete-data': async ({ reservationId }) => {
-      const reservation = takeDeletion(reservationId);
+    // Refused before anything is removed (a read-only store, a folder not mounted, another
+    // change holding the folders). From the reservation to its end the folder is fenced: `roots`
+    // omits it (reads, watches, terminals, git), `mountedRoots()` and `useMountedRoot` refuse it,
+    // and run borrows are refused.
+    'workspace/roots/delete-data': async ({ rootId }) => {
+      const reservation = registry.reserveRootDataDeletion(rootId);
       try {
         await reservation.run(async () => {
           await reservation.retireSources();
@@ -217,7 +197,6 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       }
       return null;
     },
-    'workspace/roots/mounted': async () => ({ roots: registry.mountedRoots() }),
     'workspace/roots/open': async ({ path: folder }) => {
       let opened: RootDescriptor;
       if (folder === undefined) {
@@ -252,21 +231,10 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       return { root: wireRoot(added) };
     },
     'workspace/roots/recent': async () => ({ roots: await registry.listRecentRoots() }),
-    'workspace/roots/release-data-deletion': async ({ reservationId }) => {
-      takeDeletion(reservationId).release();
-      return null;
-    },
     'workspace/roots/remove': async ({ rootId }) => {
       await registry.removeRoot(rootId);
       await publish();
       return null;
-    },
-    // Refuses a read-only store, a folder not mounted, or another change holding the folders.
-    'workspace/roots/reserve-data-deletion': async ({ rootId }) => {
-      const reservation = registry.reserveRootDataDeletion(rootId);
-      const reservationId = crypto.randomUUID();
-      deletions.set(reservationId, reservation);
-      return { reservationId };
     },
     'workspace/roots/restore': async () => {
       const restored = await registry.restoreRoots();
@@ -321,14 +289,8 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
     attachThreadReads: (reads) => {
       threadReads = reads;
     },
-    close: () => {
-      releaseDeletions();
-      return registry.dispose();
-    },
-    prepareClose: () => {
-      releaseDeletions();
-      return registry.prepareClose();
-    },
+    close: () => registry.dispose(),
+    prepareClose: () => registry.prepareClose(),
     registry,
     roots,
     service,

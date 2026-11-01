@@ -50,9 +50,7 @@ const ROOT_ID = 'w1-workspace-bar-root-00000000-0000-4000-8000-000000000010';
 
 /**
  * Seed ONE connected root (optionally alongside recent-roots grants) and
- * reload. Background indexing is seeded OFF: the bar reads the `roots` table
- * and the host Git bridge, never the index, so driving the embedding pipeline here
- * would only add minutes and flake surface.
+ * reload.
  */
 async function seedRoot(
   page: Page,
@@ -60,7 +58,6 @@ async function seedRoot(
   options: Pick<SeedRootOptions, 'recentPaths'> = {}
 ): Promise<void> {
   await seedWorkspaceRoot(page, rootPath, {
-    disableBackgroundIndexing: true,
     reloadReason: 'w1-workspace-bar-seed-root',
     rootId: ROOT_ID,
     ...options,

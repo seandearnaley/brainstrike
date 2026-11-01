@@ -220,7 +220,7 @@ function throwEnvFileFailures(failures: readonly DesktopEnvLoadFailure[]): void 
  * cannot pollute a run.
  *
  * **Production Behavior:**
- * - Environment variables are checked first (via resolveProviderEnvKey)
+ * - Environment variables are checked first (via resolveProviderEnvCredential)
  * - Falls back to encrypted platform storage (SecretsService)
  * - Merges both sources in the list operation
  *

@@ -1,6 +1,9 @@
 # ADR-0016: Workspace inputs: trusted by default, filtered by one ignore chain
 
 - **Status:** Accepted; the **Trust** bullet is superseded by [ADR-0032](0032-workspace-trust.md)
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the workspace index is deleted, so the
+    ignore chain no longer feeds index scans, indexed grep or semantic search. It binds the
+    walks, live grep and readers that remain.
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914
 

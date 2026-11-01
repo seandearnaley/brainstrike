@@ -232,7 +232,7 @@ export interface PersonaAvailabilityReads {
   catalogModel(
     target: { readonly model: string; readonly provider: string },
     signal: AbortSignal
-  ): Promise<{ readonly type: string | null } | null>;
+  ): Promise<{ readonly providerId: string } | null>;
   /** Each discovered MCP tool id and whether it is enabled. */
   mcpTools(): Promise<ReadonlyMap<string, boolean>>;
   readCredential(provider: string): Promise<ProviderCredential | undefined>;

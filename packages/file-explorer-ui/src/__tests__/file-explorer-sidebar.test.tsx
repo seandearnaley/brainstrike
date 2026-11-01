@@ -1758,14 +1758,14 @@ describe('FileExplorerSidebar', () => {
 
       // Dialog states the data-kept semantics and names the root.
       expect(screen.getByText('Disconnect project-b?')).toBeInTheDocument();
-      expect(screen.getByText(/indexed data is kept/iu)).toBeInTheDocument();
+      expect(screen.getByText(/saved data is kept/iu)).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'Disconnect' }));
 
       expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith(ROOT_ID_B, { deleteData: false });
     });
 
-    it('confirm with "Also delete indexed data" checked passes deleteData: true', async () => {
+    it('confirm with "Also delete folder data" checked passes deleteData: true', async () => {
       const { default: userEvent } = await import('@testing-library/user-event');
       const user = userEvent.setup();
       const onRemoveRoot = vi.fn().mockResolvedValue(undefined);
@@ -1774,7 +1774,7 @@ describe('FileExplorerSidebar', () => {
 
       const disconnectButtons = screen.getAllByLabelText('Disconnect folder');
       await user.click(disconnectButtons.at(1) as HTMLElement);
-      await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/iu }));
+      await user.click(screen.getByRole('checkbox', { name: /also delete folder data/iu }));
       await user.click(screen.getByRole('button', { name: 'Disconnect' }));
 
       expect(onRemoveRoot).toHaveBeenCalledExactlyOnceWith(ROOT_ID_B, { deleteData: true });

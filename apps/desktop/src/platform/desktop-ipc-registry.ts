@@ -1,11 +1,10 @@
+import { toBoundaryFailure } from '@brainstrike/agent-host/boundary-wire';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { Schema } from 'effect';
 import type { ipcMain as ElectronIpcMain, IpcMainInvokeEvent } from 'electron';
 import { isAppWindowSender } from '../app-windows';
 import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
-import { indexConfigCause, nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { DESKTOP_IPC_INVOKE_CHANNEL } from './desktop-ipc-channels';
 import {
   type DesktopIpcSenderFrameAllowlist,
@@ -297,13 +296,10 @@ export async function settleIpcResult<T>(
   try {
     return ipcOk(await run());
   } catch (error) {
-    // A config failure's cause is classified here, in Main's bundle: the shared shutdown-state
-    // bundle would hold a second copy of the config error classes.
-    const quitting = isExpectedShutdownRefusal(indexConfigCause(error));
+    const quitting = isExpectedShutdownRefusal(error);
     return ipcFailure(
-      nativeIndexBoundaryFailure(error, (message, fields) => {
-        const details =
-          error instanceof NativeIndexRefusalError ? fields : { ...fields, operation: failure };
+      toBoundaryFailure(error, (message, fields) => {
+        const details = { ...fields, operation: failure };
         // ADR-0015: work refused because the app is quitting is the expected outcome.
         if (quitting) {
           logger.info(message, details);

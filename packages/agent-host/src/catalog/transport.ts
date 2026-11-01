@@ -1,12 +1,5 @@
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { createCollectionClient, serveCollectionStore } from './collection-store.ts';
-import {
-  createIndexConfigClient,
-  type IndexConfigSettings,
-  serveIndexConfigStore,
-} from './index-config-store.ts';
 import { createModelChoiceClient, serveModelChoiceStore } from './model-choice-store.ts';
-import { createSourceCatalogClient, serveSourceCatalogStore } from './source-catalog-store.ts';
 import { createThreadGroupsClient, serveThreadGroups } from './thread-groups-store.ts';
 import {
   createViewFilterPresetClient,
@@ -16,29 +9,22 @@ import { createWorkspaceRootClient, serveWorkspaceRootStore } from './workspace-
 
 export function createHostCatalogClient(connection: MessageConnection) {
   return {
-    ...createCollectionClient(connection),
-    ...createIndexConfigClient(connection),
     ...createModelChoiceClient(connection),
-    ...createSourceCatalogClient(connection),
     ...createThreadGroupsClient(connection),
     ...createViewFilterPresetClient(connection),
     ...createWorkspaceRootClient(connection),
   };
 }
 export type HostCatalog = ReturnType<typeof createHostCatalogClient>;
-/** What serves the catalog: the acquired writer's domains and its settings. */
-export type HostCatalogStore = Omit<HostCatalog, 'indexConfig'> & IndexConfigSettings;
 
 /** These are borrowed endpoints of the acquired writer, never a second store. */
 export function serveHostCatalog(
   connection: Pick<MessageConnection, 'onRequest'>,
-  store: HostCatalogStore
+  /** The acquired writer's domains. */
+  store: HostCatalog
 ) {
   const endpoints = [
-    serveCollectionStore(connection, store),
-    serveIndexConfigStore(connection, store),
     serveModelChoiceStore(connection, store),
-    serveSourceCatalogStore(connection, store),
     serveThreadGroups(connection, store),
     serveViewFilterPresets(connection, store),
     serveWorkspaceRootStore(connection, store),

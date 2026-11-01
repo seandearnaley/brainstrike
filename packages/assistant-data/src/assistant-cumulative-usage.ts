@@ -31,7 +31,7 @@ export interface CumulativeSourceUsage {
  * Resolved thread-total usage view for the context meter (BST-953): every
  * durable captured row — chat turns, subagent delegations, OM observer/
  * reflector cycles — with in/out and cache-class totals. Still not itemized:
- * embeddings and some paused/resumed legs. `cost` therefore carries captured-
+ * some paused/resumed legs. `cost` therefore carries captured-
  * usage estimate provenance, never an unqualified exact-total claim, and OM
  * token figures are Mastra's local estimates (flagged per source).
  */

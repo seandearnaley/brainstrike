@@ -76,7 +76,6 @@ export function makeRowActions(overrides: Partial<CatalogRowActions> = {}): Cata
     onToggleDetails: vi.fn(),
     query: '',
     showTagline: true,
-    showTypeTag: true,
     ...overrides,
   };
 }

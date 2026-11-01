@@ -133,30 +133,3 @@ export function deleteThreadTruth(db, log, threadId, detached) {
 export function okThreads(log) {
   return log.threads().filter((thread) => log.status(thread).kind === 'ok');
 }
-
-/**
- * Blobs the source catalog's files still name, which GC keeps.
- * @param {import('better-sqlite3').Database} db
- * @returns {string[]}
- */
-export function sourceBlobRefs(db) {
-  return /** @type {string[]} */ (
-    db.prepare('SELECT DISTINCT content_hash FROM file_records').pluck().all()
-  );
-}
-
-/**
- * Blobs the source catalog retired, waiting for GC.
- * @param {import('better-sqlite3').Database} db
- * @returns {string[]}
- */
-export function sourceGcCandidates(db) {
-  return /** @type {string[]} */ (db.prepare('SELECT hash FROM source_blob_gc').pluck().all());
-}
-
-/** @param {import('better-sqlite3').Database} db @param {readonly string[]} hashes */
-export function acknowledgeSourceGc(db, hashes) {
-  db.prepare('DELETE FROM source_blob_gc WHERE hash IN (SELECT value FROM json_each(?))').run(
-    JSON.stringify(hashes)
-  );
-}

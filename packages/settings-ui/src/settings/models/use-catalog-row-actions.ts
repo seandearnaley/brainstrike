@@ -14,8 +14,6 @@ export interface CatalogRowActions {
   readonly query: string;
   /** False at the narrow tier (< 640px). */
   readonly showTagline: boolean;
-  /** True while the Type filter is All. */
-  readonly showTypeTag: boolean;
 }
 
 export const CatalogRowActionsContext = createContext<CatalogRowActions | null>(null);

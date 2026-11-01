@@ -6,13 +6,13 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import type { GrepMatch } from '@brainstrike/assistant-contract';
 import { Predicate } from 'effect';
 import type { GlobWorkspaceMatch, GlobWorkspaceToolResult } from './glob-workspace-tool.ts';
 import {
   type GrepFileSummary,
   type GrepToolResult,
   grepProjectionHeaderPrefix,
-  type ModelFacingGrepMatch,
   parseGrepToolResult,
 } from './grep-search-result-contract.ts';
 import {
@@ -51,7 +51,7 @@ function isGrepFileSummary(value: unknown): value is GrepFileSummary {
   );
 }
 
-function isGrepMatch(value: unknown): value is ModelFacingGrepMatch {
+function isGrepMatch(value: unknown): value is GrepMatch {
   if (!Predicate.isObject(value)) {
     return false;
   }
@@ -286,7 +286,7 @@ function fileGroupKey(item: RootLabelledItem & { path: string }): string {
  * gone; the read recipe lives in the tool descriptions once.
  */
 function renderContentItems(
-  matches: readonly ModelFacingGrepMatch[],
+  matches: readonly GrepMatch[],
   rootLabel: (item: RootLabelledItem) => string | null
 ): string[] {
   const lines: string[] = [];
@@ -347,7 +347,7 @@ function renderFileItems(
 
 function renderGrepItems(
   result: GrepToolResult,
-  items: readonly (GrepFileSummary | ModelFacingGrepMatch)[],
+  items: readonly (GrepFileSummary | GrepMatch)[],
   rootLabel: (item: RootLabelledItem) => string | null
 ): string[] {
   if (result.outputMode === 'files') {

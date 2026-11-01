@@ -1,32 +1,23 @@
 # @brainstrike/indexer
 
-A Node-only, rebuildable SQLite index (FTS/trigram text plus `sqlite-vec` vectors) with one writer process and authorized readers. It does no inference and is separate from the host StateStore and conversation log.
+The host state index: a Node-only, rebuildable SQLite projection of the conversation log (FTS/trigram over committed messages and observations) with one writer and authorized readers. It does no inference and is never a second transcript writer; the host StateStore stays the truth.
 
 ## Opening
 
-- `openIndexer(options, deadlines)` forks the package's process entry, which runs the writer worker. Desktop uses the Electron utility-process adapter in [`indexer-host-manager.ts`](../../apps/desktop/src/indexer-host-manager.ts); both share the same process core.
+- The agent host runs it on a worker thread: [`host-state-index-worker.ts`](../agent-host/src/host-state-index-worker.ts) calls `runIndexerProcess` (`@brainstrike/indexer/host`), whose process core starts the writer worker. [`host-state-index-owner.ts`](../agent-host/src/host-state-index-owner.ts) owns the connection.
+- `openIndexer(options, deadlines)` forks the same process core as a Node child; tests use it.
 - Shapes: [`contracts.ts`](src/contracts.ts), [`index.ts`](src/index.ts).
-- Options name the owned database path, authorized roots/scopes and a mode: `text-only` creates the index; `open-existing` requires one.
+- Options name the database path, the state root it projects and that root's producer module.
 - Deadlines: the owner supplies `closeMs`, the window from close request to exit, after which the process is killed and its exit still joined. Startup and requests have no deadline; the process is retired only on exit or a transport/protocol fault, never for being slow.
 
-## Publish and read
+## Projection and reads
 
-- Forward the canonical producer's chunks, spans, hashes and syntax metadata unchanged through `prepareFile`/`prepareScopedFile`; never reparse or split.
-- The standalone line-chunk API takes an explicit line policy and doesn't prove a tokenizer limit.
-- A prepared plan captures the previous snapshot.
-  - `commitTextFile` commits a root-list file's text and syntax (text-only).
-  - Scoped publication validates authority and commits text, vectors and syntax together.
-  - Publication acknowledgement, scan completion and coverage are different facts.
-- Vectors: each scoped binding carries the full `VectorProfile` (provider, model, dimensions, distance) and is partitioned by `vectorProfileHash`; reuse needs matching text and profile.
-- Reads:
-  - BM25/trigram need text; scoped vector reads need the admitted profile.
-  - Authorize roots/scopes before ranking, keep canonical hit metadata and exact rescoring, and report incomplete coverage.
-  - Hybrid fusion belongs to the consumer's retrieval policy.
-- State-message and observation projections are derived indexes, not another transcript writer.
+- Catch-up projects committed events in bounded steps (`catchUpStateStep`) and resumes where the last step committed.
+- `searchState` returns committed conversation rows of the requested threads that match every query word; `matchState` and `stateStats` serve one thread.
+- `stateBlobCounts` answers the StateStore's blob garbage-collection check.
 
 ## Retirement and rebuild
 
-- An unsupported profile or schema refuses visibly; opening never deletes the index. Schema construction lives in [`index-metadata.ts`](src/index-metadata.ts).
+- Any stored schema but `INDEX_SCHEMA_VERSION` refuses as `rebuild-required`; opening never upgrades or deletes the file. The host owner then destroys and rebuilds it. Schema construction lives in [`index-metadata.ts`](src/index-metadata.ts).
 - A rebuild preserves canonical chats, catalog and configuration.
 - `close()` joins the process; `destroy()` joins it, then deletes the database, WAL and shared-memory files. A refused kill is logged, never a fault (ADR-0030).
-- Contract: [indexer](../../docs/agents/indexer.md). Decision: [ADR-0018](../../docs/adr/0018-derived-sqlite-indexer.md).

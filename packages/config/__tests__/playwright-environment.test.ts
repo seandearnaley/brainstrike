@@ -128,11 +128,11 @@ describe('playwright-environment helpers', () => {
         '--shard',
         '2/4',
         '--grep-invert',
-        '@desktop-embedding-',
+        '@slow',
       ])
     ).toEqual({
       globalTimeout: '720000',
-      grepInvert: '@desktop-embedding-',
+      grepInvert: '@slow',
       maxFailures: '1',
       project: 'regression',
       retries: '0',

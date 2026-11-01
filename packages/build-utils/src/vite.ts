@@ -1,38 +1,8 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { HmrContext, Plugin, Rolldown } from 'vite';
+import type { HmrContext, Plugin } from 'vite';
 import { isCompilerHotspot } from './compiler-hotspots.ts';
-
-const CSP_QUALIFIED_EVAL_MODULES = [
-  // Python grammar path requalified under the production CSP (BST-2033).
-  // Keep version and module exact.
-  /\/node_modules\/\.pnpm\/web-tree-sitter@0\.27\.1\/node_modules\/web-tree-sitter\/web-tree-sitter\.js$/u,
-] as const;
-
-/**
- * Suppress only dependency eval warnings whose runtime paths have been
- * exercised under the production CSP without `unsafe-eval` (BST-573/594).
- *
- * Package versions stay pinned in the patterns so dependency upgrades or newly
- * introduced eval sites become visible again and require fresh review. Every
- * other Rolldown log is forwarded unchanged.
- */
-export function createCspQualifiedEvalWarningFilter(): NonNullable<Rolldown.InputOptions['onLog']> {
-  return (level, log, defaultHandler) => {
-    if (log.code !== 'EVAL') {
-      defaultHandler(level, log);
-      return;
-    }
-
-    const moduleId = (log.id ?? log.loc?.file)?.replaceAll('\\', '/');
-    if (moduleId && CSP_QUALIFIED_EVAL_MODULES.some((pattern) => pattern.test(moduleId))) {
-      return;
-    }
-
-    defaultHandler(level, log);
-  };
-}
 
 /**
  * Co-locate the whole context-action / command system into ONE chunk.
@@ -239,61 +209,6 @@ export function getLazySurfaceOptimizeDepsEntries(
   }
 
   return entries;
-}
-
-/**
- * Static-copy target for a vendored tree-sitter grammar `.wasm` file.
- * Shape matches `vite-plugin-static-copy`'s Target interface so the helper's
- * return value plugs straight into the `targets` array.
- *
- * The `rename: { stripBase: true }` field forces flat output: without it,
- * vite-plugin-static-copy preserves the source path beyond the workspace
- * root and the file ends up at `dist/assets/grammars/packages/
- * chunking-worker/grammars/python.wasm` instead of the expected
- * `dist/assets/grammars/python.wasm`. `stripBase: true` removes the entire
- * directory prefix, keeping just the basename.
- */
-export interface TreeSitterGrammarCopyTarget {
-  /** Output directory under the app's build `dist/` (the plugin handles the prefix). */
-  readonly dest: string;
-  /** Strip the source-path prefix so the file lands flat at `dest/<basename>`. */
-  readonly rename: { readonly stripBase: true };
-  /** Absolute path to the vendored grammar file in the monorepo. */
-  readonly src: string;
-}
-
-/**
- * Tree-sitter languages whose grammars are vendored under
- * `packages/chunking-worker/grammars/`. Adding a language to the rollout
- * means adding it here + landing the matching `<lang>.wasm` file +
- * extending the chunking-worker's adapter.
- *
- * Phase 1 (#998) ships Python only. Follow-on PRDs add Rust, Go,
- * Markdown, etc. by extending this list.
- */
-const VENDORED_TREE_SITTER_GRAMMARS = ['python'] as const;
-
-/**
- * Build the static-copy target list for tree-sitter grammars.
- *
- * The desktop vite config calls this so the grammar `.wasm` files ship to
- * `dist/assets/grammars/<lang>.wasm`. Future grammar additions just extend
- * `VENDORED_TREE_SITTER_GRAMMARS`.
- *
- * @param baseDir - the calling app's directory (`__dirname` from the
- *                  vite config). Path resolution is
- *                  `<baseDir>/../../packages/chunking-worker/grammars/<lang>.wasm`.
- * @returns Array of `{ src, dest, rename }` targets; pass directly into
- *          `viteStaticCopy({ targets: [...] })`.
- */
-export function getTreeSitterGrammarCopyTargets(baseDir: string): TreeSitterGrammarCopyTarget[] {
-  return VENDORED_TREE_SITTER_GRAMMARS.map((language) => ({
-    dest: 'assets/grammars',
-    rename: { stripBase: true },
-    src: toVitePath(
-      path.resolve(baseDir, '../../packages/chunking-worker/grammars', `${language}.wasm`)
-    ),
-  }));
 }
 
 function toVitePath(filePath: string): string {

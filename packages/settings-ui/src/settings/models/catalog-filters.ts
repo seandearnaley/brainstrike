@@ -2,7 +2,6 @@ import { matchesModelQuery } from '@brainstrike/ui';
 import type { CatalogRow } from './catalog-projection';
 
 export type CatalogStatusFilter = 'all' | 'disabled' | 'enabled';
-export type CatalogTypeFilter = 'all' | 'chat' | 'embedding';
 export type CatalogContextBand = '128k' | '1m' | '200k' | 'any';
 
 export interface CatalogFilters {
@@ -12,7 +11,6 @@ export interface CatalogFilters {
   readonly query: string;
   readonly reasoning: boolean;
   readonly status: CatalogStatusFilter;
-  readonly type: CatalogTypeFilter;
   readonly vision: boolean;
 }
 
@@ -22,7 +20,6 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilters = {
   query: '',
   reasoning: false,
   status: 'all',
-  type: 'all',
   vision: false,
 };
 
@@ -87,7 +84,6 @@ function matchesQuery(row: CatalogRow, query: string): boolean {
 export function matchesCatalogFilters(row: CatalogRow, filters: CatalogFilters): boolean {
   return (
     (filters.status === 'all' || row.enabled === (filters.status === 'enabled')) &&
-    (filters.type === 'all' || row.type === filters.type) &&
     (!filters.vision || row.vision === 'supported') &&
     (!filters.reasoning || row.reasoning?.state === 'supported') &&
     matchesContext(row, filters.context) &&
@@ -99,7 +95,6 @@ export function isCatalogFilterActive(filters: CatalogFilters): boolean {
   return (
     queryWords(filters.query).length > 0 ||
     filters.status !== 'all' ||
-    filters.type !== 'all' ||
     filters.vision ||
     filters.reasoning ||
     filters.context !== 'any' ||
@@ -113,7 +108,6 @@ export type CatalogFilterKey =
   | 'query'
   | 'reasoning'
   | 'status'
-  | 'type'
   | 'vision';
 
 export interface CatalogFilterChip {
@@ -151,9 +145,6 @@ export function describeActiveFilters(
   if (filters.status !== 'all') {
     chips.push({ key: 'status', label: filters.status === 'enabled' ? 'Enabled' : 'Disabled' });
   }
-  if (filters.type !== 'all') {
-    chips.push({ key: 'type', label: filters.type === 'chat' ? 'Chat' : 'Embedding' });
-  }
   if (filters.vision) {
     chips.push({ key: 'vision', label: 'Vision' });
   }
@@ -181,8 +172,6 @@ export function clearCatalogFilter(filters: CatalogFilters, key: CatalogFilterKe
       return { ...filters, reasoning: false };
     case 'status':
       return { ...filters, status: 'all' };
-    case 'type':
-      return { ...filters, type: 'all' };
     case 'vision':
       return { ...filters, vision: false };
     default: {

@@ -51,13 +51,13 @@ describe('ToolApprovalDialog', () => {
 
   const defaultTool: ToolApprovalInfo = {
     category: 'action',
-    description: 'Creates a new embedding collection for storing document vectors.',
-    id: 'brainstrike.createEmbeddingSet',
+    description: 'Creates a new thread group for organizing threads.',
+    id: 'brainstrike.createThreadGroup',
     input: {
-      modelKey: 'openai::text-embedding-3-small',
-      name: 'Test Collection',
+      color: 'blue',
+      name: 'Test Group',
     },
-    name: 'Create Embedding Set',
+    name: 'Create Thread Group',
   };
 
   beforeEach(() => {
@@ -81,8 +81,8 @@ describe('ToolApprovalDialog', () => {
       render(<ToolApprovalDialog onResult={mockOnResult} open={true} tool={defaultTool} />);
 
       expect(screen.getByText('name')).toBeInTheDocument();
-      expect(screen.getByText('Test Collection')).toBeInTheDocument();
-      expect(screen.getByText('modelKey')).toBeInTheDocument();
+      expect(screen.getByText('Test Group')).toBeInTheDocument();
+      expect(screen.getByText('color')).toBeInTheDocument();
     });
 
     it('shows category badge when provided', () => {

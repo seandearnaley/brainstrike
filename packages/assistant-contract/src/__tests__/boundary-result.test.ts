@@ -5,16 +5,16 @@ import { callBoundary, readBoundaryResult } from '../boundary-result.js';
 test('a plain transported refusal retains its remedy and machine-readable code', () => {
   const failure = refusal({
     category: 'availability',
-    code: 'native-index-transitioning',
-    message: 'Search is preparing.',
-    remedy: 'Wait for search to become ready.',
+    code: 'host.closing',
+    message: 'The agent host is closing.',
+    remedy: 'Reopen the thread.',
   });
   const wire = structuredClone({ error: failure, ok: false as const });
   expect(() => readBoundaryResult(wire)).toThrow(BoundaryFailureError);
   try {
     readBoundaryResult(wire);
   } catch (cause) {
-    expect(cause).toMatchObject({ code: 'native-index-transitioning', failure });
+    expect(cause).toMatchObject({ code: 'host.closing', failure });
   }
 });
 

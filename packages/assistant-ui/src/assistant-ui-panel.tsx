@@ -102,15 +102,12 @@ export interface ProviderModelOptionConfig {
   enabled: boolean;
   id: string;
   label: string;
-  supportsStandardDimension?: boolean;
   supportsStreaming?: boolean;
-  type: 'llm' | 'embedding';
+  type: 'llm';
 }
 
 export interface ProviderOptionConfig {
   capabilities: {
-    llm: boolean;
-    embeddings: boolean;
     streaming: boolean;
   };
   id: string;

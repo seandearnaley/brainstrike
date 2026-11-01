@@ -9,9 +9,7 @@ import {
 it('synchronously reserves the actual mount and rejects late borrows/mutations without deadlocking source shutdown', async () => {
   const registry = createRegistry({ resolveReadPath: async (requested) => requested });
   const root = await registry.addRoot(rootHandle('/owned'));
-  const borrowed = await registry.borrowSourceRootForPath(root.handle.path, async () => {
-    throw new Error('Never subscribed');
-  });
+  const borrowed = await registry.borrowSourceRootForPath(root.handle.path);
   const reservation = registry.reserveRootDataDeletion(root.rootId);
   await expect(
     borrowed.listDir('.', 10, { requestId: 'late-read', signal: new AbortController().signal })
@@ -22,11 +20,7 @@ it('synchronously reserves the actual mount and rejects late borrows/mutations w
   });
   await expect(registry.restoreRoots()).rejects.toThrow('deletion owns');
   await expect(registry.removeRoot(root.rootId)).rejects.toThrow('deletion owns');
-  await expect(
-    registry.borrowSourceRootForPath(root.handle.path, async () => {
-      throw new Error('Never subscribed');
-    })
-  ).rejects.toThrow('deletion owns');
+  await expect(registry.borrowSourceRootForPath(root.handle.path)).rejects.toThrow('deletion owns');
   held.resolve();
   await active;
   await reservation.run(async () => {

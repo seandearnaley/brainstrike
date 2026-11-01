@@ -17,18 +17,17 @@ const webFileTarget: ContextTarget = {
   rootFolderId: 'root-uuid',
 };
 
-const chunkTarget: ContextTarget = { content: 'hello', id: 'c1', kind: 'chunk' };
+const stripTarget: ContextTarget = { kind: 'tab-strip', stripId: 'strip-1' };
 
 const ok: ActionOutcome = { ok: true };
 
 function makeActions() {
   return {
-    copyContent: defineContextAction({
-      appliesTo: ['chunk'] as const,
-      group: 'copy',
-      id: 'collection.copy-content',
-      label: 'Copy Content',
-      requiredCapabilities: ['clipboard'] as const,
+    closeAll: defineContextAction({
+      appliesTo: ['tab-strip'] as const,
+      group: 'primary',
+      id: 'tab-strip.close-all',
+      label: 'Close All',
       run: async () => ok,
     }),
     copyFullPath: defineContextAction({
@@ -68,9 +67,9 @@ describe('createActionRegistry', () => {
       capabilities: new Set(['clipboard', 'fs.reveal']),
       services: {},
     });
-    const groups = registry.actionsFor(chunkTarget);
+    const groups = registry.actionsFor(stripTarget);
     const ids = groups.flatMap((group) => group.actions.map((action) => action.id));
-    expect(ids).toEqual(['collection.copy-content']);
+    expect(ids).toEqual(['tab-strip.close-all']);
   });
 
   it('hides actions whose required capability is missing (web)', () => {

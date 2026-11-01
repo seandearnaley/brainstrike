@@ -15,15 +15,11 @@ import type { RuntimeWorkspaceRoot } from '@brainstrike/assistant-contract';
  * contents plainly matched. A hosted model read that as "native grep is
  * broken" and fell back to shell commands.
  *
- * Two rules follow from that, and both matter:
- *
- * 1. **Resolve, or reject — never coerce.** A path that cannot be expressed
- *    relative to a mounted root is an error with a message the model can act
- *    on, never an allowlist entry that silently matches nothing.
- * 2. **One list, both passes.** The indexed pass matches `file_records.path`
- *    and the live pass matches its root-relative walk candidates; both are
- *    root-relative, so a single normalized allowlist feeds both. Normalizing
- *    in only one of them is how they diverged in the first place.
+ * The rule that follows: **resolve, or reject — never coerce.** A path that
+ * cannot be expressed relative to a mounted root is an error with a message the
+ * model can act on, never an allowlist entry that silently matches nothing. The
+ * live pass matches its root-relative walk candidates against the one
+ * normalized allowlist.
  */
 
 export type GrepFilePathsResolution =

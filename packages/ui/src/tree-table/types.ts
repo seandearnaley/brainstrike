@@ -26,7 +26,7 @@ export interface TreeNode<T = unknown> {
   isLoading?: boolean;
   /** Parent node ID, or null for root nodes */
   parentId: string | null;
-  /** Type discriminator for different node kinds (e.g., 'file', 'chunk', 'vector') */
+  /** Type discriminator for different node kinds (e.g., 'file', 'directory') */
   type: string;
 }
 
@@ -292,7 +292,7 @@ export interface TreeTableProps<T> {
   /**
    * Optional accessible name for a row's checkbox. Defaults to `Select ${node.id}`
    * when omitted. Use this when the node id is not a human-readable label (e.g.
-   * search chunk rows that should read "Select lines 8–12").
+   * search match rows that should read "Select lines 8–12").
    */
   getCheckboxAriaLabel?: (node: TreeNode<T>) => string | undefined;
 
@@ -301,7 +301,7 @@ export interface TreeTableProps<T> {
    * Pluggable per-node checkbox state. When provided, TreeTable renders a
    * checkbox for each node whose return value is a visible CheckboxState. Return
    * `'hidden'` or `undefined` to omit the checkbox for that row (e.g. match
-   * leaves under a chunk). Takes precedence over the built-in
+   * leaves under a file). Takes precedence over the built-in
    * `multiSelectedIds` cascade when resolving visual state.
    */
   getCheckboxState?: (node: TreeNode<T>) => TreeTableCheckboxRenderState | undefined;

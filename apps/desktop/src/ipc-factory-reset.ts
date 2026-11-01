@@ -1,4 +1,3 @@
-import type { ContentClearResult } from '@brainstrike/types';
 import { Schema } from 'effect';
 import { ipcMain } from 'electron';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
@@ -39,9 +38,7 @@ export function registerProfilePathIpcHandlers(getUserDataPath: () => string): (
   return () => registry.unregisterAll();
 }
 
-export function registerContentClearIpcHandlers(
-  clear: () => Promise<ContentClearResult>
-): () => void {
+export function registerContentClearIpcHandlers(clear: () => Promise<void>): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   registerDomain(
     registry,

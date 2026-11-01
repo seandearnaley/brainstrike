@@ -30,15 +30,6 @@ describe('matchesCatalogFilters', () => {
     expect(matchesCatalogFilters(on, withFilters({ status: 'disabled' }))).toBe(false);
   });
 
-  it('filters by type, defaulting to all', () => {
-    const chat = makeCatalogRow({ id: 'chat', type: 'chat' });
-    const embedding = makeCatalogRow({ id: 'emb', type: 'embedding' });
-    expect(matchesCatalogFilters(embedding, DEFAULT_CATALOG_FILTERS)).toBe(true);
-    expect(matchesCatalogFilters(chat, withFilters({ type: 'embedding' }))).toBe(false);
-    expect(matchesCatalogFilters(embedding, withFilters({ type: 'embedding' }))).toBe(true);
-    expect(matchesCatalogFilters(embedding, withFilters({ type: 'chat' }))).toBe(false);
-  });
-
   it('matches Vision only when vision is supported', () => {
     const filters = withFilters({ vision: true });
     expect(matchesCatalogFilters(makeCatalogRow({ id: 'y', vision: 'supported' }), filters)).toBe(
@@ -141,7 +132,6 @@ describe('isCatalogFilterActive', () => {
   it.each([
     [{ query: 'x' }],
     [{ status: 'enabled' as const }],
-    [{ type: 'chat' as const }],
     [{ vision: true }],
     [{ reasoning: true }],
     [{ context: '1m' as const }],
@@ -159,14 +149,12 @@ describe('describeActiveFilters / clearCatalogFilter', () => {
       query: ' claude ',
       reasoning: true,
       status: 'disabled',
-      type: 'embedding',
       vision: true,
     });
     const chips = describeActiveFilters(filters, new Map([['openai', 'OpenAI']]));
     expect(chips).toEqual([
       { key: 'query', label: '"claude"' },
       { key: 'status', label: 'Disabled' },
-      { key: 'type', label: 'Embedding' },
       { key: 'vision', label: 'Vision' },
       { key: 'reasoning', label: 'Reasoning' },
       { key: 'context', label: 'Context ≥ 200K' },

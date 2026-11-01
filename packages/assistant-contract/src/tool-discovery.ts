@@ -3,7 +3,6 @@ import type { NativeToolDiscoveryNamespace } from './native-tools/define.ts';
 import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.ts';
 import type { PermissionDecision } from './permission-policy.ts';
 import {
-  getProviderDefinition,
   listProviderLlmModels,
   type NativeToolSearchCapability,
   type ProviderId,
@@ -69,7 +68,6 @@ export type ToolDiscoveryFailureCode = (typeof TOOL_DISCOVERY_FAILURE_CODES)[num
 
 export type ToolDiscoveryAdapterUnsupportedReason =
   | 'model-lacks-requested-native-search'
-  | 'provider-has-no-llm'
   | 'requested-adapter-not-supported'
   | 'unknown-model';
 
@@ -136,11 +134,6 @@ function resolveRequestedAdapter(
 export function resolveToolDiscoveryAdapter(
   input: ResolveToolDiscoveryAdapterInput
 ): ToolDiscoveryAdapterResolution {
-  const provider = getProviderDefinition(input.provider);
-  if (!provider.capabilities.llm) {
-    return unsupportedAdapter('provider-has-no-llm', input.requestedAdapter);
-  }
-
   // Mastra catalog search is provider-runtime based, not model-capability
   // based. A caller that supplies a valid hosted model adapter directly (for
   // tests, evals, or an externally discovered model) must not be rejected only

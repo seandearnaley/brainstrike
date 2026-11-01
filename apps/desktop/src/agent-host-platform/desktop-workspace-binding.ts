@@ -3,13 +3,13 @@ import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import type { HostPlatform } from '@brainstrike/agent-host';
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
-import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
+import type { WorkspaceRootLease } from '@brainstrike/assistant-service/node-workspace-services';
 import { Schema } from 'effect';
 
 type BindingRequest = Parameters<NonNullable<HostPlatform['validateWorkspaceBinding']>>[0];
 type RuntimeWorkspaceRoot = NonNullable<RuntimeData['workspaceRoots']>[number];
 export interface DesktopWorkspaceBindingDependencies {
-  borrowRoot(root: RuntimeWorkspaceRoot): Promise<CanonicalWorkspaceLease>;
+  borrowRoot(root: RuntimeWorkspaceRoot): Promise<WorkspaceRootLease>;
   /** The path of a live (unarchived) managed worktree, or null when the ledger has none. */
   readLiveWorktreePath(id: string): Promise<string | null>;
   /** The catalog's display name for each id it still records, live or not. */
@@ -153,7 +153,7 @@ export class DesktopWorkspaceBindingAuthority {
         }
       }
     };
-    const leases: CanonicalWorkspaceLease[] = [];
+    const leases: WorkspaceRootLease[] = [];
     let retirement: Promise<void> | undefined;
     const close = (): Promise<void> => {
       retirement ??= (async () => {

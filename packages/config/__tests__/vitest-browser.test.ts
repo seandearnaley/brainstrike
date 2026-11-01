@@ -424,7 +424,7 @@ describe('createBrowserProject async-utility timeout wiring (BST-1299)', () => {
   });
 
   it('keeps the wiring inside `test`, where consumers spread it', () => {
-    // ui / assistant-ui / embedding-worker all spread `...browserProject.test`
+    // ui and assistant-ui spread `...browserProject.test`
     // into their own project object; anything published beside `test` would be
     // dropped without a word.
     const spreadByConsumers = {

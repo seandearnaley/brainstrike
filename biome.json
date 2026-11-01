@@ -243,18 +243,6 @@
       }
     },
     {
-      "includes": ["packages/chunking-worker/src/**"],
-      "linter": {
-        "rules": {
-          "nursery": {
-            "noFloatingPromises": "error",
-            "noMisusedPromises": "error",
-            "useExhaustiveSwitchCases": "error"
-          }
-        }
-      }
-    },
-    {
       "includes": [
         "packages/host-capabilities/src/native-tools/**",
         "packages/host-capabilities/__tests__/file-approval-target.test.ts",
@@ -278,13 +266,7 @@
       }
     },
     {
-      "includes": [
-        "packages/indexer/src/**",
-        "packages/indexer/__tests__/**",
-        "apps/desktop/src/__tests__/native-index-lifecycle.test.ts",
-        "apps/desktop/src/__tests__/native-index-retry.test.ts",
-        "apps/desktop/src/__tests__/platform/native-refusal-boundary.test.ts"
-      ],
+      "includes": ["packages/indexer/src/**", "packages/indexer/__tests__/**"],
       "linter": {
         "rules": {
           "nursery": {
@@ -360,30 +342,9 @@
     },
     {
       "includes": [
-        "packages/canonical-ingestion/src/**",
-        "packages/canonical-ingestion/__tests__/**",
         "packages/web-writer/src/**",
         "packages/web-state-store/src/__tests__/**/*-worker.{ts,mts,cts,mjs}",
         "packages/web-state-store/src/__tests__/web-state-extension-order.browser.test.ts"
-      ],
-      "linter": {
-        "rules": {
-          "nursery": {
-            "noFloatingPromises": "error",
-            "noMisusedPromises": "error",
-            "useExhaustiveSwitchCases": "error"
-          }
-        }
-      }
-    },
-    {
-      "includes": [
-        "apps/desktop/src/{hosted-embeddings,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
-        "apps/desktop/src/{hosted-embeddings,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
-        "apps/desktop/src/__tests__/{hosted-embeddings,native-index-catalog-observation,native-index-scan-admission}*.{ts,tsx,mts,cts,mjs}",
-        "apps/desktop/src/__tests__/{hosted-embeddings,native-index-catalog-observation,native-index-scan-admission}*/**/*.{ts,tsx,mts,cts,mjs}",
-        "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
-        "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}"
       ],
       "linter": {
         "rules": {

@@ -40,8 +40,8 @@ describe('desktop host connection (BST-2004)', () => {
     const refused = new BoundaryFailureError(
       refusal({
         category: 'availability',
-        code: 'native-index-closed',
-        message: 'The search index is closed.',
+        code: 'platform.closing',
+        message: 'The desktop is closing this agent host.',
       })
     );
     try {

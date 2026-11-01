@@ -20,9 +20,9 @@ pnpm dev --filter @brainstrike/desktop
 ## Architecture
 
 - **Desktop:** Electron hosts the UI; the shared agent host owns runs, conversations and the canonical catalog through its committed log and SQLite StateStore.
-- **Index:** a derived SQLite index (with `sqlite-vec` vectors) runs in its own process.
-- **Models:** chat and embeddings come from hosted providers; the app runs no local models.
-- **Shared code:** `packages/` holds UI, contracts, host/storage/indexing owners and provider adapters. [`pnpm-workspace.yaml`](pnpm-workspace.yaml) and package manifests are the inventory.
+- **Thread search:** the agent host keeps a derived SQLite FTS index of its state log.
+- **Models:** chat comes from hosted providers; the app runs no local models.
+- **Shared code:** `packages/` holds UI, contracts, host and storage owners and provider adapters. [`pnpm-workspace.yaml`](pnpm-workspace.yaml) and package manifests are the inventory.
 - **Docs:** [subsystem contracts](docs/agents/) and [ADRs](docs/adr/).
 
 ## Checks and contributions

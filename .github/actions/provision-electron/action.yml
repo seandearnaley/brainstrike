@@ -5,9 +5,8 @@ description: >-
   and install dependencies first.
 # BST-2221: Electron 44 has no install lifecycle. Its first `require('electron')`
 # downloads the binary itself, synchronously, so on an unprovisioned host the
-# download ran inside the first test that asked: indexer's scoped-electron proof
-# spent its whole 30 s budget blocked on it (Test runs 39190167055 and
-# 39207682126). Every lane that launches Electron provisions it here first.
+# download ran inside the first test that asked, which spent its whole 30 s
+# budget blocked on it (Test runs 39190167055 and 39207682126). Every lane that launches Electron provisions it here first.
 # Electron's installer checks the archive against the package's checksums and
 # picks the host arch; `timeout` turns a stalled transfer into this step's
 # failure rather than the job's.

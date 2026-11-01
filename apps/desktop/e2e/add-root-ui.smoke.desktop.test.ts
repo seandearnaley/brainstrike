@@ -1,10 +1,8 @@
 /**
  * Fast @smoke guard for the "Add Folder to Workspace" UI flow.
  *
- * This intentionally does NOT drive the background indexing / embedding
- * pipeline (that lives in the heavier @desktop-mid-session-add-root
- * regression). It pins the two UI regressions that shipped and were only
- * caught by the non-PR regression suite:
+ * It pins the two UI regressions that shipped and were only caught by the
+ * non-PR regression suite:
  *
  *   1. The Add Folder button was covered by the toolbar's right cluster and
  *      intercepted pointer events — the real click never landed.
@@ -13,7 +11,7 @@
  *
  * The OS picker is replaced by BRAINSTRIKE_E2E_REAL_ROOT_PATH (a real on-disk
  * directory the real adapter still stats), so the add path under test is not
- * mocked. Background indexing is seeded off so the run stays smoke-fast.
+ * mocked.
  */
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -25,7 +23,6 @@ import {
   freshRepo as createFreshRepo,
   createTempDirTracker,
 } from './utils/git-fixtures';
-import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { nodeCommand, nodeText } from './utils/node-command';
 import { seedRoot, seedWorkspaceFolders } from './utils/seed-root';
@@ -61,9 +58,8 @@ test.describe('Add Folder to Workspace (smoke)', () => {
   }) => {
     test.setTimeout(90_000);
 
-    // Seed one already-open root with indexing paused (smoke-fast).
+    // Seed one already-open root.
     await seedWorkspaceFolders(page, { roots: [{ path: ROOT_ONE_DIR, rootId: 'smoke-root-1' }] });
-    await updateIndexConfig(page, { paused: true });
 
     const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'add-root-smoke-seeded');
@@ -144,7 +140,6 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     test.setTimeout(120_000);
     const repo = freshConnectRepo('rootmenu');
     await seedRoot(page, repo, {
-      disableBackgroundIndexing: true,
       reloadReason: 'BST-1393 root context menu',
       rootId: 'root-bst-1393-menu',
     });
@@ -183,7 +178,6 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     test.setTimeout(90_000);
     const repo = freshConnectRepo('disconnect');
     await seedRoot(page, repo, {
-      disableBackgroundIndexing: true,
       reloadReason: 'BST-1393 disconnect staging',
       rootId: 'root-bst-1393-disconnect',
     });
@@ -218,7 +212,6 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     test.setTimeout(90_000);
     const repo = freshConnectRepo('filemenu');
     await seedRoot(page, repo, {
-      disableBackgroundIndexing: true,
       recentPaths: [repo],
       reloadReason: 'BST-1393 file menu',
       rootId: 'root-bst-1393-filemenu',
@@ -344,7 +337,6 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     const repo = freshConnectRepo('openfile-host');
     const granted = freshConnectDir('openfile-granted');
     await seedRoot(page, repo, {
-      disableBackgroundIndexing: true,
       recentPaths: [granted],
       reloadReason: 'BST-1393 open-file grant',
       rootId: 'root-bst-1393-openfile',

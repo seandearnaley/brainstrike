@@ -1,14 +1,17 @@
 # ADR-0018: Isolated derived SQLite indexer
 
 - **Status:** Superseded by [ADR-0035](0035-workspace-retrieval-is-live-search.md)
-  (2026-11-01): workspace retrieval is live search and this index is removed. Until its
-  removal lands (BST-2436), the rest of this record describes the code that still runs.
-  Earlier: the schema-upgrade decision is superseded by
+  (2026-11-01): workspace retrieval is live search and this index is removed.
+  - 2026-11-01 (BST-2436): the removal has landed. The workspace index, its utility
+    processes, `canonical-ingestion`, `chunking-worker`, `text-splitter`,
+    `indexing-contract`, `sqlite-query`, `sqlite-native` and sqlite-vec are deleted. What
+    remains of `packages/indexer` is the host state index (conversation search, schema 17);
+    its contract is in `docs/agents/state-store.md`. The rest of this record is history.
+  - Earlier: the schema-upgrade decision is superseded by
   [ADR-0020](0020-greenfield-data-lifecycle.md) (no legacy-data migration). The "PG"
   (PGlite) identities the M2 extension referred to are gone; canonical state now lives in the
   SQLite state store ([ADR-0011](0011-run-log-and-state-store.md)). Schema numbers below are
-  as of the decision (the index is now at schema 16).
-- **Live contract:** `docs/agents/indexer.md`.
+  as of the decision.
 
 ## Decision
 

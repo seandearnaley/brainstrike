@@ -95,7 +95,6 @@ app
         await profileReset.clear(lease);
         record('profile');
       },
-      runTransition: (work) => work(),
       runtimes: [],
       sessionDataPath,
       userDataPath: userData,

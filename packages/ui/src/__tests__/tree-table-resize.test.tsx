@@ -51,7 +51,7 @@ const NODES: TreeNode<RowData>[] = [buildNode('1', 'Alpha'), buildNode('2', 'Bet
 /**
  * Build a column with sensible resize defaults. Override `resizable` to opt
  * out, or fix `width === minWidth === maxWidth` to make a column inherently
- * non-resizable (the utility-column pattern used by collection-browser).
+ * non-resizable (the utility-column pattern).
  */
 function buildColumns(
   overrides: Partial<TreeTableColumn<RowData>>[] = []
@@ -461,7 +461,7 @@ describe('TreeTable column resize', () => {
   describe('hidden-column width preservation', () => {
     it('preserves persisted widths for columns not currently rendered (Codex P2 regression)', () => {
       const onColumnSizesChange = vi.fn();
-      // Simulates the collection-browser case: the user previously resized
+      // Simulates a utility-column table: the user previously resized
       // the optional `score` column (only rendered in semantic search mode),
       // then resizes `name` while in browse mode. The hidden `score` width
       // must survive the emit so the persistence store doesn't drop it.

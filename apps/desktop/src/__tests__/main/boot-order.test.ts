@@ -1,408 +1,66 @@
-import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 import {
   applicationDomainCapture,
   bootWindow,
   createLoggerMock,
   installMainBootFixture,
-  isDesktopShuttingDownMock,
   mockApp,
-  nativeAcquire,
-  nativeAcquireProfile,
-  nativeAcquireRead,
-  nativeCloseForShutdown,
-  nativePrepareForPause,
-  nativeRebuild,
-  nativeReconfigureForReset,
-  requireIndexConfig,
+  profileAcquire,
+  profileRetire,
   requireMainLogger,
   shutdownPlanCapture,
 } from './boot-order-fixture';
 
 describe('main boot order', () => {
   installMainBootFixture();
-  it('joins an accepted reset before quit while an earlier native transition is held', async () => {
-    const held = Promise.withResolvers<void>();
-    const entered = Promise.withResolvers<void>();
-    nativeReconfigureForReset.current = () => {
-      entered.resolve();
-      return held.promise;
-    };
-    const resetData = await import('../../desktop-factory-reset');
-    const purge = vi.spyOn(resetData, 'resetDesktopApplicationData').mockResolvedValue({
-      deletedPaths: [],
-      pendingDeletionPaths: [],
-      preservedPaths: [],
-    });
-    const resetPlatform = await import('../../desktop-reset-platform');
-    const createReset = resetPlatform.createDesktopFactoryResetHandler;
-    const compose = vi
-      .spyOn(resetPlatform, 'createDesktopFactoryResetHandler')
-      .mockImplementation((ports) =>
-        createReset({
-          ...ports,
-          completeSuccessfulReset: async () => {},
-          resumeAfterReset: async () => {},
-          runtimes: [],
-        })
-      );
-    onTestFinished(() => {
-      purge.mockRestore();
-      compose.mockRestore();
-    });
+  it('starts the host profile and shows the first window without waiting for it', async () => {
     await import('../../main');
-    const options = applicationDomainCapture.options;
-    const plan = shutdownPlanCapture.current?.();
-    if (!(options?.onResetLocal && plan)) {
-      throw new Error('Main reset callback and shutdown plan were not captured');
-    }
-    // The same trigger Main's config owner uses once a change is saved.
-    await requireIndexConfig().reconfigure();
-    await entered.promise;
-    const reset = options.onResetLocal();
-    let closed = false;
-    const close = Promise.resolve(plan.steps['factory-reset']()).then(() => {
-      closed = true;
-    });
-    onTestFinished(async () => {
-      held.resolve();
-      await Promise.allSettled([reset, close]);
-    });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(closed).toBe(false);
-    held.resolve();
-    await expect(reset).resolves.toEqual({ success: true });
-    await close;
-    expect(purge).toHaveBeenCalledOnce();
-  });
-
-  it.each(['completed', 'replacement-failed', 'resume-failed', 'quit'] as const)(
-    'defers a reset renderer native-settings notification through replacement and reopen: %s',
-    async (outcome) => {
-      const notified = Promise.withResolvers<void>();
-      const replacement = Promise.withResolvers<void>();
-      const resuming = Promise.withResolvers<void>();
-      const resumed = Promise.withResolvers<void>();
-      let reopened = false;
-      const failure =
-        outcome === 'resume-failed'
-          ? new AggregateError(
-              [new Error('Native resume failed'), new Error('MCP resume failed')],
-              'Reset resume failed'
-            )
-          : new Error('Replacement renderer failed');
-      const { NativeAuthorityTransitionError } = await import(
-        '@brainstrike/assistant-service/node-native-text-services'
-      );
-      nativePrepareForPause.mockImplementation(async () => {
-        if (!reopened) {
-          throw new NativeAuthorityTransitionError(
-            'Native Pause was superseded by terminal retirement.'
-          );
-        }
-        return null;
-      });
-      const reconfigure = vi.fn(async () => {});
-      nativeReconfigureForReset.current = reconfigure;
-      const resetData = await import('../../desktop-factory-reset');
-      const purge = vi.spyOn(resetData, 'resetDesktopApplicationData').mockResolvedValue({
-        deletedPaths: [],
-        pendingDeletionPaths: [],
-        preservedPaths: [],
-      });
-      const resetPlatform = await import('../../desktop-reset-platform');
-      const createReset = resetPlatform.createDesktopFactoryResetHandler;
-      const compose = vi
-        .spyOn(resetPlatform, 'createDesktopFactoryResetHandler')
-        .mockImplementation((ports) =>
-          createReset({
-            ...ports,
-            completeSuccessfulReset: async () => {
-              // A settings change saved while the reset finishes applies through Main's owner.
-              await requireIndexConfig().reconfigure();
-              notified.resolve();
-              await replacement.promise;
-            },
-            resumeAfterReset: async () => {
-              resuming.resolve();
-              await resumed.promise;
-              reopened = true;
-            },
-            runtimes: [],
-          })
-        );
-      await import('../../main');
-      const reset = applicationDomainCapture.options?.onResetLocal?.();
-      if (!reset) {
-        throw new Error('Main reset callback was not captured');
-      }
-      onTestFinished(async () => {
-        replacement.resolve();
-        resumed.resolve();
-        await reset;
-        purge.mockRestore();
-        compose.mockRestore();
-      });
-      await notified.promise;
-      expect(nativePrepareForPause).not.toHaveBeenCalled();
-      expect(reconfigure).not.toHaveBeenCalled();
-      let closing: Promise<void> | undefined;
-      if (outcome === 'quit') {
-        isDesktopShuttingDownMock.mockReturnValue(true);
-        const plan = shutdownPlanCapture.current?.();
-        if (!plan) {
-          throw new Error('Missing actual Main shutdown plan');
-        }
-        closing = Promise.resolve(plan.steps['factory-reset']());
-      }
-      if (outcome === 'replacement-failed') {
-        replacement.reject(failure);
-      } else if (outcome === 'quit') {
-        replacement.resolve();
-      } else {
-        replacement.resolve();
-        await resuming.promise;
-        expect(nativePrepareForPause).not.toHaveBeenCalled();
-        if (outcome === 'resume-failed') {
-          resumed.reject(failure);
-        } else {
-          resumed.resolve();
-        }
-      }
-      if (outcome === 'replacement-failed' || outcome === 'resume-failed') {
-        await expect(reset).resolves.toEqual({ message: failure.message, success: false });
-        expect(requireMainLogger().error).toHaveBeenCalledWith(
-          'Failed to reset desktop application data:',
-          failure
-        );
-      } else {
-        await expect(reset).resolves.toEqual({ success: true });
-      }
-      await closing;
-      if (outcome === 'completed') {
-        await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
-        expect(nativePrepareForPause).toHaveBeenCalledOnce();
-      } else {
-        expect(nativePrepareForPause).not.toHaveBeenCalled();
-        expect(reconfigure).not.toHaveBeenCalled();
-      }
-      expect(requireMainLogger().error).not.toHaveBeenCalledWith(
-        'Saved native index configuration could not activate',
-        expect.anything()
-      );
-    }
-  );
-
-  it.each(['none', 'typed', 'independent'] as const)(
-    'prepares saved settings synchronously outside reset and preserves failure=%s',
-    async (kind) => {
-      const { NativeAuthorityTransitionError } = await import(
-        '@brainstrike/assistant-service/node-native-text-services'
-      );
-      const failure =
-        kind === 'typed'
-          ? new NativeAuthorityTransitionError(
-              'Native Pause was superseded by terminal retirement.'
-            )
-          : new Error('Independent settings read failed');
-      if (kind !== 'none') {
-        nativePrepareForPause.mockRejectedValue(failure);
-      }
-      const reconfigure = vi.fn(async () => {});
-      nativeReconfigureForReset.current = reconfigure;
-      await import('../../main');
-      // The same trigger Main's config owner uses once a change is saved.
-      const applying = requireIndexConfig().reconfigure();
-      expect(nativePrepareForPause).toHaveBeenCalledOnce();
-      // The owner's update returns once the change is queued; it applies in the background.
-      await expect(applying).resolves.toBeUndefined();
-      if (kind === 'none') {
-        await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
-      } else if (kind === 'typed') {
-        // A Pause its owner superseded is the requested outcome, not a failure.
-        await vi.waitFor(() =>
-          expect(requireMainLogger().info).toHaveBeenCalledWith(
-            'Native index generation replaced or retired',
-            { reason: failure.message }
-          )
-        );
-        expect(requireMainLogger().error).not.toHaveBeenCalledWith(
-          'Saved native index configuration could not activate',
-          expect.anything()
-        );
-        expect(reconfigure).not.toHaveBeenCalled();
-      } else {
-        await vi.waitFor(() =>
-          expect(requireMainLogger().error).toHaveBeenCalledWith(
-            'Saved native index configuration could not activate',
-            { error: failure }
-          )
-        );
-        expect(reconfigure).not.toHaveBeenCalled();
-      }
-    }
-  );
-
-  it('rebuilds for saved chunking in the background and reports the rebuild failure', async () => {
-    const failure = new Error('Native rebuild failed');
-    nativeRebuild.current = vi.fn(async () => {
-      throw failure;
-    });
-    await import('../../main');
-    // The same trigger Main's config owner uses once a chunking change is saved.
-    await expect(requireIndexConfig().rebuild()).resolves.toBeUndefined();
-    await vi.waitFor(() =>
-      expect(requireMainLogger().error).toHaveBeenCalledWith(
-        'Search index rebuild for the new chunking failed',
-        { error: failure }
-      )
-    );
-  });
-
-  it('starts profile and native acquisition before showing a reader-ready window without PG', async () => {
-    const reader = Promise.withResolvers<void>();
-    nativeAcquireRead.mockReturnValue(reader.promise);
-    await import('../../main');
-    await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
-    expect(nativeAcquireProfile).toHaveBeenCalled();
-    expect(nativeAcquire).toHaveBeenCalledOnce();
-    expect(bootWindow().show).not.toHaveBeenCalled();
-    reader.resolve();
+    // Owner decision 7.3(i): the profile's start never resolves here, and the window still shows.
     await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
+    expect(profileAcquire).toHaveBeenCalled();
   });
 
-  it('shows the failure-capable shell when native reader startup fails', async () => {
-    const failure = new Error('Native reader unavailable');
-    nativeAcquireRead.mockRejectedValue(failure);
-    await import('../../main');
-    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
-    expect(
-      requireMainLogger().error.mock.calls.some(
-        ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
-          details?.error === failure
-      )
-    ).toBe(true);
-  });
-
-  it('keeps owned native startup retirement informational during terminal shutdown', async () => {
-    const reader = Promise.withResolvers<void>();
-    // Terminal shutdown begins while the reader starts: the first window does not wait for the
-    // index (owner decision 7.3(i)), so shutdown must begin before the boot reaches its window.
-    nativeAcquireRead.mockImplementation(() => {
-      isDesktopShuttingDownMock.mockReturnValue(true);
-      return reader.promise;
-    });
-    await import('../../main');
-    await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
-    const { NativeAuthorityTransitionError } = await import(
-      '@brainstrike/assistant-service/node-native-text-services'
-    );
-    const failure = new NativeAuthorityTransitionError('Native owner retired');
-    reader.reject(failure);
-    await vi.waitFor(() =>
-      expect(
-        requireMainLogger().info.mock.calls.some(
-          ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
-            details?.reason === failure.message
-        )
-      ).toBe(true)
-    );
-    expect(
-      requireMainLogger().error.mock.calls.some(
-        ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
-          details?.error === failure
-      )
-    ).toBe(false);
-    expect(bootWindow().show).not.toHaveBeenCalled();
-  });
-
-  it('keeps an independent reader failure visible during shutdown', async () => {
-    const reader = Promise.withResolvers<void>();
-    nativeAcquireRead.mockReturnValue(reader.promise);
-    await import('../../main');
-    await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
-    const failure = new Error('Independent read failure');
-    isDesktopShuttingDownMock.mockReturnValue(true);
-    reader.reject(failure);
-    await vi.waitFor(() =>
-      expect(
-        requireMainLogger().error.mock.calls.some(
-          ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
-            details?.error === failure
-        )
-      ).toBe(true)
-    );
-    expect(bootWindow().show).not.toHaveBeenCalled();
-  });
-
-  it('preserves profile startup failure without opening a retired database', async () => {
+  it('logs a failed host profile start and still shows the window', async () => {
     const failure = new Error('Profile unavailable');
-    nativeAcquireProfile.mockRejectedValue(failure);
+    profileAcquire.mockRejectedValue(failure);
     await import('../../main');
     await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     expect(
       requireMainLogger().error.mock.calls.some(
-        ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
-          details?.error === failure
+        ([, details]: [unknown, { error?: unknown }]) => details?.error === failure
       )
     ).toBe(true);
   });
 
-  it('reports one shared acquisition failure once across writer and reader startup', async () => {
-    const failure = new Error('Shared native acquisition failure');
-    nativeAcquire.mockRejectedValue(failure);
-    nativeAcquireRead.mockRejectedValue(failure);
-    await import('../../main');
-    await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
-    expect(
-      requireMainLogger().error.mock.calls.filter(
-        ([, details]: [unknown, { error?: unknown; reason?: string; innerErrors?: unknown }]) =>
-          details?.error === failure
-      )
-    ).toHaveLength(1);
-  });
-
-  it('retains each independent partial native acquisition failure', async () => {
+  it('logs each inner failure of an aggregated host profile start failure', async () => {
     const first = new Error('Physical child failure');
-    const failure = new AggregateError([first, undefined], 'Native acquisition failed');
-    nativeAcquire.mockRejectedValue(failure);
+    const failure = new AggregateError([first, undefined], 'Host acquisition failed');
+    profileAcquire.mockRejectedValue(failure);
     await import('../../main');
     await vi.waitFor(() => expect(bootWindow().show).toHaveBeenCalledOnce());
     const details = requireMainLogger().error.mock.calls.find(
       ([, value]: [unknown, { error?: unknown; innerErrors?: unknown }]) => value?.error === failure
     )?.[1];
-    expect(details?.error).toBe(failure);
-    expect(failure.errors).toEqual([first, undefined]);
     expect(details?.innerErrors).toEqual([
       { message: first.message, name: 'Error' },
       { message: 'undefined', name: 'undefined' },
     ]);
   });
 
-  it('does not create a window when reader startup completes after shutdown begins', async () => {
-    const reader = Promise.withResolvers<void>();
-    nativeAcquireRead.mockReturnValue(reader.promise);
-    await import('../../main');
-    await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
-    isDesktopShuttingDownMock.mockReturnValue(true);
-    reader.resolve();
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(bootWindow().show).not.toHaveBeenCalled();
-  });
-
-  it('joins native retirement before acknowledging the native shutdown step', async () => {
+  it('joins the host profile retirement before acknowledging the host-profile shutdown step', async () => {
     await import('../../main');
     const plan = shutdownPlanCapture.current?.();
     if (!plan) {
       throw new Error('Shutdown plan was not registered');
     }
     const held = Promise.withResolvers<void>();
-    nativeCloseForShutdown.mockReturnValue(held.promise);
+    profileRetire.mockReturnValue(held.promise);
     let settled = false;
-    const step = Promise.resolve(plan.steps['native-index']()).then(() => {
+    const step = Promise.resolve(plan.steps['host-profile']()).then(() => {
       settled = true;
     });
-    await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(profileRetire).toHaveBeenCalledOnce());
     expect(settled).toBe(false);
     held.resolve();
     await step;
@@ -430,20 +88,20 @@ describe('main boot order', () => {
     expect(settled).toBe(true);
   });
 
-  it('reserved close joins the existing native owner and preserves failure identity', async () => {
+  it('closes the database by retiring the host profile and keeps its failure identity', async () => {
     await import('../../main');
     const plan = shutdownPlanCapture.current?.();
     if (!plan) {
       throw new Error('Shutdown plan was not registered');
     }
     await plan.closeDatabase();
-    expect(nativeCloseForShutdown).toHaveBeenCalledOnce();
-    const failure = new Error('Native physical close failed');
-    nativeCloseForShutdown.mockRejectedValueOnce(failure);
+    expect(profileRetire).toHaveBeenCalledOnce();
+    const failure = new Error('Host physical close failed');
+    profileRetire.mockRejectedValueOnce(failure);
     await expect(plan.closeDatabase()).rejects.toBe(failure);
   });
 
-  it('retains undefined IPC cleanup failure while reserved native retirement remains available', async () => {
+  it('still retires the host profile after an undefined IPC cleanup failure', async () => {
     await import('../../main');
     const plan = shutdownPlanCapture.current?.();
     const close = applicationDomainCapture.close;
@@ -453,17 +111,7 @@ describe('main boot order', () => {
     close.mockRejectedValueOnce(undefined);
     await expect(plan.steps['file-system']()).rejects.toBeUndefined();
     await plan.closeDatabase();
-    expect(nativeCloseForShutdown).toHaveBeenCalledOnce();
-  });
-
-  it('keeps a failed reserved native join failed rather than reopening PG', async () => {
-    await import('../../main');
-    const plan = shutdownPlanCapture.current?.();
-    if (!plan) {
-      throw new Error('Shutdown plan was not registered');
-    }
-    nativeCloseForShutdown.mockRejectedValueOnce(undefined);
-    await expect(plan.closeDatabase()).rejects.toBeUndefined();
+    expect(profileRetire).toHaveBeenCalledOnce();
   });
 
   describe('shutdown signal registration', () => {

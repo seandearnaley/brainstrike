@@ -59,12 +59,6 @@ describe('useProviderModelDefaults', () => {
     }
   });
 
-  it('dispatches nothing for a provider with no catalog defaults', () => {
-    renderHook(() => useProviderModelDefaults(['cohere', 'voyage'], db, 1, true));
-
-    expect(initializeProviderModelDefaults).not.toHaveBeenCalled();
-  });
-
   it('dispatches nothing for a provider that is not configured', () => {
     renderHook(() => useProviderModelDefaults([], db, 1, true));
 

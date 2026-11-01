@@ -1,7 +1,6 @@
 import { Schema } from 'effect';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
-const Seq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const ThreadTitle = Schema.String.pipe(Schema.decodeTo(Schema.Trim)).check(
   Schema.isMinCodePoints(1)
 );
@@ -42,13 +41,6 @@ export const SEARCH_METHOD_SCHEMAS = {
         : { issue: 'A thread search window ends before it starts', path: [] }
     )
   ),
-  'workspace/search': Schema.Struct({
-    limit: Schema.Int.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(200)),
-    mode: Schema.Literals(['bm25', 'trigram']),
-    query: Schema.String.pipe(Schema.decodeTo(Schema.Trim)).check(Schema.isMinCodePoints(1)),
-    rootId: Id,
-    threadId: Id,
-  }),
 } as const;
 export const SEARCH_RESULT_SCHEMAS = {
   'thread/search': Schema.Struct({
@@ -58,26 +50,5 @@ export const SEARCH_RESULT_SCHEMAS = {
     titles: Schema.mutable(
       Schema.Array(Schema.Struct({ similarity: Schema.Finite, threadId: Id, title: ThreadTitle }))
     ),
-  }),
-  'workspace/search': Schema.Struct({
-    candidateCount: Seq,
-    candidatesTruncated: Schema.Boolean,
-    hits: Schema.mutable(
-      Schema.Array(
-        Schema.Struct({
-          chunkId: Id,
-          content: Schema.String,
-          endLine: Schema.Int.check(Schema.isGreaterThan(0)),
-          fileId: Id,
-          path: Id,
-          rootId: Id,
-          score: Schema.Finite,
-          startLine: Schema.Int.check(Schema.isGreaterThan(0)),
-        })
-      )
-    ),
-    scanLimited: Schema.Boolean,
-    storeId: Id,
-    truncated: Schema.Boolean,
   }),
 } as const;

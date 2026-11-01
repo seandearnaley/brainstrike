@@ -8,7 +8,7 @@ const logger = createLogger('RootIdentity');
 const warnedUnmappedDbRoots = new Set<string>();
 
 /**
- * Maps the DB `roots.id` stored in `file_records.root_id` back to the file
+ * Maps the DB `roots.id` back to the file
  * explorer's adapter rootId (`handle.rootId`, what `activeRootIds`,
  * `rootDescriptors`, `encodeFileSelection`, and `openFileInTab` all use).
  *

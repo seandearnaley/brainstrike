@@ -18,11 +18,9 @@ export const PROVIDER_COLOR_MAP: Record<string, ProviderColorPair> = {
   // anthropic's 25°/70% so the two orange dots stay distinguishable at
   // swatch size.
   bedrock: { dark: 'hsl(36, 95%, 55%)', light: 'hsl(36, 95%, 38%)' },
-  cohere: { dark: 'hsl(340, 60%, 55%)', light: 'hsl(340, 60%, 45%)' },
   google: { dark: 'hsl(210, 70%, 55%)', light: 'hsl(210, 70%, 45%)' },
   openai: { dark: 'hsl(160, 60%, 50%)', light: 'hsl(160, 60%, 35%)' },
   openrouter: { dark: 'hsl(280, 60%, 55%)', light: 'hsl(280, 60%, 45%)' },
-  voyage: { dark: 'hsl(180, 60%, 50%)', light: 'hsl(180, 60%, 35%)' },
 } satisfies Record<SupportedProvider, ProviderColorPair>;
 
 export function getProviderColor(providerId: string, theme: 'light' | 'dark'): string {

@@ -151,7 +151,7 @@ export type RuntimeProviderOptions = RuntimeJsonObject & {
 
 /**
  * One active workspace root (multi-root). Resolved server-side from the DB
- * `roots` table so the root identity here matches `file_records.root_id` — the
+ * `roots` table so the root identity here is the durable `roots.id` — the
  * same id surfaced on search results — and the path matches what read tools
  * resolve against. One source of truth for both.
  */
@@ -160,7 +160,7 @@ export interface RuntimeWorkspaceRoot {
   displayName: string;
   /** Absolute filesystem path of the root. */
   path: string;
-  /** Durable root id (DB `roots.id`; matches `file_records.root_id`). */
+  /** Durable root id (DB `roots.id`). */
   rootId: string;
 }
 

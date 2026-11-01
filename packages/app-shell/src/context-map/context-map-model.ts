@@ -11,7 +11,6 @@ import {
   fileWindowTokens,
   type ThreadContextAtTurn,
 } from '@brainstrike/assistant-ui/thread-context-fold';
-import type { IndexerFileChunkBounds } from '@brainstrike/indexing-contract/indexer-client';
 
 export type ContextMapMode = 'all' | 'window';
 
@@ -202,8 +201,15 @@ export function contextMapTotals(
   };
 }
 
+/** A run of a file's lines the map draws as one cell. */
+export interface LineBand {
+  readonly chunkId: string;
+  readonly endLine: number;
+  readonly startLine: number;
+}
+
 export interface ChunkCell {
-  readonly chunk: IndexerFileChunkBounds;
+  readonly chunk: LineBand;
   /** Share of the chunk's lines the drawn spans cover, 0 to 1. */
   readonly coverage: number;
   /** Every overlapping span has left the window. */
@@ -213,7 +219,7 @@ export interface ChunkCell {
   readonly spans: readonly ContextFileSpan[];
 }
 
-function overlaps(entry: ContextFileSpan, chunk: IndexerFileChunkBounds): boolean {
+function overlaps(entry: ContextFileSpan, chunk: LineBand): boolean {
   const { span } = entry;
   if (span.wholeFile) {
     return true;
@@ -237,12 +243,12 @@ function topKind(entries: readonly ContextFileSpan[]): ContextSpanKind | null {
 }
 
 /**
- * Each index chunk with the spans that reached it. In window mode a chunk is
+ * Each line band with the spans that reached it. In window mode a chunk is
  * colored by its live spans, and reads as gone when only departed spans
  * reached it; in "everything" mode it takes the kind of every span.
  */
 export function chunkCells(
-  chunks: readonly IndexerFileChunkBounds[],
+  chunks: readonly LineBand[],
   spans: readonly ContextFileSpan[],
   mode: ContextMapMode
 ): ChunkCell[] {
@@ -268,12 +274,12 @@ export function chunkCells(
   });
 }
 
-/** Equal line bands for a file the index does not cover, so its spans still draw to scale. */
-export function lineBands(maxLine: number, bands = 8): IndexerFileChunkBounds[] {
+/** Equal line bands for a file, so its spans draw to scale. */
+export function lineBands(maxLine: number, bands = 8): LineBand[] {
   const count = Math.max(1, Math.min(bands, maxLine));
   return Array.from({ length: count }, (_, index) => {
     const startLine = Math.floor((index * maxLine) / count) + 1;
     const endLine = Math.floor(((index + 1) * maxLine) / count);
-    return { chunkId: `band:${index}`, contentHash: '', endLine, startLine, tokenCount: null };
+    return { chunkId: `band:${index}`, endLine, startLine };
   });
 }

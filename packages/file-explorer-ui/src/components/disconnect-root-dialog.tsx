@@ -16,7 +16,7 @@ export interface DisconnectRootDialogProps {
   displayName: string;
   /**
    * Called when the user confirms. `deleteData: true` means the root's
-   * indexed DB rows are deleted too (cascade); false = disconnect only.
+   * saved record is deleted too; false = disconnect only.
    */
   onConfirm: (options: { deleteData: boolean }) => void;
   /** Radix-style open state setter (false on cancel/escape/overlay click). */
@@ -48,8 +48,8 @@ function DisconnectRootDialogBody({
         <DialogTitle>Disconnect {displayName}?</DialogTitle>
         <DialogDescription>
           {deleteData
-            ? 'This removes the folder from the sidebar and permanently deletes its indexed data. Re-adding the folder later will re-index it from scratch.'
-            : 'This removes the folder from the sidebar. Its indexed data is kept, so you can re-add the same folder later and it will be available again without re-indexing.'}
+            ? 'This removes the folder from the sidebar and permanently deletes its saved data. Re-adding the folder later adds it as a new folder.'
+            : 'This removes the folder from the sidebar. Its saved data is kept, so you can re-add the same folder later and it will be available again.'}
         </DialogDescription>
       </DialogHeader>
       <div className="flex items-center space-x-2">
@@ -59,7 +59,7 @@ function DisconnectRootDialogBody({
           onCheckedChange={(checked) => setDeleteData(checked === true)}
         />
         <Label className="text-sm" htmlFor="disconnect-delete-data">
-          Also delete indexed data
+          Also delete folder data
         </Label>
       </div>
       <DialogFooter>
@@ -77,10 +77,9 @@ function DisconnectRootDialogBody({
 /**
  * Confirmation dialog for disconnecting a root from the forest sidebar.
  *
- * Disconnect ≠ delete by default: the body states that indexed data is KEPT
- * and the folder can be re-added later (re-adding resumes without
- * re-indexing). The opt-in checkbox (Phase 6) switches to a true cascade
- * delete — the copy changes accordingly, and the opt-in never survives a
+ * Disconnect ≠ delete by default: the body states that saved data is KEPT
+ * and the folder can be re-added later under the same record. The opt-in
+ * checkbox (Phase 6) switches to deleting that record — the copy changes accordingly, and the opt-in never survives a
  * close/reopen cycle. Follows the repo's destructive-confirm Dialog pattern.
  */
 export const DisconnectRootDialog = ({

@@ -2,18 +2,16 @@
  * The ONE hosted-provider key-resolution core (BST-979 / BST-904 G6).
  *
  * Before this module, three resolvers disagreed on ordering (desktop
- * credentials: env → keychain; retrieval: keychain → env; embeddings:
- * secrets → process.env → import.meta.env with a negative-result cache), so
- * a key rotated in one store could stay shadowed by another indefinitely.
+ * credentials: env → keychain; retrieval: keychain → env), so a key rotated
+ * in one store could stay shadowed by another indefinitely.
  * Every caller now shares this core with the DOCUMENTED env-authoritative
  * order (docs/agents/assistant-providers.md):
  *
  *   1. environment sources, in caller order, first matching name wins;
  *   2. the platform secret store (keychain / window-secrets bridge).
  *
- * Provider-name tables stay per-domain (LLM providers and embedding
- * providers are different unions) and are INJECTED — this module owns the
- * order and the error semantics, not the tables.
+ * Provider-name tables are INJECTED — this module owns the order and the
+ * error semantics, not the tables.
  *
  * SecretReadError escape hatch (BST-574, preserved from the retrieval tool):
  * a secret-store read failure is NOT equivalent to an absent credential. If

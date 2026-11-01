@@ -51,17 +51,7 @@ export function createToolsSettingsCategory(
     description: 'Configure which tools are available to the AI agent.',
     icon: Wrench,
     id: 'ai-tools',
-    keywords: [
-      'tools',
-      'agent',
-      'mcp',
-      'native',
-      'retrieval',
-      'search',
-      'hybrid',
-      'embedding',
-      'queue',
-    ],
+    keywords: ['tools', 'agent', 'mcp', 'native', 'search', 'queue'],
     title: 'AI Tools',
   };
 }

@@ -50,32 +50,22 @@ describe('provider catalog identity', () => {
     const providerIds = listProviders().map((provider) => provider.id);
     expect(new Set(providerIds).size).toBe(providerIds.length);
     for (const provider of listProviders()) {
-      for (const type of ['llm', 'embedding'] as const) {
-        const ids = provider.models.filter((model) => model.type === type).map((model) => model.id);
-        expect(new Set(ids).size, `${provider.id} ${type} ids`).toBe(ids.length);
-      }
+      const ids = provider.models.map((model) => model.id);
+      expect(new Set(ids).size, `${provider.id} ids`).toBe(ids.length);
     }
   });
 
-  it('resolves each default to exactly one real model of the capability the provider serves', () => {
+  it('resolves each default to exactly one real model', () => {
     for (const provider of listProviders()) {
-      for (const type of ['llm', 'embedding'] as const) {
-        const models = provider.models.filter((model) => model.type === type);
-        expect(
-          models.filter((model) => model.default === true).length,
-          `${provider.id} ${type} defaults`
-        ).toBeLessThanOrEqual(1);
-        const served =
-          type === 'llm' ? provider.capabilities.llm : provider.capabilities.embeddings;
-        if (!served) {
-          continue;
-        }
-        const defaultId = resolveDefaultModel(provider.id, type);
-        expect(
-          models.some((model) => model.id === defaultId),
-          `${provider.id} ${type} default`
-        ).toBe(true);
-      }
+      expect(
+        provider.models.filter((model) => model.default === true).length,
+        `${provider.id} defaults`
+      ).toBeLessThanOrEqual(1);
+      const defaultId = resolveDefaultModel(provider.id);
+      expect(
+        provider.models.some((model) => model.id === defaultId),
+        `${provider.id} default`
+      ).toBe(true);
     }
   });
 

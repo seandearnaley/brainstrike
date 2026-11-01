@@ -59,10 +59,6 @@ export type ContextTarget =
    * actions (New, Close All) claim it; `stripId` names the owning strip.
    */
   | { readonly kind: 'tab-strip'; readonly stripId: string }
-  | { kind: 'collection'; id: string; name: string }
-  | { kind: 'collection-file'; id: string; name: string; path: string | null }
-  | { kind: 'chunk'; id: string; content: string }
-  | { kind: 'embedding'; id: string; vectorId: string }
   /**
    * A row in the Changes surface's changed-files tree (BST-1114). Field
    * shapes are inlined from `@brainstrike/types`'s `ChangedFileEntry` rather

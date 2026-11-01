@@ -3,7 +3,7 @@
  * before a named lifecycle boundary proceeds, so a test can make any boundary
  * as slow as a loaded machine makes it, deterministically. Each point fires
  * once per process: the first boundary to apply it waits, every later one
- * proceeds at once, so a delay on a repeated boundary (every indexer request)
+ * proceeds at once, so a delay on a repeated boundary (every record read)
  * never multiplies. Absent or spent, applying a point arms no timer.
  *
  * Electron Main owns the gate (`apps/desktop/src/lifecycle-delay-seam.ts`): it
@@ -20,12 +20,9 @@ export const LIFECYCLE_DELAY_POINTS = [
   'host-ready',
   'platform-ready',
   'record-read',
-  'indexer-request',
-  'canonical-attach',
   'renderer-flush',
   'child-exit',
   'root-watch-subscribe',
-  'index-replace',
 ] as const;
 export type LifecycleDelayPoint = (typeof LIFECYCLE_DELAY_POINTS)[number];
 export type LifecycleDelays = ReadonlyMap<LifecycleDelayPoint, number>;

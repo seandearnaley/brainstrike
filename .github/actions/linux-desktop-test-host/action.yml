@@ -35,9 +35,8 @@ runs:
     # its namespace, not what the fence denies inside it.
     #
     # xvfb: integration passes launch Electron, which needs an X server:
-    # desktop's real-app proofs, sqlite-query's utility pass and indexer's
-    # scoped-electron proof. Callers run every integration and coverage lane
-    # in `xvfb-run --auto-servernum`, whatever it selects.
+    # desktop's real-app proofs. Callers run every integration and coverage
+    # lane in `xvfb-run --auto-servernum`, whatever it selects.
     - name: Install the Linux OS-fence and display dependencies
       shell: bash
       run: |

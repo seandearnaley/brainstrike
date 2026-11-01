@@ -191,9 +191,8 @@ export function ModelCatalog({
       onToggleDetails: toggleDetails,
       query: deferredQuery,
       showTagline: tier !== 'narrow',
-      showTypeTag: filters.type === 'all',
     }),
-    [busyModelIds, deferredQuery, filters.type, onToggle, tier, toggleDetails]
+    [busyModelIds, deferredQuery, onToggle, tier, toggleDetails]
   );
 
   useEffect(() => {

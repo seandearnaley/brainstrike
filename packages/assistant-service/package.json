@@ -5,14 +5,10 @@
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/canonical-ingestion": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
-    "@brainstrike/indexer": "workspace:*",
-    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
-    "@brainstrike/sqlite-query": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
@@ -32,7 +28,6 @@
   "exports": {
     "./mcp-content-application-port": "./src/mcp-content-application-port.ts",
     "./memory-model-targets": "./src/memory-model-targets.ts",
-    "./node-native-text-services": "./src/node-native-text-services.ts",
     "./node-workspace-services": "./src/node-workspace-services.ts",
     "./ports": "./src/ports.ts",
     "./provider-credential-projection": "./src/provider-credential-projection.ts",

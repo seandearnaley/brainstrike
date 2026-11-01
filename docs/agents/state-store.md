@@ -17,7 +17,15 @@ Implementation: `packages/state-store` and `packages/agent-host`.
   - The host serves it as `state/health/read`. Desktop's damaged-store notice reads it and offers a re-read and a host restart (which reopens and rechecks the store). Neither changes the damaged file.
   - Writes are refusals, not failures: the store raises `StateStoreReadOnlyError` (a thread refusal carries `storeDamage`) and the host sends both as the typed `state.read-only` refusal, so startup writers stop quietly.
 - `state-deletion.ts` orchestrates purge, thread delete and blob GC over the writer's `deletion-domain.mjs` ops, its derived index and its write chain.
-- Settings the host serves as catalog domains (e.g. the search index config, `index/config` through `host/index-config`) are rows of the same writer; catalog endpoints borrow it and never form a second store.
+- Settings the host serves as catalog domains are rows of the same writer; catalog endpoints borrow it and never form a second store.
+
+## Host state index
+
+- The conversation search index (`packages/indexer`, `state-index.sqlite`) is a derived projection of committed state, never a second writer. The agent host runs it on a worker thread (`host-state-index-owner.ts`).
+- Any stored schema but `INDEX_SCHEMA_VERSION` refuses as `rebuild-required`; the host owner destroys the file and rebuilds it from the state root.
+- Liveness is the worker's exit, never a clock. A retired worker's exit is joined and the next request starts a new one; three consecutive replacements with none served stop it (`state-index.retired`).
+- Catch-up sends bounded `catchUpStateStep` requests before a catch-up, rebuild or thread-scoped read. The worker projects at most one more step and otherwise refuses as `state-behind`, so no request carries a backlog.
+- The only clock is the close window (ADR-0030 `closeMs`): a worker still running at its end gets one kill, and its exit is still joined.
 
 ## Memory calculation
 

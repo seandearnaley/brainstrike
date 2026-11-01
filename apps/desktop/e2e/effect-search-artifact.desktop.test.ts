@@ -35,7 +35,6 @@ test('Effect search and artifact inputs execute through the app and survive relo
     )
   );
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'effect-search-artifact-root',
     rootId: randomUUID(),
   });

@@ -13,8 +13,8 @@ const providers = [
   makeDbProvider('openai', 'OpenAI', 0),
   makeDbProvider('anthropic', 'Anthropic', 1),
   makeDbProvider('openrouter', 'OpenRouter', 2),
-  makeDbProvider('voyage', 'Voyage AI', 3),
-  makeDbProvider('cohere', 'Cohere', 4),
+  makeDbProvider('google', 'Google', 3),
+  makeDbProvider('bedrock', 'Amazon Bedrock', 4),
 ];
 
 const rows: CatalogRow[] = [
@@ -34,11 +34,10 @@ const rows: CatalogRow[] = [
     providerName: 'OpenRouter',
   }),
   makeCatalogRow({
-    id: 'voyage-lite',
-    name: 'Voyage Lite',
-    providerId: 'voyage',
-    providerName: 'Voyage AI',
-    type: 'embedding',
+    id: 'gemini-lite',
+    name: 'Gemini Lite',
+    providerId: 'google',
+    providerName: 'Google',
   }),
   makeCatalogRow({
     id: 'ghost',
@@ -60,7 +59,7 @@ describe('buildCatalogView', () => {
       'openai',
       'anthropic',
       'openrouter',
-      'voyage',
+      'google',
       UNKNOWN_PROVIDER_SECTION_ID,
     ]);
     expect(view.sections[0]?.rows.map((row) => row.id)).toEqual(['gpt-a', 'gpt-b']);
@@ -73,7 +72,7 @@ describe('buildCatalogView', () => {
       rows,
       sort: null,
     });
-    expect(view.providerStats.map((stat) => stat.providerId)).not.toContain('cohere');
+    expect(view.providerStats.map((stat) => stat.providerId)).not.toContain('bedrock');
   });
 
   it('labels each section with its provider runtime', () => {
@@ -87,9 +86,9 @@ describe('buildCatalogView', () => {
     expect(labels).toEqual({
       [UNKNOWN_PROVIDER_SECTION_ID]: null,
       anthropic: 'Hosted',
+      google: 'Hosted',
       openai: 'Hosted',
       openrouter: 'Gateway',
-      voyage: 'Hosted',
     });
   });
 
@@ -162,7 +161,7 @@ describe('buildCatalogView', () => {
     });
     expect(
       buildCatalogView({
-        filters: { ...DEFAULT_CATALOG_FILTERS, type: 'embedding' },
+        filters: { ...DEFAULT_CATALOG_FILTERS, status: 'enabled' },
         providers,
         rows,
         sort: null,

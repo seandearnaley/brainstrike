@@ -66,33 +66,10 @@ Schema ownership details: [Effect Schema ownership](effect-schema-migration.md).
   and cache provenance.
 - MCP OAuth callback: a Scope owns listener teardown; each wait uses
   `Effect.ensuring` for its timer; close joins all active waits.
-- Embedding admission reserves partial permits transactionally; abort only
-  capacity waits, never committed grants.
 - File-tree bulk operations share one Scope-owned pending entry: detach before
   settlement, keep synchronous posting and the first terminal outcome, clean failed
   sends before replacement.
 - Renderer startup uses `Effect.retry` and always finalizes readiness waits.
-- Native-index lifecycle workflows type expected settings, action and event
-  refusals up to their Promise edges.
-  - Synchronous capability throws stay defects; settings and cleanup failures stay
-    independently visible.
-  - The reducer, admission permit, immediate fence and physical-retirement owner
-    remain authoritative.
-
-## Lifecycle diagnostics
-
-- Native-index workflow spans use the `NativeIndexWorkflow` logger. Session Logs
-  at info show admission, settings, action and terminal phases under one opaque
-  trace id; failures also reach warn+ retention.
-- The tracer exports only fixed operation/event names, allowlisted actions, opaque
-  span/parent IDs, durations and outcomes.
-  - Causes go through the existing redactor as bounded, visibly truncated failure counts.
-  - Error text, settings, paths, prompts and credentials are never span attributes.
-  - Terminal spans close after Effect finalizers.
-  - No exporter, telemetry store or resource owner is added.
-- Nested context uses Effect's Tracer and `Logger.tracerLogger`. A Promise edge may
-  pass `tracing: { tracer, parentSpan }` to `runAtPromiseBoundary`. There is no
-  ambient propagation across arbitrary callbacks or workers, and no propagation header.
 
 ## Schema at the LLM tool boundary
 

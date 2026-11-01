@@ -360,8 +360,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     // Regression for context-explorer responsiveness: size metadata used to
     // only land in the hot cache after the background indexer finished token
     // counting, so a shrinking/filter-churning selection would render `—` in
-    // the size column whenever indexing was gated (embedding active,
-    // adaptive debounce, worker busy). The decoupled prefetch effect writes
+    // the size column whenever indexing was gated (adaptive debounce, worker
+    // busy). The decoupled prefetch effect writes
     // any size the handle sources already know the instant selection
     // changes, independent of token indexing.
     const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<

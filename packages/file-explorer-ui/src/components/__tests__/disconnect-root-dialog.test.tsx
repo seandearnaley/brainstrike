@@ -23,7 +23,7 @@ describe('DisconnectRootDialog', () => {
 
     expect(screen.getByText('Disconnect my-project?')).toBeInTheDocument();
     // Default body states data is KEPT.
-    expect(screen.getByText(/indexed data is kept/iu)).toBeInTheDocument();
+    expect(screen.getByText(/saved data is kept/iu)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Disconnect' }));
 
@@ -34,7 +34,7 @@ describe('DisconnectRootDialog', () => {
     const user = userEvent.setup();
     const { onConfirm } = renderDialog();
 
-    await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/iu }));
+    await user.click(screen.getByRole('checkbox', { name: /also delete folder data/iu }));
     // Checked body copy states data WILL be deleted.
     expect(screen.getByText(/permanently deletes/iu)).toBeInTheDocument();
 
@@ -64,8 +64,8 @@ describe('DisconnectRootDialog', () => {
         open={true}
       />
     );
-    await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/iu }));
-    expect(screen.getByRole('checkbox', { name: /also delete indexed data/iu })).toBeChecked();
+    await user.click(screen.getByRole('checkbox', { name: /also delete folder data/iu }));
+    expect(screen.getByRole('checkbox', { name: /also delete folder data/iu })).toBeChecked();
 
     rerender(
       <DisconnectRootDialog
@@ -86,8 +86,8 @@ describe('DisconnectRootDialog', () => {
 
     // A destructive opt-in must NEVER survive a close/reopen cycle
     // (reset via remount key, not an Effect syncing open → state).
-    expect(screen.getByRole('checkbox', { name: /also delete indexed data/iu })).not.toBeChecked();
-    expect(screen.getByText(/indexed data is kept/iu)).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /also delete folder data/iu })).not.toBeChecked();
+    expect(screen.getByText(/saved data is kept/iu)).toBeInTheDocument();
   });
 
   it('resets the checkbox after Cancel closes and the dialog reopens', async () => {
@@ -112,13 +112,13 @@ describe('DisconnectRootDialog', () => {
     }
 
     render(<Harness />);
-    await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/iu }));
-    expect(screen.getByRole('checkbox', { name: /also delete indexed data/iu })).toBeChecked();
+    await user.click(screen.getByRole('checkbox', { name: /also delete folder data/iu }));
+    expect(screen.getByRole('checkbox', { name: /also delete folder data/iu })).toBeChecked();
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: 'Reopen' }));
 
-    expect(screen.getByRole('checkbox', { name: /also delete indexed data/iu })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /also delete folder data/iu })).not.toBeChecked();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 });

@@ -166,7 +166,7 @@ export function resolveModelReasoningSupport(
     return { reason: 'openrouter-undeclared', state: 'unknown' };
   }
 
-  // Embedding-only providers (cohere, voyage) have no LLMs to reason with.
+  // A Bedrock route that declares no reasoning dialect has none.
   return { state: 'unsupported' };
 }
 
@@ -270,9 +270,6 @@ export function resolveReasoningControlsAvailability(
       return resolveAnthropicControls(modelId);
     case 'google':
       return { available: true, family: 'google', levels: getGoogleThinkingLevels(modelId) };
-    case 'cohere':
-    case 'voyage':
-      return { available: false, reason: 'no-reasoning-controls' };
     case 'bedrock': {
       // BST-1354: per-model, straight off the registry's declared dialect.
       // Bedrock's catalog is heterogeneous — adaptive Claude routes, one

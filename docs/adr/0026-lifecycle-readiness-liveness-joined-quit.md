@@ -5,6 +5,8 @@
   - R2 and R5 are held by one supervisor ([ADR-0030](0030-one-process-supervisor.md)).
   - R1 amended by BST-2410: Explorer state is saved synchronously in renderer `localStorage`, so
     two write-behind writers remain.
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the native index and its quit step are
+    deleted. Quit's terminal reason is profile admission's `desktop.profile-closed` refusal.
 - **Date:** 2026-10-20
 - **Number:** shared with [ADR-0026 (two-lane search)](0026-two-lane-agent-search.md); cite this
   one as "ADR-0026 lifecycle" or by its R-rules.

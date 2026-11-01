@@ -46,13 +46,6 @@ const models: ModelPickerModel[] = [
     name: 'Claude Sonnet 4.6',
     providerId: 'anthropic',
   },
-  {
-    capabilities: { type: 'embedding' },
-    contextWindow: 2_000_000,
-    id: 'text-embedding',
-    name: 'Text Embedding',
-    providerId: 'openai',
-  },
 ];
 
 const compactModel: ModelPickerModel = {
@@ -169,29 +162,6 @@ describe('ModelPicker', () => {
       );
       expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
       expect(screen.getByText('(+1)')).toBeInTheDocument();
-    });
-  });
-
-  describe('filtering', () => {
-    it('filters models by type when modelType is llm', () => {
-      render(<ModelPicker models={models} modelType="llm" providers={providers} />);
-      fireEvent.click(screen.getByRole('combobox'));
-      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
-      expect(screen.queryByText('Text Embedding')).not.toBeInTheDocument();
-    });
-
-    it('filters models by type when modelType is embedding', () => {
-      render(<ModelPicker models={models} modelType="embedding" providers={providers} />);
-      fireEvent.click(screen.getByRole('combobox'));
-      expect(screen.getByText('Text Embedding')).toBeInTheDocument();
-      expect(screen.queryByText('GPT-5.2')).not.toBeInTheDocument();
-    });
-
-    it('shows all models when modelType is all', () => {
-      render(<ModelPicker models={models} modelType="all" providers={providers} />);
-      fireEvent.click(screen.getByRole('combobox'));
-      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
-      expect(screen.getByText('Text Embedding')).toBeInTheDocument();
     });
   });
 
@@ -345,16 +315,16 @@ describe('ModelPicker', () => {
     });
 
     it('shows model count per provider', () => {
-      render(<ModelPicker models={models} modelType="llm" providers={providers} />);
+      render(<ModelPicker models={models} providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
-      // OpenAI has 1 LLM model
+      // OpenAI has 1 model
       const openAiHeading = screen.getByText('OpenAI').closest('div');
       expect(openAiHeading).not.toBeNull();
       expect(within(openAiHeading as HTMLElement).getByText('1')).toBeInTheDocument();
     });
 
     it('shows useful model metadata in consistently labelled rows', () => {
-      render(<ModelPicker models={models} modelType="llm" providers={providers} />);
+      render(<ModelPicker models={models} providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
 
       const option = screen.getByRole('option', { name: /GPT-5\.2/iu });
@@ -370,109 +340,15 @@ describe('ModelPicker', () => {
     });
 
     it('formats million-token context windows', () => {
-      render(<ModelPicker models={models} modelType="embedding" providers={providers} />);
+      render(
+        <ModelPicker
+          models={[{ ...compactModel, contextWindow: 2_000_000 }]}
+          providers={providers}
+        />
+      );
       fireEvent.click(screen.getByRole('combobox'));
 
       expect(screen.getByText('2M context')).toBeInTheDocument();
-    });
-  });
-
-  describe('embedding models across providers (BST-299 regression)', () => {
-    // Two Cohere embedding models beside an OpenAI one, each with its default dimension
-    const embeddingModels: ModelPickerModel[] = [
-      {
-        capabilities: { defaultDimension: 1024, type: 'embedding' },
-        id: 'cohere::embed-english-v3.0',
-        name: 'Embed English v3',
-        providerId: 'cohere',
-      },
-      {
-        capabilities: { defaultDimension: 1024, type: 'embedding' },
-        id: 'cohere::embed-multilingual-v3.0',
-        name: 'Embed Multilingual v3',
-        providerId: 'cohere',
-      },
-      {
-        capabilities: { defaultDimension: 1536, type: 'embedding' },
-        id: 'openai::text-embedding-3-small',
-        name: 'Text Embedding 3 Small',
-        providerId: 'openai',
-      },
-    ];
-
-    const embeddingProviders: ModelPickerProvider[] = [
-      { id: 'cohere', name: 'Cohere' },
-      { id: 'openai', name: 'OpenAI' },
-    ];
-
-    it("shows every provider's embedding models in dropdown when modelType is embedding", () => {
-      render(
-        <ModelPicker
-          models={embeddingModels}
-          modelType="embedding"
-          providers={embeddingProviders}
-        />
-      );
-      fireEvent.click(screen.getByRole('combobox'));
-
-      // Both Cohere models should be visible
-      expect(screen.getByText('Embed English v3')).toBeInTheDocument();
-      expect(screen.getByText('Embed Multilingual v3')).toBeInTheDocument();
-      // OpenAI model should also be visible
-      expect(screen.getByText('Text Embedding 3 Small')).toBeInTheDocument();
-    });
-
-    it('shows a group header for each provider with embedding models', () => {
-      render(
-        <ModelPicker
-          models={embeddingModels}
-          modelType="embedding"
-          providers={embeddingProviders}
-        />
-      );
-      fireEvent.click(screen.getByRole('combobox'));
-
-      // Both provider groups should be visible
-      expect(screen.getByText('Cohere')).toBeInTheDocument();
-      expect(screen.getByText('OpenAI')).toBeInTheDocument();
-    });
-
-    it('correctly selects and displays an embedding model', () => {
-      const onChange = vi.fn();
-      render(
-        <ModelPicker
-          models={embeddingModels}
-          modelType="embedding"
-          onChange={onChange}
-          providers={embeddingProviders}
-          value="cohere::embed-english-v3.0"
-        />
-      );
-
-      // Trigger should show the selected model
-      expect(screen.getByText('Embed English v3')).toBeInTheDocument();
-
-      // Open dropdown and verify models are visible
-      fireEvent.click(screen.getByRole('combobox'));
-
-      // All embedding models should be visible
-      expect(screen.getByText('Embed Multilingual v3')).toBeInTheDocument();
-      expect(screen.getByText('Text Embedding 3 Small')).toBeInTheDocument();
-    });
-
-    it("does not filter out any provider's models when filtering by embedding type", () => {
-      render(
-        <ModelPicker
-          models={embeddingModels}
-          modelType="embedding"
-          providers={embeddingProviders}
-        />
-      );
-      fireEvent.click(screen.getByRole('combobox'));
-
-      // Count how many models are visible (should be 3)
-      const visibleModels = screen.getAllByText(/Embed English|Embed Multilingual|Text Embedding/u);
-      expect(visibleModels).toHaveLength(3);
     });
   });
 

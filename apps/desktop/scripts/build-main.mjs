@@ -56,18 +56,6 @@ async function assertPreloadBundlesAreSandboxSafe() {
 }
 
 /**
- * The indexer host chunks code in Node, where the bundled tree-sitter loader
- * reads its vendored grammars from `grammars/` beside itself.
- */
-async function copyNodeGrammars() {
-  await cp(
-    path.resolve(appRoot, '../../packages/chunking-worker/grammars'),
-    path.join(appRoot, 'dist', 'grammars'),
-    { recursive: true }
-  );
-}
-
-/**
  * The tray icon (ADR-0033) ships beside the bundled main, inside the app: electron-builder keeps
  * `build/` out of the package. Windows draws the .ico; Linux the PNG, with its @2x for HiDPI.
  */
@@ -110,6 +98,5 @@ await cleanMainProcessOutputs();
 const results = await Promise.all(NODE_BUILDS.map((options) => build(options)));
 await writeNodeLicenseReport(results);
 await writeProcessLaunchers();
-await copyNodeGrammars();
 await copyTrayIcons();
 await assertPreloadBundlesAreSandboxSafe();

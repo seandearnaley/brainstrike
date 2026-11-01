@@ -1,6 +1,9 @@
 # ADR-0021: Thread context map and explicit attachment
 
 - **Status:** Accepted by Sean
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the workspace index is deleted. The
+    Context tab maps tool results to line spans only; there are no index chunks or
+    indexer-supplied chunk boundaries, and semantic search is gone.
 - **Date:** 2026-10-14
 - **Ticket:** BST-2013 (BST-2014 to BST-2019)
 

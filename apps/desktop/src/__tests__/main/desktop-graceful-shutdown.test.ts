@@ -107,7 +107,7 @@ describe('desktop graceful shutdown', () => {
       'factory-reset',
       'renderers',
       'main-catalog',
-      'native-index',
+      'host-profile',
       'mcp-runtime',
       'file-system',
       'database-drain',
@@ -295,7 +295,7 @@ describe('desktop graceful shutdown', () => {
   });
 
   // The steps a 2-core Windows run found in flight when the old deadline forced exit 1.
-  it.each(['main-catalog', 'native-index'] as const)(
+  it.each(['main-catalog', 'host-profile'] as const)(
     'a %s step that takes 15 s is joined, every later step runs, and nothing forces an exit',
     async (slow) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });

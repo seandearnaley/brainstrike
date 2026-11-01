@@ -112,7 +112,7 @@ test('an authenticated attachment stays usable during index-only retirement and 
   const catalog = createDesktopWorkspaceRootCatalog(acquire);
   try {
     await expect(catalog.workspaceRoots({ operation: 'list' })).resolves.toEqual({ roots: [] });
-    acquire.mockRejectedValue(new Error('Native index admission is closed'));
+    acquire.mockRejectedValue(new Error('Profile admission is closed'));
     await expect(catalog.workspaceRoots({ operation: 'list' })).resolves.toEqual({ roots: [] });
     expect(acquire).toHaveBeenCalledTimes(1);
     closed.resolve();
@@ -135,7 +135,7 @@ test('a request the closed attachment never sent goes back through admission (BS
       // Reset disposes the connection before the transport's own close settles.
       closed: new Promise<void>(() => undefined),
     }) as HostAttachment & { catalog: ReturnType<typeof createHostCatalogClient> };
-  const resetRefusal = new Error('Native index activation is closed for terminal retirement.');
+  const resetRefusal = new Error('The profile is closed for terminal retirement.');
   const acquire = vi.fn(async () => attach(retired));
   const catalog = createDesktopWorkspaceRootCatalog(acquire);
   try {

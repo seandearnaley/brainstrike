@@ -38,7 +38,7 @@ it.each([
 ])(
   'logs a refused convergence at the level its catalog owner expects ($expected)',
   async ({ expected, level, message }) => {
-    const refused = new Error('Native index activation is closed for terminal retirement.');
+    const refused = new Error('The profile is closed for terminal retirement.');
     const registry = new WorkspaceRootRegistry({
       disposeCommandSessionsForRoot: vi.fn(async () => 0),
       evictLspServersForRoot: vi.fn(async () => undefined),

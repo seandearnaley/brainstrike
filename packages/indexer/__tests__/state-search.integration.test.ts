@@ -3,8 +3,8 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
-import { openConnection } from '@brainstrike/sqlite-native';
 import { type RunEvent, StateStore } from '@brainstrike/state-store';
+import Database from 'better-sqlite3';
 import { afterEach, expect, it } from 'vitest';
 
 const deadlines = { closeMs: 5000 };
@@ -22,8 +22,6 @@ async function fixture() {
   owned.push(() => rm(root, { force: true, recursive: true }));
   const options = {
     dbPath: path.join(root, 'index.sqlite'),
-    embedding: { indexMode: 'text-only' },
-    rootIds: ['canonical'],
     stateProjection: { mode: 'dev', module: producer },
     stateRoot: root,
   } as const;
@@ -111,7 +109,7 @@ it('a purged event and a deleted thread leave no search rows', async () => {
 
   await f.store.deleteThread('one');
   expect((await search()).map(({ threadId }) => threadId)).toEqual(['two']);
-  const db = openConnection(f.options.dbPath, { readonly: true });
+  const db = new Database(f.options.dbPath, { readonly: true });
   try {
     expect(
       db.prepare("SELECT count(*) FROM state_search_rows WHERE thread_id='one'").pluck().get()
@@ -142,9 +140,9 @@ it('a current schema store retains searchable committed rows through physical cl
       { role: 'assistant', seq: 2 },
     ])
   );
-  const reopened = openConnection(f.options.dbPath, { readonly: true });
+  const reopened = new Database(f.options.dbPath, { readonly: true });
   try {
-    expect(reopened.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(16);
+    expect(reopened.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(17);
   } finally {
     reopened.close();
   }

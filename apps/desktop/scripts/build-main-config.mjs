@@ -102,10 +102,8 @@ export const NODE_PROCESS_ENTRY_POINTS = {
   // Main imports it lazily; the packaged Python probe loads it by path.
   'fence-executor': path.join(packagesRoot, 'agent/src/fence-executor.ts'),
   'host-lease-process': 'src/host-lease-entry.ts',
-  'indexer-host-process': 'src/indexer-host-entry.ts',
   'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
   'main-process': 'src/main-bootstrap.ts',
-  'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
   ...PACKAGE_RUNTIME_ENTRY_POINTS,
 };
 
@@ -123,7 +121,6 @@ const DEFAULT_OWNER = '@brainstrike/secure-fs-native/default-owner';
 export const PROCESS_LAUNCHERS = {
   'agent-host-entry': [DEFAULT_OWNER, './agent-host-process.js'],
   'host-lease-entry': [DEFAULT_OWNER, './host-lease-process.js'],
-  'indexer-host-entry': [DEFAULT_OWNER, './indexer-host-process.js'],
   main: [DEFAULT_OWNER, './desktop-env.js', './lifecycle-delay-seam.js', './main-process.js'],
 };
 

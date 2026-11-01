@@ -120,14 +120,13 @@ export async function pickWorkspaceFolder(
 }
 
 interface RegisterFileSystemIpcHandlersOptions {
-  /** Main's native index stops its sources around the host's deletion of the folder's data. */
+  /** Forwards the deletion of the folder's data to the agent host. */
   readonly onDeleteRootData?: (rootId: string) => Promise<void>;
 }
 
 /**
- * `fs:deleteRootData` stays in Main while the native index does (ADR-0029 stage 5): its
- * transition runs between the host's reservation of the folder's deletion and the deletion
- * itself. Every other folder change is the agent host's.
+ * `fs:deleteRootData`: the window asks Main, which forwards it to the agent host's
+ * `workspace/roots/delete-data`. Every folder change is the agent host's.
  */
 export function registerFileSystemIpcHandlers({
   onDeleteRootData,

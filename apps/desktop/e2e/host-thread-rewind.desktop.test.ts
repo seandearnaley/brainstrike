@@ -57,7 +57,6 @@ test('a host thread restores to before a message, undoes it, and branches from t
   writeFileSync(notes, ORIGINAL);
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'm3-rewind-root',
       rootId: randomUUID(),
     });

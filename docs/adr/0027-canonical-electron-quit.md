@@ -2,7 +2,9 @@
 
 - **Status:** Accepted (owner decisions, 2026-10-21); decision 3's native-thread join
   retires under [ADR-0029](0029-main-is-a-launcher.md) once no native work runs on Main;
-  [ADR-0030](0030-one-process-supervisor.md) amends how a timed-out git ends
+  [ADR-0030](0030-one-process-supervisor.md) amends how a timed-out git ends.
+  2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the native index's shutdown signal and
+  quit step are deleted with the index.
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) R4. Git on
   Windows no longer runs in a per-command native Job, so quit has no git Job to join. A

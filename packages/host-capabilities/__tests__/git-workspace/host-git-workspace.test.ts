@@ -31,7 +31,6 @@ function createWorkspace({ subscribe = true } = {}) {
     logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
     managedWorktreeDirectory: '/home/tester/.brainstrike/worktrees',
     openWorktreeFolder: vi.fn(),
-    refreshWorkspaceIndex: vi.fn(async () => undefined),
     roots: { listRoots: async () => [] },
     snapshotsBaseDir: '/tmp/brainstrike-git-workspace-test/snapshots',
     store: {} as never,

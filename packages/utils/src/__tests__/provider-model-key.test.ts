@@ -7,58 +7,56 @@ import {
 
 describe('provider-model-key', () => {
   it('formats provider/model ids with the canonical separator', () => {
-    expect(formatProviderModelKey('openai', 'text-embedding-3-small')).toBe(
-      'openai::text-embedding-3-small'
-    );
+    expect(formatProviderModelKey('openai', 'gpt-5-mini')).toBe('openai::gpt-5-mini');
   });
 
   it('parses canonical composite keys', () => {
-    expect(parseProviderModelKey('openai::text-embedding-3-small')).toEqual({
-      modelId: 'text-embedding-3-small',
+    expect(parseProviderModelKey('openai::gpt-5-mini')).toEqual({
+      modelId: 'gpt-5-mini',
       provider: 'openai',
     });
   });
 
   it('parses legacy provider:model keys', () => {
-    expect(parseProviderModelKey('voyage:voyage-3')).toEqual({
-      modelId: 'voyage-3',
-      provider: 'voyage',
+    expect(parseProviderModelKey('google:gemini-2.5-pro')).toEqual({
+      modelId: 'gemini-2.5-pro',
+      provider: 'google',
     });
   });
 
   it('rejects empty or malformed composite keys', () => {
     expect(parseProviderModelKey('')).toBeNull();
     expect(parseProviderModelKey('openai::')).toBeNull();
-    expect(parseProviderModelKey('::text-embedding-3-small')).toBeNull();
-    expect(parseProviderModelKey('text-embedding-3-small')).toBeNull();
+    expect(parseProviderModelKey('::gpt-5-mini')).toBeNull();
+    expect(parseProviderModelKey('gpt-5-mini')).toBeNull();
   });
 
   it('canonicalizes composite keys without changing valid values', () => {
-    expect(canonicalizeProviderModelKey('openai::text-embedding-3-small')).toEqual({
-      composite: 'openai::text-embedding-3-small',
-      modelId: 'text-embedding-3-small',
+    expect(canonicalizeProviderModelKey('openai::gpt-5-mini')).toEqual({
+      composite: 'openai::gpt-5-mini',
+      modelId: 'gpt-5-mini',
       provider: 'openai',
     });
   });
 
   it('canonicalizes raw model ids using the provider hint or fallback provider', () => {
     expect(
-      canonicalizeProviderModelKey('voyage-3', {
-        providerHint: 'voyage',
+      canonicalizeProviderModelKey('gemini-2.5-pro', {
+        providerHint: 'google',
       })
     ).toEqual({
-      composite: 'voyage::voyage-3',
-      modelId: 'voyage-3',
-      provider: 'voyage',
+      composite: 'google::gemini-2.5-pro',
+      modelId: 'gemini-2.5-pro',
+      provider: 'google',
     });
 
     expect(
-      canonicalizeProviderModelKey('text-embedding-3-small', {
+      canonicalizeProviderModelKey('gpt-5-mini', {
         fallbackProvider: 'openai',
       })
     ).toEqual({
-      composite: 'openai::text-embedding-3-small',
-      modelId: 'text-embedding-3-small',
+      composite: 'openai::gpt-5-mini',
+      modelId: 'gpt-5-mini',
       provider: 'openai',
     });
   });

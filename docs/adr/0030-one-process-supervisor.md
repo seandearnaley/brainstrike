@@ -1,6 +1,8 @@
 # ADR-0030: One process supervisor; the OS exit is the only completion
 
 - **Status:** Accepted (Sean adopted all five stages, 2026-10-25)
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the indexer, query reader and embedding
+    host processes are deleted. The host state index is the one index process left.
 - **Date:** 2026-10-25
 - **Amends:** [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) (R2 and R5 are held
   by one implementation instead of each owner), [ADR-0027](0027-canonical-electron-quit.md)

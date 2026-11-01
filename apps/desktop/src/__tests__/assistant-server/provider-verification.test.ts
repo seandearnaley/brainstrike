@@ -228,27 +228,6 @@ describe('ProviderVerificationService probes', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('verifies cohere against its models listing', async () => {
-    const { fetchImpl, service } = createService();
-
-    await expect(service.verify('cohere')).resolves.toMatchObject({
-      result: { status: 'verified' },
-    });
-    expect(fetchImpl).toHaveBeenCalledWith('https://api.cohere.com/v1/models', expect.anything());
-  });
-
-  it('verifies voyage with a minimal embeddings POST (no model-list endpoint exists)', async () => {
-    const { fetchImpl, service } = createService();
-
-    await expect(service.verify('voyage')).resolves.toMatchObject({
-      result: { status: 'verified' },
-    });
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://api.voyageai.com/v1/embeddings');
-    expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body as string)).toEqual({ input: ['ping'], model: 'voyage-3' });
-  });
-
   it('verifies tavily against its usage endpoint', async () => {
     const { fetchImpl, service } = createService();
 

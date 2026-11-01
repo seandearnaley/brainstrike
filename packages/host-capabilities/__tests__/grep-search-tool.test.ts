@@ -141,8 +141,7 @@ describe('grep search tool', () => {
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode result');
     }
-    // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine)
-    // never reach the model-facing output. contextLines defaults to 0:
+    // contextLines defaults to 0:
     // searches locate, reads understand — every studied peer ships no context
     // by default (opencode has no option; hermes defaults 0).
     expect(result.matches).toEqual([
@@ -156,10 +155,6 @@ describe('grep search tool', () => {
         rootName: 'workspace',
       },
     ]);
-    const [match] = result.matches;
-    expect(match).not.toHaveProperty('chunkId');
-    expect(match).not.toHaveProperty('chunkStartLine');
-    expect(match).not.toHaveProperty('chunkEndLine');
     expect(result.truncated).toBe(false);
   });
 

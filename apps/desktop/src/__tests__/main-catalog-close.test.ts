@@ -10,10 +10,7 @@ function fixture() {
     throw new Error('Unexpected catalog operation');
   };
   const catalog = {
-    collections: vi.fn<HostCatalog['collections']>(unexpected),
-    indexConfig: vi.fn<HostCatalog['indexConfig']>(unexpected),
     modelChoices: vi.fn<HostCatalog['modelChoices']>(unexpected),
-    sourceCatalog: vi.fn<HostCatalog['sourceCatalog']>(unexpected),
     threadGroups: vi.fn<HostCatalog['threadGroups']>(unexpected),
     viewFilterPresets: vi.fn<HostCatalog['viewFilterPresets']>(unexpected),
     workspaceRoots: vi.fn<HostCatalog['workspaceRoots']>(unexpected),

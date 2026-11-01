@@ -51,7 +51,6 @@ test('a host run is reviewed in Changes from its turn snapshots, and "Last Turn"
   const notes = path.join(root, 'notes.txt');
   writeFileSync(notes, ORIGINAL);
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'm3-changes-review-root',
     rootId: randomUUID(),
   });
@@ -126,7 +125,6 @@ test('a comment on a Changes diff line goes into the thread’s next message', a
   electron.removeAfterClose(root);
   writeFileSync(path.join(root, 'notes.txt'), ORIGINAL);
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'changes-line-comment-root',
     rootId: randomUUID(),
   });

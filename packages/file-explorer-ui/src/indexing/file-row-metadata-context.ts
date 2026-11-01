@@ -13,7 +13,7 @@
  * tree is shaped.
  *
  * The context is OPTIONAL by design: `OptimizedFileTree` also renders in
- * surfaces that never mount the seam (unit tests, and any future embedding
+ * surfaces that never mount the seam (unit tests, and any future surface
  * without a token cache). Capability gating — does the seam exist? — is the
  * repo's rule for this, and a tree without the seam simply renders the Name
  * column instead of inventing metadata.
