@@ -39,6 +39,7 @@ import {
   readStoredMcpExtensionPreferences,
   writeStoredMcpExtensionPreferences,
 } from './extension-preferences.ts';
+import { connectSignsInWithOAuth, signInWithOAuthWith } from './oauth-sign-in.ts';
 import {
   applyToolPreferenceMutation,
   buildToolPreferencesFaultMessage,
@@ -392,7 +393,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
   /**
    * A lifecycle control, as Settings asks for it. A disconnect or reauthorize
    * reloads the config whatever its outcome; a connect that succeeds reloads it
-   * so discovery reaches the newly connected server.
+   * so discovery reaches the newly connected server. A connect on a server that
+   * answered 401 without configured auth signs in: OAuth is written into its
+   * config entry first, so the connect reaches the OAuth server it reloads as.
    */
   control(request: McpHostControlRequest): Promise<McpHostServerSnapshot> {
     const host = this.options.runtime.host;
@@ -405,6 +408,17 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
           () => host.control(request),
           () => this.#reloadForLifecycle(lifecycleEpoch)
         );
+      }
+      const server = this.status().servers.find(
+        ({ configuredServerId }) => configuredServerId === request.configuredServerId
+      );
+      if (request.action === 'connect' && connectSignsInWithOAuth(server)) {
+        await signInWithOAuthWith({
+          commit: (content, baseRevision, conflictMessage) =>
+            this.#writeAndSync(content, baseRevision, lifecycleEpoch, conflictMessage),
+          configFile: this.options.configFile,
+          serverName: request.configuredServerId,
+        });
       }
       const result = await host.control(request);
       if (result.state === 'connected') {
