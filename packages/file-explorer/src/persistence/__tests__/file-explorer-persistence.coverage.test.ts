@@ -54,9 +54,6 @@ describe('file-explorer-persistence coverage', () => {
       'onRehydrateStorage - Storage rehydration failed',
       { errorName: 'Error' }
     );
-    expect(hydratedState.reportPersistedStateDiscard).toHaveBeenCalledWith(
-      'persisted-state-discarded'
-    );
   });
 
   it('does not run the migration pipeline again when merging a migrated version mismatch', async () => {

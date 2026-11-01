@@ -3,28 +3,48 @@
  */
 
 import { act } from '@brainstrike/test-utils/react-act';
+import { type ThemeMode, ThemeProvider, useTheme } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { APPEARANCE_STORAGE_KEY, chooseAppearance, useAppearanceStore } from '../appearance-store';
 
-const APPEARANCE_KEY = 'ui-appearance';
+/** The provider wired to the store, as `AppLayout` mounts it. */
+function AppTheme({ children, defaultMode }: { children: ReactNode; defaultMode?: ThemeMode }) {
+  const appearance = useAppearanceStore();
+  return (
+    <ThemeProvider
+      appearance={appearance}
+      onAppearanceChange={chooseAppearance}
+      {...(defaultMode ? { defaultMode } : {})}
+    >
+      {children}
+    </ThemeProvider>
+  );
+}
 
-/** A fresh module graph reads `localStorage` again, as the app does when it reopens. */
-async function openApp(defaultMode?: 'dark' | 'light' | 'system') {
-  vi.resetModules();
-  const { ThemeProvider, useTheme } = await import('../theme-provider');
+/** Reads `localStorage` again into an empty store, as the app does when it reopens. */
+async function openApp(defaultMode?: ThemeMode) {
+  const saved = localStorage.getItem(APPEARANCE_STORAGE_KEY);
+  // Emptying the store saves `{}`; put back what the last session saved.
+  useAppearanceStore.setState({}, true);
+  if (saved !== null) {
+    localStorage.setItem(APPEARANCE_STORAGE_KEY, saved);
+  }
+  await useAppearanceStore.persist.rehydrate();
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <ThemeProvider {...(defaultMode ? { defaultMode } : {})}>{children}</ThemeProvider>
+    <AppTheme {...(defaultMode ? { defaultMode } : {})}>{children}</AppTheme>
   );
   return renderHook(() => useTheme(), { wrapper });
 }
 
 function seed(state: Record<string, unknown>): void {
-  localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ state, version: 1 }));
+  localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify({ state, version: 1 }));
 }
 
-describe('ThemeProvider', () => {
+describe('appearance store with ThemeProvider', () => {
   beforeEach(() => {
+    useAppearanceStore.setState({}, true);
     localStorage.clear();
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       addEventListener: vi.fn(),
@@ -113,16 +133,5 @@ describe('ThemeProvider', () => {
 
     expect(result.current.mode).toBe('dark');
     expect(document.documentElement.dataset['theme']).toBe('orchid');
-  });
-
-  it('throws when useTheme is used outside the provider', async () => {
-    const { useTheme } = await import('../theme-provider');
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    expect(() => renderHook(() => useTheme())).toThrow(
-      'useTheme must be used within a ThemeProvider'
-    );
-
-    consoleSpy.mockRestore();
   });
 });

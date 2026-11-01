@@ -11,7 +11,7 @@ import type {
   PersistenceRecoveryNotice,
   SerializedState,
 } from '@brainstrike/types';
-import type { PersistOptions } from 'zustand/middleware';
+import { createJSONStorage, type PersistOptions, type PersistStorage } from 'zustand/middleware';
 import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
 import { migrateState, validateAndRecoverSerializedState } from './state-migration';
 import { mergeState, serializeState } from './state-serialization';
@@ -49,11 +49,40 @@ export function createPersistedFileExplorerSnapshot(state: FileExplorerState): {
 }
 
 /**
- * The Explorer's view state is renderer-only, so it persists through zustand's default
- * storage, this renderer's `localStorage` (Main's Factory Reset clears it). Writes are
- * synchronous: a change is saved when `set` returns. The store hydrates once it exists
- * (`skipHydration`, then {@link hydrateFileExplorerStore}), so a discard found while reading
- * can still land its recovery notice in the store.
+ * Zustand's default storage, this renderer's `localStorage`, except that a saved value
+ * that is not JSON reads as nothing saved and is reported through `onUnreadable`.
+ * Zustand's own read would reject, which leaves the store never hydrated, so nothing
+ * waiting on hydration (folder restore, scroll restore) would run.
+ */
+function createFileExplorerStorage(
+  onUnreadable: () => void
+): PersistStorage<SerializedState> | undefined {
+  const storage = createJSONStorage<SerializedState>(() => localStorage);
+  if (!storage) {
+    return undefined;
+  }
+  return {
+    ...storage,
+    getItem: (name) => {
+      try {
+        return storage.getItem(name);
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          onUnreadable();
+          return null;
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+/**
+ * The Explorer's view state is renderer-only, so it persists in this renderer's
+ * `localStorage` (Main's Factory Reset clears it). Writes are synchronous: a change is
+ * saved when `set` returns. The store hydrates once it exists (`skipHydration`, then
+ * {@link hydrateFileExplorerStore}), so a discard found while reading can still land its
+ * recovery notice in the store.
  */
 export const createPersistOptions = (): PersistOptions<FileExplorerState, SerializedState> => {
   let pendingRecoveryNotice: PersistenceRecoveryNotice | null = null;
@@ -83,11 +112,6 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
     name: FILE_EXPLORER_STORAGE_KEY,
 
     onRehydrateStorage: (preHydrationState) => (state, error) => {
-      // A saved value that is not JSON fails the read: the Explorer opens on defaults and
-      // says so, and the next change overwrites the unreadable value.
-      if (error) {
-        recordPersistedStateDiscard();
-      }
       if (pendingRecoveryNotice !== null) {
         const notice = pendingRecoveryNotice;
         pendingRecoveryNotice = null;
@@ -116,6 +140,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
 
     partialize: (state) => createPersistedFileExplorerSnapshot(state).state,
     skipHydration: true,
+    storage: createFileExplorerStorage(recordPersistedStateDiscard),
     version: FILE_EXPLORER_STORAGE_VERSION,
   };
 };

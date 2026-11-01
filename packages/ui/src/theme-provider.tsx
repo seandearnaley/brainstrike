@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { type SavedAppearance, type ThemeMode, useAppearanceStore } from './appearance-store';
 // Relative imports, never the `@brainstrike/ui` barrel: the barrel re-exports
 // this module, so importing it here would close a source cycle (BST-890).
 import {
@@ -15,14 +14,33 @@ import {
   type ThemeId,
 } from './themes';
 
-export type { ThemeMode } from './appearance-store';
+export type ThemeMode = 'dark' | 'light' | 'system';
+
+/**
+ * The appearance choices the user made. A choice left unset follows the
+ * provider's default, so only what the user picked needs saving.
+ */
+export interface SavedAppearance {
+  readonly codeFont?: CodeFontId;
+  readonly codeTheme?: CodeThemeId;
+  readonly font?: FontId;
+  readonly mode?: ThemeMode;
+  readonly theme?: ThemeId;
+}
 
 interface ThemeProviderProps {
+  /**
+   * The saved choices, owned by the app. Without it the provider keeps the
+   * choices for this session only.
+   */
+  appearance?: SavedAppearance;
   children: React.ReactNode;
   /** Light, dark or system, until the user picks one. */
   defaultMode?: ThemeMode;
   /** Palette id, until the user picks one. */
   defaultTheme?: ThemeId;
+  /** Called with each choice the user makes, for the app to save. */
+  onAppearanceChange?: (choice: SavedAppearance) => void;
 }
 
 /** The choices beside the mode. */
@@ -44,19 +62,27 @@ interface ThemeProviderState extends Appearance {
 
 const ThemeProviderContext = React.createContext<ThemeProviderState | undefined>(undefined);
 
-const choose = (choice: SavedAppearance) => useAppearanceStore.setState(choice);
-
 /**
- * Applies the saved appearance (`useAppearanceStore`, in `localStorage`) to the
- * document. The store reads `localStorage` synchronously as it is created, so
- * the first render already has the saved choices.
+ * Applies the appearance to the document. The app owns where the choices are
+ * saved: it passes them in `appearance` and saves what `onAppearanceChange`
+ * reports, so this shared provider never touches a preference store.
  */
 export function ThemeProvider({
+  appearance,
   children,
   defaultMode = 'system',
   defaultTheme = DEFAULT_THEME,
+  onAppearanceChange,
 }: ThemeProviderProps) {
-  const saved = useAppearanceStore();
+  const [sessionAppearance, setSessionAppearance] = React.useState<SavedAppearance>({});
+  const saved = appearance ?? sessionAppearance;
+  const choose = (choice: SavedAppearance) => {
+    if (onAppearanceChange) {
+      onAppearanceChange(choice);
+      return;
+    }
+    setSessionAppearance((previous) => ({ ...previous, ...choice }));
+  };
   const mode = saved.mode ?? defaultMode;
   const theme = saved.theme ?? defaultTheme;
   const font = saved.font ?? DEFAULT_FONT;

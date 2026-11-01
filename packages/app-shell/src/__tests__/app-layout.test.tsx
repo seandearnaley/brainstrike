@@ -27,6 +27,12 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 // Mock the UI package
+// The real store imports theme validators from `@brainstrike/ui`, which is mocked below.
+vi.mock('../appearance-store', () => ({
+  chooseAppearance: vi.fn(),
+  useAppearanceStore: () => ({}),
+}));
+
 vi.mock('@brainstrike/ui', () => ({
   // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
   ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {

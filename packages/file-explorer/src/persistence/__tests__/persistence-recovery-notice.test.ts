@@ -153,6 +153,8 @@ describe('persisted explorer recovery notice', () => {
     const store = openExplorer();
 
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+    // Hydration completes, so folder restore and scroll restore are not left waiting.
+    expect(store.persist.hasHydrated()).toBe(true);
     store.getState().setQuickFilter('after-recovery');
     expect(localStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).not.toContain('secret-client');
   });

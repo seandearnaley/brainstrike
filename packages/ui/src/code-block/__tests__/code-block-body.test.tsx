@@ -1,7 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useAppearanceStore } from '../../appearance-store';
 import { ThemeProvider } from '../../theme-provider';
 import { CodeBlockBody } from '../code-block-body';
 
@@ -132,10 +131,9 @@ describe('CodeBlockBody', () => {
 
   it('highlights with the Shiki pair of the code theme chosen in Appearance', async () => {
     mocks.useShikiHighlighter.mockReturnValue({ highlighter: 'core' });
-    useAppearanceStore.setState({ codeTheme: 'catppuccin' });
 
     render(
-      <ThemeProvider>
+      <ThemeProvider appearance={{ codeTheme: 'catppuccin' }}>
         <CodeBlockBody code="echo hi" language="bash" />
       </ThemeProvider>
     );

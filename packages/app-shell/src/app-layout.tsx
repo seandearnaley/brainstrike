@@ -11,6 +11,7 @@ import {
 } from '@brainstrike/ui';
 import { AccountMenu } from './account-menu';
 import { AppReloadStrip } from './app-reload/app-reload-strip';
+import { chooseAppearance, useAppearanceStore } from './appearance-store';
 import { useModelMigrationNotices } from './hooks/use-model-migration-notices';
 import { StateStoreDamageNotice } from './state-health/state-store-damage-notice';
 import { DatabaseStatusItem } from './status-items/database-status-item';
@@ -32,9 +33,14 @@ export function AppLayout({
   // Session-wide, mounted once: retired-model remap toasts (BST-565).
   useModelMigrationNotices();
   const { fileSystemAdapter } = useAdapters();
+  const appearance = useAppearanceStore();
 
   return (
-    <ThemeProvider defaultMode="light">
+    <ThemeProvider
+      appearance={appearance}
+      defaultMode="light"
+      onAppearanceChange={chooseAppearance}
+    >
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
         <FileExplorerProvider fileSystemAdapter={fileSystemAdapter}>
           {/* ONE shared file-system instance for the entire app surface

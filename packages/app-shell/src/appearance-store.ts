@@ -1,34 +1,18 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import {
-  type CodeFontId,
-  type CodeThemeId,
-  type FontId,
   isCodeFontId,
   isCodeThemeId,
   isFontId,
   isThemeId,
-  type ThemeId,
-} from './themes';
+  type SavedAppearance,
+  type ThemeMode,
+} from '@brainstrike/ui';
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
-export type ThemeMode = 'dark' | 'light' | 'system';
-
-const THEME_MODES: ReadonlySet<string> = new Set(['dark', 'light', 'system']);
+const THEME_MODES: ReadonlySet<string> = new Set<ThemeMode>(['dark', 'light', 'system']);
 
 function isThemeMode(value: unknown): value is ThemeMode {
   return typeof value === 'string' && THEME_MODES.has(value);
-}
-
-/**
- * The appearance choices the user made. A choice left unset follows the
- * provider's default, so only what the user picked is saved.
- */
-export interface SavedAppearance {
-  readonly codeFont?: CodeFontId;
-  readonly codeTheme?: CodeThemeId;
-  readonly font?: FontId;
-  readonly mode?: ThemeMode;
-  readonly theme?: ThemeId;
 }
 
 export const APPEARANCE_STORAGE_KEY = 'ui-appearance';
@@ -59,7 +43,11 @@ function knownChoices(saved: unknown): SavedAppearance {
   return known as SavedAppearance;
 }
 
-/** Renderer-only view state, saved in this renderer's `localStorage` (zustand's default). */
+/**
+ * The app's appearance choices: renderer-only view state, saved in this renderer's
+ * `localStorage` (zustand's default) and read synchronously as the store is created,
+ * so the first render already has them. `ThemeProvider` receives them as props.
+ */
 export const useAppearanceStore = create<SavedAppearance>()(
   persist(() => ({}), {
     merge: (saved, current) => ({ ...current, ...knownChoices(saved) }),
@@ -67,3 +55,7 @@ export const useAppearanceStore = create<SavedAppearance>()(
     version: 1,
   })
 );
+
+export const chooseAppearance = (choice: SavedAppearance): void => {
+  useAppearanceStore.setState(choice);
+};

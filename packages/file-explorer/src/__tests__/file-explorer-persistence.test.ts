@@ -756,16 +756,5 @@ describe('file-explorer-persistence', () => {
       afterRehydrate?.(mockHydratedState, undefined);
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
-
-    it('reports a discard when the saved value cannot be read', async () => {
-      const reportPersistedStateDiscard = vi.fn();
-      const preHydrationState = {
-        currentFolderId: 'hydrated',
-        reportPersistedStateDiscard,
-      } as unknown as FileExplorerState;
-      const afterRehydrate = onRehydrateStorageFn(preHydrationState);
-      afterRehydrate?.(undefined, new Error('rehydration failed'));
-      expect(reportPersistedStateDiscard).toHaveBeenCalledWith('persisted-state-discarded');
-    });
   });
 });
