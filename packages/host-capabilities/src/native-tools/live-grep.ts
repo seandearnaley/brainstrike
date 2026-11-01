@@ -285,10 +285,13 @@ export interface LiveGrepOptions {
   /** Optional exact-path allowlist (workspace-relative, no leading slash). */
   filePaths?: readonly string[];
   isRegex: boolean;
+  /** What ripgrep's prefilter literal comes from: every match the matcher keeps must contain it. */
   pattern: string;
   roots: readonly LiveGrepRoot[];
-  /** Ends the search: ripgrep is killed and no further match is emitted. */
+  /** Cancels the search: ripgrep is killed, no further match is emitted, and the search rejects. */
   signal?: AbortSignal | undefined;
+  /** Ends the search early, as the candidate cap does: it resolves with what it covered. */
+  stop?: AbortSignal | undefined;
 }
 
 export interface ExcludedPathProbeOptions {
@@ -690,10 +693,14 @@ async function searchScopedRoot(args: {
   root: LiveGrepRoot;
   signal: AbortSignal | undefined;
   state: LiveSearchState;
+  stop: AbortSignal | undefined;
 }): Promise<void> {
   const guard = createAgentIgnoreGuard(args.canonicalRootPath);
   for (const relativePath of args.filePathAllow) {
     args.signal?.throwIfAborted();
+    if (args.stop?.aborted) {
+      return;
+    }
     const absolutePath = await resolveScopedGrepFile({
       canonicalRootPath: args.canonicalRootPath,
       relativePath,
@@ -737,6 +744,7 @@ async function searchRipgrepRoot(args: {
   root: LiveGrepRoot;
   signal: AbortSignal | undefined;
   state: LiveSearchState;
+  stop: AbortSignal | undefined;
 }): Promise<void> {
   const { canonicalRootPath, root, state } = args;
   const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
@@ -765,6 +773,10 @@ async function searchRipgrepRoot(args: {
   stream.done.then(settle, settle);
   for (;;) {
     if (args.signal?.aborted) {
+      break;
+    }
+    if (args.stop?.aborted) {
+      stream.stop();
       break;
     }
     const relativePath = queue.shift();
@@ -909,7 +921,7 @@ export async function streamLiveGrep(
       unreadableRoots: [],
     };
   }
-  const { signal } = options;
+  const { signal, stop } = options;
   // BST-764. `filePaths` arrives ALREADY normalized to root-relative form by
   // `resolveGrepFilePaths`. Do NOT reintroduce a local transform here: a second,
   // different normalization once reported a clean zero-match for a file that
@@ -934,7 +946,7 @@ export async function streamLiveGrep(
   try {
     for (const root of options.roots) {
       signal?.throwIfAborted();
-      if (state.candidateCapHit) {
+      if (state.candidateCapHit || stop?.aborted) {
         break;
       }
       let canonicalRootPath: string;
@@ -965,6 +977,7 @@ export async function streamLiveGrep(
         root,
         signal,
         state,
+        stop,
       };
       if (filePathAllow === null) {
         await searchRipgrepRoot({

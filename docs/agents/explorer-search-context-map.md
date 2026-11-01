@@ -77,14 +77,17 @@ for, and a saved file is found at once.
 - On desktop the window calls `workspace/files/search`, gated to the private client
   like the reads below. It searches every live root through its pinned handle and
   reports each match by `rootId` and root-relative path, which are the Explorer's
-  identities. Matches stream as `workspace/files/search/batch` on the caller's
+  identities. ripgrep only picks candidates; every file is read through the handle,
+  so in-root symlinks are skipped as the reads refuse them, and a root whose path no
+  longer resolves to the handle's canonical path is reported unreadable. Matches stream as `workspace/files/search/batch` on the caller's
   connection, tagged with the request's `searchId`.
 - A new query, an option change or closing the tab aborts the request: the host kills
   ripgrep and sends no batch after the abort, and the store's generation drops any
   that were in flight. Batches reach the store once per animation frame; the tree is
   the virtualized `TreeTable`.
 - A finished search names every cap it hit (match cap, file cap, a no-literal regex
-  at the file cap, time limit, unreadable folders). An invalid regex and "no folder
+  at the file cap, time limit, unreadable folders). The match cap ends the search
+  cleanly (`stop`), keeping what it covered; `signal` is cancellation only. An invalid regex and "no folder
   open" are refusals with a remedy, shown in the error card.
 - ripgrep is the bundled `@vscode/ripgrep` (unpacked from the asar when packaged).
   There is no PATH lookup and no walk in its place: a ripgrep that cannot run fails

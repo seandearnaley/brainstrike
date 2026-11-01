@@ -32,7 +32,11 @@ type SearchParams = Parameters<HostFileSearch['search']>[0];
 type SearchResult = HostResults['workspace/files/search'];
 type WireMatch = FileSearchBatch['matches'][number];
 
-/** Whole word wraps the pattern in word boundaries, which makes it a regex. */
+/**
+ * Whole word wraps the pattern in word boundaries for the matcher, which makes
+ * it a regex. Ripgrep still prefilters on the query as typed: every whole-word
+ * match contains it, so a short plain word keeps its literal.
+ */
 function searchPattern(params: SearchParams): { isRegex: boolean; pattern: string } {
   if (!params.wholeWord) {
     return { isRegex: params.isRegex, pattern: params.query };
@@ -159,18 +163,15 @@ export function createHostFileSearch(options: HostFileSearchOptions): HostFileSe
           'Open a folder, then search again.'
         );
       }
-      // The match cap ends the search the way the client's cancellation does.
+      // The match cap ends the search the way the file cap does: with what it covered.
       const limit = new AbortController();
-      const ended = AbortSignal.any([signal, limit.signal]);
       const batcher = createBatcher(send);
       let matches = 0;
-      let matchLimitReached = false;
       const onMatches = (found: readonly GrepMatch[]): void => {
         const kept = found.slice(0, FILE_SEARCH_MATCH_LIMIT - matches);
         matches += kept.length;
         batcher.add(kept.map(toWireMatch));
         if (matches >= FILE_SEARCH_MATCH_LIMIT) {
-          matchLimitReached = true;
           limit.abort();
         }
       };
@@ -184,35 +185,29 @@ export function createHostFileSearch(options: HostFileSearchOptions): HostFileSe
               'Reconnect the folder and retry.'
             );
           }
-          try {
-            return await streamLiveGrep(
-              {
-                caseSensitive: params.caseSensitive,
-                contextLines: 0,
-                isRegex,
-                pattern,
-                roots: pinned.map(toLiveGrepRoot),
-                signal: ended,
-              },
-              matcher,
-              onMatches
-            );
-          } catch (cause) {
-            if (limit.signal.aborted && !signal.aborted) {
-              return;
-            }
-            throw cause;
-          }
+          return await streamLiveGrep(
+            {
+              caseSensitive: params.caseSensitive,
+              contextLines: 0,
+              isRegex: params.isRegex,
+              pattern: params.query,
+              roots: pinned.map(toLiveGrepRoot),
+              signal,
+              stop: limit.signal,
+            },
+            matcher,
+            onMatches
+          );
         });
         signal.throwIfAborted();
         batcher.finish();
         const result: SearchResult = {
-          candidatesTruncated: outcome?.candidatesTruncated ?? false,
+          candidatesTruncated: outcome.candidatesTruncated,
           matches,
-          matchLimitReached,
-          scanLimited: outcome?.scanLimited ?? false,
-          timedOut: outcome?.timedOut ?? false,
-          unreadableRootIds: outcome?.unreadableRoots.map((root) => root.rootId) ?? [],
+          matchLimitReached: limit.signal.aborted,
+          scanLimited: outcome.scanLimited,
+          timedOut: outcome.timedOut,
+          unreadableRootIds: outcome.unreadableRoots.map((root) => root.rootId),
         };
         return result;
       } catch (cause) {

@@ -148,6 +148,21 @@ describe('host file search', () => {
     ).toEqual([3]);
   });
 
+  it('finds a short whole word without scanning every file', async () => {
+    setMaxLiveCandidateFilesForTests(2);
+    const service = await searchOver();
+    for (const name of ['a', 'b', 'c', 'd']) {
+      write(`${name}.txt`, 'nothing here\n');
+    }
+    write('hit.txt', 'an apple\n');
+    write('partial.txt', 'banana\n');
+
+    const { matches, result } = await run(service, query('an', { wholeWord: true }));
+
+    expect(matches.map((m) => [m.path, m.lineText])).toEqual([['hit.txt', 'an apple']]);
+    expect(result).toMatchObject({ candidatesTruncated: false, scanLimited: false });
+  });
+
   it('says when the search stopped at its match cap', async () => {
     const service = await searchOver();
     write('big.txt', 'hit\n'.repeat(FILE_SEARCH_MATCH_LIMIT + 10));
@@ -156,6 +171,22 @@ describe('host file search', () => {
 
     expect(matches).toHaveLength(FILE_SEARCH_MATCH_LIMIT);
     expect(result).toMatchObject({ matches: FILE_SEARCH_MATCH_LIMIT, matchLimitReached: true });
+  });
+
+  it('still names a folder it could not read when it stops at its match cap', async () => {
+    const gone = path.join(base, 'gone');
+    mkdirSync(gone);
+    const service = await searchOver([
+      { path: gone, rootId: SECOND_ID },
+      { path: workspace, rootId: ROOT_ID },
+    ]);
+    rmSync(gone, { recursive: true });
+    write('big.txt', 'hit\n'.repeat(FILE_SEARCH_MATCH_LIMIT + 10));
+
+    const { matches, result } = await run(service, query('hit'));
+
+    expect(matches).toHaveLength(FILE_SEARCH_MATCH_LIMIT);
+    expect(result).toMatchObject({ matchLimitReached: true, unreadableRootIds: [SECOND_ID] });
   });
 
   it('says when the search stopped at its file cap', async () => {
