@@ -77,11 +77,8 @@ export function collectProviderCallProvenance(
 }
 
 /**
- * BST-1927: Mastra's `ProviderHistoryCompat` drops foreign provider-executed
- * calls but retains results embedded in the assistant turn. Run this
- * complete-pair pass before the vendor rules. Remove it when the vendor
- * handles both roles.
- * Upstream: https://github.com/mastra-ai/mastra/blob/main/packages/core/src/processors/provider-history-compat.ts
+ * Drop another provider's executed calls with their results, including results
+ * embedded in the assistant turn: a foreign provider cannot resolve their IDs.
  */
 export function stripForeignExecutedToolPairs(
   prompt: LanguageModelV4Prompt,

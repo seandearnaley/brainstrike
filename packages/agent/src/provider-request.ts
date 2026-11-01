@@ -19,16 +19,8 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract/provider
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import { type MastraDBMessage, TripWire } from '@mastra/core/agent';
-import {
-  type ProcessLLMRequestArgs,
-  type Processor,
-  ProviderHistoryCompat,
-  TokenLimiter,
-} from '@mastra/core/processors';
-import { ProjectionSafeToolCallFilter } from './mastra-processors/projection-safe-tool-call-filter.ts';
+import type { MastraDBMessage } from '@mastra/core/agent';
 import { cleanBedrockPrompt } from './providers/bedrock-message-hygiene.ts';
-import { createCanonicalLimiterView } from './providers/canonical-provider-limiter.ts';
 import {
   collectProviderCallProvenance,
   type ProviderCallProvenance,
@@ -38,6 +30,8 @@ import { buildModelSettingsOption } from './providers/generation-settings.ts';
 import { canonicalizeOpenAIDuplicateItems } from './providers/openai-duplicate-item-compat.ts';
 import { classifyOpenAIStoredItemError } from './providers/openai-expired-item.ts';
 import { canonicalizeOpenAIToolSearchHistory } from './providers/openai-tool-search-history-compat.ts';
+import { ProjectionSafeToolCallFilter } from './providers/projection-safe-tool-call-filter.ts';
+import { applyProviderHistoryCompat } from './providers/provider-history-compat.ts';
 import {
   assertProviderRequestBoundaries,
   dropAbortedOpenAIItems,
@@ -268,43 +262,6 @@ export class ProviderRequestContextOverflowError extends BoundaryFailureError {
   }
 }
 
-type LegacyPrompt = ProcessLLMRequestArgs['prompt'];
-
-/**
- * Run one of Mastra's request processors (`ProviderHistoryCompat`,
- * `TokenLimiter`), which are declared on its V2 prompt. They read only the
- * text/reasoning/tool parts V2 shares with V4; V4-only parts pass through
- * intact. The read-only provenance view exposes only `get.all.db`, which the
- * vendor's signed-reasoning rule reads. Brainstrike's own fixes are plain V4
- * functions and never cross here.
- */
-async function runMastraProcessor(
-  processor: Processor,
-  prompt: LegacyPrompt,
-  model: LanguageModelV4,
-  history?: readonly MastraDBMessage[]
-): Promise<LegacyPrompt> {
-  const result = await processor.processLLMRequest?.({
-    abort: (reason) => {
-      throw new Error(reason ?? 'Provider preparation aborted.');
-    },
-    model: model as unknown as ProcessLLMRequestArgs['model'],
-    ...(history
-      ? {
-          messageList: {
-            get: { all: { db: () => history } },
-          } as unknown as NonNullable<ProcessLLMRequestArgs['messageList']>,
-        }
-      : {}),
-    prompt,
-    retryCount: 0,
-    state: {},
-    stepNumber: 0,
-    steps: [],
-  });
-  return result?.prompt ?? prompt;
-}
-
 function isOpenAI(provider: SupportedProvider): boolean {
   return provider === 'openai';
 }
@@ -313,20 +270,17 @@ function isOpenAI(provider: SupportedProvider): boolean {
  * Provider fixes, after projection and stale-history filtering: those
  * transforms can orphan reasoning even without duplicated stored item IDs.
  */
-async function compatiblePrompt(
+function compatiblePrompt(
   input: LanguageModelV4Prompt,
   model: LanguageModelV4,
   provider: SupportedProvider,
   provenance: ProviderCallProvenance,
   history?: readonly MastraDBMessage[]
-): Promise<LanguageModelV4Prompt> {
-  const paired = stripForeignExecutedToolPairs(input, provider, provenance);
-  let prompt = (await runMastraProcessor(
-    new ProviderHistoryCompat(),
-    paired as unknown as LegacyPrompt,
-    model,
-    history
-  )) as unknown as LanguageModelV4Prompt;
+): LanguageModelV4Prompt {
+  let prompt = applyProviderHistoryCompat(
+    stripForeignExecutedToolPairs(input, provider, provenance),
+    { ...(history ? { history } : {}), model, provider }
+  );
   if (isOpenAI(provider)) {
     prompt = canonicalizeOpenAIDuplicateItems(canonicalizeOpenAIToolSearchHistory(prompt));
   }
@@ -354,45 +308,69 @@ function countRequest(
   };
 }
 
-async function limitProviderPrompt(
+function measuredTokens(prompt: LanguageModelV4Prompt, measurement: PreparedTokenMeasurement) {
+  const sample = measurement.measure(serializeModelOutputForTokenMeasurement(prompt));
+  return sample.status === 'measured' ? sample.tokenCount : sample.backstopTokens;
+}
+
+/**
+ * The most recent part of an over-budget conversation that fits, with every
+ * system message. It starts at a user turn: providers require one first, and
+ * a user turn never splits a tool call from its results. The request already
+ * starts at its first user turn (its boundaries are asserted) and its
+ * accounting found it over budget, so that whole prompt is not measured
+ * again. Each shorter candidate is measured exactly as the request is
+ * accounted, and a longer suffix never counts fewer tokens, so a binary search
+ * over the later user turns finds the cut.
+ */
+function recentPromptWithin(
+  prompt: LanguageModelV4Prompt,
+  budget: number,
+  measurement: PreparedTokenMeasurement
+): LanguageModelV4Prompt | undefined {
+  const starts = prompt.flatMap((message, index) => (message.role === 'user' ? [index] : []));
+  const from = (start: number) =>
+    prompt.filter((message, index) => message.role === 'system' || index >= start);
+  const fits = (candidate: number) =>
+    measuredTokens(from(starts[candidate] ?? 0), measurement) <= budget;
+  let low = 1;
+  let high = starts.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (fits(middle)) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+  const start = starts[low];
+  return start === undefined ? undefined : from(start);
+}
+
+function limitProviderPrompt(
   input: LanguageModelV4Prompt,
   model: LanguageModelV4,
   context: ProviderRequestContext,
   provenance: ProviderCallProvenance,
   accounting: ProviderRequestAccounting,
+  measurement: PreparedTokenMeasurement,
   limit: number
-): Promise<LanguageModelV4Prompt> {
-  // Reuse native grouping and contiguous trimming after memory/projection,
-  // reserving the actual outgoing tool surface. The V4 view is counting-only.
-  const promptLimit = limit - accounting.toolTokens;
-  if (promptLimit <= 0) {
+): LanguageModelV4Prompt {
+  // Reserve the actual outgoing tool surface; memory and projection are already in.
+  const limited = recentPromptWithin(input, limit - accounting.toolTokens, measurement);
+  if (!limited) {
     throw new ProviderRequestContextOverflowError(accounting, limit);
   }
+  const prompt = compatiblePrompt(limited, model, context.provider, provenance, context.history);
   try {
-    const counting = createCanonicalLimiterView(input);
-    const limited = await runMastraProcessor(
-      new TokenLimiter({ limit: promptLimit, trimMode: 'contiguous' }),
-      counting.prompt,
-      model
-    );
-    let prompt = counting.restore(limited);
-    // A native contiguous cut can leave an old assistant/tool group at the
-    // start. Drop that prefix through the first surviving user turn, retaining
-    // every system message. If no user survives, ask the host to compact.
-    const firstUser = prompt.findIndex((message) => message.role === 'user');
-    if (firstUser > 0) {
-      prompt = prompt.filter((message, index) => message.role === 'system' || index >= firstUser);
-    }
-    prompt = await compatiblePrompt(prompt, model, context.provider, provenance, context.history);
     assertProviderRequestBoundaries(prompt);
-    return prompt;
   } catch (cause) {
-    if (cause instanceof TripWire || cause instanceof ProviderRequestBoundaryError) {
+    if (cause instanceof ProviderRequestBoundaryError) {
       throw new ProviderRequestContextOverflowError(accounting, limit, { cause });
     }
-    // Programming/shape failures are not token overflows.
     throw cause;
   }
+  return prompt;
 }
 
 export async function prepareProviderRequest(
@@ -418,10 +396,7 @@ export async function prepareProviderRequest(
   if (context.history) {
     prompt = new ProjectionSafeToolCallFilter({
       toolNameMap: context.toolNameMap ?? new Map(),
-    }).preparePrompt(
-      prompt as unknown as LegacyPrompt,
-      context.history
-    ) as unknown as LanguageModelV4Prompt;
+    }).preparePrompt(prompt, context.history);
   }
   let rewrittenToolCallIds: ReadonlySet<string> = new Set();
   if (context.rewrites) {
@@ -429,7 +404,7 @@ export async function prepareProviderRequest(
     prompt = rewritten.prompt;
     rewrittenToolCallIds = rewritten.rewrittenToolCallIds;
   }
-  prompt = await compatiblePrompt(prompt, model, context.provider, provenance, context.history);
+  prompt = compatiblePrompt(prompt, model, context.provider, provenance, context.history);
   assertProviderRequestBoundaries(prompt);
   const projectedPrompt = prompt;
   const modelSettings = buildModelSettingsOption(runtimeData).modelSettings;
@@ -450,20 +425,22 @@ export async function prepareProviderRequest(
   if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
     throw new RangeError('inputTokenLimit must be a positive integer');
   }
-  if (limit !== undefined) {
-    prompt = await limitProviderPrompt(
+  // A request that fits is measured once, by its accounting above.
+  if (limit !== undefined && accounting.totalTokens > limit) {
+    prompt = limitProviderPrompt(
       prepared.prompt,
       model,
       context,
       provenance,
       accounting,
+      measurement,
       limit
     );
     prepared = { ...prepared, prompt };
     accounting = countRequest(prepared, measurement, projectedPrompt.length - prompt.length);
     if (accounting.totalTokens > limit) {
-      // BST-1927 review: a native media safety estimate can undercount inline
-      // text/custom V4 payloads. Never dispatch a measured over-budget prompt.
+      // Provider history rules run after the cut. Never dispatch a measured
+      // over-budget prompt.
       throw new ProviderRequestContextOverflowError(accounting, limit);
     }
   }

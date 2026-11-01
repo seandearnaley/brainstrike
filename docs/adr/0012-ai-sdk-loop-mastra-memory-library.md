@@ -76,6 +76,11 @@ not made true by retiring the agent loop.
 - Nothing else changes: the host owns one AI SDK 7 `streamText` loop per run, with `ai` pinned
   exactly.
 
+2026-11-01 (BST-2429): provider-request shaping no longer uses `TripWire`,
+`TokenLimiter`, `Processor` or `ProviderHistoryCompat`; history rules and the
+context limit are plain functions in the AI SDK middleware's `transformParams`.
+`ModelRouterLanguageModel` remains for OpenRouter routing.
+
 ## Sources
 
 Contract markers this ADR replaces (line numbers at `43daec7fb`):
