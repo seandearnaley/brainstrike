@@ -2042,7 +2042,8 @@ export function ThreadsPanelCore({
           {groupActionError}
         </p>
       ) : null}
-      {groupsLoadState.status === 'error' ? (
+      {/* These lines qualify the tree's rows; a state card standing in for the tree already names the failure. */}
+      {contentState.kind === 'tree' && groupsLoadState.status === 'error' ? (
         <p
           className="text-destructive px-3 pb-2 text-[11px]"
           data-testid="thread-groups-error-card"
@@ -2050,12 +2051,12 @@ export function ThreadsPanelCore({
           Failed to load thread groups: {groupsLoadState.error}
         </p>
       ) : null}
-      {activeThreads.error ? (
+      {contentState.kind === 'tree' && activeThreads.error ? (
         <p className="text-destructive px-3 pb-2 text-[11px]" data-testid="thread-activity-error">
           Active thread status unavailable: {activeThreads.error.message}
         </p>
       ) : null}
-      {threadsAwaitingApproval.error ? (
+      {contentState.kind === 'tree' && threadsAwaitingApproval.error ? (
         <p className="text-destructive px-3 pb-2 text-[11px]" data-testid="thread-approvals-error">
           Approval status unavailable: {threadsAwaitingApproval.error.message}
         </p>

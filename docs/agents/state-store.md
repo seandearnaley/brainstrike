@@ -41,7 +41,7 @@ Implementation: `packages/state-store` and `packages/agent-host`.
 - A workspace root record carries the folder's grant-time identity (`roots.canonical_path`) and its place among the open folders (`roots.open_position`; NULL is a removed folder kept for its identity).
   - The agent host's root registry is their only writer.
   - `register` refuses a recorded path that now resolves to another folder unless the person picked it afresh (`repin`).
-  - Greenfield: these columns are part of the current schema, not an upgrade step.
+  - State DB version 15 creates this table where it is missing. A `roots` table without `canonical_path` is dropped with its source catalog rows instead of inferring an identity, and the person opens those folders again; a table that has it keeps its rows.
 - Content-addressed blobs store canonical edit baselines and current-format content through their existing owner.
   - Hashes and scope must match the bytes; a transient cache or derived embedding never becomes a source of truth.
   - Delete and purge join referencing work before collecting blobs and canonical records.
