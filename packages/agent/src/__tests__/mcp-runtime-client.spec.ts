@@ -547,7 +547,7 @@ describe('MCP runtime client', () => {
   describe('MCP Apps tool results', () => {
     function createResultServer(
       result: ExplicitHttpMcpCallToolResult,
-      ui: unknown = { resourceUri: 'ui://issues/detail' }
+      meta: Record<string, unknown> = { ui: { resourceUri: 'ui://issues/detail' } }
     ) {
       return {
         callTool: vi.fn(async (): Promise<ExplicitHttpMcpCallToolResult> => result),
@@ -555,7 +555,7 @@ describe('MCP runtime client', () => {
         listTools: vi.fn().mockResolvedValue({
           tools: [
             {
-              _meta: { ui },
+              _meta: meta,
               inputSchema: { type: 'object' },
               name: 'show_issue',
             },
@@ -564,50 +564,60 @@ describe('MCP runtime client', () => {
       };
     }
 
-    it('persists an app marker for structured content while projecting the ordinary result', async () => {
-      const ordinaryResult = { issueId: 'BST-1572', title: 'MCP Apps enablement' };
-      const remote = createResultServer({
-        content: [{ text: 'Issue BST-1572', type: 'text' }],
-        structuredContent: ordinaryResult,
-      });
-      const { host } = createTestHost({ remote });
-      const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
-      const discovered = await runtimeClient?.listToolsetsWithErrors();
-      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['show_issue']);
+    // The ext-apps spec keeps the deprecated flat key valid: hosts accept both.
+    it.each([
+      ['_meta.ui.resourceUri', { ui: { resourceUri: 'ui://issues/detail' } }],
+      ['the deprecated flat _meta["ui/resourceUri"]', { 'ui/resourceUri': 'ui://issues/detail' }],
+    ])(
+      'persists an app marker for a tool naming its app by %s while projecting the ordinary result',
+      async (_form, meta) => {
+        const ordinaryResult = { issueId: 'BST-1572', title: 'MCP Apps enablement' };
+        const remote = createResultServer(
+          {
+            content: [{ text: 'Issue BST-1572', type: 'text' }],
+            structuredContent: ordinaryResult,
+          },
+          meta
+        );
+        const { host } = createTestHost({ remote });
+        const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
+        const discovered = await runtimeClient?.listToolsetsWithErrors();
+        const tool = requireExecutableTool(discovered?.toolsets['remote']?.['show_issue']);
 
-      const raw = await tool.execute({}, { toolCallId: 'app-call' });
-      expect(raw).toEqual({
-        app: {
-          mimeType: 'text/html;profile=mcp-app',
-          resourceUri: 'ui://issues/detail',
-          serverId: 'remote',
-          toolName: 'show_issue',
-        },
-        kind: 'mcp-app',
-        result: ordinaryResult,
-      });
+        const raw = await tool.execute({}, { toolCallId: 'app-call' });
+        expect(raw).toEqual({
+          app: {
+            mimeType: 'text/html;profile=mcp-app',
+            resourceUri: 'ui://issues/detail',
+            serverId: 'remote',
+            toolName: 'show_issue',
+          },
+          kind: 'mcp-app',
+          result: ordinaryResult,
+        });
 
-      const budget = resolveScaledToolResultBudget(128_000);
-      const projected = applyToolModelOutputProjections(
-        { remote_show_issue: tool },
-        new Map([['remote_show_issue', 'remote.show_issue']]),
-        undefined,
-        budget
-      );
-      const ordinaryProjected = applyToolModelOutputProjections(
-        { ordinary: { execute: async () => ordinaryResult } },
-        new Map([['ordinary', 'remote.show_issue']]),
-        undefined,
-        budget
-      );
-      const modelOutput = (projected['remote_show_issue'] as ExecutableTool).toModelOutput?.(raw);
-      const ordinaryModelOutput = (ordinaryProjected['ordinary'] as ExecutableTool).toModelOutput?.(
-        ordinaryResult
-      );
+        const budget = resolveScaledToolResultBudget(128_000);
+        const projected = applyToolModelOutputProjections(
+          { remote_show_issue: tool },
+          new Map([['remote_show_issue', 'remote.show_issue']]),
+          undefined,
+          budget
+        );
+        const ordinaryProjected = applyToolModelOutputProjections(
+          { ordinary: { execute: async () => ordinaryResult } },
+          new Map([['ordinary', 'remote.show_issue']]),
+          undefined,
+          budget
+        );
+        const modelOutput = (projected['remote_show_issue'] as ExecutableTool).toModelOutput?.(raw);
+        const ordinaryModelOutput = (
+          ordinaryProjected['ordinary'] as ExecutableTool
+        ).toModelOutput?.(ordinaryResult);
 
-      expect(modelOutput).toEqual(ordinaryModelOutput);
-      expect(JSON.stringify(modelOutput)).not.toContain('mcp-app');
-    });
+        expect(modelOutput).toEqual(ordinaryModelOutput);
+        expect(JSON.stringify(modelOutput)).not.toContain('mcp-app');
+      }
+    );
 
     it('persists an app marker whose result is the complete ordinary raw CallToolResult', async () => {
       const ordinaryResult: ExplicitHttpMcpCallToolResult = {
@@ -631,7 +641,7 @@ describe('MCP runtime client', () => {
       });
     });
 
-    it('leaves tool definitions without _meta.ui on the ordinary result path', async () => {
+    it('leaves tool definitions without an app resource on the ordinary result path', async () => {
       const ordinaryResult = { issueId: 'BST-1572' };
       const remote = createResultServer({
         content: [{ text: 'Issue BST-1572', type: 'text' }],
@@ -651,10 +661,10 @@ describe('MCP runtime client', () => {
       expect(tool.toModelOutput).toBeUndefined();
     });
 
-    it('rejects malformed _meta.ui before invoking the remote tool', async () => {
+    it('rejects a malformed app resource before invoking the remote tool', async () => {
       const remote = createResultServer(
         { content: [{ text: 'must not execute', type: 'text' }] },
-        { resourceUri: 'https://example.test/not-an-app' }
+        { ui: { resourceUri: 'https://example.test/not-an-app' } }
       );
       const { host } = createTestHost({ remote });
       const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
@@ -662,7 +672,7 @@ describe('MCP runtime client', () => {
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['show_issue']);
 
       await expect(tool.execute({}, { toolCallId: 'malformed-call' })).rejects.toThrow(
-        'MCP Apps tool metadata.resourceUri must use the ui:// scheme'
+        'Invalid UI resource URI: "https://example.test/not-an-app"'
       );
       expect(remote.callTool).not.toHaveBeenCalled();
     });
