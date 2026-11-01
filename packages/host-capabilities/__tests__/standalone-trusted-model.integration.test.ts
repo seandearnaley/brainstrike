@@ -7,11 +7,11 @@
  * call shows the host's own workspace tools run over its launch root.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
@@ -509,6 +509,98 @@ test("the standalone host loads a trusted launch root's instructions and the hom
       .object({ type: z.literal('text'), value: z.string() })
       .parse(result?.output, { reportInput: true }).value
   ).toContain('List every merged change under its ticket.');
+});
+
+test("the standalone host runs a skill's Python script on the system Python 3", {
+  timeout: 120_000,
+}, async () => {
+  const home = await mkdtemp(join(tmpdir(), 'bs-trusted-model-home-'));
+  cleanup.push(() => rm(home, { force: true, recursive: true }));
+  const skill = join(home, '.brainstrike', 'skills', 'greeter');
+  await mkdir(join(skill, 'scripts'), { recursive: true });
+  await writeFile(
+    join(skill, 'SKILL.md'),
+    '---\nname: greeter\ndescription: Greets in Python.\n---\nRun scripts/greet.py.'
+  );
+  await writeFile(
+    join(skill, 'scripts', 'greet.py'),
+    'import sys\nprint(f"hello from python {sys.version_info[0]}")\n'
+  );
+  // The call names the launch root, known once the host's workspace exists, so the
+  // trusted module is written before host start reads it.
+  const moduleDirectory = await mkdtemp(join(tmpdir(), 'bs-trusted-model-module-'));
+  cleanup.push(() => rm(moduleDirectory, { force: true, recursive: true }));
+  const module = join(moduleDirectory, 'trusted-platform.mjs');
+  const host = await standaloneHost(
+    { HOME: home, USERPROFILE: home },
+    module,
+    {},
+    async ({ workspace }) => {
+      // runSkillScript is deferred and execute-risk: the model loads it, then the run asks.
+      const written = await trustedPlatformModule('trusted-fixture', [
+        { input: { toolName: 'brainstrike_runSkillScript' }, toolId: 'load_tool' },
+        {
+          input: {
+            cwd: '.',
+            root: basename(workspace),
+            runtime: 'python3',
+            scriptPath: 'scripts/greet.py',
+            skillName: 'greeter',
+          },
+          toolId: 'brainstrike_runSkillScript',
+        },
+      ]);
+      await copyFile(written, module);
+    }
+  );
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  const asked = await host.command([
+    'run',
+    'Greet me.',
+    '--model',
+    'trusted-fixture::probe',
+    '--json',
+    '--non-interactive',
+  ]);
+  // A non-interactive run exits 2 at the approval it cannot answer.
+  expect(asked.code, asked.stderr).toBe(2);
+  const { runId, threadId } = z
+    .object({ runId: z.string(), threadId: z.string() })
+    .parse(JSON.parse(asked.stdout.split('\n')[0] || 'null'));
+  const readRows = async () =>
+    Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse((await host.command(['threads', 'show', '--thread', threadId])).stdout)).rows;
+  const requested = (await readRows())
+    .map((row) => row.event)
+    .find((event) => event.type === 'interaction.requested');
+  if (requested?.type !== 'interaction.requested') {
+    throw new Error('The skill script asked for no approval');
+  }
+  const approved = await host.command([
+    'interaction',
+    'respond',
+    '--thread',
+    threadId,
+    '--run',
+    runId,
+    '--interaction',
+    requested.interactionId,
+    '--decision',
+    'approve',
+  ]);
+  expect(approved, approved.stderr).toMatchObject({ code: 0 });
+  await expect
+    .poll(async () => (await readRows()).some((row) => row.event.type === 'run.finished'), {
+      timeout: 30_000,
+    })
+    .toBe(true);
+  // The model sees the script's output, printed by the Python 3 on this machine's PATH.
+  const finished = (await readRows())
+    .map((row) => row.event)
+    .find((event) => event.type === 'effect.finished' && event.toolCallId === 'recorded-call-2');
+  expect(JSON.stringify(finished)).toContain('hello from python 3');
 });
 
 test('the standalone host starts a command session in its launch root and lists it', {
