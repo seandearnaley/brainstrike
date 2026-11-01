@@ -6,6 +6,7 @@ import type { FileSystemChange, WatcherHealthTransition } from '@brainstrike/typ
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createHostFileWatches,
+  MAX_FILE_WATCHES_PER_CLIENT,
   type StartFileWatch,
 } from '../../src/workspace-files/file-watches.ts';
 
@@ -169,6 +170,59 @@ describe('host file watches', () => {
       watchId: expect.stringMatching(/^fs-watch-/u),
     });
     await owner.close();
+  });
+
+  it('holds a client to its watch limit when its requests arrive together', async () => {
+    const owner = createHostFileWatches({
+      isSyntheticRoot: (rootPath) => rootPath === '/mock/workspace',
+      roots: roots('/mock/workspace'),
+    });
+    const session = owner.service.open(vi.fn());
+
+    const results = await Promise.allSettled(
+      Array.from({ length: MAX_FILE_WATCHES_PER_CLIENT + 3 }, () =>
+        session['workspace/files/watch']({ path: '/mock/workspace' })
+      )
+    );
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(
+      MAX_FILE_WATCHES_PER_CLIENT
+    );
+    expect(results.filter((result) => result.status === 'rejected')).toEqual(
+      Array.from({ length: 3 }, () => ({
+        reason: expect.objectContaining({
+          failure: expect.objectContaining({ code: 'workspace.files-watch-limit' }),
+        }),
+        status: 'rejected',
+      }))
+    );
+    await owner.close();
+  });
+
+  it("joins a disconnected client's pending start and reports its failed stop at close", async () => {
+    const starting = Promise.withResolvers<() => Promise<void>>();
+    const stopping = Promise.withResolvers<void>();
+    const stop = vi.fn(() => stopping.promise);
+    const startWatch = vi.fn<StartFileWatch>(() => starting.promise);
+    const owner = createHostFileWatches({ roots: roots(workspace), startWatch });
+    const session = owner.service.open(vi.fn());
+    const watching = session['workspace/files/watch']({ path: workspace });
+    await vi.waitFor(() => expect(startWatch).toHaveBeenCalledOnce());
+
+    // The connection's dispose starts the client's close without awaiting it.
+    session.close().catch(() => undefined);
+    let settled = false;
+    const closing = owner.close().finally(() => {
+      settled = true;
+    });
+    starting.resolve(stop);
+    await expect(watching).rejects.toMatchObject({ failure: { code: 'workspace.files-closed' } });
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+
+    const failure = new Error('EBUSY: the watch did not close');
+    stopping.reject(failure);
+    await expect(closing).rejects.toMatchObject({ errors: [failure] });
   });
 
   it('registers a synthetic root without watching the disk', async () => {

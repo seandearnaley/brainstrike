@@ -132,6 +132,11 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
   const startWatch = options.startWatch ?? watchExplorerRoot;
   const producers = new Map<string, Producer>();
   const sessions = new Set<HostFileWatchSession>();
+  /**
+   * Every release still stopping its watch, whichever path started it (an
+   * unwatch, a failed start or a closed client), so `close` joins them all.
+   */
+  const retiring = new Set<Promise<void>>();
   let closed = false;
 
   const fanOut = (producer: Producer, event: (watchId: string) => WorkspaceFilesEvent): void => {
@@ -214,17 +219,27 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
     return producer;
   };
 
-  const release = async (producer: Producer, watchId: string): Promise<void> => {
+  const stopProducer = async (producer: Producer): Promise<void> => {
+    await producer.retrying?.catch(() => undefined);
+    await stopStarted(producer.started);
+  };
+
+  const release = (producer: Producer, watchId: string): Promise<void> => {
     producer.listeners.delete(watchId);
     if (producer.listeners.size > 0) {
-      return;
+      return Promise.resolve();
     }
     if (producers.get(producer.rootPath) === producer) {
       producers.delete(producer.rootPath);
     }
     producer.generation += 1;
-    await producer.retrying?.catch(() => undefined);
-    await stopStarted(producer.started);
+    const stopping = stopProducer(producer);
+    retiring.add(stopping);
+    const forget = (): void => {
+      retiring.delete(stopping);
+    };
+    stopping.then(forget, forget);
+    return stopping;
   };
 
   const retry = async (producer: Producer): Promise<RetryResult> => {
@@ -330,6 +345,9 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
       },
       'workspace/files/watch': async ({ path: requestedPath }) => {
         assertOpen();
+        const authorized = await authorize(requestedPath);
+        assertOpen();
+        // Checked with no await before the insert, so concurrent watches cannot pass it together.
         if (held.size >= MAX_FILE_WATCHES_PER_CLIENT) {
           throw refusalError(
             'input',
@@ -337,8 +355,6 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
             `A window can hold at most ${MAX_FILE_WATCHES_PER_CLIENT} file watches.`
           );
         }
-        const authorized = await authorize(requestedPath);
-        assertOpen();
         const watchId = `fs-watch-${randomUUID()}`;
         if (authorized === 'synthetic') {
           held.set(watchId, 'synthetic');
@@ -382,10 +398,11 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
   return {
     close: async () => {
       closed = true;
-      await joinAll(
-        [...sessions].map((session) => session.close()),
-        'File watches did not stop.'
-      );
+      for (const session of sessions) {
+        // Its releases join `retiring`, which reports their failures below.
+        session.close().catch(() => undefined);
+      }
+      await joinAll([...retiring], 'File watches did not stop.');
     },
     service: { open },
   };
