@@ -1275,7 +1275,6 @@ if (singleInstanceLockAcquired) {
               },
               label: 'Reload',
             },
-            { role: 'toggleDevTools' },
             { type: 'separator' },
             { role: 'resetZoom' },
             { role: 'zoomIn' },
@@ -1288,10 +1287,14 @@ if (singleInstanceLockAcquired) {
           ],
         },
       ];
+      // Only unpackaged builds show this menu, so a shipped app has no
+      // Developer Tools item or shortcut.
       const developerMenus: Electron.MenuItemConstructorOptions[] = [
         {
           label: 'Developer',
           submenu: [
+            { role: 'toggleDevTools' },
+            { type: 'separator' },
             {
               accelerator:
                 process.platform === 'darwin' ? 'Cmd+Shift+Backspace' : 'Ctrl+Shift+Backspace',
