@@ -2,12 +2,9 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { createContext } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  FileSelectionState,
-  SearchSelectionBridge,
-} from '../../bridge/use-search-selection-bridge';
 import type { WorkspaceSearchResults } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
+import type { FileSelectionState, SearchSelectionBridge } from '../search-results-tree';
 import { SEMANTIC_UNAVAILABLE_NO_CHUNKS } from '../semantic-availability';
 import { WorkspaceSearchPanel } from '../workspace-search-panel';
 
@@ -34,9 +31,6 @@ const bridgeMock: SearchSelectionBridge = {
   fileState: vi.fn((): FileSelectionState => 'unchecked'),
   toggleFile: vi.fn(),
 };
-vi.mock('../../bridge/use-search-selection-bridge', () => ({
-  useSearchSelectionBridge: () => bridgeMock,
-}));
 
 const MockSelectContext = createContext<{ onValueChange: (v: string) => void } | null>(null);
 vi.mock('@brainstrike/ui', async (importOriginal) => {
@@ -103,6 +97,7 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof WorkspaceSea
     resolveAdapterRootId,
     runSemanticSearch: vi.fn(),
     runTextSearch: vi.fn(),
+    selection: bridgeMock,
     semanticAvailability: { available: true, reason: null },
     workspaceDbRootIds: ['root-a'],
     ...overrides,

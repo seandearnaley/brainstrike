@@ -10,6 +10,7 @@ import { lazy, type ReactElement, Suspense } from 'react';
 import { ExplorerThreadStatusProvider } from './context-map/explorer-thread-status-provider';
 import { ExplorerAttachAction } from './explorer-attach-action';
 import { useAttachFilesToThread } from './use-attach-files-to-thread';
+import { useSearchSelectionBridge } from './use-search-selection-bridge';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 import { useWorkspaceRootActions } from './workspace-root-context-actions';
 
@@ -35,6 +36,8 @@ function isExplorerActiveTab(value: string): value is ExplorerActiveTab {
 function WorkspaceSearchTabContent(): ReactElement {
   const controller = useWorkspaceSearchController();
   const attachFiles = useAttachFilesToThread();
+  // Result checkboxes drive the explorer's own selection store.
+  const selection = useSearchSelectionBridge();
   const onAttachFile = (fileKey: string) => attachFiles([fileKey], 1);
   return (
     <Suspense fallback={<div className="text-muted-foreground p-3 text-sm">Loading search…</div>}>
@@ -46,6 +49,7 @@ function WorkspaceSearchTabContent(): ReactElement {
         resolveAdapterRootId={controller.resolveAdapterRootId}
         runSemanticSearch={controller.runSemanticSearch}
         runTextSearch={controller.runTextSearch}
+        selection={selection}
         semanticAvailability={controller.semanticAvailability}
         workspaceDbRootIds={controller.workspaceDbRootIds}
       />

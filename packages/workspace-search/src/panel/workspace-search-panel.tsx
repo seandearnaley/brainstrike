@@ -6,7 +6,11 @@ import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import { SearchCoverageBanner } from './search-coverage-banner';
 import { SearchInputBar } from './search-input-bar';
 import { SearchModeToggle } from './search-mode-toggle';
-import { type SearchOpenTarget, SearchResultsTree } from './search-results-tree';
+import {
+  type SearchOpenTarget,
+  SearchResultsTree,
+  type SearchSelectionBridge,
+} from './search-results-tree';
 import { SEMANTIC_UNAVAILABLE_NO_CHUNKS, type SemanticAvailability } from './semantic-availability';
 
 /** Text-mode live-search debounce window. */
@@ -22,6 +26,8 @@ export interface WorkspaceSearchPanelProps {
   resolveAdapterRootId: (dbRootId: string) => string | null;
   runSemanticSearch: () => void;
   runTextSearch: () => void;
+  /** The explorer selection that result checkboxes drive. */
+  selection: SearchSelectionBridge;
   semanticAvailability: SemanticAvailability;
   /** DB root ids of currently mounted, live workspace roots (query scope). */
   workspaceDbRootIds: readonly string[];
@@ -41,6 +47,7 @@ export function WorkspaceSearchPanel({
   resolveAdapterRootId,
   runTextSearch,
   runSemanticSearch,
+  selection,
 }: WorkspaceSearchPanelProps): React.ReactNode {
   const mode = useWorkspaceSearchStore((state) => state.mode);
   const status = useWorkspaceSearchStore((state) => state.status);
@@ -205,6 +212,7 @@ export function WorkspaceSearchPanel({
               onOpenFile={onOpenFile}
               {...(allowTextPaging ? { onShowMore: handleShowMore } : {})}
               resolveAdapterRootId={resolveAdapterRootId}
+              selection={selection}
               workspaceRootCount={workspaceDbRootIds.length}
             />
           </div>
