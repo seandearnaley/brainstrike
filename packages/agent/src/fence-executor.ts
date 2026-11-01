@@ -19,7 +19,6 @@ export {
   FenceUnsupportedLanguageError,
   FenceUnsupportedPlatformError,
   INHERITED_ENV_VARS,
-  isFenceSupported,
 } from './fence/fence-executor.ts';
 export {
   ALWAYS_DENY_READ_PATHS,
@@ -39,3 +38,4 @@ export {
   type FencedShellCommand,
   type FencedShellRequest,
 } from './fence/fence-shell.ts';
+export { isFenceSupported } from './fence/fence-support.ts';
