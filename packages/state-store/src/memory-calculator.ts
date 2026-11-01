@@ -1,7 +1,8 @@
 // The memory calculator worker's owner (BST-2398). Mastra's memory calculation runs on its own worker thread, so the
-// writer thread never imports or runs it and no writer operation waits behind it. The worker starts at the first
-// request that needs it (its module load costs 1-2 s, which StateStore open does not pay) and stops with the store.
-// It only calculates: StateStore reads its inputs and commits its results on the one writer.
+// writer thread never imports or runs it and no writer operation waits behind it. The store starts the worker when it
+// opens and never awaits it: the worker's 1-2 s module load runs beside startup, not in open or in the first send. A
+// worker that fails or exits is replaced at the next request, and the worker stops with the store. It only
+// calculates: StateStore reads its inputs and commits its results on the one writer.
 import { Worker } from 'node:worker_threads';
 import { detachThreadObservations } from './memory-detach.mjs';
 import type {
@@ -74,6 +75,13 @@ export class MemoryCalculator {
     return (await this.#call({ op: 'detach', shared, threadId }))[
       'detached'
     ] as MemorySharedObservations[];
+  }
+
+  /** Starts the worker without waiting for it; a request posted meanwhile waits in its queue. */
+  start(): void {
+    if (this.#module !== undefined && !this.#closed && this.#running === undefined) {
+      this.#spawn(this.#module);
+    }
   }
 
   /** Stops the worker; a request it holds fails. */
