@@ -15,23 +15,32 @@ import {
   ToolInputError,
 } from '@brainstrike/assistant-contract';
 import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
-import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
-import {
-  acquireWorkspaceMutationLease,
-  isWithinRoot,
-  runDetachedProcess,
-} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
-import { resolveBundledSiblingPath } from '../bundled-sibling-path';
-import { BUNDLED_PYTHON_ENV } from '../python-runtime/resolve-python-binary';
-import { resolveWindowsGitBash } from './windows-git-bash';
+import { runDetachedProcess, type WindowsCommandEntry } from './execute-command-tool.ts';
+import type { ShellOutputStreamer } from './tool-execute-support.ts';
+import { resolveWindowsGitBash } from './windows-git-bash.ts';
+import { acquireWorkspaceMutationLease } from './workspace-mutation-lease.ts';
+import { isWithinRoot } from './workspace-path.ts';
 
 const logger = createLogger('RunSkillScriptTool');
 const { defaultMs: DEFAULT_TIMEOUT_MS } = requireNativeToolExecutionBudget(
   NATIVE_TOOL_ID.runSkillScript
 );
 const OUTPUT_ENVELOPE_CHARS = 1200;
+
+/**
+ * Environment every Python launch carries, bundled or system (BST-1627).
+ * Desktop's tree ships inside the package, and on macOS inside the signed
+ * bundle, where a `__pycache__` write would break the code signature's sealed
+ * resources. A fenced run cannot write there anyway; an approved skill script
+ * runs unfenced with the user's own access, so the interpreter must not try,
+ * and on the CLI it leaves no `__pycache__` in the skill's folder.
+ */
+export const PYTHON_LAUNCH_ENV: Readonly<Record<string, string>> = {
+  // biome-ignore lint/style/useNamingConvention: CPython's documented variable name.
+  PYTHONDONTWRITEBYTECODE: '1',
+};
 
 export interface RunSkillScriptToolResult {
   readonly durationMs: number;
@@ -87,15 +96,22 @@ async function resolveWorkingDirectory(
   return { cwd: canonicalCwd, rootName: root.displayName, rootPath: canonicalRoot };
 }
 
+/** The resolver's `python_*`-coded refusal (run_python maps the same code). */
+function isInterpreterUnavailableError(error: unknown): error is Error {
+  const code: unknown = error instanceof Error ? (error as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && code.startsWith('python_');
+}
+
 async function resolveRuntime(
   runtime: RunSkillScriptInput['runtime'],
-  resolvePythonExecutable: ((signal?: AbortSignal) => Promise<string>) | undefined,
+  resolvePythonExecutable: (signal?: AbortSignal) => Promise<string>,
   signal: AbortSignal | undefined
 ): Promise<{
   env?: NodeJS.ProcessEnv;
   executable: string;
 }> {
   if (runtime === 'node') {
+    // This host's own Node: Desktop's Electron in Node mode, the CLI's node.
     return {
       env: {
         // biome-ignore lint/style/useNamingConvention: Electron's documented Node-mode switch.
@@ -105,19 +121,21 @@ async function resolveRuntime(
     };
   }
   if (runtime === 'python3') {
-    // BST-1061: python3 means the BUNDLED CPython, resolved through the
-    // injected capability — never a PATH `python`/`python3` fallback. An
-    // unusable bundled runtime surfaces as a typed PythonRuntimeError from
-    // the resolver, which only validates the build-time unpack (BST-1627);
+    // BST-1061: python3 is the host's own interpreter (Desktop's bundled
+    // CPython, the CLI's system Python), resolved through the injected
+    // capability. An unusable one surfaces as the resolver's typed error;
     // `signal` still bounds it by the caller's timeout/Stop budget (see
-    // `createRuntimeResolveSignal`). BUNDLED_PYTHON_ENV keeps an unfenced
-    // script from writing bytecode into the shipped tree.
-    if (!resolvePythonExecutable) {
-      throw new Error(
-        'The python3 skill-script runtime requires the bundled-Python resolver, and none was injected.'
-      );
+    // `createRuntimeResolveSignal`).
+    try {
+      return { env: { ...PYTHON_LAUNCH_ENV }, executable: await resolvePythonExecutable(signal) };
+    } catch (error) {
+      // A missing interpreter is the person's to fix, as a missing Git for
+      // Windows is: its instructions reach the model, not a generic failure.
+      if (isInterpreterUnavailableError(error)) {
+        throw new ToolInputError(error.message, { cause: error });
+      }
+      throw error;
     }
-    return { env: { ...BUNDLED_PYTHON_ENV }, executable: await resolvePythonExecutable(signal) };
   }
   if (process.platform === 'win32') {
     return { executable: await resolveWindowsGitBash() };
@@ -175,10 +193,12 @@ export async function runSkillScript(
   input: RunSkillScriptInput,
   runtimeData: RuntimeData | undefined,
   resolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'>,
-  options?: {
-    resolvePythonExecutable?: ((signal?: AbortSignal) => Promise<string>) | undefined;
-    signal?: AbortSignal | undefined;
-    stream?: ShellOutputStreamer | undefined;
+  options: {
+    readonly resolvePythonExecutable: (signal?: AbortSignal) => Promise<string>;
+    readonly signal?: AbortSignal | undefined;
+    readonly stream?: ShellOutputStreamer | undefined;
+    /** The Windows command wrapper the calling host ships. */
+    readonly windowsCommandEntry: WindowsCommandEntry;
   }
 ): Promise<RunSkillScriptToolResult> {
   const resolved = await resolver.resolveScriptExecution({
@@ -190,22 +210,22 @@ export async function runSkillScript(
   const { cwd, rootName, rootPath } = await resolveWorkingDirectory(runtimeData, input, resolved);
 
   // `startedAt` and `timeoutMs` are captured BEFORE resolving the runtime
-  // (PR #2205 review): a cold `python3` resolve can itself take real time
-  // (hashing a ~25MB archive, then `tar -xzf` of a ~250MB tree), and that
-  // work used to run before either existed — under-reporting `durationMs`
-  // and leaving `input.timeoutMs` with nothing to bound.
+  // (PR #2205 review): a `python3` resolve can itself take real time (the
+  // CLI probes the system interpreter), and that work used to run before
+  // either existed — under-reporting `durationMs` and leaving
+  // `input.timeoutMs` with nothing to bound.
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const startedAt = Date.now();
-  const executionSignal = createRuntimeResolveSignal(timeoutMs, options?.signal);
+  const executionSignal = createRuntimeResolveSignal(timeoutMs, options.signal);
   const preparationTimeoutMessage = `Preparing the "${input.runtime}" skill-script runtime and workspace ownership exceeded the ${timeoutMs}ms timeout; the script was not run.`;
   const runtime = await resolveRuntime(
     input.runtime,
-    options?.resolvePythonExecutable,
+    options.resolvePythonExecutable,
     executionSignal
   ).catch((error: unknown) => {
     if (executionSignal.aborted) {
       throw new ToolInputError(
-        options?.signal?.aborted
+        options.signal?.aborted
           ? 'The skill script was aborted before execution.'
           : preparationTimeoutMessage
       );
@@ -232,12 +252,10 @@ export async function runSkillScript(
         ...(runtime.env ? { env: runtime.env } : {}),
         executable: runtime.executable,
         releaseWorkspaceLease: release,
-        signal: options?.signal,
-        streamer: options?.stream,
+        signal: options.signal,
+        streamer: options.stream,
         timeoutMs: remainingTimeoutMs,
-        // Desktop's own bundled wrapper, emitted beside this host bundle.
-        windowsCommandEntry: () =>
-          resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs'),
+        windowsCommandEntry: options.windowsCommandEntry,
       });
     } finally {
       if (!transferred) {
@@ -247,7 +265,7 @@ export async function runSkillScript(
   })().catch((error: unknown) => {
     if (!spawned && executionSignal.aborted) {
       throw new ToolInputError(
-        options?.signal?.aborted
+        options.signal?.aborted
           ? 'The skill script was aborted before execution.'
           : preparationTimeoutMessage
       );
