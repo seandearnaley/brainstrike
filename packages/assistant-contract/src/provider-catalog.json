@@ -3,8 +3,6 @@
     "_note": "Model IDs per OpenAI docs:\nhttps://platform.openai.com/docs/guides/latest-model\nhttps://platform.openai.com/docs/models",
     "authType": "api_key",
     "capabilities": {
-      "embeddings": true,
-      "llm": true,
       "streaming": true
     },
     "catalog": {
@@ -719,43 +717,6 @@
         },
         "type": "llm",
         "vision": "supported"
-      },
-      {
-        "catalog": {
-          "bestFor": ["Search", "Clustering"],
-          "description": null,
-          "enabled": true,
-          "icon": null,
-          "name": "Text Embedding 3 Small",
-          "parameters": null,
-          "sortOrder": 18,
-          "tagline": "Efficient embeddings"
-        },
-        "default": true,
-        "defaultDimension": 1536,
-        "dimensionParameter": "dimensions",
-        "id": "text-embedding-3-small",
-        "supportsCustomDimensions": true,
-        "supportsStandardDimension": true,
-        "type": "embedding"
-      },
-      {
-        "catalog": {
-          "bestFor": ["Semantic search", "Knowledge retrieval"],
-          "description": null,
-          "enabled": true,
-          "icon": null,
-          "name": "Text Embedding 3 Large",
-          "parameters": null,
-          "sortOrder": 19,
-          "tagline": "High-precision embeddings"
-        },
-        "defaultDimension": 3072,
-        "dimensionParameter": "dimensions",
-        "id": "text-embedding-3-large",
-        "supportsCustomDimensions": true,
-        "supportsStandardDimension": true,
-        "type": "embedding"
       }
     ],
     "runtime": "hosted"
@@ -764,8 +725,6 @@
     "_note": "Model aliases per Anthropic docs:\nhttps://www.anthropic.com/claude/sonnet\nhttps://www.anthropic.com/claude/haiku\nhttps://www.anthropic.com/claude/opus",
     "authType": "api_key",
     "capabilities": {
-      "embeddings": false,
-      "llm": true,
       "streaming": true
     },
     "catalog": {
@@ -1132,11 +1091,9 @@
     "runtime": "hosted"
   },
   {
-    "_note": "Gemini 3 model IDs + embeddings docs:\nhttps://ai.google.dev/gemini-api/docs/gemini-3\nhttps://ai.google.dev/gemini-api/docs/embeddings\nGoogle publishes no stable key prefix, so there is no keyFormatHint.",
+    "_note": "Gemini 3 model IDs:\nhttps://ai.google.dev/gemini-api/docs/gemini-3\nGoogle publishes no stable key prefix, so there is no keyFormatHint.",
     "authType": "api_key",
     "capabilities": {
-      "embeddings": true,
-      "llm": true,
       "streaming": true
     },
     "catalog": {
@@ -1412,45 +1369,6 @@
         "tagline": "Fastest for lightweight tasks",
         "type": "llm",
         "vision": "supported"
-      },
-      {
-        "_note": "Gemini embeddings use outputDimensionality in JSON; this value is a UI hint.",
-        "catalog": {
-          "bestFor": ["General purpose", "Retrieval"],
-          "description": null,
-          "enabled": true,
-          "icon": null,
-          "name": "Gemini Embedding 001",
-          "parameters": null,
-          "sortOrder": 10,
-          "tagline": "Configurable embeddings"
-        },
-        "default": true,
-        "defaultDimension": 3072,
-        "dimensionParameter": "output_dimensionality",
-        "id": "gemini-embedding-001",
-        "supportsCustomDimensions": true,
-        "supportsStandardDimension": true,
-        "type": "embedding"
-      },
-      {
-        "_note": "Auto-normalizes truncated outputs (unlike 001). JSON param is\noutputDimensionality; this value is a UI hint.",
-        "catalog": {
-          "bestFor": ["General purpose", "Retrieval"],
-          "description": null,
-          "enabled": true,
-          "icon": null,
-          "name": "Gemini Embedding 2",
-          "parameters": null,
-          "sortOrder": 11,
-          "tagline": "Auto-normalizing configurable embeddings"
-        },
-        "defaultDimension": 3072,
-        "dimensionParameter": "output_dimensionality",
-        "id": "gemini-embedding-2",
-        "supportsCustomDimensions": true,
-        "supportsStandardDimension": true,
-        "type": "embedding"
       }
     ],
     "runtime": "hosted"
@@ -1459,8 +1377,6 @@
     "_note": "OpenRouter uses provider-prefixed model slugs (examples in docs):\nhttps://openrouter.ai/docs/guides/routing/auto-model-selection\nCurated current subset from OpenRouter's model catalog. Provider-reported\nbilled cost is authoritative at runtime; these rates are display estimates.\nPRICING SOURCE RULE (BST-1705): every rate in this block is the STANDARD\nroute's BASE rate, re-verified against the live Models API on 2026-09-10.\nTwo things in that API will hand you a different number if you read it\nnaively, and both have already corrupted rows here:\n1. `pricing.overrides` — an array of bands that REPLACE the base rate.\n   `utc_days`/`utc_start`/`utc_end` bands are time-of-day surge pricing, so\n   `pricing.prompt` inside a peak window is the rate RIGHT NOW, not the\n   standing price (this is how tencent/hy3 was recorded at its 1.6x surge).\n   `min_prompt_tokens` bands are long-context tiers (BST-1708), carried on\n   the row as `pricing.longContextTiers` with the BASE rate left in\n   `inputPerMTok`/`outputPerMTok`. Record the base: on a banded route\n   that is THE CHEAPEST BAND. Not \"the rate outside every band\" (bands\n   that leave part of the week uncovered are rejected, so there is no\n   outside) and not the band covering most of the week (hy3 surges 16\n   hours in 24, so its modal band IS the surge). Known limit: a\n   promotional band under the standing rate would read as the base;\n   nothing live does that as of 2026-09-10.\n2. Variant routes — `<id>:batch`, `:free`, `:nitro`. A variant is a\n   DIFFERENT route with its own price and belongs in a row of its own if we\n   ever ship one; its rate must never occupy the standard route's row (this\n   is how google/gemini-3.7-flash and z-ai/glm-5.3-flash were recorded).\nLIMIT RULE (BST-1804): contextWindow / maxOutputTokens are the route's\n`top_provider` pair, never a larger model-level `context_length` (used only\nwhere the top-provider window is null, i.e. router meta-models).\nAll three rules are mechanised in scripts/openrouter-pricing-audit.mjs — run\n`pnpm run audit:openrouter-pricing` when adding, re-pricing or re-limiting a row.",
     "authType": "api_key",
     "capabilities": {
-      "embeddings": false,
-      "llm": true,
       "streaming": true
     },
     "catalog": {
@@ -4153,127 +4069,9 @@
     "runtime": "gateway"
   },
   {
-    "_note": "Cohere publishes no stable key prefix, so there is no keyFormatHint.",
-    "authType": "api_key",
-    "capabilities": {
-      "embeddings": true,
-      "llm": false,
-      "streaming": false
-    },
-    "catalog": {
-      "enabled": false,
-      "icon": null,
-      "name": "Cohere",
-      "sortOrder": 6
-    },
-    "deprecatedEnvKeys": ["AI_COHERE_API_KEY"],
-    "displayName": "Cohere",
-    "docsUrl": "https://dashboard.cohere.com/api-keys",
-    "envKeys": ["BRAINSTRIKE_COHERE_API_KEY", "COHERE_API_KEY"],
-    "id": "cohere",
-    "models": [
-      {
-        "availableDimensions": [1024],
-        "catalog": {
-          "bestFor": ["Search", "RAG"],
-          "description": null,
-          "enabled": false,
-          "icon": null,
-          "name": "Embed English v3.0",
-          "parameters": null,
-          "sortOrder": 1,
-          "tagline": "Optimized for English"
-        },
-        "default": true,
-        "defaultDimension": 1024,
-        "id": "embed-english-v3.0",
-        "supportsStandardDimension": true,
-        "type": "embedding"
-      },
-      {
-        "availableDimensions": [1024],
-        "catalog": {
-          "bestFor": ["Global apps", "Cross-lingual search"],
-          "description": null,
-          "enabled": false,
-          "icon": null,
-          "name": "Embed Multilingual v3.0",
-          "parameters": null,
-          "sortOrder": 2,
-          "tagline": "100+ languages supported"
-        },
-        "defaultDimension": 1024,
-        "id": "embed-multilingual-v3.0",
-        "supportsStandardDimension": true,
-        "type": "embedding"
-      }
-    ],
-    "runtime": "hosted"
-  },
-  {
-    "_note": "Voyage's docs link this dashboard page (docs.voyageai.com, verified\n2026-08-18). No stable key prefix is documented, so no keyFormatHint.",
-    "authType": "api_key",
-    "capabilities": {
-      "embeddings": true,
-      "llm": false,
-      "streaming": false
-    },
-    "catalog": {
-      "enabled": false,
-      "icon": null,
-      "name": "Voyage AI",
-      "sortOrder": 7
-    },
-    "deprecatedEnvKeys": ["AI_VOYAGE_API_KEY"],
-    "displayName": "Voyage AI",
-    "docsUrl": "https://dashboard.voyageai.com/organization/api-keys",
-    "envKeys": ["BRAINSTRIKE_VOYAGE_API_KEY", "VOYAGE_API_KEY"],
-    "id": "voyage",
-    "models": [
-      {
-        "availableDimensions": [1024],
-        "catalog": {
-          "bestFor": ["Legal", "Finance", "Code"],
-          "description": null,
-          "enabled": false,
-          "icon": null,
-          "name": "Voyage 3",
-          "parameters": null,
-          "sortOrder": 1,
-          "tagline": "State-of-the-art retrieval"
-        },
-        "default": true,
-        "defaultDimension": 1024,
-        "id": "voyage-3",
-        "supportsStandardDimension": true,
-        "type": "embedding"
-      },
-      {
-        "availableDimensions": [512],
-        "catalog": {
-          "bestFor": ["Low latency apps"],
-          "description": null,
-          "enabled": false,
-          "icon": null,
-          "name": "Voyage 3 Lite",
-          "parameters": null,
-          "sortOrder": 2,
-          "tagline": "Efficient retrieval"
-        },
-        "defaultDimension": 512,
-        "id": "voyage-3-lite",
-        "supportsStandardDimension": false,
-        "type": "embedding"
-      }
-    ],
-    "runtime": "hosted"
-  },
-  {
     "_note": "`authType: 'aws'` covers BOTH live auth forms — the bearer API key\n(BST-1350) and the AWS credential chain / SigV4 (BST-1353). The stored\ncredential's `mode` discriminates them.\nAWS's \"Generate Amazon Bedrock API keys\" console docs page.\nBST-1361 two-name scheme: app-scoped override first, then AWS's\ndocumented bearer-token variable for Bedrock API keys.\nAWS documents no stable printable prefix for Bedrock API keys, so there\nis no keyFormatHint.\nModel ids/pricing verified against https://models.dev/api.json\n(amazon-bedrock provider), retrieved 2026-08-18. Ids are stored\nUNPREFIXED; cross-region inference-profile prefixes (us./eu./…) are\napplied per request by resolveBedrockModelId in packages/agent.\nPrompt caching (BST-1354): Bedrock bills explicit `cachePoint` reads and\nwrites at published per-model rates, so the Claude and Nova rows carry\ncache pricing. AWS documents a maximum of FOUR cache checkpoints per\nrequest for every caching-capable route, which is what bounds the\nwrapper's first-2-system + last-2-non-system placement policy.\namazon.nova-premier is not listed by models.dev for Bedrock\n(2026-08-18), so it is deliberately absent.",
     "authType": "aws",
     "capabilities": {
-      "embeddings": false,
-      "llm": true,
       "streaming": true
     },
     "catalog": {

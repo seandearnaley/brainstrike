@@ -2,6 +2,9 @@
 
 - **Status:** Accepted (Sean chose Option B of the "Main as a thin launcher" decision,
   2026-10-25)
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): Main's native index is deleted, so
+    `workspace/roots/mounted`, the index's read handles and its part in root data deletion
+    (stage 4) are gone. The host deletes a folder's data on its own.
 - **Date:** 2026-10-25
 - **Amends:** [ADR-0017](0017-cli-first-agent-host.md) (what "provider of platform
   capabilities" covers) and [ADR-0027](0027-canonical-electron-quit.md) decision 3 (the

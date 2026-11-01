@@ -8,7 +8,6 @@ import type { ElectronHarness } from '../fixtures/electron-harness';
 import { readHostThreadWorkspace, waitForAppHost } from './agent-host-log';
 import { configureAssistantProvider } from './assistant-mock';
 import { getContextExplorerFileExplorerPanel } from './context-explorer-locators';
-import { updateIndexConfig } from './index-config';
 import { ensureAssistantShellVisible } from './layout-helpers';
 import { loadElectronHelpers } from './load-electron-helpers';
 import { seedWorkspaceFolders } from './seed-root';
@@ -52,7 +51,6 @@ export async function openDurableUiFixture(
   await mkdir(path.join(rootPath, FOLDER));
   await writeFile(path.join(rootPath, FOLDER, 'index.ts'), 'export const durable = true;\n');
   await seedWorkspaceFolders(seedPage, { roots: [{ path: rootPath, rootId: ROOT_ID }] });
-  await updateIndexConfig(seedPage, { paused: true });
   // New creates nothing until a first send, so the thread is created through
   // the host, without a run.
   await seedHostThreads(electron.getUserDataDir(), [{ folder: null, title: DURABLE_THREAD_TITLE }]);

@@ -50,7 +50,6 @@ type CliStringOption =
   | 'interaction'
   | 'mcp-config'
   | 'model'
-  | 'mode'
   | 'query'
   | 'limit'
   | 'scope-root'
@@ -122,7 +121,6 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       json: { type: 'boolean' },
       limit: { type: 'string' },
       'mcp-config': { type: 'string' },
-      mode: { type: 'string' },
       model: { type: 'string' },
       'non-interactive': { type: 'boolean' },
       platform: { type: 'string' },
@@ -162,7 +160,6 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'threads list',
       'threads show',
       'threads search',
-      'workspace search',
       'workspace trust',
       'run',
       'attach',
@@ -387,31 +384,6 @@ function cliThreadSearch(
 ): HostParams<'thread/search'> | undefined {
   return command === 'threads search' ? threadSearchParams(values) : undefined;
 }
-async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['values']) {
-  const controller = new AbortController();
-  const abort = (): void => controller.abort(new Error('Workspace search interrupted'));
-  process.once('SIGINT', abort);
-  process.once('SIGTERM', abort);
-  try {
-    return await client.request(
-      'workspace/search',
-      Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['workspace/search'], {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })({
-        limit: Number(values.limit ?? 20),
-        mode: required(values.mode, 'mode'),
-        query: required(values.query, 'query'),
-        rootId: required(values['scope-root'], 'scope-root'),
-        threadId: required(values.thread, 'thread'),
-      }),
-      controller.signal
-    );
-  } finally {
-    process.off('SIGINT', abort);
-    process.off('SIGTERM', abort);
-  }
-}
 /** CLI is a client of the root owner; it never runs a second model/tool loop. */
 export async function runHostCli(
   args: string[],
@@ -425,7 +397,6 @@ export async function runHostCli(
 
 run "prompt" --model <id> [--thread <id>] [--json] [--non-interactive]
 attach --thread <id> [--run <id>] [--json] [--interactive]
-workspace search --thread <id> --scope-root <id> --mode bm25|trigram --query <text> [--limit <n>]
 threads list
 threads show --thread <id> [--from-seq <n>]
 threads search --query <text> [--scope-root <id>] [--since <iso>] [--until <iso>] [--limit <n>]
@@ -560,9 +531,6 @@ Run signals stop and join its execution; attach signals detach.
       }
       case 'thread start':
         print(await client.request('thread/start', { commandId }));
-        break;
-      case 'workspace search':
-        print(await searchWorkspaceCli(client, values));
         break;
       case 'children list':
         print(await client.request('thread/children', { threadId: threadId() }));

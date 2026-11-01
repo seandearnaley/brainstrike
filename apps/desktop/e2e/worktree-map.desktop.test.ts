@@ -103,7 +103,6 @@ function freshRepoWithNestedWorktree(label: string): WorktreeMapRepoFixture {
 
 async function seedRoot(page: Page, rootPath: string): Promise<void> {
   await seedWorkspaceRoot(page, rootPath, {
-    disableBackgroundIndexing: true,
     reloadReason: 'w5-worktree-map-seed-root',
     rootId: ROOT_ID,
   });

@@ -1,5 +1,5 @@
 import {
-  listProviderModels,
+  listProviderLlmModels,
   listProviders,
 } from '@brainstrike/assistant-contract/provider-registry';
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
@@ -163,9 +163,9 @@ describe('provider-factory', () => {
     });
 
     it('rejects providers outside the persistent-memory model boundary', () => {
-      expect(() => createLanguageModelProvider('cohere', 'test-key', 'command-r')).toThrow(
-        /does not support provider: cohere/iu
-      );
+      expect(() =>
+        createLanguageModelProvider('bedrock', 'test-key', 'anthropic.claude-sonnet-5')
+      ).toThrow(/does not support provider: bedrock/iu);
     });
   });
 
@@ -189,20 +189,12 @@ describe('provider-factory', () => {
     it('throws for an unsupported provider', () => {
       expect(() => getDefaultModel('unsupported')).toThrow(/Unsupported provider/u);
     });
-
-    it('returns an explicit unset default for an embeddings-only provider', () => {
-      expect(getDefaultModel('cohere')).toBe('');
-    });
   });
 
-  it('exposes a single default model per provider and type', () => {
+  it('exposes a single default model per provider', () => {
     for (const provider of listProviders()) {
-      const llmDefaults = listProviderModels(provider.id, 'llm').filter((model) => model.default);
+      const llmDefaults = listProviderLlmModels(provider.id).filter((model) => model.default);
       expect(llmDefaults.length).toBeLessThanOrEqual(1);
-      const embeddingDefaults = listProviderModels(provider.id, 'embedding').filter(
-        (model) => model.default
-      );
-      expect(embeddingDefaults.length).toBeLessThanOrEqual(1);
     }
   });
 });

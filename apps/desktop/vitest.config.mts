@@ -29,18 +29,6 @@ export function resolveDesktopTestShard(
   return shard;
 }
 
-/**
- * Integration files whose SQLite query child shares advanced (structured-clone)
- * IPC with the test process, which needs Electron's V8 on both sides.
- * scripts/run-integration.mjs
- * runs them in its Electron pass (ELECTRON_RUN_AS_NODE=1); every Node run leaves
- * them to that pass, so the two passes partition the suite.
- */
-export const ELECTRON_RUNTIME_TESTS = [
-  'src/__tests__/assistant-server/native-markdown-grep-lines.integration.test.ts',
-];
-export const UNDER_ELECTRON = process.versions.electron !== undefined;
-
 const MAIN_IMPORT_TESTS = [
   'src/__tests__/main/boot-order.test.ts',
   'src/__tests__/main/workspace-open-lifecycle.test.ts',
@@ -136,7 +124,6 @@ export default mergeConfig(
         '**/dist/**',
         '**/e2e/**', // Exclude Playwright e2e tests
         '**/scripts/**', // Script helper tests use node:test directly.
-        ...(UNDER_ELECTRON ? [] : ELECTRON_RUNTIME_TESTS),
       ],
       // Polls of real processes and the real renderer outlast Vitest's 1 s
       // default (BST-2181). Integration and unit configs spread this test block;

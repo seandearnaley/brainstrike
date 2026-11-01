@@ -139,14 +139,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('../background-indexing/indexing-activity-coordinator', () => ({
-  IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
-}));
-
-vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
-  WorkspaceCollectionSyncProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-
 vi.mock('../assistant-chat-panel', () => ({
   AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
   AssistantProviderStatusProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -184,7 +176,6 @@ vi.mock('../account-menu', () => ({ AccountMenu: () => null }));
 vi.mock('../app-reload/app-reload-strip', () => ({ AppReloadStrip: () => null }));
 vi.mock('../status-items/database-status-item', () => ({ DatabaseStatusItem: () => null }));
 vi.mock('../status-items/diagnostics-status-item', () => ({ DiagnosticsStatusItem: () => null }));
-vi.mock('../status-items/indexing-status-item', () => ({ IndexingStatusItem: () => null }));
 vi.mock('../status-items/workspace-root-status-item', () => ({
   WorkspaceRootStatusItem: () => null,
 }));

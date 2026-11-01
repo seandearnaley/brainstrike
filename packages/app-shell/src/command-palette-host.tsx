@@ -34,8 +34,7 @@ function resolveCommandPaletteBridge(): CommandPaletteBridge | null {
 /**
  * Mounts the ⌘K command palette ONCE at the visible-UI root. This component is
  * rendered only from `RootLayoutContent`, which only the visible-UI renderer
- * mounts — the hidden embedding/llm/chunking host renderers render their own
- * trees and never reach here, so the palette and its hotkey are structurally
+ * mounts — any hidden host renderer renders its own tree and never reaches here, so the palette and its hotkey are structurally
  * gated off those hosts (no role check needed at this layer).
  *
  * On open it rebuilds the command registry with the target captured at open

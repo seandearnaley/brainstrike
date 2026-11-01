@@ -9,16 +9,9 @@
  */
 import type { Page } from '@playwright/test';
 import { requestAgentHost } from './agent-host-request';
-import { updateIndexConfig } from './index-config';
 import { loadElectronHelpers } from './load-electron-helpers';
 
 export interface SeedRootOptions {
-  /**
-   * Pause the profile's search index through Main before the reload. Callers
-   * that only exercise the `roots` table and the `git:`/`fs:` bridges want
-   * this: indexing the seeded roots adds work and flake surface for no coverage.
-   */
-  readonly disableBackgroundIndexing?: boolean;
   /**
    * Paths to plant in the host's recent-folders ledger: the grants that authorize
    * the picker-less `workspace/roots/add` (BST-1395). Omit for none.
@@ -48,19 +41,12 @@ export async function seedRoot(
 export async function seedRoots(
   page: Page,
   roots: readonly SeededRoot[],
-  {
-    disableBackgroundIndexing = false,
-    recentPaths = [],
-    reloadReason,
-  }: Omit<SeedRootOptions, 'rootId'>
+  { recentPaths = [], reloadReason }: Omit<SeedRootOptions, 'rootId'>
 ): Promise<void> {
   if (roots.length === 0) {
     throw new Error('seedRoots needs at least one root');
   }
   await seedWorkspaceFolders(page, { recentPaths, roots });
-  if (disableBackgroundIndexing) {
-    await updateIndexConfig(page, { paused: true });
-  }
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, reloadReason);
 }

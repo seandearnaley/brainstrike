@@ -33,7 +33,7 @@ function personaFs(content: string) {
 
 function reads(overrides: Partial<PersonaAvailabilityReads> = {}): PersonaAvailabilityReads {
   return {
-    catalogModel: async () => ({ type: 'llm' }),
+    catalogModel: async ({ provider }) => ({ providerId: provider }),
     mcpTools: async () => new Map(),
     readCredential: async () => ({ key: 'configured', type: 'api_key' }),
     ...overrides,
@@ -66,20 +66,6 @@ it('refuses the listing when the model catalog cannot answer, and closes the sca
       signal
     )
   ).rejects.toThrow('The host model catalog is unavailable');
-  expect(scan.dispose).toHaveBeenCalledOnce();
-});
-
-it("blocks a persona pinned to an embedding model by the catalog's model type", async () => {
-  const { profile, scan } = await listProfile(
-    '---\ndescription: Embedding pin\nmodel: openai::text-embedding-3-small\n---\nBody.',
-    reads({ catalogModel: async () => ({ type: 'embedding' }) })
-  );
-  expect(profile).toMatchObject({
-    availability: {
-      issues: [expect.objectContaining({ code: 'model-unsupported' })],
-      status: 'blocked',
-    },
-  });
   expect(scan.dispose).toHaveBeenCalledOnce();
 });
 

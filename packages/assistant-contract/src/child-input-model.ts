@@ -17,10 +17,7 @@ export function assertAssistantChildImageCapability(
   if (!selectedProvider) {
     throw new Error('The child image provider is unavailable.');
   }
-  if (
-    !selectedProvider.capabilities.llm ||
-    findLlmModelDefinition(selectedProvider.id, modelId)?.vision === 'unsupported'
-  ) {
+  if (findLlmModelDefinition(selectedProvider.id, modelId)?.vision === 'unsupported') {
     throw new Error(`${modelId} does not support image input for this child.`);
   }
 }

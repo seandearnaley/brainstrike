@@ -55,15 +55,12 @@ one). Approval for mutations remains a separate contract on top.
 
 Beneath every layer, the shared matcher holds a credential floor
 (`isWorkspaceSecretFile`): `.env` and `.env.*` (not `.env.example`, `.env.sample`
-or `.env.template`), `*.pem`, `*.key` and `id_rsa*` are never walked, grepped, read
-or indexed. No negation in any ignore file and no includeIgnored lifts it, and it
+or `.env.template`), `*.pem`, `*.key` and `id_rsa*` are never walked, grepped or read. No negation in any ignore file and no includeIgnored lifts it, and it
 reads as hard. Direct reads refuse it by name as a credential file (ADR-0016
 amendment).
 
 Bounded traversal reports truncation and unverifiable coverage honestly. An
-excluded-path probe must itself honor hard ignores. Canonical indexing receives
-unchanged parser/chunker output; [indexer](indexer.md) owns publication and
-coverage, not the preview UI.
+excluded-path probe must itself honor hard ignores.
 
 ## Search
 

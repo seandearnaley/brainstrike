@@ -2,8 +2,8 @@
  * Mounts the desktop folder-connection subscriptions ONCE at the visible-UI
  * root (BST-1393). Same shape and same mounting rule as `CommandPaletteHost` /
  * `QuickOpenHost`: rendered only from `RootLayoutContent`, which only the
- * visible-UI renderer mounts, so the hidden embedding/llm/chunking hosts never
- * reach it and need no role check here.
+ * visible-UI renderer mounts, so a hidden host renderer never reaches it and
+ * needs no role check here.
  *
  * Renders nothing. Web resolves no bridge and subscribes to nothing.
  */

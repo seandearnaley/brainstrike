@@ -4,12 +4,10 @@ import type {
   HostRewindFileOutcome,
   HostTurnSnapshot,
 } from '@brainstrike/agent-host';
-import { createLogger } from '@brainstrike/logging';
 import { listThreadSnapshotChain } from './snapshot-chains.ts';
 import { execFileSnapshotGitRunner } from './snapshot-git.ts';
 import type { PerFileOutcome, ShadowRepoHandle, SnapshotService } from './snapshot-service.ts';
 
-const logger = createLogger('HostRewindFiles');
 /** Previews kept for their rewind; an evicted one refuses as `preview-required`. */
 const MAX_STORED_PREVIEWS = 32;
 interface StoredPreview {
@@ -19,8 +17,6 @@ interface StoredPreview {
 }
 /** The owners a host rewind borrows: the one shadow-git service and the live root owner. */
 interface HostRewindFilesOwners {
-  /** Request one full scan from the existing native workspace owner after disk restoration. */
-  readonly refreshWorkspaceIndex: (rootId: string) => Promise<void>;
   /** The live path of a mounted root; rejects an unmounted one. */
   readonly resolveWorkspaceRoot: (rootId: string) => Promise<string>;
   readonly snapshots: () => SnapshotService | null;
@@ -68,25 +64,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
   ): Promise<ShadowRepoHandle> {
     const path = await owners.resolveWorkspaceRoot(target.rootId);
     return await service.ensureShadowRepo({ path, rootId: target.rootId });
-  }
-  /**
-   * Request the existing native scanner once per changed root. An index failure
-   * remains diagnostic: it does not reverse the completed filesystem restore.
-   */
-  async function reindexAll(rootId: string, applied: readonly PerFileOutcome[]): Promise<void> {
-    if (
-      !applied.some((outcome) => outcome.outcome === 'restored' || outcome.outcome === 'deleted')
-    ) {
-      return;
-    }
-    try {
-      await owners.refreshWorkspaceIndex(rootId);
-    } catch (error) {
-      logger.error('Host rewind index refresh failed (files already restored)', {
-        error: error instanceof Error ? error.message : String(error),
-        rootId,
-      });
-    }
   }
   function service(): SnapshotService {
     const owner = owners.snapshots();
@@ -165,7 +142,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
         const applied = await owner.applyRestorePlan(handle, plan, {
           expectedPreRevertHashes: expected,
         });
-        await reindexAll(target.rootId, applied);
         outcomes.push(...applied.map((outcome) => outcomeOf(target.rootId, outcome)));
       }
       return outcomes;
@@ -234,7 +210,6 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
         const applied = await owner.applyRestorePlan(planned.handle, planned.plan, {
           expectedPreRevertHashes: expected,
         });
-        await reindexAll(target.rootId, applied);
         outcomes.push(...applied.map((outcome) => outcomeOf(target.rootId, outcome)));
       }
       return outcomes;

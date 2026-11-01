@@ -11,7 +11,6 @@ import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedWorkspaceFolders } from './utils/seed-root';
 
@@ -67,7 +66,6 @@ test.describe('Explorer scroll restore', () => {
     test.setTimeout(3 * 60 * 1000);
 
     await seedWorkspaceFolders(page, { roots: [{ path: ROOT_DIR, rootId: 'scroll-root-1' }] });
-    await updateIndexConfig(page, { paused: true });
 
     const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'scroll-restore-seeded');

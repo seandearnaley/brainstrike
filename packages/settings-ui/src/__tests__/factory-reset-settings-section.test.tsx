@@ -68,7 +68,7 @@ describe('FactoryResetSettingsSection', () => {
 
       expect(screen.getByRole('heading', { name: 'Factory Reset' })).toBeInTheDocument();
       expect(
-        screen.getByText('Wipe application data (files, embeddings, queues) and reset preferences.')
+        screen.getByText('Wipe application data (threads, folders, queues) and reset preferences.')
       ).toBeInTheDocument();
     });
 
@@ -101,7 +101,7 @@ describe('FactoryResetSettingsSection', () => {
       render(<FactoryResetSettingsSection />);
 
       const description = screen.getByText(
-        'Wipe application data (files, embeddings, queues) and reset preferences.'
+        'Wipe application data (threads, folders, queues) and reset preferences.'
       );
       expect(description.tagName).toBe('P');
       expect(description.className).toContain('text-sm');

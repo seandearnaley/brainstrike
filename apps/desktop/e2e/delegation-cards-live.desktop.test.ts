@@ -65,7 +65,6 @@ test('open delegation cards follow their background children to the end without 
       const page = context.window;
       await expect(page.getByTestId('new-agent-button')).toBeVisible();
       await seedRoot(page, workspace, {
-        disableBackgroundIndexing: true,
         reloadReason: 'delegation-cards-live',
         rootId: randomUUID(),
       });

@@ -5,7 +5,6 @@ import {
   getProviderOverrideEnvKey,
   getProviderVendorEnvKey,
   listProviderLlmModels,
-  listProviderModels,
   listProviders,
   type ModelVisionSupport,
   type ProviderAuthType,
@@ -13,7 +12,6 @@ import {
   type ProviderDefinition,
   type ProviderId,
   type ProviderModelDefinition,
-  type ProviderModelType,
   type ProviderRuntime,
   resolveDefaultModel,
 } from './provider-registry.ts';
@@ -25,7 +23,6 @@ export type {
   ProviderCapabilities,
   ProviderDefinition,
   ProviderModelDefinition,
-  ProviderModelType,
   ProviderRuntime,
 };
 
@@ -147,7 +144,7 @@ export function providerAuthType(provider: SupportedProvider): ProviderAuthType 
 export function getProviderModelDefinitions(
   provider: SupportedProvider
 ): readonly ProviderModelDefinition[] {
-  return listProviderModels(provider);
+  return listProviderLlmModels(provider);
 }
 
 /**

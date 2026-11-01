@@ -680,7 +680,7 @@ function aggregateChildStates<T>(
   children: TreeNode<T>[],
   context: CheckboxStateContext<T>
 ): CheckboxState {
-  // TreeTable data is expected to be shallow (collection/file/chunk/embedding).
+  // TreeTable data is expected to be shallow (a few levels of groups and files).
   // Recursive traversal keeps the state logic straightforward and cacheable.
   let hasSelectedDescendant = false;
   let allChildrenChecked = true;

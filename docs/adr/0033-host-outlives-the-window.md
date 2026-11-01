@@ -1,6 +1,8 @@
 # ADR-0033: The host outlives the window, not the app
 
 - **Status:** Accepted (Sean, 2026-11-01: option 1, "Yes, on all platforms")
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): Main's indexer is deleted; Main and the
+    host stay resident with no window.
 - **Date:** 2026-11-01
 - **Ticket:** BST-2432
 - **Related:** [ADR-0008](0008-capability-based-feature-gating.md) (capability gating),

@@ -19,7 +19,6 @@ test('shows actual host persona issues and refreshes an edited profile @smoke', 
     '---\ndescription: Availability proof\nmode: worker\nmodel: anthropic::bst1727-missing-model\ntools: bst1727_missing.edit, readWorkspaceFile\n---\nUse only the permitted tools.'
   );
   await seedRoot(window, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'persona-availability-mounted-workspace',
     rootId: 'bst1727-availability-root',
   });

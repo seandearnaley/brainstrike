@@ -12,7 +12,7 @@ export { WEB_SEARCH_TOOL_ID };
 
 /**
  * The secrets-store provider id under which the Tavily API key is stored. NOT a
- * `ProviderId` (Tavily is not an LLM/embedding provider, so it stays out of the
+ * `ProviderId` (Tavily is not an LLM provider, so it stays out of the
  * model registry); the secrets service keys by arbitrary string, so we reuse
  * that same encrypted-keychain path without polluting `ProviderId`.
  */

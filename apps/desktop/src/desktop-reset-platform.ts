@@ -4,8 +4,7 @@ import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
-import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
-import { indexConfigCause, isQuitTerminalRefusal } from './native-index-boundary-failure';
+import { isQuitTerminalRefusal, RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
 
 interface DesktopResetRuntime {
   readonly name: string;
@@ -23,14 +22,9 @@ interface DesktopResetLogger {
 /** A factory reset wipes everything; a content clear keeps configuration. */
 export type DesktopResetMode = 'factory' | 'content';
 
-interface DesktopContentClearCounts {
-  readonly deletedChunks: number | null;
-  readonly deletedFiles: number;
-}
-
 export interface CreateDesktopFactoryResetHandlerOptions {
   /** Terminal clear through the current host writer; retains configuration in place. */
-  readonly clearRetainedContent?: () => Promise<DesktopContentClearCounts>;
+  readonly clearRetainedContent?: () => Promise<void>;
   /** Replaces the stale visible renderer and resolves only after its explicit
    * renderer-ready acknowledgement. A factory reset also clears the renderer's
    * session storage between the old document and the new one. MCP admission
@@ -51,11 +45,6 @@ export interface CreateDesktopFactoryResetHandlerOptions {
     outcome: 'failed' | 'succeeded',
     signal: AbortSignal
   ) => Promise<void>;
-  /** The same Main transition queue owns retirement, purge and reopen; the
-   * reset owner retains its accepted request while waiting for this admission. */
-  readonly runTransition: (
-    work: () => Promise<DesktopFactoryResetResult>
-  ) => Promise<DesktopFactoryResetResult>;
   readonly runtimes: readonly DesktopResetRuntime[];
   /** Electron owns this dedicated container; clear its sessions before purge. */
   readonly sessionDataPath: string;
@@ -63,8 +52,6 @@ export interface CreateDesktopFactoryResetHandlerOptions {
 }
 
 interface DesktopFactoryResetResult {
-  readonly deletedChunks?: number | null;
-  readonly deletedFiles?: number;
   message?: string;
   success: boolean;
 }
@@ -127,9 +114,8 @@ async function resumeDesktopResetRuntime({
     }
     // BST-2278: quit fences profile admission before its factory-reset step cancels this
     // reopen, so a reopen that borrows the profile meanwhile gets quit's one terminal
-    // refusal (ADR-0026), as does the reopened profile's config read under its owner's wrap.
-    // The deletion is complete; quit retires what this would reopen.
-    if (resetDataSucceeded && isQuitTerminalRefusal(indexConfigCause(error))) {
+    // refusal (ADR-0026). The deletion is complete; quit retires what this would reopen.
+    if (resetDataSucceeded && isQuitTerminalRefusal(error)) {
       logger.debug('Factory reset complete; resume skipped because the app is quitting', error);
       return failure;
     }
@@ -175,14 +161,12 @@ export function createDesktopFactoryResetHandler({
   resetLocalDatabase,
   resumeAfterReset,
   runtimes,
-  runTransition,
   sessionDataPath,
   userDataPath,
 }: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
   const shutdown = new AbortController();
   let profileResetLease: ProfileResetLease | null = null;
   const runReset = async (mode: DesktopResetMode): Promise<DesktopFactoryResetResult> => {
-    let cleared: DesktopContentClearCounts | undefined;
     let failure: ResetFailure = NO_RESET_FAILURE;
     let resetDataSucceeded = false;
     let rendererReplacementSucceeded = false;
@@ -192,7 +176,7 @@ export function createDesktopFactoryResetHandler({
           throw new Error('Content clearing is unavailable.');
         }
         await stopDesktopResetRuntimes(runtimes, 'content');
-        cleared = await clearRetainedContent();
+        await clearRetainedContent();
       } else {
         await resetDesktopApplicationData({
           ...(crashDumpsPath === undefined ? {} : { crashDumpsPath }),
@@ -252,7 +236,7 @@ export function createDesktopFactoryResetHandler({
     logger.info(
       mode === 'factory' ? 'Desktop factory reset completed' : 'Desktop content clear completed'
     );
-    return { success: true, ...cleared };
+    return { success: true };
   };
   let resetInFlight: {
     readonly mode: DesktopResetMode;
@@ -271,23 +255,16 @@ export function createDesktopFactoryResetHandler({
         ? resetInFlight.result
         : resetInFlight.result.then(() => startReset(mode));
     }
-    let admitted = false;
-    const completion = runTransition(() => {
-      admitted = true;
-      return runReset(mode);
-    });
+    const completion = runReset(mode);
     // Only the renderer boundary converts an accepted reset's rejection to a
     // result envelope. Terminal close must join its original completion.
     const result = completion
-      .catch((error: unknown): DesktopFactoryResetResult => {
-        if (!admitted) {
-          throw error;
-        }
-        return {
+      .catch(
+        (error: unknown): DesktopFactoryResetResult => ({
           message: error instanceof Error ? error.message : String(error),
           success: false,
-        };
-      })
+        })
+      )
       .finally(() => {
         resetInFlight = null;
       });

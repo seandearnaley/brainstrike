@@ -3,7 +3,6 @@ import {
   type BoundaryTransport,
   createBoundaryCapability,
 } from '@brainstrike/assistant-contract/boundary-result';
-import type { IndexLifecycleCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { useEffect } from 'react';
 import { useDatabaseStatusStore } from '../stores/database-status-store.ts';
 
@@ -20,10 +19,6 @@ export function useDatabaseStatusSync(): void {
   const catalog = transport
     ? createBoundaryCapability<ModelCatalogCapability>(transport)
     : undefined;
-  const lifecycle =
-    typeof window === 'undefined'
-      ? undefined
-      : (window as Window & { indexSearch?: IndexLifecycleCapability }).indexSearch;
 
   useEffect(() => {
     const store = useDatabaseStatusStore.getState();
@@ -35,31 +30,22 @@ export function useDatabaseStatusSync(): void {
     }
 
     let active = true;
-    let latest = 0;
-    const read = (): void => {
-      latest += 1;
-      const request = latest;
-      void catalog.read().then(
-        () => {
-          if (active && request === latest) {
-            store.setConnected('SQLite', 'Connected (agent host)');
-          }
-        },
-        (error: unknown) => {
-          if (active && request === latest) {
-            store.setDisconnected('SQLite', error instanceof Error ? error.message : String(error));
-          }
-        }
-      );
-    };
     store.setLoading();
-    read();
-    // Clear replaces this renderer before the host reopens; the lifecycle push
-    // announces the reopened host, so a refused first read does not latch.
-    const unsubscribe = lifecycle?.onLifecycleChanged(read);
+    // A read during a reset waits in Main for the reopened host, so it never latches a refusal.
+    void catalog.read().then(
+      () => {
+        if (active) {
+          store.setConnected('SQLite', 'Connected (agent host)');
+        }
+      },
+      (error: unknown) => {
+        if (active) {
+          store.setDisconnected('SQLite', error instanceof Error ? error.message : String(error));
+        }
+      }
+    );
     return () => {
       active = false;
-      unsubscribe?.();
     };
-  }, [catalog, lifecycle]);
+  }, [catalog]);
 }

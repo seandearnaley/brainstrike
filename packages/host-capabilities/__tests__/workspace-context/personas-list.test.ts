@@ -247,21 +247,19 @@ describe('host availability through the Settings list entry point', () => {
     expect(JSON.stringify(invalid)).toContain('unknown model pin provider');
   });
 
-  // The rule is DERIVED from `capabilities.llm`, not from the provider's name
-  // or the model's row: Voyage is embeddings-only, so a pin to it cannot run an
-  // assistant at all — worker mode or otherwise.
-  it('blocks a pin to an embeddings-only provider by the same capability rule as runtime', async () => {
+  // A pin outside the provider registry cannot run an assistant at all, worker mode or otherwise.
+  it('blocks a pin to a provider outside the registry without reading credentials', async () => {
     const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
     if (!worker) {
       throw new Error('Missing worker');
     }
     const result = await inspectPersonaAvailability(
-      { ...worker, model: { modelId: 'voyage-chat', provider: 'voyage' } },
+      { ...worker, model: { modelId: 'retired-chat', provider: 'retired-provider' } },
       {
-        catalogModel: async () => ({ type: 'llm' }),
+        catalogModel: async () => ({ providerId: 'retired-provider' }),
         mcpTools: new Map(),
         readCredential: async () => {
-          throw new Error('An embeddings-only provider must not read credentials');
+          throw new Error('A provider outside the registry must not read credentials');
         },
       }
     );
@@ -321,34 +319,4 @@ describe('host availability through the Settings list entry point', () => {
     });
     expect(JSON.stringify(unavailable)).not.toContain('secret');
   });
-
-  it.each([
-    { modelId: 'embed-english-v3.0', provider: 'cohere' },
-    { modelId: 'text-embedding-3-small', provider: 'openai' },
-  ])(
-    'rejects a catalogued embedding-only persona model through the list ($provider)',
-    async ({ provider, modelId }) => {
-      const result = await listUserPersonas({
-        fs: makeFs({
-          [`${HOME}/.brainstrike/agents`]: {
-            'embedding.md': `---\ndescription: Invalid agent model\nmodel: ${provider}::${modelId}\n---\nBody.`,
-          },
-        }),
-        homedir: () => HOME,
-        inspectAvailability: (persona) =>
-          inspectPersonaAvailability(persona, {
-            catalogModel: async () => ({ type: 'embedding' }),
-            mcpTools: new Map(),
-            readCredential: async () => ({ key: 'configured', type: 'api_key' }),
-          }),
-        roots: [],
-      });
-      expect(result.personas.find((item) => item.id === 'embedding')).toMatchObject({
-        availability: {
-          issues: [expect.objectContaining({ code: 'model-unsupported' })],
-          status: 'blocked',
-        },
-      });
-    }
-  );
 });

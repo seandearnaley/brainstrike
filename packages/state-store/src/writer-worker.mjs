@@ -25,7 +25,6 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeSync,
 } from 'node:fs';
@@ -33,9 +32,7 @@ import { isAbsolute, join } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import { clearContentRows } from './clear-content.mjs';
-import { executeCollectionRequest } from './collection-domain.mjs';
 import {
-  acknowledgeSourceGc,
   allIntentMemoryResources,
   deleteDeletionIntent,
   deleteThreadTruth,
@@ -44,8 +41,6 @@ import {
   okThreads,
   purgeEvent,
   recordDeletionIntent,
-  sourceBlobRefs,
-  sourceGcCandidates,
 } from './deletion-domain.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
 import {
@@ -57,7 +52,6 @@ import { executeModelChoiceRequest } from './model-choice-domain.mjs';
 import { isCorrupt, RunLog, ThreadDamage, ThreadReadOnlyRefusal } from './run-log.mjs';
 import { blobsOf } from './run-log-format.mjs';
 import { migrate } from './schema.mjs';
-import { executeSourceCatalogRequest } from './source-catalog-domain.mjs';
 import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 import { executeThreadGroups } from './thread-groups-domain.mjs';
 import { executeViewFilterPresetRequest } from './view-filter-preset-domain.mjs';
@@ -145,25 +139,13 @@ function fsyncDir(dir) {
   }
 }
 
-/** A blob was renamed into place and the blob directory has not been fsynced since, whichever request wrote it. */
-let blobDirUnsynced = false;
-
-/** Make every blob renamed so far durable, including one a failed request left behind. */
-function syncBlobDir() {
-  if (blobDirUnsynced) {
-    fsyncDir(cfg.blobsDir);
-    blobDirUnsynced = false;
-  }
-}
-
 /**
- * Write a content-addressed blob as temp + fsync + rename. The caller syncs the blob directory before it appends
- * anything that references the blob.
+ * Content-addressed blob write (M0-A2 src/host.ts putBlob): temp + fsync + rename + directory fsync, so the blob is
+ * durable before the event that references it is appended. An existing blob is left as it is.
  * @param {string} hash
  * @param {string} content
- * @param {boolean} verifyExisting re-read and rehash a blob that already exists
  */
-function writeBlob(hash, content, verifyExisting) {
+function putBlob(hash, content) {
   if (
     !/^[a-f0-9]{64}$/u.test(hash) ||
     createHash('sha256').update(content).digest('hex') !== hash
@@ -172,7 +154,7 @@ function writeBlob(hash, content, verifyExisting) {
   }
   const p = join(cfg.blobsDir, hash);
   if (existsSync(p)) {
-    if (verifyExisting && createHash('sha256').update(readFileSync(p)).digest('hex') !== hash) {
+    if (createHash('sha256').update(readFileSync(p)).digest('hex') !== hash) {
       throw new Error(`existing blob ${hash} checksum mismatch`);
     }
     return;
@@ -190,43 +172,7 @@ function writeBlob(hash, content, verifyExisting) {
     closeSync(fd);
   }
   renameSync(tmp, p);
-  blobDirUnsynced = true;
-}
-
-/**
- * Content-addressed blob write (M0-A2 src/host.ts putBlob): the blob is durable before the event that references it is
- * appended. An existing blob is verified and left as it is.
- * @param {string} hash
- * @param {string} content
- */
-function putBlob(hash, content) {
-  writeBlob(hash, content, true);
-  syncBlobDir();
-}
-
-/**
- * The source catalog's blobs for one request (BST-2377, owner decision 2026-10-31). They are a cache of workspace files
- * that a rescan rebuilds, so an existing hash-named blob is trusted without a re-read, and the directory is fsynced
- * once per request, before the transaction that references its new blobs commits. A crash loses at most that request.
- */
-function sourceCatalogBlobs() {
-  return {
-    flush: syncBlobDir,
-    put: (/** @type {string} */ hash, /** @type {string} */ content) => {
-      writeBlob(hash, content, false);
-    },
-    read: (/** @type {string} */ hash, /** @type {number} */ maxBytes) => {
-      const path = join(cfg.blobsDir, hash);
-      if (statSync(path).size > maxBytes) {
-        return null;
-      }
-      const content = readFileSync(path, 'utf8');
-      if (createHash('sha256').update(content).digest('hex') !== hash) {
-        throw new Error('Canonical source blob checksum mismatch');
-      }
-      return content;
-    },
-  };
+  fsyncDir(cfg.blobsDir);
 }
 
 /**
@@ -315,20 +261,14 @@ function readAll() {
 /** @param {{ op: string; id: number; [k: string]: unknown }} m */
 function handle(m) {
   switch (m.op) {
-    case 'clear-content': {
-      const receipt = clearContentRows(db);
+    case 'clear-content':
+      clearContentRows(db);
       unlinkBlobs(readdirSync(cfg.blobsDir));
-      return receipt;
-    }
+      return {};
     case 'worktree-ledger':
       return executeWorktreeLedgerRequest(
         db,
         /** @type {import('./worktree-ledger-types.ts').WorktreeLedgerRequest} */ (m['request'])
-      );
-    case 'collections':
-      return executeCollectionRequest(
-        db,
-        /** @type {import('./collection-types.ts').CollectionRequest} */ (m['request'])
       );
     case 'thread-groups':
       return executeThreadGroups(
@@ -344,12 +284,6 @@ function handle(m) {
       return executeModelChoiceRequest(
         db,
         /** @type {import('./model-choice-types.ts').ModelChoiceRequest} */ (m['request'])
-      );
-    case 'source-catalog':
-      return executeSourceCatalogRequest(
-        db,
-        /** @type {import('./source-catalog-types.ts').SourceCatalogRequest} */ (m['request']),
-        sourceCatalogBlobs()
       );
     case 'workspace-roots':
       return executeWorkspaceRootRequest(
@@ -430,13 +364,6 @@ function handle(m) {
           damage: damage ? errorReply(damage) : null,
         })),
       };
-    case 'sourceGcCandidates':
-      return { hashes: sourceGcCandidates(db) };
-    case 'sourceGcAcknowledge':
-      acknowledgeSourceGc(db, /** @type {string[]} */ (m['hashes']));
-      return {};
-    case 'sourceBlobRefs':
-      return { hashes: sourceBlobRefs(db) };
     case 'storedBlobRefs':
       return { hashes: log.storedBlobRefs(String(m['threadId'])) };
     case 'damagedBlobRefs':

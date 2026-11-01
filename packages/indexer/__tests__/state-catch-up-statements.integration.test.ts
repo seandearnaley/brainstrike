@@ -55,20 +55,18 @@ async function seeded() {
   );
   const options = {
     dbPath: path.join(root, 'index.sqlite'),
-    embedding: { indexMode: 'text-only' },
-    rootIds: ['canonical'],
     stateProjection: { mode: 'dev', module: producer },
     stateRoot: root,
   } as const;
   const projection = await loadStateProjection(options.stateProjection, root);
-  const index = new IndexWriter(options, openDesktopIndex(options, projection), projection);
+  const index = new IndexWriter(options, openDesktopIndex(options), projection);
   owned.push(() => index.close());
   return { hashes, index };
 }
 
 it('a catch-up step over many events prepares no more statements than a one-event step', async () => {
   const { hashes, index } = await seeded();
-  const state = index.requireState();
+  const state = index.state;
   const prepare = vi.spyOn(index.db, 'prepare');
   /** The `db.prepare` calls of one catch-up step that brings `threadId` current. */
   const preparesFor = (threadId: string): number => {

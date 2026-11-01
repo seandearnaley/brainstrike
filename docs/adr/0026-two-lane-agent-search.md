@@ -6,6 +6,9 @@
 - **Number:** shared with
   [ADR-0026 (lifecycle)](0026-lifecycle-readiness-liveness-joined-quit.md); cite this one as
   "ADR-0026 two-lane search".
+- **Superseded in part:** 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the derived
+  index is deleted, so lane 1 (grep, glob and read on the disk) is the only lane. The
+  `desktop-read/index/search` route and the host's `workspace/search` are gone too.
 - **Related:** [ADR-0017](0017-cli-first-agent-host.md) (CLI retrieval), BST-1988 (index
   partition and worktree opt-in), BST-1990 (a thread searches its own folders)
 
@@ -82,10 +85,9 @@ Owner approval (Sean, 2026-11-01) of the retrieval decision (BST-2428), applied
 by BST-2435:
 
 - Lane 2 is gone. `hybridSearch`, `queryEmbeddingSpace` and
-  `listEmbeddingSpaces`, their `desktop-read/index/*` routes (except
-  `desktop-read/index/search`, which the host's `workspace/search` reads until
-  the index goes in BST-2436) and the `listWorkspaceContext` index hint are
-  deleted. The agent searches with lane 1 only.
+  `listEmbeddingSpaces`, their `desktop-read/index/*` routes and the
+  `listWorkspaceContext` index hint are deleted (`desktop-read/index/search` and the
+  host's `workspace/search` followed in BST-2436). The agent searches with lane 1 only.
 - Lane 3 is gone. Memory has no semantic recall, embedder or vector store, and
   the host state index keeps no message or observation vectors. Thread search
   (FTS5) stays.

@@ -96,7 +96,6 @@ test('a host run’s task list and canvas survive a reload and are gone with the
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-m3-tool-state-')));
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'm3-tool-state-root',
       rootId: randomUUID(),
     });

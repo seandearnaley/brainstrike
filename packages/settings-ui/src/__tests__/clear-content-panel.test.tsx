@@ -9,7 +9,6 @@ describe('Clear content', () => {
     const order: string[] = [];
     const clear = vi.fn(async () => {
       order.push('clear');
-      return { deletedChunks: 0, deletedFiles: 0 };
     });
     render(
       <ClearContentPanel
@@ -61,7 +60,6 @@ describe('Clear content', () => {
             if (failure.clear) {
               throw failure.clear;
             }
-            return { deletedChunks: 0, deletedFiles: 0 };
           }}
           prepare={async () => {
             if (failure.prepare) {
@@ -93,7 +91,7 @@ describe('Clear content', () => {
     });
 
     it('shows a late failure even if the dialog was dismissed while clearing', async () => {
-      const pending = Promise.withResolvers<{ deletedChunks: number; deletedFiles: number }>();
+      const pending = Promise.withResolvers<void>();
       render(
         <ClearContentPanel
           clearContent={() => pending.promise}

@@ -6,7 +6,6 @@ import {
   type PanelTab,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
-import type { IndexConfigCapability } from '@brainstrike/assistant-contract/index-config';
 import {
   type ChangesReviewContextValue,
   ChangesReviewProvider,
@@ -30,11 +29,6 @@ import {
   THREAD_CONTEXT_APP_ID,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import type {
-  IndexLifecycleCapability,
-  IndexRootRegistrationCapability,
-  IndexSearchCapability,
-} from '@brainstrike/indexing-contract/indexer-client';
 import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
   ActionRegistryProvider,
@@ -57,8 +51,6 @@ import { AgentWorkspaceLayout } from './agent-workspace-layout';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel, AssistantProviderStatusProvider } from './assistant-chat-panel';
-import { IndexingActivityCoordinator } from './background-indexing/indexing-activity-coordinator';
-import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { resolveBrowserBridge } from './browser-pane/browser-bridge';
 import { useBrowserPageSync } from './browser-pane/use-browser-page-sync';
 import { buildWorkspaceApps } from './build-workspace-apps';
@@ -77,6 +69,7 @@ import {
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { useAppMenuSettings } from './hooks/use-app-menu-settings';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
+import { WorkspaceRootIdentity } from './roots/workspace-root-identity';
 import type { StateHealthCapability } from './state-health/state-health-capability';
 import { TabChordHost } from './tab-chords/tab-chord-host';
 import { WorkspaceTabChords } from './tab-chords/workspace-tab-chords';
@@ -94,18 +87,7 @@ interface DebouncedPanelLayoutState {
   readonly sizes: [number, number, number];
 }
 
-function FileTreeWrapper({
-  children,
-  nativeIndexSearch,
-}: {
-  children: ReactNode;
-  nativeIndexSearch:
-    | (Omit<IndexSearchCapability, 'grep'> &
-        IndexConfigCapability &
-        IndexLifecycleCapability &
-        IndexRootRegistrationCapability)
-    | null;
-}): ReactElement {
+function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
   // and stamps IFileNode.rootFolderId with the UUID instead of the handle path.
@@ -119,9 +101,7 @@ function FileTreeWrapper({
       rootDirectoryHandle={rootDirectoryHandle}
       {...(rootId !== undefined && { rootId })}
     >
-      <WorkspaceCollectionSyncProvider nativeIndexSearch={nativeIndexSearch}>
-        {children}
-      </WorkspaceCollectionSyncProvider>
+      <WorkspaceRootIdentity>{children}</WorkspaceRootIdentity>
     </FileTreeProvider>
   );
 }
@@ -161,12 +141,6 @@ export interface RootLayoutContentProps {
    * no Logs tab renders.
    */
   readonly logsPageContent?: ReactNode;
-  readonly nativeIndexSearch?:
-    | (Omit<IndexSearchCapability, 'grep'> &
-        IndexConfigCapability &
-        IndexLifecycleCapability &
-        IndexRootRegistrationCapability)
-    | null;
   readonly navigationItems: NavigationItem[];
   readonly settingsPageContent: ReactNode;
   /** The canonical state store's health and recovery (BST-1880); desktop supplies it. */
@@ -455,7 +429,6 @@ function ExplorerAppSurface({
   terminalPageContent,
   threadContextPageContent,
   worktreeMapPageContent,
-  nativeIndexSearch,
 }: {
   readonly canvasShellSrc?: string | undefined;
   readonly changesPageContent?: ReactNode;
@@ -463,12 +436,6 @@ function ExplorerAppSurface({
   readonly terminalPageContent?: ReactNode;
   readonly threadContextPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
-  readonly nativeIndexSearch:
-    | (Omit<IndexSearchCapability, 'grep'> &
-        IndexConfigCapability &
-        IndexLifecycleCapability &
-        IndexRootRegistrationCapability)
-    | null;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
   // resolution). Detected by the `window.platform` bridge (capability presence,
@@ -501,7 +468,7 @@ function ExplorerAppSurface({
           the Files app) because the tab strip lives in the panel HEADER and file
           bodies render at the workspace level — both need the file-explorer
           context from a common ancestor. */}
-      <FileTreeWrapper nativeIndexSearch={nativeIndexSearch}>
+      <FileTreeWrapper>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
           {/* One read of the host's provider status for the root panel and the
               child conversations its workspace tabs render. */}
@@ -556,7 +523,6 @@ function ExplorerAppSurface({
 }
 
 export function RootLayoutContent({
-  nativeIndexSearch,
   stateHealth,
   deleteRootData,
   artifactsPageContent,
@@ -639,14 +605,10 @@ export function RootLayoutContent({
       <AppLayout
         config={appConfig}
         currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
-        nativeIndexSearch={nativeIndexSearch ?? null}
         onNavigationClick={handleNavigationClick}
         onOpenSettings={openSettings}
         stateHealth={stateHealth ?? null}
       >
-        {/* These providers now intentionally stay app-wide so background chunking and embedding
-          work can continue across route switches. They remain inert on non-explorer routes
-          unless a feature explicitly opts into them. */}
         {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
           Changes tab-switch + pending-changeset handoff. `null` value (no
           changesPageContent) makes the link render nothing — same capability
@@ -665,7 +627,6 @@ export function RootLayoutContent({
                 {/* Tab chords (BST-1842): mounted once beside the palette. */}
                 <TabChordHost />
                 <WorkspaceConnectHost />
-                <IndexingActivityCoordinator />
                 <div
                   aria-hidden={shellTab !== 'explorer'}
                   className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
@@ -679,7 +640,6 @@ export function RootLayoutContent({
                       canvasShellSrc={canvasShellSrc}
                       changesPageContent={changesPageContent}
                       logsPageContent={logsPageContent}
-                      nativeIndexSearch={nativeIndexSearch ?? null}
                       terminalPageContent={terminalPageContent}
                       threadContextPageContent={threadContextPageContent}
                       worktreeMapPageContent={worktreeMapPageContent}

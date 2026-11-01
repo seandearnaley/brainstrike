@@ -1,43 +1,64 @@
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
-import type {
-  CanonicalOperationContext,
-  CanonicalSourceSubscription,
-  CanonicalWorkspaceLease,
-} from '@brainstrike/canonical-ingestion';
-import { getFileSizeConfig } from '@brainstrike/file-system';
-import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
-import { NATIVE_MAX_READ_BYTES } from '@brainstrike/file-system/secure-file-read';
+import type { SecureWorkspaceDirEntry } from '@brainstrike/file-system/workspace-root-nodes';
 import { MAX_DIRECTORY_ENTRIES } from '@brainstrike/file-system/workspace-root-nodes';
-import { NativeAuthorityTransitionError } from '../node-native-index/errors.ts';
 import { resolveReadAgainstMountedRoot } from './workspace-root-read.ts';
 import type { MountedWorkspaceRoot } from './workspace-root-types.ts';
+
+/** One operation on a borrowed root: a bounded request identity and its cancellation. */
+export interface WorkspaceRootOperationContext {
+  readonly requestId: string;
+  readonly signal: AbortSignal;
+}
+
+/** A borrow of the registry's SAME pinned mount. Paths/IDs alone cannot construct it. */
+export interface WorkspaceRootLease {
+  readonly canonicalPath: string;
+  listDir(
+    relativePath: string,
+    maxEntries: number,
+    context: WorkspaceRootOperationContext
+  ): Promise<{
+    readonly entries: readonly SecureWorkspaceDirEntry[];
+    readonly inspected: number;
+    readonly truncated: boolean;
+  } | null>;
+  /** Join/release this borrow's operations only; never close a shared mounted root. */
+  retire(): Promise<void>;
+  readonly rootId: string;
+  readonly signal: AbortSignal;
+}
+
+/** The owner took the mount back (removal, replacement, root data deletion, retirement). */
+export function mountedRootRevoked(message: string): Error {
+  return refusalError(
+    'availability',
+    'workspace.root-unmounted',
+    message,
+    'Open the folder in the workspace again.'
+  );
+}
 
 interface SourceLeaseDependencies {
   readonly assertCurrent: () => void;
   readonly mounted: MountedWorkspaceRoot;
   readonly resolveReadPath: (requestedPath: string, canonicalRoot: string) => Promise<string>;
-  readonly subscribe: CanonicalWorkspaceLease['subscribe'];
 }
 
 /** Borrowed operations never close or reopen the registry's mounted native handle. */
 export function createWorkspaceRootSourceLease(
   dependencies: SourceLeaseDependencies
-): CanonicalWorkspaceLease {
+): WorkspaceRootLease {
   return new WorkspaceRootSourceLease(dependencies);
 }
 
-class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
+class WorkspaceRootSourceLease implements WorkspaceRootLease {
   readonly canonicalPath: string;
-  readonly generation = randomUUID();
   readonly rootId: string;
   readonly signal: AbortSignal;
   private readonly stopping = new AbortController();
   private readonly pending = new Set<Promise<unknown>>();
-  private readonly subscriptions = new Set<CanonicalSourceSubscription>();
   private retirement: Promise<void> | undefined;
-  private retired = false;
 
   private readonly dependencies: SourceLeaseDependencies;
 
@@ -51,10 +72,10 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
   listDir(
     relativePath: string,
     maxEntries: number,
-    context: CanonicalOperationContext
-  ): ReturnType<CanonicalWorkspaceLease['listDir']> {
+    context: WorkspaceRootOperationContext
+  ): ReturnType<WorkspaceRootLease['listDir']> {
     return this.own(context, async (signal) => {
-      assertRelativeSourcePath(relativePath, true);
+      assertRelativeSourcePath(relativePath);
       if (
         !(Number.isSafeInteger(maxEntries) && maxEntries > 0 && maxEntries <= MAX_DIRECTORY_ENTRIES)
       ) {
@@ -65,87 +86,12 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
     });
   }
 
-  readFile(
-    relativePath: string,
-    maxBytes: number,
-    context: CanonicalOperationContext
-  ): ReturnType<CanonicalWorkspaceLease['readFile']> {
-    return this.own(context, async (signal) => {
-      assertRelativeSourcePath(relativePath, false);
-      const { maxFileSize } = getFileSizeConfig();
-      if (maxFileSize > NATIVE_MAX_READ_BYTES) {
-        throw new Error('Configured maxFileSize exceeds the native secure-read cap.');
-      }
-      if (!(Number.isSafeInteger(maxBytes) && maxBytes > 0 && maxBytes <= maxFileSize)) {
-        throw new Error('Source byte limit must be within configured maxFileSize.');
-      }
-      const resolved = await this.resolveRead(relativePath, signal);
-      return this.dependencies.mounted.root.readFile(resolved.relativePath, maxBytes);
-    });
-  }
-
-  subscribe(
-    onBatch: Parameters<CanonicalWorkspaceLease['subscribe']>[0],
-    onSignal: Parameters<CanonicalWorkspaceLease['subscribe']>[1],
-    onHealth: Parameters<CanonicalWorkspaceLease['subscribe']>[2],
-    context: CanonicalOperationContext
-  ): ReturnType<CanonicalWorkspaceLease['subscribe']> {
-    return this.own(context, async (signal) => {
-      const stopping = new AbortController();
-      const subscriptionSignal = AbortSignal.any([signal, stopping.signal]);
-      const forward =
-        <T extends readonly unknown[]>(callback: (...args: T) => void) =>
-        (...args: T): void => {
-          if (subscriptionSignal.aborted) {
-            return;
-          }
-          this.dependencies.assertCurrent();
-          callback(...args);
-        };
-      try {
-        const subscription = await this.dependencies.subscribe(
-          forward(onBatch),
-          forward(onSignal),
-          forward(onHealth),
-          { requestId: context.requestId, signal: subscriptionSignal }
-        );
-        return this.retainSubscription(subscription, stopping);
-      } catch (error) {
-        stopping.abort(error);
-        if (error instanceof RootWatchRetirementError) {
-          this.retainSubscription({ close: error.retire }, stopping);
-        }
-        throw error;
-      }
-    });
-  }
-
   retire(): Promise<void> {
-    if (this.retired) {
-      return Promise.resolve();
-    }
     // The owner retired this mount (removal, replacement, reset) or the borrower ended its own
-    // lease: work still in flight is superseded, typed so.
-    this.stopping.abort(new NativeAuthorityTransitionError('Mounted source lease was retired.'));
-    this.retirement ??= this.joinRetirement().finally(() => {
-      this.retirement = undefined;
-    });
+    // lease: work still in flight is superseded, typed so, and settles before retirement ends.
+    this.stopping.abort(mountedRootRevoked('Mounted source lease was retired.'));
+    this.retirement ??= Promise.allSettled(this.pending).then(() => undefined);
     return this.retirement;
-  }
-
-  private retainSubscription(
-    subscription: CanonicalSourceSubscription,
-    stopping: AbortController
-  ): CanonicalSourceSubscription {
-    const owned: CanonicalSourceSubscription = {
-      close: async (): Promise<void> => {
-        stopping.abort(new Error('Mounted source watch subscription was closed.'));
-        await subscription.close();
-        this.subscriptions.delete(owned);
-      },
-    };
-    this.subscriptions.add(owned);
-    return owned;
   }
 
   private async resolveRead(
@@ -163,7 +109,7 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
   }
 
   private async own<T>(
-    context: CanonicalOperationContext,
+    context: WorkspaceRootOperationContext,
     operation: (signal: AbortSignal) => Promise<T>
   ): Promise<T> {
     if (!(context.requestId.trim() && context.requestId.length <= 128)) {
@@ -184,31 +130,10 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
       this.pending.delete(promise);
     }
   }
-
-  /**
-   * Work in flight settles first, however it ends: its callers own its outcome. Only a watch that
-   * does not close fails the retirement.
-   */
-  private async joinRetirement(): Promise<void> {
-    await Promise.allSettled(this.pending);
-    const errors: unknown[] = [];
-    for (const subscription of this.subscriptions) {
-      try {
-        await subscription.close();
-        this.subscriptions.delete(subscription);
-      } catch (error) {
-        errors.push(error);
-      }
-    }
-    if (errors.length > 0) {
-      throw new AggregateError(errors, 'Mounted source lease retirement failed.');
-    }
-    this.retired = true;
-  }
 }
 
-function assertRelativeSourcePath(relativePath: string, allowRoot: boolean): void {
-  if (allowRoot && relativePath === '.') {
+function assertRelativeSourcePath(relativePath: string): void {
+  if (relativePath === '.') {
     return;
   }
   if (

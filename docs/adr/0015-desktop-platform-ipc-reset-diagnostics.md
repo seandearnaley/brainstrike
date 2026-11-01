@@ -1,6 +1,6 @@
 # ADR-0015: Desktop IPC authorization, the factory-reset registry and diagnostics
 
-- **Status:** Accepted, with three amendments below.
+- **Status:** Accepted, with four amendments below.
   - Its "existing shutdown deadlines" language is superseded by
     [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) (joined quit, no global
     deadline).
@@ -58,6 +58,12 @@ Three desktop platform contracts carry rulings that outlive the reset.
     replacement host is cancelled and physically joined by its owner.
   - Ordinary reset still waits for renderer readiness before reopening.
   - Only the exact terminal cancellation is expected; unrelated failures and existing shutdown deadlines remain unchanged.
+- **No index step (2026-11-01, BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)).**
+  - Main's workspace index is deleted, and with it the index steps of Clear Database, Factory
+    Reset and quit.
+  - The one derived store left is the host state index. The state store retires it before Clear
+    deletes content and before Factory Reset removes the store's files; the userData purge removes
+    whatever an older build left in the profile.
 - **Main-owned reset (approved by Sean, 2026-10-31, BST-2382).**
   - Main is the only owner of Factory Reset. The userData purge also deletes the sealed
     credential store.

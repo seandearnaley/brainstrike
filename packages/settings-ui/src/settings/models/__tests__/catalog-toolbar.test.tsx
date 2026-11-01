@@ -123,15 +123,13 @@ describe('CatalogToolbar', () => {
     expect(search).toHaveFocus();
   });
 
-  it('switches status and type with native radio groups (Type defaults to All)', async () => {
+  it('switches status with a native radio group (Status defaults to All)', async () => {
     const onChange = vi.fn();
     render(<Harness onChange={onChange} />);
-    const type = screen.getByRole('radiogroup', { name: 'Type' });
-    expect(within(type).getByRole('radio', { name: 'All' })).toBeChecked();
-    await userEvent.click(screen.getByRole('radio', { name: 'Enabled' }));
+    const status = screen.getByRole('radiogroup', { name: 'Status' });
+    expect(within(status).getByRole('radio', { name: 'All' })).toBeChecked();
+    await userEvent.click(within(status).getByRole('radio', { name: 'Enabled' }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'enabled' }));
-    await userEvent.click(within(type).getByRole('radio', { name: 'Embedding' }));
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'embedding' }));
   });
 
   it('toggles the Vision and Reasoning chips', async () => {

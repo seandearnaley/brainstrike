@@ -39,7 +39,6 @@ function freshRepo(label: string): string {
 
 async function seedRoot(page: Page, rootPath: string): Promise<void> {
   await seedWorkspaceRoot(page, rootPath, {
-    disableBackgroundIndexing: true,
     reloadReason: 'w3-worktree-mode-seed-root',
     rootId: ROOT_ID,
   });

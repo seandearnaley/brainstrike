@@ -4,12 +4,10 @@ import { fileURLToPath } from 'node:url';
 import {
   browserBareDynamicImportGuardPlugin,
   buildIdPlugin,
-  createCspQualifiedEvalWarningFilter,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
-  getTreeSitterGrammarCopyTargets,
   getWorkspaceSourceOptimizeDepsInclude,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
@@ -19,7 +17,6 @@ import {
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
 import wasm from 'vite-plugin-wasm';
 import { bundledPackageNotices, RENDERER_LICENSE_REPORT } from './scripts/third-party-notices.mjs';
 import { getDevCSP } from './src/csp-utils';
@@ -96,7 +93,6 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
-      onLog: createCspQualifiedEvalWarningFilter(),
       output: {
         codeSplitting: {
           groups: [
@@ -172,15 +168,6 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     tailwindcss(),
-    viteStaticCopy({
-      targets: [
-        // Tree-sitter grammar files (Phase 4 of #998). Vendored under
-        // packages/chunking-worker/grammars/, copied to dist/renderer/
-        // assets/grammars/. The chunking worker fetches them at runtime
-        // via `fetch('/assets/grammars/<lang>.wasm')`.
-        ...getTreeSitterGrammarCopyTargets(__dirname),
-      ],
-    }),
   ],
   publicDir: 'public',
   resolve: {

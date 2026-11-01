@@ -26,9 +26,6 @@ describe('runtime host boundary', () => {
         throw new Error('Unexpected content clear');
       },
       onResetLocal: async () => ({ success: true }),
-      readMountedRoots: async () => {
-        throw new Error('Unexpected host mounts read during registration');
-      },
     });
     await expect(domain.close()).rejects.toMatchObject({ errors: [failure] });
     for (const owner of Object.values(ipcOwners)) {

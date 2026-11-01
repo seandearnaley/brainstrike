@@ -14,10 +14,7 @@ import { reloadThroughLifecycle } from './reload-through-lifecycle';
 const logger = createLogger('ClearContentPanel');
 
 export interface ClearContentProps {
-  readonly clearContent: () => Promise<{
-    readonly deletedChunks: number | null;
-    readonly deletedFiles: number;
-  }>;
+  readonly clearContent: () => Promise<void>;
   /** Joins workspace saves before content goes (the factory-reset preparation). */
   readonly prepare: () => Promise<void>;
   /** Retires the renderer's thread and group stores. */

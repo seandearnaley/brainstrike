@@ -184,7 +184,6 @@ describe('useThreadWorkspaceCoordinator', () => {
       });
       expect(persisted).not.toContain('thread-a');
       harness.rows.clear();
-      return { deletedChunks: 0, deletedFiles: 0 };
     });
     const retireTabs = vi.fn(() => {
       resetAssistantThreadStore();

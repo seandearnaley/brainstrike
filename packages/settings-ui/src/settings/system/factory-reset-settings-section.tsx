@@ -35,7 +35,7 @@ export function FactoryResetSettingsSection({
       <div>
         <h3 className="text-lg font-semibold">Factory Reset</h3>
         <p className="text-muted-foreground text-sm">
-          Wipe application data (files, embeddings, queues) and reset preferences.
+          Wipe application data (threads, folders, queues) and reset preferences.
         </p>
       </div>
       {clearContent ? <ClearContentPanel {...clearContent} /> : null}

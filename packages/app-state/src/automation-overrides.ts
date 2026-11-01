@@ -26,11 +26,9 @@ interface PersistedAssistantPreferences {
 
 const SETTINGS_TEST_SUPPORTED_PROVIDERS = new Set<string>([
   'anthropic',
-  'cohere',
   'google',
   'openai',
   'openrouter',
-  'voyage',
 ] satisfies readonly SupportedProvider[]);
 
 declare global {

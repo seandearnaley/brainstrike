@@ -1,11 +1,8 @@
 /**
  * Desktop E2E: a thread working in a new worktree can grep it.
  *
- * The index leaves a managed worktree out until it is opted in (BST-1988), and
- * a bound thread greps every one of its folders (BST-1990). Main refused the
- * unindexed worktree, which failed every agent grep in worktree mode
- * (2026-10-20 debug pack). The repository is indexed, the worktree is not,
- * and the agent's grep still finds a file that exists only in the worktree.
+ * A bound thread greps every one of its folders (BST-1990), so the agent's
+ * grep finds a file that exists only in the worktree.
  */
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,7 +13,6 @@ import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { textReadiness } from './utils/text-search-mode';
 
 const API_KEY = 'test-key-worktree-thread-grep';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
@@ -86,20 +82,12 @@ test('an agent in a new worktree greps the unindexed worktree', async ({
   try {
     await ensureMockWorkspaceOpen(page);
     await expect(page.getByText('hello.ts').first()).toBeVisible({ timeout: 60_000 });
-    await expect
-      .poll(() => textReadiness(page), { timeout: 120_000 })
-      .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
     await enableChatModel(page);
 
     await ensureAssistantShellVisible(page);
     await expect(page.getByTestId('workspace-bar')).toBeVisible({ timeout: 30_000 });
     const worktreePath = await workInNewWorktree(page);
     writeFileSync(path.join(worktreePath, 'only-in-worktree.txt'), `${MARKER}\n`);
-    // Mounting the worktree reopens the index, which settles with the worktree
-    // left out: only the repository is indexed.
-    await expect
-      .poll(() => textReadiness(page), { timeout: 60_000 })
-      .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
 
     modelProvider.setScript((request) => {
       const grep = request.toolNames.find((tool) => tool.endsWith('grepSearch'));

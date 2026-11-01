@@ -176,7 +176,6 @@ async function inDesktopApp<S extends CassetteRouteScript, T>(
     const page = context.window;
     await expect(page.getByTestId('new-agent-button')).toBeVisible({ timeout: 60_000 });
     await seedRoot(page, workspace, {
-      disableBackgroundIndexing: true,
       reloadReason: 'provider-cassette',
       rootId: randomUUID(),
     });

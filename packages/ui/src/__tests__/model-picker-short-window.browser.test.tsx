@@ -10,7 +10,7 @@ import { ThemeProvider } from '../theme-provider';
 afterEach(cleanup);
 
 const models: ModelPickerModel[] = Array.from({ length: 12 }, (_, index) => ({
-  capabilities: { defaultDimension: 384, type: 'embedding' },
+  capabilities: { type: 'llm' },
   id: `model-${index}`,
   name: `Model ${index}`,
   providerId: 'local',
@@ -24,7 +24,7 @@ function Picker() {
       <ModelPicker
         models={models}
         onChange={(next) => setChosen(String(next))}
-        placeholder="Embedding model"
+        placeholder="Chat model"
         providers={[{ id: 'local', name: 'Local' }]}
       />
       <output data-testid="chosen">{chosen}</output>

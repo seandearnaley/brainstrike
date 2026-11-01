@@ -1,6 +1,6 @@
 /**
- * Desktop E2E (BST-2001): disconnecting a folder with "Also delete indexed
- * data" deletes that folder's index data and nothing else. A host run that is
+ * Desktop E2E (BST-2001): disconnecting a folder with "Also delete folder
+ * data" deletes that folder's record and nothing else. A host run that is
  * still streaming in the thread's bound folder keeps running in the same agent
  * host process, finishes, and the thread pane never reports the host as
  * disconnected.
@@ -8,7 +8,6 @@
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostProcess, readHostRootRecords, readHostThreadTree } from './utils/agent-host-log';
@@ -43,26 +42,7 @@ async function rootIdOf(page: Page, rootPath: string): Promise<string> {
   return rows[0].id;
 }
 
-/** The roots the native index has fully scanned and authorizes, or `not-ready`. */
-async function scannedRoots(page: Page): Promise<readonly string[] | 'not-ready'> {
-  return await page.evaluate(async () => {
-    const capability = (
-      window as Window & {
-        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
-      }
-    ).__brainstrikeTestHooks__?.indexSearch;
-    if (!capability) {
-      throw new Error('The native index capability is unavailable');
-    }
-    const status = await capability.status();
-    if (status.kind !== 'ready' || !status.rootReadiness.every((root) => root.scanComplete)) {
-      return 'not-ready';
-    }
-    return [...status.authorizedRootIds].sort();
-  });
-}
-
-test('deleting another folder’s indexed data leaves a streaming host run running in the same host', async ({
+test('deleting another folder’s data leaves a streaming host run running in the same host', async ({
   electron,
   electronApp,
   modelProvider,
@@ -88,11 +68,11 @@ test('deleting another folder’s indexed data leaves a streaming host run runni
     await expect(page.getByText('bravo-root-data.txt').first()).toBeVisible({ timeout: 60_000 });
     const alphaId = await rootIdOf(page, alphaRoot);
     const bravoId = await rootIdOf(page, bravoRoot);
+    expect((await readHostRootRecords(electron.getUserDataDir())).map((root) => root.id)).toEqual(
+      [alphaId, bravoId].sort()
+    );
 
     await enableModel(page);
-    await expect
-      .poll(async () => await scannedRoots(page), { timeout: 120_000 })
-      .toEqual([alphaId, bravoId].sort());
     modelProvider.setScript(() => ({
       beforeFinalText: hold.promise,
       finalText: FINAL,
@@ -114,13 +94,15 @@ test('deleting another folder’s indexed data leaves a streaming host run runni
       .click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Disconnect…' }).click();
     const dialog = page.getByRole('dialog', { name: `Disconnect ${bravoName}?` });
-    await dialog.getByRole('checkbox', { name: 'Also delete indexed data' }).check();
+    await dialog.getByRole('checkbox', { name: 'Also delete folder data' }).check();
     await dialog.getByRole('button', { exact: true, name: 'Disconnect' }).click();
     await expect(dialog).toBeHidden({ timeout: 90_000 });
-    // Folder B is gone from the workspace with its indexed data; folder A keeps its index.
+    // Folder B is gone from the workspace with its record; folder A keeps its own.
     await expect(page.getByText('bravo-root-data.txt')).toHaveCount(0, { timeout: 60_000 });
     await expect
-      .poll(async () => await scannedRoots(page), { timeout: 120_000 })
+      .poll(async () =>
+        (await readHostRootRecords(electron.getUserDataDir())).map((root) => root.id)
+      )
       .toEqual([alphaId]);
 
     hold.resolve();

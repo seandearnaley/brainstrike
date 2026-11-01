@@ -50,7 +50,6 @@ import {
   createFactoryResetSettingsCategory,
   createHooksSettingsCategory,
   createPermissionSettingsCategory,
-  createSearchIndexingSettingsCategory,
   createSubagentPersonasSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
   createWorkspaceSettingsCategory,
@@ -62,7 +61,6 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { Download, FileCog, Layers, Power } from 'lucide-react';
 import { useMemo } from 'react';
-import { indexSearchContract } from '../../../ipc-domains/index-search.contract';
 import { resolveDesktopHostBrowserOrigins } from '../../host-browser-origins';
 import {
   type DesktopHostMcpSettings,
@@ -70,7 +68,6 @@ import {
   resolveDesktopMcpContent,
 } from '../../host-mcp-settings';
 import { resolveDesktopHostWorkspaceSettings } from '../../host-workspace-settings';
-import { createIpcCapability } from '../../ipc-capability';
 import { DesktopAppLifetimeSettings } from './app-lifetime-settings';
 import { DesktopLoggingSettings } from './logging-settings';
 import { DesktopUpdateSettings } from './update-settings';
@@ -490,11 +487,6 @@ export default function SettingsPageContent() {
 
     return [
       createAppearanceSettingsCategory(),
-      createSearchIndexingSettingsCategory(
-        window.indexSearch
-          ? createIpcCapability(window.indexSearch, indexSearchContract)
-          : undefined
-      ),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createProvidersSettingsCategory({
@@ -508,8 +500,8 @@ export default function SettingsPageContent() {
         description: 'Browse every catalogued model.',
         headerActions: <ModelCatalogHeaderActions />,
         icon: Layers,
-        id: 'embedding-models',
-        keywords: ['embeddings', 'models', 'catalog', 'vector', 'llm'],
+        id: 'model-catalog',
+        keywords: ['models', 'catalog', 'llm'],
         layout: 'workspace',
         title: 'Model Catalog',
       },

@@ -170,9 +170,6 @@ catalogs:
     '@ai-sdk/anthropic':
       specifier: 4.0.82
       version: 4.0.82
-    '@ai-sdk/cohere':
-      specifier: 4.0.63
-      version: 4.0.63
     '@ai-sdk/google':
       specifier: 4.0.99
       version: 4.0.99
@@ -425,9 +422,6 @@ catalogs:
     node-pty:
       specifier: ^1.1.0
       version: 1.1.0
-    oxc-parser:
-      specifier: ^0.154.0
-      version: 0.154.0
     oxc-transform-react:
       specifier: ^0.152.0
       version: 0.152.0
@@ -461,9 +455,6 @@ catalogs:
     shiki:
       specifier: ^4.5.0
       version: 4.5.0
-    sqlite-vec:
-      specifier: 0.1.9
-      version: 0.1.9
     streamdown:
       specifier: 2.7.1
       version: 2.7.1
@@ -494,27 +485,18 @@ catalogs:
     vite:
       specifier: ^8.3.5
       version: 8.3.5
-    vite-plugin-static-copy:
-      specifier: ^4.1.1
-      version: 4.1.1
     vite-plugin-wasm:
       specifier: ^3.6.0
       version: 3.6.0
     vitest:
       specifier: ^5.0.5
       version: 5.0.5
-    voyage-ai-provider:
-      specifier: 5.0.0
-      version: 5.0.0
     vscode-jsonrpc:
       specifier: 10.0.0
       version: 10.0.0
     vscode-languageserver-protocol:
       specifier: ^3.18.5
       version: 3.18.5
-    web-tree-sitter:
-      specifier: 0.27.1
-      version: 0.27.1
     xxhash-wasm:
       specifier: ^1.1.0
       version: 1.1.0
@@ -649,9 +631,6 @@ importers:
       '@ai-sdk/anthropic':
         specifier: 'catalog:'
         version: 4.0.82(zod@4.6.7)
-      '@ai-sdk/cohere':
-        specifier: 'catalog:'
-        version: 4.0.63(zod@4.6.7)
       '@ai-sdk/google':
         specifier: 'catalog:'
         version: 4.0.99(zod@4.6.7)
@@ -691,12 +670,6 @@ importers:
       '@brainstrike/assistant-ui':
         specifier: workspace:*
         version: link:../../packages/assistant-ui
-      '@brainstrike/canonical-ingestion':
-        specifier: workspace:*
-        version: link:../../packages/canonical-ingestion
-      '@brainstrike/chunking-worker':
-        specifier: workspace:*
-        version: link:../../packages/chunking-worker
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../../packages/effect-kit
@@ -718,9 +691,6 @@ importers:
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../../packages/indexer
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../../packages/indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../../packages/logging
@@ -736,21 +706,12 @@ importers:
       '@brainstrike/settings-ui':
         specifier: workspace:*
         version: link:../../packages/settings-ui
-      '@brainstrike/sqlite-native':
-        specifier: workspace:*
-        version: link:../../packages/sqlite-native
-      '@brainstrike/sqlite-query':
-        specifier: workspace:*
-        version: link:../../packages/sqlite-query
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../../packages/state-store
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../../packages/storage
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../../packages/text-splitter
       '@brainstrike/tokenization':
         specifier: workspace:*
         version: link:../../packages/tokenization
@@ -865,9 +826,6 @@ importers:
       node-pty:
         specifier: 'catalog:'
         version: 1.1.0
-      oxc-parser:
-        specifier: 'catalog:'
-        version: 0.154.0
       pino:
         specifier: 'catalog:'
         version: 10.4.0
@@ -877,9 +835,6 @@ importers:
       react-dom:
         specifier: ^19.3.1
         version: 19.3.1(react@19.3.1)
-      sqlite-vec:
-        specifier: 'catalog:'
-        version: 0.1.9
       strip-ansi:
         specifier: 'catalog:'
         version: 7.2.0
@@ -895,18 +850,12 @@ importers:
       typescript-language-server:
         specifier: 'catalog:'
         version: 6.0.2
-      voyage-ai-provider:
-        specifier: 'catalog:'
-        version: 5.0.0(zod@4.6.7)
       vscode-jsonrpc:
         specifier: 'catalog:'
         version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       vscode-languageserver-protocol:
         specifier: 'catalog:'
         version: 3.18.5
-      web-tree-sitter:
-        specifier: 'catalog:'
-        version: 0.27.1
       yaml:
         specifier: 'catalog:'
         version: 2.9.1
@@ -1061,9 +1010,6 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
-      vite-plugin-static-copy:
-        specifier: 'catalog:'
-        version: 4.1.1(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       vite-plugin-wasm:
         specifier: 'catalog:'
         version: 3.6.0(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
@@ -1391,9 +1337,6 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
@@ -1485,9 +1428,6 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
@@ -1641,30 +1581,18 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
-      '@brainstrike/canonical-ingestion':
-        specifier: workspace:*
-        version: link:../canonical-ingestion
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
-      '@brainstrike/indexer':
-        specifier: workspace:*
-        version: link:../indexer
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
         version: link:../secure-fs-native
-      '@brainstrike/sqlite-query':
-        specifier: workspace:*
-        version: link:../sqlite-query
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
@@ -1835,95 +1763,6 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.4)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-
-  packages/canonical-ingestion:
-    dependencies:
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../assistant-contract
-      '@brainstrike/chunking-worker':
-        specifier: workspace:*
-        version: link:../chunking-worker
-      '@brainstrike/effect-kit':
-        specifier: workspace:*
-        version: link:../effect-kit
-      '@brainstrike/file-system':
-        specifier: workspace:*
-        version: link:../file-system
-      '@brainstrike/indexer':
-        specifier: workspace:*
-        version: link:../indexer
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
-      '@brainstrike/logging':
-        specifier: workspace:*
-        version: link:../logging
-      '@brainstrike/state-store':
-        specifier: workspace:*
-        version: link:../state-store
-      '@brainstrike/types':
-        specifier: workspace:*
-        version: link:../types
-      '@brainstrike/utils':
-        specifier: workspace:*
-        version: link:../utils
-      effect:
-        specifier: 'catalog:'
-        version: 4.1.0
-    devDependencies:
-      '@brainstrike/secure-fs-native':
-        specifier: workspace:*
-        version: link:../secure-fs-native
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@effect/tsgo':
-        specifier: 'catalog:'
-        version: 0.63.0
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.2
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.4)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-
-  packages/chunking-worker:
-    dependencies:
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../text-splitter
-      '@brainstrike/tokenization':
-        specifier: workspace:*
-        version: link:../tokenization
-      oxc-parser:
-        specifier: 'catalog:'
-        version: 0.154.0
-      web-tree-sitter:
-        specifier: 'catalog:'
-        version: 0.27.1
-    devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.2
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 'catalog:'
         version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.4)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
@@ -2394,9 +2233,6 @@ importers:
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../host-lease
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
@@ -2516,27 +2352,18 @@ importers:
 
   packages/indexer:
     dependencies:
-      '@brainstrike/chunking-worker':
-        specifier: workspace:*
-        version: link:../chunking-worker
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
         version: link:../secure-fs-native
-      '@brainstrike/sqlite-native':
-        specifier: workspace:*
-        version: link:../sqlite-native
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
-      '@brainstrike/utils':
-        specifier: workspace:*
-        version: link:../utils
+      better-sqlite3:
+        specifier: 'catalog:'
+        version: 13.0.3
       effect:
         specifier: 'catalog:'
         version: 4.1.0
@@ -2550,40 +2377,6 @@ importers:
       '@types/better-sqlite3':
         specifier: 'catalog:'
         version: 9.6.0
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.2
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      electron:
-        specifier: 'catalog:'
-        version: 45.1.0(supports-color@10.2.2)
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.4)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-
-  packages/indexing-contract:
-    dependencies:
-      '@brainstrike/logging':
-        specifier: workspace:*
-        version: link:../logging
-      '@brainstrike/types':
-        specifier: workspace:*
-        version: link:../types
-      effect:
-        specifier: 'catalog:'
-        version: 4.1.0
-    devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@effect/tsgo':
-        specifier: 'catalog:'
-        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -2836,9 +2629,6 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
@@ -2900,80 +2690,6 @@ importers:
       zustand:
         specifier: 'catalog:'
         version: 5.0.16(@types/react@19.3.0)(immer@10.2.0)(react@19.3.1)(use-sync-external-store@1.6.0(react@19.3.1))
-
-  packages/sqlite-native:
-    dependencies:
-      better-sqlite3:
-        specifier: 'catalog:'
-        version: 13.0.3
-      sqlite-vec:
-        specifier: 'catalog:'
-        version: 0.1.9
-    devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@types/better-sqlite3':
-        specifier: 'catalog:'
-        version: 9.6.0
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.2
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      esbuild:
-        specifier: 'catalog:'
-        version: 0.28.2
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.4)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-
-  packages/sqlite-query:
-    dependencies:
-      '@brainstrike/effect-kit':
-        specifier: workspace:*
-        version: link:../effect-kit
-      '@brainstrike/indexer':
-        specifier: workspace:*
-        version: link:../indexer
-      '@brainstrike/state-store':
-        specifier: workspace:*
-        version: link:../state-store
-      '@brainstrike/utils':
-        specifier: workspace:*
-        version: link:../utils
-      effect:
-        specifier: 'catalog:'
-        version: 4.1.0
-      vscode-jsonrpc:
-        specifier: 'catalog:'
-        version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
-    devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@effect/tsgo':
-        specifier: 'catalog:'
-        version: 0.63.0
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.2
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      electron:
-        specifier: 'catalog:'
-        version: 45.1.0(supports-color@10.2.2)
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.4)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/state-store:
     dependencies:
@@ -3093,28 +2809,6 @@ importers:
       zustand:
         specifier: 'catalog:'
         version: 5.0.16(@types/react@19.3.0)(immer@10.2.0)(react@19.3.1)(use-sync-external-store@1.6.0(react@19.3.1))
-
-  packages/text-splitter:
-    dependencies:
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
-    devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.2
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.4)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/token-cache:
     dependencies:
@@ -3589,12 +3283,6 @@ packages:
 
   '@ai-sdk/anthropic@4.0.82':
     resolution: {integrity: sha512-1HvCBHdBsfG/OTDOmo3R+rwKtVofnPCWKyMKqOa75yieQEC8V7leB40EaG6uQ1wKnqeXdc31s7tNyq+OnKV/mg==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/cohere@4.0.63':
-    resolution: {integrity: sha512-J4f5Dru6KWUe2y4rDiks+WDkbGOjdyr7C6niqUTtlM5CLGVWKh2vg7klIEnc+hCIi6HUJJ7aaaSvXBi4VKEn/Q==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -5017,131 +4705,6 @@ packages:
   '@opentelemetry/semantic-conventions@1.41.1':
     resolution: {integrity: sha512-/UhIkaZgPutTFmQ7RnIJGgDXZmtEJ7Dvi86xNTFWcnRxVRNk/aotsqDJYeEvDP+FSMB2SdW+pQzNMcWP0rwuNA==}
     engines: {node: '>=14'}
-
-  '@oxc-parser/binding-android-arm-eabi@0.154.0':
-    resolution: {integrity: sha512-sDdEtDl7vKdCvf54j72RJbowE3jCmyRz/+oOB6IAwQxAHZ0eI+Dcj4hvVnm0b9Dy31plUkdmfds9C+/Zt895Tg==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm]
-    os: [android]
-
-  '@oxc-parser/binding-android-arm64@0.154.0':
-    resolution: {integrity: sha512-UHrDPELzvWZoVkIDdSycj4bzcTMCJG3IbN++mSUgVBaUtNtWHjQ98U6Vz5bpF/1Ic3FYJyYhMr74huO5tVvpZw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [android]
-
-  '@oxc-parser/binding-darwin-arm64@0.154.0':
-    resolution: {integrity: sha512-mokYzajOSXxtSRDWCdHARGdntrKH+rZZ24Jzo8AtafyNzz0NARmpMm26Tc5B6qiGrr6UliWibHCOif1qRN2vaA==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@oxc-parser/binding-darwin-x64@0.154.0':
-    resolution: {integrity: sha512-WbtUBrclOVItWfLRSvs+Z/WLtXxJ2Ctv50PyuX894HzDN5/e0qzxVpTNPIVMzOerBhgKtFsSMcfxlYIAbvdVgg==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
-    os: [darwin]
-
-  '@oxc-parser/binding-freebsd-x64@0.154.0':
-    resolution: {integrity: sha512-YooHZSLawOe2fqm+lDdG8oAaQh2NYV/RMYTYzWRLy72stm2BgE9O/8Al6kFENjkmzyyBccDLLBirGxVtpzQfrw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
-    os: [freebsd]
-
-  '@oxc-parser/binding-linux-arm-gnueabihf@0.154.0':
-    resolution: {integrity: sha512-hKOwhZbrXdTwc4bGVfbLCXl9f2swl6zWdISocLQSNX9MgPmwHE3qGzOUkCrkuGpwdCVHPnkfOwsqTuYsrP5uNg==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm]
-    os: [linux]
-
-  '@oxc-parser/binding-linux-arm-musleabihf@0.154.0':
-    resolution: {integrity: sha512-tnjiooXEU013349O/yxKbF5Cusp1CfHWQ8kYR8tGeRzR/P4sOpQGQo21fsS71M0fMD6ESLq+lbvXFWi43PuKeQ==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm]
-    os: [linux]
-
-  '@oxc-parser/binding-linux-arm64-gnu@0.154.0':
-    resolution: {integrity: sha512-Cao2kj+8d7BT6XJU1gV9eVQjV+Cr+e8vQm3tddDRZiM2hHrMDxwy3j6t+ofaSl0idyuPPCZ4AlpmQoj8yOT1QA==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@oxc-parser/binding-linux-arm64-musl@0.154.0':
-    resolution: {integrity: sha512-uiwA0V3q8llWA7/8r+a9BBjk4j5YMDmi6wfOsyQfGOJMQSLHEiZ3HI8ulea766ykUa9wJFWk9XWEl4uJrZLQqw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [linux]
-    libc: [musl]
-
-  '@oxc-parser/binding-linux-ppc64-gnu@0.154.0':
-    resolution: {integrity: sha512-LICfN0Xs4Zdko+bJy6eOAEQojDuIR26suF2JtOsMaXjgbCrpRSH7/NCvJhY13YvYBx12V6hnwrL8n0lk0rbNJQ==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [ppc64]
-    os: [linux]
-    libc: [glibc]
-
-  '@oxc-parser/binding-linux-riscv64-gnu@0.154.0':
-    resolution: {integrity: sha512-gbbSYxLF8ssRbQ2qQPy+2EhGNwNH1bAoRdkk6cnWaKHqmCikpSIPtpXjFbCCtjTi0uojqOM3ghFQwQPbDQsU0Q==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [riscv64]
-    os: [linux]
-    libc: [glibc]
-
-  '@oxc-parser/binding-linux-riscv64-musl@0.154.0':
-    resolution: {integrity: sha512-nSnRYYDLCcRVjSQzF3g6rKqCNYwo5o+aQgnn8BBXfe+ofCgMGlGqkfRyvXm6ptZvoxNkkWtLlqM8W7Xc3j6ZnQ==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [riscv64]
-    os: [linux]
-    libc: [musl]
-
-  '@oxc-parser/binding-linux-s390x-gnu@0.154.0':
-    resolution: {integrity: sha512-BxBQoJKtzRQgZEKQIt6CDUm8RGKC5T8Qo4576yDa5/xgc10X3fBDItMbRabzLtbUBfTqKLl+8AVr/H6CF7W22g==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [s390x]
-    os: [linux]
-    libc: [glibc]
-
-  '@oxc-parser/binding-linux-x64-gnu@0.154.0':
-    resolution: {integrity: sha512-/whkust2vYy+GjRUVL5cWaJmEu6jkdFfo5mkxgckyeOX61eMwo4iBoiwzeJZeMWAdzb/XOtQyLApHhFht3sOWA==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@oxc-parser/binding-linux-x64-musl@0.154.0':
-    resolution: {integrity: sha512-EXURTyW9riw4B/kZnnE+58emAtw6+3VEszQfXUZkRqGaKIcmWDYkZtKB+xY/blHvuZ+Qy/fDclc31nmUCgtkSA==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
-    os: [linux]
-    libc: [musl]
-
-  '@oxc-parser/binding-openharmony-arm64@0.154.0':
-    resolution: {integrity: sha512-ZRFooyH3qsR6vuR4jFGlG3XM36490SvvXtNaUahBK4zHpooMdTHNaOMtGGJI0EW38m5hi4rOco9kw7ZwCIp28w==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [openharmony]
-
-  '@oxc-parser/binding-win32-arm64-msvc@0.154.0':
-    resolution: {integrity: sha512-U0Vp+4lvwUa/PnOCJTZOjydj1rX2+VLHz4Y2vSFqlN8/7LTiURgD7z4uQ9yNv9O/NlU3mELBnPDlu7aaSYG1zQ==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [win32]
-
-  '@oxc-parser/binding-win32-ia32-msvc@0.154.0':
-    resolution: {integrity: sha512-Hc8QgsFY5eUUP25we8TISUruibG2cDt0H4IcPG9RKdabb6odkCzIqjV6Gk9beGWGuOwMVCr81H/Su1q363LCCg==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [ia32]
-    os: [win32]
-
-  '@oxc-parser/binding-win32-x64-msvc@0.154.0':
-    resolution: {integrity: sha512-hD7judkUMA/hZPoamvKADs6+an1smp8UTK0aMYRijkvi00K/1vl7vEtmyn2JyQ9S+vibtnfcNzxqTLGyJUZCRQ==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
-    os: [win32]
-
-  '@oxc-project/types@0.154.0':
-    resolution: {integrity: sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA==}
 
   '@oxc-project/types@0.155.0':
     resolution: {integrity: sha512-SeE8JPwW1xs1tHeNycjUtUBdhorRa8o4jlvjwk49R7/Z291i+4DQa7JJIgOm/TaYQZx+QrPQbVJ/9c8dMIZN8Q==}
@@ -6957,10 +6520,6 @@ packages:
     resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
     engines: {node: '>=12'}
 
-  anymatch@3.1.3:
-    resolution: {integrity: sha512-KMReFUr0B4t+D+OBkjR3KYqvocp2XaSzO55UcB6mgQMd3KbcE+mWTyvVV7D/zsdEbNnV6acZUutkiHQXvTr1Rw==}
-    engines: {node: '>= 8'}
-
   app-builder-lib@26.18.0:
     resolution: {integrity: sha512-lx+KkuCSZHcbECf4R3IAcC9VOFk0+cMUwljO63s5y8yqS1Lw0sRGmjPaWsPwP3zv3ohZYbMhUvjXeiQXXZhJXA==}
     engines: {node: '>=14.0.0'}
@@ -7089,10 +6648,6 @@ packages:
   bidi-js@1.1.0:
     resolution: {integrity: sha512-fX1Onk0tdVPC7obPWB5EbJ1z7NVhLq4m2xZLq2YXBkxzMXIGRpNMU88n0EPgWseKl12J7zXs7qrDxPK4sRs2fg==}
 
-  binary-extensions@2.3.0:
-    resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
-    engines: {node: '>=8'}
-
   bind-event-listener@3.0.0:
     resolution: {integrity: sha512-PJvH288AWQhKs2v9zyfYdPzlPqf5bXbGMmhmUIY9x4dAUGIWgomO771oBQNwJnMQSnUIXhKu6sgzpBRXTlvb8Q==}
 
@@ -7218,10 +6773,6 @@ packages:
         optional: true
       zod:
         optional: true
-
-  chokidar@3.6.0:
-    resolution: {integrity: sha512-7VT13fmjotKpGipCW9JEQAusEPE+Ei8nl6/g4FBAmIm0GOOLMua9NDDo/DWp0ZAxCr3cPq5ZpBqmPAQgDda2Pw==}
-    engines: {node: '>= 8.10.0'}
 
   chownr@3.0.0:
     resolution: {integrity: sha512-+IxzY9BZOQd/XuYPRmrvEVjF/nqj5kgT4kEq7VofrDoM1MxoRjEWkrCC3EtLi59TVawxTAn+orJwFQcrqEN1+g==}
@@ -8173,10 +7724,6 @@ packages:
   is-arrayish@0.2.1:
     resolution: {integrity: sha512-zz06S8t0ozoDXMG+ube26zeCTNXcKIPJZJi8hBrF4idCLms4CG9QtK7qBl1boi5ODzFpjswb5JPmHCbMpjaYzg==}
 
-  is-binary-path@2.1.0:
-    resolution: {integrity: sha512-ZMERYes6pDydyuGidse7OsHxtbI7WVeUEozgR/g7rd0xUimYNlvZRE/K2MgZTjWy725IfelLeVcEM97mmtRGXw==}
-    engines: {node: '>=8'}
-
   is-decimal@2.0.1:
     resolution: {integrity: sha512-AAB9hiomQs5DXWcRB1rqsxGUstbRroFOPPVAomNk/3XHR5JyEZChOyTWe2oayKnsSsr/kcGqF+z6yuH6HHpN0A==}
 
@@ -8949,10 +8496,6 @@ packages:
     engines: {node: ^20.17.0 || >=22.9.0}
     hasBin: true
 
-  normalize-path@3.0.0:
-    resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
-    engines: {node: '>=0.10.0'}
-
   normalize-url@6.1.0:
     resolution: {integrity: sha512-DlL+XwOy3NxAQ8xuC0okPgK46iuVNAK01YN7RueYBqqFeGsBjV9XmCAzAdgt+667bCl5kPh9EqKKDwnaPG1I7A==}
     engines: {node: '>=10'}
@@ -9006,10 +8549,6 @@ packages:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
     engines: {node: '>= 0.8.0'}
 
-  oxc-parser@0.154.0:
-    resolution: {integrity: sha512-Gr/6fkjZwi937c4Tsz8y0iO4U0FLPkZI6JSVucLAIvQyqh379px7RS8ORIc0HOORbFjXZ6zyqWLl53qxhSeofw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-
   oxc-transform-react@0.152.0:
     resolution: {integrity: sha512-CAx+SKDU4uSOmQnyn7daMj/v/h8tF3fnaUMi4yImKAARPnXV0BieHe/qw1LTcK4KlnIuAhpfUJfSfNKIBh8HqQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -9025,10 +8564,6 @@ packages:
   p-locate@5.0.0:
     resolution: {integrity: sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==}
     engines: {node: '>=10'}
-
-  p-map@7.0.5:
-    resolution: {integrity: sha512-e8vJF4XdVkzqqSHguEMz41mQO1wKwxKm5ENrUJQUu9kLDCtn83cxbyHZcszr4QC5zEA7WffRRC4gsTecC7J9oA==}
-    engines: {node: '>=18'}
 
   p-map@7.1.1:
     resolution: {integrity: sha512-6Lh3jQPLthYujSrlw6ccWXBGZTkoTCz27Hd92g79LH/kjAbgoEu0t442cCCNbegPSJsA0lwDX8z0bcKtkpA32g==}
@@ -9389,10 +8924,6 @@ packages:
   readable-stream@2.3.8:
     resolution: {integrity: sha512-8p0AUk4XODgIewSi0l8Epjs+EVnWiK7NoDIEGU0HhE7+ZyY8D1IMY7odu5lRrFXGg71L15KG8QrPmum45RTtdA==}
 
-  readdirp@3.6.0:
-    resolution: {integrity: sha512-hOS089on8RduqdbhvQ5Z37A0ESjsqz6qnRcffsMU3495FuTdqSm+7bhJ29JvIOsBDEEnan5DPu9t3To9VRlMzA==}
-    engines: {node: '>=8.10.0'}
-
   real-require@1.0.0:
     resolution: {integrity: sha512-P4nbQYQfePJxRSmY+v/KINxVucm4NF3p3s7pJveMTtom52FR4YGltUQLB8idDXwDDWW+eYrWDFbuzUnjoWHF7g==}
 
@@ -9644,34 +9175,6 @@ packages:
   split2@4.2.0:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
-
-  sqlite-vec-darwin-arm64@0.1.9:
-    resolution: {integrity: sha512-jSsZpE42OfBkGL/ItyJTVCUwl6o6Ka3U5rc4j+UBDIQzC1ulSSKMEhQLthsOnF/MdAf1MuAkYhkdKmmcjaIZQg==}
-    cpu: [arm64]
-    os: [darwin]
-
-  sqlite-vec-darwin-x64@0.1.9:
-    resolution: {integrity: sha512-KDlVyqQT7pnOhU1ymB9gs7dMbSoVmKHitT+k1/xkjarcX8bBqPxWrGlK/R+C5WmWkfvWwyq5FfXfiBYCBs6PlA==}
-    cpu: [x64]
-    os: [darwin]
-
-  sqlite-vec-linux-arm64@0.1.9:
-    resolution: {integrity: sha512-5wXVJ9c9kR4CHm/wVqXb/R+XUHTdpZ4nWbPHlS+gc9qQFVHs92Km4bPnCKX4rtcPMzvNis+SIzMJR1SCEwpuUw==}
-    cpu: [arm64]
-    os: [linux]
-
-  sqlite-vec-linux-x64@0.1.9:
-    resolution: {integrity: sha512-w3tCH8xK2finW8fQJ/m8uqKodXUZ9KAuAar2UIhz4BHILfpE0WM/MTGCRfa7RjYbrYim5Luk3guvMOGI7T7JQA==}
-    cpu: [x64]
-    os: [linux]
-
-  sqlite-vec-windows-x64@0.1.9:
-    resolution: {integrity: sha512-y3gEIyy/17bq2QFPQOWLE68TYWcRZkBQVA2XLrTPHNTOp55xJi/BBBmOm40tVMDMjtP+Elpk6UBUXdaq+46b0Q==}
-    cpu: [x64]
-    os: [win32]
-
-  sqlite-vec@0.1.9:
-    resolution: {integrity: sha512-L7XJWRIBNvR9O5+vh1FQ+IGkh/3D2AzVksW5gdtk28m78Hy8skFD0pqReKH1Yp0/BUKRGcffgKvyO/EON5JXpA==}
 
   stat-mode@1.0.0:
     resolution: {integrity: sha512-jH9EhtKIjuXZ2cWxmXS8ZP80XyC3iasQxMDV8jzhNJpfDb7VbQLVW4Wvsxz9QZvzV+G4YoSfBUVKDOyxLzi/sg==}
@@ -10097,12 +9600,6 @@ packages:
   vfile@6.0.3:
     resolution: {integrity: sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q==}
 
-  vite-plugin-static-copy@4.1.1:
-    resolution: {integrity: sha512-GrlA8YklrAfSyxJ4M3fdQLOo9oNkp56IM9FYgX/WtEgeIFkPwhu4wzpufBCIuNKCa6Fn77FkRdYxkHqV0FwjAw==}
-    engines: {node: ^22.0.0 || >=24.0.0}
-    peerDependencies:
-      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
-
   vite-plugin-wasm@3.6.0:
     resolution: {integrity: sha512-mL/QPziiIA4RAA6DkaZZzOstdwbW5jO4Vz7Zenj0wieKWBlNvIvX5L5ljum9lcUX0ShNfBgCNLKTjNkRVVqcsw==}
     peerDependencies:
@@ -10192,15 +9689,6 @@ packages:
       jsdom:
         optional: true
 
-  voyage-ai-provider@5.0.0:
-    resolution: {integrity: sha512-zlPsDr8R3IkECM+rQoXVSFjpypXQ2YPMgZxnKjXb1bs7lwMw/OrFJFYKvP5TLvkXE2GwgUF2lQaK27lXrneRCg==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-    peerDependenciesMeta:
-      zod:
-        optional: true
-
   vscode-jsonrpc@10.0.0:
     resolution: {integrity: sha512-USSfxg0vDIpTQqlQBGxF3mBARyoS8cU7LHLpbYNh6dOJt32dlskxPWB0Irrh5TllTmyf7oNLAvqDqzklbwwnpA==}
     engines: {node: '>=14.17.0'}
@@ -10229,9 +9717,6 @@ packages:
 
   web-namespaces@2.0.1:
     resolution: {integrity: sha512-bKr1DkiNa2krS7qxNtdrtHAmzuYGFQLiQ13TsorsdT6ULTkPLKuu5+GsFpDlg6JFjUTwX2DyhMPG2be8uPrqsQ==}
-
-  web-tree-sitter@0.27.1:
-    resolution: {integrity: sha512-qtx0VyUyNRHtL3ze7+v0hCKB/sLcAmY7ZAVp/ZK/bCj0yED8ptvNrr7Vd7DwDyKDWN9baqcUx4uaD2r2ql+6IA==}
 
   webcrypto-core@1.9.2:
     resolution: {integrity: sha512-gsXecm82UQNlTBURJGuqOWy1Ww08S3kZUcr3aOJS02Pk0xLtkfeUAVC0u0xhgdonFme80edSJUIJyuvL/7250Q==}
@@ -10454,12 +9939,6 @@ snapshots:
       zod: 4.6.7
 
   '@ai-sdk/anthropic@4.0.82(zod@4.6.7)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.29
-      '@ai-sdk/provider-utils': 5.0.62(zod@4.6.7)
-      zod: 4.6.7
-
-  '@ai-sdk/cohere@4.0.63(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 4.0.29
       '@ai-sdk/provider-utils': 5.0.62(zod@4.6.7)
@@ -12241,65 +11720,6 @@ snapshots:
 
   '@opentelemetry/semantic-conventions@1.41.1': {}
 
-  '@oxc-parser/binding-android-arm-eabi@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-android-arm64@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-darwin-arm64@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-darwin-x64@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-freebsd-x64@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-arm-gnueabihf@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-arm-musleabihf@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-arm64-gnu@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-arm64-musl@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-ppc64-gnu@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-riscv64-gnu@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-riscv64-musl@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-s390x-gnu@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-x64-gnu@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-linux-x64-musl@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-openharmony-arm64@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-win32-arm64-msvc@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-win32-ia32-msvc@0.154.0':
-    optional: true
-
-  '@oxc-parser/binding-win32-x64-msvc@0.154.0':
-    optional: true
-
-  '@oxc-project/types@0.154.0': {}
-
   '@oxc-project/types@0.155.0': {}
 
   '@oxc-transform-react/binding-android-arm-eabi@0.152.0':
@@ -13943,11 +13363,6 @@ snapshots:
 
   ansi-styles@6.2.3: {}
 
-  anymatch@3.1.3:
-    dependencies:
-      normalize-path: 3.0.0
-      picomatch: 2.3.2
-
   app-builder-lib@26.18.0(dmg-builder@26.18.0)(electron-builder-squirrel-windows@26.18.0)(supports-color@10.2.2):
     dependencies:
       '@electron/asar': 3.4.1
@@ -14099,8 +13514,6 @@ snapshots:
   bidi-js@1.1.0:
     dependencies:
       require-from-string: 2.0.2
-
-  binary-extensions@2.3.0: {}
 
   bind-event-listener@3.0.0: {}
 
@@ -14258,18 +13671,6 @@ snapshots:
       zod: 4.6.7
     transitivePeerDependencies:
       - supports-color
-
-  chokidar@3.6.0:
-    dependencies:
-      anymatch: 3.1.3
-      braces: 3.0.3
-      glob-parent: 5.1.2
-      is-binary-path: 2.1.0
-      is-glob: 4.0.3
-      normalize-path: 3.0.0
-      readdirp: 3.6.0
-    optionalDependencies:
-      fsevents: 2.3.3
 
   chownr@3.0.0: {}
 
@@ -15458,10 +14859,6 @@ snapshots:
 
   is-arrayish@0.2.1: {}
 
-  is-binary-path@2.1.0:
-    dependencies:
-      binary-extensions: 2.3.0
-
   is-decimal@2.0.1: {}
 
   is-extglob@2.1.1: {}
@@ -16354,8 +15751,6 @@ snapshots:
     dependencies:
       abbrev: 4.0.0
 
-  normalize-path@3.0.0: {}
-
   normalize-url@6.1.0: {}
 
   npm-run-path@6.0.0:
@@ -16411,30 +15806,6 @@ snapshots:
       type-check: 0.4.0
       word-wrap: 1.2.5
 
-  oxc-parser@0.154.0:
-    dependencies:
-      '@oxc-project/types': 0.154.0
-    optionalDependencies:
-      '@oxc-parser/binding-android-arm-eabi': 0.154.0
-      '@oxc-parser/binding-android-arm64': 0.154.0
-      '@oxc-parser/binding-darwin-arm64': 0.154.0
-      '@oxc-parser/binding-darwin-x64': 0.154.0
-      '@oxc-parser/binding-freebsd-x64': 0.154.0
-      '@oxc-parser/binding-linux-arm-gnueabihf': 0.154.0
-      '@oxc-parser/binding-linux-arm-musleabihf': 0.154.0
-      '@oxc-parser/binding-linux-arm64-gnu': 0.154.0
-      '@oxc-parser/binding-linux-arm64-musl': 0.154.0
-      '@oxc-parser/binding-linux-ppc64-gnu': 0.154.0
-      '@oxc-parser/binding-linux-riscv64-gnu': 0.154.0
-      '@oxc-parser/binding-linux-riscv64-musl': 0.154.0
-      '@oxc-parser/binding-linux-s390x-gnu': 0.154.0
-      '@oxc-parser/binding-linux-x64-gnu': 0.154.0
-      '@oxc-parser/binding-linux-x64-musl': 0.154.0
-      '@oxc-parser/binding-openharmony-arm64': 0.154.0
-      '@oxc-parser/binding-win32-arm64-msvc': 0.154.0
-      '@oxc-parser/binding-win32-ia32-msvc': 0.154.0
-      '@oxc-parser/binding-win32-x64-msvc': 0.154.0
-
   oxc-transform-react@0.152.0:
     optionalDependencies:
       '@oxc-transform-react/binding-android-arm-eabi': 0.152.0
@@ -16466,8 +15837,6 @@ snapshots:
   p-locate@5.0.0:
     dependencies:
       p-limit: 3.1.0
-
-  p-map@7.0.5: {}
 
   p-map@7.1.1: {}
 
@@ -16886,10 +16255,6 @@ snapshots:
       string_decoder: 1.1.1
       util-deprecate: 1.0.2
 
-  readdirp@3.6.0:
-    dependencies:
-      picomatch: 2.3.2
-
   real-require@1.0.0: {}
 
   redent@3.0.0:
@@ -17213,29 +16578,6 @@ snapshots:
   space-separated-tokens@2.0.2: {}
 
   split2@4.2.0: {}
-
-  sqlite-vec-darwin-arm64@0.1.9:
-    optional: true
-
-  sqlite-vec-darwin-x64@0.1.9:
-    optional: true
-
-  sqlite-vec-linux-arm64@0.1.9:
-    optional: true
-
-  sqlite-vec-linux-x64@0.1.9:
-    optional: true
-
-  sqlite-vec-windows-x64@0.1.9:
-    optional: true
-
-  sqlite-vec@0.1.9:
-    optionalDependencies:
-      sqlite-vec-darwin-arm64: 0.1.9
-      sqlite-vec-darwin-x64: 0.1.9
-      sqlite-vec-linux-arm64: 0.1.9
-      sqlite-vec-linux-x64: 0.1.9
-      sqlite-vec-windows-x64: 0.1.9
 
   stat-mode@1.0.0: {}
 
@@ -17684,14 +17026,6 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite-plugin-static-copy@4.1.1(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)):
-    dependencies:
-      chokidar: 3.6.0
-      p-map: 7.0.5
-      picocolors: 1.1.1
-      tinyglobby: 0.2.17
-      vite: 8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
-
   vite-plugin-wasm@3.6.0(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)):
     dependencies:
       vite: 8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
@@ -17740,13 +17074,6 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  voyage-ai-provider@5.0.0(zod@4.6.7):
-    dependencies:
-      '@ai-sdk/provider': 4.0.29
-      '@ai-sdk/provider-utils': 5.0.62(zod@4.6.7)
-    optionalDependencies:
-      zod: 4.6.7
-
   vscode-jsonrpc@10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4): {}
 
   vscode-jsonrpc@5.0.1: {}
@@ -17775,8 +17102,6 @@ snapshots:
       - supports-color
 
   web-namespaces@2.0.1: {}
-
-  web-tree-sitter@0.27.1: {}
 
   webcrypto-core@1.9.2:
     dependencies:

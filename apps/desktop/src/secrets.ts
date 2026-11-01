@@ -33,8 +33,8 @@ export interface DesktopCredentialWriter {
 }
 
 /**
- * Main's read-only view of the profile store (Settings listing, hosted
- * embeddings, tool and MCP keys). Writes refuse: Settings changes go through
+ * Main's read-only view of the profile store (Settings listing, tool and MCP
+ * keys). Writes refuse: Settings changes go through
  * {@link createDesktopSettingsSecrets}.
  */
 export function getSecretsService(): SecretsService {

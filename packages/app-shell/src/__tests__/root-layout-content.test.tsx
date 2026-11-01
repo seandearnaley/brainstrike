@@ -162,12 +162,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('../background-indexing/indexing-activity-coordinator', () => ({
-  IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
-}));
-
-vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
-  WorkspaceCollectionSyncProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+vi.mock('../roots/workspace-root-identity', () => ({
+  WorkspaceRootIdentity: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('../assistant-chat-panel', () => ({
@@ -251,7 +247,6 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('app-layout')).toBeInTheDocument();
     expect(screen.getByTestId('threads-shell')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     // The Files app body is the explorer itself, with no nested layout (BST-2018).
     expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();

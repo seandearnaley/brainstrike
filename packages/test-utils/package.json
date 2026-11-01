@@ -19,7 +19,6 @@
     "zustand": "catalog:"
   },
   "exports": {
-    "./fixtures/canonical-provided-chunks.json": "./fixtures/canonical-provided-chunks.json",
     ".": "./src/index.ts",
     "./vitest-matchers": "./vitest-matchers.d.ts",
     "./vitest.setup": "./src/vitest.setup.ts",

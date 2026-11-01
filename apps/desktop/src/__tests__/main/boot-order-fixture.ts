@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, onTestFinished, vi } from 'vitest';
 import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
 
-/** Main startup uses the native profile and reader owners. */
+/** Main startup acquires the host profile through its admission. */
 
 const mockSession = {
   defaultSession: {
@@ -183,83 +183,27 @@ vi.mock('../../ipc-handlers', async () => {
   };
 });
 
-const {
-  nativeActualPrepareForPause,
-  nativeAcquireProfile,
-  nativeAcquire,
-  nativeAcquireRead,
-  nativeCloseForShutdown,
-  nativePrepareForPause,
-  nativeRebuild,
-  nativeReconfigureForReset,
-} = vi.hoisted(() => ({
-  nativeAcquire: vi.fn<() => Promise<void>>(async () => undefined),
-  nativeAcquireProfile: vi.fn<() => Promise<void>>(() => new Promise(() => undefined)),
-  nativeAcquireRead: vi.fn<() => Promise<void>>(async () => undefined),
-  nativeActualPrepareForPause: {
-    current: null as
-      | null
-      | ReturnType<
-          typeof import('../../native-index-activation').createNativeIndexActivation
-        >['prepareSavedPause'],
-  },
-  nativeCloseForShutdown: vi.fn(async (): Promise<void> => undefined),
-  nativePrepareForPause: vi.fn<
-    ReturnType<
-      typeof import('../../native-index-activation').createNativeIndexActivation
-    >['prepareSavedPause']
-  >(async () => null),
-  nativeRebuild: { current: null as null | (() => Promise<void>) },
-  nativeReconfigureForReset: { current: null as null | (() => Promise<void>) },
+const { profileAcquire, profileRetire } = vi.hoisted(() => ({
+  profileAcquire: vi.fn<import('../../host-profile-admission').HostProfileAdmission['acquire']>(
+    () => new Promise(() => undefined)
+  ),
+  profileRetire: vi.fn<import('../../host-profile-admission').HostProfileAdmission['retire']>(
+    async () => undefined
+  ),
 }));
-vi.mock('../../native-index-activation', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../native-index-activation')>();
+vi.mock('../../host-profile-admission', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../host-profile-admission')>();
   return {
     ...actual,
-    createNativeIndexActivation: (
-      ...args: Parameters<typeof actual.createNativeIndexActivation>
-    ) => {
-      const owner = actual.createNativeIndexActivation(...args);
-      nativeActualPrepareForPause.current = owner.prepareSavedPause;
-      return {
-        ...owner,
-        acquire: nativeAcquire,
-        acquireProfile: nativeAcquireProfile,
-        acquireRead: nativeAcquireRead,
-        close: nativeCloseForShutdown,
-        prepareSavedPause: nativePrepareForPause,
-        rebuild: () => nativeRebuild.current?.() ?? owner.rebuild(),
-        reconfigure: () => nativeReconfigureForReset.current?.() ?? owner.reconfigure(),
-      };
-    },
+    createHostProfileAdmission: (
+      ...args: Parameters<typeof actual.createHostProfileAdmission>
+    ) => ({
+      ...actual.createHostProfileAdmission(...args),
+      acquire: profileAcquire,
+      retire: profileRetire,
+    }),
   };
 });
-
-const { indexConfigCapture } = vi.hoisted(() => ({
-  indexConfigCapture: {
-    current: null as null | import('../../index-config').DesktopIndexConfigDependencies,
-  },
-}));
-vi.mock('../../index-config', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../index-config')>();
-  return {
-    ...actual,
-    createDesktopIndexConfig: (
-      dependencies: import('../../index-config').DesktopIndexConfigDependencies
-    ) => {
-      indexConfigCapture.current = dependencies;
-      return actual.createDesktopIndexConfig(dependencies);
-    },
-  };
-});
-
-/** Main's config owner's dependencies, as `main.ts` composed them. */
-function requireIndexConfig(): import('../../index-config').DesktopIndexConfigDependencies {
-  if (!indexConfigCapture.current) {
-    throw new Error('main.ts never created its search index config owner');
-  }
-  return indexConfigCapture.current;
-}
 
 const { shutdownPlanCapture } = vi.hoisted(() => ({
   shutdownPlanCapture: {
@@ -313,19 +257,12 @@ export function installMainBootFixture(): void {
     bootWindowCapture.current = null;
     vi.doMock('electron', electronForOneBoot);
     vi.clearAllMocks();
-    nativeAcquireProfile.mockReset().mockImplementation(() => new Promise(() => undefined));
-    nativeAcquire.mockReset().mockResolvedValue(undefined);
-    nativeAcquireRead.mockReset().mockResolvedValue(undefined);
-    nativeCloseForShutdown.mockReset().mockResolvedValue(undefined);
+    profileAcquire.mockReset().mockImplementation(() => new Promise(() => undefined));
+    profileRetire.mockReset().mockResolvedValue(undefined);
     shutdownPlanCapture.current = null;
     shutdownPlanCapture.run = null;
     applicationDomainCapture.close = null;
     applicationDomainCapture.options = null;
-    nativeReconfigureForReset.current = null;
-    nativeRebuild.current = null;
-    nativeActualPrepareForPause.current = null;
-    indexConfigCapture.current = null;
-    nativePrepareForPause.mockReset().mockResolvedValue(null);
     isDesktopShuttingDownMock.mockReturnValue(false);
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
@@ -355,15 +292,8 @@ export {
   createLoggerMock,
   isDesktopShuttingDownMock,
   mockApp,
-  nativeAcquire,
-  nativeAcquireProfile,
-  nativeAcquireRead,
-  nativeActualPrepareForPause,
-  nativeCloseForShutdown,
-  nativePrepareForPause,
-  nativeRebuild,
-  nativeReconfigureForReset,
-  requireIndexConfig,
+  profileAcquire,
+  profileRetire,
   requireMainLogger,
   shutdownPlanCapture,
 };

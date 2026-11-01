@@ -2,7 +2,6 @@ import {
   deriveEffectiveInputBudget,
   deriveMaxOutputTokensWithinBudget,
   getProviderDefinition,
-  type LlmModelDefinition,
   mergeOpenRouterAutoProfileModel,
   type OpenRouterAutoProfileModel,
   type OpenRouterModelMetadataLookup,
@@ -180,8 +179,7 @@ function resolveOpenRouterModelLimits(
     return;
   }
   const staticModel = getProviderDefinition('openrouter').models.find(
-    (candidate): candidate is LlmModelDefinition =>
-      candidate.type === 'llm' && candidate.id === modelName
+    (candidate) => candidate.id === modelName
   );
   const liveMetadata =
     lookup?.state === 'resolved' && lookup.snapshot.metadata.id === modelName

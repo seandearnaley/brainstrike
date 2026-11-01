@@ -2,6 +2,7 @@ import { fork } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { canonicalRoot } from '@brainstrike/state-store';
 import { afterEach, describe, expect, it } from 'vitest';
 import type * as Transport from '../src/transport.js';
 
@@ -41,8 +42,11 @@ async function fixture(killMode: 'real' | 'refuse' | 'throw') {
   const connection = createIndexerConnection(
     {
       dbPath: path.join(directory, 'index.sqlite'),
-      embedding: { indexMode: 'text-only' },
-      rootIds: ['root-a'],
+      stateProjection: {
+        mode: 'dev',
+        module: new URL('./fixtures/state-schema.mjs', import.meta.url).href,
+      },
+      stateRoot: canonicalRoot(directory),
     },
     { closeMs: 100 },
     {

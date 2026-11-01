@@ -96,25 +96,16 @@ if (typeof window !== 'undefined') {
 
 const mockProviderDefinitions = [
   {
-    capabilities: { embeddings: true, llm: true, streaming: true },
+    capabilities: { streaming: true },
     displayName: 'OpenAI',
     // Mirrors the registry's canonical two-name scheme (BST-1361 review 10c).
     envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
-    models: [
-      { default: true, id: 'gpt-5.2', supportsStreaming: true, type: 'llm' as const },
-      {
-        default: true,
-        defaultDimension: 1536,
-        id: 'text-embedding-3-small',
-        supportsStandardDimension: true,
-        type: 'embedding' as const,
-      },
-    ],
+    models: [{ default: true, id: 'gpt-5.2', supportsStreaming: true, type: 'llm' as const }],
     runtime: 'hosted',
   },
   {
-    capabilities: { embeddings: false, llm: true, streaming: true },
+    capabilities: { streaming: true },
     displayName: 'Anthropic',
     envKeys: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
     id: 'anthropic',
@@ -122,20 +113,11 @@ const mockProviderDefinitions = [
     runtime: 'hosted',
   },
   {
-    capabilities: { embeddings: true, llm: true, streaming: true },
+    capabilities: { streaming: true },
     displayName: 'Google AI Studio',
     envKeys: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     id: 'google',
-    models: [
-      { default: true, id: 'gemini-3.8-flash', type: 'llm' as const },
-      {
-        default: true,
-        defaultDimension: 3072,
-        id: 'gemini-embedding-001',
-        supportsStandardDimension: true,
-        type: 'embedding' as const,
-      },
-    ],
+    models: [{ default: true, id: 'gemini-3.8-flash', type: 'llm' as const }],
     runtime: 'hosted',
   },
 ] as const;

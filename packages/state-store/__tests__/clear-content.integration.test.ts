@@ -1,16 +1,16 @@
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, expect, test } from 'vitest';
 import { RootLock } from '../src/lock.js';
-import { StateStore } from '../src/state-store.js';
+import { BLOB_MIN_BYTES, StateStore, sha256Hex } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
+import { appendInputs, prose, rng } from './helpers/testkit.js';
 import { TruthIndexer } from './helpers/truth-indexer.js';
 
 afterEach(cleanupDirs);
 
-test('terminal content clear removes canonical content and blobs but preserves configuration across reopen', async () => {
+test('terminal content clear removes content and blobs but preserves configuration across reopen', async () => {
   const root = freshDir('clear-content');
   const indexer = new TruthIndexer(root);
   let store = await StateStore.open(root, { indexer });
@@ -51,22 +51,9 @@ test('terminal content clear removes canonical content and blobs but preserves c
         preferredId: 'root',
       },
     });
-    const content = 'Actual canonical source bytes';
-    const contentHash = createHash('sha256').update(content).digest('hex');
-    await store.sourceCatalog({
-      embeddingSetId: null,
-      files: [
-        {
-          content,
-          contentHash,
-          fileName: 'file.txt',
-          path: 'file.txt',
-          stat: { mtimeMs: 1, size: Buffer.byteLength(content) },
-        },
-      ],
-      operation: 'prepare',
-      rootId: 'root',
-    });
+    const content = prose(rng(1), BLOB_MIN_BYTES);
+    const contentHash = sha256Hex(content);
+    await appendInputs(store, 'thread', [{ output: content, type: 'tool-result' }]);
     await store.append([
       {
         event: { content: 'Fresh current-format content', type: 'user.message' },
@@ -74,7 +61,7 @@ test('terminal content clear removes canonical content and blobs but preserves c
       },
     ]);
     expect(existsSync(join(root, 'blobs', contentHash))).toBe(true);
-    expect(await store.clearContent()).toEqual({ deletedChunks: null, deletedFiles: 1 });
+    await store.clearContent();
     await expect(
       store.append([{ event: { content: 'late', type: 'user.message' }, threadId: 'late' }])
     ).rejects.toThrow();
@@ -116,9 +103,6 @@ test('terminal content clear removes canonical content and blobs but preserves c
       reader.close();
     }
     expect(await store.workspaceRoots({ operation: 'list' })).toEqual({ roots: [] });
-    expect(
-      (await store.sourceCatalog({ embeddingSetId: null, operation: 'inventory' })).files
-    ).toEqual([]);
     expect(await store.read('thread')).toEqual([]);
   } finally {
     await store.close();

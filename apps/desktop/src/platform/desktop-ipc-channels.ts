@@ -95,20 +95,6 @@ export const DESKTOP_IPC_CHANNELS = {
     trustProjectHooks: 'hooks:trust-project-hooks',
     untrustProjectHooks: 'hooks:untrust-project-hooks',
   },
-  indexSearch: {
-    configChanged: 'index-search:config-changed',
-    coverage: 'index-search:coverage',
-    coverageBatch: 'index-search:coverage-batch',
-    fileChunks: 'index-search:file-chunks',
-    lifecycleChanged: 'index-search:lifecycle-changed',
-    readConfig: 'index-search:read-config',
-    rebuild: 'index-search:rebuild',
-    resetConfig: 'index-search:reset-config',
-    rootsRegistered: 'index-search:roots-registered',
-    search: 'index-search:search',
-    status: 'index-search:status',
-    updateConfig: 'index-search:update-config',
-  },
   // Logging settings/ingest surface; `platform/logging-api-contract.ts`
   // re-exports this group as LOGGING_API_CHANNELS (its validators need
   // @brainstrike/logging, which a preload cannot require).

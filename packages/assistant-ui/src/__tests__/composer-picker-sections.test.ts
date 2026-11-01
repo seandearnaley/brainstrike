@@ -13,8 +13,6 @@ const providerGroups: ProviderGroupConfig[] = [
     providers: [
       {
         capabilities: {
-          embeddings: true,
-          llm: true,
           streaming: true,
         },
         id: 'openai',
@@ -49,8 +47,6 @@ const providerGroups: ProviderGroupConfig[] = [
       },
       {
         capabilities: {
-          embeddings: false,
-          llm: true,
           streaming: true,
         },
         id: 'anthropic',
@@ -76,8 +72,6 @@ const providerGroups: ProviderGroupConfig[] = [
       },
       {
         capabilities: {
-          embeddings: false,
-          llm: true,
           streaming: true,
         },
         id: 'bedrock',
@@ -100,8 +94,6 @@ const providerGroups: ProviderGroupConfig[] = [
     providers: [
       {
         capabilities: {
-          embeddings: false,
-          llm: true,
           streaming: true,
         },
         id: 'openrouter',

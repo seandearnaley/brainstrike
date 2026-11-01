@@ -114,8 +114,7 @@ catalog:
   "@testing-library/user-event": ^14.6.8
   # BST-1920: types for better-sqlite3 (13.x ships none). Exact pin on the newest
   # published release (9.6.0, 2026-08-01); DefinitelyTyped majors do not track the
-  # runtime's. `Database.Options` and `loadExtension(path)` type-check against
-  # better-sqlite3 13.0.3 (packages/sqlite-native `tsc` and its type-check).
+  # runtime's. `Database.Options` type-checks against better-sqlite3 13.0.3.
   "@types/better-sqlite3": 9.6.0
   # BST-2028: maintain the Node 24 application API line; Node 26 is the toolchain.
   "@types/node": ^24.19.2
@@ -132,11 +131,10 @@ catalog:
   # resolves it through app.asar.unpacked. Exact pin.
   "@vscode/ripgrep": 1.18.0
   assistant-stream: 0.3.55
-  # BST-1920: the SQLite state/index engine. Exact pin. It ships a PREBUILT
-  # `prebuilds/<platform>-<arch>.node` for every release target and must never
-  # be compiled: `allowBuilds` DENIES it (see below) and electron-builder runs
-  # with `npmRebuild: false`. packages/sqlite-native owns the load path and the
-  # provenance smoke.
+  # BST-1920: the SQLite engine of the state store and the host state index.
+  # Exact pin. It ships a PREBUILT `prebuilds/<platform>-<arch>.node` for every
+  # release target and must never be compiled: `allowBuilds` DENIES it (see
+  # below) and electron-builder runs with `npmRebuild: false`.
   better-sqlite3: 13.0.3
   bindings: 1.5.0
   concurrently: ^10.0.6
@@ -162,7 +160,6 @@ catalog:
   # The native pty add-on (the one VS Code uses) behind terminals and command sessions,
   # shipped by host-capabilities and desktop. Owner decision, 2026-11-01.
   node-pty: ^1.1.0
-  oxc-parser: ^0.154.0
   # BST-1659: optional peer of @vitejs/plugin-react and the ONLY backend its
   # `react({ compiler: <options> })` plugin has — it imports this package and hard-errors
   # when it is missing. Both apps pass an options object rather than `true`.
@@ -177,9 +174,6 @@ catalog:
   react-shiki: ^0.11.2
   remark-gfm: ^4.0.1
   shiki: ^4.5.0
-  # BST-1920: loadable vec0 extension; one optional package per platform
-  # (sqlite-vec-<os>-<arch>). Exact pin; resolved through app.asar.unpacked.
-  sqlite-vec: 0.1.9
   # BST-2031: shared with react-streamdown; the direct dependency lets Tailwind
   # @source scan the exact renderer version for its utility classes.
   streamdown: 2.7.1
@@ -192,7 +186,6 @@ catalog:
   # 8.3.3 fixes three dev-server advisories (GHSA-rq7h-c2jc-7f22,
   # GHSA-vfpm-58rq-9qcg, GHSA-9jrq-w75r-8gcw).
   vite: ^8.3.5
-  vite-plugin-static-copy: ^4.1.1
   vite-plugin-wasm: ^3.6.0
   vitest: ^5.0.5
   vscode-languageserver-protocol: ^3.18.5
@@ -203,8 +196,6 @@ catalog:
   "@codemirror/language": ^6.13.1
   "@codemirror/view": ^6.43.15
   "@ai-sdk/anthropic": 4.0.82
-  # BST-2385: same provider-utils release as the openai and google pins, so one copy installs.
-  "@ai-sdk/cohere": 4.0.63
   "@ai-sdk/google": 4.0.99
   "@ai-sdk/openai": 4.0.96
   "@atlaskit/pragmatic-drag-and-drop": ^4.0.0
@@ -220,9 +211,6 @@ catalog:
   strip-ansi: 7.2.0
   tree-kill: 1.2.2
   tsx: ^4.23.15
-  # BST-2385: the AI SDK community provider for Voyage embeddings (listed in the AI SDK docs).
-  voyage-ai-provider: 5.0.0
-  web-tree-sitter: 0.27.1
 overrides:
   # Tailwind scans the direct Streamdown install; its adapter must use the same
   # catalog release on future resolutions too. Retarget on adapter upgrades;

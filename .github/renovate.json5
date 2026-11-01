@@ -123,7 +123,7 @@
     },
     {
       description: 'Native binaries with prebuild provenance (BST-1920).',
-      matchPackageNames: ['better-sqlite3', 'sqlite-vec', 'node-addon-api', 'node-gyp', '@napi-rs/keyring'],
+      matchPackageNames: ['better-sqlite3', 'node-addon-api', 'node-gyp', '@napi-rs/keyring'],
       groupName: 'native modules',
       draftPR: true,
     },

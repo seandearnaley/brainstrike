@@ -101,9 +101,9 @@ describe('thread workspace app-owned close', () => {
       'refused because its owner is unavailable',
       {
         category: 'availability',
-        code: 'native-index-closed',
+        code: 'platform.closing',
         kind: 'refusal',
-        message: 'The search index is closed.',
+        message: 'The desktop is closing this agent host.',
       },
       undefined,
     ],

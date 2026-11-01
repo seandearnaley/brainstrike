@@ -31,7 +31,6 @@ import {
   type CatalogFilterKey,
   type CatalogFilters,
   type CatalogStatusFilter,
-  type CatalogTypeFilter,
   CONTEXT_BAND_LABELS,
   CONTEXT_BAND_OPTIONS,
   parseContextBand,
@@ -48,12 +47,6 @@ const STATUS_OPTIONS: readonly SegmentOption<CatalogStatusFilter>[] = [
   { label: 'All', value: 'all' },
   { label: 'Enabled', value: 'enabled' },
   { label: 'Disabled', value: 'disabled' },
-];
-
-const TYPE_OPTIONS: readonly SegmentOption<CatalogTypeFilter>[] = [
-  { label: 'All', value: 'all' },
-  { label: 'Chat', value: 'chat' },
-  { label: 'Embedding', value: 'embedding' },
 ];
 
 /** A segmented control built from a native radio group: arrow keys and semantics come free. */
@@ -346,12 +339,6 @@ export function CatalogToolbar({
           onChange={(status) => update('status', status)}
           options={STATUS_OPTIONS}
           value={filters.status}
-        />
-        <Segmented
-          label="Type"
-          onChange={(type) => update('type', type)}
-          options={TYPE_OPTIONS}
-          value={filters.type}
         />
         {compact ? (
           <Popover>

@@ -6,7 +6,6 @@ import {
   BrainCircuit,
   FolderTree,
   Palette,
-  Search,
   Settings,
   ShieldCheck,
   Sigma,
@@ -25,7 +24,6 @@ import {
   type SavedBrowserOrigins,
   SavedBrowserOriginsSection,
 } from './settings/system/saved-browser-origins-section';
-import { SearchIndexSettingsSection } from './settings/system/search-index-settings-section';
 import {
   SubagentPersonasSettingsSection,
   type SubagentPersonasSettingsSectionProps,
@@ -146,23 +144,6 @@ export function createWorkspaceSettingsCategory(
       'revoke',
     ],
     title: 'Workspace',
-  };
-}
-
-export function createSearchIndexingSettingsCategory(
-  nativeIndex?: Pick<
-    import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability,
-    'rebuild'
-  >
-): SettingsCategory {
-  return {
-    content: <SearchIndexSettingsSection {...(nativeIndex ? { nativeIndex } : {})} />,
-    description:
-      'Choose how your folders are searched, the embedding model and how files are split.',
-    icon: Search,
-    id: 'search-indexing',
-    keywords: ['search', 'indexing', 'semantic', 'embeddings', 'chunking', 'model'],
-    title: 'Search & Indexing',
   };
 }
 

@@ -14,9 +14,6 @@ Platform-neutral handles, adapters, traversal and workspace-source helpers. `Fil
 - `readFileByAbsolutePath` needs a durable root ID and fully qualified root/file paths bound to the same live mount; a matching path is not authority. Native descendants stay confined by the secure-root owner.
 - `/directory-tree`: shared traversal over a minimal directory-read capability.
   - Cancellation and read errors join admitted reads.
-  - Preserve filtering, identity, sorting, streaming and visible truncation; indexing callers need strict child-read errors and complete listings.
+  - Preserve filtering, identity, sorting, streaming and visible truncation.
 - `/workspace-root-nodes` projects granted listings into UI nodes; projection grants no read authority.
-- `/workspace-scan` and related subpaths hold the scanner/coordinator contracts.
-  - Keep watcher health and reconciliation generations; a partial inventory is not complete membership.
-  - Disconnect and deletion have different lifecycle and retention semantics.
-- Contracts: [workspace](../../docs/agents/workspace-context.md), [indexing](../../docs/agents/indexer.md).
+- Contract: [workspace](../../docs/agents/workspace-context.md).

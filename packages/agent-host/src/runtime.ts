@@ -8,12 +8,7 @@ import {
   secureDirectory,
   startHost,
 } from '@brainstrike/host-lease';
-import {
-  assertNotSyncedRoot,
-  type ClearContentResult,
-  StateStore,
-  StateStoreStartupError,
-} from '@brainstrike/state-store';
+import { assertNotSyncedRoot, StateStore, StateStoreStartupError } from '@brainstrike/state-store';
 import {
   createMessageConnection,
   type Message,
@@ -31,7 +26,7 @@ import { AGENT_HOST_PROTOCOL_VERSION, HOST_CLOSING_EVENT, HOST_DRAINED_EVENT } f
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
   bindClientConnection(connection: MessageConnection, origin: HostClientOrigin): () => void;
-  clearAndRetireContent(): Promise<ClearContentResult>;
+  clearAndRetireContent(): Promise<void>;
   readonly core: HostCore;
 }
 export interface HostStartupContext {
@@ -64,7 +59,6 @@ type PlatformClientService =
   | 'mcpSettings'
   | 'providers'
   | 'searchState'
-  | 'searchWorkspace'
   | 'terminals'
   | 'fileReads'
   | 'fileSearch'
@@ -82,7 +76,6 @@ function platformClientServices(
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
-    ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.terminals ? { terminals: platform.terminals } : {}),
     ...(platform?.fileReads ? { fileReads: platform.fileReads } : {}),
     ...(platform?.fileSearch ? { fileSearch: platform.fileSearch } : {}),
@@ -341,8 +334,8 @@ function composeHostRoot(
 export interface OpenedAgentHost {
   /** Serves `connection` as `origin`. Holding the transport is the client's authority. */
   bindClientConnection(connection: MessageConnection, origin: HostClientOrigin): () => void;
-  /** Closes the host and deletes its content (ADR-0015); resolves with the committed receipt. */
-  clearAndRetireContent(): Promise<ClearContentResult>;
+  /** Closes the host and deletes its content (ADR-0015); resolves once the clear committed. */
+  clearAndRetireContent(): Promise<void>;
   /** Closes Core, then the store. No client is drained: every write is already committed. */
   close(): Promise<void>;
   readonly core: HostCore;
@@ -394,14 +387,15 @@ export async function openAgentHost(
     start: store.lock.owner.start,
   };
   let clearContent = false;
-  let cleared: ClearContentResult | undefined;
+  let cleared = false;
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= closeHostStoreAfterCore(
       () => core.close(),
       async () => {
         if (clearContent) {
-          cleared = await store.clearContent();
+          await store.clearContent();
+          cleared = true;
           return;
         }
         await store.close();
@@ -422,9 +416,8 @@ export async function openAgentHost(
       clearContent = true;
       await close();
       if (!cleared) {
-        throw new Error('Host content clear did not produce a committed receipt');
+        throw new Error('Host content clear did not commit');
       }
-      return cleared;
     },
     close,
     core,
@@ -456,8 +449,8 @@ export async function startAgentHost(
     return privateClientsRetired;
   };
   let clearContent = false;
-  let cleared: ClearContentResult | undefined;
-  let clearing: Promise<ClearContentResult> | undefined;
+  let cleared = false;
+  let clearing: Promise<void> | undefined;
   signal.addEventListener('abort', cancelled, { once: true });
   try {
     runtime = await startHost(
@@ -539,7 +532,8 @@ export async function startAgentHost(
                 () => core.close(),
                 async () => {
                   if (clearContent) {
-                    cleared = await store.clearContent();
+                    await store.clearContent();
+                    cleared = true;
                     return;
                   }
                   await store.close();
@@ -628,9 +622,8 @@ export async function startAgentHost(
       clearContent = true;
       clearing = runtime.close().then(() => {
         if (!cleared) {
-          throw new Error('Host content clear did not produce a committed receipt');
+          throw new Error('Host content clear did not commit');
         }
-        return cleared;
       });
       return clearing;
     },

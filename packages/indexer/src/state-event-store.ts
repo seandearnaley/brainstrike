@@ -70,17 +70,7 @@ const quote = (text: string): string => `"${text.replaceAll('"', '""')}"`;
 export class StateEventStore {
   private readonly failures: string[] = [];
 
-  static assertProjection(root: string | undefined, projection: StateProjection | undefined): void {
-    if (root !== undefined && !projection) {
-      throw new TypeError('State writer requires its acquired producer schema.');
-    }
-  }
-
-  static initialize(
-    db: Database.Database,
-    root: string | undefined,
-    projection: StateProjection | undefined
-  ): void {
+  static initialize(db: Database.Database, root: string, projection: StateProjection): void {
     db.exec(`
       ${stateSourceDefinition};
       CREATE TABLE state_event_rows(pk INTEGER PRIMARY KEY,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),payload TEXT NOT NULL,content TEXT,gap_reason TEXT,UNIQUE(thread_id,seq));
@@ -102,17 +92,10 @@ export class StateEventStore {
       INSERT INTO state_events_fts(state_events_fts,rank) VALUES('secure-delete',1);
       ${searchDefinition}
     `);
-    db.prepare('INSERT INTO state_index_source VALUES(1,?,?)').run(
-      root ?? null,
-      projection?.identity ?? null
-    );
+    db.prepare('INSERT INTO state_index_source VALUES(1,?,?)').run(root, projection.identity);
   }
 
-  static validateRoot(
-    db: Database.Database,
-    root: string | undefined,
-    projection: StateProjection | undefined
-  ): void {
+  static validateRoot(db: Database.Database, root: string, projection: StateProjection): void {
     const stored = decoder(Schema.NullOr(Schema.String))(
       db.prepare('SELECT root FROM state_index_source WHERE singleton=1').pluck().get()
     );
@@ -122,7 +105,7 @@ export class StateEventStore {
         .pluck()
         .get()
     );
-    if (stored !== (root ?? null) || identity !== (projection?.identity ?? null)) {
+    if (stored !== root || identity !== projection.identity) {
       throw new IndexerError(
         'rebuild-required',
         'State projection belongs to a different immutable truth root or producer schema.'
@@ -167,26 +150,6 @@ export class StateEventStore {
         'State source schema disagrees with its declared version.'
       );
     }
-  }
-
-  /** Caller owns the native transaction that acquires the store. */
-  static acquire(
-    db: Database.Database,
-    root: string | undefined,
-    truth: StateTruthReader | undefined,
-    projection: StateProjection | undefined
-  ): StateEventStore | undefined {
-    StateEventStore.validateRoot(db, root, projection);
-    if (root === undefined) {
-      return;
-    }
-    if (!projection) {
-      throw new TypeError('State projection requires its acquired producer schema.');
-    }
-    if (!truth) {
-      throw new TypeError('State projection requires its authoritative truth reader.');
-    }
-    return new StateEventStore(db, truth, projection);
   }
 
   private writeSearch(pk: number, threadId: string, seq: number, search: StateSearchRow): void {

@@ -64,8 +64,6 @@ export async function openHostStateIndex(
   const dbPath = join(stateRoot, HOST_STATE_INDEX_FILE);
   const options = {
     dbPath,
-    embedding: { indexMode: 'text-only' },
-    rootIds: [stateRoot],
     stateProjection: { mode: 'prod', module: canonicalEntryModule('state-projection') },
     stateRoot,
   } as const;

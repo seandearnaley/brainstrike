@@ -27,8 +27,6 @@ async function fixture() {
   const port = await openIndexer(
     {
       dbPath: path.join(root, 'index.sqlite'),
-      embedding: { indexMode: 'text-only' },
-      rootIds: ['canonical'],
       stateProjection: { mode: 'dev', module: producer },
       stateRoot: root,
     },

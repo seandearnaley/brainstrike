@@ -2,6 +2,8 @@
 
 - **Status:** Accepted for the completed adoption; future replacements remain deferred.
   Amended 2026-10-17 (BST-2068): the maintenance trigger owner was deleted.
+  Amended 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the native-index lifecycle owner and
+  its executor were deleted with the index.
 - **Date:** 2026-10-17
 - **Ticket:** BST-2052
 - **Follows:** [ADR-0004](0004-effect-at-runtime-boundaries.md),

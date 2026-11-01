@@ -5,8 +5,7 @@
  * Sizes reach the hot token cache from two places: the background indexer
  * writes them when a batch finishes, and this hook writes them as soon as the
  * selection and the handle sources know them. Without the second path any
- * gating of the indexing path (embedding active, adaptive debounce, large
- * queue) left the context-explorer size column — and now the Explorer tree
+ * gating of the indexing path (adaptive debounce, large queue) left the context-explorer size column — and now the Explorer tree
  * grid's Size cell — rendering `—` for a value the tree already had.
  *
  * Writes are idempotent (`use-token-cache` no-ops when the value matches), so

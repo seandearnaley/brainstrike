@@ -73,9 +73,6 @@ function collectEntries(
   for (const group of providerGroups) {
     for (const provider of group.providers) {
       for (const model of provider.models) {
-        if (model.type !== 'llm') {
-          continue;
-        }
         const compositeKey = composerModelCompositeKey(provider.id, model.id);
         entries.push({
           compositeKey,

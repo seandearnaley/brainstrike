@@ -73,8 +73,7 @@ export function listObservationalMemoryModelOptions(args: {
         OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(model.providerId) &&
         (args.providerKeySources === undefined || providersWithKeys.has(model.providerId)) &&
         isEnabledProvider(provider) &&
-        model.isEnabled &&
-        model.capabilities.type === 'llm'
+        model.isEnabled
       );
     })
     .sort((left, right) => compareOptions(providers, left, right))

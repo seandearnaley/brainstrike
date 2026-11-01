@@ -8,7 +8,7 @@ Security boundaries of the Electron app. Code is the reference; this file says w
 - Production:
   - `default-src 'self'`; `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`; `frame-ancestors 'none'`.
   - `script-src 'self' blob: 'wasm-unsafe-eval'`: no CDN, no `unsafe-eval`, no inline script.
-  - `connect-src` allows `'self'`, loopback (`127.0.0.1`/`localhost`, any port) and the embedding provider origins the renderer calls directly (OpenAI, Google, Cohere, Voyage).
+  - `connect-src` allows `'self'` and loopback (`127.0.0.1`/`localhost`, any port); the renderer reaches no model provider directly.
   - `frame-src` allows only the two sandbox shell schemes, `brainstrike-canvas:` and `brainstrike-mcp-app:`; never `blob:`.
   - `style-src` allows `'unsafe-inline'`; `img-src` allows `data:`, `blob:` and `brainstrike-asset:`.
 - Development adds `localhost` sources, WebSockets and `'unsafe-inline'`/`'unsafe-eval'` scripts for Vite HMR.

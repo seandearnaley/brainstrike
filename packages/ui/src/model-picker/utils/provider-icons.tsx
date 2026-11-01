@@ -1,4 +1,4 @@
-import { Bot, Brain, Cloud, Cpu, Globe, Sparkles } from 'lucide-react';
+import { Bot, Brain, Cloud, Globe, Sparkles } from 'lucide-react';
 
 interface ProviderIconProps {
   className?: string;
@@ -55,12 +55,6 @@ export function ProviderIcon({
   }
   if (providerId === 'openrouter') {
     return <Cloud className={className} style={style} />;
-  }
-  if (providerId === 'cohere') {
-    return <Cpu className={className} style={style} />;
-  }
-  if (providerId === 'voyage') {
-    return <Bot className={className} style={style} />;
   }
   if (providerId === 'bedrock') {
     return <BedrockIcon className={className} style={style} />;

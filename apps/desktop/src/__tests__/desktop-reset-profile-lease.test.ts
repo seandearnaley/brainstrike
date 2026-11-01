@@ -51,7 +51,6 @@ describe('desktop reset profile ownership', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset: state.prepare,
       resetLocalDatabase: state.reset,
-      runTransition: (work) => work(),
       runtimes: [],
       sessionDataPath: SESSION_DATA,
       userDataPath: USER_DATA,

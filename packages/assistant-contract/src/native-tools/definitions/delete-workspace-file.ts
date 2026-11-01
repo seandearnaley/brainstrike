@@ -21,12 +21,11 @@ export const deleteWorkspaceFile = defineNativeTool({
     riskCategory: 'edit',
   },
   description:
-    'Permanently delete a single file in a chosen open workspace root and invalidate its index rows. DESTRUCTIVE and NOT recoverable through the tool; refuses directories (use executeCommand) and acts on a symlink itself (removes the link, never its target). Workspace-scoped; requires approval',
+    'Permanently delete a single file in a chosen open workspace root. DESTRUCTIVE and NOT recoverable through the tool; refuses directories (use executeCommand) and acts on a symlink itself (removes the link, never its target). Workspace-scoped; requires approval',
   discovery: { family: 'file delete/rename', namespace: 'workspace' },
   id: 'brainstrike.deleteWorkspaceFile',
   inputSchema: effectToolInputSchema(DeleteWorkspaceFileInputSchema),
   kind: 'desktop',
-  returns:
-    'Delete result: ok: true, the normalized workspace path, rootName, and indexInvalidated (true when the file had workspace-index rows that were removed)',
+  returns: 'Delete result: ok: true, the normalized workspace path and rootName',
   surfaces: ['desktop', 'web'],
 });

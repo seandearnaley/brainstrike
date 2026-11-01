@@ -61,8 +61,6 @@ function freshRepo(label: string): string {
  * container query, and the default 25% left panel is narrower than that on a
  * 1536px window. Seeding the layout store makes the badge's visibility a
  * FACT ABOUT THE BADGE rather than a fact about the panel's default size.
- * Background indexing is seeded OFF: nothing here reads the index, and driving
- * the embedding pipeline would add minutes and flake surface for no coverage.
  */
 async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
   await page.evaluate(() => {
@@ -80,7 +78,6 @@ async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
     );
   });
   await seedWorkspaceRoot(page, rootPath, {
-    disableBackgroundIndexing: true,
     reloadReason: 'w2-thread-folders-seed-root',
     rootId: ROOT_ID,
   });

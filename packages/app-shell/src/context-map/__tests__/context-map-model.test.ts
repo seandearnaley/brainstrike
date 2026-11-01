@@ -96,9 +96,9 @@ describe('contextFileRows', () => {
 
 describe('chunkCells', () => {
   const chunks = [
-    { chunkId: 'c1', contentHash: 'h', endLine: 10, startLine: 1, tokenCount: 50 },
-    { chunkId: 'c2', contentHash: 'h', endLine: 20, startLine: 11, tokenCount: 50 },
-    { chunkId: 'c3', contentHash: 'h', endLine: 30, startLine: 21, tokenCount: 50 },
+    { chunkId: 'c1', endLine: 10, startLine: 1 },
+    { chunkId: 'c2', endLine: 20, startLine: 11 },
+    { chunkId: 'c3', endLine: 30, startLine: 21 },
   ];
 
   it('fills each chunk by the share of its lines delivered, colored by the strongest kind', () => {
@@ -138,7 +138,7 @@ describe('chunkCells', () => {
 });
 
 describe('lineBands and totals', () => {
-  it('splits an unindexed file into equal line bands', () => {
+  it('splits a file into equal line bands', () => {
     expect(lineBands(20, 4).map((band) => [band.startLine, band.endLine])).toEqual([
       [1, 5],
       [6, 10],

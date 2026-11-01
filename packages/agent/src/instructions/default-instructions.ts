@@ -252,16 +252,12 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
   }
   if (names.renameWorkspaceFile && names.deleteWorkspaceFile) {
     clauses.push(
-      `Use ${names.renameWorkspaceFile} and ${names.deleteWorkspaceFile} instead of shell mv/rm so the workspace index stays coherent.`
+      `Use ${names.renameWorkspaceFile} and ${names.deleteWorkspaceFile} instead of shell mv/rm.`
     );
   } else if (names.renameWorkspaceFile) {
-    clauses.push(
-      `Use ${names.renameWorkspaceFile} instead of shell mv to keep the index coherent.`
-    );
+    clauses.push(`Use ${names.renameWorkspaceFile} instead of shell mv.`);
   } else if (names.deleteWorkspaceFile) {
-    clauses.push(
-      `Use ${names.deleteWorkspaceFile} instead of shell rm to keep the index coherent.`
-    );
+    clauses.push(`Use ${names.deleteWorkspaceFile} instead of shell rm.`);
   }
   return clauses.join(' ');
 }

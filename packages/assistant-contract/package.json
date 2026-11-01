@@ -27,7 +27,6 @@
     "./thread-workspace-snapshot": "./src/thread-workspace-snapshot.ts",
     ".": "./src/index.ts",
     "./host-run-id": "./src/host-run-id.ts",
-    "./index-config": "./src/index-config.ts",
     "./mcp-host-status": "./src/mcp-host-status.ts",
     "./mcp-host-runtime": {
       "browser": null,

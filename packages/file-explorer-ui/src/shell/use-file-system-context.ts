@@ -258,10 +258,10 @@ export function useFileSystemInstance() {
    *
    * Delegates the orchestration (adapter forget, handle removal, focus shift,
    * store purge) to the core hook, then syncs the store's handle copy and
-   * clears the root's cached token counts. Disconnect ≠ delete: indexed DB
-   * rows are deliberately KEPT so re-adding the folder resumes instantly.
+   * clears the root's cached token counts. Disconnect ≠ delete: the root's
+   * saved record is deliberately KEPT so re-adding the folder keeps its identity.
    *
-   * Phase 6 opt-in (`options.deleteData`): the root's indexed rows are
+   * Phase 6 opt-in (`options.deleteData`): the root's saved record is
    * deleted FIRST via the app-shell-injected seam — if the delete fails the
    * disconnect is ABORTED (toast + root stays connected, so the user can
    * retry). The reverse order would orphan rows with no UI left to retry.
@@ -280,7 +280,7 @@ export function useFileSystemInstance() {
             error,
             rootId,
           });
-          showToast('Could not delete the folder’s indexed data. The folder stays connected.');
+          showToast('Could not delete the folder’s data. The folder stays connected.');
           return;
         }
       }

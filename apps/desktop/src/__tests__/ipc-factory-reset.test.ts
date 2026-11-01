@@ -74,7 +74,7 @@ describe('current profile reset and path IPC', () => {
 
 it('content clear uses the existing host owner only after visible confirmation', async () => {
   const { registerContentClearIpcHandlers } = await import('../ipc-factory-reset');
-  const clear = vi.fn(async () => ({ deletedChunks: null, deletedFiles: 2 }));
+  const clear = vi.fn(async (): Promise<void> => undefined);
   const close = registerContentClearIpcHandlers(clear);
   try {
     await expect(invoke('db:clearAll', 'wrong')).rejects.toThrow();
@@ -82,10 +82,7 @@ it('content clear uses the existing host owner only after visible confirmation',
       invokeFromUntrackedSender('db:clearAll', 'CONFIRM_CLEAR_DATABASE')
     ).rejects.toThrow('Desktop IPC db:clearAll requires an app window sender.');
     expect(clear).not.toHaveBeenCalled();
-    await expect(invoke('db:clearAll', 'CONFIRM_CLEAR_DATABASE')).resolves.toEqual({
-      deletedChunks: null,
-      deletedFiles: 2,
-    });
+    await expect(invoke('db:clearAll', 'CONFIRM_CLEAR_DATABASE')).resolves.toBeUndefined();
     expect(clear).toHaveBeenCalledOnce();
   } finally {
     close();

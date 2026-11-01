@@ -1,7 +1,4 @@
 import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
-import { IndexerError } from '@brainstrike/indexer';
-import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
-import { SqliteQueryDeadlineError, SqliteQueryProcessExitedError } from '@brainstrike/sqlite-query';
 import { describe, expect, it } from 'vitest';
 import {
   HOST_LEASE_CLOSED,
@@ -9,17 +6,17 @@ import {
   isExpectedShutdownRefusal,
   isRetirementRefusal,
   markDesktopShuttingDown,
+  PROFILE_CLOSED_FOR_QUIT,
+  PROFILE_CLOSED_FOR_RESET,
   RESET_REOPEN_CANCELLED,
   RendererExitedError,
 } from '../desktop-shutdown-state';
 
 // What a quit leaves waiting work with (ADR-0015), and what it never covers.
 const retirements = {
-  'a closed native index': new NativeIndexRefusalError(
-    { kind: 'closed', reason: 'root-data-deletion' },
-    'Native index activation is closed for terminal retirement.'
-  ),
   'a host lease owner that closed': new BoundaryFailureError(HOST_LEASE_CLOSED),
+  'a host profile closed for a reset': new BoundaryFailureError(PROFILE_CLOSED_FOR_RESET),
+  'a host profile closed for quit': new BoundaryFailureError(PROFILE_CLOSED_FOR_QUIT),
   'a lost host connection': new BoundaryFailureError(
     fault({ category: 'availability', code: 'host.connection-lost', message: 'Lost.' })
   ),
@@ -27,31 +24,15 @@ const retirements = {
   'a renderer that exited before acknowledging its producers': new RendererExitedError(
     'Renderer closed before acknowledging its producers'
   ),
-  // BST-2192: a signal to Main's process group ends the SQLite query process under a read.
-  'a SQLite query process that exited': new SqliteQueryProcessExitedError(),
-  // BST-2192: a signal to Main's process group ends the indexer under an in-flight call.
-  'an indexer process that exited': new IndexerError('indexer-exited', 'Indexer process exited.'),
   'the reset reopen cancelled by quit': new BoundaryFailureError(RESET_REOPEN_CANCELLED),
 };
 const unrelated = {
-  'a plain failure': new Error('Native index activation is closed for terminal retirement.'),
+  'a plain failure': new Error('The app is quitting, so the agent host does not start.'),
   'a plain failure with the closing message': new Error('Desktop host lease owner is closing'),
-  'a plain failure with the exit code': Object.assign(new Error('Indexer process exited.'), {
-    code: 'indexer-exited',
-  }),
   'a plain failure with the renderer exit message': new Error(
     'Renderer closed before acknowledging its producers'
   ),
-  'a plain failure with the SQLite exit message': new Error('SQLite query process exited.'),
-  'a SQLite read that exceeded its deadline': new SqliteQueryDeadlineError(1000),
-  'an indexer still transitioning': new NativeIndexRefusalError(
-    { kind: 'transitioning' },
-    'Native index is transitioning.'
-  ),
-  'another indexer failure with the exit message': new IndexerError(
-    'indexer-failed',
-    'Indexer process exited.'
-  ),
+  'a plain failure with the reset message': new Error('Local data is being reset.'),
   'another refusal': new BoundaryFailureError(
     refusal({ category: 'availability', code: 'host.busy', message: 'Busy.' })
   ),

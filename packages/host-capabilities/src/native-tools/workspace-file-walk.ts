@@ -40,8 +40,8 @@ export interface WalkedFile {
 export interface WalkRootOptions {
   /**
    * Include files normally excluded (.git, node_modules, dist/build output,
-   * lockfiles, minified/generated artifacts). Default false: the same exclusions
-   * the workspace indexer applies. `.git` is never descended into regardless.
+   * lockfiles, minified/generated artifacts). Default false: the background
+   * indexing entry policy's exclusions. `.git` is never descended into regardless.
    */
   includeIgnored?: boolean;
   /**

@@ -1,5 +1,4 @@
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { Schema } from 'effect';
 /**
  * Main's side of the agent host's own tools: narrow typed reads of Main-owned
  * stores (`desktop-read/*`) and the window-bound browser pane. The agent
@@ -7,7 +6,6 @@ import { Schema } from 'effect';
  * (BST-1930 stage e); each request's own schema parses it here.
  */
 
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import type { MainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
@@ -20,7 +18,6 @@ import {
   parseBrowserSelectOptionRequest,
   parseBrowserTypeRequest,
 } from './host-tool-wire';
-import { IndexSearchRequestSchema, threadScoped } from './retrieval-wire';
 
 /** The Main-owned stores and services the host's tools read through Main. */
 export interface HostToolServiceCapabilities {
@@ -28,8 +25,6 @@ export interface HostToolServiceCapabilities {
   readonly browser?: MainBrowserToolRunner;
   /** The diagnostic events store, projected and scrubbed before a row leaves Main. */
   readonly diagnostics?: DiagnosticsReader;
-  /** Main's workspace text index, which `workspace/search` reads. */
-  readonly indexSearch?: IndexSearchCapability;
 }
 
 function required<T>(value: T | undefined, what: string): T {
@@ -51,7 +46,6 @@ export function serveHostToolServices(
   execute: Execute,
   services: HostToolServiceCapabilities | undefined
 ): void {
-  serveIndexReads(connection, execute, services);
   serveBrowserCalls(connection, execute, services);
   serveSelfInspectionReads(connection, execute, services);
 }
@@ -149,22 +143,5 @@ function serveSelfInspectionReads(
         })(input);
         return await required(services?.diagnostics, 'diagnostics store').fingerprints(filter);
       })
-  );
-}
-
-/** `desktop-read/index/search`: Main's text index, searched for a host thread's `workspace/search`. */
-function serveIndexReads(
-  connection: MessageConnection,
-  execute: Execute,
-  services: HostToolServiceCapabilities | undefined
-): void {
-  connection.onRequest('desktop-read/index/search', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      const { request } = Schema.decodeUnknownSync(threadScoped(IndexSearchRequestSchema), {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(input);
-      return await required(services?.indexSearch, 'workspace index').search(request);
-    })
   );
 }
