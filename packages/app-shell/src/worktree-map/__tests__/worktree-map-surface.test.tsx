@@ -1,5 +1,3 @@
-import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
-import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -67,8 +65,6 @@ vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
       threadsByResourceId: {},
     }),
 }));
-
-const updateIndexConfigMock = vi.fn();
 
 const showItemInFolderMock = vi.fn();
 const openExternalMock = vi.fn();
@@ -140,7 +136,6 @@ function card(overrides: Record<string, unknown> = {}) {
       rootId: 'root-1',
       usable: true,
     },
-    indexing: 'excluded',
     lastActivityLabel: 'Created 6 days ago',
     provenanceLabel: 'Managed',
     thread: null,
@@ -191,11 +186,9 @@ describe('WorktreeMapSurface', () => {
       publishMock,
       selectThreadMock,
       showItemInFolderMock,
-      updateIndexConfigMock,
     ]) {
       mock.mockReset();
     }
-    useIndexConfigStore.setState({ update: updateIndexConfigMock.mockResolvedValue(undefined) });
     mockSelectedThreadByResourceId = {};
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
     adoptMock.mockResolvedValue({ ok: true, value: {} });
@@ -355,10 +348,6 @@ describe('WorktreeMapSurface', () => {
     expect(screen.getByRole('article', { name: 'bright-fox' })).toBeInTheDocument();
     expect(screen.getByText('/wt')).toBeInTheDocument();
     expect(screen.getByText('Clean')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Not indexed' })).toHaveAttribute(
-      'aria-pressed',
-      'false'
-    );
   });
 
   it('states that ghost checkouts are missing instead of checking forever', () => {
@@ -492,7 +481,6 @@ describe('WorktreeMapSurface', () => {
       worktreeId: 'wt-1',
     });
     // Falsifier: the Map must not reach for any other seam to do this.
-    expect(updateIndexConfigMock).not.toHaveBeenCalled();
     expect(showItemInFolderMock).not.toHaveBeenCalled();
   });
 
@@ -715,26 +703,6 @@ describe('WorktreeMapSurface', () => {
     expect(screen.queryByRole('menuitem', { name: /hand off to local/iu })).not.toBeInTheDocument();
   });
 
-  it('asks Main to index the worktree under its durable root id and shows a refusal', async () => {
-    render(<Surface />);
-    const toggle = screen.getByRole('button', { name: /not indexed/iu });
-    await userEvent.click(toggle);
-    expect(updateIndexConfigMock).toHaveBeenCalledExactlyOnceWith({
-      worktrees: { 'root-1': true },
-    });
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-
-    const refusal = 'Choose how to run the embedding model on this device first.';
-    updateIndexConfigMock.mockRejectedValueOnce(
-      refusalError('input', 'index-config.refused', refusal)
-    );
-    await userEvent.click(toggle);
-    expect(await screen.findByRole('alert')).toHaveTextContent(refusal);
-  });
-
-  // These two pin the destructive/rooting seams so the surface cannot ship
-  // with the handlers stubbed (plan-review R2): each asserts the CALL and its
-  // exact argument, which no `setActionError(null)` stub can satisfy.
   it('archives through the worktrees bridge with the card worktree id and states a refusal verbatim', async () => {
     const refreshMock = vi.fn();
     archiveMock.mockResolvedValue(gitFailure('worktree has uncommitted changes'));
@@ -838,9 +806,8 @@ describe('WorktreeMapSurface', () => {
     // Same pin as onNewThread above: no caller-side refresh — the Map
     // re-loads via the root-identity subscription once the row exists.
     expect(refreshMock).not.toHaveBeenCalled();
-    // Falsifier: adding a root never archives or mutates indexing.
+    // Falsifier: adding a root never archives.
     expect(archiveMock).not.toHaveBeenCalled();
-    expect(updateIndexConfigMock).not.toHaveBeenCalled();
   });
 
   // An unmanaged card offers Adopt as its own ENABLED action (never a

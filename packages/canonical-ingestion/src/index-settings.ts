@@ -11,7 +11,6 @@ export interface NativeIndexSettings {
   readonly managedCollectionId: string | null;
   readonly mode: NativeIndexMode;
   readonly paused: boolean;
-  readonly worktreeOptIns: ReadonlySet<string>;
 }
 
 /** `vectorSpaceId` is the `workspace-index` row Main ensured for this config's model. */
@@ -30,9 +29,6 @@ export function nativeIndexSettingsFromConfig(
     managedCollectionId: model === null ? null : vectorSpaceId,
     mode: model === null ? 'TEXT' : 'VECTOR',
     paused: config.paused,
-    worktreeOptIns: new Set(
-      Object.entries(config.worktrees).flatMap(([rootId, indexed]) => (indexed ? [rootId] : []))
-    ),
   };
 }
 
@@ -44,6 +40,5 @@ export function nativeIndexConfigurationIdentity(settings: NativeIndexSettings):
     settings.indexingPolicyPreset,
     settings.managedCollectionId,
     settings.mode,
-    [...settings.worktreeOptIns].sort(),
   ]);
 }

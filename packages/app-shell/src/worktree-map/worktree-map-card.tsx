@@ -14,7 +14,6 @@ import {
 import {
   Check,
   Circle,
-  Database,
   GitBranch,
   MessageSquare,
   MoreHorizontal,
@@ -40,7 +39,6 @@ export interface WorktreeMapCardProps {
   readonly onOpenTerminal: ((card: WorktreeMapCardModel) => void) | undefined;
   readonly onOpenThread: (threadId: string) => void;
   readonly onReveal: (path: string) => void;
-  readonly onToggleIndexing: (rootId: string, enabled: boolean) => void;
   readonly status: WorktreeCheckoutStatusState | undefined;
 }
 
@@ -130,51 +128,6 @@ function WorktreeThreadDetails({
   );
 }
 
-function WorktreeIndexingToggle({
-  card,
-  onToggleIndexing,
-}: Pick<WorktreeMapCardProps, 'card' | 'onToggleIndexing'>): ReactElement {
-  const { entry } = card;
-  const indexingEnabled = card.indexing === 'included';
-  if (card.indexing === 'open-folder') {
-    const reason =
-      'Indexed: this checkout is open as a folder in the Explorer, so this map does not control it.';
-    return (
-      <span
-        aria-label="Indexed as an open folder"
-        className="text-primary flex size-8 shrink-0 items-center justify-center"
-        role="img"
-        title={reason}
-      >
-        <Database aria-hidden="true" className="size-3.5" />
-      </span>
-    );
-  }
-  return card.indexing === 'not-a-root' || card.indexing === 'unknown' ? (
-    <span aria-hidden="true" className="size-8 shrink-0" />
-  ) : (
-    <Button
-      aria-label={indexingEnabled ? 'Indexing enabled' : 'Not indexed'}
-      aria-pressed={indexingEnabled}
-      className={indexingEnabled ? 'text-primary' : 'text-muted-foreground'}
-      data-testid="worktree-map-indexing"
-      onClick={() => {
-        if (entry.rootId) {
-          onToggleIndexing(entry.rootId, !indexingEnabled);
-        }
-      }}
-      size="icon-sm"
-      title={
-        indexingEnabled ? 'Indexing enabled — click to exclude' : 'Not indexed — click to include'
-      }
-      type="button"
-      variant="ghost"
-    >
-      <Database aria-hidden="true" className="size-3.5" />
-    </Button>
-  );
-}
-
 export function WorktreeMapCard({
   card,
   onAddAsRoot,
@@ -185,7 +138,6 @@ export function WorktreeMapCard({
   onOpenTerminal,
   onOpenThread,
   onReveal,
-  onToggleIndexing,
   status,
 }: WorktreeMapCardProps): ReactElement {
   const { entry } = card;
@@ -244,7 +196,6 @@ export function WorktreeMapCard({
         onOpenThread={onOpenThread}
       />
       <footer className="flex min-w-0 items-center justify-end gap-1.5">
-        <WorktreeIndexingToggle card={card} onToggleIndexing={onToggleIndexing} />
         <Button
           className="h-8 min-w-0 flex-1 shrink px-2 text-xs @min-[760px]/worktrees:flex-none"
           data-testid="worktree-map-new-thread"

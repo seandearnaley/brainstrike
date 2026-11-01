@@ -1,7 +1,7 @@
 /**
  * Everything the Worktree Map renders, composed from surfaces that already
- * exist. The ONLY new read is `worktrees.list()`; thread occupancy, run
- * state and indexing opt-ins all come from live queries and
+ * exist. The ONLY new read is `worktrees.list()`; thread occupancy and run
+ * state come from live queries and
  * stores the app already maintains for other surfaces, so the Map can never
  * disagree with the composer chip or the thread list about the same fact.
  *
@@ -10,15 +10,10 @@
  * trigger, plus an explicit user refresh. No timer.
  */
 
-import {
-  selectIndexConfig,
-  useIndexConfigStore,
-} from '@brainstrike/app-state/stores/index-config-store';
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { type AssistantMemoryThread, useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeListEntry } from '@brainstrike/types';
-import { useNativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
@@ -166,19 +161,8 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   const threads = useAssistantThreadStore(
     (state) => state.threadsByResourceId[input.resourceId] ?? EMPTY_THREADS
   );
-  // null until Main's config is read: the card then makes no indexing claim.
-  const indexingOptInByRootId = useIndexConfigStore(
-    (store) => selectIndexConfig(store)?.worktrees ?? null
-  );
-  // What the index serves: an open folder that is also a worktree is indexed
-  // without an opt-in, and the card says so rather than offer a toggle.
-  const indexStatus = useNativeWorkspaceSearchDependencies()?.status;
-  const indexedRootIds = indexStatus?.kind === 'ready' ? indexStatus.authorizedRootIds : null;
-
   const repositories = buildWorktreeMap({
     entries,
-    indexedRootIds,
-    indexingOptInByRootId,
     runningThreadIds: input.runningThreadIds,
     threads,
   });

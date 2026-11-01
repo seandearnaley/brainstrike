@@ -44,15 +44,12 @@ export async function assertSavedCollection(
 }
 
 /**
- * A root the saved settings index: a live one, and a managed worktree only
- * once it is opted in. Worktrees default to off, so parallel checkouts of
- * one repository are not each indexed unasked.
+ * A root the index covers: a live folder that is not a worktree. A worktree
+ * reads its repository's index through another checkout (ADR-0034), so one
+ * repository is indexed once however many checkouts are open.
  */
-export function isPartitionRoot(
-  root: Pick<WorkspaceRootRecord, 'id' | 'kind' | 'status'>,
-  { worktreeOptIns }: Pick<NativeIndexSettings, 'worktreeOptIns'>
-): boolean {
-  return root.status === 'live' && (root.kind !== 'worktree' || worktreeOptIns.has(root.id));
+export function isPartitionRoot(root: Pick<WorkspaceRootRecord, 'kind' | 'status'>): boolean {
+  return root.status === 'live' && root.kind !== 'worktree';
 }
 
 /** Each authorized workspace root's scope, and the collection's when one is saved. */
