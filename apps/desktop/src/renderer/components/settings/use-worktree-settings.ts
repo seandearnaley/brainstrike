@@ -67,7 +67,7 @@ export function useWorktreeSettings(): UseWorktreeSettingsResult {
     readonly setupCommand: WorktreeSetupCommand;
   }): Promise<void> => {
     if (!bridge) {
-      throw new Error('Worktrees are a desktop feature. This build has no worktree bridge.');
+      throw new Error('Worktrees are unavailable in this window.');
     }
     const result = await bridge.setSettings(next);
     if (!result.ok) {

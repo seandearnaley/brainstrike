@@ -548,7 +548,7 @@ export function useTabFileRestoration(
         case 'restored':
           return null;
         case 'pending':
-          return 'Restoring...';
+          return 'Restoring…';
       }
     },
     [tabStatuses]

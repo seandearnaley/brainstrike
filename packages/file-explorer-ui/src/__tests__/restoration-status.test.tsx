@@ -36,7 +36,7 @@ describe('RestorationStatus', () => {
 
     it('should show default text when progress is null', () => {
       render(<RestorationStatus isRestoring={true} progress={null} />);
-      expect(screen.getByText('Restoring folders...')).toBeInTheDocument();
+      expect(screen.getByText('Restoring folders…')).toBeInTheDocument();
       expect(screen.getByText('0%')).toBeInTheDocument();
     });
 

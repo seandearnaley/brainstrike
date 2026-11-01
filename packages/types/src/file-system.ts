@@ -368,6 +368,14 @@ export interface FileSystemAdapter {
    */
   onWatcherHealth?(callback: (event: WatcherRootHealthEvent) => void): () => void;
   /**
+   * Desktop-only: open a folder as the window's project (ADR-0034). The platform's root
+   * registry closes every other open folder in the same write; a managed worktree stays
+   * mounted for its thread. With a path, the folder must be a recent one (no picker); without,
+   * the picker runs and a cancel rejects with `UserCancelledError`. Absent where the platform
+   * has no open-folder list of its own (web): the capability check IS the platform gate.
+   */
+  openRoot?(path?: string): Promise<RootDescriptor>;
+  /**
    * Present when the platform's own root registry records every mounted folder
    * in `roots` under its one id (desktop Main, BST-1990). Roots reconciliation
    * then only reads those records; without it (web), reconciliation writes them.

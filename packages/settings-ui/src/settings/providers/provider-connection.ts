@@ -9,9 +9,9 @@ import type { CredentialSourceState } from '../secrets/provider-key-types';
  * Credential-listing readiness, widened with `unavailable`.
  *
  * `unavailable` means "this build has NO source of truth for credentials" —
- * the web app, which has no `window.secrets` bridge and is passed no status
- * payload. It is distinct from `ready`-with-nothing-found, and collapsing the
- * two is what made every provider on web render as "Not connected" behind a
+ * a renderer with no `window.secrets` bridge and no status payload. It is
+ * distinct from `ready`-with-nothing-found, and collapsing the two is what
+ * once made every provider render as "Not connected" behind a
  * permanent first-run panel.
  */
 export type ProviderSourceState = CredentialSourceState | 'unavailable';

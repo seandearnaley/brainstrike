@@ -112,6 +112,7 @@
     "workspace/roots/add",
     "workspace/roots/delete-data",
     "workspace/roots/mounted",
+    "workspace/roots/open",
     "workspace/roots/pick",
     "workspace/roots/recent",
     "workspace/roots/release-data-deletion",

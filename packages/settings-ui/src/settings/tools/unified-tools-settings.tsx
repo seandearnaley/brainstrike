@@ -790,7 +790,7 @@ function ToolsPanelContent({
       )}
 
       {loading && (
-        <div className="text-muted-foreground py-8 text-center text-sm">Loading tools...</div>
+        <div className="text-muted-foreground py-8 text-center text-sm">Loading tools…</div>
       )}
 
       {!(loading || hasTools) && (

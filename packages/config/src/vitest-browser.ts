@@ -264,8 +264,8 @@ type PlaywrightProviderDefinition = ReturnType<typeof playwright>;
 /**
  * Wraps a playwright provider with bounded trace names and live command frames.
  * `createBrowserProject` applies this for you — call it directly only from a
- * browser project that builds its own `playwright()` provider (packages/db and
- * packages/storage), otherwise that project keeps the ENAMETOOLONG exposure.
+ * browser project that builds its own `playwright()` provider (packages/storage),
+ * otherwise that project keeps the ENAMETOOLONG exposure.
  *
  * Assumes the provider definition is a plain object: the spread below copies
  * own enumerable properties only, so a future class instance or accessor on
