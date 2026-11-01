@@ -68,7 +68,12 @@ test('collection deletion preserves its canonical source bytes and identity', as
     await store.collections({ collection, operation: 'create' });
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'root', path: '/disposable/root', preferredId: 'root' },
+      root: {
+        canonicalPath: '/disposable/root',
+        displayName: 'root',
+        path: '/disposable/root',
+        preferredId: 'root',
+      },
     });
     const content = 'Source retained after removing its collection';
     const files = (

@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
@@ -7,15 +5,13 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 /**
  * BST-1930 stage e: the agent host keeps the permission policy the user saves,
- * in its StateStore. A saved choice survives a restart, and Main's own storage
- * holds no copy of it.
+ * in its StateStore, and a saved choice survives a restart. Main keeps no
+ * storage of its own (ADR-0029 stage 4).
  */
-test('a saved permission policy survives a restart from the agent host, and Main keeps none', async ({
-  electronApp,
+test('a saved permission policy survives a restart from the agent host', async ({
   electronHarness,
   window,
 }) => {
-  const userDataDir = await electronApp.app.evaluate(({ app }) => app.getPath('userData'));
   await new HomePage(window).openSettings();
   await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   const edit = window.getByTestId('permission-policy-edit');
@@ -29,8 +25,4 @@ test('a saved permission policy survives a restart from the agent host, and Main
   await new HomePage(restarted.window).openSettings();
   await new SettingsPage(restarted.window).openCategory(/Permissions/iu, 'permissions');
   await expect(restarted.window.getByTestId('permission-policy-edit')).toHaveValue('deny');
-
-  const mainStorage = path.join(userDataDir, 'electron-storage.json');
-  const stored = fs.existsSync(mainStorage) ? fs.readFileSync(mainStorage, 'utf8') : '';
-  expect(stored).not.toContain('permission-policy');
 });

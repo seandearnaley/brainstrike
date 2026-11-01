@@ -1,6 +1,6 @@
 {
   "name": "@brainstrike/storage",
-  "description": "Durable renderer stores (zustand persist on localStorage) and Main's string key-value file store",
+  "description": "Durable renderer stores (zustand persist on localStorage)",
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
@@ -10,15 +10,13 @@
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "electron": "catalog:",
     "jsdom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts",
-    "./electron": "./src/electron.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "vitest run --project unit",

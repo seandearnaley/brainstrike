@@ -37,8 +37,8 @@ const QUIT_POINTS = {
       })
       .toBe(true);
   },
-  // The data is gone and the replacement renderer is starting, while Main
-  // still owes the profile reopen its startup requests are waiting on.
+  // The data is gone and the replacement renderer is starting its own boot
+  // requests against the host.
   replacement: async (window: Page) => {
     await window.waitForEvent('load', { timeout: 60_000 });
   },
@@ -116,15 +116,22 @@ test.for(Object.keys(QUIT_POINTS) as (keyof typeof QUIT_POINTS)[])(
       await expect
         .poll(() => existsSync(join(profile, 'host.json')), { timeout: 60_000 })
         .toBe(true);
+      // The renderer installs its test hooks once it has mounted.
+      await window.waitForFunction(() => '__brainstrikeTestHooks__' in globalThis, undefined, {
+        timeout: 60_000,
+      });
       await window.evaluate(async () => {
-        const api = globalThis.window.electronAPI;
-        if (!(api && 'fileSystem' in api)) {
-          throw new Error('Desktop filesystem capability unavailable');
+        const hooks = (
+          globalThis as typeof globalThis & {
+            __brainstrikeTestHooks__?: {
+              requestAgentHost?: (method: string, params: unknown) => Promise<unknown>;
+            };
+          }
+        ).__brainstrikeTestHooks__;
+        if (!hooks?.requestAgentHost) {
+          throw new Error('The renderer test hook requestAgentHost is unavailable');
         }
-        const reply = await api.fileSystem.restoreRoots();
-        if (!reply.ok) {
-          throw new Error(reply.error.message);
-        }
+        await hooks.requestAgentHost('workspace/roots/restore', {});
       });
       await window.evaluate(() => {
         const api = globalThis.window.electronAPI;

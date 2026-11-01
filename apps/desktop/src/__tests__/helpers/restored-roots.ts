@@ -1,21 +1,29 @@
-import type { WorkspaceRootRegistry } from '../../ipc-domains/workspace-root-registry';
+import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
+import type { IndexSourceRoots } from '../../ipc-domains/index-source-roots';
 
 /**
- * A registry stub as the open borrows from it: one restore-and-borrow step over the stub's own
- * `restoreRoots` and `borrowSourceRoot`, each read when the step runs. A close releases nothing.
+ * A roots stub as the native index borrows from it: one sync-and-borrow step over the stub's
+ * own `restoreRoots` (its granted folders are the live ones) and `borrowSourceRoot`, each read
+ * when the step runs.
  */
 export function restoredRoots<
   R extends {
-    borrowSourceRoot?: WorkspaceRootRegistry['borrowSourceRoot'];
-    restoreRoots: () => Promise<unknown>;
+    borrowSourceRoot?: IndexSourceRoots['borrowSourceRoot'];
+    restoreRoots: () => Promise<
+      readonly { readonly permissionState: string; readonly rootId: string }[]
+    >;
   },
->(roots: R): R & Pick<WorkspaceRootRegistry, 'borrowRestoredRoots' | 'releaseRestoredRoots'> {
-  const borrowRestoredRoots: WorkspaceRootRegistry['borrowRestoredRoots'] = async (work) =>
-    work((await roots.restoreRoots()) as Parameters<typeof work>[0], (rootId, subscribe) => {
+>(roots: R): R & Pick<IndexSourceRoots, 'borrowLiveRoots'> {
+  const borrowLiveRoots: IndexSourceRoots['borrowLiveRoots'] = async (work) => {
+    const live = (await roots.restoreRoots())
+      .filter((root) => root.permissionState === 'granted')
+      .map((root) => root.rootId);
+    return work(live, async (rootId, subscribe): Promise<CanonicalWorkspaceLease> => {
       if (!roots.borrowSourceRoot) {
-        throw new Error('This registry stub mounts no folder.');
+        throw new Error('This roots stub mounts no folder.');
       }
       return roots.borrowSourceRoot(rootId, subscribe);
     });
-  return Object.assign(roots, { borrowRestoredRoots, releaseRestoredRoots: () => undefined });
+  };
+  return Object.assign(roots, { borrowLiveRoots });
 }

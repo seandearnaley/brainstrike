@@ -1,31 +1,50 @@
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
-import type { StoredWorkspaceRoot } from './workspace-root-types.ts';
+import type { RecordedWorkspaceRoot } from './workspace-root-types.ts';
 import { recordWorkspaceRootDisconnections } from './workspace-roots.ts';
 
 const logger = createLogger('WorkspaceRootCatalog');
 
+/** A catalog record as the registry reads it, with its grant-time identity. */
+export function recordedRoot(root: {
+  readonly canonicalPath: string;
+  readonly createdAt: number;
+  readonly id: string;
+  readonly path: string;
+}): RecordedWorkspaceRoot {
+  return {
+    addedAt: root.createdAt,
+    canonicalPath: root.canonicalPath,
+    path: root.path,
+    rootId: root.id,
+  };
+}
+
 export async function findRecordedWorkspaceRoot(
   catalog: WorkspaceRootPort,
-  existing: StoredWorkspaceRoot | undefined,
-  match: (records: readonly StoredWorkspaceRoot[]) => Promise<StoredWorkspaceRoot | undefined>
-): Promise<StoredWorkspaceRoot | undefined> {
+  existing: RecordedWorkspaceRoot | undefined,
+  match: (records: readonly RecordedWorkspaceRoot[]) => RecordedWorkspaceRoot | undefined
+): Promise<RecordedWorkspaceRoot | undefined> {
   if (existing) {
     return existing;
   }
   const { roots } = await catalog.workspaceRoots({ operation: 'list' });
-  return await match(
-    roots.map((root) => ({ addedAt: root.createdAt, path: root.path, rootId: root.id }))
-  );
+  return match(roots.map(recordedRoot));
 }
 
+/**
+ * Records the folder under the identity its mount resolved. A recorded path that now resolves
+ * elsewhere is refused unless the person granted it afresh (`repin`).
+ */
 export async function recordWorkspaceRoot(
   catalog: WorkspaceRootPort,
-  root: { readonly path: string; readonly preferredId: string }
+  root: { readonly canonicalPath: string; readonly path: string; readonly preferredId: string },
+  repin = false
 ): Promise<string> {
   const { roots } = await catalog.workspaceRoots({
     operation: 'register',
+    ...(repin ? { repin } : {}),
     root: { ...root, displayName: path.basename(root.path) || root.path },
   });
   const recorded = roots[0];
@@ -37,9 +56,14 @@ export async function recordWorkspaceRoot(
 
 export async function markRootsDisconnectedExcept(
   catalog: WorkspaceRootPort,
-  mountedPaths: readonly string[]
+  mountedPaths: readonly string[],
+  closeRootIds: readonly string[] = []
 ): Promise<readonly { id: string; path: string }[]> {
-  const { roots } = await catalog.workspaceRoots({ mountedPaths, operation: 'disconnect-except' });
+  const { roots } = await catalog.workspaceRoots({
+    closeRootIds,
+    mountedPaths,
+    operation: 'disconnect-except',
+  });
   recordWorkspaceRootDisconnections(roots.map((root) => root.id));
   return roots;
 }
@@ -47,7 +71,7 @@ export async function markRootsDisconnectedExcept(
 /** Reopens the same granted records; no identity inference or conversion is allowed. */
 export async function recordRestoredWorkspaceRoots(
   getCatalog: () => Promise<WorkspaceRootPort>,
-  roots: readonly { readonly path: string; readonly rootId: string }[]
+  roots: readonly RecordedWorkspaceRoot[]
 ): Promise<void> {
   if (roots.length === 0) {
     return;
@@ -56,6 +80,7 @@ export async function recordRestoredWorkspaceRoots(
     const catalog = await getCatalog();
     for (const root of roots) {
       const recordedId = await recordWorkspaceRoot(catalog, {
+        canonicalPath: root.canonicalPath,
         path: root.path,
         preferredId: root.rootId,
       });

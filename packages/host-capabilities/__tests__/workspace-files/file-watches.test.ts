@@ -18,6 +18,7 @@ import {
   type StartFileWatch,
 } from '../../src/workspace-files/file-watches.ts';
 import { createWorkspaceRootPins } from '../../src/workspace-files/root-pins.ts';
+import { grantedMounts } from './granted-mounts.ts';
 
 let workspace: string;
 
@@ -30,23 +31,19 @@ afterEach(() => {
   rmSync(workspace, { force: true, recursive: true });
 });
 
-const opened: { close(): Promise<void> }[] = [];
+const opened: { close(): Promise<void> | void }[] = [];
 afterEach(async () => {
-  await Promise.all(opened.splice(0).map((pins) => pins.close()));
+  for (const owner of opened.splice(0).reverse()) {
+    await owner.close();
+  }
 });
-/** The live roots at these paths, pinned as the desktop host pins them. */
-const roots = (...paths: string[]) => {
-  const pins = createWorkspaceRootPins({
-    roots: {
-      listRoots: async () =>
-        paths.map((rootPath, index) => ({
-          displayName: path.basename(rootPath),
-          path: rootPath,
-          rootId: `root-${index}`,
-        })),
-    },
-  });
-  opened.push(pins);
+/** The live roots at these paths, mounted at grant as the desktop host mounts them. */
+const roots = async (...paths: string[]) => {
+  const mounts = await grantedMounts(
+    paths.map((rootPath, index) => ({ path: rootPath, rootId: `root-${index}` }))
+  );
+  const pins = createWorkspaceRootPins({ mounts });
+  opened.push(mounts, pins);
   return pins;
 };
 
@@ -82,7 +79,7 @@ function scriptedWatch() {
 describe('host file watches', () => {
   it('watches only the exact path of a live root', async () => {
     const owner = createHostFileWatches({
-      pins: roots(workspace),
+      pins: await roots(workspace),
       startWatch: scriptedWatch().startWatch,
     });
     const session = owner.service.open(vi.fn());
@@ -100,16 +97,18 @@ describe('host file watches', () => {
   });
 
   it('reports a live root that is gone from disk as unavailable', async () => {
-    const missing = path.join(workspace, 'removed');
-    const owner = createHostFileWatches({ pins: roots(missing) });
+    const removed = path.join(workspace, 'removed');
+    mkdirSync(removed);
+    const owner = createHostFileWatches({ pins: await roots(removed) });
+    rmSync(removed, { recursive: true });
     await expect(
-      owner.service.open(vi.fn())['workspace/files/watch']({ path: missing })
+      owner.service.open(vi.fn())['workspace/files/watch']({ path: removed })
     ).rejects.toMatchObject({ failure: { code: 'workspace.watch-root-unavailable' } });
   });
 
   it('never watches a folder symlinked in at the path of a root it already opened', async () => {
     const owner = createHostFileWatches({
-      pins: roots(workspace),
+      pins: await roots(workspace),
       startWatch: scriptedWatch().startWatch,
     });
     const session = owner.service.open(vi.fn());
@@ -134,7 +133,10 @@ describe('host file watches', () => {
 
   it('shares one native watch per root across clients, and stops it with the last one', async () => {
     const engine = scriptedWatch();
-    const owner = createHostFileWatches({ pins: roots(workspace), startWatch: engine.startWatch });
+    const owner = createHostFileWatches({
+      pins: await roots(workspace),
+      startWatch: engine.startWatch,
+    });
     const firstEvents: WorkspaceFilesEvent[] = [];
     const secondEvents: WorkspaceFilesEvent[] = [];
     const first = owner.service.open((event) => firstEvents.push(event));
@@ -161,7 +163,10 @@ describe('host file watches', () => {
 
   it('retries a failed watch only when asked, and throttles repeated failures', async () => {
     const engine = scriptedWatch();
-    const owner = createHostFileWatches({ pins: roots(workspace), startWatch: engine.startWatch });
+    const owner = createHostFileWatches({
+      pins: await roots(workspace),
+      startWatch: engine.startWatch,
+    });
     const events: WorkspaceFilesEvent[] = [];
     const session = owner.service.open((event) => events.push(event));
     const { watchId } = await session['workspace/files/watch']({ path: workspace });
@@ -206,7 +211,7 @@ describe('host file watches', () => {
       }
       return async () => undefined;
     };
-    const owner = createHostFileWatches({ pins: roots(workspace), startWatch });
+    const owner = createHostFileWatches({ pins: await roots(workspace), startWatch });
     const session = owner.service.open(vi.fn());
 
     await expect(session['workspace/files/watch']({ path: workspace })).rejects.toThrow('ENOSPC');
@@ -219,7 +224,7 @@ describe('host file watches', () => {
 
   it('holds a client to its watch limit when its requests arrive together', async () => {
     const { startWatch } = scriptedWatch();
-    const owner = createHostFileWatches({ pins: roots(workspace), startWatch });
+    const owner = createHostFileWatches({ pins: await roots(workspace), startWatch });
     const session = owner.service.open(vi.fn());
 
     const results = await Promise.allSettled(
@@ -247,7 +252,7 @@ describe('host file watches', () => {
     const stopping = Promise.withResolvers<void>();
     const stop = vi.fn(() => stopping.promise);
     const startWatch = vi.fn<StartFileWatch>(() => starting.promise);
-    const owner = createHostFileWatches({ pins: roots(workspace), startWatch });
+    const owner = createHostFileWatches({ pins: await roots(workspace), startWatch });
     const session = owner.service.open(vi.fn());
     const watching = session['workspace/files/watch']({ path: workspace });
     await vi.waitFor(() => expect(startWatch).toHaveBeenCalledOnce());
@@ -269,7 +274,7 @@ describe('host file watches', () => {
   });
 
   it('pushes a file written in the root to the client that watches it', async () => {
-    const owner = createHostFileWatches({ pins: roots(workspace) });
+    const owner = createHostFileWatches({ pins: await roots(workspace) });
     const events: WorkspaceFilesEvent[] = [];
     const session = owner.service.open((event) => events.push(event));
     const { watchId } = await session['workspace/files/watch']({ path: workspace });

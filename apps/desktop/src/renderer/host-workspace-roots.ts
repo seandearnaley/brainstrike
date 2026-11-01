@@ -1,0 +1,68 @@
+import { UserCancelledError } from '@brainstrike/file-system';
+import { descriptorFor } from '@brainstrike/file-system/workspace-root-nodes';
+import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
+import { type DesktopHostConnection, windowHostConnection } from './desktop-host-connection';
+
+/** The desktop workspace's open folders, as the file-system adapter exposes them. */
+export interface DesktopWorkspaceRoots {
+  addRootByPath(path: string): Promise<RootDescriptor>;
+  listRecentRoots(): Promise<readonly RecentRootEntry[]>;
+  /** Rejects with `UserCancelledError` when the person cancels the picker. */
+  pickRoot(): Promise<RootDescriptor>;
+  removeRoot(rootId: string): Promise<void>;
+  restoreRoots(): Promise<RootDescriptor[]>;
+}
+
+/** One open folder as `workspace/roots/*` answers it. */
+interface HostOpenRoot {
+  readonly available: boolean;
+  readonly path: string;
+  readonly rootId: string;
+}
+
+function descriptor(root: HostOpenRoot): RootDescriptor {
+  return descriptorFor(
+    { addedAt: 0, path: root.path, rootId: root.rootId },
+    root.available ? 'granted' : 'unknown'
+  );
+}
+
+/**
+ * ADR-0029 stage 4: the agent host's root registry owns the open folders and the
+ * recent-folders ledger; Main keeps only the native picker, which the host asks for.
+ */
+export function createDesktopWorkspaceRoots(
+  connection: DesktopHostConnection
+): DesktopWorkspaceRoots {
+  return {
+    addRootByPath: async (path) =>
+      descriptor(await (await connection.current()).request('workspace/roots/add', { path })),
+    listRecentRoots: async () =>
+      (await (await connection.current()).request('workspace/roots/recent', {})).roots,
+    pickRoot: async () => {
+      const { root } = await (await connection.current()).request('workspace/roots/pick', {});
+      if (root === null) {
+        throw new UserCancelledError();
+      }
+      return descriptor(root);
+    },
+    removeRoot: async (rootId) => {
+      await (await connection.current()).request('workspace/roots/remove', { rootId });
+    },
+    restoreRoots: async () =>
+      (await (await connection.current()).request('workspace/roots/restore', {})).roots.map(
+        descriptor
+      ),
+  };
+}
+
+let windowRoots: DesktopWorkspaceRoots | undefined;
+
+/** `null` where this window has no agent-host capability. */
+export function resolveDesktopWorkspaceRoots(): DesktopWorkspaceRoots | null {
+  if (!window.agentHost) {
+    return null;
+  }
+  windowRoots ??= createDesktopWorkspaceRoots(windowHostConnection());
+  return windowRoots;
+}

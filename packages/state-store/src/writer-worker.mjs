@@ -355,7 +355,7 @@ function handle(m) {
       return executeWorkspaceRootRequest(
         db,
         /** @type {import('./workspace-root-types.ts').WorkspaceRootRequest} */ (m['request']),
-        // Main grants absolute OS paths.
+        // The agent host's root registry grants absolute OS paths.
         { isGranted: (root) => isAbsolute(root.path) }
       );
     // Mastra's memory calculation runs on the memory calculator worker, never here (BST-2398): this writer reads

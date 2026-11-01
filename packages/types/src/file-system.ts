@@ -140,7 +140,7 @@ export interface DirectoryHandle {
    * collide: on web `path` is only the directory name (the FSA API hides the
    * absolute path), so two folders both named "project" share a path. Identity
    * resolution prefers this over `path`. Absent for legacy single-root handles
-   * (the `setRoot`/`restoreLastFolder` path), where `path` is unique anyway.
+   * (the `setRoot` path), where `path` is unique anyway.
    */
   rootId?: RootId;
 }
@@ -457,7 +457,6 @@ export interface FileSystemAdapter {
    * @returns The resolved leaf `FileSystemFileHandle`
    */
   resolveFileHandleByPath?(absolutePath: string): Promise<FileSystemFileHandle>;
-  restoreLastFolder?(): Promise<DirectoryHandle | null>;
   /**
    * Multi-root: return every persisted root with its current permission state.
    * Never prompts (web queryPermission only). Dead handles are returned with

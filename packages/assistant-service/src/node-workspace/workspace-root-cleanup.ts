@@ -51,26 +51,29 @@ export async function cleanupWorkspaceRootResources(
 
 interface WorkspaceRootCatalogConvergence {
   readonly cleanup: (rootIds: readonly string[]) => Promise<void>;
+  readonly closeRootIds: readonly string[];
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   readonly isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined;
   readonly mountedPaths: readonly string[];
-  readonly whenCatalogOpen: (() => Promise<void>) | undefined;
 }
 
 /**
- * Marks every catalog root outside the mounted set disconnected and ends its resources, once
- * the catalog's profile is open. A refusal its owner expects is logged at info.
+ * Marks every catalog root outside the mounted set disconnected (closing `closeRootIds` in the
+ * same commit) and ends its resources. A refusal its owner expects is logged at info.
  */
 export async function convergeWorkspaceRootCatalog({
   cleanup,
+  closeRootIds,
   getRootsCatalog,
   isExpectedCatalogRefusal,
   mountedPaths,
-  whenCatalogOpen,
 }: WorkspaceRootCatalogConvergence): Promise<void> {
   try {
-    await whenCatalogOpen?.();
-    const disconnected = await markRootsDisconnectedExcept(await getRootsCatalog(), mountedPaths);
+    const disconnected = await markRootsDisconnectedExcept(
+      await getRootsCatalog(),
+      mountedPaths,
+      closeRootIds
+    );
     await cleanup(disconnected.map((row) => row.id));
   } catch (error) {
     if (isExpectedCatalogRefusal?.(error)) {

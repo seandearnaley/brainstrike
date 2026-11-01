@@ -129,17 +129,7 @@ if (shouldExposeBridge('electronAPI')) {
       ...createIpcBridge(ipcRenderer, factoryResetContract),
       unavailableReason: getFactoryResetUnavailableReason(process.platform),
     },
-    fileSystem: {
-      ...createIpcBridge(ipcRenderer, fileSystemContract),
-      ...(DESKTOP_TEST_MODE
-        ? {
-            clearLedgersForE2e: () =>
-              ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.clearLedgersForE2e),
-            seedLedgerForE2e: (key: string, value: string) =>
-              ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.seedLedgerForE2e, key, value),
-          }
-        : {}),
-    },
+    fileSystem: createIpcBridge(ipcRenderer, fileSystemContract),
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
   } satisfies VisibleDesktopElectronApi;

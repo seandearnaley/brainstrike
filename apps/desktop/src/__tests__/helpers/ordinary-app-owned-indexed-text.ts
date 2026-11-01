@@ -318,7 +318,7 @@ export async function qualifyOrdinaryAppIndexedText(
     );
     await page.reload();
     await ensureAssistantShellVisible(page);
-    workspaceRootId = await addWorkspaceFolder(page, workspace);
+    workspaceRootId = await addWorkspaceFolder(page, workspace, profile);
     const record = decodeHostRecord(JSON.parse(await readFile(join(profile, 'host.json'), 'utf8')));
     expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
     expect(record.pid).not.toBe(process.pid);

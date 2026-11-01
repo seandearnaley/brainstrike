@@ -97,14 +97,6 @@ vi.mock('@brainstrike/file-system/electron', () => {
   return { ElectronFileSystemAdapter: MockAdapter };
 });
 
-vi.mock('@brainstrike/storage/electron', () => {
-  const MockAdapter = vi.fn();
-  MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
-  return { ElectronStorageAdapter: MockAdapter };
-});
-
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();

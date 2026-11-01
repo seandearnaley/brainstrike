@@ -1,4 +1,4 @@
-/** Main's string key-value store (`ElectronStorageAdapter`). */
+/** A string key-value store: the agent host's recent-folders ledger keeps this shape in its settings. */
 export interface StorageAdapter {
   /**
    * Get all keys in storage

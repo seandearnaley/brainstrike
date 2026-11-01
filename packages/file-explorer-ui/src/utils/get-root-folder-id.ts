@@ -16,7 +16,7 @@ const logger = createLogger('getRootFolderId');
  *    unstamped (rare; the reducer stamps every registered root). Keyed by path,
  *    so it cannot disambiguate same-named roots — only the stamp can.
  * 3. `handle.path` — final fallback for legacy single-root handles (the
- *    `setRoot`/`restoreLastFolder` path), where the path is unique anyway. Logs
+ *    `setRoot` path), where the path is unique anyway. Logs
  *    at DEBUG so a missed identity registration is observable, not silent.
  *
  * @param handle - The directory handle to resolve.

@@ -13,7 +13,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
-import { seedMainLedgers } from './utils/seed-root';
+import { seedWorkspaceFolders } from './utils/seed-root';
 
 let ROOT_DIR: string;
 
@@ -66,12 +66,7 @@ test.describe('Explorer scroll restore', () => {
   }) => {
     test.setTimeout(3 * 60 * 1000);
 
-    await seedMainLedgers(page, {
-      lastFolderPath: ROOT_DIR,
-      rootsList: JSON.stringify([
-        { addedAt: 1_800_000_000_000, path: ROOT_DIR, rootId: 'scroll-root-1' },
-      ]),
-    });
+    await seedWorkspaceFolders(page, { roots: [{ path: ROOT_DIR, rootId: 'scroll-root-1' }] });
     await updateIndexConfig(page, { paused: true });
 
     const { reloadRenderer } = await loadElectronHelpers();

@@ -4,7 +4,7 @@ import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer/testin
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
-import { seedMainLedgers } from './utils/seed-root';
+import { seedWorkspaceFolders } from './utils/seed-root';
 
 interface BufferedLogRecord {
   readonly args: readonly unknown[];
@@ -23,11 +23,10 @@ interface PersistedEnvelope<TState> {
 /**
  * Fixed RootId for the seeded state (storage v5): currentFolderId, folderStates
  * keys, and selection composite keys all carry this UUID, never the path. The
- * seed also writes a matching `rootsList` entry so main's restoreRoots resolves
- * the restored folder to this exact id after restart.
+ * host's root record is seeded with the same id, so its restore resolves the
+ * restored folder to this exact id after restart.
  */
 const RESTORED_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000002';
-const RESTORED_ROOT_ADDED_AT = 1_700_000_000_000;
 const RESTORED_FILE_NAME = 'mock-file1.txt';
 
 /** The restored folder: the harness's real disposable workspace, holding one file. */
@@ -143,16 +142,9 @@ async function seedRestoredStartupState(page: Page, folder: RestoredFolder): Pro
     },
     { nextFileExplorerState: fileExplorerState, nextTabState: tabState }
   );
-  // Main's ledgers: the rootsList entry carries the fixed RootId so main's restoreRoots()
-  // resolves the restored folder to this exact id on boot. lastFolderPath is seeded directly:
-  // setLastFolder throws unless its path already references a mounted root, which is not yet
-  // true at this pre-boot step.
-  await seedMainLedgers(page, {
-    lastFolderPath: folder.path,
-    rootsList: JSON.stringify([
-      { addedAt: RESTORED_ROOT_ADDED_AT, path: folder.path, rootId: RESTORED_ROOT_ID },
-    ]),
-  });
+  // The host's open folders: the seeded record carries the fixed RootId, so the renderer's
+  // restore on boot resolves the restored folder to this exact id.
+  await seedWorkspaceFolders(page, { roots: [{ path: folder.path, rootId: RESTORED_ROOT_ID }] });
 }
 
 async function getRendererLogRecords(page: Page): Promise<BufferedLogRecord[]> {

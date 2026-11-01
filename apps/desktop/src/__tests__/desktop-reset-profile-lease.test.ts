@@ -36,13 +36,12 @@ describe('desktop reset profile ownership', () => {
       root: PROFILE,
     };
     const prepare = vi.fn(async () => guard);
-    const storage = vi.fn(async () => undefined);
     const renderer = vi.fn(async () => undefined);
     const reset = vi.fn(async (lease?: ProfileResetLease) => {
       expect(lease).toBe(guard);
       await lease?.clearRootContents();
     });
-    return { clear, guard, prepare, release, renderer, reset, storage };
+    return { clear, guard, prepare, release, renderer, reset };
   }
 
   async function handler(state: ReturnType<typeof setup>) {
@@ -52,7 +51,6 @@ describe('desktop reset profile ownership', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset: state.prepare,
       resetLocalDatabase: state.reset,
-      resetPersistentStorageAfterDataDeletion: state.storage,
       runTransition: (work) => work(),
       runtimes: [],
       sessionDataPath: SESSION_DATA,
@@ -77,33 +75,36 @@ describe('desktop reset profile ownership', () => {
     await expect(run()).resolves.toEqual({ message: 'Chromium data clear failed', success: false });
     expect(state.prepare).not.toHaveBeenCalled();
     expect(state.clear).not.toHaveBeenCalled();
-    expect(state.storage).not.toHaveBeenCalled();
     expect(state.renderer).not.toHaveBeenCalled();
   });
 
-  it('owns the profile throughout userData and storage purge, releasing before renderer replacement', async () => {
+  it('owns the profile throughout the userData purge, releasing before renderer replacement', async () => {
     const state = setup();
-    performProfileReset();
-    const storage = Promise.withResolvers<void>();
-    state.storage.mockImplementation(async () => {
-      await storage.promise;
+    const purged = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<void>();
+    purge.mockImplementation(async (options: ResetDesktopApplicationDataOptions) => {
+      await options.stopBackgroundRuntimes();
+      await options.resetDatabaseProfile();
+      purged.resolve();
+      await held.promise;
+      return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [PROFILE_LOCK] };
     });
     state.renderer.mockImplementation(async () => {
       expect(state.guard.isReleased).toBe(true);
     });
     const run = await handler(state);
     const result = run();
-    await vi.waitFor(() => expect(state.storage).toHaveBeenCalledOnce());
+    await purged.promise;
     expect(state.guard.isReleased).toBe(false);
     expect(state.release).not.toHaveBeenCalled();
     expect(state.renderer).not.toHaveBeenCalled();
-    storage.resolve();
+    held.resolve();
     await expect(result).resolves.toEqual({ success: true });
     expect(state.release).toHaveBeenCalledOnce();
     expect(state.clear).toHaveBeenCalledOnce();
   });
 
-  it.each(['profile', 'userData', 'storage'] as const)(
+  it.each(['profile', 'userData'] as const)(
     'retains the same accessible owner after %s failure for a retry',
     async (phase) => {
       const state = setup();
@@ -111,9 +112,6 @@ describe('desktop reset profile ownership', () => {
       const failure = new Error(`${phase} failed`);
       if (phase === 'profile') {
         state.clear.mockRejectedValueOnce(failure);
-      }
-      if (phase === 'storage') {
-        state.storage.mockRejectedValueOnce(failure);
       }
       if (phase === 'userData') {
         purge.mockImplementationOnce(async (options: ResetDesktopApplicationDataOptions) => {

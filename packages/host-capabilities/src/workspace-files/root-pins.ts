@@ -1,38 +1,31 @@
 /**
- * ADR-0029 stage 4: the host's one open `SecureRoot` for each live workspace
- * root, shared by the Explorer's reads and root watches. A root is opened at its
- * first use and that handle and canonical path serve every later read and
- * watch, so renaming the folder and putting a symlink at its path never moves
- * the root somewhere else, the same pinning Main's mounted registry gave. The
- * handle closes once the catalog stops recording the root as live at that path
- * (seen at the next request) or when the host closes.
+ * ADR-0029 stage 4: the Explorer's reads and root watches borrow the host's one
+ * open `SecureRoot` for each workspace folder: the handle its root registry
+ * opened when the folder was granted (or restored). That handle and its
+ * canonical path serve every read and watch, so renaming the folder and putting
+ * a symlink at its path never moves the root somewhere else. The registry is
+ * the handles' one owner: it closes a folder's handle once the folder leaves,
+ * after the borrows on it settle, and a folder whose data is being deleted is
+ * absent here for the whole deletion.
  */
 import path from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
-  BoundaryFailureError,
-  fault,
-  refusalError,
-} from '@brainstrike/assistant-contract/boundary-failure';
-import {
-  createNativeSecureRoot,
+  type MountedWorkspaceRoot,
   pathsEqual,
   type SecureWorkspaceRoot,
 } from '@brainstrike/assistant-service/node-workspace-services';
-import { createLogger } from '@brainstrike/logging';
-import type { WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 
-const logger = createLogger('WorkspaceRootPins');
-
-/** The refusal code of a live root whose folder is gone from disk. */
+/** The refusal code of a root that is not mounted: its folder is gone or not reconnected. */
 export const ROOT_UNMOUNTED = 'workspace.root-unmounted';
 
-/** A root the host's catalog records as live, at its normalized absolute path. */
+/** A root the host's registry has mounted, at its normalized absolute path. */
 export interface LiveRoot {
   readonly path: string;
   readonly rootId: string;
 }
 
-/** The pinned handle of one live root, as it was when the host first opened it. */
+/** The pinned handle of one live root, as the registry opened it at grant. */
 export interface PinnedRoot {
   readonly canonicalPath: string;
   readonly presentationPath: string;
@@ -41,129 +34,47 @@ export interface PinnedRoot {
 }
 
 export interface WorkspaceRootPins {
-  /** Refuses new borrows, then closes every handle once its borrowers finish. */
+  /** Refuses new borrows, then waits for the borrows in flight. */
   close(): Promise<void>;
-  /** The live roots; a pin whose root is no longer live at its path is retired. */
+  /** The mounted roots. */
   liveRoots(): Promise<LiveRoot[]>;
-  /** Runs `use` on the root's pinned handle, opening it on first use. */
+  /** Runs `use` on the root's pinned handle. */
   use<T>(live: LiveRoot, use: (pinned: PinnedRoot) => Promise<T>): Promise<T>;
 }
 
+/** The host root registry's mounts: the one owner of each folder's handle. */
+export interface WorkspaceRootMounts {
+  mountedRoots(): readonly { canonicalPath: string; path: string; rootId: string }[];
+  useMountedRoot<T>(rootId: string, use: (mounted: MountedWorkspaceRoot) => Promise<T>): Promise<T>;
+}
+
 export interface WorkspaceRootPinOptions {
-  /** Test seam; production opens the root with `SecureRoot`. */
-  readonly openRoot?: (rootPath: string) => Promise<SecureWorkspaceRoot>;
-  readonly roots: WorkspaceRootResolver;
+  readonly mounts: WorkspaceRootMounts;
 }
 
-interface Pin {
-  borrowers: number;
-  readonly closed: PromiseWithResolvers<void>;
-  readonly opened: Promise<SecureWorkspaceRoot>;
-  readonly path: string;
-  retired: boolean;
-  readonly rootId: string;
-}
-
-/** The folder's absence is the user's to fix; any other failure to open it is a fault. */
-function openFailure(cause: unknown, rootId: string): Error {
-  if ((cause as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
-    logger.debug('A live workspace root is missing from disk', { rootId });
-    return refusalError(
-      'availability',
-      ROOT_UNMOUNTED,
-      'The workspace folder is not available.',
-      'Reconnect the folder and retry.'
-    );
-  }
-  logger.error('A live workspace root could not be opened', { cause, rootId });
-  return new BoundaryFailureError(
-    fault({
-      category: 'internal',
-      code: 'workspace.root-open-failed',
-      message: 'The workspace folder could not be opened.',
-    }),
-    { cause }
+const unmounted = () =>
+  refusalError(
+    'availability',
+    ROOT_UNMOUNTED,
+    'The workspace folder is not available.',
+    'Reconnect the folder and retry.'
   );
-}
 
 export function createWorkspaceRootPins(options: WorkspaceRootPinOptions): WorkspaceRootPins {
-  const openRoot = options.openRoot ?? createNativeSecureRoot;
-  const pins = new Map<string, Pin>();
-  const retiring = new Set<Pin>();
+  const { mounts } = options;
+  const inFlight = new Set<Promise<unknown>>();
   let closed = false;
-
-  const closeIfIdle = (pin: Pin): void => {
-    if (!(pin.retired && pin.borrowers === 0)) {
-      return;
-    }
-    const settle = (): void => {
-      retiring.delete(pin);
-      pin.closed.resolve();
-    };
-    pin.opened.then((root) => {
-      try {
-        root.close();
-      } catch (cause) {
-        logger.error('A workspace root handle did not close', { cause, rootId: pin.rootId });
-      } finally {
-        settle();
-      }
-    }, settle);
-  };
-
-  const retire = (pin: Pin): void => {
-    if (pin.retired) {
-      return;
-    }
-    if (pins.get(pin.rootId) === pin) {
-      pins.delete(pin.rootId);
-    }
-    pin.retired = true;
-    retiring.add(pin);
-    closeIfIdle(pin);
-  };
-
-  const pinFor = (live: LiveRoot): Pin => {
-    const current = pins.get(live.rootId);
-    if (current && pathsEqual(current.path, live.path)) {
-      return current;
-    }
-    if (current) {
-      retire(current);
-    }
-    const pin: Pin = {
-      borrowers: 0,
-      closed: Promise.withResolvers<void>(),
-      opened: openRoot(live.path),
-      path: live.path,
-      retired: false,
-      rootId: live.rootId,
-    };
-    // A folder that would not open is not pinned: the next use opens it afresh.
-    pin.opened.catch(() => retire(pin));
-    pins.set(live.rootId, pin);
-    return pin;
-  };
 
   return {
     close: async () => {
       closed = true;
-      for (const pin of [...pins.values()]) {
-        retire(pin);
-      }
-      await Promise.all([...retiring].map((pin) => pin.closed.promise));
+      await Promise.allSettled([...inFlight]);
     },
-    liveRoots: async () => {
-      const live = (await options.roots.listRoots())
+    liveRoots: async () =>
+      mounts
+        .mountedRoots()
         .filter((root) => path.isAbsolute(root.path))
-        .map((root) => ({ path: path.normalize(root.path), rootId: root.rootId }));
-      for (const pin of [...pins.values()]) {
-        if (!live.some((root) => root.rootId === pin.rootId && pathsEqual(root.path, pin.path))) {
-          retire(pin);
-        }
-      }
-      return live;
-    },
+        .map((root) => ({ path: path.normalize(root.path), rootId: root.rootId })),
     use: async (live, use) => {
       if (closed) {
         throw refusalError(
@@ -172,24 +83,30 @@ export function createWorkspaceRootPins(options: WorkspaceRootPinOptions): Works
           'Workspace files have stopped: the agent host is closing.'
         );
       }
-      const pin = pinFor(live);
-      pin.borrowers += 1;
-      try {
-        let root: SecureWorkspaceRoot;
-        try {
-          root = await pin.opened;
-        } catch (cause) {
-          throw openFailure(cause, live.rootId);
-        }
-        return await use({
-          canonicalPath: path.normalize(root.canonicalPath),
-          presentationPath: pin.path,
-          root,
-          rootId: pin.rootId,
+      let entered = false;
+      const pending = mounts
+        .useMountedRoot(live.rootId, async (mounted) => {
+          entered = true;
+          // The folder was replaced at another path since the caller listed it.
+          if (!pathsEqual(mounted.presentationPath, live.path)) {
+            throw unmounted();
+          }
+          return await use({
+            canonicalPath: path.normalize(mounted.canonicalPath),
+            presentationPath: path.normalize(mounted.presentationPath),
+            root: mounted.root,
+            rootId: mounted.rootId,
+          });
+        })
+        .catch((cause: unknown) => {
+          // The registry refused the borrow: the folder left between the listing and the use.
+          throw entered ? cause : unmounted();
         });
+      inFlight.add(pending);
+      try {
+        return await pending;
       } finally {
-        pin.borrowers -= 1;
-        closeIfIdle(pin);
+        inFlight.delete(pending);
       }
     },
   };

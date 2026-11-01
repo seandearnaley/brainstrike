@@ -164,6 +164,8 @@ export interface ProductionHostPlatformOptions {
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
   /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
   readonly rewindFiles?: HostPlatform['rewindFiles'];
+  /** ADR-0029 stage 4: the desktop workspace's open folders. */
+  readonly rootRegistry?: HostPlatform['rootRegistry'];
   readonly searchWorkspace?: HostPlatform['searchWorkspace'];
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
@@ -314,6 +316,7 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
 type ProductionClientService =
   | 'auth'
   | 'fileReads'
+  | 'rootRegistry'
   | 'fileWatches'
   | 'gitWorkspace'
   | 'mcpContent'
@@ -329,6 +332,7 @@ function productionClientServices(
   return {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.fileReads ? { fileReads: options.fileReads } : {}),
+    ...(options.rootRegistry ? { rootRegistry: options.rootRegistry } : {}),
     ...(options.fileWatches ? { fileWatches: options.fileWatches } : {}),
     ...(options.gitWorkspace ? { gitWorkspace: options.gitWorkspace } : {}),
     ...(options.mcpContent ? { mcpContent: options.mcpContent } : {}),

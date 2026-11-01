@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { Server } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -15,9 +14,14 @@ test('a host closing refusal retires client admission while its earlier write st
   const release = Promise.withResolvers<void>();
   const host = await startAgentHost({ lifetime: 'persistent', root }, ({ store }) => {
     const register = store.workspaceRoots.bind(store);
+
+    // Main's catalog transport only reads roots: the first read is the held, admitted request.
+
+    let held = false;
     vi.spyOn(store, 'workspaceRoots').mockImplementation(async (request) => {
       const reply = await register(request);
-      if (request.operation === 'register') {
+      if (!held) {
+        held = true;
         entered.resolve();
         await release.promise;
       }
@@ -31,10 +35,7 @@ test('a host closing refusal retires client admission while its earlier write st
   });
   const client = await attachAgentHost(host.record);
   try {
-    const registering = client.catalog.workspaceRoots({
-      operation: 'register',
-      root: { displayName: 'workspace', path: root, preferredId: randomUUID() },
-    });
+    const admitted = client.catalog.workspaceRoots({ operation: 'list' });
     await entered.promise;
     const closing = host.close();
     const refusal: unknown = await client.catalog
@@ -42,7 +43,7 @@ test('a host closing refusal retires client admission while its earlier write st
       .catch((cause: unknown) => cause);
     expect(refusal).toMatchObject({ code: 'host.closing', failure: { kind: 'refusal' } });
     release.resolve();
-    await registering;
+    await admitted;
     await closing;
     // The restore's next catalog command is not allowed to write into the
     // transport whose owner already refused this client as terminally closing.
@@ -65,9 +66,14 @@ test('retirement joins a closing refusal received after the admitted-request joi
   const stopping = Promise.withResolvers<void>();
   const host = await startAgentHost({ lifetime: 'persistent', root }, ({ store }) => {
     const register = store.workspaceRoots.bind(store);
+
+    // Main's catalog transport only reads roots: the first read is the held, admitted request.
+
+    let held = false;
     vi.spyOn(store, 'workspaceRoots').mockImplementation(async (request) => {
       const reply = await register(request);
-      if (request.operation === 'register') {
+      if (!held) {
+        held = true;
         entered.resolve();
         await release.promise;
       }
@@ -99,21 +105,18 @@ test('retirement joins a closing refusal received after the admitted-request joi
       return write.call(this, message);
     });
   try {
-    const registering = client.catalog.workspaceRoots({
-      operation: 'register',
-      root: { displayName: 'workspace', path: root, preferredId: randomUUID() },
-    });
+    const admitted = client.catalog.workspaceRoots({ operation: 'list' });
     await entered.promise;
     const closing = host.close();
     await stopping.promise;
-    // Core's catalog endpoint is joining the held register. A new request is
+    // Core's catalog endpoint is joining the held read. A new request is
     // refused by the live connection; hold that response's actual writer.
     const refused = client.catalog
       .workspaceRoots({ operation: 'list' })
       .catch((cause: unknown) => cause);
     await refusing.promise;
     release.resolve();
-    await registering;
+    await admitted;
     writeRefusal.resolve();
     expect(await refused).toMatchObject({ code: 'host.closing', failure: { kind: 'refusal' } });
     await closing;

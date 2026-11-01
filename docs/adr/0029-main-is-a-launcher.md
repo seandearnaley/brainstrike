@@ -87,8 +87,23 @@ its Main side and quit step:
    `workspace/files/event` stream; a connection's watches end when it closes, and
    the `fs:watch*` IPC domain goes. Explorer reads (`workspace/files/list`, `read`,
    `exists`) follow the same gate over the host's live catalog roots, and Main's
-   `fs:read*`/`fs:exists` channels and E2E mock tree go. The root registry follows;
-   the `file-system` step goes once it and the native index's watches have left.
+   `fs:read*`/`fs:exists` channels and E2E mock tree go. The root registry follows
+   (owner decision, 2026-11-01): the host's registry is the one writer of the open
+   folders (`roots.open_position`), their grant-time identity (`roots.canonical_path`)
+   and the recent-folders ledger, served as `workspace/roots/*` to the desktop's
+   private client, and the one owner of each folder's `SecureRoot`, which the
+   Explorer's reads and watches borrow. A reopen whose path resolves to another folder
+   is refused and shown as needing reconnect. Main keeps only the folder picker
+   (`platform/workspace/pick-folder`), its menu and OS recents
+   (`platform/workspace/roots-changed`) and the native index's read handles, opened
+   on the host's mounted roots. The host removes a folder first and the index learns
+   afterwards; a scan in flight on it ends as cancelled. `lastFolderPath`, Main's
+   storage adapter and the reset profile reopen go. `fs:deleteRootData` stays in Main
+   while the native index does: the host reserves the folder's deletion first, which
+   refuses before anything is removed and fences the folder from every read, watch and
+   run borrow; the index's sources stop around the host's `workspace/roots/delete-data`,
+   which consumes the reservation. The `file-system` step goes once the native
+   index's watches have left.
 5. MCP control, then index activation if the retrieval decision keeps it.
 
 Quit then ends as: factory reset, renderers, `host/stop`, join utility and hidden
