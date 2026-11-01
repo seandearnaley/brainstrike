@@ -65,13 +65,17 @@ import type { HostWorktreeServices } from './git-workspace/worktree-tool-depende
 import { getGlobalHooksPath } from './hooks/config.ts';
 import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.ts';
 import {
+  type CodeExecutionHost,
   createSharedNativeHostTools,
+  createSystemPythonResolver,
   executeCommandExecutor,
   forgetSharedNativeToolThread,
   getEditDiagnostics,
   grepSearchExecutor,
   INSPECTION_TOOL_EXECUTORS,
   ReadWorkspaceFileCursorRegistry,
+  runPythonExecutor,
+  runSkillScriptExecutor,
   selectHostProjectionRewrites,
   skillToolExecutors,
 } from './native-tools/index.ts';
@@ -86,8 +90,8 @@ const logger = createLogger('StandalonePlatform');
 /**
  * The native tools a standalone host runs over its launch roots: the shared
  * ones, grep, language-server inspection, its shell and command sessions, the
- * managed worktrees in its own ledger and the Agent Skills reads (skill scripts
- * need an interpreter this host does not choose).
+ * managed worktrees in its own ledger and the Agent Skills with their scripts.
+ * run_python joins them where this machine has the OS fence (`standaloneToolIds`).
  */
 const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceFile,
@@ -108,22 +112,46 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.manageCommandSession,
   NATIVE_TOOL_ID.listWorktrees,
   NATIVE_TOOL_ID.manageWorktree,
+  NATIVE_TOOL_ID.runSkillScript,
   ...SKILL_NATIVE_TOOL_IDS,
 ];
-const STANDALONE_NATIVE_TOOL_IDS = [...STANDALONE_HUMAN_TOOL_IDS, ...STANDALONE_WORKSPACE_TOOL_IDS];
 
-const standaloneCapabilities = {
-  browserOAuth: 'unavailable',
-  configuredMcp: 'unavailable',
-  delegation: 'available',
-  localInference: 'unavailable',
-  mcpAppUi: 'text',
-  nativeTools: { available: STANDALONE_NATIVE_TOOL_IDS, remaining: 'unavailable' },
-  skills: 'available',
-  tasks: 'unavailable',
-  vectorMemory: 'unavailable',
-  workspaceInstructions: 'available',
-};
+/**
+ * BST-2360: run_python runs only inside the OS fence, so a host without one
+ * (Windows) leaves it out of every run instead of asking the person to approve
+ * a call that cannot run.
+ */
+function standaloneToolIds(codeFence: boolean): {
+  readonly native: string[];
+  readonly workspace: string[];
+} {
+  const workspace: string[] = [
+    ...STANDALONE_WORKSPACE_TOOL_IDS,
+    ...(codeFence ? [NATIVE_TOOL_ID.runPython] : []),
+  ];
+  return { native: [...STANDALONE_HUMAN_TOOL_IDS, ...workspace], workspace };
+}
+
+function standaloneCapabilities(nativeToolIds: string[], configuredMcp: boolean) {
+  return {
+    browserOAuth: 'unavailable',
+    configuredMcp: configuredMcp ? 'available' : 'unavailable',
+    delegation: 'available',
+    localInference: 'unavailable',
+    mcpAppUi: 'text',
+    nativeTools: { available: nativeToolIds, remaining: 'unavailable' },
+    skills: 'available',
+    tasks: configuredMcp ? 'available' : 'unavailable',
+    vectorMemory: 'unavailable',
+    workspaceInstructions: 'available',
+  };
+}
+
+/** The same check run_python's executor makes, loaded only when a run asks. */
+async function hostFencesCode(): Promise<boolean> {
+  const { isFenceSupported } = await import('@brainstrike/agent/fence-executor');
+  return isFenceSupported();
+}
 
 /** Every run injects each trusted launch root's instructions file that fits the budget. */
 const STANDALONE_WORKSPACE_INSTRUCTIONS = { masterEnabled: true, oversizedOptInByRootId: {} };
@@ -136,12 +164,29 @@ const standaloneWindowsCommandEntry = (): string =>
   createRequire(import.meta.url).resolve('@brainstrike/host-capabilities/windows-command-entry');
 
 /**
+ * Owner decision (2026-11-01): this host runs the system Python 3, where
+ * Desktop runs its bundled runtime; it asks for it once per host. sandbox-runtime
+ * finds its own Linux seccomp helper from its package.
+ */
+function standaloneCodeExecution(): CodeExecutionHost {
+  return {
+    resolvePythonExecutable: createSystemPythonResolver(),
+    resolveSeccompApplyPath: () => undefined,
+    windowsCommandEntry: standaloneWindowsCommandEntry,
+  };
+}
+
+/**
  * A run's host executors. executeCommand and the command sessions are composed
  * as Desktop composes them: the same executors, schemas, cwd fence and
  * `execute` risk, with shell commands correlated on this host's own ledger and
  * sessions started only in the run's launch roots.
  */
-function standaloneHostExecutors(worktrees: HostWorktreeServices, threadId: string) {
+function standaloneHostExecutors(
+  worktrees: HostWorktreeServices,
+  threadId: string,
+  codeExecution: CodeExecutionHost
+) {
   return {
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
       correlation: hostShellCorrelation(worktrees, threadId),
@@ -154,6 +199,7 @@ function standaloneHostExecutors(worktrees: HostWorktreeServices, threadId: stri
       rootsFromRuntime: true,
     })),
     ...hostWorktreeToolExecutors(worktrees, threadId),
+    [NATIVE_TOOL_ID.runPython]: runPythonExecutor(codeExecution),
   };
 }
 
@@ -240,8 +286,8 @@ function standaloneSystemPrompt(
   const mcpTools = configuredMcp
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
-  const unavailable = configuredMcp ? 'Skill scripts' : 'Configured MCP/Tasks, skill scripts';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands and persistent command sessions started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  const unavailable = configuredMcp ? 'Browser OAuth' : 'Configured MCP/Tasks, browser OAuth';
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands and persistent command sessions started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads, search and their scripts, Python ones on the system Python 3), Python code in the OS sandbox where this machine has one, the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -431,9 +477,10 @@ export async function createHostPlatform(
       await mcp.close();
     });
   }
-  const capabilities = mcp
-    ? { ...standaloneCapabilities, configuredMcp: 'available', tasks: 'available' }
-    : standaloneCapabilities;
+  // Asked once, by the first run: the check loads the sandbox runtime.
+  let codeFence: Promise<boolean> | undefined;
+  // This host's interpreter, probed by its first Python call and reused after.
+  const codeExecution = standaloneCodeExecution();
   // The worktree ledger and settings are this host's state store's; its roots are the launch roots.
   const worktrees = createWorktreeWorkspace({
     logger,
@@ -476,6 +523,9 @@ export async function createHostPlatform(
         );
       }
       const { auth, catalog, provider, selected } = runSelection(request.modelId, trustedModels);
+      codeFence ??= hostFencesCode();
+      const toolIds = standaloneToolIds(await codeFence);
+      const capabilities = standaloneCapabilities(toolIds.native, mcp !== undefined);
       const modelSettings = buildModelSettingsOption(selected).modelSettings;
       const configuration: RuntimeData = {
         ...selected,
@@ -496,7 +546,7 @@ export async function createHostPlatform(
         onExcessProperty: 'error',
       })({
         agentLoop: { inputTokenLimit, maxSteps: DEFAULT_AGENT_MAX_STEPS },
-        enabledNativeToolIds: STANDALONE_NATIVE_TOOL_IDS,
+        enabledNativeToolIds: toolIds.native,
         memoryOptions: {
           lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
           workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
@@ -549,10 +599,14 @@ export async function createHostPlatform(
       const workspaceTools = createSharedNativeHostTools({
         diagnostics: (args) => getEditDiagnostics(args),
         executors: {
-          ...standaloneHostExecutors(worktreeTools, request.threadId),
+          ...standaloneHostExecutors(worktreeTools, request.threadId, codeExecution),
           ...skillToolExecutors(workspaceContext.workspaceSkills),
+          [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(
+            workspaceContext.workspaceSkills,
+            codeExecution
+          ),
         },
-        ids: STANDALONE_WORKSPACE_TOOL_IDS,
+        ids: toolIds.workspace,
         readFileCursorRegistry,
         resolvedToolResultBudget,
         runtime: { ...configuration, workspaceRoots },

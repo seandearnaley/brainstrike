@@ -1,23 +1,22 @@
 // @vitest-environment node
 import fsPromises from 'node:fs/promises';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   acquireWorkspaceMutationLease,
   disposeLiveChildProcesses,
-} from '@brainstrike/host-capabilities/native-tools';
-import type { createWindowsCommandProcess } from '@brainstrike/host-capabilities/windows-command-process';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { runSkillScript } from '../../assistant-server/run-skill-script-tool';
-import { singleRootRuntime } from './_tool-test-helpers';
+} from '../src/native-tools/index.js';
+import { runSkillScript } from '../src/native-tools/run-skill-script-tool.js';
+import type { createWindowsCommandProcess } from '../src/windows-command-process.js';
+import { singleRootRuntime } from './fixtures/execute-command.js';
 
 type OwnerOptions = Parameters<typeof createWindowsCommandProcess>[0];
 const controls = vi.hoisted(() => ({
   create: vi.fn<typeof createWindowsCommandProcess>(),
   path: vi.fn(() => '/trusted/dist/windows-command-entry.cjs'),
 }));
-vi.mock('@brainstrike/host-capabilities/windows-command-process', () => ({
+vi.mock('../src/windows-command-process.js', () => ({
   createWindowsCommandProcess: controls.create,
 }));
-vi.mock('../../bundled-sibling-path', () => ({ resolveBundledSiblingPath: controls.path }));
 
 const retained: OwnerOptions[] = [];
 beforeEach(() => {
@@ -65,6 +64,11 @@ test('a skill script does not release its real lease when retained retirement re
         skillRootPath: `${root}/skill`,
         sourceTier: 'global-claude',
       }),
+    },
+    {
+      resolvePythonExecutable: () =>
+        Promise.reject(new Error('A node skill script needs no Python')),
+      windowsCommandEntry: controls.path,
     }
   );
   await expect(result).rejects.toBe(failure);
@@ -83,6 +87,6 @@ test('a skill script does not release its real lease when retained retirement re
   stopWaiting.abort(failure);
   expect(await waiter).toBe(failure);
   expect(controls.create).toHaveBeenCalledTimes(1);
-  // Desktop's own bundled wrapper, resolved beside the host bundle.
-  expect(controls.path).toHaveBeenCalledWith('Windows command', 'windows-command-entry.cjs');
+  // The calling host's own wrapper starts the script.
+  expect(controls.path).toHaveBeenCalledTimes(1);
 });
