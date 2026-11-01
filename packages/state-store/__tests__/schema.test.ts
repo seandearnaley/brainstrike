@@ -138,6 +138,32 @@ describe('state DB migrations', () => {
     }
   });
 
+  test('a profile whose folders predate their grant-time identity opens and forgets those folders', () => {
+    const db = new Database(':memory:');
+    try {
+      db.pragma('foreign_keys = ON');
+      db.exec(UPGRADES.slice(0, 14).join(';'));
+      db.exec(`DROP TABLE IF EXISTS roots; CREATE TABLE roots (
+        id TEXT PRIMARY KEY NOT NULL, path TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
+        kind TEXT NOT NULL, status TEXT NOT NULL, created_at REAL NOT NULL, last_verified_at REAL NOT NULL
+      ) STRICT;
+      INSERT INTO roots VALUES ('r1', '/old', 'old', 'path', 'live', 1, 1);
+      INSERT INTO file_records (id, root_id, path, name, created_at, updated_at, content_hash, size)
+        VALUES ('f1', 'r1', 'a.ts', 'a.ts', '${ISO}', '${ISO}', 'h', 1);
+      INSERT INTO settings VALUES ('existing', 'preserved');
+      PRAGMA user_version = 14;`);
+      migrate(db);
+      expect(db.prepare('SELECT count(*) FROM roots').pluck().get()).toBe(0);
+      expect(db.prepare('SELECT count(*) FROM file_records').pluck().get()).toBe(0);
+      expect(db.prepare('SELECT value FROM settings').pluck().get()).toBe('preserved');
+      db.prepare(
+        "INSERT INTO roots (id, path, canonical_path, display_name, kind, status, open_position, created_at, last_verified_at) VALUES ('r2', '/new', '/new', 'new', 'path', 'live', 0, 1, 1)"
+      ).run();
+    } finally {
+      db.close();
+    }
+  });
+
   test('the upgrader is idempotent and refuses a DB written by a newer build', () => {
     const db = new Database(':memory:');
     try {

@@ -14,6 +14,9 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 // partial index of the rows that keep it. Version 13's tables are retired: the step creates nothing, so a DB that reached
 // it still opens. Version 14 adds `thread_pins`, the Threads panel's pinned threads. Version 1's `run_events.raw_count`
 // (the deleted Coalescer's chunk count) is retired the same way: a DB that has the column keeps it unread and unwritten.
+// Version 15 replaces version 7's `roots` with the table the agent host's root registry writes, which pins each folder's
+// grant-time identity. A recorded folder without that identity cannot be trusted or inferred, so the step drops the old
+// rows (their source catalog rows cascade) and the person opens those folders again.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
@@ -21,7 +24,7 @@ import { MEMORY_SCHEMA } from './memory-domain.mjs';
 import { SOURCE_CATALOG_SCHEMA } from './source-catalog-schema.mjs';
 import { WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -62,7 +65,7 @@ export const UPGRADES = [
   ALTER TABLE run_events ADD COLUMN hydrate INTEGER NOT NULL DEFAULT 1 CHECK (hydrate IN (0, 1));
   CREATE INDEX run_events_hydrate ON run_events (thread_id, seq) WHERE hydrate = 1;
 `,
-  WORKSPACE_ROOT_SCHEMA,
+  '',
   SOURCE_CATALOG_SCHEMA,
   MODEL_CHOICE_SCHEMA,
   COLLECTION_SCHEMA,
@@ -70,6 +73,7 @@ export const UPGRADES = [
   THREAD_GROUPS_SCHEMA,
   '',
   THREAD_PINS_SCHEMA,
+  `DROP TABLE IF EXISTS roots;${WORKSPACE_ROOT_SCHEMA}`,
 ];
 
 /**
