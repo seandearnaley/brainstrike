@@ -57,6 +57,37 @@ function register(db, request, paths) {
           ],
         };
       }
+      // A fresh grant of a recorded folder at a new path (its old alias is gone or now leads
+      // elsewhere) keeps the folder's id and moves its record to the path the person chose.
+      if (request.repin) {
+        const pinned =
+          /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord | undefined} */ (
+            db.prepare(`SELECT ${projection} FROM roots WHERE id = ?`).get(root.preferredId)
+          );
+        if (pinned) {
+          db.prepare(`UPDATE roots SET path = ?, display_name = ?, canonical_path = ?,
+            status = 'live', last_verified_at = ?,
+            open_position = COALESCE(open_position, ${nextPosition}) WHERE id = ?`).run(
+            root.path,
+            root.displayName,
+            root.canonicalPath,
+            now,
+            pinned.id
+          );
+          return {
+            roots: [
+              {
+                ...pinned,
+                canonicalPath: root.canonicalPath,
+                displayName: root.displayName,
+                lastVerifiedAt: now,
+                path: root.path,
+                status: /** @type {const} */ ('live'),
+              },
+            ],
+          };
+        }
+      }
       // The existing worktree ledger determines kind; callers cannot forge it.
       const managed = db
         .prepare('SELECT 1 FROM brainstrike_worktrees WHERE path = ? AND archived_at IS NULL')

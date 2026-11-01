@@ -44,8 +44,18 @@ export function createRegistryCatalogRequest(
         if (previous && previous.canonicalPath !== request.root.canonicalPath && !request.repin) {
           throw new Error('The workspace folder at this path is not the one that was granted');
         }
+        // A picker re-pin moves the folder's record to the path just picked, keeping its id.
+        const moved = request.repin
+          ? [...roots.values()].find((root) => root.id === request.root.preferredId)
+          : undefined;
+        if (!previous && moved) {
+          roots.delete(moved.path);
+        }
         const root = {
-          ...(previous ?? registryRoot(request.root.preferredId, request.root.path)),
+          ...(previous ??
+            (moved
+              ? { ...moved, path: request.root.path }
+              : registryRoot(request.root.preferredId, request.root.path))),
           canonicalPath: request.root.canonicalPath,
           status: 'live' as const,
         };

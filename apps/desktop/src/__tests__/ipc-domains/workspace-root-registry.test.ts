@@ -54,12 +54,13 @@ describe('WorkspaceRootRegistry', () => {
 
     const descriptor = await registry.addRoot(rootHandle(anotherAlias));
 
+    // The picker re-pins the folder to the path just picked, under its durable id.
     expect(descriptor).toMatchObject({
-      handle: { path: alias, rootId: 'root-a' },
+      handle: { path: anotherAlias, rootId: 'root-a' },
       persisted: true,
       rootId: 'root-a',
     });
-    expect(await listOpenRoots(catalog)).toEqual([{ path: alias, rootId: 'root-a' }]);
+    expect(await listOpenRoots(catalog)).toEqual([{ path: anotherAlias, rootId: 'root-a' }]);
     await registry.dispose();
   });
 

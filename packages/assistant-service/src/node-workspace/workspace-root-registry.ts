@@ -162,11 +162,15 @@ export class WorkspaceRootRegistry {
       const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
         this.findExistingStoredRoot(records, undefined, canonicalPath)
       );
+      // The picker re-pins: a retained folder keeps its id and moves to the path just picked, so
+      // a path alias that is gone or now leads elsewhere never serves it. Without the picker the
+      // record keeps its path.
+      const entryPath = grantedAfresh ? presentationPath : (recorded?.path ?? presentationPath);
       const rootId = await recordWorkspaceRoot(
         db,
         {
           canonicalPath,
-          path: recorded?.path ?? presentationPath,
+          path: entryPath,
           preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
         },
         // Without the picker, the store refuses a recorded path that now resolves elsewhere.
@@ -175,7 +179,7 @@ export class WorkspaceRootRegistry {
       const entry: RecordedWorkspaceRoot = {
         addedAt: Date.now(),
         canonicalPath,
-        path: recorded?.path ?? presentationPath,
+        path: entryPath,
         rootId,
       };
 

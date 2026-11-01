@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -7,6 +16,7 @@ import {
   type WorkspaceRootRequest,
 } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createWorkspaceRootPins } from '../../src/workspace-files/root-pins.ts';
 import {
   createHostRootRegistry,
   type HostRootRegistryOwner,
@@ -141,6 +151,33 @@ describe('host root registry', () => {
       roots: [{ available: false, path: workspace, rootId: root?.rootId }],
     });
     await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({ roots: [] });
+  });
+
+  it('serves a folder picked again at its own path after the alias it was granted through is gone', async () => {
+    const target = folder('target');
+    writeFileSync(path.join(target, 'notes.txt'), 'kept');
+    const alias = path.join(base, 'alias');
+    symlinkSync(target, alias);
+    const first = registry({ picked: alias });
+    const { root: granted } = await first.owner.service['workspace/roots/pick']({});
+    await first.owner.service['workspace/roots/remove']({ rootId: granted?.rootId ?? '' });
+    unlinkSync(alias);
+
+    const { owner } = registry({ picked: target });
+    const { root } = await owner.service['workspace/roots/pick']({});
+
+    expect(root).toEqual({ available: true, path: target, rootId: granted?.rootId });
+    const pins = createWorkspaceRootPins({ mounts: owner.registry });
+    const [live] = await pins.liveRoots();
+    expect(live).toEqual({ path: target, rootId: granted?.rootId });
+    const read = await pins.use(live ?? { path: target, rootId: '' }, (pinned) =>
+      pinned.root.readFile('notes.txt', 64)
+    );
+    expect(read).toMatchObject({ status: 'ok' });
+    expect(read.status === 'ok' && read.content.toString()).toBe('kept');
+    await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
+      roots: [{ available: true, path: target, rootId: granted?.rootId }],
+    });
   });
 
   it('serves the open folders of a damaged store without writing to it, and refuses every change', async () => {
