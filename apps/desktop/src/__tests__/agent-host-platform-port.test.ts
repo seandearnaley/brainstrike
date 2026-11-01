@@ -23,16 +23,9 @@ import {
 } from '../agent-host-platform/main-platform';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
-import { hostedQueryEmbedding } from '../hosted-embeddings';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { mainReads } from './fixtures/desktop-admission-reads';
-
-// Main's hosted query embedding, answered by the test that reaches it.
-vi.mock('../hosted-embeddings', async (original) => ({
-  ...(await original<typeof import('../hosted-embeddings')>()),
-  hostedQueryEmbedding: vi.fn(),
-}));
 
 /** Real Node ports with the Electron utility port's public MessageEvent shape. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -321,54 +314,31 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
   }
 });
 
-it('serves the workspace index, retrieval catalog and query embedding to the host', async () => {
-  const status = { kind: 'unavailable' as const, reason: 'fixture index is offline' };
+it('serves the workspace text index search to the host', async () => {
+  const result = {
+    candidateCount: 1,
+    candidatesTruncated: false,
+    embedding: { indexMode: 'text-only' as const },
+    hits: [],
+    scanLimited: false,
+    storeId: 'store',
+    truncated: false,
+  };
   const indexSearch = {
     coverage: vi.fn(),
     coverageBatch: vi.fn(),
     grep: vi.fn(),
     rebuild: vi.fn(),
-    search: vi.fn(),
-    status: vi.fn(async () => status),
+    search: vi.fn(async () => result),
+    status: vi.fn(),
   };
-  const set = {
-    dimensions: 1536,
-    distance: 'cosine',
-    modelId: 'text-embedding-3-small',
-    modelKey: 'openai::text-embedding-3-small',
-  };
-  const retrievalStore = {
-    embeddingSet: vi.fn(async () => set),
-    embeddingSpaces: vi.fn(async () => []),
-    fileRecords: vi.fn(async () => new Map()),
-  };
-  vi.mocked(hostedQueryEmbedding).mockImplementationOnce(async (_payload, signal) => {
-    expect(signal).toBeInstanceOf(AbortSignal);
-    return [0.5, 0.25];
-  });
-  const h = harness(mainReads(), undefined, { indexSearch, retrievalStore });
-  const statusRead = { request: {}, threadId: 'thread' };
+  const h = harness(mainReads(), undefined, { indexSearch });
+  const request = { limit: 5, mode: 'bm25' as const, rootIds: ['root'], text: 'marker' };
   try {
-    await expect(h.client.sendRequest('desktop-read/index/status', statusRead)).resolves.toEqual(
-      status
-    );
     await expect(
-      h.client.sendRequest('desktop-read/retrieval/embedding-set', {
-        request: { embeddingSetId: 'selected' },
-        threadId: 'thread',
-      })
-    ).resolves.toEqual({ ok: true, result: set });
-    expect(retrievalStore.embeddingSet).toHaveBeenCalledWith('selected');
-    const payload = {
-      dimensions: 2,
-      modelId: 'text-embedding-3-small',
-      modelKey: 'openai::text-embedding-3-small',
-      query: 'marker',
-    };
-    await expect(
-      h.client.sendRequest('platform/embedding/query', { request: payload })
-    ).resolves.toEqual({ ok: true, result: [0.5, 0.25] });
-    expect(hostedQueryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
+      h.client.sendRequest('desktop-read/index/search', { request, threadId: 'thread' })
+    ).resolves.toEqual(result);
+    expect(indexSearch.search).toHaveBeenCalledWith(request);
   } finally {
     h.destroy();
   }
@@ -433,7 +403,7 @@ it.each([
   ['missing-key', 'configuration'],
   ['input-too-long', 'input'],
   ['rate-limit', 'availability'],
-] as const)('retains typed %s through the real status boundary', async (kind, category) => {
+] as const)('retains typed %s through the real index search boundary', async (kind, category) => {
   const original = new HostedEmbeddingError(
     kind,
     'No API key configured for the embedding provider.',
@@ -449,15 +419,16 @@ it.each([
     coverageBatch: vi.fn(),
     grep: vi.fn(),
     rebuild: vi.fn(),
-    search: vi.fn(),
-    status: vi.fn(async () => {
+    search: vi.fn(async () => {
       throw aggregate;
     }),
+    status: vi.fn(),
   };
   const h = harness(mainReads(), undefined, { indexSearch });
+  const request = { limit: 5, mode: 'bm25' as const, rootIds: ['root'], text: 'marker' };
   try {
     const received: unknown = await h.client
-      .sendRequest('desktop-read/index/status', { request: {}, threadId: 'thread' })
+      .sendRequest('desktop-read/index/search', { request, threadId: 'thread' })
       .catch((error: unknown) => error);
     expect(received).toMatchObject({
       code: -32_001,

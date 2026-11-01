@@ -125,7 +125,7 @@ export class IndexWriter {
       }
       readIndexSchemaVersion(this.db);
       StateEventStore.validateLayout(this.db);
-      StateEventStore.validateRoot(this.db, this.options.stateRoot, this.projection, this.options);
+      StateEventStore.validateRoot(this.db, this.options.stateRoot, this.projection);
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('synchronous = NORMAL');
       this.db.pragma('foreign_keys = ON');
@@ -164,22 +164,14 @@ export class IndexWriter {
         .transaction(() => {
           readIndexIdentity(this.db);
           StateEventStore.validateLayout(this.db);
-          StateEventStore.validateRoot(
-            this.db,
-            this.options.stateRoot,
-            this.projection,
-            this.options
-          );
+          StateEventStore.validateRoot(this.db, this.options.stateRoot, this.projection);
           acquiredState = StateEventStore.acquire(
             this.db,
             this.options.stateRoot,
             this.truth,
-            this.projection,
-            this.options
+            this.projection
           );
           this.scoped.beginOwnerEpoch();
-          // Commit the existing owner's retirement fences atomically with acquisition.
-          acquiredState?.messages.beginOwnerGeneration();
           return acquiredState;
         })
         .immediate();
@@ -218,7 +210,7 @@ export class IndexWriter {
         END;
       `);
       ScopedIndex.initialize(this.db);
-      StateEventStore.initialize(this.db, this.options.stateRoot, this.projection, this.options);
+      StateEventStore.initialize(this.db, this.options.stateRoot, this.projection);
       const identity = freshIdentity(this.options);
       this.db
         .prepare('INSERT INTO index_metadata VALUES(1,?,?)')

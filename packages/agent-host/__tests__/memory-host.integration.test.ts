@@ -52,7 +52,7 @@ test.each([
     let store = await StateStore.open(root, writerOptions);
     const owners: StateStoreHostMemory[] = [];
     const receipts: {
-      readonly kind: 'observation' | 'reflection' | 'embedding';
+      readonly kind: 'observation' | 'reflection';
       readonly modelId: string;
     }[] = [];
     const prepared: unknown[] = [];
@@ -110,7 +110,6 @@ test.each([
                       reflection: { observationTokens: 50_000 },
                     }
                   : false,
-              semanticRecall: false,
               workingMemory: { enabled: true, scope: 'thread' },
             },
           },

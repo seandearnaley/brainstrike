@@ -33,18 +33,16 @@ function errorRecords(): LogRecord[] {
 }
 
 test('a missing memory key is a typed credential refusal with the feature’s own words', async () => {
-  const refused = await requireMemoryApiKey(
-    'semantic-recall',
-    'openai',
-    async () => undefined
-  ).catch((error: unknown) => error);
+  const refused = await requireMemoryApiKey('openai', async () => undefined).catch(
+    (error: unknown) => error
+  );
   expect(refused).toBeInstanceOf(BoundaryFailureError);
   expect((refused as BoundaryFailureError).failure).toEqual({
     category: 'configuration',
     code: MEMORY_FAILURE_CODES.credentialMissing,
     kind: 'refusal',
     message:
-      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn semantic recall off.',
+      'Observational memory requires a configured OpenAI API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.',
   });
   // The send gate shows the refusal as it was, with no reference to look up.
   expect(memoryReadinessReason(refused)).toBe((refused as BoundaryFailureError).failure.message);
@@ -63,15 +61,15 @@ test('the send gate names a fault’s reference, logging a local fault’s cause
   const local = new BoundaryFailureError(
     fault({
       category: 'availability',
-      code: MEMORY_FAILURE_CODES.embedderUnavailable,
-      message: 'The memory embedder cannot be reached from the agent host.',
+      code: MEMORY_FAILURE_CODES.observer,
+      message: 'The memory observer cannot be reached from the agent host.',
     }),
     { cause: new Error('Recorded readiness cause') }
   );
   const reason = memoryReadinessReason(local);
   const reference = / Reference: ([0-9a-f-]{36})$/u.exec(reason)?.[1];
   expect(reason).toBe(
-    `The memory embedder cannot be reached from the agent host. Reference: ${reference}`
+    `The memory observer cannot be reached from the agent host. Reference: ${reference}`
   );
   expect(records).toEqual([
     expect.objectContaining({
@@ -79,7 +77,7 @@ test('the send gate names a fault’s reference, logging a local fault’s cause
         expect.any(String),
         expect.objectContaining({
           cause: expect.objectContaining({ message: 'Recorded readiness cause' }),
-          code: MEMORY_FAILURE_CODES.embedderUnavailable,
+          code: MEMORY_FAILURE_CODES.observer,
           correlationId: reference,
         }),
       ],

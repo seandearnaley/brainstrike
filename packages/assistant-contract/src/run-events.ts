@@ -65,8 +65,6 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'memory.observation.started',
   'memory.reflection.completed',
   'memory.reflection.started',
-  'memory.semantic.completed',
-  'memory.semantic.started',
   'memory.working.loaded',
   'memory.working.updated',
   // One MCP server — or the whole client — contributed ZERO tools to this run

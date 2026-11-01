@@ -437,9 +437,7 @@ function estimateStep(step: HostPreparedStep): number {
  *
  * With Memory, the trigger measures the request Memory builds, not the branch,
  * and only this branch's turns that request holds are compacted; Memory then
- * rebuilds it without them (ADR-0013). A turn recalled from another thread is
- * that thread's history: compacting it here would drop it from that thread's
- * own requests too, so the provider request's limiter trims it instead.
+ * rebuilds it without them (ADR-0013).
  */
 export async function prepareCompactedContext(input: {
   readonly chain: readonly HostRunState[];

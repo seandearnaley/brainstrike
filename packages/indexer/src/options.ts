@@ -10,18 +10,6 @@ export function decodeIndexerOptions(input: unknown): IndexerOptions {
   if ((options.stateRoot === undefined) !== (options.stateProjection === undefined)) {
     throw new TypeError('State root and producer schema must be acquired together.');
   }
-  if (options.stateResources !== undefined) {
-    if (options.stateRoot === undefined) {
-      throw new TypeError('Message resource grants require acquired State truth.');
-    }
-    const resources = new Set<string>();
-    for (const grant of options.stateResources) {
-      if (!options.rootIds.includes(grant.rootId) || resources.has(grant.resourceId)) {
-        throw new TypeError('A Memory resource requires one authorized immutable Root grant.');
-      }
-      resources.add(grant.resourceId);
-    }
-  }
   return options;
 }
 

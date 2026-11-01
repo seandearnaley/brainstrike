@@ -5,7 +5,6 @@ import type {
   HostMemoryModels,
   HostParams,
   HostResults,
-  HostRunTelemetry,
 } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import {
@@ -13,23 +12,19 @@ import {
   describeBoundaryError,
   INTERNAL_FAULT,
 } from '@brainstrike/assistant-contract';
-import { readMemoryRecallTelemetry } from '@brainstrike/assistant-contract/tool-telemetry';
 import type {
   MemoryCycleDisplay,
   MemoryCyclesDisplay,
   MemoryModelsDisplay,
-  MemoryRecallDisplay,
   OmMeterState,
 } from '@brainstrike/assistant-ui';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 type MemoryRead = HostResults['thread/memory/read'];
 
-/** The committed rows a host thread view publishes, and its live telemetry. */
+/** The committed rows a host thread view publishes. */
 export interface HostMemoryRowSource {
   getSnapshot(): { readonly rows: readonly HostLogRow[] };
-  /** The thread's uncommitted `run/telemetry` (ADR-0011 amendment); BST-2225 reads recalls from it. */
-  onTelemetry?(listener: (telemetry: HostRunTelemetry) => void): () => void;
   subscribe(listener: () => void): () => void;
 }
 
@@ -136,20 +131,8 @@ function memoryCycleDisplay(
 }
 
 /** The models a read named, as the meter shows them. */
-function memoryModelsDisplay({ embedder, observer }: HostMemoryModels): MemoryModelsDisplay {
-  return {
-    ...(embedder === undefined
-      ? {}
-      : {
-          embedder: {
-            dimensions: embedder.dimensions,
-            distance: embedder.distance,
-            modelId: embedder.modelId,
-            provider: embedder.provider,
-          },
-        }),
-    ...(observer === undefined ? {} : { observer }),
-  };
+function memoryModelsDisplay({ observer }: HostMemoryModels): MemoryModelsDisplay {
+  return observer === undefined ? {} : { observer };
 }
 
 /** The thread's last committed cycle of each kind (BST-2224), with when it committed. */
@@ -293,24 +276,6 @@ export function useHostMemorySegment(options: {
   const readRows = useCallback(() => source?.getSnapshot().rows ?? NO_ROWS, [source]);
   const rows = useSyncExternalStore(source?.subscribe ?? NO_SUBSCRIPTION, readRows, readRows);
   const cycles = useMemo(() => lastMemoryCycles(rows), [rows]);
-  // BST-2225: the last recall this view saw live. It is never committed, so it
-  // belongs to the source that delivered it; another thread starts empty.
-  const [seen, setSeen] = useState<{
-    readonly recall: MemoryRecallDisplay;
-    readonly source: HostMemoryRowSource;
-  }>();
-  useEffect(() => {
-    if (!source?.onTelemetry) {
-      return;
-    }
-    return source.onTelemetry(({ chunk }) => {
-      const recall = readMemoryRecallTelemetry(chunk);
-      if (recall) {
-        setSeen({ recall: { ...recall, at: Date.now() }, source });
-      }
-    });
-  }, [source]);
-  const recall = seen && seen.source === source ? seen.recall : undefined;
   const read = useCallback(
     (always: boolean): void => {
       reads.read(client, blocked ? undefined : readRequest(), catalog, always);
@@ -338,20 +303,12 @@ export function useHostMemorySegment(options: {
       }
     });
   }, [read, source]);
-  // Each kind's last committed cycle, and the last recall seen live, join
-  // whatever state the read answered.
+  // Each kind's last committed cycle joins whatever state the read answered.
   return useMemo(
     () =>
-      segment.omSegment && (cycles || recall)
-        ? {
-            ...segment,
-            omSegment: {
-              ...segment.omSegment,
-              ...(cycles ? { cycles } : {}),
-              ...(recall ? { recall } : {}),
-            },
-          }
+      segment.omSegment && cycles
+        ? { ...segment, omSegment: { ...segment.omSegment, cycles } }
         : segment,
-    [cycles, recall, segment]
+    [cycles, segment]
   );
 }

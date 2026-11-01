@@ -1,8 +1,5 @@
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  listProviderEmbeddingModels,
-  listProviderLlmModels,
-} from '@brainstrike/assistant-contract/provider-registry';
+import { listProviderLlmModels } from '@brainstrike/assistant-contract/provider-registry';
 import type { ModelPricingResolver } from '../assistant-cross-root-cost.ts';
 
 /**
@@ -16,13 +13,5 @@ export const resolveModelPricing: ModelPricingResolver = (provider, model) => {
   if (!isSupportedProvider(provider)) {
     return;
   }
-  const llm = listProviderLlmModels(provider).find((candidate) => candidate.id === model);
-  if (llm) {
-    return llm.pricing;
-  }
-  // BST-2226: a hosted memory embedder bills its input tokens and no output.
-  const embedding = listProviderEmbeddingModels(provider).find(
-    (candidate) => candidate.id === model
-  )?.pricing;
-  return embedding && { inputPerMTok: embedding.inputPerMTok, outputPerMTok: 0 };
+  return listProviderLlmModels(provider).find((candidate) => candidate.id === model)?.pricing;
 };

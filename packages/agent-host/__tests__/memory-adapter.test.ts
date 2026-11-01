@@ -52,7 +52,6 @@ async function fixture(
     native: {
       options: options ?? {
         observationalMemory: false,
-        semanticRecall: false,
         workingMemory: { enabled: true, scope: 'thread' },
       },
       storage,
@@ -76,7 +75,7 @@ function message(identity: HostMemoryIdentity, role: 'assistant' | 'user'): Mast
   };
 }
 
-test('public Memory preserves working memory and committed message IDs through recall', async () => {
+test('public Memory preserves working memory and committed message IDs in its step context', async () => {
   const f = await fixture();
   try {
     const user = message(f.identity, 'user');
@@ -89,10 +88,6 @@ test('public Memory preserves working memory and committed message IDs through r
     const step = await f.adapter.prepareStep(0);
     expect(step.messages.map((item) => item.id)).toEqual([user.id, assistant.id]);
     expect(step.workingMemory).toBe('Runtime fixture working memory');
-    const recalled = await f.adapter.recall({ resourceId: f.identity.resourceId });
-    expect(
-      'messages' in recalled ? recalled.messages.map((item) => item.id) : recalled.failure
-    ).toEqual([user.id, assistant.id]);
   } finally {
     await f.adapter.close();
     await f.storage.close();
@@ -139,7 +134,6 @@ test('adapter drives the public OM turn and foreground observation without vendo
         observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
         reflection: { observationTokens: 50_000 },
       },
-      semanticRecall: false,
     }
   );
   try {
@@ -209,7 +203,6 @@ test('each observation and reflection cycle reports its trigger, outcome, durati
         observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
         reflection: { observationTokens: 1 },
       },
-      semanticRecall: false,
     }
   );
   try {
@@ -251,7 +244,6 @@ test('a configuration that sets its own lifecycle hook is refused; its transform
           observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
           reflection: { observationTokens: 50_000 },
         },
-        semanticRecall: false,
       }
     )
   ).rejects.toMatchObject({ code: 'memory.configuration-invalid' });
@@ -274,7 +266,6 @@ test('a configuration that sets its own lifecycle hook is refused; its transform
         observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
         reflection: { observationTokens: 50_000 },
       },
-      semanticRecall: false,
     }
   );
   try {
@@ -301,7 +292,6 @@ test('a Memory tool call that fails answers the model and never fails the turn',
         reflection: { observationTokens: 50_000 },
         retrieval: { scope: 'thread' },
       },
-      semanticRecall: false,
     }
   );
   try {
@@ -320,17 +310,15 @@ test('a Memory tool call that fails answers the model and never fails the turn',
   }
 });
 
-test('explicitly disabled OM needs no concrete models and preserves ordinary recall', async () => {
-  const f = await fixture({}, { observationalMemory: { enabled: false }, semanticRecall: false });
+test('explicitly disabled OM needs no concrete models and keeps the committed history', async () => {
+  const f = await fixture({}, { observationalMemory: { enabled: false } });
   try {
     const user = message(f.identity, 'user');
     await f.adapter.commitStep([user]);
     await f.adapter.beginTurn([user]);
-    expect((await f.adapter.prepareStep(0)).observation).toBeUndefined();
-    const recalled = await f.adapter.recall({ resourceId: f.identity.resourceId });
-    expect(
-      'messages' in recalled ? recalled.messages.map((item) => item.id) : recalled.failure
-    ).toEqual([user.id]);
+    const step = await f.adapter.prepareStep(0);
+    expect(step.observation).toBeUndefined();
+    expect(step.messages.map((item) => item.id)).toEqual([user.id]);
   } finally {
     await f.adapter.close();
     await f.storage.close();
@@ -369,7 +357,6 @@ test('native observer Stop aborts immediately and joins a late leaf and held ori
         observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
         reflection: { observationTokens: 50_000 },
       },
-      semanticRecall: false,
     }
   );
   try {
@@ -410,54 +397,6 @@ test('native observer Stop aborts immediately and joins a late leaf and held ori
     await f.adapter.close().catch(() => undefined);
     await f.storage.close();
   }
-});
-
-test('an embed call’s provider-reported tokens become a spend receipt; an unreported call says so (BST-2226)', async () => {
-  const receipts: unknown[] = [];
-  let unreported = 0;
-  const lifetime = new MemoryProviderLifetime(
-    new AbortController().signal,
-    async (receipt) => {
-      receipts.push(receipt);
-    },
-    () => {
-      unreported += 1;
-    }
-  );
-  const embedder = (usage?: { tokens: number }) =>
-    lifetime.embedding({
-      doEmbed: async ({ values }) => ({
-        embeddings: values.map(() => [1, 0]),
-        ...(usage ? { usage } : {}),
-        warnings: [],
-      }),
-      maxEmbeddingsPerCall: 8,
-      modelId: 'text-embedding-3-small',
-      provider: 'openai.embedding',
-      specificationVersion: 'v3',
-      supportsParallelCalls: false,
-    });
-  const hosted = embedder({ tokens: 7 });
-  if (hosted.specificationVersion !== 'v3') {
-    throw new Error('The enclosure keeps the model’s specification');
-  }
-  await hosted.doEmbed({ values: ['Which city did I mention?'] });
-  expect(receipts).toEqual([
-    {
-      kind: 'embedding',
-      modelId: 'text-embedding-3-small',
-      usage: expect.objectContaining({ inputTokens: 7, outputTokens: 0, totalTokens: 7 }),
-    },
-  ]);
-  expect(unreported).toBe(0);
-  const silent = embedder();
-  if (silent.specificationVersion !== 'v3') {
-    throw new Error('The enclosure keeps the model’s specification');
-  }
-  await silent.doEmbed({ values: ['Which city did I mention?'] });
-  expect(receipts).toHaveLength(1);
-  expect(unreported).toBe(1);
-  await lifetime.join();
 });
 
 test('actual SDK provider AbortError is expected while original cancel AbortError remains a failure', async () => {
@@ -515,71 +454,6 @@ test('actual SDK provider AbortError is expected while original cancel AbortErro
   await secondResult.stream.cancel().catch(() => undefined);
 });
 
-test.each(['v1', 'v2', 'v3'] as const)(
-  'concrete %s embedding joins an abort-ignoring provider and preserves caller metadata',
-  async (specificationVersion) => {
-    const controller = new AbortController();
-    const caller = new AbortController();
-    const entered = Promise.withResolvers<AbortSignal | undefined>();
-    const release = Promise.withResolvers<void>();
-    const lifetime = new MemoryProviderLifetime(controller.signal, async () => undefined);
-    let retired = false;
-    const seen: unknown[] = [];
-    const embedding = lifetime.embedding({
-      doEmbed: async (params: {
-        readonly abortSignal?: AbortSignal;
-        readonly headers?: Record<string, string | undefined>;
-        readonly values: string[];
-      }) => {
-        seen.push(params);
-        entered.resolve(params.abortSignal);
-        await release.promise;
-        retired = true;
-        return { embeddings: [[1]], usage: { tokens: 7 }, warnings: [] };
-      },
-      maxEmbeddingsPerCall: 1,
-      modelId: 'held-embedding-fixture',
-      provider: 'local-fixture',
-      specificationVersion,
-      supportsParallelCalls: false,
-    });
-    const result = embedding.doEmbed({
-      abortSignal: caller.signal,
-      headers: { 'x-fixture': 'preserved' },
-      values: ['held provider'],
-    });
-    const outcome = Promise.resolve(result).catch((cause: unknown) => cause);
-    try {
-      const signal = await entered.promise;
-      expect(signal).toBeDefined();
-      expect(embedding.modelId).toBe('held-embedding-fixture');
-      expect(seen).toEqual([
-        expect.objectContaining({
-          headers: { 'x-fixture': 'preserved' },
-          values: ['held provider'],
-        }),
-      ]);
-      controller.abort(new Error('Embedding owner Stop'));
-      expect(signal?.aborted).toBe(true);
-      let joined = false;
-      const closing = lifetime.join().then(() => {
-        joined = true;
-      });
-      await nextTurn();
-      expect(joined).toBe(false);
-      expect(retired).toBe(false);
-      release.resolve();
-      expect(lifetime.ownsCancellation(await outcome)).toBe(true);
-      await closing;
-      expect(retired).toBe(true);
-    } finally {
-      release.resolve();
-      await outcome;
-      await lifetime.join();
-    }
-  }
-);
-
 test.each(['same-reason', 'independent-abort'] as const)(
   'close retains %s cleanup failure after owner cancellation',
   async (kind) => {
@@ -624,7 +498,6 @@ test('native foreground observer accepts the actual SDK AbortError from its stop
         observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
         reflection: { observationTokens: 50_000 },
       },
-      semanticRecall: false,
     }
   );
   try {

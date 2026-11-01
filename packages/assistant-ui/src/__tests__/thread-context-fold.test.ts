@@ -205,48 +205,6 @@ describe('ThreadContextFold spans', () => {
     });
   });
 
-  it('marks semantic chunks partial when their text was cut or an excerpt', () => {
-    const l = log();
-    l.run('r1');
-    const chunk = (id: string, start: number) => ({
-      filePath: 'src/s.ts',
-      id,
-      lineRange: { end: start + 9, start },
-      metadata: { rootId },
-    });
-    l.tool('r1', 'q1', 'brainstrike.queryEmbeddingSpace', {
-      chunkContentIncludedInContext: true,
-      chunks: [chunk('c1', 1)],
-    });
-    l.tool(
-      'r1',
-      'q2',
-      'brainstrike.queryEmbeddingSpace',
-      { chunkContentIncludedInContext: true, chunks: [chunk('c2', 11)] },
-      'semantic | ...\nprojection_omitted_context_chars=120'
-    );
-    l.tool(
-      'r1',
-      'h1',
-      'brainstrike.hybridSearch',
-      {
-        results: [
-          { filePath: 'src/h.ts', id: 'c3', rootName: 'repo' },
-          { filePath: 'src/i.ts', id: 'c4', rootName: 'repo' },
-        ],
-      },
-      'hybrid | set=s | shown=1/2 | truncated=false'
-    );
-    const { calls } = fold(l.rows);
-    expect(calls.get('q1')?.spans).toEqual([
-      { chunkId: 'c1', endLine: 10, kind: 'semantic', path: 'src/s.ts', rootId, startLine: 1 },
-    ]);
-    expect(calls.get('q2')?.spans[0]).toMatchObject({ chunkId: 'c2', partial: true });
-    expect(calls.get('h1')?.spans).toEqual([
-      { chunkId: 'c3', kind: 'semantic', partial: true, path: 'src/h.ts', rootName: 'repo' },
-    ]);
-  });
-
   it('draws an edit at its written lines, a whole-file write, and no span for a failed call', () => {
     const l = log();
     l.run('r1');

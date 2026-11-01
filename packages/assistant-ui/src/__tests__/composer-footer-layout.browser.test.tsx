@@ -29,7 +29,6 @@ const providerGroups: ProviderGroupConfig[] = [
           embeddings: false,
           llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'openai',
         models: [

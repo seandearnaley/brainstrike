@@ -79,6 +79,9 @@ for it.
    thread creates nothing. Archive keeps its snapshot ref; a cap archives the
    oldest idle worktrees that no open thread uses.
 
+2026-11-01: the semantic and hybrid read-through of decision 5 is removed with the
+retrieval tools (the retrieval decision, BST-2428).
+
 ## Consequences
 
 - The duplicate folder goes away without new storage or a new identity.

@@ -139,7 +139,6 @@ function deriveDiscoveryNamespaces<Tools extends readonly NativeToolDefinition[]
     artifacts: [],
     context: [],
     database: [],
-    embeddings: [],
     execution: [],
     semantics: [],
     sessions: [],

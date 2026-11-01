@@ -135,15 +135,6 @@ describe('chunkCells', () => {
     // Everything mode draws every span that reached the chunk.
     expect(chunkCells(chunks, spans, 'all').map((cell) => cell.coverage)).toEqual([1, 1, 0]);
   });
-
-  it('fills a chunk named only by id, and marks it partial', () => {
-    const rows = contextFileRows(
-      [at('s', [{ chunkId: 'c3', kind: 'semantic', partial: true, path: 'a.ts', rootId }])],
-      'window'
-    );
-    const cell = chunkCells(chunks, rows[0]?.spans ?? [], 'window')[2];
-    expect(cell).toMatchObject({ coverage: 1, kind: 'semantic', partial: true });
-  });
 });
 
 describe('lineBands and totals', () => {

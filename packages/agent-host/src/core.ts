@@ -950,7 +950,6 @@ export class HostCore {
     return openHostRunOwner(this.platform, run, {
       append: (threadId, events) => this.append(threadId, events, 'full'),
       readCommittedRows: (threadIds) => this.projections.readRunnable(this.catalog, threadIds),
-      telemetry: (telemetry) => this.liveTelemetry.publish(telemetry),
     });
   }
 

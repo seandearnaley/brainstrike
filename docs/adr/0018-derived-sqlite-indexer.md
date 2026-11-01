@@ -74,6 +74,8 @@ Accepted 2026-10-07 (BST-1977).
 - A resource-scoped mismatch between indexed text and the persisted group needs a real
   reproduction and a narrow, reviewed vendor patch with an upstream link and removal condition.
   Vector OM stays refused until route, retirement and deletion work through public Memory.
+- Removed 2026-11-01 with semantic recall (the retrieval decision, BST-2428): Memory has no
+  vector store, and the state index keeps no message or observation vectors.
 
 ## Consequences
 

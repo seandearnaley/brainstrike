@@ -12,7 +12,7 @@ import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json
 import { Schema } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { storedHostEvent } from '../src/event-storage.js';
-import { decodeHostRow, messages, search, text } from '../src/host-state-producer.js';
+import { decodeHostRow, search, text } from '../src/host-state-producer.js';
 import { HostLogRowSchema } from '../src/protocol.js';
 import * as desktop from '../src/state-projection.js';
 
@@ -76,13 +76,6 @@ describe('the host state producer, as the browser writer runs it', () => {
     expect(fromReader.some((event) => event.type === 'unreadable')).toBe(false);
     expect(fromReader.map(text)).toEqual(fromFiles.map(desktop.text));
     expect(fromReader.map(search)).toEqual(fromFiles.map(desktop.search));
-    const threadRows = (decoded: typeof fromReader) =>
-      decoded.map((event, index) => ({
-        event,
-        seq: event.seq,
-        threadId: raws[index]?.row.threadId as string,
-      }));
-    expect(messages(threadRows(fromReader))).toEqual(desktop.messages(threadRows(fromFiles)));
   });
   it('refuses a row that needs a blob when no reader is given, as the desktop does without a root', () => {
     const { raws } = storedCorpus();

@@ -38,8 +38,6 @@ const DESKTOP_CATALOG: readonly DesktopNativeToolDefinition[] = DESKTOP_NATIVE_T
 describe('NATIVE_TOOLS catalog', () => {
   it('registers every search/artifact tool through the Effect producer', () => {
     const expected = [
-      'hybridSearch',
-      'queryEmbeddingSpace',
       'grepSearch',
       'globWorkspace',
       'webSearch',
@@ -73,9 +71,7 @@ describe('NATIVE_TOOLS catalog', () => {
         "brainstrike.findWorkspaceSymbol",
         "brainstrike.globWorkspace",
         "brainstrike.grepSearch",
-        "brainstrike.hybridSearch",
         "brainstrike.inspectCommandSessions",
-        "brainstrike.listEmbeddingSpaces",
         "brainstrike.listWorkspaceContext",
         "brainstrike.listWorktrees",
         "brainstrike.lspInspect",
@@ -84,7 +80,6 @@ describe('NATIVE_TOOLS catalog', () => {
         "brainstrike.manageTaskList",
         "brainstrike.manageWorktree",
         "brainstrike.queryDiagnostics",
-        "brainstrike.queryEmbeddingSpace",
         "brainstrike.readToolOutputArtifact",
         "brainstrike.readWorkspaceContext",
         "brainstrike.readWorkspaceDirectory",
@@ -105,7 +100,7 @@ describe('NATIVE_TOOLS catalog', () => {
   });
 
   it('partitions desktop (brainstrike.*) and skill ids exactly, with no duplicates', () => {
-    expect(DESKTOP_NATIVE_TOOL_IDS).toHaveLength(36);
+    expect(DESKTOP_NATIVE_TOOL_IDS).toHaveLength(33);
     expect(SKILL_NATIVE_TOOL_IDS).toEqual(['skill', 'skill_read', 'skill_search']);
     expect(NATIVE_TOOL_IDS).toEqual([...DESKTOP_NATIVE_TOOL_IDS, ...SKILL_NATIVE_TOOL_IDS]);
     expect(new Set(NATIVE_TOOL_IDS).size).toBe(NATIVE_TOOL_IDS.length);
@@ -122,7 +117,7 @@ describe('NATIVE_TOOLS catalog', () => {
     expect(WEB_NATIVE_TOOL_IDS).toEqual(
       DESKTOP_CATALOG.filter((tool) => tool.surfaces.includes('web')).map((tool) => tool.id)
     );
-    expect(WEB_NATIVE_TOOL_IDS).toHaveLength(22);
+    expect(WEB_NATIVE_TOOL_IDS).toHaveLength(19);
     expect(NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS).toEqual([
       'brainstrike.inspectCommandSessions',
       'brainstrike.manageCommandSession',
@@ -166,7 +161,6 @@ describe('NATIVE_TOOLS catalog', () => {
         "directory listings",
         "workspace context",
         "symbol and LSP inspection",
-        "embedding search",
         "diagnostics",
         "tool-output artifacts",
       ]

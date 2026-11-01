@@ -271,7 +271,7 @@ describe('isAlwaysVisibleRunEvent', () => {
   it('does not force background bookkeeping or already-carded tool failures', () => {
     // tool.failed already surfaces on its ToolFallback card — never double-report.
     expect(isAlwaysVisibleRunEvent(event('tool.failed', 'failed'))).toBe(false);
-    expect(isAlwaysVisibleRunEvent(event('memory.semantic.completed', 'completed'))).toBe(false);
+    expect(isAlwaysVisibleRunEvent(event('memory.reflection.completed', 'completed'))).toBe(false);
     expect(isAlwaysVisibleRunEvent(event('run.finished', 'completed'))).toBe(false);
     expect(isAlwaysVisibleRunEvent(event('run.started', 'running'))).toBe(false);
   });
@@ -714,7 +714,7 @@ describe('AssistantRunTimeline render', () => {
       id: 't1',
       kind: 'tool.completed',
       label: 'Tool completed',
-      metadata: { toolName: 'brainstrike.queryEmbeddingSpace' },
+      metadata: { toolName: 'brainstrike.lspInspect' },
       status: 'completed',
       timestamp: '2026-06-05T00:00:00.000Z',
     });

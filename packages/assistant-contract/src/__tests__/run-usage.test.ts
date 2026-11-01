@@ -2,14 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { ASSISTANT_RUN_USAGE_KINDS, isAssistantChildRunUsage } from '../run-usage';
 
 describe('run-usage contract', () => {
-  it('pins the attribution kinds (UI labels and the PGlite CHECK constraint, but for the host-only memory-embedding, derive from this)', () => {
+  it('pins the attribution kinds (UI labels and the PGlite CHECK constraint derive from this)', () => {
     expect(ASSISTANT_RUN_USAGE_KINDS).toEqual([
       'chat',
       'subagent',
       'compaction-summary',
       'om-observation',
       'om-reflection',
-      'memory-embedding',
     ]);
   });
 

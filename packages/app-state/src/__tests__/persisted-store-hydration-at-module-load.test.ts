@@ -67,13 +67,6 @@ describe('persisted store hydration at module load', () => {
             retrievalMode: 'off',
             scope: 'thread',
           },
-          semanticRecall: {
-            embeddingModelTarget: 'openai/text-embedding-3-small',
-            enabled: false,
-            messageRange: 2,
-            scope: 'thread',
-            topK: 5,
-          },
         },
         version: 2,
       })

@@ -1,6 +1,5 @@
 import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
-import { MEMORY_RECALL_TELEMETRY_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { ModelMessage, Tool } from 'ai';
 import { Schema } from 'effect';
 import { recordRawToolInputs } from './approval-input.ts';
@@ -19,7 +18,6 @@ import {
   HostPromptBreakdownSchema,
   HostPromptToolCallWindowSchema,
   type HostRunSnapshot,
-  type HostRunTelemetry,
 } from './protocol.ts';
 /**
  * HostCore alone folds and writes accepted command records. The committed
@@ -604,9 +602,7 @@ export function foldHostRunMessages(
 export function createHostRunContext(
   run: HostRunState,
   publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>,
-  readCommittedRows: HostRunContext['readCommittedRows'],
-  /** Core's live telemetry: uncommitted, on the run's stream (ADR-0011 amendment). */
-  telemetry: (telemetry: HostRunTelemetry) => void
+  readCommittedRows: HostRunContext['readCommittedRows']
 ): HostRunContext {
   return {
     readCommittedRows,
@@ -656,16 +652,6 @@ export function createHostRunContext(
           type: 'provider.request.prepared',
         },
       ]);
-    },
-    recordRecall: (recall) => {
-      telemetry({
-        chunk: { ...recall, type: MEMORY_RECALL_TELEMETRY_TYPE },
-        runId: run.id,
-        threadId: run.threadId,
-      });
-    },
-    recordRecallFailed: async (detail) => {
-      await publish(run.threadId, [{ detail, runId: run.id, type: 'memory.recall.failed' }]);
     },
     runId: run.id,
     signal: run.controller.signal,

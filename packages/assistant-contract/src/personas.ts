@@ -251,7 +251,6 @@ const SETTING_GOVERNS_STEPS = SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max;
 export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
   definePersona({
     allowedToolIds: [
-      NATIVE_TOOL_ID.queryEmbeddingSpace,
       NATIVE_TOOL_ID.grepSearch,
       NATIVE_TOOL_ID.globWorkspace,
       NATIVE_TOOL_ID.readToolOutputArtifact,
@@ -259,14 +258,13 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
       NATIVE_TOOL_ID.readWorkspaceDirectory,
     ],
     description:
-      'Delegate broad, RAG-native codebase exploration: semantic + exact search across the ' +
+      'Delegate broad codebase exploration: exact search and file enumeration across the ' +
       'workspace, then read the most relevant files. Use when a question needs surveying many ' +
       'files before answering. Returns reported findings to verify, not established fact.',
     id: 'explore',
     instructions:
-      'You are the Explorer subagent: a read-only codebase exploration specialist. Use semantic ' +
-      'search (queryEmbeddingSpace) to find relevant regions when exact wording is unknown, ' +
-      'grepSearch for exact identifiers/strings, globWorkspace to enumerate files, and the ' +
+      'You are the Explorer subagent: a read-only codebase exploration specialist. Use ' +
+      'grepSearch for identifiers, strings and likely wording, globWorkspace to enumerate files, and the ' +
       'workspace file/directory readers to inspect the most relevant results. You cannot modify ' +
       'anything. Answer the delegated task concisely with a written summary of what you found, ' +
       'citing concrete file paths. State the PROVENANCE of every claim: cite path:line for ' +

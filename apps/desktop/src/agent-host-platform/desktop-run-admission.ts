@@ -35,9 +35,6 @@ import {
   readHostSystemContext,
 } from '@brainstrike/host-capabilities/workspace-context';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
-import type { VectorProfile } from '@brainstrike/indexer';
-import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
-import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import {
   desktopInputTokenLimit,
@@ -47,11 +44,7 @@ import {
   readEnabledObservers,
   resolveDesktopMemorySettings,
 } from './desktop-run-preconditions';
-import {
-  type DesktopToolDescriptor,
-  desktopToolDescriptors,
-  indexServesRetrieval,
-} from './desktop-tool-descriptors';
+import { type DesktopToolDescriptor, desktopToolDescriptors } from './desktop-tool-descriptors';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
 import { memoryReadinessReason } from './memory-readiness';
 import {
@@ -63,15 +56,14 @@ import {
   platformPermissionPolicy,
 } from './platform-wire';
 
-const logger = createLogger('DesktopRunAdmission');
 type RuntimeWorkspaceRoots = NonNullable<RuntimeData['workspaceRoots']>;
 /** ADR-0032: the given roots the person trusted, in their order. */
 export type DesktopTrustedRoots = (roots: RuntimeWorkspaceRoots) => Promise<RuntimeWorkspaceRoots>;
 /**
  * What a desktop run's admission reads from the facts Main owns (BST-1930
  * stage e): the model catalog, live roots and their binding leases, the
- * worktree service, and the recall embedder profile. The agent host composes the admission from them;
- * Main serves each read and holds no selection.
+ * worktree service. The agent host composes the admission from them; Main
+ * serves each read and holds no selection.
  */
 export interface DesktopAdmissionReads {
   /** Borrows a thread's bound workspace for the run; close returns it. */
@@ -97,15 +89,8 @@ export interface DesktopAdmissionReads {
   cliOwnerIntent?(request: HostRunIntentRequest): Promise<unknown>;
   /** The candidates whose provider and model rows are enabled and whose model is an LLM. */
   enabledObservers(candidates: readonly string[], signal: AbortSignal): Promise<readonly string[]>;
-  /** Main's workspace index status, which decides whether the retrieval tools are offered. */
-  indexStatus(signal: AbortSignal): Promise<IndexerStatus>;
   /** The profile's mounted workspace roots. */
   liveWorkspaceRoots(signal: AbortSignal): Promise<RuntimeWorkspaceRoots>;
-  /** The recall embedder profile the memory settings select. */
-  memoryVectors(
-    settings: PlatformSelection['memory']['settings'],
-    signal: AbortSignal
-  ): Promise<VectorProfile | undefined>;
 }
 /** One admitted desktop run: the selection, its live roots and its release. */
 export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation'> {
@@ -231,8 +216,6 @@ async function readDesktopNativeAdmission(
   /** The admission's tools, described from the catalog; the host executes every one. */
   readonly descriptors: Record<string, DesktopToolDescriptor>;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
-  /** Retrieval is admitted to the thread's own roots (a CLI selection or a binding). */
-  readonly retrievalRootsOnly: boolean;
   readonly readWorkspaceFile: WorkspaceFileReader;
   readonly revalidateWorkspace: () => Promise<void>;
   readonly runtime: RuntimeData;
@@ -264,8 +247,12 @@ async function readDesktopNativeAdmission(
   const revalidateWorkspace = async (): Promise<void> => {
     await freshRoots();
   };
-  const retrievalRootsOnly = selection !== undefined || workspace !== undefined;
-  const readWorkspaceFile = desktopContextReader(request, freshRoots, retrievalRootsOnly);
+  // A CLI selection or a binding admits context reads to the thread's own roots.
+  const readWorkspaceFile = desktopContextReader(
+    request,
+    freshRoots,
+    selection !== undefined || workspace !== undefined
+  );
   const configurationRoots = await trustedRoots(roots);
   request.signal.throwIfAborted();
   // The thread's binding owns the roots a run executes in; the explorer's focus
@@ -321,7 +308,6 @@ async function readDesktopNativeAdmission(
     codeFence:
       intent.enabledNativeToolIds.includes(NATIVE_TOOL_ID.runPython) && (await hostFencesCode()),
     enabledNativeToolIds: intent.enabledNativeToolIds,
-    retrieval: await desktopRetrievalAdmitted(reads, roots, request.signal),
     skills: workspaceSkills !== undefined,
   });
   return {
@@ -331,7 +317,6 @@ async function readDesktopNativeAdmission(
     descriptors,
     freshRoots,
     readWorkspaceFile,
-    retrievalRootsOnly,
     revalidateWorkspace,
     runtime,
     ...(workspaceSkills ? { workspaceSkills } : {}),
@@ -341,31 +326,6 @@ async function readDesktopNativeAdmission(
 async function hostFencesCode(): Promise<boolean> {
   const { isFenceSupported } = await import('@brainstrike/agent/fence-executor');
   return isFenceSupported();
-}
-/**
- * ADR 0026: the retrieval lane is optional, so an index that cannot answer
- * (not ready, TEXT mode, or its status unreadable) leaves its tools out of the
- * run and never fails it. An unreadable status is logged, never swallowed.
- */
-async function desktopRetrievalAdmitted(
-  reads: DesktopAdmissionReads,
-  roots: RuntimeWorkspaceRoots,
-  signal: AbortSignal
-): Promise<boolean> {
-  let status: IndexerStatus;
-  try {
-    status = await reads.indexStatus(signal);
-  } catch (cause) {
-    signal.throwIfAborted();
-    logger.error('Workspace index status is unreadable; the retrieval tools are not offered', {
-      cause,
-    });
-    return false;
-  }
-  return indexServesRetrieval(
-    status,
-    roots.map((root) => root.rootId)
-  );
 }
 /**
  * A CLI selection runs without skills; otherwise one scan of the trusted roots
@@ -421,7 +381,6 @@ function desktopDelegationFields(
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(
   runtime: RuntimeData,
-  retrievalRootsOnly: boolean,
   skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined
 ): DesktopRunSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
@@ -430,7 +389,6 @@ function desktopNativeRuntime(
   return {
     ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
     provider: runtime.provider,
-    ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
     ...(skills
       ? {
@@ -469,7 +427,7 @@ export function createDesktopRunAdmission(
   };
   /**
    * The admission's pure preconditions: the catalog model and captured
-   * settings, observer resolution and the recall-embedder plan. A run
+   * settings and observer resolution. A run
    * admission and thread/memory/read both start here; nothing is acquired.
    */
   const readPreconditions = async (request: HostRunIntentRequest) => {
@@ -495,14 +453,11 @@ export function createDesktopRunAdmission(
       configuration.provider,
       await readEnabledObservers(reads, intent, configuration.provider, request.signal)
     );
-    const memoryVectors = await reads.memoryVectors(memorySettings, request.signal);
-    request.signal.throwIfAborted();
     const memory = desktopMemorySelection(
       intent,
       configuration.provider,
       memorySettings,
-      observerTarget,
-      memoryVectors
+      observerTarget
     );
     return {
       catalog,
@@ -585,11 +540,7 @@ export function createDesktopRunAdmission(
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         memory,
-        nativeRuntime: desktopNativeRuntime(
-          native.runtime,
-          native.retrievalRootsOnly,
-          native.admittedSkills
-        ),
+        nativeRuntime: desktopNativeRuntime(native.runtime, native.admittedSkills),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
         tools,

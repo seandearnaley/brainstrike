@@ -1,6 +1,6 @@
 # Memory storage contract
 
-How Mastra Memory persists through the host StateStore. The host (StateStore writer plus agent-host, called "Studio" in some code comments) owns dispatch, schema registration, canonical transcript identity, the run loop, vector/index composition, the root lease, strict purge and reset. The adapters here open no database connection, actor loop, approval gate, scheduler or transcript copy.
+How Mastra Memory persists through the host StateStore. The host (StateStore writer plus agent-host, called "Studio" in some code comments) owns dispatch, schema registration, canonical transcript identity, the run loop, index composition, the root lease, strict purge and reset. The adapters here open no database connection, actor loop, approval gate, scheduler or transcript copy.
 
 ## Storage composition
 
@@ -42,11 +42,11 @@ How Mastra Memory persists through the host StateStore. The host (StateStore wri
   - Builds on upstream's `runOMCommit` queue and turn signal; also fixes resource-group serialization indexing and single escape/decode of group attributes.
 - Core patch: `AgentThreadStreamRuntime` forwards the caller's abort reason to Memory's internal observer/reflector streams.
 - The alternative, a Worker enclosure with storage/model/stream RPC, was rejected as far more machinery.
-- Removal condition: upstream (or a reduced in-house implementation) passes the same ESM/CJS cancellation, join and error regressions without the patch (`packages/agent-host/__tests__/memory-public-lifecycle.test.ts`), plus composed recall/WM/OM, usage, strict purge/reset and reopen checks. Remove the patch registration and patch file together.
+- Removal condition: upstream (or a reduced in-house implementation) passes the same ESM/CJS cancellation, join and error regressions without the patch (`packages/agent-host/__tests__/memory-public-lifecycle.test.ts`), plus composed WM/OM, usage, strict purge/reset and reopen checks. Remove the patch registration and patch file together.
 
 ## Coverage limits
 
 - Component tests cover native observation writes, call recording and ESM/CJS lifecycle controls; the derived writer verifies every observation group against its same-transaction native record and thread/resource owners.
-- The host composes Memory's own `listTools()` tools and stores recall/observation vectors in its state index, per memory resource.
+- The host composes Memory's own `listTools()` tools. Memory has no vector store or embedder: semantic recall and vector observation retrieval are off (the retrieval decision, BST-2428).
 - Component tests do not prove physical Stop/delete retirement under load or populated reopen; those need composed evidence.
 - No old-schema upgrade is required ([ADR-0020](../../../../docs/adr/0020-greenfield-data-lifecycle.md)).

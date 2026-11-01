@@ -59,7 +59,6 @@ describe('useAssistantModelPickerConfig', () => {
           expect.objectContaining({
             capabilities: expect.objectContaining({
               llm: true,
-              supportsStandardEmbeddingDimension: true,
             }),
             id: 'openai',
             models: expect.arrayContaining([
@@ -88,7 +87,6 @@ describe('useAssistantModelPickerConfig', () => {
           expect.objectContaining({
             capabilities: expect.objectContaining({
               llm: true,
-              supportsStandardEmbeddingDimension: false,
             }),
             id: 'openrouter',
             models: [

@@ -26,21 +26,12 @@ import {
 
 const logger = createLogger('DesktopAssistantTools');
 
-/** The Workspace Index the listing reports: the index a host thread actually searches. */
-export interface WorkspaceIndexSummary {
-  embeddingSetId: string | null;
-  enabled: boolean;
-  mode: string | null;
-  paused: boolean;
-}
-
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
 const DEFAULT_CONTEXT_MAX_FILES = 20;
 const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
 const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
 
 interface ListWorkspaceContextToolResult {
-  workspaceIndex: WorkspaceIndexSummary;
   /**
    * MAIN root path (the assistant's operating root — `workspaceRoots[0]`,
    * client-declared with a created_at fallback).
@@ -55,9 +46,7 @@ interface ListWorkspaceContextToolResult {
 
 export function runListWorkspaceContext(
   _input: ListWorkspaceContextInput,
-  runtimeData: RuntimeData | undefined,
-  /** The native index's status summary, read by the caller. */
-  workspaceIndex: WorkspaceIndexSummary
+  runtimeData: RuntimeData | undefined
 ): ListWorkspaceContextToolResult {
   const workspaceRoots = getWorkspaceRoots(runtimeData);
   const resolvedWorkspaceRoots = runtimeData?.workspaceRoots;
@@ -73,7 +62,6 @@ export function runListWorkspaceContext(
   // The first root is the MAIN root (client-declared via mainRootId, with the
   // DB created_at order as fallback — see orderWorkspaceRoots).
   return {
-    workspaceIndex,
     workspaceRootPath: workspaceRoots[0]?.path ?? null,
     workspaceRoots,
   };
