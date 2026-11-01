@@ -1,28 +1,13 @@
 # Issue tracker
 
-Brainstrike product/engineering issues and specs live in the Brainstrike team in
-Linear, using `BST-###` identifiers. GitHub PRs are implementation/review artifacts,
-not an alternative product tracker.
-
-Use the connected Linear integration. Resolve exact identifiers and inspect the
-live state, relevant comments, labels, ownership and relations before acting;
-dated plans and local summaries are evidence, not tracker state. Re-read an issue
-immediately before and after a mutation.
-
-Creating or changing issues, comments, relations, assignment or labels requires
-the owner's authorization. A request to publish approved work to the tracker
-supplies that scope; a bot finding or an unrelated skill does not invent it. If
-the required integration/capability is unavailable, report that limitation rather
-than creating a substitute record elsewhere.
-
-Use native parent/blocking/duplicate/related relations. Do not encode an unsupported
-relation into prose as though it existed. State unsupported operations honestly.
-
-PR descriptions reference the relevant resolved `BST-###` outcome and report actual
-validation under `pnpm check`. Do not create a ticket for every
-implementation slice, proof or review comment. Complete a ticket only when its
-whole user-visible outcome is demonstrated; a linked partial PR is insufficient.
-
-External skills consume this policy and [triage vocabulary](triage-labels.md).
-Disabled workflow definitions and historical GitHub-issue ingress are not standing
-authorization to enable automation or create tracker records.
+- Product and engineering issues live in the Brainstrike team in Linear (`BST-###`). GitHub PRs are implementation and review artifacts, not a second tracker.
+- Before acting, read the issue's live state, comments, labels, ownership and relations; re-read it before and after a mutation.
+  - Dated plans and local summaries are evidence, not tracker state.
+- Creating or changing issues, comments, relations, assignment or labels needs the owner's authorization.
+  - A request to publish approved work to the tracker is that authorization; a bot finding or an unrelated skill is not.
+  - If the Linear integration is unavailable, say so; don't create a substitute record elsewhere.
+- Use native parent, blocking, duplicate and related relations. Don't describe an unsupported relation in prose as if it existed.
+- PRs reference the relevant `BST-###` and report the validation that actually ran.
+  - Don't create a ticket per implementation slice, proof or review comment.
+  - Complete a ticket only when its whole user-visible outcome is demonstrated; a linked partial PR is not enough.
+- External skills use this policy and the [triage vocabulary](triage-labels.md). Disabled workflow definitions and old GitHub-issue ingress don't authorize enabling automation or creating tracker records.

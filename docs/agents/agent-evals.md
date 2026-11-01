@@ -76,4 +76,3 @@ makes paid calls with the owner's key. Agents never run it; it refuses in CI.
 - Replays it; keeps it only if live and replay both pass with the same verdict,
   every exchange claimed and nothing refused.
 - Only then writes `tasks/<id>/cassette.json` and sets `cassette` and `model` in `task.json`.
-- `record.integration.test.ts` covers this offline with a loopback stand-in and no real key.
