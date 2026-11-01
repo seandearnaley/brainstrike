@@ -3,8 +3,11 @@
 - **Status:** Accepted (Sean, 2026-10-20: "lets do what others do, and separate")
 - **Date:** 2026-10-20
 - **Ticket:** follows BST-2271 and BST-2272
-- **Related:** ADR 0017 (CLI retrieval), BST-1988 (index partition and worktree
-  opt-in), BST-1990 (a thread searches its own folders)
+- **Number:** shared with
+  [ADR-0026 (lifecycle)](0026-lifecycle-readiness-liveness-joined-quit.md); cite this one as
+  "ADR-0026 two-lane search".
+- **Related:** [ADR-0017](0017-cli-first-agent-host.md) (CLI retrieval), BST-1988 (index
+  partition and worktree opt-in), BST-1990 (a thread searches its own folders)
 
 ## Context
 

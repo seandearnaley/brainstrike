@@ -44,6 +44,8 @@ Adopt Effect v4 (`effect`, exact-pinned) one runtime boundary at a time.
 4. **Phase 3 (narrowed, BST-1819):** desktop main's graceful shutdown runs on effect-kit's
    `runShutdownSequence` from a tested module that owns step order, and every IPC registration's
    disposer joins the disposer stack.
+   - Later: [ADR-0027](0027-canonical-electron-quit.md) replaced the sequence engine with plain
+     ordered awaits in `desktop-graceful-shutdown.ts`; `runShutdownSequence` is gone.
    - Host managers did not become scoped Layers: shutdown order is a dependency order across
      main, and factory reset is a restartable parallel stop, not a scope closing.
 - Later phases (main as a Layer graph, RPC over workers, Stream) each need their own decision.
