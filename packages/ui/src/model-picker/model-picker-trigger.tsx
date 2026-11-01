@@ -74,7 +74,7 @@ export const ModelPickerTrigger = ({
             </span>
           </>
         ) : (
-          <span className="text-muted-foreground">{placeholder ?? 'Select a model...'}</span>
+          <span className="text-muted-foreground">{placeholder ?? 'Select a model…'}</span>
         )}
       </div>
       <span className="text-muted-foreground group-hover:bg-background/70 group-hover:text-foreground grid size-6 shrink-0 place-items-center rounded-md transition-colors">

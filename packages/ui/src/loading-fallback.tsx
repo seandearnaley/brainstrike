@@ -9,7 +9,7 @@ export interface LoadingFallbackProps {
 /**
  * A centered loading placeholder with pulse animation.
  */
-export function LoadingFallback({ message = 'Loading...' }: LoadingFallbackProps) {
+export function LoadingFallback({ message = 'Loading…' }: LoadingFallbackProps) {
   return (
     <div className={cn('flex h-full items-center justify-center')}>
       <div className="animate-pulse">{message}</div>

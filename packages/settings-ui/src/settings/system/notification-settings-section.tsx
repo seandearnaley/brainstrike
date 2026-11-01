@@ -61,10 +61,10 @@ function isPermissionBlocked(state: AssistantNotificationPermissionState): boole
 
 function blockedReason(state: AssistantNotificationPermissionState): string | null {
   if (state === 'denied') {
-    return 'Blocked by your browser or OS. Allow notifications for this site to turn this on.';
+    return 'Blocked by your system settings. Allow notifications for Brainstrike to turn this on.';
   }
   if (state === 'unsupported') {
-    return 'Blocked: this browser does not support notifications.';
+    return 'Blocked: notifications aren’t supported on this system.';
   }
   return null;
 }

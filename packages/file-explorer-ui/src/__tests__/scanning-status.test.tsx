@@ -34,7 +34,7 @@ describe('ScanningStatus', () => {
 
     it('should show default text when no props are provided', () => {
       render(<ScanningStatus isScanning={true} />);
-      expect(screen.getByText('Scanning...')).toBeInTheDocument();
+      expect(screen.getByText('Scanning…')).toBeInTheDocument();
     });
 
     it('should show percentage when provided and greater than 0', () => {
@@ -144,7 +144,7 @@ describe('ScanningStatus', () => {
 
     it('should show cancelling state when isCancelling is true', () => {
       render(<ScanningStatus cancellable={true} isCancelling={true} isScanning={true} />);
-      expect(screen.getByText('Cancelling...')).toBeInTheDocument();
+      expect(screen.getByText('Cancelling…')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Cancelling' })).toBeDisabled();
     });
 

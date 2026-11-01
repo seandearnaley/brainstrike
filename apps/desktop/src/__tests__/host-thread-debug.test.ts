@@ -177,7 +177,7 @@ describe("a host thread's debug bundle, from its committed log", () => {
   test('the Copy debug bundle formats it with the legacy bundle sections', async () => {
     const binding = createHostDebugBundleBinding(recordedHost(), threadId, noDiagnostics);
     const bundle = await binding.buildBundle({ runId: null });
-    expect(bundle).toContain('# BrainStrike Debug Bundle');
+    expect(bundle).toContain('# Brainstrike Debug Bundle');
     expect(bundle).toContain(`run_id: ${failedRun}`);
     expect(bundle).toContain('- status: failed');
     expect(bundle).toContain(`- error: ${STALL}`);

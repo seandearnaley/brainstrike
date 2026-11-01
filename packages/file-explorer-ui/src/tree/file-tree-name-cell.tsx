@@ -129,7 +129,7 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
           className="flex w-4 flex-shrink-0 items-center justify-center"
           title={
             rowData.isLoadingForSelection
-              ? 'Loading folder contents...'
+              ? 'Loading folder contents…'
               : fileNode.type === 'file' && selectionState.wouldExceedLimit
                 ? `Cannot select more than ${maxSelectionCount} files`
                 : undefined

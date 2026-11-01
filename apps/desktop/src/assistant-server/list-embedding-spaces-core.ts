@@ -111,7 +111,7 @@ export async function runListEmbeddingSpacesWith(
 }> {
   if (!nativeIndexSearch) {
     // The agent host lists spaces against the native index only.
-    throw new Error('Retrieval without a native index runs only on Main’s database.');
+    throw new Error('Retrieval needs the workspace index, which is unavailable.');
   }
   const native = await readNativeListing(nativeIndexSearch, input.includeStats === true);
   const { workspaceIndex } = native;

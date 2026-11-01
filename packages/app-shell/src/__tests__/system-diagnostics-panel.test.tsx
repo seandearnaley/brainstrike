@@ -319,7 +319,7 @@ describe('SystemDiagnosticsPanel', () => {
       useDatabaseStatusStore.getState().setLoading();
       render(<SystemDiagnosticsPanel />);
 
-      expect(screen.getByText('Connecting...')).toBeInTheDocument();
+      expect(screen.getByText('Connecting…')).toBeInTheDocument();
     });
 
     it('shows connected state with location', () => {

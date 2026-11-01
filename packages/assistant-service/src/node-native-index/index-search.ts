@@ -160,7 +160,7 @@ export async function grepSnapshot(
   await client.close();
   return result;
 }
-/** Root authority is reloaded on every request; no PGlite search or writer-regex fallback. */
+/** Root authority is reloaded on every request; no legacy database search or writer-regex fallback. */
 export function createNativeIndexSearchCapability(
   dependencies: Dependencies
 ): Omit<IndexSearchCapability, 'coverageBatch'> {

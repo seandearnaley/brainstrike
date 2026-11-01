@@ -322,7 +322,7 @@ describe('UnifiedToolsSettings', () => {
 
       render(<UnifiedToolsSettings operations={operations} />);
 
-      expect(screen.getByText('Loading tools...')).toBeInTheDocument();
+      expect(screen.getByText('Loading tools…')).toBeInTheDocument();
     });
 
     it('hides loading state after data loads', async () => {
@@ -331,7 +331,7 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.queryByText('Loading tools...')).not.toBeInTheDocument();
+        expect(screen.queryByText('Loading tools…')).not.toBeInTheDocument();
       });
     });
   });

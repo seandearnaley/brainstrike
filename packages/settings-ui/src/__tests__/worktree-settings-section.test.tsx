@@ -16,7 +16,7 @@ describe('WorktreeSettingsSection', () => {
       <WorktreeSettingsSection onSave={vi.fn()} settings={null} status={{ kind: 'unavailable' }} />
     );
     expect(screen.getByTestId('worktree-settings-unavailable')).toHaveTextContent(
-      'Worktrees are a desktop feature.'
+      'Worktrees are unavailable in this window'
     );
     expect(screen.queryByTestId('worktree-settings-directory')).toBeNull();
   });

@@ -103,7 +103,7 @@ async function readWorkerCheckpoints(userDataDir: string): Promise<CheckpointRow
 }
 
 // Only the external model endpoint is scripted. The assistant host, native
-// approval, Mastra delegation, PGlite persistence and file mutations stay real.
+// approval, Mastra delegation, SQLite persistence and file mutations stay real.
 test('canvas approval resume starts two new Workers on the same root turn @smoke', async ({
   electron,
 }, testInfo) => {

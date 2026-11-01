@@ -45,8 +45,8 @@ export interface CanvasFrameProps {
   readonly onShellTimeout?: (event: CanvasShellTimeoutEvent) => void;
   readonly shellReadyTimeoutMs?: number;
   /**
-   * URL of the trusted Canvas shell document — `brainstrike-canvas://shell/`
-   * on desktop, `/canvas-frame.html` on web. The shell MUST be served with the
+   * URL of the trusted Canvas shell document (`brainstrike-canvas://shell/`
+   * in the desktop app). The shell MUST be served with the
    * canvas sandbox CSP as a response header (see
    * `@brainstrike/platform-utils` canvas-sandbox module for the full model).
    */

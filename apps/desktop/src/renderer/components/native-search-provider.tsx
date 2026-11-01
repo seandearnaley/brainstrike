@@ -86,7 +86,7 @@ function matchingStatus(next: IndexerStatus, saved: SavedSearch | null): Indexer
   if (next.kind === 'ready' && !matchesSavedChoices(next, saved)) {
     return {
       kind: 'unavailable',
-      reason: 'Native search is activating the saved search mode and model.',
+      reason: 'Search is switching to your saved search mode and model.',
     };
   }
   return next;
@@ -143,7 +143,7 @@ export function NativeSearchProvider({
   readonly children: ReactNode;
 }): ReactNode {
   const [observation, setStatus] = useState<NativeSearchStatus>(() => {
-    const initial = { kind: 'unavailable' as const, reason: 'Native search is initializing.' };
+    const initial = { kind: 'unavailable' as const, reason: 'Search is starting.' };
     return { execution: initial, status: initial };
   });
   const [lifecycle, setLifecycle] = useState<NativeIndexLifecycleObservation | null>(null);
@@ -212,9 +212,7 @@ export function NativeSearchProvider({
       JSON.stringify(current.embedding.profile) !== JSON.stringify(requested) ||
       JSON.stringify(current.queryPlan) !== JSON.stringify(queryPlan)
     ) {
-      throw new Error(
-        'Native query inference no longer matches the explicit saved execution plan.'
-      );
+      throw new Error('Search settings changed during this search. Try again.');
     }
     return generateDesktopQueryEmbedding(
       {

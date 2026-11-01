@@ -172,7 +172,7 @@ it('removes a disconnected folder kept with its data from the collection it was 
   // BST-2011: a collection's manifest is every row of that collection, whatever
   // its folder. A folder disconnected with its data kept has no lease and no
   // bindings, so its rows kept the collection's manifest from ever completing.
-  // They are derived rows: its Postgres records and its one id stay, and adding
+  // They are derived rows: its database records and its one id stay, and adding
   // the folder back indexes it again.
   const collection = { embeddingSetId: 'collection', kind: 'collection' } as const;
   const collected = { ...bound, embeddingSetId: 'collection' };
