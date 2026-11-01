@@ -43,8 +43,8 @@ Dev launches share one Keychain credential service, and the ad-hoc signed Electr
   - Its SQLite StateStore owns the canonical catalog.
   - Desktop and CLI clients attach through the authenticated host protocol.
 - The derived SQLite index has its own process and lifecycle. The renderer has no SQL bridge.
-- Preference storage is separate from the canonical catalog and derived indexes.
-  - Clear Database keeps configuration and credentials; Factory Reset also clears them.
+- Renderer preferences live in `localStorage` and Main's settings in its settings store (`brainstrike-settings`), both separate from the canonical catalog and derived indexes.
+  - Clear content (Settings) keeps configuration and credentials; Factory Reset also clears them.
   - See the [reset contract](../../docs/agents/platform-contracts.md).
 - The preload and IPC code is the API reference. BrowserWindow security settings live in [`create-window.ts`](src/create-window.ts); see also [SECURITY.md](SECURITY.md).
 - Dev launches pass `--no-sandbox`, so they don't exercise Chromium sandboxing.

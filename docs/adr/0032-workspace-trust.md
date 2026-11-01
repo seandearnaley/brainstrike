@@ -7,15 +7,15 @@
 
 ## Context
 
-ADR-0016 loaded each mounted root's AGENTS.md/AGENT.md/CLAUDE.md and Agent
-Skills by default, with no per-root gate, as an accepted risk. Project slash
-commands and subagent personas loaded the same way. So a freshly cloned
-repository steered the assistant the moment its folder was opened: its
-instructions joined the system prompt, its skills joined the catalog and the
-"/" menu, and its personas became delegation tools.
+- ADR-0016 loaded each mounted root's AGENTS.md/AGENT.md/CLAUDE.md and Agent Skills by default,
+  with no per-root gate, as an accepted risk. Project slash commands and subagent personas loaded
+  the same way.
+- So a freshly cloned repository steered the assistant the moment its folder was opened: its
+  instructions joined the system prompt, its skills joined the catalog and the "/" menu, and its
+  personas became delegation tools.
 
-The tools that load a repository's own agent configuration all ask first, in
-the same shape (read on 2026-10-30):
+The tools that load a repository's own agent configuration all ask first, in the same shape (read
+on 2026-10-30):
 
 - **VS Code Workspace Trust** opens an unfamiliar folder in Restricted Mode and
   asks once per folder. A folder you don't trust still opens for browsing and
