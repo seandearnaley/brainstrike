@@ -7,7 +7,7 @@ import { capturedIntent, everyRootTrusted, mainReads } from './fixtures/desktop-
 
 /** Whether this host has the OS fence: false is a Windows host. */
 const fence = vi.hoisted(() => ({ supported: true }));
-vi.mock('@brainstrike/agent/fence-executor', () => ({
+vi.mock('@brainstrike/agent/fence-support', () => ({
   isFenceSupported: () => fence.supported,
 }));
 beforeEach(() => {

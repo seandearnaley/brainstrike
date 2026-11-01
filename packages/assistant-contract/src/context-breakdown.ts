@@ -87,7 +87,7 @@ export interface AssistantContextBreakdown {
   readonly toolDefinitionsByTool?: readonly AssistantToolDefinitionTokens[];
   /**
    * Counting method for the tool-definition figures ONLY: 'measured' when the
-   * run's tokenizer-backed measurement (RunTokenDiagnostics) counted them,
+   * run's tokenizer-backed measurement counted them,
    * 'heuristic' on the chars/4 backstop. Present iff the tool-definition
    * fields are present.
    */

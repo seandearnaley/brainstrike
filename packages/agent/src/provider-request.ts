@@ -287,15 +287,17 @@ function compatiblePrompt(
   return provider === 'bedrock' ? cleanBedrockPrompt(prompt) : prompt;
 }
 
-function countRequest(
+async function countRequest(
   params: LanguageModelV4CallOptions,
   measurement: PreparedTokenMeasurement,
   removedMessages: number
-): ProviderRequestAccounting {
-  const prompt = measurement.measure(serializeModelOutputForTokenMeasurement(params.prompt));
-  const tools = measurement.measure(
-    params.tools?.length ? serializeModelOutputForTokenMeasurement(params.tools) : ''
-  );
+): Promise<ProviderRequestAccounting> {
+  const [prompt, tools] = await Promise.all([
+    measurement.measure(serializeModelOutputForTokenMeasurement(params.prompt)),
+    measurement.measure(
+      params.tools?.length ? serializeModelOutputForTokenMeasurement(params.tools) : ''
+    ),
+  ]);
   const promptTokens = prompt.status === 'measured' ? prompt.tokenCount : prompt.backstopTokens;
   const toolTokens = tools.status === 'measured' ? tools.tokenCount : tools.backstopTokens;
   return {
@@ -308,8 +310,11 @@ function countRequest(
   };
 }
 
-function measuredTokens(prompt: LanguageModelV4Prompt, measurement: PreparedTokenMeasurement) {
-  const sample = measurement.measure(serializeModelOutputForTokenMeasurement(prompt));
+async function measuredTokens(
+  prompt: LanguageModelV4Prompt,
+  measurement: PreparedTokenMeasurement
+): Promise<number> {
+  const sample = await measurement.measure(serializeModelOutputForTokenMeasurement(prompt));
   return sample.status === 'measured' ? sample.tokenCount : sample.backstopTokens;
 }
 
@@ -323,21 +328,21 @@ function measuredTokens(prompt: LanguageModelV4Prompt, measurement: PreparedToke
  * accounted, and a longer suffix never counts fewer tokens, so a binary search
  * over the later user turns finds the cut.
  */
-function recentPromptWithin(
+async function recentPromptWithin(
   prompt: LanguageModelV4Prompt,
   budget: number,
   measurement: PreparedTokenMeasurement
-): LanguageModelV4Prompt | undefined {
+): Promise<LanguageModelV4Prompt | undefined> {
   const starts = prompt.flatMap((message, index) => (message.role === 'user' ? [index] : []));
   const from = (start: number) =>
     prompt.filter((message, index) => message.role === 'system' || index >= start);
-  const fits = (candidate: number) =>
-    measuredTokens(from(starts[candidate] ?? 0), measurement) <= budget;
+  const fits = async (candidate: number) =>
+    (await measuredTokens(from(starts[candidate] ?? 0), measurement)) <= budget;
   let low = 1;
   let high = starts.length;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);
-    if (fits(middle)) {
+    if (await fits(middle)) {
       high = middle;
     } else {
       low = middle + 1;
@@ -347,7 +352,7 @@ function recentPromptWithin(
   return start === undefined ? undefined : from(start);
 }
 
-function limitProviderPrompt(
+async function limitProviderPrompt(
   input: LanguageModelV4Prompt,
   model: LanguageModelV4,
   context: ProviderRequestContext,
@@ -355,9 +360,9 @@ function limitProviderPrompt(
   accounting: ProviderRequestAccounting,
   measurement: PreparedTokenMeasurement,
   limit: number
-): LanguageModelV4Prompt {
+): Promise<LanguageModelV4Prompt> {
   // Reserve the actual outgoing tool surface; memory and projection are already in.
-  const limited = recentPromptWithin(input, limit - accounting.toolTokens, measurement);
+  const limited = await recentPromptWithin(input, limit - accounting.toolTokens, measurement);
   if (!limited) {
     throw new ProviderRequestContextOverflowError(accounting, limit);
   }
@@ -420,14 +425,14 @@ export async function prepareProviderRequest(
     (await createPreparedTokenMeasurement(
       resolveTokenMeasurementCapability(context.provider, model.modelId)
     ));
-  let accounting = countRequest(prepared, measurement, 0);
+  let accounting = await countRequest(prepared, measurement, 0);
   const limit = context.inputTokenLimit;
   if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
     throw new RangeError('inputTokenLimit must be a positive integer');
   }
   // A request that fits is measured once, by its accounting above.
   if (limit !== undefined && accounting.totalTokens > limit) {
-    prompt = limitProviderPrompt(
+    prompt = await limitProviderPrompt(
       prepared.prompt,
       model,
       context,
@@ -437,7 +442,7 @@ export async function prepareProviderRequest(
       limit
     );
     prepared = { ...prepared, prompt };
-    accounting = countRequest(prepared, measurement, projectedPrompt.length - prompt.length);
+    accounting = await countRequest(prepared, measurement, projectedPrompt.length - prompt.length);
     if (accounting.totalTokens > limit) {
       // Provider history rules run after the cut. Never dispatch a measured
       // over-budget prompt.

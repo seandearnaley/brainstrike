@@ -21,11 +21,11 @@ import { createLogger } from '@brainstrike/logging';
 import {
   acquireFenceSession,
   FenceInvalidRequestError,
-  isFenceSupported,
   newFenceCommandId,
 } from './fence-executor.ts';
 import { buildSandboxRuntimeConfig } from './fence-policy.ts';
 import { withLinuxSeccompApplyPath } from './fence-readiness.ts';
+import { isFenceSupported } from './fence-support.ts';
 
 const logger = createLogger('FencedShell');
 
