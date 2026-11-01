@@ -7,8 +7,9 @@ import { syncFailureError } from './config-sync.ts';
 const CONFIG_FORMATTING: FormattingOptions = { eol: '\n', insertSpaces: true, tabSize: 2 };
 
 /**
- * Whether a Connect on this server is an OAuth sign-in: a streamable HTTP
- * server configured without auth answered 401. Under MCP authorization the
+ * Whether a Connect on this server may be an OAuth sign-in: a streamable HTTP
+ * server configured without auth is in `authentication-required`, which means it
+ * answered 401 unless its own `startup` holds it (`signInWithOAuthWith` checks). Under MCP authorization the
  * server's challenge, not the config, says it wants a user's sign-in, and other
  * MCP clients start OAuth from it. Without this, Connect re-dials unsigned and
  * gets the same 401 every time.
@@ -33,9 +34,11 @@ export interface McpOAuthSignIn {
  * revision it read, and syncs the runtime. The config stays the one writer of a
  * server's auth mode: the reload replaces the server with an OAuth one, whose
  * Connect opens the browser, and later launches reconnect with its stored grant.
- * Its `startup` goes, since OAuth waits for the user. An entry that
- * sends its own Authorization header is refused: the server rejected that header,
- * and an OAuth grant cannot be combined with it.
+ * An explicit `"startup": "automatic"` goes, since OAuth waits for the user. An
+ * entry whose own `"startup": "authentication-required"` holds it is left as
+ * written: no 401 put it there, so Connect only dials it. An entry that sends its
+ * own Authorization header is refused: the server rejected that header, and an
+ * OAuth grant cannot be combined with it.
  */
 export async function signInWithOAuthWith({
   commit,
@@ -72,6 +75,10 @@ export async function signInWithOAuthWith({
       `The MCP config for ${serverName} changed after it asked for sign-in, so nothing was changed. Connect again once the new config has loaded.`
     );
   }
+  // Without auth, only an explicit startup resolves to `authentication-required`.
+  if (entry.startup === 'authentication-required') {
+    return;
+  }
   if (Object.keys(entry.headers ?? {}).some((name) => name.toLowerCase() === 'authorization')) {
     throw refusalError(
       'configuration',
@@ -84,8 +91,8 @@ export async function signInWithOAuthWith({
       text,
       modify(text, ['servers', index, key], value, { formattingOptions: CONFIG_FORMATTING })
     );
-  // Removing an absent `startup` is no edit; an `authentication-required` one
-  // is what OAuth resolves to anyway.
+  // An explicit `automatic` startup cannot stay beside OAuth; removing an absent
+  // one is no edit.
   const content = edit(
     edit(document.content, 'auth', { type: 'oauth-user' }),
     'startup',
@@ -100,6 +107,8 @@ export async function signInWithOAuthWith({
     throw syncFailureError(result, syncFailure);
   }
   if (!result.success) {
-    throw new Error(result.error);
+    throw result.conflict
+      ? refusalError('conflict', 'mcp.oauth-sign-in-conflict', result.error)
+      : new Error(result.error);
   }
 }

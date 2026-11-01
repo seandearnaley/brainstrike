@@ -4,7 +4,7 @@ import {
   type McpHostAuthSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseMcpConfig } from '../src/mcp/config-file.js';
 import { createSettingsHarness, type SettingsHarness } from './mcp-settings-authority-harness.js';
 
@@ -103,6 +103,33 @@ describe('Connect on a server that asks for sign-in', () => {
 
     await expect(readFile(h.configPath, 'utf8')).resolves.toBe(original);
     expect(h.control).toHaveBeenCalledWith({ action: 'connect', configuredServerId: suno });
+  });
+
+  it('connects an on-demand server as configured, since its startup, not a 401, holds it', async () => {
+    const original = config({ startup: 'authentication-required' });
+    const h = await started(original);
+    answeredUnauthorized(h);
+
+    await h.authority.control({ action: 'connect', configuredServerId: suno });
+
+    await expect(readFile(h.configPath, 'utf8')).resolves.toBe(original);
+    expect(h.control).toHaveBeenCalledWith({ action: 'connect', configuredServerId: suno });
+  });
+
+  it('refuses as a conflict when the file changes between its read and the write', async () => {
+    const h = await started(config());
+    answeredUnauthorized(h);
+    vi.spyOn(h.configFile, 'writeText').mockResolvedValueOnce({
+      conflict: true,
+      error: 'The MCP config changed on disk since it was read.',
+      path: h.configPath,
+      success: false,
+    });
+
+    await expect(
+      h.authority.control({ action: 'connect', configuredServerId: suno })
+    ).rejects.toMatchObject({ failure: { category: 'conflict', kind: 'refusal' } });
+    expect(h.control).not.toHaveBeenCalled();
   });
 
   it('refuses when the entry sends its own Authorization header, which the server rejected', async () => {
