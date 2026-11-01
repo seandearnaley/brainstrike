@@ -15,6 +15,7 @@ import type { FolderState } from '@brainstrike/types';
 import { useMemo } from 'react';
 import { useSelectionResolver } from '../use-selection-resolver';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import { threadCheckoutRootIds, useThreadCheckout } from './thread-checkout-context';
 
 /**
  * Union the focused root's LIVE selection (the top-level set) with every
@@ -102,7 +103,13 @@ export const useSelectionManager = () => {
   // Multi-root union inputs (Phase 6). The focused root's live selection is
   // the TOP-LEVEL set; its folderState is a stale snapshot until focus leaves
   // it, so the union reads folderStates only for the OTHER active roots.
-  const activeRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
+  // The roots the Explorer shows (ADR-0034): the active thread's worktree in place of its folder.
+  const openRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
+  const threadCheckout = useThreadCheckout();
+  const activeRootIds = useMemo(
+    () => threadCheckoutRootIds(openRootIds, threadCheckout),
+    [openRootIds, threadCheckout]
+  );
   const folderStates = useFileExplorerStoreSelector((s) => s.folderStates);
   const setFolderSelection = useFileExplorerStoreSelector((s) => s.setFolderSelection);
 

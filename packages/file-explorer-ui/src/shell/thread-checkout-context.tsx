@@ -60,3 +60,20 @@ export function threadCheckoutView(
   }
   return { focused: active ?? visible[0] ?? null, handles: visible };
 }
+
+/**
+ * The root ids of the folders the person sees, from the open folders' ids: the thread's worktree
+ * takes its folder's place, or joins the end when that folder is not open. Selection spans
+ * exactly these roots, so a hidden folder's selection never rides along.
+ */
+export function threadCheckoutRootIds(
+  openRootIds: string[],
+  checkout: ThreadCheckout | null
+): string[] {
+  if (checkout === null) {
+    return openRootIds;
+  }
+  const { localRootId, worktreeRootId } = checkout;
+  const ids = openRootIds.map((rootId) => (rootId === localRootId ? worktreeRootId : rootId));
+  return ids.includes(worktreeRootId) ? ids : [...ids, worktreeRootId];
+}
