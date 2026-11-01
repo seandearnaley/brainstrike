@@ -140,7 +140,6 @@ async function resumeDesktopResetRuntime({
   }
 }
 
-/** Why a reset left the profile closed, or undefined when it reopened it. */
 async function stopDesktopResetRuntimes(
   runtimes: readonly DesktopResetRuntime[],
   mode: DesktopResetMode = 'factory'

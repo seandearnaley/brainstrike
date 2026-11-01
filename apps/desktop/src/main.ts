@@ -325,7 +325,10 @@ let developerDatabaseResetInFlight = false;
 // is the host's. A change before the menu exists is kept here and the menu's first
 // build reads it; only that grant's OS recent-document entry is not added.
 let workspaceRecentRootPaths: readonly string[] = [];
-let workspaceRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
+/** The menu's follower of the host's changes: a grant's OS recent document, and a rebuild. */
+let workspaceRootsMenuSubscriber:
+  | ((change: { readonly grantedPath?: string; readonly recentChanged: boolean }) => void)
+  | null = null;
 // The ONE holder of IPC-domain disposers (BST-1648 step 4): every
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
@@ -660,10 +663,16 @@ function onWorkspaceRootsChanged(change: {
   readonly grantedPath?: string;
   readonly recentPaths: readonly string[];
 }): void {
+  // Any change to the ledger rebuilds File > Open Recent, granted or not: the host's first
+  // publish at launch, a removal, and the empty ledger after a factory reset.
+  const recentChanged =
+    change.recentPaths.length !== workspaceRecentRootPaths.length ||
+    change.recentPaths.some((recentPath, index) => recentPath !== workspaceRecentRootPaths[index]);
   workspaceRecentRootPaths = change.recentPaths;
-  if (change.grantedPath) {
-    workspaceRootGrantSubscriber?.(change.grantedPath);
-  }
+  workspaceRootsMenuSubscriber?.({
+    ...(change.grantedPath ? { grantedPath: change.grantedPath } : {}),
+    recentChanged,
+  });
   // The index's handles follow first, so a scan of a removed folder ends before the re-read
   // queues behind it. Not awaited, as a renderer's registration is not: the index status owns
   // the outcome, and the registration reports its own failure.
@@ -1489,12 +1498,16 @@ if (singleInstanceLockAcquired) {
         }, 250);
       };
 
-      workspaceRootGrantSubscriber = (grantedPath: string) => {
-        // Spec §7's explicit ask. This feeds the macOS Dock menu and the
-        // Windows jump list, whose clicks arrive back as `open-file` / argv —
-        // the entry points Layer 3 handles.
-        app.addRecentDocument(grantedPath);
-        scheduleApplicationMenuRebuild();
+      workspaceRootsMenuSubscriber = ({ grantedPath, recentChanged }) => {
+        if (grantedPath) {
+          // Spec §7's explicit ask. This feeds the macOS Dock menu and the
+          // Windows jump list, whose clicks arrive back as `open-file` / argv —
+          // the entry points Layer 3 handles.
+          app.addRecentDocument(grantedPath);
+        }
+        if (recentChanged) {
+          scheduleApplicationMenuRebuild();
+        }
       };
 
       await rebuildApplicationMenu();

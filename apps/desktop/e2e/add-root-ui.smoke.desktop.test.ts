@@ -224,19 +224,17 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
       rootId: 'root-bst-1393-filemenu',
     });
 
-    // A seeded ledger alone does NOT rebuild the menu: `restoreRoots`
-    // deliberately never fires the grant subscriber (only a REAL
-    // grant-recording mount does — the same event that calls
-    // `app.addRecentDocument`). So trigger a real grant through the
-    // toolbar's Add Folder button (the OS picker is replaced by
-    // BRAINSTRIKE_E2E_REAL_ROOT_PATH), then read the projection: the
-    // rebuild reads the WHOLE ledger, so the seeded path must appear too.
+    // Every change to the host's recent folders rebuilds the menu, the seed
+    // included. Then trigger a real grant through the toolbar's Add Folder
+    // button (the OS picker is replaced by BRAINSTRIKE_E2E_REAL_ROOT_PATH) and
+    // read the projection: the rebuild reads the WHOLE ledger, so the seeded
+    // path and the granted one both appear.
     await page.getByRole('button', { name: 'Add Folder to Workspace' }).click({
       timeout: 30_000,
     });
 
-    // The rebuild is coalesced (250 ms) behind the grant event, so poll
-    // rather than read once.
+    // The rebuild is coalesced (250 ms) behind each change, so poll until
+    // both folders show rather than read once.
     const readRecentMenu = () =>
       electronApp.app.evaluate(({ Menu }) => {
         const item = Menu.getApplicationMenu()?.getMenuItemById('file-open-recent');
@@ -270,11 +268,10 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
         },
         { timeout: 20_000 }
       )
-      .toContain(path.basename(repo));
+      // Newest-first would place the granted folder ahead of the seeded one;
+      // containment is what matters here.
+      .toEqual(expect.arrayContaining([path.basename(repo), path.basename(ROOT_TWO_DIR)]));
     expect(recentMenu.enabled).toBe(true);
-    // The just-granted folder projects too (newest-first would place it
-    // ahead of the seeded entry; containment is what matters here).
-    expect(recentMenu.labels).toContain(path.basename(ROOT_TWO_DIR));
     // Landed deviation from the plan text: Clear Menu was REMOVED from Open
     // Recent (deferred to [D9] "Remove from recents") — pin its absence.
     expect(recentMenu.labels).not.toContain('Clear Menu');
