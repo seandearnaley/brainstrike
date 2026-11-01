@@ -207,4 +207,33 @@ describe('desktop file watches', () => {
     expect(events.at(-1)).toMatchObject({ state: 'healthy', watchId: 'watch-2' });
     expect(callback).toHaveBeenCalledWith(changes);
   });
+
+  it('shares one start between overlapping retries, so the root is watched and delivered once', async () => {
+    const first = fakeHost(watching('watch-1', health('healthy')));
+    let issued = 1;
+    const replacement = fakeHost((method) =>
+      method === 'workspace/files/watch' ? { watchId: `watch-${++issued}` } : null
+    );
+    const watches = watchesOn(first.host, replacement.host);
+    const events: WatcherRootHealthEvent[] = [];
+    watches.onWatcherHealth((event) => events.push(event));
+    const callback = vi.fn();
+    watches.watchDirectory(ROOT, callback);
+    await vi.waitFor(() => expect(events).toHaveLength(1));
+    first.stop();
+    await vi.waitFor(() => expect(events).toHaveLength(2));
+
+    // The health chip and the rewind recovery can both retry the same root.
+    await expect(
+      Promise.all([watches.retryWatcher('/roots/alpha'), watches.retryWatcher('/roots/alpha')])
+    ).resolves.toEqual([{ retried: true }, { retried: true }]);
+    const changes = [{ kind: 'file' as const, path: '/roots/alpha/c.ts', type: 'added' as const }];
+    replacement.push({ changes, type: 'changes', watchId: 'watch-2' });
+    replacement.push({ changes, type: 'changes', watchId: 'watch-3' });
+
+    expect(
+      replacement.request.mock.calls.filter(([method]) => method === 'workspace/files/watch')
+    ).toHaveLength(1);
+    expect(callback.mock.calls).toEqual([[changes]]);
+  });
 });

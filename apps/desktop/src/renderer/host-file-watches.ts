@@ -38,6 +38,8 @@ interface Watch {
   /** The latest transition its host reported. */
   lastHealth: WatcherHealthTransition | undefined;
   readonly onSignal: ((signal: FileSystemWatchSignal) => void) | undefined;
+  /** The start in flight, which every overlapping start or retry shares. */
+  pending: Promise<void> | undefined;
   watchId: string | undefined;
 }
 
@@ -165,7 +167,7 @@ export function createDesktopFileWatches(connection: DesktopHostConnection): Des
   };
 
   /** Starts `watch` on the current host; a failure is the watch's errored signal. */
-  const start = async (watch: Watch): Promise<void> => {
+  const startOnCurrentHost = async (watch: Watch): Promise<void> => {
     starting += 1;
     try {
       const host = await connection.current();
@@ -213,6 +215,14 @@ export function createDesktopFileWatches(connection: DesktopHostConnection): Des
     }
   };
 
+  /** One start per watch at a time, so overlapping retries never hold a root twice. */
+  const start = (watch: Watch): Promise<void> => {
+    watch.pending ??= startOnCurrentHost(watch).finally(() => {
+      watch.pending = undefined;
+    });
+    return watch.pending;
+  };
+
   return {
     onWatcherHealth: (callback) => {
       for (const event of latestHealthByRootPath.values()) {
@@ -242,6 +252,7 @@ export function createDesktopFileWatches(connection: DesktopHostConnection): Des
         host: undefined,
         lastHealth: undefined,
         onSignal,
+        pending: undefined,
         watchId: undefined,
       };
       watches.add(watch);
