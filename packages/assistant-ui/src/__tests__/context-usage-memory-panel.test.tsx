@@ -1,9 +1,6 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
-  AssistantDetailLevelProvider,
-} from '../assistant-detail-level-context';
+import { setAssistantDetailLevel } from '../assistant-detail-level-store.ts';
 import type { OmMeterState } from '../context-usage-meter';
 import { ContextUsagePopoverContent } from '../context-usage-popover';
 
@@ -43,16 +40,14 @@ const LIVE: OmMeterState = {
 
 function popover(omSegment: OmMeterState) {
   return render(
-    <AssistantDetailLevelProvider>
-      <ContextUsagePopoverContent
-        contextWindow={200_000}
-        effectiveInputBudget={126_000}
-        isEstimated={false}
-        omSegment={omSegment}
-        percentage={10}
-        usedTokens={12_600}
-      />
-    </AssistantDetailLevelProvider>
+    <ContextUsagePopoverContent
+      contextWindow={200_000}
+      effectiveInputBudget={126_000}
+      isEstimated={false}
+      omSegment={omSegment}
+      percentage={10}
+      usedTokens={12_600}
+    />
   );
 }
 
@@ -78,7 +73,7 @@ describe('the memory note at every detail level', () => {
 
 describe('the Developer memory panel', () => {
   beforeEach(() => {
-    window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, 'developer');
+    setAssistantDetailLevel('developer');
   });
 
   it('shows the live flags, last observation and reflection, both thresholds and the models', () => {

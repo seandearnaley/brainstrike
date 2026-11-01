@@ -1,7 +1,7 @@
 import { useAuiState } from '@assistant-ui/react';
 import { createContext, type ReactNode, use } from 'react';
 import { shouldShowBackgroundActivity } from './assistant-detail-level';
-import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import type { AssistantRunEventDisplayStatus } from './assistant-run-event-derivation';
 import { deriveAssistantRunEventRows } from './assistant-run-event-derivation';
 import { useStableRecord } from './use-stable-record';

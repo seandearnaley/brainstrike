@@ -1,6 +1,5 @@
 import type { OpenRouterModelMetadataLookup } from '@brainstrike/assistant-contract';
 import { createContext, type ReactNode, use } from 'react';
-import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
 
 const OpenRouterModelMetadataContext = createContext<OpenRouterModelMetadataLookup | undefined>(
   undefined
@@ -19,13 +18,11 @@ export function MetadataProviders({
   readonly value: OpenRouterModelMetadataLookup | undefined;
 }) {
   return (
-    <AssistantDetailLevelProvider>
-      <ProviderSettingsValidationContext.Provider value={onValidation}>
-        <OpenRouterModelMetadataContext.Provider value={value}>
-          {children}
-        </OpenRouterModelMetadataContext.Provider>
-      </ProviderSettingsValidationContext.Provider>
-    </AssistantDetailLevelProvider>
+    <ProviderSettingsValidationContext.Provider value={onValidation}>
+      <OpenRouterModelMetadataContext.Provider value={value}>
+        {children}
+      </OpenRouterModelMetadataContext.Provider>
+    </ProviderSettingsValidationContext.Provider>
   );
 }
 

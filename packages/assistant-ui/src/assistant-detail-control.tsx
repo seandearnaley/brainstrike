@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { ASSISTANT_DETAIL_LEVEL_META, ASSISTANT_DETAIL_LEVELS } from './assistant-detail-level';
-import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 
 /** Native radio group keeps normal Tab and arrow-key behavior inside Controls. */
 export const DetailLevelControl = () => {
