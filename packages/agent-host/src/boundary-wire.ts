@@ -50,6 +50,24 @@ export const HOST_CLOSING = refusal({
   message: 'The agent host is closing.',
 });
 
+/**
+ * A failure a desktop window shows as the host wrote it (an MCP settings or
+ * task refusal). A typed failure keeps its type. Anything else becomes a typed
+ * fault carrying the thrown message, so the boundary keeps the host's words and
+ * logs the cause under the fault's correlation id.
+ */
+export function visibleFailure(
+  cause: unknown,
+  code: string,
+  fallback: string
+): BoundaryFailureError {
+  if (cause instanceof BoundaryFailureError) {
+    return cause;
+  }
+  const message = cause instanceof Error && cause.message.length > 0 ? cause.message : fallback;
+  return new BoundaryFailureError(fault({ category: 'internal', code, message }), { cause });
+}
+
 /** A request refused before it was sent, because its connection had closed. */
 export function isUnsentRequest(cause: unknown): boolean {
   return cause instanceof BoundaryFailureError && cause.failure.code === CONNECTION_CLOSED.code;
