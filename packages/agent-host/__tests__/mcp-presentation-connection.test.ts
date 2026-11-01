@@ -1,7 +1,8 @@
 import { StateStoreReadOnlyError } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
-import { type MessageConnection, ResponseError } from 'vscode-jsonrpc';
+import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from '../src/auth-connection.js';
+import { toBoundaryFailure } from '../src/boundary-wire.js';
 import { bindHostMcpPresentationMethods } from '../src/mcp-presentation-connection.js';
 import type { HostClientOrigin, HostMcpPresentationService } from '../src/ports.js';
 import type { HostMethod } from '../src/protocol.js';
@@ -80,7 +81,9 @@ describe('host MCP presentation methods', () => {
     const other = await handlers
       .get('mcp/tasks/act')?.({})
       .catch((cause: unknown) => cause);
-    expect(other).toBeInstanceOf(ResponseError);
-    expect(other).toMatchObject({ message: 'Task handle is stale' });
+    expect(toBoundaryFailure(other, vi.fn())).toMatchObject({
+      kind: 'fault',
+      message: 'Task handle is stale',
+    });
   });
 });

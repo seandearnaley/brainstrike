@@ -1,10 +1,9 @@
-import { ErrorCodes, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
+import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from './auth-connection.ts';
+import { visibleFailure } from './boundary-wire.ts';
 import type { HostClientOrigin, HostMcpPresentationService } from './ports.ts';
 import { MCP_PRESENTATION_EVENT } from './protocol-mcp-presentation.ts';
 import { storeRefusal } from './store-refusals.ts';
-
-const MAX_VISIBLE_ERROR_CHARS = 1000;
 
 /**
  * The desktop's MCP presentations on one authenticated connection (BST-1930
@@ -35,15 +34,10 @@ export function bindHostMcpPresentationMethods(
     try {
       return await work();
     } catch (cause) {
-      const refused = storeRefusal(cause);
-      if (refused !== cause) {
-        throw refused;
-      }
-      throw new ResponseError(
-        ErrorCodes.InternalError,
-        cause instanceof Error
-          ? cause.message.slice(0, MAX_VISIBLE_ERROR_CHARS)
-          : 'MCP presentation request failed.'
+      throw visibleFailure(
+        storeRefusal(cause),
+        'mcp.presentation-failed',
+        'MCP presentation request failed.'
       );
     }
   };
