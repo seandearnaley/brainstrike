@@ -148,7 +148,7 @@ describe('host root registry', () => {
     await owner.start();
 
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
-      roots: [{ available: false, path: workspace, rootId: root?.rootId }],
+      roots: [{ available: false, path: workspace, rootId: root?.rootId, worktree: false }],
     });
     await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({ roots: [] });
   });
@@ -166,7 +166,12 @@ describe('host root registry', () => {
     const { owner } = registry({ picked: target });
     const { root } = await owner.service['workspace/roots/pick']({});
 
-    expect(root).toEqual({ available: true, path: target, rootId: granted?.rootId });
+    expect(root).toEqual({
+      available: true,
+      path: target,
+      rootId: granted?.rootId,
+      worktree: false,
+    });
     const pins = createWorkspaceRootPins({ mounts: owner.registry });
     const [live] = await pins.liveRoots();
     expect(live).toEqual({ path: target, rootId: granted?.rootId });
@@ -176,7 +181,7 @@ describe('host root registry', () => {
     expect(read).toMatchObject({ status: 'ok' });
     expect(read.status === 'ok' && read.content.toString()).toBe('kept');
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
-      roots: [{ available: true, path: target, rootId: granted?.rootId }],
+      roots: [{ available: true, path: target, rootId: granted?.rootId, worktree: false }],
     });
   });
 
@@ -200,7 +205,7 @@ describe('host root registry', () => {
       setSetting: async (key) => refuse(`set ${key}`),
       stateDamage: 'fixture damage',
       workspaceRoots: async (request: WorkspaceRootRequest) =>
-        request.operation === 'list' || request.operation === 'list-open'
+        ['list', 'list-open', 'list-worktrees'].includes(request.operation)
           ? await store.workspaceRoots(request)
           : refuse(request.operation),
     };
@@ -219,7 +224,7 @@ describe('host root registry', () => {
 
     await owner.start();
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
-      roots: [{ available: true, path: workspace, rootId }],
+      roots: [{ available: true, path: workspace, rootId, worktree: false }],
     });
     await expect(owner.service['workspace/roots/recent']({})).resolves.toMatchObject({
       roots: [{ path: workspace }],

@@ -37,6 +37,8 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async () => {
     FileSystemProvider,
     RootDataDeletionProvider,
     TERMINAL_APP_ID: 'terminal',
+    // No thread works in a worktree here: the Explorer shows the open folders.
+    ThreadCheckoutProvider: ({ children }: { children: React.ReactNode }) => children,
     useFileSystem,
     // The real strip/body/provider are exercised in file-explorer-ui's own
     // suite; here we only assert the REGISTRY the shell passes down and that

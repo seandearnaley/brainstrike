@@ -359,8 +359,9 @@ async function runMultiRootRestore({
     }
 
     // Register persisted roots in the store. Accessed via ref to avoid reactive dep.
+    // A managed worktree is a thread's checkout, never one of the open folders (ADR-0034).
     const storedDescriptors: StoredRootDescriptor[] = granted
-      .filter((d) => d.persisted)
+      .filter((d) => d.persisted && !d.handle.worktree)
       .map((d) => ({ displayName: d.displayName, path: d.handle.path, rootId: d.rootId }));
     setActiveRootsRef.current(storedDescriptors);
   } catch (error) {
@@ -464,7 +465,7 @@ export function useFileSystem({
         // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
         updateCurrentFolderId(rootId);
         // Only register in the persistent store when the handle was actually persisted
-        if (persisted) {
+        if (persisted && !handle.worktree) {
           addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
         }
         dispatch({ type: 'recordRecentRootMutation' });
@@ -514,7 +515,7 @@ export function useFileSystem({
         );
         dispatch({ handle, rootId, type: 'addOrFocusHandle' });
         updateCurrentFolderId(rootId);
-        if (persisted) {
+        if (persisted && !handle.worktree) {
           addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
         }
         dispatch({ type: 'recordRecentRootMutation' });

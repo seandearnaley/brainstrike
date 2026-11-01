@@ -41,7 +41,7 @@ export async function recordWorkspaceRoot(
   catalog: WorkspaceRootPort,
   root: { readonly canonicalPath: string; readonly path: string; readonly preferredId: string },
   repin = false
-): Promise<string> {
+): Promise<{ readonly id: string; readonly kind: 'path' | 'worktree' }> {
   const { roots } = await catalog.workspaceRoots({
     operation: 'register',
     ...(repin ? { repin } : {}),
@@ -51,7 +51,7 @@ export async function recordWorkspaceRoot(
   if (roots.length !== 1 || !recorded || recorded.path !== root.path) {
     throw new Error('Workspace registration returned a different identity');
   }
-  return recorded.id;
+  return { id: recorded.id, kind: recorded.kind };
 }
 
 export async function markRootsDisconnectedExcept(
@@ -79,7 +79,7 @@ export async function recordRestoredWorkspaceRoots(
   try {
     const catalog = await getCatalog();
     for (const root of roots) {
-      const recordedId = await recordWorkspaceRoot(catalog, {
+      const { id: recordedId } = await recordWorkspaceRoot(catalog, {
         canonicalPath: root.canonicalPath,
         path: root.path,
         preferredId: root.rootId,

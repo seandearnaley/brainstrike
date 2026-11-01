@@ -779,37 +779,6 @@ describe('WorktreeMapSurface', () => {
     });
   });
 
-  it('adds the checkout as a workspace root through the by-path seam', async () => {
-    // (corrected at execution: the canonical fixture's shared `card()`
-    // default is `rootId: 'root-1'` — already a mounted root, so the card
-    // correctly never offers "Add as root" for it. This is the ONE test that
-    // exercises the unmounted case; every other test keeps the shared
-    // default.)
-    const refreshMock = vi.fn();
-    setWorktreeMap({
-      ...BASE_STATE,
-      refresh: refreshMock,
-      repositories: [
-        {
-          ...BASE_STATE.repositories[0],
-          cards: [card({ entry: { ...card().entry, rootId: null } })],
-        },
-      ],
-    });
-    render(<Surface />);
-
-    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
-    await userEvent.click(screen.getByRole('menuitem', { name: /add as root/iu }));
-
-    expect(addRootDirectoryByPathMock).toHaveBeenCalledTimes(1);
-    expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
-    // Same pin as onNewThread above: no caller-side refresh — the Map
-    // re-loads via the root-identity subscription once the row exists.
-    expect(refreshMock).not.toHaveBeenCalled();
-    // Falsifier: adding a root never archives.
-    expect(archiveMock).not.toHaveBeenCalled();
-  });
-
   // An unmanaged card offers Adopt as its own ENABLED action (never a
   // disabled "coming soon" stub — A1/A7), and this is the FIRST real UI
   // caller of `worktrees.adopt`: Task 2 shipped the bridge method, but the
@@ -917,7 +886,7 @@ describe('WorktreeMapSurface', () => {
     expect(showItemInFolderMock).not.toHaveBeenCalled();
   });
 
-  it('offers Add as root instead of Open in Terminal for a checkout outside every open folder', async () => {
+  it('offers no terminal and no Add as root for a checkout outside every open folder', async () => {
     setWorktreeMap({
       ...BASE_STATE,
       repositories: [
@@ -931,10 +900,10 @@ describe('WorktreeMapSurface', () => {
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
 
-    // Complementary, never both, never a disabled stub: the menu always names
-    // the next step.
-    expect(screen.getByRole('menuitem', { name: /add as root/iu })).toBeInTheDocument();
+    // ADR-0034: a worktree is a thread's checkout, never a folder of its own.
+    expect(screen.queryByRole('menuitem', { name: /add as root/iu })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /terminal/iu })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /reveal/iu })).toBeInTheDocument();
   });
 
   it('omits Open in Terminal entirely when the platform has no terminal bridge', async () => {

@@ -180,7 +180,7 @@ function reconcileProgressIdentity(
 
 function nativeRootPath(
   status: Extract<IndexerStatus, { kind: 'ready' }>,
-  roots: ReturnType<typeof useFileSystem>['rootDirectoryHandles'],
+  roots: ReturnType<typeof useFileSystem>['mountedRootHandles'],
   dbRootIdByAdapterRootId: ReadonlyMap<string, string>
 ): string | null {
   const authorized = new Set(status.authorizedRootIds);
@@ -277,7 +277,7 @@ export function NativeWorkspaceIndexProvider({
 }) {
   const retained = useRef<RetainedProgress | null>(null);
   const { fileSystemAdapter } = useAdapters();
-  const { rootDirectoryHandles } = useFileSystem();
+  const { mountedRootHandles } = useFileSystem();
   const { dbRootIdByAdapterRootId, syncMountedRoots } = useRootsReconciliation({
     adapter: fileSystemAdapter,
     registration: capability,
@@ -293,7 +293,7 @@ export function NativeWorkspaceIndexProvider({
     return () => {
       disposed = true;
     };
-  }, [fileSystemAdapter, syncMountedRoots, rootDirectoryHandles]);
+  }, [fileSystemAdapter, syncMountedRoots, mountedRootHandles]);
   useEffect(() => followIndexConfig(capability), [capability]);
   // Only what the index reads: a worktree, policy or chunking change keeps the poll running.
   const mode = useIndexConfigStore((store) => selectIndexConfig(store)?.mode ?? null);
@@ -308,7 +308,7 @@ export function NativeWorkspaceIndexProvider({
   useEffect(() => {
     let disposed = false;
     const publish = useWorkspaceCollectionSyncStatusStore.getState().setStatus;
-    const mountedRoots = rootDirectoryHandles
+    const mountedRoots = mountedRootHandles
       .map((root) => [root.rootId ?? null, root.path])
       .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
     const selectionIdentity = JSON.stringify([mode, model, mountedRoots]);
@@ -349,7 +349,7 @@ export function NativeWorkspaceIndexProvider({
         progress.coverage,
         progress.complete,
         indexMode,
-        nativeRootPath(progress.status, rootDirectoryHandles, dbRootIdByAdapterRootId)
+        nativeRootPath(progress.status, mountedRootHandles, dbRootIdByAdapterRootId)
       );
     };
     // Main pushes after every change it reads; a push is newer than this view's first read.
@@ -382,15 +382,7 @@ export function NativeWorkspaceIndexProvider({
       disposed = true;
       unsubscribe();
     };
-  }, [
-    capability,
-    configFailure,
-    dbRootIdByAdapterRootId,
-    mode,
-    model,
-    paused,
-    rootDirectoryHandles,
-  ]);
+  }, [capability, configFailure, dbRootIdByAdapterRootId, mode, model, paused, mountedRootHandles]);
   return (
     <RootIdentityProvider dbRootIdByAdapterRootId={dbRootIdByAdapterRootId}>
       {children}
