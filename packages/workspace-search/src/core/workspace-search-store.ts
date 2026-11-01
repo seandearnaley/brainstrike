@@ -1,253 +1,155 @@
-import type {
-  IndexerSourceObservation,
-  NativeIndexLifecycleObservation,
-} from '@brainstrike/indexing-contract/indexer-client';
 import { create } from 'zustand';
 import type {
   WorkspaceSearchFileResult,
-  WorkspaceSearchMode,
-  WorkspaceSearchResults,
+  WorkspaceSearchHit,
+  WorkspaceSearchMatch,
+  WorkspaceSearchSummary,
 } from './search-result-model';
 
 export type WorkspaceSearchStatus = 'idle' | 'searching' | 'results' | 'error';
 
-export interface NativePendingSearch {
-  readonly after: NativeIndexLifecycleObservation | null;
-  readonly generation: number;
-  readonly mode: WorkspaceSearchMode;
-  readonly source?: {
-    readonly storeId: string;
-    readonly query: string;
-    readonly observations: readonly IndexerSourceObservation[];
-    readonly after?: IndexerSourceObservation;
-  };
-}
-
 interface WorkspaceSearchState {
-  /** Starts a run: increments `generation` (invalidating any in-flight run) and
-   * returns the new generation so the caller can tag its async completion. */
+  /**
+   * Adds a running search's streamed matches, grouped by file in the order
+   * found. No-op unless `generation` still names the current search.
+   */
+  appendMatches: (hits: readonly WorkspaceSearchHit[], generation: number) => void;
+  /** Starts a search: bumps `generation` (dropping any older search's late matches) and returns it. */
   beginSearch: () => number;
   caseSensitive: boolean;
-  /**
-   * Clears any rendered results back to the idle empty state AND bumps
-   * `generation`, so an in-flight run whose query is no longer valid (e.g. a
-   * text query shrunk below the min length) can neither leave stale results on
-   * screen nor resurrect them when it resolves. No-op-safe to call when idle.
-   */
+  /** Back to the idle empty state, dropping any running search's late matches. */
   clearResults: () => void;
-  consumeNativeSearch: (command: NativePendingSearch) => boolean;
+  /** File rows the user collapsed; every other file shows its matches. */
+  collapsedIds: ReadonlySet<string>;
+  /** No-op unless `generation` still names the current search. */
+  completeSearch: (summary: WorkspaceSearchSummary, generation: number) => void;
   error: string | null;
-  expandedIds: Set<string>;
-  /** No-op unless `generation` still matches the current run (a superseded run's
-   * rejection must not clobber a newer run's results). */
+  /** No-op unless `generation` still names the current search. */
   failSearch: (message: string, generation: number) => void;
+  /** Matched files, in the order found. */
+  files: readonly WorkspaceSearchFileResult[];
   /**
-   * Monotonic run token. `beginSearch` and every option/mode change
-   * (which invalidate in-flight work) increment it; `resolveResults`/`failSearch`
-   * are gated on it so stale async completions are dropped. Never decreases.
+   * Monotonic search token. Starting a search, clearing, resetting and every
+   * option change bump it; late matches and answers of an older search are
+   * dropped. Never decreases.
    */
   generation: number;
-  /**
-   * Bumps `textResultLimit` by 200 (Show-more paging, text mode only). Does
-   * NOT bump `generation` — the caller reruns the search after bumping, and
-   * that rerun's own `beginSearch()` is what invalidates any prior in-flight
-   * run. Bumping generation here too would be redundant, not incorrect, but
-   * keeping this single-purpose keeps the invalidation contract in one place.
-   */
-  increaseTextResultLimit: () => void;
   isRegex: boolean;
-  mode: WorkspaceSearchMode;
-  nativePendingSearch: NativePendingSearch | null;
   query: string;
   reset: () => void;
-  /** No-op unless `generation` still matches the current run. */
-  resolveResults: (r: WorkspaceSearchResults, generation: number) => void;
-  results: WorkspaceSearchResults | null;
-  retainNativeSearch: (command: NativePendingSearch) => void;
-  setMode: (m: WorkspaceSearchMode) => void;
   setQuery: (q: string) => void;
   status: WorkspaceSearchStatus;
-  /** Show-more paging cap for text-mode results (default 200, +200 per click).
-   * Reset to the default by any change that starts a fresh search (mode,
-   * toggles, query, `clearResults`, `reset`) — a new search should
-   * never inherit a deep limit from a previous one. */
-  textResultLimit: number;
+  /** The finished search's caps; `null` while it runs. */
+  summary: WorkspaceSearchSummary | null;
   toggleCase: () => void;
-  toggleExpanded: (nodeId: string) => void;
+  toggleCollapsed: (fileId: string) => void;
   toggleRegex: () => void;
   toggleWholeWord: () => void;
+  totalMatches: number;
   wholeWord: boolean;
 }
 
-/** File node id convention relied on by later tasks (Task 10): `f:${dbRootId}:${path}`. */
-function toFileNodeId(file: WorkspaceSearchFileResult): string {
-  return `f:${file.dbRootId}:${file.path}`;
+/** A file row's id: unique per root and path. */
+export function fileResultId(file: Pick<WorkspaceSearchFileResult, 'path' | 'rootId'>): string {
+  return `f:${file.rootId}:${file.path}`;
 }
 
-/**
- * Default expansion set: every file id plus every text-mode chunk-group id
- * (`c:${chunkId}`) so text results render fully expanded to their match rows.
- * Semantic children are file-direct (no second level), so they need no chunk
- * entries here — files alone expand them.
- */
-function toDefaultExpandedIds(results: WorkspaceSearchResults): Set<string> {
-  const ids = new Set<string>();
-  for (const file of results.files) {
-    ids.add(toFileNodeId(file));
-    for (const child of file.children) {
-      if (child.kind === 'match') {
-        ids.add(`c:${child.chunkId}`);
-      }
-    }
-  }
-  return ids;
-}
-
-/** Default + increment for the text-mode Show-more paging cap. */
-const DEFAULT_TEXT_RESULT_LIMIT = 200;
-const TEXT_RESULT_LIMIT_INCREMENT = 200;
+const emptyResults = {
+  collapsedIds: new Set<string>() as ReadonlySet<string>,
+  error: null,
+  files: [] as readonly WorkspaceSearchFileResult[],
+  summary: null,
+  totalMatches: 0,
+};
 
 const initialState = {
+  ...emptyResults,
   caseSensitive: false,
-  error: null,
-  expandedIds: new Set<string>(),
   generation: 0,
   isRegex: false,
-  mode: 'text' as const,
-  nativePendingSearch: null as NativePendingSearch | null,
   query: '',
-  results: null,
-  status: 'idle' as const,
-  textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
+  status: 'idle' as WorkspaceSearchStatus,
   wholeWord: false,
-} satisfies Omit<
-  WorkspaceSearchState,
-  | 'retainNativeSearch'
-  | 'consumeNativeSearch'
-  | 'setQuery'
-  | 'setMode'
-  | 'toggleCase'
-  | 'toggleRegex'
-  | 'toggleWholeWord'
-  | 'toggleExpanded'
-  | 'beginSearch'
-  | 'resolveResults'
-  | 'failSearch'
-  | 'clearResults'
-  | 'increaseTextResultLimit'
-  | 'reset'
->;
+};
+
+/**
+ * Merges a batch into the file list in one pass: one new array per batch, and
+ * each file the batch touched is copied once, however many of its lines it holds.
+ */
+function mergeHits(
+  files: readonly WorkspaceSearchFileResult[],
+  hits: readonly WorkspaceSearchHit[]
+): WorkspaceSearchFileResult[] {
+  const next = [...files];
+  const indexById = new Map<string, number>();
+  next.forEach((file, index) => {
+    indexById.set(fileResultId(file), index);
+  });
+  // The match arrays this batch owns: copied (or created) on a file's first hit.
+  const touched = new Map<number, WorkspaceSearchMatch[]>();
+  for (const { line, lineText, path, rootId } of hits) {
+    const id = fileResultId({ path, rootId });
+    let index = indexById.get(id);
+    if (index === undefined) {
+      index = next.length;
+      indexById.set(id, index);
+      next.push({ matches: [], path, rootId });
+    }
+    let matches = touched.get(index);
+    if (!matches) {
+      const file = next[index];
+      matches = file ? [...file.matches] : [];
+      touched.set(index, matches);
+      next[index] = { matches, path, rootId };
+    }
+    matches.push({ line, lineText });
+  }
+  return next;
+}
+
+/** An option change invalidates the running search and its results. */
+function optionChange(state: WorkspaceSearchState) {
+  return { ...emptyResults, generation: state.generation + 1, status: 'idle' as const };
+}
 
 export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) => ({
   ...initialState,
+  appendMatches: (hits, generation) =>
+    set((state) =>
+      state.generation === generation && state.status === 'searching' && hits.length > 0
+        ? { files: mergeHits(state.files, hits), totalMatches: state.totalMatches + hits.length }
+        : {}
+    ),
   beginSearch: () => {
     const generation = get().generation + 1;
-    set({ error: null, generation, nativePendingSearch: null, status: 'searching' });
+    set({ ...emptyResults, generation, status: 'searching' });
     return generation;
   },
-  clearResults: () =>
-    set((state) => ({
-      error: null,
-      generation: state.generation + 1,
-      nativePendingSearch: null,
-      results: null,
-      status: 'idle',
-      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
-    })),
-  consumeNativeSearch: (command) => {
-    if (get().nativePendingSearch !== command || get().generation !== command.generation) {
-      return false;
-    }
-    set({ nativePendingSearch: null });
-    return true;
-  },
+  clearResults: () => set(optionChange),
+  completeSearch: (summary, generation) =>
+    set((state) =>
+      state.generation === generation && state.status === 'searching'
+        ? { status: 'results', summary }
+        : {}
+    ),
   failSearch: (message, generation) =>
-    set((state) =>
-      state.generation === generation
-        ? { error: message, nativePendingSearch: null, status: 'error' }
-        : {}
-    ),
-  increaseTextResultLimit: () =>
-    set((state) => ({ textResultLimit: state.textResultLimit + TEXT_RESULT_LIMIT_INCREMENT })),
-  // Keep `generation` monotonic across resets so a run started before the reset
-  // can never match a run started after it.
-  reset: () =>
-    set((state) => ({
-      ...initialState,
-      expandedIds: new Set<string>(),
-      generation: state.generation + 1,
-      nativePendingSearch: null,
-    })),
-  resolveResults: (r, generation) =>
-    set((state) =>
-      state.generation === generation
-        ? {
-            expandedIds: toDefaultExpandedIds(r),
-            results: r,
-            status: 'results',
-          }
-        : {}
-    ),
-  retainNativeSearch: (command) =>
-    set((state) =>
-      state.generation === command.generation &&
-      (!command.source || state.query === command.source.query)
-        ? { nativePendingSearch: command }
-        : {}
-    ),
-  setMode: (m) =>
-    set((state) => ({
-      generation: state.generation + 1,
-      mode: m,
-      nativePendingSearch: null,
-      results: null,
-      status: 'idle',
-      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
-    })),
-  // A new query is a new search, so the Show-more cap resets here too — even
-  // though setQuery does not bump `generation`/touch results/status (the
-  // debounced auto-search owns that transition).
-  setQuery: (q) =>
-    set((state) => ({
-      nativePendingSearch: state.query === q ? state.nativePendingSearch : null,
-      query: q,
-      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
-    })),
+    set((state) => (state.generation === generation ? { error: message, status: 'error' } : {})),
+  // Keep `generation` monotonic across resets so a search started before the
+  // reset can never match one started after it.
+  reset: () => set((state) => ({ ...initialState, generation: state.generation + 1 })),
+  setQuery: (q) => set({ query: q }),
   toggleCase: () =>
-    set((state) => ({
-      caseSensitive: !state.caseSensitive,
-      generation: state.generation + 1,
-      nativePendingSearch: null,
-      results: null,
-      status: 'idle',
-      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
-    })),
-  toggleExpanded: (nodeId) =>
+    set((state) => ({ ...optionChange(state), caseSensitive: !state.caseSensitive })),
+  toggleCollapsed: (fileId) =>
     set((state) => {
-      const next = new Set(state.expandedIds);
-      if (next.has(nodeId)) {
-        next.delete(nodeId);
+      const next = new Set(state.collapsedIds);
+      if (next.has(fileId)) {
+        next.delete(fileId);
       } else {
-        next.add(nodeId);
+        next.add(fileId);
       }
-      return { expandedIds: next };
+      return { collapsedIds: next };
     }),
-  toggleRegex: () =>
-    set((state) => ({
-      generation: state.generation + 1,
-      isRegex: !state.isRegex,
-      nativePendingSearch: null,
-      results: null,
-      status: 'idle',
-      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
-    })),
-  toggleWholeWord: () =>
-    set((state) => ({
-      generation: state.generation + 1,
-      nativePendingSearch: null,
-      results: null,
-      status: 'idle',
-      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
-      wholeWord: !state.wholeWord,
-    })),
+  toggleRegex: () => set((state) => ({ ...optionChange(state), isRegex: !state.isRegex })),
+  toggleWholeWord: () => set((state) => ({ ...optionChange(state), wholeWord: !state.wholeWord })),
 }));

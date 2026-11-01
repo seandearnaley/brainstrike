@@ -15,6 +15,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./canvas-state": "./src/native-tools/canvas-state.ts",
+    "./command-sessions": "./src/command-sessions/index.ts",
     "./delegation": "./src/delegation.ts",
     "./credentials": "./src/credentials.ts",
     "./hooks": "./src/hooks/index.ts",
@@ -46,6 +47,7 @@
     "bin"
   ],
   "scripts": {
+    "postinstall": "node scripts/chmod-pty-spawn-helper.mjs",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts"
@@ -68,9 +70,11 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/windows-job-native": "workspace:*",
     "@modelcontextprotocol/client": "catalog:",
+    "@vscode/ripgrep": "catalog:",
     "effect": "catalog:",
     "jsonc-parser": "catalog:",
     "minimatch": "catalog:",
+    "node-pty": "catalog:",
     "strip-ansi": "catalog:",
     "tree-kill": "catalog:",
     "typescript": "catalog:",

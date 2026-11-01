@@ -453,7 +453,7 @@ and its SHA-256 for review; the host runs its project hooks only at that hash. -
 confirms without a prompt. Desktop roots are approved in Settings > Hooks.
 workspace trust lets a standalone root's agent configuration (its AGENTS.md, skills and
 personas) load; until then the root runs restricted. --yes confirms without a prompt. Desktop folders
-are trusted from the composer or Settings > Workspace trust.
+are trusted from the composer or Settings > Workspace Trust.
 
 threads search is lexical: words in committed messages and thread titles, fused into one
 ranked list; with no thread holding every word, it matches any word and says so. --scope-root

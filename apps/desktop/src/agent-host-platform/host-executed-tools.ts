@@ -3,6 +3,10 @@ import type { FencedShell } from '@brainstrike/agent/fence-executor';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
+  commandSessionExecutors,
+  hostCommandSessionManager,
+} from '@brainstrike/host-capabilities/command-sessions';
+import {
   type HostWorktreeServices,
   hostShellCorrelation,
   hostWorktreeToolExecutors,
@@ -32,7 +36,6 @@ import {
   runSkillScriptExecutor,
 } from '../assistant-server/native-tool-executors-python';
 import { selfInspectionExecutors } from '../assistant-server/native-tool-executors-self';
-import { commandSessionExecutors } from '../assistant-server/native-tool-executors-sessions';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
@@ -41,7 +44,6 @@ import {
   resolveDesktopPythonRuntimeResourcesDir,
 } from '../python-runtime/resources-dir';
 import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
-import { hostCommandSessionManager } from './host-tool-process';
 import {
   BrowserActionResultSchema,
   BrowserNavigateResultSchema,

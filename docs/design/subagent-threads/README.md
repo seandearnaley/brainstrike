@@ -4,9 +4,6 @@
   host ([subagent contract](../../agents/assistant-subagents.md),
   [ADR-0028](../../adr/0028-cross-host-subagents.md)); treat this as UI intent, not a
   description of current code.
-  - Stale references: the Mastra stream mapper, `apps/web` and its E2E harness, and some
-    component names (`AssistantThreadMessages`, `AssistantUIPanel`,
-    `use-assistant-usage-ledger`) no longer exist.
 - **Prototype:** `index.html` is a self-contained study with no app store, agent calls or
   external dependencies. Open it directly, or run
   `python3 -m http.server 8768 --bind 127.0.0.1` here and visit <http://127.0.0.1:8768/>.

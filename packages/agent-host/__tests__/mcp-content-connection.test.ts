@@ -12,7 +12,10 @@ const REFUSED = {
 function bound(service: HostMcpContentService, origin: HostClientOrigin) {
   const handlers = new Map<HostMethod, (params: unknown) => Promise<unknown>>();
   const handle: HostMethodHandler = (method, request) => {
-    handlers.set(method, async (params) => await request(params as never));
+    handlers.set(
+      method,
+      async (params) => await request(params as never, new AbortController().signal)
+    );
   };
   bindHostMcpContentMethods(handle, service, origin);
   return handlers;

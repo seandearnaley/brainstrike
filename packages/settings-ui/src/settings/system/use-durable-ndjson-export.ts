@@ -30,7 +30,7 @@ export function useDurableNdjsonExport({
       const { exportedCount, ndjson, totalCount, truncated } = await onExportDurableNdjson();
       if (ndjson.length === 0) {
         toast({
-          description: 'There are no durable warn+ events to export.',
+          description: 'There are no saved warnings or errors to export.',
           title: 'No diagnostics to export',
         });
       } else {
@@ -48,7 +48,7 @@ export function useDurableNdjsonExport({
         });
         if (saved && truncated) {
           toast({
-            description: `Exported the most recent ${exportedCount} of ${totalCount} warn+ events. Older events were not included.`,
+            description: `Exported the most recent ${exportedCount} of ${totalCount} warnings and errors. Older events were not included.`,
             title: 'Export truncated',
           });
         }

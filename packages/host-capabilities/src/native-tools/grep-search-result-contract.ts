@@ -29,7 +29,7 @@ interface GrepToolResultBase {
   ambiguousRootNames?: string[];
   candidatesTruncated: boolean;
   hint?: string;
-  liveEngine: 'ripgrep' | 'js-walk' | 'js-files' | 'skipped';
+  liveEngine: 'ripgrep' | 'js-files' | 'skipped';
   liveNote?: string;
   /**
    * BST-1188: set only by the repeated-identical-call loop guard on the 3rd
@@ -155,16 +155,11 @@ function requireGrepBase(record: Record<string, unknown>): void {
   if (
     !(
       record['liveEngine'] === 'ripgrep' ||
-      record['liveEngine'] === 'js-walk' ||
       record['liveEngine'] === 'js-files' ||
       record['liveEngine'] === 'skipped'
     )
   ) {
-    rejectField(
-      'liveEngine',
-      '"ripgrep", "js-walk", "js-files", or "skipped"',
-      record['liveEngine']
-    );
+    rejectField('liveEngine', '"ripgrep", "js-files", or "skipped"', record['liveEngine']);
   }
   requireOptionalString(record, 'hint');
   requireOptionalString(record, 'liveNote');

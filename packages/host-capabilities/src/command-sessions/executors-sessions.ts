@@ -1,7 +1,7 @@
 /**
  * inspectCommandSessions and manageCommandSession over a caller-supplied
- * session manager: the desktop agent host's own, starting sessions only in the
- * run's admitted roots. This module must not import Electron: the host bundle loads it.
+ * session manager: the agent host's own (desktop and standalone), starting
+ * sessions only in the run's admitted roots.
  */
 import {
   type InspectCommandSessionsInput,
@@ -10,20 +10,19 @@ import {
   readToolExecutionThreadId,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import type { NativeToolBuildContext, NativeToolDefinition } from '../native-tools/executors.ts';
 import {
-  type NativeToolBuildContext,
-  type NativeToolDefinition,
   parseToolExecuteInput,
   type ToolExecuteContext,
   type ToolExecuteInput,
-} from '@brainstrike/host-capabilities/native-tools';
+} from '../native-tools/tool-execute-support.ts';
 import {
   type CommandSessionToolDependencies,
   INSPECT_COMMAND_SESSIONS_TRANSFORM,
   MANAGE_COMMAND_SESSION_TRANSFORM,
   runInspectCommandSessions,
   runManageCommandSession,
-} from './command-session-tools';
+} from './command-session-tools.ts';
 
 export function commandSessionExecutors<Context extends NativeToolBuildContext>(
   dependencies: (context: Context) => CommandSessionToolDependencies

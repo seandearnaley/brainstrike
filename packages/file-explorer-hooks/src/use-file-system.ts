@@ -27,6 +27,11 @@ interface UseFileSystemParams {
    */
   getPersistedCurrentFolderId?: () => string | null;
   /**
+   * Store action that makes one folder the only open folder (ADR-0034). Called by
+   * openRootDirectory AFTER the focus shift, as removeActiveRoot. REQUIRED — see addActiveRoot.
+   */
+  openActiveRoot: FileExplorerState['openActiveRoot'];
+  /**
    * Store action to atomically purge a disconnected root from
    * activeRootIds/rootDescriptors/folderStates/folderAccessOrder.
    * Called by removeRootDirectory AFTER the focus shift (setCurrentFolderId
@@ -65,6 +70,8 @@ type FileSystemAction =
   | { type: 'setAccessLoading'; loading: boolean }
   | { type: 'addOrFocusHandle'; handle: DirectoryHandle; rootId?: string }
   | { type: 'removeHandle'; rootId: string }
+  /** ADR-0034: the opened folder replaces every open folder; worktree mounts stay. */
+  | { type: 'openHandle'; handle: DirectoryHandle }
   | { type: 'recordRecentRootMutation' }
   | {
       type: 'setAllHandles';
@@ -250,6 +257,21 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
         rootIdByPath: newRootIdByPath,
       };
     }
+    case 'openHandle': {
+      const key = rootKeyOf(action.handle);
+      const handles = [
+        action.handle,
+        ...state.rootDirectoryHandles.filter(
+          (handle) => handle.worktree === true && rootKeyOf(handle) !== key
+        ),
+      ];
+      return {
+        ...state,
+        rootDirectoryHandle: action.handle,
+        rootDirectoryHandles: handles,
+        rootIdByPath: new Map(handles.map((handle) => [handle.path, rootKeyOf(handle)])),
+      };
+    }
     case 'setAllHandles':
       return {
         ...state,
@@ -388,6 +410,7 @@ export function useFileSystem({
   getPersistedCurrentFolderId,
   getFolderAccessOrder,
   addActiveRoot,
+  openActiveRoot,
   removeActiveRoot,
   setActiveRoots,
 }: UseFileSystemParams) {
@@ -543,6 +566,46 @@ export function useFileSystem({
         .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
     };
   }, [adapterAddRootByPath, addActiveRoot, fileSystemAdapter, updateCurrentFolderId]);
+
+  const adapterOpenRoot = fileSystemAdapter.openRoot;
+
+  /**
+   * Desktop-only (ADR-0034): open a folder as the window's project, a recent one by path or
+   * through the picker. The platform closed every other open folder in the same write, so
+   * their handles and store entries go and the opened folder becomes the only one (and Main);
+   * managed worktrees stay, as their threads' checkouts. Resolves null when the person cancels
+   * the picker. `undefined` when the adapter lacks the capability (web).
+   */
+  const openRootDirectory = useMemo(() => {
+    if (typeof adapterOpenRoot !== 'function') {
+      return;
+    }
+    return async (rootPath?: string): Promise<DirectoryHandle | null> => {
+      dispatch({ loading: true, type: 'setAccessLoading' });
+      const open = async (): Promise<DirectoryHandle> => {
+        const { handle, rootId, displayName } = await adapterOpenRoot.call(
+          fileSystemAdapter,
+          rootPath
+        );
+        const opened = ensureStamped(stampRootId(handle, rootId), 'openRootDirectory');
+        // Both replacements read the state they replace, so overlapping opens converge.
+        dispatch({ handle: opened, type: 'openHandle' });
+        // Focus first: it snapshots the outgoing folder's state, which the purge below removes.
+        updateCurrentFolderId(rootId);
+        openActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+        dispatch({ type: 'recordRecentRootMutation' });
+        return opened;
+      };
+      return open()
+        .catch((error: unknown) => {
+          if (isUserCancellation(error)) {
+            return null;
+          }
+          throw mapFileSystemError(error);
+        })
+        .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
+    };
+  }, [adapterOpenRoot, fileSystemAdapter, openActiveRoot, updateCurrentFolderId]);
 
   /** Desktop-only companion to addRootDirectoryByPath; see its note. */
   const listRecentRoots = useMemo(() => {
@@ -810,6 +873,7 @@ export function useFileSystem({
       isAccessLoading,
       isFileSystemAccessSupported,
       listRecentRoots,
+      openRootDirectory,
       recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
@@ -830,6 +894,7 @@ export function useFileSystem({
       addRootDirectory,
       addRootDirectoryByPath,
       listRecentRoots,
+      openRootDirectory,
       recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,

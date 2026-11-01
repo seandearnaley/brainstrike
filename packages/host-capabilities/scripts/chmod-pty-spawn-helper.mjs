@@ -6,7 +6,7 @@
  * node-pty ships the helper as a plain file in its prebuilds; npm/pnpm do not
  * preserve the +x bit on extraction, so node-pty's `spawn()` fails on macOS
  * with EACCES until it is chmod'd. The original shell one-liner
- * (`chmod +x … 2>/dev/null || true`) is POSIX-only and BREAKS the desktop
+ * (`chmod +x … 2>/dev/null || true`) is POSIX-only and BREAKS the
  * install/build on Windows (no `chmod`, no `/dev/null`, no `|| true` under
  * `cmd.exe`). This script:
  *   - no-ops on every non-darwin platform (the helper is darwin-only),

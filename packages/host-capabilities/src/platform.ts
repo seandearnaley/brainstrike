@@ -46,6 +46,11 @@ import type { HostStartOptions } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import { createHostCapabilities } from './capabilities.ts';
+import { commandSessionExecutors } from './command-sessions/executors-sessions.ts';
+import {
+  disposeHostTools,
+  hostCommandSessionManager,
+} from './command-sessions/host-tool-process.ts';
 import { resolveHostDelegation } from './delegation.ts';
 import {
   hostShellCorrelation,
@@ -61,8 +66,6 @@ import { getGlobalHooksPath } from './hooks/config.ts';
 import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.ts';
 import {
   createSharedNativeHostTools,
-  disposeLiveChildProcesses,
-  disposeLspServers,
   executeCommandExecutor,
   forgetSharedNativeToolThread,
   getEditDiagnostics,
@@ -82,9 +85,9 @@ const logger = createLogger('StandalonePlatform');
 
 /**
  * The native tools a standalone host runs over its launch roots: the shared
- * ones, grep, language-server inspection, its shell, the managed worktrees
- * in its own ledger and the Agent Skills reads (skill scripts need an
- * interpreter this host does not choose).
+ * ones, grep, language-server inspection, its shell and command sessions, the
+ * managed worktrees in its own ledger and the Agent Skills reads (skill scripts
+ * need an interpreter this host does not choose).
  */
 const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceFile,
@@ -101,6 +104,8 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.lspInspect,
   NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.executeCommand,
+  NATIVE_TOOL_ID.inspectCommandSessions,
+  NATIVE_TOOL_ID.manageCommandSession,
   NATIVE_TOOL_ID.listWorktrees,
   NATIVE_TOOL_ID.manageWorktree,
   ...SKILL_NATIVE_TOOL_IDS,
@@ -130,9 +135,10 @@ const standaloneWindowsCommandEntry = (): string =>
   createRequire(import.meta.url).resolve('@brainstrike/host-capabilities/windows-command-entry');
 
 /**
- * A run's host executors. executeCommand is composed as Desktop composes it:
- * the same executor, schema, cwd fence and `execute` risk, with its worktree
- * commands correlated on this host's own ledger.
+ * A run's host executors. executeCommand and the command sessions are composed
+ * as Desktop composes them: the same executors, schemas, cwd fence and
+ * `execute` risk, with shell commands correlated on this host's own ledger and
+ * sessions started only in the run's launch roots.
  */
 function standaloneHostExecutors(worktrees: HostWorktreeServices, threadId: string) {
   return {
@@ -142,20 +148,20 @@ function standaloneHostExecutors(worktrees: HostWorktreeServices, threadId: stri
     }),
     [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
     ...INSPECTION_TOOL_EXECUTORS,
+    ...commandSessionExecutors(() => ({
+      manager: hostCommandSessionManager(),
+      rootsFromRuntime: true,
+    })),
     ...hostWorktreeToolExecutors(worktrees, threadId),
   };
 }
 
 /**
- * The command trees and language servers this host's runs started, and the
- * worktree service with its git-metadata watchers, all retired.
+ * The command trees, command sessions and language servers this host's runs
+ * started, and the worktree service with its git-metadata watchers, all retired.
  */
 async function disposeStandaloneChildren(worktrees: WorktreeWorkspace): Promise<void> {
-  const outcomes = await Promise.allSettled([
-    disposeLiveChildProcesses(),
-    disposeLspServers(),
-    worktrees.close(),
-  ]);
+  const outcomes = await Promise.allSettled([disposeHostTools(), worktrees.close()]);
   const failures = outcomes.flatMap((outcome) =>
     outcome.status === 'rejected' ? [outcome.reason] : []
   );
@@ -234,7 +240,7 @@ function standaloneSystemPrompt(
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
   const unavailable = configuredMcp ? 'Skill scripts' : 'Configured MCP/Tasks, skill scripts';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth and local inference are unavailable. Use an existing desktop host for those capabilities.`;
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands and persistent command sessions started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth and local inference are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**

@@ -246,7 +246,7 @@ export function ThemeSettings() {
         </p>
       </div>
       <ChoiceGroup
-        description="Pick a colour palette for the interface."
+        description="Pick a color palette for the interface."
         label="Theme"
         onChange={setTheme}
         options={THEMES}
@@ -273,7 +273,7 @@ export function ThemeSettings() {
         value={codeFont}
       />
       <ChoiceGroup
-        description="Syntax colours for the editor, diffs and code in chat. Each follows the light or dark mode."
+        description="Syntax colors for the editor, diffs and code in chat. Each follows the light or dark mode."
         label="Code theme"
         onChange={setCodeTheme}
         options={CODE_THEMES}

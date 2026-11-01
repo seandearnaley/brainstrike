@@ -18,12 +18,14 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
 import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
+import { WorkspaceFileSearchContext } from '@brainstrike/workspace-search/core';
 import { Shapes } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useRef } from 'react';
 import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import { createDesktopStateHealth } from '../desktop-state-health';
+import { resolveDesktopFileSearch } from '../host-file-search';
 import { resolveDesktopWorkspaceGitServices } from '../host-git-workspace';
 import {
   resolveDesktopMcpContent,
@@ -37,7 +39,6 @@ import { createIpcCapability } from '../ipc-capability';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 import { ChangesPageContent } from './changes-page-content';
 import { LogsPageContent } from './logs-page-content';
-import { NativeSearchProvider } from './native-search-provider';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 import { ThreadContextPageContent } from './thread-context-page-content';
@@ -85,6 +86,8 @@ export default function RootLayoutContent() {
     ? createIpcCapability(window.indexSearch, indexSearchContract)
     : null;
   const activeToolsTabRef = useRef('host-owned');
+  // The Explorer's Search tab runs on the agent host's live ripgrep (ADR-0035).
+  const fileSearch = resolveDesktopFileSearch();
 
   // The agent host owns the git cluster (ADR-0029): Changes, the branch chip
   // and worktrees. Resolved once; each surface below is offered only when its
@@ -341,9 +344,5 @@ export default function RootLayoutContent() {
       </WorkspaceGitServicesProvider>
     </TokenCacheWrapper>
   );
-  return nativeSearch ? (
-    <NativeSearchProvider capability={nativeSearch}>{content}</NativeSearchProvider>
-  ) : (
-    content
-  );
+  return <WorkspaceFileSearchContext value={fileSearch}>{content}</WorkspaceFileSearchContext>;
 }

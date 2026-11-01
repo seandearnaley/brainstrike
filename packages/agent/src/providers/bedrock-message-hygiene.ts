@@ -196,6 +196,30 @@ function cleanMessage(
   return { changed: true, message: withCleanedContent(message, cleaned) };
 }
 
+/**
+ * Tool-call ids in the `[a-zA-Z0-9_-]{1,64}` charset that Converse and the
+ * Anthropic Messages API both enforce; unchanged when every id conforms.
+ */
+export function sanitizeToolCallIds(input: Prompt): Prompt {
+  const toolCallIds = buildToolCallIdMap(input);
+  let changed = false;
+  const prompt = input.map((message) => {
+    const content: unknown = message.content;
+    if (!Array.isArray(content)) {
+      return message;
+    }
+    let rewrote = false;
+    const parts = (content as ContentPart[]).map((part) => {
+      const rewritten = rewriteToolCallId(part, toolCallIds);
+      rewrote ||= rewritten !== undefined;
+      return rewritten ?? part;
+    });
+    changed ||= rewrote;
+    return rewrote ? withCleanedContent(message, parts) : message;
+  });
+  return changed ? prompt : input;
+}
+
 /** The prompt with replayed history normalized for the Converse API; unchanged when clean. */
 export function cleanBedrockPrompt(input: Prompt): Prompt {
   let changed = false;

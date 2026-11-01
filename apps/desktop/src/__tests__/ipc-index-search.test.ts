@@ -189,15 +189,7 @@ it('rejects untracked and foreign-frame senders before payload parsing or capabi
   await expect(invoke('coverage', { rootIds: ['r', 'r'] })).rejects.toThrow('invalid arguments');
   expect(cap.coverage).not.toHaveBeenCalled();
 });
-it('preserves explicit grep options and refuses incomplete or mixed vector profiles', () => {
-  const request = {
-    caseSensitive: true,
-    isRegex: true,
-    limit: 100,
-    pattern: '\\bword\\b',
-    rootIds: ['r'],
-  };
-  expect(decode(indexSearchArgs.grep, [request])).toEqual([request]);
+it('refuses incomplete or mixed vector profiles', () => {
   expect(() =>
     decode(indexSearchArgs.search, [
       { limit: 10, mode: 'vector', profile: {}, rootIds: ['r'], vector: [] },

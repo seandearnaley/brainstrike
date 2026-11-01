@@ -39,7 +39,7 @@ async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): P
   window.sessionStorage.clear();
   const result = await desktopResetBridge();
   if (!result.success) {
-    throw new Error(result.message ?? 'Desktop factory reset failed.');
+    throw new Error(result.message ?? 'Factory reset failed.');
   }
 }
 

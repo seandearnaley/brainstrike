@@ -21,8 +21,8 @@
   - No legacy-data migrations or credential imports.
   - Never access or reset Sean's protected profile. Automation uses disposable profiles and fake credentials.
 - No local models: chat and embeddings come from hosted providers.
-  - Shared code gates on injected capabilities, not platform guesses.
-  - New durable state joins the existing reset lifecycle (ADRs 0008, 0015).
+  - Shared code gates on injected capabilities, not platform guesses (ADR-0008).
+  - New durable state joins the existing reset lifecycle (ADR-0015).
 - The host owns the AI SDK run loop. Mastra is a memory library, not another server, permission system or persistence owner (ADRs 0011, 0012, 0017).
   - Keep Node-only dependencies out of browser bundles.
 - Strictest TypeScript settings stay on; never loosen a compiler flag to pass a check.

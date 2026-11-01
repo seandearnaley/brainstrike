@@ -646,20 +646,20 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     );
   });
 
-  it('renders "OM inactive" (never "0 saved") when OM is disabled', () => {
+  it('renders "Observations off" (never "0 saved") when OM is disabled', () => {
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'inactive' }} />);
     openMeterPopover();
     const note = screen.getByTestId('context-usage-om-note');
-    expect(note).toHaveTextContent(/inactive/iu);
+    expect(note).toHaveTextContent(/observations off/iu);
     expect(note).not.toHaveTextContent(/saved/iu);
     expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 
-  it('renders the web "available on desktop" note for chat-only, never zeros', () => {
+  it('renders the "not available here" note for chat-only, never zeros', () => {
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'chat-only' }} />);
     openMeterPopover();
     const note = screen.getByTestId('context-usage-om-note');
-    expect(note).toHaveTextContent(/desktop/iu);
+    expect(note).toHaveTextContent(/aren’t available here/iu);
     expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 

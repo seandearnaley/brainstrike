@@ -456,7 +456,7 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
     }
   );
   if (await selectedDocumentationTrigger.isVisible().catch(() => false)) {
-    await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
+    await expect(window.getByText('Select filter…')).toBeHidden({ timeout: 10_000 });
     return;
   }
 
@@ -472,7 +472,7 @@ async function selectPresetBySearch(
   await presetTrigger.focus();
   await window.keyboard.press('Enter');
 
-  await expect(window.getByText('Loading presets...')).toBeHidden({
+  await expect(window.getByText('Loading presets…')).toBeHidden({
     timeout: PRESET_LOAD_TIMEOUT_MS,
   });
 
@@ -490,7 +490,7 @@ async function selectPresetBySearch(
   ).toBeVisible({
     timeout: 10_000,
   });
-  await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
+  await expect(window.getByText('Select filter…')).toBeHidden({ timeout: 10_000 });
 }
 
 test.describe('Desktop filter presets', () => {
@@ -543,6 +543,6 @@ test.describe('Desktop filter presets', () => {
         name: /documentation/iu,
       })
     ).toBeVisible({ timeout: 10_000 });
-    await expect(relaunchedWindow.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
+    await expect(relaunchedWindow.getByText('Select filter…')).toBeHidden({ timeout: 10_000 });
   });
 });

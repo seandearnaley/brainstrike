@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`formatThreadDebugBundle > renders a fully-populated bundle in the pinned golden format 1`] = `
-"# BrainStrike Debug Bundle
+"# Brainstrike Debug Bundle
 bundle_format: 2
 generated_at: 2026-07-23T12:05:00.000Z
 thread_id: thread-1
@@ -85,7 +85,7 @@ null
 
 ## 4. Resilience history
 
-_Retry-attempt history is intentionally absent: the current Mastra error-processor seam has no honest producer for terminal-attempt counts or actual provider-directed wait time._
+_Retry-attempt history is not included: terminal attempt counts and provider-directed wait times are not recorded yet._
 
 ## 5. Correlated diagnostic events
 

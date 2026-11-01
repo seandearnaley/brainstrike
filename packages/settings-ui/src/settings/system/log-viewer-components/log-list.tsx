@@ -101,7 +101,7 @@ export function LogList({
         <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
           <div className="flex flex-col items-center gap-2">
             <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
-            Loading logs...
+            Loading logs…
           </div>
         </div>
       ) : rows.length === 0 ? (

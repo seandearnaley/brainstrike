@@ -1,7 +1,7 @@
+import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
-import type { ProcessInputStepArgs, ProcessLLMRequestArgs } from '@mastra/core/processors';
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectionSafeToolCallFilter } from '../mastra-processors/projection-safe-tool-call-filter';
+import { ProjectionSafeToolCallFilter } from '../providers/projection-safe-tool-call-filter';
 
 const READ_TOOL = 'brainstrike_readWorkspaceFile';
 const TOOL_NAME_MAP = new Map([[READ_TOOL, 'brainstrike.readWorkspaceFile']]);
@@ -63,49 +63,23 @@ async function filterMessages(
   processor: ProjectionSafeToolCallFilter,
   messages: MastraDBMessage[],
   source: MessageSource
-): Promise<{ inputAfter: string; output: ProcessLLMRequestArgs['prompt'] }> {
+): Promise<{ inputAfter: string; output: LanguageModelV4Prompt }> {
   const messageList = new MessageList();
   for (const message of messages) {
     messageList.add(structuredClone(message), source);
   }
   const inputBefore = serialize(messageList.get.all.db());
-  const prompt = await messageList.get.all.aiV5.llmPrompt();
-  const state: Record<string, unknown> = {};
-  const abort = (reason?: string): never => {
-    throw new Error(reason ?? 'processor aborted');
-  };
-  const model = {} as ProcessInputStepArgs['model'];
-  const stepResult = processor.processInputStep({
-    abort,
-    messageList,
-    messages: structuredClone(messages),
-    model,
-    retryCount: 0,
-    state,
-    stepNumber: 0,
-    steps: [],
-    systemMessages: [],
-  });
-  expect(stepResult).toBeUndefined();
-  const result = processor.processLLMRequest({
-    abort,
-    model: model as ProcessLLMRequestArgs['model'],
-    prompt: structuredClone(prompt),
-    retryCount: 0,
-    state,
-    stepNumber: 0,
-    steps: [],
-  });
+  // Mastra's MessageList builds the fixture prompt; its parts are the V4 shapes the filter reads.
+  const prompt = (await messageList.get.all.aiV5.llmPrompt()) as LanguageModelV4Prompt;
+  const output = processor.preparePrompt(structuredClone(prompt), structuredClone(messages));
   expect(serialize(messageList.get.all.db())).toBe(inputBefore);
-  return { inputAfter: inputBefore, output: result?.prompt ?? prompt };
+  return { inputAfter: inputBefore, output };
 }
 
 describe('ProjectionSafeToolCallFilter', () => {
   it('scans stored and provider message parts without materializing flatMap arrays', () => {
-    const logger = { info: vi.fn() };
     const processor = new ProjectionSafeToolCallFilter({
       filterAfterToolSteps: 0,
-      logger,
       toolNameMap: TOOL_NAME_MAP,
     });
     const message = createToolMessage({
@@ -118,23 +92,6 @@ describe('ProjectionSafeToolCallFilter', () => {
       throw new Error('stored message parts must be scanned directly');
     });
     Object.defineProperty(storedParts, 'flatMap', { value: storedFlatMap });
-    const state: Record<string, unknown> = {};
-    const abort = (reason?: string): never => {
-      throw new Error(reason ?? 'processor aborted');
-    };
-    const model = {} as ProcessInputStepArgs['model'];
-
-    processor.processInputStep({
-      abort,
-      messageList: new MessageList(),
-      messages: [message],
-      model,
-      retryCount: 0,
-      state,
-      stepNumber: 0,
-      steps: [],
-      systemMessages: [],
-    });
 
     const prompt = [
       {
@@ -159,7 +116,7 @@ describe('ProjectionSafeToolCallFilter', () => {
         ],
         role: 'tool',
       },
-    ] as ProcessLLMRequestArgs['prompt'];
+    ] as LanguageModelV4Prompt;
     const promptFlatMaps = prompt.map((promptMessage) => {
       if (!Array.isArray(promptMessage.content)) {
         throw new Error('benchmark prompt content must be an array');
@@ -171,22 +128,13 @@ describe('ProjectionSafeToolCallFilter', () => {
       return flatMap;
     });
 
-    const result = processor.processLLMRequest({
-      abort,
-      model: model as ProcessLLMRequestArgs['model'],
-      prompt,
-      retryCount: 0,
-      state,
-      stepNumber: 0,
-      steps: [],
-    });
+    const result = processor.preparePrompt(prompt, [message]);
 
     expect(storedFlatMap).not.toHaveBeenCalled();
     for (const flatMap of promptFlatMaps) {
       expect(flatMap).not.toHaveBeenCalled();
     }
-    expect(serialize(result?.prompt)).toContain('compact allocation proof');
-    expect(logger.info).toHaveBeenCalledOnce();
+    expect(serialize(result)).toContain('compact allocation proof');
   });
 
   it('filters only stale completed reads and keeps the newest tool-producing step', async () => {
@@ -335,10 +283,8 @@ describe('ProjectionSafeToolCallFilter', () => {
     // Provider-executed native tools carry call, result, and trailing text in
     // ONE assistant message (shape pinned in openai-duplicate-item-compat).
     // Lifting the result out would reorder "Search done." before its context.
-    const logger = { info: vi.fn() };
     const processor = new ProjectionSafeToolCallFilter({
       filterAfterToolSteps: 0,
-      logger,
       toolNameMap: new Map([['brainstrike_webSearch', 'brainstrike.webSearch']]),
     });
     const stored = createToolMessage({
@@ -347,22 +293,6 @@ describe('ProjectionSafeToolCallFilter', () => {
       rawResult: { body: 'raw-web' },
       toolCallId: 'call-provider-web',
       toolName: 'brainstrike_webSearch',
-    });
-    const state: Record<string, unknown> = {};
-    const abort = (reason?: string): never => {
-      throw new Error(reason ?? 'processor aborted');
-    };
-    const model = {} as ProcessInputStepArgs['model'];
-    processor.processInputStep({
-      abort,
-      messageList: new MessageList(),
-      messages: [stored],
-      model,
-      retryCount: 0,
-      state,
-      stepNumber: 0,
-      steps: [],
-      systemMessages: [],
     });
 
     const prompt = [
@@ -384,20 +314,12 @@ describe('ProjectionSafeToolCallFilter', () => {
         ],
         role: 'assistant',
       },
-    ] as ProcessLLMRequestArgs['prompt'];
+    ] as LanguageModelV4Prompt;
 
-    const result = processor.processLLMRequest({
-      abort,
-      model: model as ProcessLLMRequestArgs['model'],
-      prompt,
-      retryCount: 0,
-      state,
-      stepNumber: 0,
-      steps: [],
-    });
+    const result = processor.preparePrompt(prompt, [stored]);
 
     // The assistant-embedded pair is ineligible: no rewrite at all.
-    const finalPrompt = result?.prompt ?? prompt;
+    const finalPrompt = result;
     expect(serialize(finalPrompt)).toBe(serialize(prompt));
     expect(finalPrompt.some((message) => message.role === 'user')).toBe(false);
   });
@@ -405,7 +327,6 @@ describe('ProjectionSafeToolCallFilter', () => {
   it('emits at most one stub per assistant message for parallel stale calls', () => {
     const processor = new ProjectionSafeToolCallFilter({
       filterAfterToolSteps: 0,
-      logger: { info: vi.fn() },
       toolNameMap: TOOL_NAME_MAP,
     });
     const stored = ['parallel-a', 'parallel-b'].map((id) =>
@@ -415,22 +336,6 @@ describe('ProjectionSafeToolCallFilter', () => {
         rawResult: { body: `raw-${id}` },
       })
     );
-    const state: Record<string, unknown> = {};
-    const abort = (reason?: string): never => {
-      throw new Error(reason ?? 'processor aborted');
-    };
-    const model = {} as ProcessInputStepArgs['model'];
-    processor.processInputStep({
-      abort,
-      messageList: new MessageList(),
-      messages: stored,
-      model,
-      retryCount: 0,
-      state,
-      stepNumber: 0,
-      steps: [],
-      systemMessages: [],
-    });
 
     const prompt = [
       {
@@ -451,24 +356,16 @@ describe('ProjectionSafeToolCallFilter', () => {
         })),
         role: 'tool',
       },
-    ] as ProcessLLMRequestArgs['prompt'];
+    ] as LanguageModelV4Prompt;
 
-    const result = processor.processLLMRequest({
-      abort,
-      model: model as ProcessLLMRequestArgs['model'],
-      prompt,
-      retryCount: 0,
-      state,
-      stepNumber: 0,
-      steps: [],
-    });
+    const result = processor.preparePrompt(prompt, stored);
 
-    const assistantStubCount = (result?.prompt ?? prompt)
+    const assistantStubCount = result
       .filter((message) => message.role === 'assistant')
       .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
       .filter((part) => part.type === 'text' && part.text.startsWith('[Stale tool call')).length;
     expect(assistantStubCount).toBe(1);
-    const serialized = serialize(result?.prompt ?? prompt);
+    const serialized = serialize(result);
     expect(serialized).toContain('compact parallel-a');
     expect(serialized).toContain('compact parallel-b');
   });
@@ -479,29 +376,12 @@ describe('ProjectionSafeToolCallFilter', () => {
     // surviving tool message from the same step.
     const processor = new ProjectionSafeToolCallFilter({
       filterAfterToolSteps: 0,
-      logger: { info: vi.fn() },
       toolNameMap: TOOL_NAME_MAP,
     });
     const stored = createToolMessage({
       id: 'split-a',
       modelOutput: { type: 'text', value: 'compact split-a' },
       rawResult: { body: 'raw-split-a' },
-    });
-    const state: Record<string, unknown> = {};
-    const abort = (reason?: string): never => {
-      throw new Error(reason ?? 'processor aborted');
-    };
-    const model = {} as ProcessInputStepArgs['model'];
-    processor.processInputStep({
-      abort,
-      messageList: new MessageList(),
-      messages: [stored],
-      model,
-      retryCount: 0,
-      state,
-      stepNumber: 0,
-      steps: [],
-      systemMessages: [],
     });
 
     const prompt = [
@@ -544,19 +424,11 @@ describe('ProjectionSafeToolCallFilter', () => {
         ],
         role: 'tool',
       },
-    ] as ProcessLLMRequestArgs['prompt'];
+    ] as LanguageModelV4Prompt;
 
-    const result = processor.processLLMRequest({
-      abort,
-      model: model as ProcessLLMRequestArgs['model'],
-      prompt,
-      retryCount: 0,
-      state,
-      stepNumber: 0,
-      steps: [],
-    });
+    const result = processor.preparePrompt(prompt, [stored]);
 
-    const finalPrompt = result?.prompt ?? prompt;
+    const finalPrompt = result;
     const replayIndex = finalPrompt.findIndex(
       (message) => message.role === 'user' && serialize(message).includes('compact split-a')
     );
@@ -744,10 +616,8 @@ describe('ProjectionSafeToolCallFilter', () => {
 
   it('retains an artifact continuation action while removing old raw page bytes', async () => {
     const toolName = 'brainstrike_readToolOutputArtifact';
-    const logger = { info: vi.fn() };
     const processor = new ProjectionSafeToolCallFilter({
       filterAfterToolSteps: 0,
-      logger,
       toolNameMap: new Map([[toolName, 'brainstrike.readToolOutputArtifact']]),
     });
     const message = createToolMessage({
@@ -771,13 +641,6 @@ describe('ProjectionSafeToolCallFilter', () => {
     expect(serialized).not.toContain('raw-artifact-page-sentinel');
     expect(serialized).toContain('opaque-next-cursor');
     expect(serialized).toContain('brainstrike.readToolOutputArtifact');
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        code: 'mastra_agent_tool_history_filtered',
-        filteredToolCallCount: 1,
-      }),
-      'filtered stale tool history from provider input'
-    );
   });
 });
 
@@ -815,7 +678,7 @@ describe('settled mutation-call argument elision', () => {
     });
   }
 
-  function findWriteCall(prompt: ProcessLLMRequestArgs['prompt'], toolCallId: string) {
+  function findWriteCall(prompt: LanguageModelV4Prompt, toolCallId: string) {
     for (const message of prompt) {
       if (!Array.isArray(message.content)) {
         continue;

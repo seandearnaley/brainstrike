@@ -72,7 +72,7 @@ describe('resolveThreadPanelContentState', () => {
         description: 'Reading your saved conversations.',
         kind: 'card',
         testId: 'threads-loading-card',
-        title: 'Loading threads...',
+        title: 'Loading threads…',
         variant: 'muted',
       },
       name: 'first load with nothing in the store yet',
@@ -147,7 +147,7 @@ describe('resolveThreadPanelContentState', () => {
       description: 'Reading your workspace folders.',
       kind: 'card',
       testId: 'threads-folders-loading-card',
-      title: 'Loading folders...',
+      title: 'Loading folders…',
       variant: 'muted',
     });
   });

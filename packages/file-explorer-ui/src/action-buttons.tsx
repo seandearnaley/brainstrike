@@ -13,7 +13,7 @@
  *
  * The button text dynamically updates to indicate:
  * - "Select All" when no files are selected
- * - "Selecting..." when loading tree for selection
+ * - "Selecting…" when loading tree for selection
  * - "Deselect All" when files are currently selected
  */
 
@@ -180,7 +180,7 @@ export const ActionButtons = React.memo(
 
     const getButtonText = () => {
       if (isLoadingForSelectAll) {
-        return 'Selecting...';
+        return 'Selecting…';
       }
       if (hasSelectedFiles) {
         return 'Deselect All';

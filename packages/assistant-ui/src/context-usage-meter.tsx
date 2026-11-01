@@ -197,7 +197,7 @@ export interface ContextUsageMeterProps {
   conversationEstimate?: ConversationTokenEstimate | undefined;
   /**
    * Durable cumulative usage for this thread (running token total + cost),
-   * hydrated from the DB. Absent on web / before hydration → the cumulative line
+   * hydrated from the DB. Absent before hydration → the cumulative line
    * is not shown in the popover (the last-turn gauge still renders).
    */
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
@@ -210,9 +210,9 @@ export interface ContextUsageMeterProps {
   /**
    * Resolved OM state for the active thread, rendered as INFORMATIONAL stats
    * inside the popover (observed tokens + compaction saved) — NOT a budget
-   * segment. Absent → no OM line (desktop before the first resolve).
-   * Desktop-only: on web the resolver supplies `{ kind: 'chat-only' }` so the
-   * stats are hidden honestly. Prop name kept as `omSegment` for call-site
+   * segment. Absent → no OM line (before the first resolve). A host without
+   * memory supplies `{ kind: 'chat-only' }` so the stats are hidden honestly.
+   * Prop name kept as `omSegment` for call-site
    * stability across the panel layers.
    */
   omSegment?: OmMeterState | undefined;

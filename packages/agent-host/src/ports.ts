@@ -56,6 +56,7 @@ import type {
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
 } from './protocol.ts';
+import type { FileSearchBatch } from './protocol-file-search.ts';
 import type { GIT_WORKSPACE_METHOD_SCHEMAS, GitWorkspaceEvent } from './protocol-git-workspace.ts';
 import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
@@ -711,6 +712,19 @@ export interface HostFileWatches {
   open(send: (event: WorkspaceFilesEvent) => void): HostFileWatchSession;
 }
 
+/**
+ * The Explorer's Search tab: a live text search of the host's live roots.
+ * Each batch of matches goes to `send` as ripgrep finds it; the answer names
+ * every cap the search hit. `signal` ends the search, after which nothing is sent.
+ */
+export interface HostFileSearch {
+  search(
+    params: HostParams<'workspace/files/search'>,
+    signal: AbortSignal,
+    send: (matches: FileSearchBatch['matches']) => void
+  ): Promise<HostResults['workspace/files/search']>;
+}
+
 /** Core's reads of its threads, for a platform service that asks which runs are live. */
 export interface HostThreadReads {
   listThreads(): HostResults['thread/list']['threads'];
@@ -839,6 +853,8 @@ export interface HostPlatform {
   readonly delegation?: HostDelegation | undefined;
   /** The desktop Explorer's reads; absent where no window shows an Explorer (the CLI). */
   readonly fileReads?: HostFileReads;
+  /** The desktop Explorer's Search tab; absent where no window shows an Explorer (the CLI). */
+  readonly fileSearch?: HostFileSearch;
   /** The desktop Explorer's root watches; absent where no window shows an Explorer (the CLI). */
   readonly fileWatches?: HostFileWatches;
   /** Purge process-local caches scoped to a thread Core just deleted. */

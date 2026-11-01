@@ -6,10 +6,7 @@ import {
   NativeAuthorityTransitionError,
 } from '@brainstrike/assistant-service/node-native-text-services';
 import { vectorProfileHash } from '@brainstrike/indexer';
-import {
-  indexerEmbeddingProfileValues,
-  NativeIndexRefusalError,
-} from '@brainstrike/indexing-contract/indexer-client';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
@@ -365,7 +362,14 @@ it('reports the saved profile in status with the identity the renderer mirror co
   expect(status.embedding.profile).toEqual(voyage);
   expect(status.embedding.profileHash).toBe(vectorProfileHash(voyage));
   const mirrored = createHash('sha256')
-    .update(JSON.stringify(indexerEmbeddingProfileValues(status.embedding.profile)))
+    .update(
+      JSON.stringify([
+        status.embedding.profile.provider,
+        status.embedding.profile.modelId,
+        status.embedding.profile.dimensions,
+        status.embedding.profile.distance,
+      ])
+    )
     .digest('hex');
   expect(mirrored).toBe(status.embedding.profileHash);
 });

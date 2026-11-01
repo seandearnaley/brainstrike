@@ -5,13 +5,14 @@ import type { HostMethodHandler } from './auth-connection.ts';
 import type {
   HostClientOrigin,
   HostFileReads,
+  HostFileSearch,
   HostFileWatches,
   HostFileWatchMethod,
   HostFileWatchSession,
   HostFileWatchSessionMethods,
   HostRootRegistry,
 } from './ports.ts';
-import { WORKSPACE_FILES_EVENT } from './protocol.ts';
+import { FILE_SEARCH_BATCH, type FileSearchBatch, WORKSPACE_FILES_EVENT } from './protocol.ts';
 
 const logger = createLogger('AgentHostFileWatches');
 
@@ -51,6 +52,29 @@ export function bindHostFileReadMethods(
   );
 }
 
+/**
+ * ADR-0035: the Explorer's Search tab, for the desktop's private clients. A
+ * search's batches go only to the connection that started it, and none is
+ * sent once the client cancels the request or the connection closes.
+ */
+export function bindHostFileSearchMethods(
+  handle: HostMethodHandler,
+  connection: MessageConnection,
+  fileSearch: HostFileSearch | undefined,
+  origin: HostClientOrigin
+): void {
+  handle('workspace/files/search', async (params, signal) => {
+    const service = desktopOnly(fileSearch, origin, 'search');
+    return await service.search(params, signal, (matches) => {
+      if (signal.aborted) {
+        return;
+      }
+      const batch: FileSearchBatch = { matches, searchId: params.searchId };
+      connection.sendNotification(FILE_SEARCH_BATCH, batch).catch(() => connection.dispose());
+    });
+  });
+}
+
 /** ADR-0029 stage 4: the workspace's open folders, for the desktop's private clients. */
 export function bindHostRootRegistryMethods(
   handle: HostMethodHandler,
@@ -66,6 +90,7 @@ export function bindHostRootRegistryMethods(
   serve('workspace/roots/add');
   serve('workspace/roots/delete-data');
   serve('workspace/roots/mounted');
+  serve('workspace/roots/open');
   serve('workspace/roots/pick');
   serve('workspace/roots/recent');
   serve('workspace/roots/release-data-deletion');

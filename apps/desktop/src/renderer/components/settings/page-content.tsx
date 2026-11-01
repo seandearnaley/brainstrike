@@ -518,7 +518,7 @@ export default function SettingsPageContent() {
       }),
       {
         content: <DesktopLoggingSettings />,
-        description: 'Control renderer log verbosity and manage file logging for debugging.',
+        description: 'Set log levels and manage log files for troubleshooting.',
         icon: FileCog,
         id: 'logging',
         keywords: ['logging', 'diagnostics', 'debugging', 'log file'],
@@ -548,7 +548,7 @@ export default function SettingsPageContent() {
       createNotificationSettingsCategory(),
       {
         content: <DesktopUpdateSettings />,
-        description: 'Choose whether Brainstrike updates to beta releases.',
+        description: 'Check for updates and choose whether to get beta releases.',
         icon: Download,
         id: 'updates',
         keywords: ['updates', 'update', 'beta', 'prerelease', 'release channel', 'version'],
