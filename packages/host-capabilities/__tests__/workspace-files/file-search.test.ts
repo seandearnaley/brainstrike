@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { FileSearchBatch } from '@brainstrike/agent-host';
@@ -192,6 +200,37 @@ describe('host file search', () => {
 
     await expect(pending).rejects.toThrow('a new query');
     expect(afterCancel).toBe(0);
+  });
+
+  it('keeps the folder it first opened: a symlink swapped in at its path is never searched', async () => {
+    const outside = path.join(base, 'outside');
+    write('secret.txt', 'needle outside the grant\n', outside);
+    write('notes.txt', 'needle inside the grant\n');
+    const service = await searchOver();
+    expect((await run(service, query('needle'))).matches.map((m) => m.path)).toEqual(['notes.txt']);
+
+    renameSync(workspace, path.join(base, 'moved'));
+    symlinkSync(outside, workspace);
+
+    const { matches, result } = await run(service, query('needle'));
+    expect(JSON.stringify(matches)).not.toContain('outside');
+    expect(result.unreadableRootIds).toEqual([ROOT_ID]);
+  });
+
+  it('reads only the folder it first opened, even when another folder is moved in at its path', async () => {
+    const outside = path.join(base, 'outside');
+    write('secret.txt', 'needle outside the grant\n', outside);
+    write('shared.txt', 'needle outside the grant\n', outside);
+    write('shared.txt', 'needle inside the grant\n');
+    const service = await searchOver();
+
+    renameSync(workspace, path.join(base, 'moved'));
+    renameSync(outside, workspace);
+
+    const { matches } = await run(service, query('needle'));
+    expect(matches.map((m) => [m.path, m.lineText])).toEqual([
+      ['shared.txt', 'needle inside the grant'],
+    ]);
   });
 
   it('refuses a pattern that is not a valid regular expression', async () => {

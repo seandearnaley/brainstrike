@@ -2,9 +2,12 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { GrepMatch } from '@brainstrike/assistant-contract';
+import { pathsEqual } from '@brainstrike/assistant-service/node-workspace-services';
+import type { SecureFileReadCapability } from '@brainstrike/file-system/secure-file-read';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import type { LineMatcher } from '@brainstrike/utils/grep-line-matcher';
+import { utf8Decode } from '@brainstrike/utils/utf8';
 import { createAgentIgnoreGuard } from './agent-ignore-guard.ts';
 import { collectGrepMatchesInContent } from './grep-search.ts';
 import { resolveScopedGrepFile } from './live-grep-files.ts';
@@ -100,9 +103,25 @@ export interface LiveGrepResult extends LiveGrepOutcome {
   matches: GrepMatch[];
 }
 
+/** The handle a root was opened with: it reads only the folder it opened, wherever that is now. */
+export interface PinnedReadRoot extends SecureFileReadCapability {
+  readonly canonicalPath: string;
+}
+
+/**
+ * A root to search. With `pinned`, the root is searched only while its path
+ * still resolves to the handle's canonical path, and every candidate is read
+ * through the handle, so a folder swapped in at the path is never read.
+ */
+export interface LiveGrepRoot extends RuntimeWorkspaceRoot {
+  readonly pinned?: PinnedReadRoot | undefined;
+}
+
 /** A live candidate file to read + match, labelled with its owning root. */
 interface LiveCandidate {
   absolutePath: string;
+  /** Reads the candidate through its root's handle instead of by path. */
+  pinned?: PinnedReadRoot | undefined;
   relativePath: string;
   rootId: string;
   rootName: string;
@@ -143,7 +162,7 @@ type IndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy
 async function resolveCandidate(args: {
   relativePath: string;
   canonicalRootPath: string;
-  root: RuntimeWorkspaceRoot;
+  root: LiveGrepRoot;
   policy: IndexingEntryPolicy;
 }): Promise<LiveCandidate | null> {
   const fileName = path.posix.basename(args.relativePath);
@@ -174,10 +193,65 @@ async function resolveCandidate(args: {
   }
   return {
     absolutePath: canonical,
+    pinned: args.root.pinned,
     relativePath: args.relativePath,
     rootId: args.root.rootId,
     rootName: args.root.displayName,
   };
+}
+
+/**
+ * Reads a candidate through its root's handle, by its root-relative path. The
+ * handle never follows a symlink, so an in-root link is skipped, as the
+ * Explorer's own reads refuse it.
+ */
+async function readPinnedCandidate(
+  candidate: LiveCandidate,
+  pinned: PinnedReadRoot,
+  exactScope: boolean
+): Promise<string | null> {
+  const result = await pinned.readFile(candidate.relativePath, MAX_READ_FILE_BYTES);
+  if (result.status === 'ok') {
+    return utf8Decode(result.content);
+  }
+  if (exactScope && result.status !== 'not-found') {
+    throw new Error(`A selected live grep file is ${result.status}.`);
+  }
+  return null;
+}
+
+/** Reads a candidate by its resolved path, size-bounded. */
+async function readCandidateByPath(
+  candidate: LiveCandidate,
+  exactScope: boolean
+): Promise<string | null> {
+  let stat: import('node:fs').Stats;
+  try {
+    stat = await fsPromises.stat(candidate.absolutePath);
+  } catch (error) {
+    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+    return null;
+  }
+  if (stat.size > MAX_READ_FILE_BYTES) {
+    if (exactScope) {
+      throw new Error('A selected live grep file exceeds the bounded read size.');
+    }
+    return null;
+  }
+  try {
+    return await fsPromises.readFile(candidate.absolutePath, 'utf8');
+  } catch (error) {
+    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+    logger.debug('live grep: unreadable candidate skipped', {
+      error,
+      path: candidate.relativePath,
+    });
+    return null;
+  }
 }
 
 /** Read a candidate file (size-bounded) and run the authoritative matcher over it. */
@@ -187,32 +261,10 @@ async function matchCandidate(
   contextLines: number,
   exactScope = false
 ): Promise<GrepMatch[]> {
-  let stat: import('node:fs').Stats;
-  try {
-    stat = await fsPromises.stat(candidate.absolutePath);
-  } catch (error) {
-    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-    return [];
-  }
-  if (stat.size > MAX_READ_FILE_BYTES) {
-    if (exactScope) {
-      throw new Error('A selected live grep file exceeds the bounded read size.');
-    }
-    return [];
-  }
-  let content: string;
-  try {
-    content = await fsPromises.readFile(candidate.absolutePath, 'utf8');
-  } catch (error) {
-    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-    logger.debug('live grep: unreadable candidate skipped', {
-      error,
-      path: candidate.relativePath,
-    });
+  const content = candidate.pinned
+    ? await readPinnedCandidate(candidate, candidate.pinned, exactScope)
+    : await readCandidateByPath(candidate, exactScope);
+  if (content === null) {
     return [];
   }
   return collectGrepMatchesInContent({
@@ -234,7 +286,7 @@ export interface LiveGrepOptions {
   filePaths?: readonly string[];
   isRegex: boolean;
   pattern: string;
-  roots: readonly RuntimeWorkspaceRoot[];
+  roots: readonly LiveGrepRoot[];
   /** Ends the search: ripgrep is killed and no further match is emitted. */
   signal?: AbortSignal | undefined;
 }
@@ -635,7 +687,7 @@ async function searchScopedRoot(args: {
   filePathAllow: ReadonlySet<string>;
   matcher: LineMatcher;
   onMatches: MatchSink;
-  root: RuntimeWorkspaceRoot;
+  root: LiveGrepRoot;
   signal: AbortSignal | undefined;
   state: LiveSearchState;
 }): Promise<void> {
@@ -651,6 +703,7 @@ async function searchScopedRoot(args: {
     }
     const candidate = {
       absolutePath,
+      pinned: args.root.pinned,
       relativePath,
       rootId: args.root.rootId,
       rootName: args.root.displayName,
@@ -681,7 +734,7 @@ async function searchRipgrepRoot(args: {
   /** The fixed-string SUPERSET literal, or null to list every eligible file. */
   prefilterLiteral: string | null;
   ripgrepPath: string;
-  root: RuntimeWorkspaceRoot;
+  root: LiveGrepRoot;
   signal: AbortSignal | undefined;
   state: LiveSearchState;
 }): Promise<void> {
@@ -819,7 +872,8 @@ function liveOutcome(
  *
  * Exact scopes resolve requested files directly. Otherwise the bundled ripgrep
  * streams candidates, and each is read and run through the authoritative JS
- * matcher.
+ * matcher. A root with a pinned handle is read only through that handle, so
+ * ripgrep's walk of its path picks candidates but never supplies content.
  *
  * Superset soundness (so the prefilter never silently drops a real match):
  * - Exclusions: ripgrep runs with its own .gitignore/.ignore/hidden filtering
@@ -889,6 +943,14 @@ export async function streamLiveGrep(
       } catch (error) {
         logger.warn('live grep: root is not accessible', {
           error: redactErrorForLog(error),
+          rootId: root.rootId,
+        });
+        state.unreadableRoots.push(root);
+        continue;
+      }
+      // The path now names another folder than the one the handle opened.
+      if (root.pinned && !pathsEqual(canonicalRootPath, root.pinned.canonicalPath)) {
+        logger.warn('live grep: root path no longer names its opened folder', {
           rootId: root.rootId,
         });
         state.unreadableRoots.push(root);

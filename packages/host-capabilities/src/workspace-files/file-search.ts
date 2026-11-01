@@ -4,16 +4,17 @@
  * streaming ripgrep core the agent's grepSearch runs (`live-grep.ts`): the same
  * entry policy, agent ignore files, credential floor and caps. Each root is
  * borrowed through its pinned handle for the whole search, so the registry
- * cannot close a folder under it, and the search reads that root's canonical
- * path. Matches stream to the caller in batches as ripgrep finds them.
+ * cannot close a folder under it. Every file is read through that handle, and a
+ * root whose path no longer names the folder the handle opened is reported
+ * unreadable, so a folder swapped in at the path is never searched. Matches
+ * stream to the caller in batches as ripgrep finds them.
  */
 import path from 'node:path';
-import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { FileSearchBatch, HostFileSearch, HostResults } from '@brainstrike/agent-host';
 import type { GrepMatch } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
-import { streamLiveGrep } from '../native-tools/live-grep.ts';
+import { type LiveGrepRoot, streamLiveGrep } from '../native-tools/live-grep.ts';
 import type { LiveRoot, PinnedRoot, WorkspaceRootPins } from './root-pins.ts';
 
 /** The most matches one search returns; past it the search stops and says so. */
@@ -84,10 +85,11 @@ async function withPinnedRoots<T>(
   }
 }
 
-function toRuntimeRoot(pinned: PinnedRoot): RuntimeWorkspaceRoot {
+function toLiveGrepRoot(pinned: PinnedRoot): LiveGrepRoot {
   return {
     displayName: path.basename(pinned.presentationPath) || pinned.presentationPath,
     path: pinned.canonicalPath,
+    pinned: pinned.root,
     rootId: pinned.rootId,
   };
 }
@@ -189,7 +191,7 @@ export function createHostFileSearch(options: HostFileSearchOptions): HostFileSe
                 contextLines: 0,
                 isRegex,
                 pattern,
-                roots: pinned.map(toRuntimeRoot),
+                roots: pinned.map(toLiveGrepRoot),
                 signal: ended,
               },
               matcher,
