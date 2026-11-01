@@ -4,14 +4,7 @@ import {
   useFileExplorerStoreSelector,
 } from '@brainstrike/file-explorer-ui/shell';
 import type { FileExplorerState } from '@brainstrike/types';
-
-/** A search result file is either in the explorer selection or not. */
-export type FileSelectionState = 'checked' | 'unchecked';
-
-export interface SearchSelectionBridge {
-  fileState: (compositeKey: string) => FileSelectionState;
-  toggleFile: (compositeKey: string, nextChecked: boolean) => void;
-}
+import type { FileSelectionState, SearchSelectionBridge } from '@brainstrike/workspace-search';
 
 /**
  * Whether the compositeKey's file is selected, read the same way the explorer's

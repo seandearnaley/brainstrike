@@ -1,17 +1,20 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  FileSelectionState,
-  SearchSelectionBridge,
-} from '../../bridge/use-search-selection-bridge';
-import type {
   WorkspaceSearchChunkHit,
   WorkspaceSearchFileResult,
   WorkspaceSearchResults,
   WorkspaceSearchTextMatch,
 } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
-import { highlightQuery, SearchResultsTree, splitHeadline } from '../search-results-tree';
+import {
+  type FileSelectionState,
+  highlightQuery,
+  SearchResultsTree,
+  type SearchResultsTreeProps,
+  type SearchSelectionBridge,
+  splitHeadline,
+} from '../search-results-tree';
 
 // Render every virtual row headlessly (happy-dom has no layout dimensions).
 vi.mock('@tanstack/react-virtual', () => ({
@@ -34,12 +37,21 @@ const bridgeMock: SearchSelectionBridge = {
   fileState: vi.fn((): FileSelectionState => 'unchecked'),
   toggleFile: vi.fn(),
 };
-vi.mock('../../bridge/use-search-selection-bridge', () => ({
-  useSearchSelectionBridge: () => bridgeMock,
-}));
 
 const resolveAdapterRootId = (dbRootId: string): string | null =>
   dbRootId === 'root-unmounted' ? null : `adapter-${dbRootId}`;
+
+/** The tree wired to the mock explorer selection, with test defaults. */
+function Tree(props: Partial<SearchResultsTreeProps>) {
+  return (
+    <SearchResultsTree
+      onOpenFile={vi.fn()}
+      resolveAdapterRootId={resolveAdapterRootId}
+      selection={bridgeMock}
+      {...props}
+    />
+  );
+}
 
 function textMatch(overrides: Partial<WorkspaceSearchTextMatch> = {}): WorkspaceSearchTextMatch {
   return {
@@ -160,16 +172,14 @@ describe('SearchResultsTree', () => {
 
   it('renders a treegrid with rows for the pre-flattened result model', () => {
     seedResults(makeResults([fileResult()]));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(screen.getByRole('treegrid')).toBeInTheDocument();
     expect(screen.getByText('src/a.ts')).toBeInTheDocument();
   });
 
   it('shows the root badge only when results span more than one distinct root', () => {
     seedResults(makeResults([fileResult({ path: 'src/a.ts' })]));
-    const single = render(
-      <SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    const single = render(<Tree />);
     expect(single.queryByText('Mounted Root')).not.toBeInTheDocument();
     single.unmount();
 
@@ -179,7 +189,7 @@ describe('SearchResultsTree', () => {
         fileResult({ dbRootId: 'root-b', path: 'src/b.ts', rootDisplayName: 'Root B' }),
       ])
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(screen.getByText('Root A')).toBeInTheDocument();
     expect(screen.getByText('Root B')).toBeInTheDocument();
   });
@@ -189,25 +199,13 @@ describe('SearchResultsTree', () => {
     // root — even when the current result set happens to come from one root,
     // the user cannot know which root that is without the badge.
     seedResults(makeResults([fileResult({ path: 'src/a.ts' })]));
-    render(
-      <SearchResultsTree
-        onOpenFile={vi.fn()}
-        resolveAdapterRootId={resolveAdapterRootId}
-        workspaceRootCount={2}
-      />
-    );
+    render(<Tree workspaceRootCount={2} />);
     expect(screen.getByText('Mounted Root')).toBeInTheDocument();
   });
 
   it('hides the root badge for single-root results in a single-root workspace', () => {
     seedResults(makeResults([fileResult({ path: 'src/a.ts' })]));
-    render(
-      <SearchResultsTree
-        onOpenFile={vi.fn()}
-        resolveAdapterRootId={resolveAdapterRootId}
-        workspaceRootCount={1}
-      />
-    );
+    render(<Tree workspaceRootCount={1} />);
     expect(screen.queryByText('Mounted Root')).not.toBeInTheDocument();
   });
 
@@ -218,7 +216,7 @@ describe('SearchResultsTree', () => {
         query: 'foo',
       }
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     const marks = screen.getAllByText('foo', { selector: 'mark' });
     expect(marks.length).toBeGreaterThan(0);
   });
@@ -228,14 +226,14 @@ describe('SearchResultsTree', () => {
     seedResults(makeResults([fileResult({ children: [textMatch({ lineText })] })]), {
       query: 'zebra',
     });
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(screen.getByTitle(lineText)).toHaveTextContent(lineText);
     expect(screen.getByTitle('src/a.ts')).toHaveTextContent('src/a.ts');
   });
 
   it('renders ts_headline marks as <mark> elements without dangerouslySetInnerHTML', () => {
     seedResults(makeResults([fileResult({ children: [chunkHit()] })]), { mode: 'semantic' });
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(screen.getByText('beta', { selector: 'mark' })).toBeInTheDocument();
     // The literal tag text must never reach the DOM.
     expect(screen.queryByText(/<mark>/u)).not.toBeInTheDocument();
@@ -244,9 +242,7 @@ describe('SearchResultsTree', () => {
   it('navigates on row click: match rows pass their line', () => {
     const onOpenFile = vi.fn();
     seedResults(makeResults([fileResult({ children: [textMatch({ line: 10 })] })]));
-    render(
-      <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    render(<Tree onOpenFile={onOpenFile} />);
     fireEvent.click(screen.getByText('const foo = 1;'));
     // Match rows navigate to the line only (no selection range).
     expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', { line: 10 });
@@ -260,9 +256,7 @@ describe('SearchResultsTree', () => {
         mode: 'semantic',
       }
     );
-    render(
-      <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    render(<Tree onOpenFile={onOpenFile} />);
     fireEvent.click(screen.getByText('beta', { selector: 'mark' }));
     // Chunk rows scroll to startLine AND select the full chunk range so the
     // opened file highlights the block, ready to copy.
@@ -275,9 +269,7 @@ describe('SearchResultsTree', () => {
   it('toggles the bridge (not navigation) when a checkbox is clicked', () => {
     const onOpenFile = vi.fn();
     seedResults(makeResults([fileResult({ children: [textMatch()] })]));
-    render(
-      <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    render(<Tree onOpenFile={onOpenFile} />);
     // [0] is the select-all header checkbox; [1] is the file row checkbox.
     const [, fileCheckbox] = screen.getAllByRole('checkbox');
     fireEvent.click(fileCheckbox as HTMLElement);
@@ -297,7 +289,7 @@ describe('SearchResultsTree', () => {
         }),
       ])
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     // The select-all header and the one file row.
     expect(screen.getAllByRole('checkbox')).toHaveLength(2);
     expect(screen.queryByRole('checkbox', { name: 'Select lines 8-12' })).toBeNull();
@@ -307,21 +299,13 @@ describe('SearchResultsTree', () => {
     const onAttachFile = vi.fn();
     const onOpenFile = vi.fn();
     seedResults(makeResults([fileResult({ children: [textMatch()] })]));
-    const { rerender } = render(
-      <SearchResultsTree
-        onAttachFile={onAttachFile}
-        onOpenFile={onOpenFile}
-        resolveAdapterRootId={resolveAdapterRootId}
-      />
-    );
+    const { rerender } = render(<Tree onAttachFile={onAttachFile} onOpenFile={onOpenFile} />);
     fireEvent.click(screen.getByRole('button', { name: 'Attach src/a.ts to the thread' }));
     expect(onAttachFile).toHaveBeenCalledExactlyOnceWith('adapter-root-mounted|@|src/a.ts');
     expect(onOpenFile).not.toHaveBeenCalled();
 
     // Web reads no mentions: no attach button at all.
-    rerender(
-      <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    rerender(<Tree onOpenFile={onOpenFile} />);
     expect(screen.queryByTestId('search-attach-file')).toBeNull();
   });
 
@@ -337,16 +321,14 @@ describe('SearchResultsTree', () => {
         }),
       ])
     );
-    const multi = render(
-      <SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    const multi = render(<Tree />);
     expect(multi.getByText(/· 2 matches/u)).toBeInTheDocument();
     multi.unmount();
 
     seedResults(
       makeResults([fileResult({ children: [textMatch({ chunkId: 'chunk-1', line: 9 })] })])
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(screen.queryByText(/matches/u)).not.toBeInTheDocument();
   });
 
@@ -360,9 +342,7 @@ describe('SearchResultsTree', () => {
         }),
       ])
     );
-    render(
-      <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    render(<Tree onOpenFile={onOpenFile} />);
     fireEvent.click(screen.getByText(/Lines 8–/u));
     expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', {
       line: 8,
@@ -372,7 +352,7 @@ describe('SearchResultsTree', () => {
 
   it('renders the scanLimited notice', () => {
     seedResults(makeResults([fileResult()], { scanLimited: true }));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(
       screen.getByText('Partial search coverage — some files may not be included')
     ).toBeInTheDocument();
@@ -380,7 +360,7 @@ describe('SearchResultsTree', () => {
 
   it('names the open folders the search left out and how to include them', () => {
     seedResults(makeResults([fileResult()], { unindexedFolders: ['wt2', 'wt3'] }));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(screen.getByRole('status')).toHaveTextContent(
       '"wt2", "wt3" are not indexed, so they were not searched. Worktrees can be turned on in Settings, Search & Indexing.'
     );
@@ -388,7 +368,7 @@ describe('SearchResultsTree', () => {
 
   it('names the left-out folder even when the indexed folders have no match', () => {
     seedResults(makeResults([], { unindexedFolders: ['wt2'] }));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(screen.getByText('No matches found')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(
       '"wt2" is not indexed, so it was not searched. Worktrees can be turned on in Settings, Search & Indexing.'
@@ -398,20 +378,14 @@ describe('SearchResultsTree', () => {
   it('renders a Show more button for truncated results when onShowMore is provided', () => {
     const onShowMore = vi.fn();
     seedResults(makeResults([fileResult()], { truncated: true }));
-    render(
-      <SearchResultsTree
-        onOpenFile={vi.fn()}
-        onShowMore={onShowMore}
-        resolveAdapterRootId={resolveAdapterRootId}
-      />
-    );
+    render(<Tree onShowMore={onShowMore} />);
     fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
     expect(onShowMore).toHaveBeenCalledTimes(1);
   });
 
   it('states the honest limit (no false "Show more") for truncated results without onShowMore', () => {
     seedResults(makeResults([fileResult()], { truncated: true }));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     // One match row rendered -> "first 1 matches"; no clickable affordance.
     expect(screen.getByText('Results limited to first 1 matches')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
@@ -425,13 +399,7 @@ describe('SearchResultsTree', () => {
     seedResults(makeResults([fileResult({ children: [chunkHit()] })], { truncated: true }), {
       mode: 'semantic',
     });
-    render(
-      <SearchResultsTree
-        onOpenFile={vi.fn()}
-        onShowMore={onShowMore}
-        resolveAdapterRootId={resolveAdapterRootId}
-      />
-    );
+    render(<Tree onShowMore={onShowMore} />);
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
     // The honest fallback copy still renders instead.
     expect(screen.getByText(/Results limited to first/u)).toBeInTheDocument();
@@ -439,7 +407,7 @@ describe('SearchResultsTree', () => {
 
   it('renders the missing-line-metadata notice with a count and honest cause copy', () => {
     seedResults(makeResults([fileResult()], { skippedMissingLineMetadata: 3 }));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(
       screen.getByText(
         '3 results hidden (stale or unattributed index rows — reindexing fixes this)'
@@ -449,7 +417,7 @@ describe('SearchResultsTree', () => {
 
   it('renders the candidatesTruncated notice', () => {
     seedResults(makeResults([fileResult()], { candidatesTruncated: true }));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(
       screen.getByText('Match list may be incomplete (candidate pool capped) — narrow the query.')
     ).toBeInTheDocument();
@@ -460,7 +428,7 @@ describe('SearchResultsTree', () => {
     // the candidate cap, so scanLimited ⟹ candidatesTruncated; stacking both
     // notices would double-report the same limitation.
     seedResults(makeResults([fileResult()], { candidatesTruncated: true, scanLimited: true }));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(
       screen.getByText('Partial search coverage — some files may not be included')
     ).toBeInTheDocument();
@@ -472,9 +440,7 @@ describe('SearchResultsTree', () => {
   it('aligns rows per level: chunk rows indent further AND reserve toggle space (semantic)', () => {
     // Semantic mode: file (depth 0, has a child chunk) → chunk (depth 1, LEAF).
     seedResults(makeResults([fileResult({ children: [chunkHit()] })]), { mode: 'semantic' });
-    const { container } = render(
-      <SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    const { container } = render(<Tree />);
 
     const fileRow = container.querySelector('[data-depth="0"]');
     const chunkRow = container.querySelector('[data-depth="1"]');
@@ -493,9 +459,7 @@ describe('SearchResultsTree', () => {
 
   it('passes the search windowing context to the tree', () => {
     seedResults(makeResults([fileResult()]));
-    const { container } = render(
-      <SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />
-    );
+    const { container } = render(<Tree />);
     const grid = within(container).getByRole('treegrid');
     expect(grid).toBeInTheDocument();
   });
@@ -515,7 +479,7 @@ describe('SearchResultsTree select-all header', () => {
         fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
       ])
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
     expect(header).toBeInTheDocument();
     expect(screen.getByText('Select 2 shown')).toBeInTheDocument();
@@ -523,7 +487,7 @@ describe('SearchResultsTree select-all header', () => {
 
   it('renders no header when zero files are rendered', () => {
     seedResults(makeResults([]));
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     expect(screen.queryByRole('checkbox', { name: /Select .* shown/u })).not.toBeInTheDocument();
   });
 
@@ -535,7 +499,7 @@ describe('SearchResultsTree select-all header', () => {
       ])
     );
     (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('checked');
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
     expect(header).toHaveAttribute('data-state', 'checked');
   });
@@ -550,7 +514,7 @@ describe('SearchResultsTree select-all header', () => {
     (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockImplementation(
       (key: string): FileSelectionState => (key.endsWith('src/a.ts') ? 'checked' : 'unchecked')
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
     expect(header).toHaveAttribute('data-state', 'indeterminate');
   });
@@ -562,7 +526,7 @@ describe('SearchResultsTree select-all header', () => {
         fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
       ])
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
     expect(header).toHaveAttribute('data-state', 'unchecked');
   });
@@ -574,7 +538,7 @@ describe('SearchResultsTree select-all header', () => {
         fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
       ])
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select 2 shown' }));
     expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(2);
     expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', true);
@@ -589,7 +553,7 @@ describe('SearchResultsTree select-all header', () => {
       ])
     );
     (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('checked');
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select 2 shown' }));
     expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(2);
     expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', false);
@@ -603,7 +567,7 @@ describe('SearchResultsTree select-all header', () => {
         fileResult({ dbRootId: 'root-unmounted', path: 'src/unmounted.ts' }),
       ])
     );
-    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    render(<Tree />);
     // Only 1 file is actually rendered/loaded (the unmounted-root file is omitted).
     const header = screen.getByRole('checkbox', { name: 'Select 1 shown' });
     fireEvent.click(header);

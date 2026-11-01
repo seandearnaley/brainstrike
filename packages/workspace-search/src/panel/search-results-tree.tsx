@@ -10,11 +10,21 @@ import {
 import { File as FileIcon, Paperclip, TextQuote } from 'lucide-react';
 import type * as React from 'react';
 import { useMemo } from 'react';
-import type { FileSelectionState } from '../bridge/use-search-selection-bridge';
-import { useSearchSelectionBridge } from '../bridge/use-search-selection-bridge';
 import { unindexedFoldersNote } from '../core/native-workspace-search';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import { buildSearchTreeNodes, type SearchNodeData } from './build-tree-nodes';
+
+/** A search result file is either in the explorer selection or not. */
+export type FileSelectionState = 'checked' | 'unchecked';
+
+/**
+ * The explorer selection the result checkboxes drive. The composition layer
+ * supplies it, so a checked result is a selected explorer file.
+ */
+export interface SearchSelectionBridge {
+  fileState: (compositeKey: string) => FileSelectionState;
+  toggleFile: (compositeKey: string, nextChecked: boolean) => void;
+}
 
 /** A rendered headline/highlight fragment: plain text or an emphasized match. */
 export type HeadlineSegment = string | { mark: string };
@@ -260,7 +270,7 @@ function MatchRow({
  * unchecked.
  */
 function rollupSelectAllState(
-  bridge: ReturnType<typeof useSearchSelectionBridge>,
+  bridge: SearchSelectionBridge,
   fileKeys: readonly string[]
 ): FileSelectionState | 'indeterminate' {
   let checkedCount = 0;
@@ -285,7 +295,7 @@ function SelectAllHeader({
   bridge,
   fileKeys,
 }: {
-  bridge: ReturnType<typeof useSearchSelectionBridge>;
+  bridge: SearchSelectionBridge;
   fileKeys: readonly string[];
 }): React.ReactNode {
   const state = rollupSelectAllState(bridge, fileKeys);
@@ -332,6 +342,8 @@ export interface SearchResultsTreeProps {
    * the session store does not hold.
    */
   resolveAdapterRootId: (dbRootId: string) => string | null;
+  /** The explorer selection that file-row checkboxes read and write. */
+  selection: SearchSelectionBridge;
   /**
    * Count of currently mounted workspace roots. In a multi-root workspace
    * (count > 1) every file row shows its root badge — even when the current
@@ -352,6 +364,7 @@ export function SearchResultsTree({
   onOpenFile,
   resolveAdapterRootId,
   onShowMore,
+  selection: bridge,
   workspaceRootCount = 0,
 }: SearchResultsTreeProps): React.ReactNode {
   const results = useWorkspaceSearchStore((state) => state.results);
@@ -361,7 +374,6 @@ export function SearchResultsTree({
   const caseSensitive = useWorkspaceSearchStore((state) => state.caseSensitive);
   const expandedIds = useWorkspaceSearchStore((state) => state.expandedIds);
   const toggleExpanded = useWorkspaceSearchStore((state) => state.toggleExpanded);
-  const bridge = useSearchSelectionBridge();
 
   const nodes = results ? buildSearchTreeNodes({ expandedIds, resolveAdapterRootId, results }) : [];
 
