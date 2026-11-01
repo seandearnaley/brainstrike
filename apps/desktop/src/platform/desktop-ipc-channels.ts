@@ -82,19 +82,7 @@ export const DESKTOP_IPC_CHANNELS = {
     saveToDownloads: 'file-exports:save-to-downloads',
   },
   files: {
-    addRoot: 'fs:addRoot',
-    addRootByPath: 'fs:addRootByPath',
-    /** E2E only (`workspace-ledgers-e2e-ipc.ts`); production registers no handler. */
-    clearLedgersForE2e: 'fs:clearLedgersForE2e',
     deleteRootData: 'fs:deleteRootData',
-    listRecentRoots: 'fs:listRecentRoots',
-    removeRoot: 'fs:removeRoot',
-    requestDirectoryAccess: 'fs:requestDirectoryAccess',
-    restoreLastFolder: 'fs:restoreLastFolder',
-    restoreRoots: 'fs:restoreRoots',
-    saveLastFolder: 'fs:saveLastFolder',
-    /** E2E only (`workspace-ledgers-e2e-ipc.ts`); production registers no handler. */
-    seedLedgerForE2e: 'fs:seedLedgerForE2e',
   },
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',

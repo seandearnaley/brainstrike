@@ -1,23 +1,9 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
-import type { ContentClearCapability, RecentRootEntry, RootDescriptor } from '@brainstrike/types';
+import type { ContentClearCapability } from '@brainstrike/types';
 import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
-/** E2E only: seeds and clears Main's workspace ledgers. Absent outside test mode. */
-export interface DesktopWorkspaceLedgersForE2e {
-  clearLedgersForE2e?: () => Promise<void>;
-  seedLedgerForE2e?: (key: string, value: string) => Promise<void>;
-}
-
+/** The agent host owns the workspace's folders (ADR-0029 stage 4); Main keeps the index's deletion. */
 export interface DesktopFileSystemBridge {
-  addRoot: () => Promise<RootDescriptor>;
-  addRootByPath: (path: string) => Promise<RootDescriptor>;
   deleteRootData: (rootId: string) => Promise<void>;
-  listRecentRoots: () => Promise<readonly RecentRootEntry[]>;
-  removeRoot: (rootId: string) => Promise<void>;
-  requestDirectoryAccess: () => Promise<DirectoryHandle>;
-  restoreLastFolder: () => Promise<DirectoryHandle | null>;
-  restoreRoots: () => Promise<RootDescriptor[]>;
-  saveLastFolder: (folderPath: string) => Promise<void>;
 }
 
 interface DesktopFactoryResetBridge {
@@ -28,7 +14,7 @@ interface DesktopFactoryResetBridge {
 export interface VisibleDesktopElectronApi {
   content: ContentClearCapability;
   factoryReset: DesktopFactoryResetBridge;
-  fileSystem: DesktopFileSystemTransport & DesktopWorkspaceLedgersForE2e;
+  fileSystem: DesktopFileSystemTransport;
   getUserDataPath: () => Promise<string>;
 }
 

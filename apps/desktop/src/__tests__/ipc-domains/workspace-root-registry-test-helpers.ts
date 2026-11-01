@@ -1,12 +1,12 @@
 import path from 'node:path';
-import type { DirectoryHandle } from '@brainstrike/file-system';
-import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { type Mock, vi } from 'vitest';
 import {
   type SecureWorkspaceRoot,
   WorkspaceRootRegistry,
-} from '../../ipc-domains/workspace-root-registry';
+  type WorkspaceRootStorage,
+} from '@brainstrike/assistant-service/node-workspace-services';
+import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
+import { type Mock, vi } from 'vitest';
 
 export function registryRoot(
   id: string,
@@ -14,6 +14,7 @@ export function registryRoot(
   kind: 'path' | 'worktree' = 'path'
 ): WorkspaceRootRecord {
   return {
+    canonicalPath: rootPath,
     createdAt: 1,
     displayName: path.basename(rootPath),
     id,
@@ -28,20 +29,39 @@ export function createRegistryCatalogRequest(
   initial: readonly WorkspaceRootRecord[] = []
 ): Mock<WorkspaceRootPort['workspaceRoots']> {
   const roots = new Map(initial.map((root) => [root.path, root]));
+  // The catalog's open order (`open_position`): a registered folder opens; a closed one leaves it.
+  const open = initial.filter((root) => root.status === 'live').map((root) => root.id);
   return vi.fn(async (request) => {
     switch (request.operation) {
       case 'list':
         return { roots: [...roots.values()] };
+      case 'list-open': {
+        const byId = new Map([...roots.values()].map((root) => [root.id, root]));
+        return { roots: open.flatMap((id) => byId.get(id) ?? []) };
+      }
       case 'register': {
         const previous = roots.get(request.root.path);
+        if (previous && previous.canonicalPath !== request.root.canonicalPath && !request.repin) {
+          throw new Error('The workspace folder at this path is not the one that was granted');
+        }
         const root = {
           ...(previous ?? registryRoot(request.root.preferredId, request.root.path)),
+          canonicalPath: request.root.canonicalPath,
           status: 'live' as const,
         };
         roots.set(root.path, root);
+        if (!open.includes(root.id)) {
+          open.push(root.id);
+        }
         return { roots: [root] };
       }
       case 'disconnect-except': {
+        for (const id of request.closeRootIds ?? []) {
+          const index = open.indexOf(id);
+          if (index >= 0) {
+            open.splice(index, 1);
+          }
+        }
         const disconnected = [...roots.values()]
           .filter((root) => root.status === 'live' && !request.mountedPaths.includes(root.path))
           .map((root) => ({ ...root, status: 'disconnected' as const }));
@@ -56,11 +76,37 @@ export function createRegistryCatalogRequest(
   });
 }
 
-export function createStorage(initial: Record<string, string> = {}): ElectronStorageAdapter {
+/** The recent-folders ledger's key-value store (the host keeps it in its settings). */
+/** A catalog whose open folders are these saved entries, in order. */
+export function openRootsCatalog(
+  entries: readonly {
+    readonly addedAt: number;
+    /** The identity the folder was granted under; its own path unless a test says otherwise. */
+    readonly canonicalPath?: string;
+    readonly path: string;
+    readonly rootId: string;
+  }[]
+): Mock<WorkspaceRootPort['workspaceRoots']> {
+  return createRegistryCatalogRequest(
+    entries.map((entry) => ({
+      ...registryRoot(entry.rootId, entry.path),
+      canonicalPath: entry.canonicalPath ?? path.normalize(entry.path),
+      createdAt: entry.addedAt,
+    }))
+  );
+}
+
+/** The open folders the catalog records, in order. */
+export async function listOpenRoots(
+  catalog: Mock<WorkspaceRootPort['workspaceRoots']>
+): Promise<{ path: string; rootId: string }[]> {
+  const { roots } = await catalog({ operation: 'list-open' });
+  return roots.map((root) => ({ path: root.path, rootId: root.id }));
+}
+
+export function createStorage(initial: Record<string, string> = {}): WorkspaceRootStorage {
   const values = new Map(Object.entries(initial));
   return {
-    clear: vi.fn(async () => values.clear()),
-    getAllKeys: vi.fn(async () => [...values.keys()]),
     getItem: vi.fn(async (key: string) => values.get(key) ?? null),
     removeItem: vi.fn(async (key: string) => {
       values.delete(key);
@@ -68,7 +114,7 @@ export function createStorage(initial: Record<string, string> = {}): ElectronSto
     setItem: vi.fn(async (key: string, value: string) => {
       values.set(key, value);
     }),
-  } as unknown as ElectronStorageAdapter;
+  };
 }
 
 export function rootHandle(rootPath: string): DirectoryHandle {
@@ -100,8 +146,7 @@ export function createRegistry(
     evictLspServersForRoot: vi.fn(async () => undefined),
     getRootsCatalog: async () => catalog,
     pathExists: async () => true,
-    resolveCanonicalRoot: async (rootPath) => path.normalize(rootPath),
-    storage: createStorage(),
+    recents: createStorage(),
     ...overrides,
   });
 }

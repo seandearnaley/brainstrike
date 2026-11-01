@@ -242,10 +242,7 @@ it('starts saved Pause cancellation while root registration owns an incomplete f
     acquire: unused,
     captureOwner: unused,
     closeOwner: unused,
-    deleteCanonicalRoot: unused,
-    reserveRoot: () => {
-      throw new Error('This registration fixture does not delete roots.');
-    },
+    deleteRootData: unused,
     resume: unused,
     stopSources: unused,
   });
@@ -293,10 +290,11 @@ it.each(['settings', 'graph', 'attachment'] as const)(
       f.settings.mockReturnValueOnce(gate.promise.then(() => textSettings()));
     }
     if (phase === 'graph') {
-      const restore = f.application.roots.restoreRoots;
-      f.application.roots.restoreRoots = async () => {
+      // The index's sync with the host's folders is held.
+      const borrowLive = f.application.roots.borrowLiveRoots.bind(f.application.roots);
+      f.application.roots.borrowLiveRoots = async (work) => {
         await gate.promise;
-        return restore();
+        return borrowLive(work);
       };
     }
     const initial = f.activation.acquire().catch((error: unknown) => error);

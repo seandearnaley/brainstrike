@@ -1,4 +1,3 @@
-import type { HostPlatform } from '@brainstrike/agent-host';
 import { toBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import type { CredentialCipher } from '@brainstrike/agent-host/credential-contract';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
@@ -12,7 +11,6 @@ import { hostedQueryEmbedding } from '../hosted-embeddings';
 import type { LifecycleDelaySeam } from '../lifecycle-delay-seam';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
-import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
 import {
   type HostToolServiceCapabilities,
   refusalOutcome,
@@ -33,11 +31,8 @@ import {
   PlatformNativeChildSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformObserverCandidatesSchema,
-  PlatformWorkspaceAcquireResultSchema,
-  PlatformWorkspaceAcquireSchema,
-  PlatformWorkspaceBindingRequestSchema,
-  PlatformWorkspaceLeaseSchema,
-  PlatformWorktreeFolderSchema,
+  PlatformRootsChangedSchema,
+  PlatformShowFolderSchema,
 } from './platform-wire';
 
 const logger = createLogger('DesktopMainPlatform');
@@ -53,7 +48,7 @@ export interface DesktopPlatformCapabilities {
    * BST-1930 stage e: the facts the agent host composes each run's admission
    * from. Main serves the reads and holds no selection.
    */
-  readonly admission: DesktopAdmissionReads;
+  readonly admission: Omit<DesktopAdmissionReads, 'acquireWorkspace'>;
   /**
    * Main-owned Root borrowers close with the host's platform. `closing`: Core asked
    * (`platform/close`) and releases its canonical writer once this resolves, so they are joined.
@@ -70,44 +65,36 @@ export interface DesktopPlatformCapabilities {
   readonly mcp: DesktopMcpPlatformCapabilities;
   /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
   readonly nativeChildren?: NativeChildObserver;
-  /**
-   * ADR-0028 step 3: mounts a worktree an agent created as a workspace folder
-   * and asks the window to show it, as for any folder Main opens.
-   */
-  openWorktreeFolder?(path: string): Promise<{ displayName: string; path: string; rootId: string }>;
+  /** ADR-0029 stage 4: Main's native folder picker; null when the person cancelled. */
+  pickWorkspaceFolder?(): Promise<string | null>;
   /** Main's native index rescans a root after a rewind restored it on disk. */
   refreshWorkspaceIndex?(rootId: string): Promise<void>;
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
-  readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
+  /**
+   * ADR-0028 step 3: the host opened a worktree an agent created as a workspace
+   * folder; the focused window shows it, as for any folder Main opens.
+   */
+  showWorkspaceFolder?(path: string): void;
+  /**
+   * The host's open folders changed: the native index re-reads them, and the OS recent
+   * documents and File > Open Recent follow the recent-folders ledger.
+   */
+  workspaceRootsChanged?(change: {
+    readonly grantedPath?: string;
+    readonly recentPaths: readonly string[];
+  }): void;
 }
 type Execute = <T>(
   token: CancellationToken,
   work: (signal: AbortSignal) => Promise<T>
 ) => Promise<T>;
-/**
- * BST-1930 stage e: the reads a host-composed admission makes of Main's facts.
- * A workspace borrow is held under the lease id the host chose, until the host
- * releases it or the connection closes.
- */
+/** BST-1930 stage e: the reads a host-composed admission makes of Main's facts. */
 function serveAdmissionReads(
   connection: MessageConnection,
   execute: Execute,
-  reads: DesktopAdmissionReads,
-  leases: Map<string, DesktopWorkspaceBindingBorrow>
+  reads: DesktopPlatformCapabilities['admission']
 ): void {
-  const lease = (input: unknown): DesktopWorkspaceBindingBorrow => {
-    const borrowed = leases.get(
-      Schema.decodeUnknownSync(PlatformWorkspaceLeaseSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(input).leaseId
-    );
-    if (!borrowed) {
-      throw new Error('The workspace lease is not held');
-    }
-    return borrowed;
-  };
   connection.onRequest(
     'platform/admission/catalog-model',
     (input: unknown, token: CancellationToken) =>
@@ -183,61 +170,6 @@ function serveAdmissionReads(
         return await reads.indexStatus(signal);
       })
   );
-  connection.onRequest(
-    'platform/admission/workspace/acquire',
-    (input: unknown, token: CancellationToken) =>
-      execute(token, async (signal) => {
-        const { binding, leaseId, threadId } = Schema.decodeUnknownSync(
-          PlatformWorkspaceAcquireSchema,
-          { errors: 'all', onExcessProperty: 'error' }
-        )(input);
-        if (leases.has(leaseId)) {
-          throw new Error('The workspace lease is already held');
-        }
-        const borrowed = await reads.acquireWorkspace({ binding, signal, threadId });
-        try {
-          // A borrow the host stopped waiting for, or whose roots cannot cross, is returned.
-          signal.throwIfAborted();
-          const acquired = Schema.decodeUnknownSync(PlatformWorkspaceAcquireResultSchema, {
-            errors: 'all',
-            onExcessProperty: 'error',
-          })({
-            roots: [...borrowed.roots],
-          });
-          leases.set(leaseId, borrowed);
-          return acquired;
-        } catch (cause) {
-          try {
-            await borrowed.close();
-          } catch (cleanup) {
-            throw new AggregateError([cause, cleanup], 'Workspace acquisition and cleanup failed');
-          }
-          throw cause;
-        }
-      })
-  );
-  connection.onRequest(
-    'platform/admission/workspace/revalidate',
-    (input: unknown, token: CancellationToken) =>
-      execute(token, async (signal) => {
-        await lease(input).revalidate(signal);
-        return null;
-      })
-  );
-  connection.onRequest(
-    'platform/admission/workspace/release',
-    (input: unknown, token: CancellationToken) =>
-      execute(token, async () => {
-        const { leaseId } = Schema.decodeUnknownSync(PlatformWorkspaceLeaseSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input);
-        const borrowed = leases.get(leaseId);
-        leases.delete(leaseId);
-        await borrowed?.close();
-        return null;
-      })
-  );
 }
 /** One private connection borrows existing owners; it constructs no platform store. */
 export function serveDesktopPlatform(
@@ -246,8 +178,6 @@ export function serveDesktopPlatform(
 ): {
   close(): Promise<void>;
 } {
-  // The host's workspace borrows for its admitted runs, by the lease id it chose.
-  const leases = new Map<string, DesktopWorkspaceBindingBorrow>();
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
@@ -370,25 +300,7 @@ export function serveDesktopPlatform(
       return await cipher().open(sealed);
     })
   );
-  serveAdmissionReads(connection, execute, capabilities.admission, leases);
-  connection.onRequest('platform/workspace/validate', (input: unknown, token: CancellationToken) =>
-    execute(token, async (signal) => {
-      const request = Schema.decodeUnknownSync(PlatformWorkspaceBindingRequestSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(input);
-      if (!capabilities.validateWorkspaceBinding) {
-        throw new Error('Desktop has no live workspace binding owner');
-      }
-      await capabilities.validateWorkspaceBinding({
-        binding: request.binding,
-        signal,
-        threadId: request.threadId,
-      });
-      signal.throwIfAborted();
-      return { accepted: true };
-    })
-  );
+  serveAdmissionReads(connection, execute, capabilities.admission);
   connection.onRequest('platform/workspace/root', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { rootId } = wireDecoder(
@@ -401,18 +313,43 @@ export function serveDesktopPlatform(
       return await capabilities.resolveWorkspaceRoot(rootId);
     })
   );
+  // ADR-0029 stage 4: the host owns the open folders; Main keeps the picker and the windows.
   connection.onRequest(
-    'platform/worktree/open-folder',
+    'platform/workspace/pick-folder',
+    (_input: unknown, token: CancellationToken): Promise<unknown> =>
+      execute(token, async () => {
+        if (!capabilities.pickWorkspaceFolder) {
+          throw new Error('Desktop has no folder picker');
+        }
+        const picked = await capabilities.pickWorkspaceFolder();
+        return picked === null ? { cancelled: true } : { path: picked };
+      })
+  );
+  connection.onRequest(
+    'platform/workspace/roots-changed',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { path } = wireDecoder(PlatformWorktreeFolderSchema, {
+        const change = wireDecoder(PlatformRootsChangedSchema, {
           errors: 'all',
           onExcessProperty: 'error',
         })(input);
-        if (!capabilities.openWorktreeFolder) {
-          throw new Error('Desktop cannot open worktrees as folders');
+        capabilities.workspaceRootsChanged?.(change);
+        return null;
+      })
+  );
+  connection.onRequest(
+    'platform/workspace/show-folder',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { path } = wireDecoder(PlatformShowFolderSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
+        if (!capabilities.showWorkspaceFolder) {
+          throw new Error('Desktop cannot show a folder in a window');
         }
-        return await capabilities.openWorktreeFolder(path);
+        capabilities.showWorkspaceFolder(path);
+        return null;
       })
   );
   connection.onRequest('platform/index/refresh', (input: unknown, token: CancellationToken) =>
@@ -438,17 +375,15 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
-      const results = await Promise.allSettled([...leases.values()].map((lease) => lease.close()));
       const root = await Promise.allSettled([
         Promise.resolve().then(() => capabilities.closeRootCapabilities?.(host)),
       ]);
-      const failures = [...results, ...root].flatMap((result) =>
+      const failures = root.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : []
       );
       if (failures.length > 0) {
         throw new AggregateError(failures, 'Desktop platform capability cleanup failed');
       }
-      leases.clear();
     });
     return closing;
   };

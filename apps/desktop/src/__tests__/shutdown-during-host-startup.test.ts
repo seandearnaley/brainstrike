@@ -39,6 +39,7 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
   const catalogWrite = workspaceRoots.workspaceRoots({
     operation: 'register',
     root: {
+      canonicalPath: '/disposable/startup-root',
       displayName: 'disposable startup control',
       path: '/disposable/startup-root',
       preferredId: '44d3c0ba-9dac-40e9-871e-48c99173999a',

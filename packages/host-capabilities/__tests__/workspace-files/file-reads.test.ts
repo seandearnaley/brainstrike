@@ -14,6 +14,7 @@ import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHostFileReads } from '../../src/workspace-files/file-reads.ts';
 import { createWorkspaceRootPins } from '../../src/workspace-files/root-pins.ts';
+import { grantedMounts } from './granted-mounts.ts';
 
 const ROOT_ID = '00000000-0000-4000-8000-000000000001';
 const NESTED_ID = '00000000-0000-4000-8000-000000000002';
@@ -43,17 +44,17 @@ interface LiveRoot {
   readonly path: string;
   readonly rootId: string;
 }
-const catalog = (roots: LiveRoot[]) => ({
-  listRoots: async () => roots.map((root) => ({ ...root, displayName: path.basename(root.path) })),
-});
-const opened: { close(): Promise<void> }[] = [];
+const opened: { close(): Promise<void> | void }[] = [];
 afterEach(async () => {
-  await Promise.all(opened.splice(0).map((pins) => pins.close()));
+  for (const owner of opened.splice(0).reverse()) {
+    await owner.close();
+  }
 });
-/** The reads owner over pinned roots, as the desktop host composes it. */
-const reads = (roots: LiveRoot[]) => {
-  const pins = createWorkspaceRootPins({ roots: catalog(roots) });
-  opened.push(pins);
+/** The reads owner over roots mounted at grant, as the desktop host composes it. */
+const reads = async (roots: LiveRoot[]) => {
+  const mounts = await grantedMounts(roots);
+  const pins = createWorkspaceRootPins({ mounts });
+  opened.push(mounts, pins);
   return createHostFileReads({ pins });
 };
 const failure = (code: string) => ({ failure: expect.objectContaining({ code }) });
@@ -61,7 +62,7 @@ const failure = (code: string) => ({ failure: expect.objectContaining({ code }) 
 /** ADR-0029 stage 4: the Explorer reads only what the host's catalog records as live. */
 describe('host file reads', () => {
   it('lists a live root, directories first, naming the root that served it', async () => {
-    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
+    const { service } = await reads([{ path: workspace, rootId: ROOT_ID }]);
 
     const listing = await service['workspace/files/list']({ path: workspace });
 
@@ -76,7 +77,7 @@ describe('host file reads', () => {
   });
 
   it('reads a file of a live root by its path, and by the root it was listed under', async () => {
-    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
+    const { service } = await reads([{ path: workspace, rootId: ROOT_ID }]);
     const file = path.join(workspace, 'src', 'index.ts');
 
     await expect(service['workspace/files/read']({ path: file })).resolves.toEqual({
@@ -91,7 +92,7 @@ describe('host file reads', () => {
   });
 
   it('refuses a folder the catalog does not record as live, even one on disk', async () => {
-    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
+    const { service } = await reads([{ path: workspace, rootId: ROOT_ID }]);
 
     await expect(service['workspace/files/list']({ path: outside })).rejects.toMatchObject(
       failure('workspace.path-outside-root')
@@ -113,7 +114,7 @@ describe('host file reads', () => {
   it('never follows a symlink out of the root, and names an in-root link', async () => {
     symlinkSync(path.join(outside, 'secret.txt'), path.join(workspace, 'escape.txt'));
     symlinkSync(path.join(workspace, 'README.md'), path.join(workspace, 'alias.md'));
-    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
+    const { service } = await reads([{ path: workspace, rootId: ROOT_ID }]);
 
     await expect(
       service['workspace/files/read']({ path: path.join(workspace, 'escape.txt') })
@@ -125,7 +126,7 @@ describe('host file reads', () => {
 
   it('answers a missing or oversized file with the message the Explorer shows', async () => {
     writeFileSync(path.join(workspace, 'big.bin'), Buffer.alloc(800 * 1024, 1));
-    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
+    const { service } = await reads([{ path: workspace, rootId: ROOT_ID }]);
 
     await expect(
       service['workspace/files/read']({ path: path.join(workspace, 'gone.ts') })
@@ -143,7 +144,7 @@ describe('host file reads', () => {
 
   it('anchors a read to the root it names; without a live one the deepest root serves it', async () => {
     const nested = path.join(workspace, 'src');
-    const { service } = reads([
+    const { service } = await reads([
       { path: workspace, rootId: ROOT_ID },
       { path: nested, rootId: NESTED_ID },
     ]);
@@ -163,7 +164,7 @@ describe('host file reads', () => {
   it('binds a claimed root by identity and path', async () => {
     const other = path.join(base, 'other');
     mkdirSync(other);
-    const { service } = reads([
+    const { service } = await reads([
       { path: workspace, rootId: ROOT_ID },
       { path: other, rootId: NESTED_ID },
     ]);
@@ -181,7 +182,7 @@ describe('host file reads', () => {
   });
 
   it('keeps the folder it first opened: a symlink swapped in at its path never grants the outside folder', async () => {
-    const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
+    const { service } = await reads([{ path: workspace, rootId: ROOT_ID }]);
     await expect(service['workspace/files/list']({ path: workspace })).resolves.toMatchObject({
       rootId: ROOT_ID,
     });
@@ -200,25 +201,8 @@ describe('host file reads', () => {
     ).rejects.toMatchObject(failure('workspace.path-outside-root'));
   });
 
-  it('reports a folder that fails to open for another reason than being gone as a fault', async () => {
-    const pins = createWorkspaceRootPins({
-      openRoot: async () => {
-        throw Object.assign(new Error('The native module did not load'), {
-          code: 'ERR_DLOPEN_FAILED',
-        });
-      },
-      roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
-    });
-    opened.push(pins);
-    const { service } = createHostFileReads({ pins });
-
-    await expect(service['workspace/files/list']({ path: workspace })).rejects.toMatchObject({
-      failure: { code: 'workspace.root-open-failed', kind: 'fault' },
-    });
-  });
-
   it('stops reading once the host closes', async () => {
-    const owner = reads([{ path: workspace, rootId: ROOT_ID }]);
+    const owner = await reads([{ path: workspace, rootId: ROOT_ID }]);
     await owner.close();
 
     await expect(owner.service['workspace/files/list']({ path: workspace })).rejects.toMatchObject(
@@ -248,7 +232,7 @@ describe('host file reads', () => {
       return await realpath(...args);
     });
     try {
-      const { service } = reads([{ path: workspace, rootId: ROOT_ID }]);
+      const { service } = await reads([{ path: workspace, rootId: ROOT_ID }]);
       await expect(
         service['workspace/files/read']({ path: requested, rootId: ROOT_ID, rootPath: workspace })
       ).rejects.toThrow();
@@ -269,12 +253,13 @@ describe('host file reads', () => {
     }
   });
 
-  it('joins a read in flight before it finishes closing', async () => {
+  it('joins a read in flight before it finishes closing, and leaves the handle to its owner', async () => {
     const native = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     const close = vi.fn();
-    const pins = createWorkspaceRootPins({
-      openRoot: async (rootPath) => ({
+    const mounts = await grantedMounts(
+      [{ path: workspace, rootId: ROOT_ID }],
+      async (rootPath) => ({
         canonicalPath: rootPath,
         close,
         listDir: async () => {
@@ -283,9 +268,9 @@ describe('host file reads', () => {
           return { entries: [], inspected: 0, truncated: false };
         },
         readFile: async () => ({ status: 'not-found' as const }),
-      }),
-      roots: catalog([{ path: workspace, rootId: ROOT_ID }]),
-    });
+      })
+    );
+    const pins = createWorkspaceRootPins({ mounts });
     const owner = createHostFileReads({ pins });
     const listing = owner.service['workspace/files/list']({ path: workspace });
     await entered.promise;
@@ -299,8 +284,9 @@ describe('host file reads', () => {
     native.resolve();
     await expect(listing).resolves.toMatchObject({ rootId: ROOT_ID });
     await closing;
-    expect(close).not.toHaveBeenCalled();
     await pins.close();
+    expect(close).not.toHaveBeenCalled();
+    mounts.close();
     expect(close).toHaveBeenCalledOnce();
   });
 });

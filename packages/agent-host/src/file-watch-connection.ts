@@ -9,6 +9,7 @@ import type {
   HostFileWatchMethod,
   HostFileWatchSession,
   HostFileWatchSessionMethods,
+  HostRootRegistry,
 } from './ports.ts';
 import { WORKSPACE_FILES_EVENT } from './protocol.ts';
 
@@ -48,6 +49,28 @@ export function bindHostFileReadMethods(
   handle('workspace/files/read', (params) =>
     desktopOnly(fileReads, origin, 'reading')['workspace/files/read'](params)
   );
+}
+
+/** ADR-0029 stage 4: the workspace's open folders, for the desktop's private clients. */
+export function bindHostRootRegistryMethods(
+  handle: HostMethodHandler,
+  rootRegistry: HostRootRegistry | undefined,
+  origin: HostClientOrigin
+): void {
+  const serve = <M extends keyof HostRootRegistry>(method: M): void => {
+    handle(method, (params) => {
+      const registry: HostRootRegistry = desktopOnly(rootRegistry, origin, 'folders');
+      return registry[method](params);
+    });
+  };
+  serve('workspace/roots/add');
+  serve('workspace/roots/delete-data');
+  serve('workspace/roots/mounted');
+  serve('workspace/roots/pick');
+  serve('workspace/roots/recent');
+  serve('workspace/roots/remove');
+  serve('workspace/roots/restore');
+  serve('workspace/roots/seed-for-e2e');
 }
 
 /**

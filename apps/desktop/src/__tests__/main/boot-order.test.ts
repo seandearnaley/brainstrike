@@ -42,7 +42,6 @@ describe('main boot order', () => {
         createReset({
           ...ports,
           completeSuccessfulReset: async () => {},
-          resetPersistentStorageAfterDataDeletion: async () => {},
           resumeAfterReset: async () => {},
           runtimes: [],
         })
@@ -124,7 +123,6 @@ describe('main boot order', () => {
               notified.resolve();
               await replacement.promise;
             },
-            resetPersistentStorageAfterDataDeletion: async () => {},
             resumeAfterReset: async () => {
               resuming.resolve();
               await resumed.promise;
@@ -311,7 +309,6 @@ describe('main boot order', () => {
           details?.error === failure
       )
     ).toBe(false);
-    expect(bootWindow().show).not.toHaveBeenCalled();
   });
 
   it('keeps an independent reader failure visible during shutdown', async () => {

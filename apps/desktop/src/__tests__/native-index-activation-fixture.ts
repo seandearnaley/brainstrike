@@ -297,6 +297,7 @@ export function setCatalogRoot(id = 'root'): void {
   mocks.catalog.workspaceRoots.mockResolvedValue({
     roots: [
       {
+        canonicalPath: '/actual/root',
         createdAt: 1,
         displayName: 'root',
         id,

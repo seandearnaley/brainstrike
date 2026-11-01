@@ -6,7 +6,6 @@ import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
 import { indexConfigCause, isQuitTerminalRefusal } from './native-index-boundary-failure';
-import type { ResetProfileReopen } from './reset-profile-reopen';
 
 interface DesktopResetRuntime {
   readonly name: string;
@@ -47,12 +46,7 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly errorLogFilePaths?: readonly string[];
   readonly logger: DesktopResetLogger;
   readonly prepareDatabaseProfileReset: () => Promise<ProfileResetLease>;
-  /** Holds catalog work from data deletion until the reset reopens the profile. */
-  readonly profileReopen?: ResetProfileReopen;
   readonly resetLocalDatabase: (lease?: ProfileResetLease) => Promise<void>;
-  /** Clears the long-lived main-process storage cache after userData has been
-   * deleted, before a replacement renderer can read or repersist stale data. */
-  readonly resetPersistentStorageAfterDataDeletion: () => Promise<void>;
   readonly resumeAfterReset?: (
     outcome: 'failed' | 'succeeded',
     signal: AbortSignal
@@ -147,28 +141,6 @@ async function resumeDesktopResetRuntime({
 }
 
 /** Why a reset left the profile closed, or undefined when it reopened it. */
-function notReopenedCause({
-  failure,
-  rendererReplacementSucceeded,
-  resetDataSucceeded,
-  signal,
-}: {
-  failure: ResetFailure;
-  rendererReplacementSucceeded: boolean;
-  resetDataSucceeded: boolean;
-  signal: AbortSignal;
-}): unknown {
-  if (signal.aborted) {
-    return signal.reason;
-  }
-  if (failure.kind === 'failed') {
-    return failure.error;
-  }
-  return resetDataSucceeded && rendererReplacementSucceeded
-    ? undefined
-    : new Error('The factory reset did not reopen the profile.');
-}
-
 async function stopDesktopResetRuntimes(
   runtimes: readonly DesktopResetRuntime[],
   mode: DesktopResetMode = 'factory'
@@ -201,9 +173,7 @@ export function createDesktopFactoryResetHandler({
   errorLogFilePaths,
   logger,
   prepareDatabaseProfileReset,
-  profileReopen,
   resetLocalDatabase,
-  resetPersistentStorageAfterDataDeletion,
   resumeAfterReset,
   runtimes,
   runTransition,
@@ -252,8 +222,6 @@ export function createDesktopFactoryResetHandler({
           },
           userDataPath,
         });
-        await resetPersistentStorageAfterDataDeletion();
-        profileReopen?.hold();
       }
       resetDataSucceeded = true;
       profileResetLease?.release();
@@ -277,14 +245,6 @@ export function createDesktopFactoryResetHandler({
       resumeAfterReset,
       signal: shutdown.signal,
     });
-    profileReopen?.release(
-      notReopenedCause({
-        failure,
-        rendererReplacementSucceeded,
-        resetDataSucceeded,
-        signal: shutdown.signal,
-      })
-    );
     if (failure.kind === 'failed') {
       logger.error('Failed to reset desktop application data:', failure.error);
       throw failure.error;

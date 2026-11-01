@@ -1,7 +1,3 @@
-import type {
-  MountedWorkspaceRoot,
-  RootDataDeletionReservation,
-} from '@brainstrike/assistant-service/node-workspace-services';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { NativeIndexAuthority } from './native-index-runtime';
 
@@ -15,33 +11,31 @@ interface Dependencies {
   acquire(): Promise<unknown>;
   captureOwner(): Promise<NativeCleanupOwner>;
   closeOwner(): Promise<void>;
-  deleteCanonicalRoot(mounted: MountedWorkspaceRoot): Promise<void>;
-  reserveRoot(rootId: string): RootDataDeletionReservation;
+  /**
+   * The agent host's `workspace/roots/delete-data`: it fences the folder from every host read,
+   * watch, terminal and run borrow, retires the folder's command sessions and LSP servers,
+   * deletes its records and closes it.
+   */
+  deleteRootData(rootId: string): Promise<void>;
   resume(): Promise<void>;
   stopSources(): Promise<void>;
 }
 
-async function removeCapturedRoot(
-  owner: NativeCleanupOwner,
-  reservation: RootDataDeletionReservation
-): Promise<void> {
+async function removeCapturedRoot(owner: NativeCleanupOwner, rootId: string): Promise<void> {
   // Read only AFTER joining admitted work: a pre-stop snapshot can miss a late ACK.
   const authority = owner.readAuthority();
-  const rootId = reservation.mounted.rootId;
   // A folder outside the partition (a worktree not opted in) has no bindings: nothing to remove.
   for (const binding of authority.fileBindings) {
     if (binding.rootId !== rootId) {
       continue;
     }
-    reservation.assertCurrent();
     await owner.port.removeScopedFile({
       fileId: binding.fileId,
       scope: { kind: 'workspace', rootId },
     });
-    reservation.assertCurrent();
   }
   // The captured port cannot select a replacement writer. Recheck its owner before
-  // downstream retirement/PG, without cloning the complete inventory per file.
+  // the host deletes the folder's records, without cloning the inventory per file.
   owner.readAuthority();
 }
 
@@ -54,33 +48,29 @@ export interface NativeRootDataDeletion {
   transition<T>(operation: () => Promise<T>): Promise<T>;
 }
 
-/** Main owns the entire destructive transition; callers supply only a mounted root ID. */
+/**
+ * Main's native index stops its sources around the agent host's deletion of one folder's data
+ * (ADR-0029 stage 4): the index drops the folder's bindings while stopped, the host deletes its
+ * records and closes it, and the index resumes. The host owns the folder; this owns the index.
+ */
 export function createNativeRootDataDeletion(dependencies: Dependencies): NativeRootDataDeletion {
   let running: Promise<void> | undefined;
   let transitions: Promise<void> = Promise.resolve();
   let transitionCount = 0;
 
-  const execute = async (reservation: RootDataDeletionReservation): Promise<void> => {
+  const execute = async (rootId: string): Promise<void> => {
     await transitions;
     let sourcesStopped = false;
     try {
-      await reservation.run(async () => {
-        const owner = await dependencies.captureOwner();
-        reservation.assertCurrent();
-        sourcesStopped = true;
-        await dependencies.stopSources();
-        await reservation.retireSources();
-        reservation.assertCurrent();
-        await removeCapturedRoot(owner, reservation);
-        await dependencies.closeOwner();
-        reservation.assertCurrent();
-        await dependencies.deleteCanonicalRoot(reservation.mounted);
-        await reservation.disconnect();
-      });
+      const owner = await dependencies.captureOwner();
+      sourcesStopped = true;
+      await dependencies.stopSources();
+      await removeCapturedRoot(owner, rootId);
+      await dependencies.closeOwner();
+      await dependencies.deleteRootData(rootId);
     } catch (error) {
-      // A failed deletion never keeps admission: the folder stays connected, its
-      // indexing resumes, and the user can retry.
-      reservation.release();
+      // A failed deletion leaves the folder as the host left it, and indexing resumes,
+      // so the user can retry.
       if (sourcesStopped) {
         try {
           await dependencies.resume();
@@ -94,7 +84,6 @@ export function createNativeRootDataDeletion(dependencies: Dependencies): Native
       }
       throw error;
     }
-    reservation.release();
     await dependencies.resume();
     await dependencies.acquire();
   };
@@ -108,8 +97,8 @@ export function createNativeRootDataDeletion(dependencies: Dependencies): Native
           'A native transition already owns admission; retry root deletion after it settles.'
         );
       }
-      // Reserve synchronously: filesystem and native transitions see closed admission immediately.
-      const deletion = execute(dependencies.reserveRoot(rootId)).finally(() => {
+      // Claimed synchronously: native transitions see closed admission immediately.
+      const deletion = execute(rootId).finally(() => {
         running = undefined;
       });
       running = deletion;

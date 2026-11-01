@@ -1,11 +1,15 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
-import { createRegistry, createStorage, rootHandle } from './workspace-root-registry-test-helpers';
+import {
+  createRegistry,
+  createRegistryCatalogRequest,
+  rootHandle,
+} from './workspace-root-registry-test-helpers';
 
 it('synchronously reserves the actual mount and rejects late borrows/mutations without deadlocking source shutdown', async () => {
-  const registry = createRegistry();
+  const registry = createRegistry({ resolveReadPath: async (requested) => requested });
   const root = await registry.addRoot(rootHandle('/owned'));
-  const borrowed = await registry.borrowSourceRoot(root.rootId, async () => {
+  const borrowed = await registry.borrowSourceRootForPath(root.handle.path, async () => {
     throw new Error('Never subscribed');
   });
   const reservation = registry.reserveRootDataDeletion(root.rootId);
@@ -19,7 +23,7 @@ it('synchronously reserves the actual mount and rejects late borrows/mutations w
   await expect(registry.restoreRoots()).rejects.toThrow('deletion owns');
   await expect(registry.removeRoot(root.rootId)).rejects.toThrow('deletion owns');
   await expect(
-    registry.borrowSourceRoot(root.rootId, async () => {
+    registry.borrowSourceRootForPath(root.handle.path, async () => {
       throw new Error('Never subscribed');
     })
   ).rejects.toThrow('deletion owns');
@@ -57,16 +61,19 @@ it('retains the exact failed source cleanup reservation for retry and refuses fo
 });
 
 it('refuses the captured original mount if an already-admitted disconnect retires it', async () => {
-  const storage = createStorage();
-  const registry = createRegistry({ storage });
+  const catalog = createRegistryCatalogRequest();
+  const registry = createRegistry({}, catalog);
   const root = await registry.addRoot(rootHandle('/owned'));
-  const originalRead = storage.getItem.bind(storage);
+  const original = catalog.getMockImplementation();
   const held = Promise.withResolvers<void>();
   const reading = Promise.withResolvers<void>();
-  vi.spyOn(storage, 'getItem').mockImplementationOnce(async (key) => {
+  catalog.mockImplementationOnce(async (request) => {
     reading.resolve();
     await held.promise;
-    return originalRead(key);
+    if (!original) {
+      throw new Error('The catalog fixture has no implementation');
+    }
+    return original(request);
   });
   const admitted = registry.removeRoot(root.rootId);
   await reading.promise;

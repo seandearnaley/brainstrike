@@ -16,7 +16,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
-import { seedMainLedgers } from './utils/seed-root';
+import { seedWorkspaceFolders } from './utils/seed-root';
 
 const tempDirs: string[] = [];
 function freshRootDir(label: string): string {
@@ -29,10 +29,7 @@ function freshRootDir(label: string): string {
 const ROOT_ID = 'p4-terminal-panel-root-00000000-0000-4000-8000-000000000011';
 
 async function seedRoot(page: Page, rootPath: string): Promise<void> {
-  await seedMainLedgers(page, {
-    lastFolderPath: rootPath,
-    rootsList: JSON.stringify([{ addedAt: 1_800_000_000_000, path: rootPath, rootId: ROOT_ID }]),
-  });
+  await seedWorkspaceFolders(page, { roots: [{ path: rootPath, rootId: ROOT_ID }] });
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, 'p4-terminal-seed-root');
 }

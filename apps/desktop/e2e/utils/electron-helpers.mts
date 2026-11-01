@@ -879,24 +879,25 @@ export async function reloadClearedRenderer(page: Page, reason: string): Promise
 
 export async function resetAppState(window: Page): Promise<void> {
   await noteRendererReloadIntent(window, 'playwright-reset-state-clear');
+  // The renderer installs its test hooks once it has mounted.
+  await window.waitForFunction(() => '__brainstrikeTestHooks__' in globalThis);
 
   await window.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();
 
-    // Clear Main's root ledgers so no "last folder" state persists between tests.
-    const fileSystem = (
+    // Clear the host's open and recent folders so no folder state persists between tests.
+    const hooks = (
       globalThis as typeof globalThis & {
-        electronAPI?: { fileSystem?: { clearLedgersForE2e?: () => Promise<void> } };
+        __brainstrikeTestHooks__?: {
+          requestAgentHost?: (method: string, params: unknown) => Promise<unknown>;
+        };
       }
-    ).electronAPI?.fileSystem;
-    if (!fileSystem?.clearLedgersForE2e) {
-      throw new Error(
-        'electronAPI.fileSystem.clearLedgersForE2e is unavailable during desktop E2E reset'
-      );
+    ).__brainstrikeTestHooks__;
+    if (!hooks?.requestAgentHost) {
+      throw new Error('The renderer test hook requestAgentHost is unavailable during reset');
     }
-
-    await fileSystem.clearLedgersForE2e();
+    await hooks.requestAgentHost('workspace/roots/seed-for-e2e', { recentPaths: [], roots: [] });
   });
 }
 

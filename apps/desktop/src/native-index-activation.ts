@@ -34,6 +34,7 @@ import {
   getReadyIndexerHost,
   getReadyScopedIndexerPort,
 } from './indexer-runtime';
+import { cancelScansOfRemovedRoots } from './ipc-domains/index-source-roots';
 import { isolateNativeCoverage } from './native-coverage-reader';
 import { nativeFileIdentity } from './native-index-attach';
 import {
@@ -200,8 +201,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         graph.leases.delete(id);
       }
     }
-    // The next open borrows the folders it restores; a restore meanwhile has nothing to tell.
-    dependencies.application.roots.releaseRestoredRoots();
     await closeAllIndexQueries();
   };
   const stopSourcesOwned = (): Promise<void> => {
@@ -224,22 +223,19 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       watchFailures: new Map(),
     };
     graph = current;
-    // One registry mutation: a folder removed meanwhile is removed after these borrows.
-    await dependencies.application.roots.borrowRestoredRoots(async (descriptors, borrow) => {
+    // One sync with the host's live folders: a folder removed meanwhile leaves at the next one.
+    await dependencies.application.roots.borrowLiveRoots(async (rootIds, borrow) => {
       assertCurrent(current);
       const roots = (await dependencies.catalog.workspaceRoots({ operation: 'list' })).roots.filter(
         (root) => root.status === 'live'
       );
-      for (const descriptor of descriptors) {
-        if (descriptor.permissionState !== 'granted') {
-          continue;
-        }
-        const root = roots.find((row) => row.id === descriptor.rootId);
+      for (const rootId of rootIds) {
+        const root = roots.find((row) => row.id === rootId);
         if (!(root && isPartitionRoot(root))) {
           continue;
         }
         const lease = await borrow(
-          descriptor.rootId,
+          rootId,
           dependencies.application.watches.subscribe.bind(dependencies.application.watches)
         );
         current.leases.set(lease.rootId, lease);
@@ -313,7 +309,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     sources.scanAdmission = scanAdmission;
     const profileResolver = resolver(current);
     const catalog = createNativeCanonicalCatalog<VectorProfile>({
-      catalog: dependencies.catalog,
+      catalog: cancelScansOfRemovedRoots(dependencies.catalog),
       joinNativeRemoval: async (files, scope) => {
         for (const file of files) {
           await runtime.mutateAuthority(port, () =>

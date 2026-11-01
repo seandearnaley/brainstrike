@@ -55,6 +55,7 @@ test('the private platform transports typed root operations and rejects extra au
       fixture.main.sendRequest('host/workspace-roots', {
         operation: 'register',
         root: {
+          canonicalPath: '/disposable/Alpha',
           displayName: 'Alpha',
           path: '/disposable/Alpha',
           preferredId: 'root-alpha',

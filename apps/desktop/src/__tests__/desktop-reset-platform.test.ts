@@ -4,7 +4,6 @@ import { MainMcpHostControl } from '../mcp/main-host-control';
 
 const resetDesktopApplicationDataMock = vi.hoisted(() => vi.fn());
 const completeSuccessfulResetMock = vi.hoisted(() => vi.fn(async () => undefined));
-const resetPersistentStorageAfterDataDeletionMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 const prepareDatabaseProfileReset = vi.fn(async () => ({
   clearRootContents: async () => undefined,
@@ -27,14 +26,11 @@ describe('createDesktopFactoryResetHandler', () => {
     });
   });
 
-  it('resets main-process storage after deleting application data and before replacing the renderer', async () => {
+  it('replaces the renderer only after deleting application data', async () => {
     const invocationOrder: string[] = [];
     resetDesktopApplicationDataMock.mockImplementationOnce(async () => {
       invocationOrder.push('application-data');
       return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
-    });
-    const resetPersistentStorageAfterDataDeletion = vi.fn(async () => {
-      invocationOrder.push('main-storage');
     });
     const completeSuccessfulReset = vi.fn(async () => {
       invocationOrder.push('renderer-replacement');
@@ -46,7 +42,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion,
       runTransition: (work) => work(),
       runtimes: [],
 
@@ -55,72 +50,8 @@ describe('createDesktopFactoryResetHandler', () => {
     });
 
     await expect(handleReset.reset()).resolves.toEqual({ success: true });
-    expect(invocationOrder).toEqual(['application-data', 'main-storage', 'renderer-replacement']);
+    expect(invocationOrder).toEqual(['application-data', 'renderer-replacement']);
     expect(completeSuccessfulReset).toHaveBeenCalledWith(expect.any(AbortSignal), 'factory');
-  });
-
-  it('holds root-catalog work from data deletion until the reset reopens the profile', async () => {
-    const { createResetProfileReopen } = await import('../reset-profile-reopen');
-    const profileReopen = createResetProfileReopen();
-    const order: string[] = [];
-    const completeSuccessfulReset = vi.fn(async () => {
-      // The replacement renderer restores its folders before it reports ready.
-      void profileReopen.whenOpen().then(() => order.push('catalog'));
-      await Promise.resolve();
-      order.push('renderer-ready');
-    });
-
-    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
-    const handleReset = createDesktopFactoryResetHandler({
-      completeSuccessfulReset,
-      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
-      prepareDatabaseProfileReset,
-      profileReopen,
-      resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
-      resumeAfterReset: async () => {
-        order.push('profile-reopened');
-      },
-      runTransition: (work) => work(),
-      runtimes: [],
-      sessionDataPath: '/mock/userData/session-data',
-      userDataPath: '/mock/userData',
-    });
-
-    await expect(handleReset.reset()).resolves.toEqual({ success: true });
-    await profileReopen.whenOpen();
-    expect(order).toEqual(['renderer-ready', 'profile-reopened', 'catalog']);
-  });
-
-  it('fails waiting root-catalog work when the reset never reopens the profile', async () => {
-    const { createResetProfileReopen } = await import('../reset-profile-reopen');
-    const profileReopen = createResetProfileReopen();
-    const rendererFailure = new Error('Timed out waiting for renderer 1 readiness');
-    let waiting: Promise<void> | undefined;
-    const completeSuccessfulReset = vi.fn(async () => {
-      waiting = profileReopen.whenOpen();
-      throw rendererFailure;
-    });
-
-    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
-    const handleReset = createDesktopFactoryResetHandler({
-      completeSuccessfulReset,
-      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
-      prepareDatabaseProfileReset,
-      profileReopen,
-      resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
-      resumeAfterReset: vi.fn(async () => undefined),
-      runTransition: (work) => work(),
-      runtimes: [],
-      sessionDataPath: '/mock/userData/session-data',
-      userDataPath: '/mock/userData',
-    });
-
-    await expect(handleReset.reset()).resolves.toMatchObject({ success: false });
-    await expect(waiting).rejects.toBe(rendererFailure);
-    // The next reader is not held by the failed reset.
-    await expect(profileReopen.whenOpen()).resolves.toBeUndefined();
   });
 
   it('stops every background runtime and requires the profile lease before deletion', async () => {
@@ -135,7 +66,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase,
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runTransition: (work) => work(),
       runtimes: [
         { name: 'native-index-sources', stop: nativeIndexSourcesStop },
@@ -197,7 +127,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runTransition: (work) => work(),
       runtimes: [],
 
@@ -224,7 +153,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger,
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: (work) => work(),
       runtimes: [{ name: 'llm-host', stop: vi.fn(async () => undefined) }],
@@ -256,7 +184,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: (work) => work(),
       runtimes: [],
@@ -289,7 +216,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: (work) => work(),
       runtimes: [],
@@ -322,7 +248,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: (work) => work(),
       runtimes: [],
@@ -354,7 +279,6 @@ describe('createDesktopFactoryResetHandler', () => {
         logger,
         prepareDatabaseProfileReset,
         resetLocalDatabase: vi.fn(async () => undefined),
-        resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
         resumeAfterReset,
         runTransition: (work) => work(),
         runtimes: [],
@@ -389,7 +313,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger,
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: (work) => work(),
       runtimes: [],
@@ -419,7 +342,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: (work) => work(),
       runtimes: [],
@@ -458,7 +380,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger,
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runTransition: (work) => work(),
       runtimes: [
         { name: 'native-index-sources', stop: nativeIndexSourcesStop },
@@ -524,7 +445,6 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: async (owned) => {
         await owned?.clearRootContents();
       },
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runTransition: (work) => work(),
       runtimes: [{ name: 'mcp-runtime', stop: () => control.resetSettings() }],
       sessionDataPath: '/mock/userData/session-data',
@@ -548,7 +468,6 @@ describe('createDesktopFactoryResetHandler', () => {
         logger,
         prepareDatabaseProfileReset,
         resetLocalDatabase: async () => {},
-        resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
         resumeAfterReset,
         runTransition: (work) => work(),
         runtimes: [],
@@ -608,7 +527,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger,
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: (work) => work(),
       runtimes: [],
@@ -666,7 +584,6 @@ describe('createDesktopFactoryResetHandler', () => {
         logger,
         prepareDatabaseProfileReset,
         resetLocalDatabase: vi.fn(async () => undefined),
-        resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
         resumeAfterReset,
         runTransition: (work) => work(),
         runtimes: [],
@@ -700,7 +617,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger,
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset: vi.fn(async () => {
         throw resumeFailure;
       }),
@@ -730,7 +646,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger,
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset: vi.fn(async () => {
         throw nativeIndexClosedError('shutdown');
       }),
@@ -759,8 +674,7 @@ describe('createDesktopFactoryResetHandler', () => {
       acquire: async () => {},
       captureOwner: async () => unexpected(),
       closeOwner: async () => {},
-      deleteCanonicalRoot: async () => {},
-      reserveRoot: unexpected,
+      deleteRootData: unexpected,
       resume: async () => {},
       stopSources: async () => {},
     });
@@ -778,7 +692,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: async () => {},
-      resetPersistentStorageAfterDataDeletion: async () => {},
       resumeAfterReset,
       runTransition: queue.transition,
       runtimes: [{ name: 'physical-owner', stop }],
@@ -834,7 +747,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: async () => {},
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: vi.fn(async (): Promise<never> => {
         throw refusal;
@@ -859,7 +771,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runTransition: (work) => work(),
       runtimes: [],
 
@@ -885,7 +796,6 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset,
       resetLocalDatabase: vi.fn(async () => undefined),
-      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
       runTransition: (work) => work(),
       runtimes: [],
@@ -918,7 +828,6 @@ it('clears content through the same retirement owner without purging retained se
     order.push('clear-content');
     return { deletedChunks: 3, deletedFiles: 2 };
   });
-  const storageClear = vi.fn(async () => undefined);
   const reset = createDesktopFactoryResetHandler({
     clearRetainedContent,
     completeSuccessfulReset: async (_signal, mode) => {
@@ -927,7 +836,6 @@ it('clears content through the same retirement owner without purging retained se
     logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
     prepareDatabaseProfileReset,
     resetLocalDatabase: vi.fn(async () => undefined),
-    resetPersistentStorageAfterDataDeletion: storageClear,
     resumeAfterReset: async () => {
       order.push('resume');
     },
@@ -955,7 +863,6 @@ it('clears content through the same retirement owner without purging retained se
   // A content clear keeps configuration, so the renderer's storage is not wiped.
   expect(order).toEqual(['stop', 'clear-content', 'replace:content', 'resume']);
   expect(resetDesktopApplicationDataMock).toHaveBeenCalledTimes(priorPurges);
-  expect(storageClear).not.toHaveBeenCalled();
 });
 
 it('joins duplicate content clears but does not swallow a subsequent factory reset', async () => {
@@ -979,7 +886,6 @@ it('joins duplicate content clears but does not swallow a subsequent factory res
     logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
     prepareDatabaseProfileReset,
     resetLocalDatabase: vi.fn(async () => undefined),
-    resetPersistentStorageAfterDataDeletion: vi.fn(async () => undefined),
     runTransition: (work) => work(),
     runtimes: [],
     sessionDataPath: '/retained/session',

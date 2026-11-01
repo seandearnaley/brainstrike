@@ -28,7 +28,7 @@ import {
 import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { nodeCommand, nodeText } from './utils/node-command';
-import { seedMainLedgers, seedRoot } from './utils/seed-root';
+import { seedRoot, seedWorkspaceFolders } from './utils/seed-root';
 
 function makeRootDir(label: string, fileCount: number): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), `brainstrike-addroot-smoke-${label}-`));
@@ -62,12 +62,7 @@ test.describe('Add Folder to Workspace (smoke)', () => {
     test.setTimeout(90_000);
 
     // Seed one already-open root with indexing paused (smoke-fast).
-    await seedMainLedgers(page, {
-      lastFolderPath: ROOT_ONE_DIR,
-      rootsList: JSON.stringify([
-        { addedAt: 1_800_000_000_000, path: ROOT_ONE_DIR, rootId: 'smoke-root-1' },
-      ]),
-    });
+    await seedWorkspaceFolders(page, { roots: [{ path: ROOT_ONE_DIR, rootId: 'smoke-root-1' }] });
     await updateIndexConfig(page, { paused: true });
 
     const { reloadRenderer } = await loadElectronHelpers();
