@@ -60,7 +60,7 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/settings-ui/settings-page-content';
-import { Download, FileCog, Layers } from 'lucide-react';
+import { Download, FileCog, Layers, Power } from 'lucide-react';
 import { useMemo } from 'react';
 import { indexSearchContract } from '../../../ipc-domains/index-search.contract';
 import { resolveDesktopHostBrowserOrigins } from '../../host-browser-origins';
@@ -71,6 +71,7 @@ import {
 } from '../../host-mcp-settings';
 import { resolveDesktopHostWorkspaceSettings } from '../../host-workspace-settings';
 import { createIpcCapability } from '../../ipc-capability';
+import { DesktopAppLifetimeSettings } from './app-lifetime-settings';
 import { DesktopLoggingSettings } from './logging-settings';
 import { DesktopUpdateSettings } from './update-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
@@ -549,6 +550,14 @@ export default function SettingsPageContent() {
         status: worktreeSettings.status,
       }),
       createNotificationSettingsCategory(),
+      {
+        content: <DesktopAppLifetimeSettings />,
+        description: 'Choose whether Brainstrike opens at login and keeps running when closed.',
+        icon: Power,
+        id: 'startup',
+        keywords: ['startup', 'login', 'tray', 'background', 'close', 'quit', 'autostart'],
+        title: 'Startup',
+      },
       {
         content: <DesktopUpdateSettings />,
         description: 'Check for updates and choose whether to get beta releases.',
