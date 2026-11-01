@@ -1,6 +1,5 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const TASK = 'EXPLORE_TASK_ENV: list what the notes say.';
@@ -24,8 +23,6 @@ test('a delegated child continues on the env-only OpenRouter key its parent runs
   modelProvider,
   window,
 }) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   modelProvider.setScript(({ messages, requestBody, toolNames }) => {
     if ((requestBody as { stream?: unknown }).stream !== true) {

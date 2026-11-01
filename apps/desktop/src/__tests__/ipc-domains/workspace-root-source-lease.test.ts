@@ -120,9 +120,10 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
 
     await lease.retire();
     expect(root.close).not.toHaveBeenCalled();
-    await expect(registry.readFile(path.join(WORKSPACE, 'src', 'file.txt'))).resolves.toBe(
-      'inside'
-    );
+    // The mount outlives the retired lease: a new borrow reads through it.
+    const next = await registry.borrowSourceRoot(rootId, subscriber());
+    await expect(next.readFile('src/file.txt', 37, context())).resolves.toBeDefined();
+    await next.retire();
   });
 
   it('refuses a missing or path-shaped identity without opening another root', async () => {
@@ -443,7 +444,9 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     expect(root.close).not.toHaveBeenCalled();
     await lease.retire();
     expect(close).toHaveBeenCalledTimes(2);
-    await expect(registry.readFile(path.join(WORKSPACE, 'inside.txt'))).resolves.toBe('inside');
+    const next = await registry.borrowSourceRoot(rootId, subscriber());
+    await expect(next.readFile('inside.txt', 37, context())).resolves.toBeDefined();
+    await next.retire();
   });
 
   it('closing one subscription suppresses its queued callbacks while retaining the mounted lease', async () => {

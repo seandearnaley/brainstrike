@@ -87,12 +87,7 @@ export const DESKTOP_IPC_CHANNELS = {
     /** E2E only (`workspace-ledgers-e2e-ipc.ts`); production registers no handler. */
     clearLedgersForE2e: 'fs:clearLedgersForE2e',
     deleteRootData: 'fs:deleteRootData',
-    exists: 'fs:exists',
     listRecentRoots: 'fs:listRecentRoots',
-    readDirectory: 'fs:readDirectory',
-    readFile: 'fs:readFile',
-    readFileByAbsolutePath: 'fs:readFileByAbsolutePath',
-    readFileByPath: 'fs:readFileByPath',
     removeRoot: 'fs:removeRoot',
     requestDirectoryAccess: 'fs:requestDirectoryAccess',
     restoreLastFolder: 'fs:restoreLastFolder',

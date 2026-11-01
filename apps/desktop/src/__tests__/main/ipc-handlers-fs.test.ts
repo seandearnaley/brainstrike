@@ -1,6 +1,8 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ManagedWorktreeAuthorizer } from '@brainstrike/assistant-service/node-workspace-services';
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,22 +14,27 @@ import {
   resetRootsCatalog,
 } from '../ipc-domains/file-system-ipc-test-harness';
 
-const DOCS = path.resolve('/users/test/docs');
-const MANAGED = path.resolve('/managed/app/bright-fox');
-
 vi.mock('electron', async () => ({
   ...(await import('../ipc-domains/file-system-ipc-test-harness')).electronMock,
   app: { getPath: vi.fn(() => '/Users/test/Documents') },
 }));
 
 describe('ipc-handlers filesystem composition', () => {
+  let base: string;
   let fileSystem: ElectronFileSystemAdapter;
   let managedWorktreeAuthorizer: ReturnType<typeof vi.fn<ManagedWorktreeAuthorizer>>;
   let storage: ElectronStorageAdapter;
   let storedValues: Map<string, string>;
   let close: () => Promise<void>;
+  let docs: string;
+  let managed: string;
 
   beforeEach(() => {
+    base = realpathSync(mkdtempSync(path.join(tmpdir(), 'ipc-handlers-fs-')));
+    docs = path.join(base, 'docs');
+    managed = path.join(base, 'bright-fox');
+    mkdirSync(docs);
+    mkdirSync(managed);
     resetRootsCatalog();
     vi.clearAllMocks();
     vi.stubEnv('NODE_ENV', 'development');
@@ -35,13 +42,10 @@ describe('ipc-handlers filesystem composition', () => {
     storedValues = new Map();
     fileSystem = {
       exists: vi.fn(async () => true),
-      readDirectory: vi.fn(async () => []),
-      readFile: vi.fn(async () => 'file content'),
-      readFileByPath: vi.fn(async () => 'unsafe raw content'),
       requestDirectoryAccess: vi.fn(async () => ({
         kind: 'directory',
         name: 'docs',
-        path: DOCS,
+        path: docs,
         platform: 'electron',
       })),
       watchDirectory: vi.fn(),
@@ -58,7 +62,6 @@ describe('ipc-handlers filesystem composition', () => {
     managedWorktreeAuthorizer = vi.fn<ManagedWorktreeAuthorizer>(async () => 'unmanaged');
     close = registerIpcHandlers(fileSystem, storage, {
       getRootsCatalog,
-      isSyntheticFileSystemPath: () => true,
       managedWorktreeAuthorizer,
     });
   });
@@ -66,6 +69,7 @@ describe('ipc-handlers filesystem composition', () => {
   afterEach(async () => {
     vi.unstubAllEnvs();
     await close();
+    rmSync(base, { force: true, recursive: true });
   });
 
   async function mountRoot(): Promise<DirectoryHandle> {
@@ -79,101 +83,28 @@ describe('ipc-handlers filesystem composition', () => {
 
     expect(fileSystem.requestDirectoryAccess).toHaveBeenCalledOnce();
     expect(handle).toMatchObject({
-      path: DOCS,
+      path: docs,
       rootId: expect.any(String),
     });
     expect(storedValues.get('rootsList')).toContain(handle.rootId);
   });
 
-  it('keeps the E2E mock path isolated from the real adapter', async () => {
+  it("opens the E2E harness's real folder from test mode's picker, and refuses without one", async () => {
     vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
+    vi.stubEnv('BRAINSTRIKE_E2E_REAL_ROOT_PATH', managed);
 
-    const handle = await mountRoot();
-    const entries = await capabilityHandler('fs:readDirectory')(createTrustedInvokeEvent(), handle);
-    const content = await capabilityHandler('fs:readFile')(createTrustedInvokeEvent(), {
-      kind: 'file',
-      name: 'file.txt',
-      path: path.join(handle.path, 'file.txt'),
-      platform: 'electron',
-      ...(handle.rootId === undefined ? {} : { rootId: handle.rootId }),
-    } satisfies FileHandle);
-
-    // The mock root is an absolute path: `C:\mock\…` on Windows.
-    expect(handle).toMatchObject({
-      path: path.resolve('/mock/test/directory'),
-      rootId: expect.any(String),
-    });
-    expect(entries).toHaveLength(3);
-    expect(String(content)).toContain('Mock file content for testing');
+    await expect(mountRoot()).resolves.toMatchObject({ path: managed, rootId: expect.any(String) });
     expect(fileSystem.requestDirectoryAccess).not.toHaveBeenCalled();
-    expect(fileSystem.readDirectory).not.toHaveBeenCalled();
-    expect(fileSystem.readFile).not.toHaveBeenCalled();
-  });
 
-  it('routes mounted reads through the registry and never through raw readFileByPath', async () => {
-    const root = await mountRoot();
-    const file = {
-      kind: 'file',
-      name: 'file.txt',
-      path: path.join(DOCS, 'file.txt'),
-      platform: 'electron',
-      ...(root.rootId === undefined ? {} : { rootId: root.rootId }),
-    } satisfies FileHandle;
-
-    await expect(
-      capabilityHandler('fs:readDirectory')(createTrustedInvokeEvent(), root)
-    ).resolves.toEqual([]);
-    await expect(capabilityHandler('fs:readFile')(createTrustedInvokeEvent(), file)).resolves.toBe(
-      'file content'
-    );
-    await expect(
-      capabilityHandler('fs:readFileByPath')(createTrustedInvokeEvent(), file.path)
-    ).resolves.toBe('file content');
-    expect(fileSystem.readDirectory).toHaveBeenCalledOnce();
-    expect(fileSystem.readFile).toHaveBeenCalledTimes(2);
-    expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
-  });
-
-  it('rejects unmounted, escaped, and malformed paths', async () => {
-    const readByPath = capabilityHandler('fs:readFileByPath');
-    await expect(
-      readByPath(createTrustedInvokeEvent(), path.join(DOCS, 'file.txt'))
-    ).rejects.toMatchObject({
-      code: 'workspace.path-outside-root',
-      failure: { category: 'authorization', kind: 'refusal' },
-    });
-
-    await mountRoot();
-    await expect(
-      readByPath(createTrustedInvokeEvent(), '/users/test/outside.txt')
-    ).rejects.toMatchObject({
-      code: 'workspace.path-outside-root',
-      failure: { category: 'authorization', kind: 'refusal' },
-    });
-    await expect(
-      readByPath(createTrustedInvokeEvent(), '/users/test/docs/\0malicious.txt')
-    ).rejects.toMatchObject({
-      code: 'workspace.path-invalid',
-      failure: { category: 'input', kind: 'refusal' },
-    });
-    expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
-  });
-
-  it('retains the existing guarded existence endpoint', async () => {
-    await expect(
-      capabilityHandler('fs:exists')(createTrustedInvokeEvent(), '/tmp/\0oops')
-    ).resolves.toBe(false);
-    await expect(capabilityHandler('fs:exists')(createTrustedInvokeEvent(), DOCS)).resolves.toBe(
-      true
-    );
-    expect(fileSystem.exists).toHaveBeenCalledWith(DOCS);
+    vi.stubEnv('BRAINSTRIKE_E2E_REAL_ROOT_PATH', '');
+    await expect(mountRoot()).rejects.toMatchObject({ code: 'boundary.internal' });
   });
 
   it('threads the managed-worktree authorizer through the filesystem composition root', async () => {
     managedWorktreeAuthorizer.mockResolvedValue('authorized');
 
-    await capabilityHandler('fs:addRootByPath')(createTrustedInvokeEvent(), MANAGED);
+    await capabilityHandler('fs:addRootByPath')(createTrustedInvokeEvent(), managed);
 
-    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith(MANAGED);
+    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith(managed);
   });
 });

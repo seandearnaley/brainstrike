@@ -7,7 +7,6 @@ import { expect, test } from './fixtures/electron-fixture';
 import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const WORD = 'marigold';
@@ -30,8 +29,6 @@ test('the Threads panel searches only usable host threads by content and title',
   window: page,
 }) => {
   test.setTimeout(300_000);
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(page);
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
   // Each run streams; its thread's title request is the one non-streaming request.

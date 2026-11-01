@@ -31,7 +31,6 @@ export * from './file-system-access-types.ts';
 // Metadata cache for Electron adapter (BST-146)
 export * from './metadata-cache.ts';
 // Testing utilities
-export * from './testing/mock-data.ts';
 // Note: Electron adapters and path-validation are node-only.
 // Import them from '@brainstrike/file-system/electron' and
 // '@brainstrike/file-system/path-validation' so renderer bundles

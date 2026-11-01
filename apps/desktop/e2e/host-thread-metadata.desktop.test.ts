@@ -3,7 +3,6 @@ import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedHostThreads } from './utils/seed-threads';
 
 const TITLE = 'Release plan';
@@ -33,8 +32,6 @@ test('a host thread keeps its title, colour and icon across a reload', async ({
   modelProvider,
   window,
 }) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   await ensureAssistantShellVisible(window);

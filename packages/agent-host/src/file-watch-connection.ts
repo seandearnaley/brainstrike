@@ -4,6 +4,7 @@ import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from './auth-connection.ts';
 import type {
   HostClientOrigin,
+  HostFileReads,
   HostFileWatches,
   HostFileWatchMethod,
   HostFileWatchSession,
@@ -12,6 +13,42 @@ import type {
 import { WORKSPACE_FILES_EVENT } from './protocol.ts';
 
 const logger = createLogger('AgentHostFileWatches');
+
+/** The desktop's private client reaches the Explorer's file services; nothing else does. */
+function desktopOnly<S>(service: S | undefined, origin: HostClientOrigin, subject: string): S {
+  if (origin !== 'desktop-ui') {
+    throw refusalError(
+      'authorization',
+      'workspace.files-desktop-only',
+      `Workspace file ${subject} is available only to the desktop's private client`
+    );
+  }
+  if (!service) {
+    throw refusalError(
+      'configuration',
+      'workspace.files-unavailable',
+      `Workspace file ${subject} is unavailable on this host`
+    );
+  }
+  return service;
+}
+
+/** ADR-0029 stage 4: the Explorer's reads of live roots, for the desktop's private clients. */
+export function bindHostFileReadMethods(
+  handle: HostMethodHandler,
+  fileReads: HostFileReads | undefined,
+  origin: HostClientOrigin
+): void {
+  handle('workspace/files/exists', (params) =>
+    desktopOnly(fileReads, origin, 'reading')['workspace/files/exists'](params)
+  );
+  handle('workspace/files/list', (params) =>
+    desktopOnly(fileReads, origin, 'reading')['workspace/files/list'](params)
+  );
+  handle('workspace/files/read', (params) =>
+    desktopOnly(fileReads, origin, 'reading')['workspace/files/read'](params)
+  );
+}
 
 /**
  * ADR-0029 stage 4: the Explorer's root watches on one authenticated
@@ -25,26 +62,9 @@ export function bindHostFileWatchMethods(
   origin: HostClientOrigin
 ): { dispose(): void } {
   let session: HostFileWatchSession | undefined;
-  const service = (): HostFileWatches => {
-    if (origin !== 'desktop-ui') {
-      throw refusalError(
-        'authorization',
-        'workspace.files-desktop-only',
-        "Workspace file watching is available only to the desktop's private client"
-      );
-    }
-    if (!fileWatches) {
-      throw refusalError(
-        'configuration',
-        'workspace.files-unavailable',
-        'Workspace file watching is unavailable on this host'
-      );
-    }
-    return fileWatches;
-  };
   const serve = <M extends HostFileWatchMethod>(method: M): void => {
     handle(method, (params) => {
-      session ??= service().open((event) => {
+      session ??= desktopOnly(fileWatches, origin, 'watching').open((event) => {
         connection.sendNotification(WORKSPACE_FILES_EVENT, event).catch(() => connection.dispose());
       });
       const methods: HostFileWatchSessionMethods = session;
