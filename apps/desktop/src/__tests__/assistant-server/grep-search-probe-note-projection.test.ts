@@ -15,8 +15,9 @@ describe('grepSearch model projection — probeNote', () => {
     const projected = projectGrepSearchModelOutput({
       candidatesTruncated: false,
       files: [],
-      liveEngine: 'js-walk',
-      liveNote: 'ripgrep unavailable; bounded JavaScript walk used',
+      liveEngine: 'ripgrep',
+      liveNote:
+        'ripgrep reached its time limit, so some on-disk matches may be missing; narrow the pattern or scope.',
       offset: 0,
       outputMode: 'files',
       probeNote:
@@ -29,7 +30,7 @@ describe('grepSearch model projection — probeNote', () => {
 
     const noteLines = projected.value.split('\n').filter((line) => line.startsWith('note: '));
     expect(noteLines).toEqual([
-      'note: ripgrep unavailable; bounded JavaScript walk used',
+      'note: ripgrep reached its time limit, so some on-disk matches may be missing; narrow the pattern or scope.',
       "note: 0 exact-case matches, but 2 case-insensitive matches — the pattern's casing may be wrong.",
     ]);
   });

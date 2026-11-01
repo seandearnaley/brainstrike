@@ -46,7 +46,8 @@ function bound(store: HostPermissionPolicyStore, origin: HostClientOrigin) {
           Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS[method], {
             errors: 'all',
             onExcessProperty: 'error',
-          })(params) as never
+          })(params) as never,
+          new AbortController().signal
         )
     );
   };

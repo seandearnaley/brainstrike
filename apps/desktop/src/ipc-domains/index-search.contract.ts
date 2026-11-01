@@ -7,7 +7,6 @@ import type {
   IndexChunkBoundsCapability,
   IndexerCoverageRequest,
   IndexerFileChunksRequest,
-  IndexerGrepRequest,
   IndexerSearchRequest,
   IndexLifecycleCapability,
   IndexRootRegistrationCapability,
@@ -23,13 +22,6 @@ import {
   pushEvent,
 } from '../platform/ipc-contract';
 
-/** One search query's embedding: the index's hosted model, keyed `provider::modelId`, and the text. */
-export interface QueryEmbeddingRequest {
-  readonly dimensions: number;
-  readonly modelId: string;
-  readonly modelKey: string;
-  readonly query: string;
-}
 type Result<K extends keyof (IndexSearchCapability & IndexChunkBoundsCapability)> = Awaited<
   ReturnType<(IndexSearchCapability & IndexChunkBoundsCapability)[K]>
 >;
@@ -40,14 +32,8 @@ export const indexSearchContract = {
   coverageBatch: channel<[readonly IndexerCoverageRequest[]], Result<'coverageBatch'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.coverageBatch,
   }),
-  embedQuery: channel<[QueryEmbeddingRequest], number[]>({
-    channel: DESKTOP_IPC_CHANNELS.indexSearch.embedQuery,
-  }),
   fileChunks: channel<[IndexerFileChunksRequest], Result<'fileChunks'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.fileChunks,
-  }),
-  grep: channel<[IndexerGrepRequest], Result<'grep'>>({
-    channel: DESKTOP_IPC_CHANNELS.indexSearch.grep,
   }),
   onConfigChanged: pushEvent<IndexConfig>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.configChanged,
@@ -77,19 +63,14 @@ export const indexSearchContract = {
     channel: DESKTOP_IPC_CHANNELS.indexSearch.updateConfig,
   }),
 } satisfies Contract;
-/** The renderer's search query embedding, answered by Main's hosted embedder. */
-export interface IndexQueryEmbeddingCapability {
-  embedQuery(request: QueryEmbeddingRequest): Promise<number[]>;
-}
 /** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type IndexSearchBridgeDerivation = AssertTrue<
   BridgeMatches<
     typeof indexSearchContract,
     IndexConfigCapability &
-      IndexSearchCapability &
+      Omit<IndexSearchCapability, 'grep'> &
       IndexChunkBoundsCapability &
       IndexRootRegistrationCapability &
-      IndexQueryEmbeddingCapability &
       IndexLifecycleCapability
   >
 >;

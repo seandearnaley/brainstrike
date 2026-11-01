@@ -14,7 +14,7 @@ import { resolveOptionalWorkspaceRoot } from '@brainstrike/assistant-service/nod
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import type { QueryEmbeddingRequest } from '../ipc-domains/index-search.contract';
+import type { QueryEmbeddingRequest } from '../hosted-embeddings';
 import { checkoutFileRecords } from './checkout-read-through';
 import {
   type CheckoutAccess,
