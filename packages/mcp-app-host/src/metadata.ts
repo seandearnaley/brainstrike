@@ -1,4 +1,6 @@
+import type { Tool } from '@modelcontextprotocol/client';
 import { McpUiResourceMetaSchema, McpUiToolMetaSchema } from '@modelcontextprotocol/ext-apps';
+import { getToolUiResourceUri } from '@modelcontextprotocol/ext-apps/app-bridge';
 import { MCP_APPS_MIME_TYPE } from './capabilities.ts';
 import {
   expectEncodedSize,
@@ -64,6 +66,17 @@ function parseResourceUri(value: unknown, label: string): McpAppResourceUri {
 
 export function parseMcpAppResourceUri(value: unknown): McpAppResourceUri {
   return parseResourceUri(value, 'MCP Apps resource URI');
+}
+
+/**
+ * The App resource a discovered tool definition names, or `undefined` for an
+ * ordinary tool. The vendor reader accepts `_meta.ui.resourceUri` and the
+ * deprecated flat `_meta["ui/resourceUri"]`, which hosts must still accept;
+ * a present malformed URI throws.
+ */
+export function readMcpAppToolResourceUri(tool: Partial<Tool>): McpAppResourceUri | undefined {
+  const resourceUri = getToolUiResourceUri(tool);
+  return resourceUri === undefined ? undefined : parseMcpAppResourceUri(resourceUri);
 }
 
 export function parseMcpAppMimeType(value: unknown): typeof MCP_APPS_MIME_TYPE {
