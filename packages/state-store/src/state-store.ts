@@ -219,6 +219,7 @@ export class StateStore implements MemoryDomainPort {
           })
         );
       }
+      store.calculator.start();
       return store;
     } catch (e) {
       if (store && options.startup) {

@@ -50,12 +50,22 @@ const running: HostLogRow[] = [
 
 function scriptedClient(
   rows: readonly HostLogRow[],
-  answer: (method: HostMethod, params: unknown) => unknown
+  answer: (method: HostMethod, params: unknown, commit: (row: HostLogRow) => void) => unknown
 ) {
   const requests: { readonly method: HostMethod; readonly params: unknown }[] = [];
+  const subscribers = new Set<(row: HostLogRow) => void>();
+  /** A row the host commits and publishes to its subscribers, before it answers. */
+  const commit = (row: HostLogRow): void => {
+    for (const subscriber of subscribers) {
+      subscriber(row);
+    }
+  };
   const client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'> = {
     closed: new Promise(() => {}),
-    onEvent: () => () => {},
+    onEvent: (subscriber) => {
+      subscribers.add(subscriber);
+      return () => subscribers.delete(subscriber);
+    },
     onTelemetry: () => () => {},
     request: (async (method: HostMethod, params: unknown) => {
       requests.push({ method, params });
@@ -65,7 +75,7 @@ function scriptedClient(
       if (method === 'log/unsubscribe') {
         return { unsubscribed: true };
       }
-      return answer(method, params);
+      return answer(method, params, commit);
     }) as HostClient['request'],
   };
   return { client, requests };
@@ -133,6 +143,27 @@ describe('the shared committed conversation core (BST-1940)', () => {
       prompt: 'Look at this',
       threadId: THREAD,
     });
+  });
+
+  it('shows the run as running once its send settles, so the composer offers no second send the host would refuse (BST-2439)', async () => {
+    // The host commits the run, publishes its rows, then answers run/start.
+    const { client } = scriptedClient(running.slice(0, 1), (method, _params, commit) => {
+      if (method !== 'run/start') {
+        return {};
+      }
+      for (const row of running.slice(1)) {
+        commit(row);
+      }
+      return { runId: RUN };
+    });
+    const thread = open(client);
+    thread.connect();
+    await expect.poll(() => thread.store.getSnapshot().isLoading).toBe(false);
+    expect(thread.store.getSnapshot().isRunning).toBe(false);
+
+    await thread.commands.onNew(message('Hi', { parentId: null }));
+    expect(thread.store.getSnapshot().isRunning).toBe(true);
+    expect(thread.store.getCommittedView().activeRunId).toBe(RUN);
   });
 
   it('gives the composer its draft back when the host refuses the run before admitting it', async () => {
