@@ -1,8 +1,8 @@
 /**
- * run_python and runSkillScript over a caller-supplied code-execution host:
- * the desktop agent host resolves the bundled CPython and the Linux sandbox
- * helper from the app paths it was launched with. This module must not import
- * Electron: the host bundle loads it.
+ * run_python and runSkillScript over the code-execution host each agent host
+ * injects: Desktop's resolves its bundled CPython and packaged Linux sandbox
+ * helper from its launch app paths; the standalone CLI's runs the system
+ * Python 3 (`system-python.ts`).
  */
 import {
   createRunPythonTool,
@@ -12,23 +12,30 @@ import {
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import type { WindowsCommandEntry } from './execute-command-tool.ts';
+import type { NativeToolExecutor } from './host-tools.ts';
+import { PYTHON_LAUNCH_ENV, runSkillScript } from './run-skill-script-tool.ts';
 import {
   logToolFailure,
-  type NativeToolExecutor,
   parseToolExecuteInput,
   resolveShellOutputStreamer,
   type ToolExecuteContext,
   type ToolExecuteInput,
-} from '@brainstrike/host-capabilities/native-tools';
-import { BUNDLED_PYTHON_ENV } from '../python-runtime/resolve-python-binary';
-import { runSkillScript } from './run-skill-script-tool';
+} from './tool-execute-support.ts';
 
-/** Where this process finds the bundled interpreter and the sandbox helper. */
+/** Where this host finds its Python interpreter, its sandbox helper and its Windows wrapper. */
 export interface CodeExecutionHost {
-  /** Resolves the build-time-unpacked bundled CPython; never a PATH python. */
+  /**
+   * The Python 3 this host runs: Desktop's build-time-unpacked bundled
+   * CPython, the CLI's system Python. One that cannot be produced throws an
+   * error whose `code` starts with `python_`, which run_python reports as
+   * `interpreter_unavailable`.
+   */
   readonly resolvePythonExecutable: (signal?: AbortSignal) => Promise<string>;
-  /** The packaged Linux seccomp helper; undefined where none applies. */
+  /** The packaged Linux seccomp helper; undefined where sandbox-runtime finds its own. */
   readonly resolveSeccompApplyPath: () => string | undefined;
+  /** The Windows command wrapper this host ships, which skill scripts start through. */
+  readonly windowsCommandEntry: WindowsCommandEntry;
 }
 
 export function runPythonExecutor(host: CodeExecutionHost): NativeToolExecutor {
@@ -38,12 +45,9 @@ export function runPythonExecutor(host: CodeExecutionHost): NativeToolExecutor {
         // LAZY import, deliberately. `@brainstrike/agent/fence-executor`
         // pulls in @anthropic-ai/sandbox-runtime AND evaluates
         // `promisify(fs.realpath.native)` at MODULE SCOPE. A top-level
-        // import would load all of that merely to BUILD the tool map —
-        // on every desktop main startup, and inside every test that
-        // imports this registry (measured: it broke 8 suites that mock
-        // `node:fs` without a `.native`). Loading it only when a
-        // run_python call actually needs an executor is what the seam's
-        // Node-only subpath posture intends.
+        // import would load all of that merely to BUILD the tool map, on
+        // every host start. Loading it only when a run_python call actually
+        // needs an executor is what the seam's Node-only subpath intends.
         const { createFenceExecutorFactory, FenceUnsupportedPlatformError, isFenceSupported } =
           await import('@brainstrike/agent/fence-executor');
         // Fence FIRST, interpreter second. On a host with no OS fence
@@ -60,7 +64,7 @@ export function runPythonExecutor(host: CodeExecutionHost): NativeToolExecutor {
         const linuxSeccompApplyPath = host.resolveSeccompApplyPath();
         const fence = createFenceExecutorFactory({
           ...(linuxSeccompApplyPath === undefined ? {} : { linuxSeccompApplyPath }),
-          interpreters: { python: { command, env: BUNDLED_PYTHON_ENV, scriptExtension: 'py' } },
+          interpreters: { python: { command, env: PYTHON_LAUNCH_ENV, scriptExtension: 'py' } },
         });
         // `undefined` on a host with no OS fence (Windows today). Under
         // exactOptionalPropertyTypes an explicit `fence: undefined` is
@@ -74,7 +78,7 @@ export function runPythonExecutor(host: CodeExecutionHost): NativeToolExecutor {
 
 export function runSkillScriptExecutor(
   skillScriptResolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined,
-  resolvePythonExecutable: (signal?: AbortSignal) => Promise<string>
+  host: Pick<CodeExecutionHost, 'resolvePythonExecutable' | 'windowsCommandEntry'>
 ): NativeToolExecutor {
   // Skill execution is capability-gated by the trusted per-request scan
   // engine: no resolver, no tool; omission is the explicit capability result.
@@ -96,9 +100,10 @@ export function runSkillScriptExecutor(
           logToolFailure('runSkillScript output streaming failed', error, resolvedInput);
         });
         return await runSkillScript(resolvedInput, runtimeData, skillScriptResolver, {
-          resolvePythonExecutable,
+          resolvePythonExecutable: host.resolvePythonExecutable,
           signal: resolveGuardedToolSignal(options),
           ...(stream ? { stream } : {}),
+          windowsCommandEntry: host.windowsCommandEntry,
         });
       },
       id: NATIVE_TOOL_ID.runSkillScript,

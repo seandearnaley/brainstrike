@@ -14,6 +14,7 @@ import {
 } from '@brainstrike/host-capabilities/git-workspace';
 import {
   CONTEXT_READ_TOOL_IDS,
+  type CodeExecutionHost,
   type CommandSandbox,
   contextReadExecutors,
   executeCommandExecutor,
@@ -21,6 +22,8 @@ import {
   INSPECTION_TOOL_EXECUTORS,
   isSharedNativeToolId,
   type NativeToolExecutor,
+  runPythonExecutor,
+  runSkillScriptExecutor,
   skillToolExecutors,
 } from '@brainstrike/host-capabilities/native-tools';
 import {
@@ -33,11 +36,6 @@ import {
   type BrowserToolRunner,
   browserToolExecutors,
 } from '../assistant-server/native-tool-executors-browser';
-import {
-  type CodeExecutionHost,
-  runPythonExecutor,
-  runSkillScriptExecutor,
-} from '../assistant-server/native-tool-executors-python';
 import { retrievalToolExecutors } from '../assistant-server/native-tool-executors-retrieval';
 import { selfInspectionExecutors } from '../assistant-server/native-tool-executors-self';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
@@ -140,6 +138,10 @@ function hostDiagnosticsReader(request: MainRequest, threadId: string): Diagnost
   };
 }
 
+/** Desktop's own bundled Windows command wrapper, emitted beside this host bundle. */
+const desktopWindowsCommandEntry = (): string =>
+  resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs');
+
 /** The launching desktop app's facts, from the host's launch options. */
 export interface HostAppPaths {
   readonly isPackaged: boolean;
@@ -147,7 +149,7 @@ export interface HostAppPaths {
   readonly userDataPath: string;
 }
 
-/** The bundled interpreter and sandbox helper the launching app ships, from its launch facts. */
+/** The bundled interpreter, sandbox helper and Windows wrapper the launching app ships. */
 function hostCodeExecution(appPaths: HostAppPaths): CodeExecutionHost {
   return {
     resolvePythonExecutable: async (signal) => {
@@ -168,6 +170,7 @@ function hostCodeExecution(appPaths: HostAppPaths): CodeExecutionHost {
     },
     resolveSeccompApplyPath: () =>
       resolveDesktopSeccompApplyPath(appPaths.isPackaged, appPaths.resourcesPath),
+    windowsCommandEntry: desktopWindowsCommandEntry,
   };
 }
 
@@ -215,7 +218,7 @@ function hostSkillExecutors(
       ? {
           [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(
             skills,
-            hostCodeExecution(appPaths).resolvePythonExecutable
+            hostCodeExecution(appPaths)
           ),
         }
       : {}),
@@ -304,9 +307,7 @@ export function desktopHostToolExecutors(
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
       correlation: hostShellCorrelation(worktrees, threadId),
       sandbox: hostCommandSandbox(appPaths),
-      // Desktop's own bundled wrapper, emitted beside this host bundle.
-      windowsCommandEntry: () =>
-        resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs'),
+      windowsCommandEntry: desktopWindowsCommandEntry,
     }),
   };
 }

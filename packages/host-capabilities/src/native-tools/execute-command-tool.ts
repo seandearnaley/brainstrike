@@ -168,6 +168,17 @@ export interface ExecuteCommandToolResult {
 const liveChildProcesses = new Set<{ retire: () => Promise<void> }>();
 
 /**
+ * Retains another host-started child in the same registry until it settles,
+ * so host close retires it with the commands. Returns the release.
+ */
+export function retainLiveChildProcess(owner: { retire: () => Promise<void> }): () => void {
+  liveChildProcesses.add(owner);
+  return () => {
+    liveChildProcesses.delete(owner);
+  };
+}
+
+/**
  * Kill an entire detached process tree.
  *
  * The child is spawned `detached: true`, so it is the leader of its own process

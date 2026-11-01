@@ -1,7 +1,7 @@
 import type { Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import { afterEach, expect, test, vi } from 'vitest';
-import { resolveWindowsGitBash } from '../../assistant-server/windows-git-bash';
+import { resolveWindowsGitBash } from '../src/native-tools/windows-git-bash.js';
 
 afterEach(() => vi.restoreAllMocks());
 
