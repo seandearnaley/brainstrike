@@ -22,8 +22,6 @@ import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 interface RegisterIpcHandlerOptions {
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   readonly getUserDataPath?: () => string;
-  /** Explicit test-harness seam for synthetic filesystem adapters. */
-  readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
   readonly onClearContent?: () => Promise<ContentClearResult>;
   readonly onDeleteRootData?: (rootId: string) => Promise<void>;
@@ -75,9 +73,6 @@ export function createApplicationIpcDomain(
     ...(options?.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
     getRootsCatalog: options.getRootsCatalog,
     ...(options.whenRootsCatalogOpen ? { whenRootsCatalogOpen: options.whenRootsCatalogOpen } : {}),
-    ...(options?.isSyntheticFileSystemPath
-      ? { isSyntheticFileSystemPath: options.isSyntheticFileSystemPath }
-      : {}),
     ...(options?.managedWorktreeAuthorizer
       ? { managedWorktreeAuthorizer: options.managedWorktreeAuthorizer }
       : {}),

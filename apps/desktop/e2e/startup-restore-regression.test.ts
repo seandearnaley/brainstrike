@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer/testing';
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
@@ -19,24 +20,41 @@ interface PersistedEnvelope<TState> {
   readonly version: number;
 }
 
-/** Test mode's default mock root, in the host's own grammar (see file-system-ipc.ts). */
-const RESTORED_FOLDER_PATH = path.resolve('/mock/test/directory');
-/** Display name of the restored root (handle.name) — NOT its identity. */
-const RESTORED_FOLDER_NAME = 'directory';
 /**
  * Fixed RootId for the seeded state (storage v5): currentFolderId, folderStates
  * keys, and selection composite keys all carry this UUID, never the path. The
  * seed also writes a matching `rootsList` entry so main's restoreRoots resolves
- * RESTORED_FOLDER_PATH to this exact id after restart.
+ * the restored folder to this exact id after restart.
  */
 const RESTORED_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000002';
 const RESTORED_ROOT_ADDED_AT = 1_700_000_000_000;
 const RESTORED_FILE_NAME = 'mock-file1.txt';
-const RESTORED_FILE_PATH = path.join(RESTORED_FOLDER_PATH, RESTORED_FILE_NAME);
-const RESTORED_COMPOSITE_KEY = `${RESTORED_ROOT_ID}|@|${RESTORED_FILE_PATH}`;
-const RESTORED_TAB_ID = `${RESTORED_ROOT_ID}:${RESTORED_COMPOSITE_KEY}`;
 
-function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> {
+/** The restored folder: the harness's real disposable workspace, holding one file. */
+interface RestoredFolder {
+  readonly compositeKey: string;
+  readonly filePath: string;
+  /** Display name of the restored root (handle.name) — NOT its identity. */
+  readonly name: string;
+  readonly path: string;
+  readonly tabId: string;
+}
+
+function restoredFolder(folderPath: string): RestoredFolder {
+  const filePath = path.join(folderPath, RESTORED_FILE_NAME);
+  const compositeKey = `${RESTORED_ROOT_ID}|@|${filePath}`;
+  return {
+    compositeKey,
+    filePath,
+    name: path.basename(folderPath),
+    path: folderPath,
+    tabId: `${RESTORED_ROOT_ID}:${compositeKey}`,
+  };
+}
+
+function createPersistedFileExplorerState(
+  folder: RestoredFolder
+): PersistedEnvelope<SerializedState> {
   return {
     state: {
       activeRootIds: [RESTORED_ROOT_ID],
@@ -69,8 +87,8 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
       quickFilter: DEFAULT_STATE.quickFilter,
       rootDescriptors: {
         [RESTORED_ROOT_ID]: {
-          displayName: RESTORED_FOLDER_NAME,
-          path: RESTORED_FOLDER_PATH,
+          displayName: folder.name,
+          path: folder.path,
           rootId: RESTORED_ROOT_ID,
         },
       },
@@ -90,18 +108,18 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
   };
 }
 
-function createPersistedTabState(): PersistedEnvelope<{
+function createPersistedTabState(folder: RestoredFolder): PersistedEnvelope<{
   activeTabId: string;
   tabs: Array<{ compositeKey: string; id: string; path: string }>;
 }> {
   return {
     state: {
-      activeTabId: RESTORED_TAB_ID,
+      activeTabId: folder.tabId,
       tabs: [
         {
-          compositeKey: RESTORED_COMPOSITE_KEY,
-          id: RESTORED_TAB_ID,
-          path: RESTORED_FILE_PATH,
+          compositeKey: folder.compositeKey,
+          id: folder.tabId,
+          path: folder.filePath,
         },
       ],
     },
@@ -109,9 +127,10 @@ function createPersistedTabState(): PersistedEnvelope<{
   };
 }
 
-async function seedRestoredStartupState(page: Page): Promise<void> {
-  const fileExplorerState = createPersistedFileExplorerState();
-  const tabState = createPersistedTabState();
+async function seedRestoredStartupState(page: Page, folder: RestoredFolder): Promise<void> {
+  await writeFile(folder.filePath, 'Restored file content\n');
+  const fileExplorerState = createPersistedFileExplorerState(folder);
+  const tabState = createPersistedTabState(folder);
 
   await page.evaluate(
     ({ nextFileExplorerState, nextTabState }) => {
@@ -129,9 +148,9 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
   // setLastFolder throws unless its path already references a mounted root, which is not yet
   // true at this pre-boot step.
   await seedMainLedgers(page, {
-    lastFolderPath: RESTORED_FOLDER_PATH,
+    lastFolderPath: folder.path,
     rootsList: JSON.stringify([
-      { addedAt: RESTORED_ROOT_ADDED_AT, path: RESTORED_FOLDER_PATH, rootId: RESTORED_ROOT_ID },
+      { addedAt: RESTORED_ROOT_ADDED_AT, path: folder.path, rootId: RESTORED_ROOT_ID },
     ]),
   });
 }
@@ -179,7 +198,8 @@ test.describe('Startup Restore Regression', () => {
     electronHarness,
     window,
   }) => {
-    await seedRestoredStartupState(window);
+    const folder = restoredFolder(electronHarness.getWorkspaceRoot());
+    await seedRestoredStartupState(window, folder);
     const restartedContext = await electronHarness.restart();
     const restartedWindow = restartedContext.window;
     await expect(
@@ -216,7 +236,7 @@ test.describe('Startup Restore Regression', () => {
         typeof details === 'object' && details !== null
           ? (details as { folderId?: unknown }).folderId
           : undefined;
-      return folderId === RESTORED_ROOT_ID || folderId === RESTORED_FOLDER_PATH;
+      return folderId === RESTORED_ROOT_ID || folderId === folder.path;
     });
     const noOpWarmCacheLogs = records.filter((record) => {
       if (!recordContainsText(record, 'Warm cache effect: preloading folders')) {

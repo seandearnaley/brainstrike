@@ -8,7 +8,7 @@ import {
 } from '@brainstrike/file-explorer/testing';
 import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
-import type { ElectronApplication, Locator, Page } from 'playwright';
+import type { Locator, Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { reloadRenderer } from './utils/electron-helpers.mts';
@@ -37,29 +37,6 @@ export interface SeedableElectronHarness {
   closeForStateSeeding: () => Promise<void>;
   ensureWindow: () => Promise<Page>;
   getUserDataDir: () => string;
-}
-
-interface ElectronE2eFileSystemFixture {
-  directoriesByPath: Record<string, unknown[]>;
-  /**
-   * Opt-in per-read delay (ms) honored by the main-process `fs:readDirectory`
-   * handler (apps/desktop/src/ipc-domains/file-system-ipc.ts). Omit it — as
-   * every fixture below this one does — to keep reads instant.
-   */
-  directoryReadDelayMs?: number;
-  fileContentsByPath: Record<string, string>;
-  readDirectoryCalls: string[];
-  readFileByPathCalls: string[];
-  readFileCalls: string[];
-  requestDirectoryAccessCount: number;
-  rootHandle: {
-    id: string;
-    kind: 'directory';
-    name: string;
-    path: string;
-    platform: 'electron';
-    type: 'directory';
-  };
 }
 
 interface FileExplorerTestSnapshot {
@@ -431,16 +408,6 @@ export async function expectFileSelected(args: {
 }
 
 /**
- * An absolute path for a Main-served mock root, in the host's own grammar: a
- * desktop tree's paths are native (Main joins them with `path.join`), so on
- * Windows a mock root is `C:\mock\<name>` and its children are joined with
- * `\`, exactly as a real Windows folder's would be.
- */
-export function mockRootPath(name: string): string {
-  return path.resolve('/mock', name);
-}
-
-/**
  * Fixed RootId used by every seeded selection fixture (storage v5).
  *
  * The app now keys `currentFolderId` / `folderStates` by a durable RootId UUID,
@@ -782,108 +749,16 @@ export async function seedLive3dmolRestoreState(args: {
   });
 }
 
-export async function installNestedFolderFixture(
-  electronApp: ElectronApplication,
-  rootPath: string
-): Promise<void> {
-  const fixture: ElectronE2eFileSystemFixture = {
-    directoriesByPath: {
-      [rootPath]: [
-        {
-          depth: 0,
-          handle: {
-            kind: 'file' as const,
-            name: 'mock-file1.ts',
-            path: path.join(rootPath, 'mock-file1.ts'),
-            platform: 'electron' as const,
-          },
-          isVisible: true,
-          name: 'mock-file1.ts',
-          path: path.join(rootPath, 'mock-file1.ts'),
-          rootFolderId: rootPath,
-          selectionState: 'unchecked' as const,
-          size: 100,
-          type: 'file' as const,
-        },
-        {
-          children: [],
-          depth: 0,
-          handle: {
-            kind: 'directory' as const,
-            name: 'src',
-            path: path.join(rootPath, 'src'),
-            platform: 'electron' as const,
-          },
-          isVisible: true,
-          name: 'src',
-          path: path.join(rootPath, 'src'),
-          rootFolderId: rootPath,
-          selectionState: 'unchecked' as const,
-          type: 'directory' as const,
-        },
-      ],
-      [path.join(rootPath, 'src')]: [
-        {
-          depth: 0,
-          handle: {
-            kind: 'file' as const,
-            name: 'index.ts',
-            path: path.join(rootPath, 'src/index.ts'),
-            platform: 'electron' as const,
-          },
-          isVisible: true,
-          name: 'index.ts',
-          path: path.join(rootPath, 'src/index.ts'),
-          rootFolderId: rootPath,
-          selectionState: 'unchecked' as const,
-          size: 120,
-          type: 'file' as const,
-        },
-        {
-          depth: 0,
-          handle: {
-            kind: 'file' as const,
-            name: 'extra.ts',
-            path: path.join(rootPath, 'src/extra.ts'),
-            platform: 'electron' as const,
-          },
-          isVisible: true,
-          name: 'extra.ts',
-          path: path.join(rootPath, 'src/extra.ts'),
-          rootFolderId: rootPath,
-          selectionState: 'unchecked' as const,
-          size: 140,
-          type: 'file' as const,
-        },
-      ],
-    },
-    fileContentsByPath: {
-      [path.join(rootPath, 'mock-file1.ts')]: 'export const rootValue = 1;',
-      [path.join(rootPath, 'src/index.ts')]: 'export const value = 1;',
-      [path.join(rootPath, 'src/extra.ts')]: 'export const extra = 2;',
-    },
-    readDirectoryCalls: [],
-    readFileByPathCalls: [],
-    readFileCalls: [],
-    requestDirectoryAccessCount: 0,
-    rootHandle: {
-      id: 'mock-directory-handle',
-      kind: 'directory',
-      name: 'mock-desktop-selection-root',
-      path: rootPath,
-      platform: 'electron',
-      type: 'directory',
-    },
-  };
-
-  await electronApp.evaluate((_electron, nextFixture) => {
-    (
-      globalThis as typeof globalThis & {
-        // biome-ignore lint/style/useNamingConvention: Desktop E2E fixture global intentionally uses the app-owned key.
-        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
-      }
-    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
-  }, fixture);
+/**
+ * Writes the nested selection tree into a real folder: one root file and a
+ * `src` directory with two files. The Explorer reads it through the agent host,
+ * as it reads any folder.
+ */
+export async function writeNestedFolderFixture(rootPath: string): Promise<void> {
+  await mkdir(path.join(rootPath, 'src'), { recursive: true });
+  await writeFile(path.join(rootPath, 'mock-file1.ts'), 'export const rootValue = 1;');
+  await writeFile(path.join(rootPath, 'src', 'index.ts'), 'export const value = 1;');
+  await writeFile(path.join(rootPath, 'src', 'extra.ts'), 'export const extra = 2;');
 }
 
 /** Explorer tree-expansion actions, by their stable testids. */

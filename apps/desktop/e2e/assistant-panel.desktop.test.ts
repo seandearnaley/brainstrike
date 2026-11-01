@@ -3,7 +3,6 @@ import type { JSHandle, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider, setupAssistantMock } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 type ProviderWriteOutcome = 'success' | 'rejected' | 'immediate-rejected' | 'failed' | 'navigation';
 
@@ -66,8 +65,6 @@ async function installCollectibleProviderWrite(
 
 test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ modelProvider, window }) => {
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
     await configureAssistantProvider(window);
     modelProvider.setScript({ finalText: 'Hello from desktop assistant!' });
     await ensureMockWorkspaceOpen(window);

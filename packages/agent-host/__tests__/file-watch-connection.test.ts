@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from '../src/auth-connection.js';
-import { bindHostFileWatchMethods } from '../src/file-watch-connection.js';
-import type { HostClientOrigin, HostFileWatches, HostFileWatchSession } from '../src/ports.js';
+import { bindHostFileReadMethods, bindHostFileWatchMethods } from '../src/file-watch-connection.js';
+import type {
+  HostClientOrigin,
+  HostFileReads,
+  HostFileWatches,
+  HostFileWatchSession,
+} from '../src/ports.js';
 import {
   type HostMethod,
   WORKSPACE_FILES_EVENT,
@@ -73,5 +78,52 @@ describe('host file watch methods', () => {
       );
     }
     expect(service.open).not.toHaveBeenCalled();
+  });
+});
+
+/** ADR-0029 stage 4: the Explorer's reads of live roots are the desktop user's alone. */
+describe('host file read methods', () => {
+  const reads = (): HostFileReads => ({
+    'workspace/files/exists': vi.fn(async () => ({ exists: true })),
+    'workspace/files/list': vi.fn(async () => ({
+      entries: [],
+      inspected: 0,
+      rootId: 'root-1',
+      truncated: false,
+    })),
+    'workspace/files/read': vi.fn(async () => ({ content: 'text' })),
+  });
+  const bind = (fileReads: HostFileReads | undefined, origin: HostClientOrigin) => {
+    const handlers = new Map<HostMethod, (params: unknown) => Promise<unknown>>();
+    const handle: HostMethodHandler = (method, request) => {
+      handlers.set(method, async (params) => await request(params as never));
+    };
+    bindHostFileReadMethods(handle, fileReads, origin);
+    return handlers;
+  };
+
+  it("answers the desktop's private client", async () => {
+    const handlers = bind(reads(), 'desktop-ui');
+    await expect(handlers.get('workspace/files/read')?.({ path: '/repo/a.ts' })).resolves.toEqual({
+      content: 'text',
+    });
+  });
+
+  it('refuses every read to a public-socket client, and says so where the host has none', async () => {
+    const service = reads();
+    const publicHandlers = bind(service, 'public-socket');
+    for (const method of [
+      'workspace/files/exists',
+      'workspace/files/list',
+      'workspace/files/read',
+    ] as const) {
+      await expect(publicHandlers.get(method)?.({ path: '/repo' })).rejects.toThrow(
+        "Workspace file reading is available only to the desktop's private client"
+      );
+      expect(service[method]).not.toHaveBeenCalled();
+    }
+    await expect(
+      bind(undefined, 'desktop-ui').get('workspace/files/list')?.({ path: '/repo' })
+    ).rejects.toThrow('Workspace file reading is unavailable on this host');
   });
 });

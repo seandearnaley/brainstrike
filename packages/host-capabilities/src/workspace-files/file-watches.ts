@@ -9,6 +9,9 @@
  * - Retry is manual only, and escalating minimum intervals bound it, so no
  *   loop can restart a watch on its own.
  * - A failed start is the visible rejection of `workspace/files/watch`.
+ * - A root is watched at the canonical path of its pinned handle (`root-pins.ts`),
+ *   and only while its path still resolves there, so a symlink put in its place
+ *   never turns the watch onto another folder.
  */
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
@@ -19,14 +22,14 @@ import type {
   HostResults,
   WorkspaceFilesEvent,
 } from '@brainstrike/agent-host';
-import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
+import { isBoundaryRefusal, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { startJoinedRootWatch } from '@brainstrike/file-system/native-watch';
 import type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
   WatcherHealthTransition,
 } from '@brainstrike/types';
-import type { WorkspaceRootResolver } from '../workspace-root-cwd.ts';
+import { type LiveRoot, ROOT_UNMOUNTED, type WorkspaceRootPins } from './root-pins.ts';
 
 /** Minimum wait before each further manual retry of a watch that keeps failing. */
 export const FILE_WATCH_RETRY_BACKOFF_MS = [1000, 5000, 30_000] as const;
@@ -41,12 +44,7 @@ export type StartFileWatch = (
 ) => Promise<() => Promise<void>>;
 
 export interface HostFileWatchOptions {
-  /**
-   * Desktop E2E: a live root its synthetic test tree serves, with nothing on
-   * disk behind it. Its watch is registered and reports nothing.
-   */
-  readonly isSyntheticRoot?: (rootPath: string) => boolean;
-  readonly roots: WorkspaceRootResolver;
+  readonly pins: WorkspaceRootPins;
   /** Test seam; production watches with `startJoinedRootWatch`. */
   readonly startWatch?: StartFileWatch;
 }
@@ -262,6 +260,10 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
       };
     }
     const restart = (async (): Promise<void> => {
+      // A restart watches by path again: only while that path is still the pinned folder's.
+      if ((await realpathOrUndefined(producer.rootPath)) !== producer.rootPath) {
+        throw rootUnavailable();
+      }
       const previous = producer.started;
       producer.generation += 1;
       await stopStarted(previous);
@@ -277,40 +279,53 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
     return { retried: true };
   };
 
-  /** The canonical path of the live root the client named, or `synthetic`. */
-  const authorize = async (requestedPath: string): Promise<string | 'synthetic'> => {
+  /** The pinned canonical path of a live root, or `undefined` when its folder is gone. */
+  const pinnedCanonical = (root: LiveRoot): Promise<string | undefined> =>
+    options.pins
+      .use(root, async (pinned) => pinned.canonicalPath)
+      .catch((error: unknown): undefined => {
+        if (isBoundaryRefusal(error) && error.code === ROOT_UNMOUNTED) {
+          return;
+        }
+        throw error;
+      });
+
+  /** The pinned canonical path of the live root the client named, while its path still resolves there. */
+  const authorize = async (requestedPath: string): Promise<string> => {
     const requested = path.normalize(requestedPath);
     if (!path.isAbsolute(requested)) {
       throw unknownRoot();
     }
-    const roots = await options.roots.listRoots();
-    if (options.isSyntheticRoot?.(requested)) {
-      if (roots.some((root) => path.normalize(root.path) === requested)) {
-        return 'synthetic';
+    const roots = await options.pins.liveRoots();
+    let named: { canonical: string | undefined; root: LiveRoot } | undefined;
+    const exact = roots.find((root) => root.path === requested);
+    if (exact) {
+      named = { canonical: await pinnedCanonical(exact), root: exact };
+    } else {
+      for (const root of roots) {
+        const canonical = await pinnedCanonical(root);
+        if (canonical === requested) {
+          named = { canonical, root };
+          break;
+        }
       }
+    }
+    if (!named) {
       throw unknownRoot();
     }
-    const canonical = await realpathOrUndefined(requested);
-    for (const root of roots) {
-      const rootPath = path.normalize(root.path);
-      const rootCanonical = await realpathOrUndefined(rootPath);
-      if (requested !== rootPath && requested !== rootCanonical) {
-        continue;
-      }
-      if (!(canonical && canonical === rootCanonical)) {
-        throw rootUnavailable();
-      }
-      const stats = await fsPromises.stat(canonical).catch(() => undefined);
-      if (!stats?.isDirectory()) {
-        throw rootUnavailable();
-      }
-      return canonical;
+    const { canonical, root } = named;
+    if (!(canonical && (await realpathOrUndefined(root.path)) === canonical)) {
+      throw rootUnavailable();
     }
-    throw unknownRoot();
+    const stats = await fsPromises.stat(canonical).catch(() => undefined);
+    if (!stats?.isDirectory()) {
+      throw rootUnavailable();
+    }
+    return canonical;
   };
 
   const open = (send: Send): HostFileWatchSession => {
-    const held = new Map<string, Producer | 'synthetic'>();
+    const held = new Map<string, Producer>();
     let sessionClosed = false;
     const assertOpen = (): void => {
       if (closed || sessionClosed) {
@@ -325,9 +340,7 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
       close: async () => {
         sessionClosed = true;
         sessions.delete(session);
-        const releasing = [...held].flatMap(([watchId, producer]) =>
-          producer === 'synthetic' ? [] : [release(producer, watchId)]
-        );
+        const releasing = [...held].map(([watchId, producer]) => release(producer, watchId));
         held.clear();
         await joinAll(releasing, "A closed client's file watches did not stop.");
       },
@@ -338,9 +351,7 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
           return null;
         }
         held.delete(watchId);
-        if (producer !== 'synthetic') {
-          await release(producer, watchId);
-        }
+        await release(producer, watchId);
         return null;
       },
       'workspace/files/watch': async ({ path: requestedPath }) => {
@@ -356,10 +367,6 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
           );
         }
         const watchId = `fs-watch-${randomUUID()}`;
-        if (authorized === 'synthetic') {
-          held.set(watchId, 'synthetic');
-          return { watchId };
-        }
         const producer = acquire(authorized, watchId, send);
         held.set(watchId, producer);
         try {
@@ -384,9 +391,6 @@ export function createHostFileWatches(options: HostFileWatchOptions): HostFileWa
         const producer = held.get(watchId);
         if (producer === undefined) {
           return { reason: 'unknown', retried: false };
-        }
-        if (producer === 'synthetic') {
-          return { reason: 'not-failed', retried: false };
         }
         return await retry(producer);
       },

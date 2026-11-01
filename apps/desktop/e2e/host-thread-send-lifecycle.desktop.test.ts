@@ -3,12 +3,9 @@ import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { startThread } from './utils/new-thread';
 
 async function openHostThread(page: Page): Promise<void> {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(page);
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
   await ensureAssistantShellVisible(page);
