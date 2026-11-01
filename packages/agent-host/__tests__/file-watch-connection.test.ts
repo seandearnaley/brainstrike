@@ -90,6 +90,7 @@ describe('host file read methods', () => {
       inspected: 0,
       rootId: 'root-1',
       truncated: false,
+      truncationPath: '/repo/…',
     })),
     'workspace/files/read': vi.fn(async () => ({ content: 'text' })),
   });
