@@ -159,7 +159,7 @@ Release DMGs are signed with the owner's Developer ID Application identity and n
 ## Logging, DevTools and updates
 
 - Packaged builds log at `info` unless `LOG_LEVEL` or Settings › Logging says otherwise.
-- DevTools open from View › Toggle Developer Tools in every build.
+- DevTools open from Developer › Toggle Developer Tools in unpackaged builds. Packaged builds have no DevTools menu item or shortcut.
 - Renovate opens dependency and Electron updates (`.github/renovate.json5`).
 
 ## References

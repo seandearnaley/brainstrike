@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readHostRoot, readOpenWorkspaceFolders } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -42,15 +44,21 @@ async function confirmNextReset(window: Page): Promise<void> {
   });
 }
 
-/** Main's saved workspace folders, from its own file under userData: the open list and the recent list. */
-function readFolders(userDataDir: string): unknown[] {
-  const ledgerFile = path.join(userDataDir, 'electron-storage.json');
-  const ledgers: Record<string, string> = fs.existsSync(ledgerFile)
-    ? JSON.parse(fs.readFileSync(ledgerFile, 'utf8'))
-    : {};
-  return ['rootsList', 'recentRootsList'].map((key): unknown =>
-    ledgers[key] === undefined ? [] : JSON.parse(ledgers[key])
-  );
+/** The host's saved workspace folders, from its own store: the open list and the recent list. */
+async function readFolders(userDataDir: string): Promise<unknown[]> {
+  const hostRoot = await readHostRoot(userDataDir);
+  const db = new DatabaseSync(path.join(hostRoot, 'state.db'), { readOnly: true });
+  try {
+    const recent = db
+      .prepare("SELECT value FROM settings WHERE key = 'workspace.recentRootsList'")
+      .get();
+    return [
+      readOpenWorkspaceFolders(hostRoot),
+      recent === undefined ? [] : JSON.parse(String(recent['value'])),
+    ];
+  } finally {
+    db.close();
+  }
 }
 
 async function storedCredentials(window: Page): Promise<string[]> {
@@ -246,7 +254,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         folders: 2,
         retainedProbeIds: [resetProbe.indexedFileId],
       });
-      const mounted = readFolders(userDataDir);
+      const mounted = await readFolders(userDataDir);
       expect(mounted[0]).toHaveLength(roots.length);
       expect(mounted[1]).toHaveLength(roots.length);
 
@@ -314,7 +322,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       const restartedSettingsPage = new SettingsPage(restarted);
       await waitForAppReady(restarted);
       expect(await readNativeResetProbe(restarted, resetProbe)).toEqual({ folders: 0 });
-      expect(readFolders(userDataDir)).toEqual([[], []]);
+      expect(await readFolders(userDataDir)).toEqual([[], []]);
       expect(await storedCredentials(restarted)).toEqual([]);
       await restartedHomePage.leaveSettings();
       for (const [index, root] of roots.entries()) {

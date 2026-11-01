@@ -124,6 +124,10 @@ export interface ProductionHostPlatformOptions {
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
   close(): Promise<void>;
+  /** ADR-0029 stage 4: the desktop Explorer's reads. */
+  readonly fileReads?: HostPlatform['fileReads'];
+  /** ADR-0029 stage 4: the desktop Explorer's root watches. */
+  readonly fileWatches?: HostPlatform['fileWatches'];
   /** Purge process-local caches of a deleted thread. */
   readonly forgetThread?: HostPlatform['forgetThread'];
   /** ADR-0029 stage 2: the desktop's git cluster. */
@@ -160,6 +164,8 @@ export interface ProductionHostPlatformOptions {
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
   /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
   readonly rewindFiles?: HostPlatform['rewindFiles'];
+  /** ADR-0029 stage 4: the desktop workspace's open folders. */
+  readonly rootRegistry?: HostPlatform['rootRegistry'];
   readonly searchWorkspace?: HostPlatform['searchWorkspace'];
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
@@ -309,6 +315,9 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
  */
 type ProductionClientService =
   | 'auth'
+  | 'fileReads'
+  | 'rootRegistry'
+  | 'fileWatches'
   | 'gitWorkspace'
   | 'mcpContent'
   | 'mcpPresentation'
@@ -322,6 +331,9 @@ function productionClientServices(
 ): Pick<HostPlatform, ProductionClientService> {
   return {
     ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.fileReads ? { fileReads: options.fileReads } : {}),
+    ...(options.rootRegistry ? { rootRegistry: options.rootRegistry } : {}),
+    ...(options.fileWatches ? { fileWatches: options.fileWatches } : {}),
     ...(options.gitWorkspace ? { gitWorkspace: options.gitWorkspace } : {}),
     ...(options.mcpContent ? { mcpContent: options.mcpContent } : {}),
     ...(options.mcpPresentation ? { mcpPresentation: options.mcpPresentation } : {}),

@@ -64,6 +64,11 @@ import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
 import type { TERMINAL_METHOD_SCHEMAS, TerminalEvent } from './protocol-terminals.ts';
 import type { HostWorkspaceTrustRoot } from './protocol-workspace-discovery.ts';
+import type {
+  WORKSPACE_FILES_METHOD_SCHEMAS,
+  WorkspaceFilesEvent,
+} from './protocol-workspace-files.ts';
+import type { WORKSPACE_ROOTS_METHOD_SCHEMAS } from './protocol-workspace-roots.ts';
 import type { HostStateSearch } from './thread-search.ts';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
@@ -696,6 +701,42 @@ export type HostTerminals = HostCommandSessionMethods & {
   open(send: (event: TerminalEvent) => void): HostTerminalSession;
 };
 
+/** The Explorer's reads: answered from the host's live roots, holding nothing between calls. */
+export type HostFileReadMethod =
+  | 'workspace/files/exists'
+  | 'workspace/files/list'
+  | 'workspace/files/read';
+/** ADR-0029 stage 4: the Explorer's reads of live workspace roots. */
+export type HostFileReads = {
+  readonly [M in HostFileReadMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+
+export type HostFileWatchMethod = Exclude<
+  keyof typeof WORKSPACE_FILES_METHOD_SCHEMAS,
+  HostFileReadMethod
+>;
+export type HostFileWatchSessionMethods = {
+  readonly [M in HostFileWatchMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+/** One client's root watches: their events go only to it, and they end when it closes. */
+export type HostFileWatchSession = HostFileWatchSessionMethods & {
+  /** Stops every watch this client holds and joins their native retirement. */
+  close(): Promise<void>;
+};
+
+/** ADR-0029 stage 4: the desktop workspace's open folders, which the host's registry owns. */
+export type HostRootRegistry = {
+  readonly [M in keyof typeof WORKSPACE_ROOTS_METHOD_SCHEMAS]: (
+    params: HostParams<M>
+  ) => Promise<HostResults[M]>;
+};
+
+/** ADR-0029 stage 4: the Explorer's recursive watches on live workspace roots. */
+export interface HostFileWatches {
+  /** Opens one client's watches; each of their events goes to `send`. */
+  open(send: (event: WorkspaceFilesEvent) => void): HostFileWatchSession;
+}
+
 /** Core's reads of its threads, for a platform service that asks which runs are live. */
 export interface HostThreadReads {
   listThreads(): HostResults['thread/list']['threads'];
@@ -822,6 +863,10 @@ export interface HostPlatform {
   close(): Promise<void>;
   /** The default admission's delegation capability; `admitRun` sets it per admission. */
   readonly delegation?: HostDelegation | undefined;
+  /** The desktop Explorer's reads; absent where no window shows an Explorer (the CLI). */
+  readonly fileReads?: HostFileReads;
+  /** The desktop Explorer's root watches; absent where no window shows an Explorer (the CLI). */
+  readonly fileWatches?: HostFileWatches;
   /** Purge process-local caches scoped to a thread Core just deleted. */
   forgetThread?(threadId: string): void;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
@@ -872,6 +917,8 @@ export interface HostPlatform {
   }): Promise<string>;
   /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
   readonly rewindFiles?: HostRewindFiles | undefined;
+  /** The desktop workspace's open folders; absent where no window shows them (the CLI). */
+  readonly rootRegistry?: HostRootRegistry;
   /** Gap 10: the host's derived state index search, for `thread/search`. */
   readonly searchState?: HostStateSearch;
   /** Read scoped source text from the composing platform's existing native index. */

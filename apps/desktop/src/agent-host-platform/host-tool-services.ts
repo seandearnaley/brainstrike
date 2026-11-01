@@ -15,7 +15,6 @@ import type { MainBrowserToolRunner } from '../assistant-server/browser-agent-to
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { isActionableHostedEmbeddingError } from '../hosted-embedding-error';
-import { attachHostRootCleanup } from './host-root-cleanup-client';
 import {
   DiagnosticsReadRequestSchema,
   parseBrowserClickRequest,
@@ -89,8 +88,6 @@ export function serveHostToolServices(
   execute: Execute,
   services: HostToolServiceCapabilities | undefined
 ): void {
-  // Main's root registry releases a disconnected root's host processes over the same connection.
-  attachHostRootCleanup(connection);
   serveIndexReads(connection, execute, services);
   serveBrowserCalls(connection, execute, services);
   serveSelfInspectionReads(connection, execute, services);

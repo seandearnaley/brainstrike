@@ -254,7 +254,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   });
 
   it('boots the full per-domain registry set (module scope + app.whenReady())', () => {
-    expect(registryCapture.instances).toHaveLength(24);
+    expect(registryCapture.instances).toHaveLength(23);
     expect(union.map((entry) => entry.channel)).toEqual(
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.appUpdates.setBetaUpdates,
@@ -287,11 +287,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       return channel;
     });
     expect(expected.length).toBeGreaterThanOrEqual(30);
-    const registered = new Set<string>([
-      ...union.map(({ channel }) => channel),
-      DESKTOP_IPC_CHANNELS.files.clearLedgersForE2e,
-      DESKTOP_IPC_CHANNELS.files.seedLedgerForE2e,
-    ]);
+    const registered = new Set<string>(union.map(({ channel }) => channel));
     expect(expected.filter((channel) => channel === undefined || !registered.has(channel))).toEqual(
       []
     );

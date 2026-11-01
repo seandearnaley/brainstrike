@@ -154,7 +154,6 @@ it('quit after a content clear settles without waiting for the held reopen', asy
     logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
     prepareDatabaseProfileReset: unused,
     resetLocalDatabase: unused,
-    resetPersistentStorageAfterDataDeletion: unused,
     resumeAfterReset: async (outcome, signal) => {
       if (outcome === 'succeeded') {
         await f.activation.resume(signal);

@@ -109,6 +109,7 @@ const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
   'tiktoken/lite/init',
   'xxhash-wasm',
   'zod',
+  'zustand/middleware',
   'zustand/shallow',
   '@radix-ui/react-accordion',
   '@radix-ui/react-checkbox',

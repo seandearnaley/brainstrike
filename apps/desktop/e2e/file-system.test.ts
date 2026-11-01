@@ -1,7 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('File System Integration', () => {
   async function ensureFileExplorerPanelVisible(window: Page): Promise<void> {
@@ -28,12 +27,6 @@ test.describe('File System Integration', () => {
     await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
     await selectRootButton.click();
   }
-
-  test.beforeEach(async ({ window }) => {
-    // Mock file system operations to prevent native dialogs for every test
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
-  });
 
   test('should handle file system access permissions', { tag: '@smoke' }, async ({ window }) => {
     test.setTimeout(30_000); // Increase timeout to 30s for this test

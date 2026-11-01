@@ -5,9 +5,26 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
 
 ## Root authority
 
-- Canonical RootId and the main-owned mounted-root registry authorize access; a saved path, selected folder or managed worktree row alone does not.
+- Canonical RootId and the agent host's mounted-root registry authorize access; a saved path, selected folder or managed worktree row alone does not (ADR-0029 stage 4).
   - Revalidate the same binding after awaited work.
   - Registry add, restore and disconnect complete before renderer projection; a failed removal leaves the root connected.
+- The registry (`@brainstrike/host-capabilities/workspace-roots`) is the one writer of the open folders and their order (`roots.open_position`), the recent-folders ledger and each folder's grant-time identity (`roots.canonical_path`).
+  - It serves `workspace/roots/*` to the desktop's private client only; Main answers the picker (`platform/workspace/pick-folder`) and nothing else about folders.
+- The registry owns each folder's one `SecureRoot`.
+  - Reads, watches and run borrows borrow it (`useMountedRoot`, `root-pins.ts`, source leases); never open a second handle in the host.
+  - A mount closes only after its borrows end.
+- A restore or picker-less reopen whose path resolves to another folder than the one granted is refused and shown as needing reconnect, never adopted. Only a fresh picker grant re-pins the record.
+- A store that opened damaged is read-only (BST-2144).
+  - The registry mounts and serves the open folders but records and converges nothing.
+  - Every change (pick, add, remove, delete-data, seed) is refused with the store's read-only refusal before it touches a folder or opens the picker.
+- A data deletion is reserved on the host first (`workspace/roots/reserve-data-deletion`).
+  - A deletion the host would refuse (read-only store, folder not mounted, another change in flight) removes nothing.
+  - Only then does Main's index stop its sources and drop the folder's bindings; `workspace/roots/delete-data` consumes the reservation.
+  - Any earlier failure releases it (`release-data-deletion`) and resumes the index.
+  - From the reservation to its end the folder is absent from `roots`, `mountedRoots()` and `useMountedRoot`, and run borrows are refused.
+- Main's native index opens its own read handles only on `workspace/roots/mounted` and refuses one whose canonical path differs.
+  - The host removes a folder first; `IndexSourceRoots.followHost()` then retires its leases.
+  - A refused `prepare` on a non-live root ends the scan as cancelled (`cancelScansOfRemovedRoots`).
 - Main root is the assistant's operating root; focused root is incidental UI selection.
   - Keep Main ordering across restore and re-add.
   - A terminal cwd pin is shell-only and never changes assistant authority.

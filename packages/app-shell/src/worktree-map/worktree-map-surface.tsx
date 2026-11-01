@@ -3,11 +3,9 @@
  * the desktop wrapper renders `<WorktreeMapSurface />` and this component
  * resolves the resource, the running-thread set and the thread
  * actions from context. Every mutation it can trigger goes through a seam that
- * already exists — the checkout-intent store, the thread store, Main's search
- * index config, the platform bridge — so the Map owns only ephemeral collection-view state.
+ * already exists — the checkout-intent store, the thread store, the platform
+ * bridge — so the Map owns only ephemeral collection-view state.
  */
-import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
-import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantThreadCatalogRepository,
   useAssistantThreadStore,
@@ -54,18 +52,6 @@ export function WorktreeMapSurface(): ReactElement {
   const selectedThreadId = selectedThreadByResourceId[resourceId];
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const selectThread = useAssistantThreadStore((state) => state.selectThread);
-  const updateIndexConfig = useIndexConfigStore((store) => store.update);
-  const [indexingError, setIndexingError] = useState<string | null>(null);
-  const setWorktreeRootIndexingEnabled = (rootId: string, enabled: boolean): void => {
-    if (!updateIndexConfig) {
-      setIndexingError('Search index settings are unavailable in this window.');
-      return;
-    }
-    setIndexingError(null);
-    updateIndexConfig({ worktrees: { [rootId]: enabled } }).catch((cause: unknown) =>
-      setIndexingError(describeBoundaryError(cause))
-    );
-  };
   const publishIntent = useWorktreeCheckoutIntentStore((state) => state.publish);
   // Committed mode creates the thread through the host's existing thread
   // owner, exactly as the threads panel does.
@@ -91,7 +77,6 @@ export function WorktreeMapSurface(): ReactElement {
   const {
     actionError,
     archiveConfirmation,
-    onAddAsRoot,
     onAdopt,
     onArchive,
     onHandOffToLocal,
@@ -167,11 +152,6 @@ export function WorktreeMapSurface(): ReactElement {
               {actionError}
             </p>
           ) : null}
-          {indexingError ? (
-            <p className="text-destructive text-sm" role="alert">
-              {indexingError}
-            </p>
-          ) : null}
           {loading && repositories.length === 0 ? (
             <p className="text-muted-foreground text-sm" role="status">
               Loading worktrees…
@@ -231,7 +211,6 @@ export function WorktreeMapSurface(): ReactElement {
                   <WorktreeMapCard
                     card={card}
                     key={card.entry.path}
-                    onAddAsRoot={onAddAsRoot}
                     onAdopt={onAdopt}
                     onArchive={onArchive}
                     // Present only for the card holding the SELECTED thread's
@@ -247,7 +226,6 @@ export function WorktreeMapSurface(): ReactElement {
                     onReveal={(path) => {
                       void platform?.showItemInFolder(path);
                     }}
-                    onToggleIndexing={setWorktreeRootIndexingEnabled}
                     status={statusByPath.get(card.entry.path)}
                   />
                 ))}

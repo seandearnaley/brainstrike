@@ -1,25 +1,14 @@
 import path from 'node:path';
-import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
-import {
-  type DirectoryHandle,
-  type FileHandle,
-  type IFileNode,
-  isDurableRootId,
-} from '@brainstrike/file-system';
-import {
-  buildDirectoryListing,
-  descriptorFor,
-  MAX_DIRECTORY_ENTRIES,
-} from '@brainstrike/file-system/workspace-root-nodes';
+import { type DirectoryHandle, isDurableRootId } from '@brainstrike/file-system';
+import { descriptorFor } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import { NativeAuthorityTransitionError } from '../node-native-index/errors.ts';
-import { projectReadDenialDiagnostic, withReadDenialLogging } from './read-denial-diagnostic.ts';
 import {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
@@ -32,6 +21,7 @@ import { WorkspaceRootAvailability } from './workspace-root-availability.ts';
 import {
   findRecordedWorkspaceRoot,
   markRootsDisconnectedExcept,
+  recordedRoot,
   recordRestoredWorkspaceRoots,
   recordWorkspaceRoot,
 } from './workspace-root-catalog.ts';
@@ -45,34 +35,18 @@ import { WorkspaceRootMutationLifetime } from './workspace-root-mutation-lifetim
 import { pathKey, pathsEqual } from './workspace-root-paths.ts';
 import {
   assertNativeAbsoluteReadPath,
-  type ResolvedWorkspaceRead,
-  readResolvedWorkspaceFile,
   resolveReadAgainstMountedRoot,
 } from './workspace-root-read.ts';
 import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.ts';
-import {
-  createNativeSecureRoot,
-  resolveCanonicalRootPath,
-  resolveValidatedReadPath,
-} from './workspace-root-seams.ts';
+import { createNativeSecureRoot, resolveValidatedReadPath } from './workspace-root-seams.ts';
 import { createWorkspaceRootSourceLease } from './workspace-root-source-lease.ts';
-import {
-  clearLastFolderIfMatches,
-  clearStoredWorkspaceGrants,
-  readLastFolder,
-  readStoredRoots,
-  readStoredRootsOrQuarantine,
-  writeLastFolder,
-  writeLastFolderBestEffort,
-  writeStoredRoots,
-} from './workspace-root-store.ts';
 import type {
   MountedWorkspaceRoot,
+  RecordedWorkspaceRoot,
   RootDataDeletionReservation,
   SecureWorkspaceRoot,
   StoredWorkspaceRoot,
   WorkspaceRootRegistryOptions,
-  WorkspaceRootStorage,
 } from './workspace-root-types.ts';
 
 export * from './workspace-root-registry-disposed.ts';
@@ -90,7 +64,25 @@ export type SubscribeMountedWorkspaceRoot = (
 const logger = createLogger('WorkspaceRootRegistry');
 
 interface AddRootOptions {
+  /**
+   * The person chose this folder in the picker: a recorded path that now resolves to another
+   * folder is re-pinned to it. A reopen without the picker refuses that folder instead.
+   */
+  readonly grantedAfresh?: boolean;
   readonly recordInRecentRoots?: boolean;
+}
+
+/** A managed worktree's descriptor: a thread's checkout, never an open folder (ADR-0034). */
+function asWorktree(descriptor: RootDescriptor): RootDescriptor {
+  return { ...descriptor, handle: { ...descriptor.handle, worktree: true } };
+}
+
+/** A recorded folder whose path no longer resolves to the folder it was granted under. */
+export class WorkspaceRootIdentityChangedError extends Error {
+  constructor() {
+    super('The workspace folder at this path is not the one that was granted; reconnect it.');
+    this.name = 'WorkspaceRootIdentityChangedError';
+  }
 }
 
 export class WorkspaceRootRegistry {
@@ -100,29 +92,29 @@ export class WorkspaceRootRegistry {
   private readonly resources: WorkspaceRootResourceOwners;
   private readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   private readonly isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined;
-  private readonly whenCatalogOpen: (() => Promise<void>) | undefined;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private readonly availability = new WorkspaceRootAvailability();
   private readonly mutations = new WorkspaceRootMutationLifetime();
-  private readonly directReads = new Set<Promise<unknown>>();
   private rootDataDeletion: RootDataDeletionReservation | undefined;
   private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
   private readonly sourceLeases = new Set<{
     readonly lease: CanonicalWorkspaceLease;
     readonly mounted: MountedWorkspaceRoot;
   }>();
+  /** Work running on a mounted handle; the mount's retirement waits for it before closing. */
+  private readonly mountUses = new Set<{
+    readonly done: Promise<unknown>;
+    readonly mounted: MountedWorkspaceRoot;
+  }>();
   private readonly onRootGranted: ((grantedPath: string) => void) | undefined;
-  private readonly onRestoredRootsChanged: (() => void) | undefined;
-  /** The persisted mounts the open source borrower restored; undefined while it holds none. */
-  private borrowedRootIds: ReadonlySet<string> | undefined;
   private readonly pathExists: (rootPath: string) => Promise<boolean>;
-  private readonly resolveCanonicalRoot: (rootPath: string) => Promise<string>;
   private readonly resolveReadPath: (
     requestedPath: string,
     canonicalRoot: string
   ) => Promise<string>;
-  private readonly storage: WorkspaceRootStorage;
+  private readonly recents: WorkspaceRootRegistryOptions['recents'];
+  private readonly readOnlyRefusal: () => Error | null;
 
   constructor(options: WorkspaceRootRegistryOptions) {
     this.createSecureRoot = options.createSecureRoot ?? createNativeSecureRoot;
@@ -132,31 +124,32 @@ export class WorkspaceRootRegistry {
     };
     this.getRootsCatalog = options.getRootsCatalog;
     this.isExpectedCatalogRefusal = options.isExpectedCatalogRefusal;
-    this.whenCatalogOpen = options.whenCatalogOpen;
     this.onRootGranted = options.onRootGranted;
-    this.onRestoredRootsChanged = options.onRestoredRootsChanged;
     this.pathExists = options.pathExists;
-    this.resolveCanonicalRoot = options.resolveCanonicalRoot ?? resolveCanonicalRootPath;
     this.resolveReadPath = options.resolveReadPath ?? resolveValidatedReadPath;
-    this.storage = options.storage;
+    this.recents = options.recents;
+    this.readOnlyRefusal = options.readOnlyRefusal ?? (() => null);
   }
 
+  /** A folder the person chose in the picker. */
   addRoot(handle: DirectoryHandle, options: AddRootOptions = {}): Promise<RootDescriptor> {
-    return this.serializeMutation(() => this.addRootOwned(handle, options));
+    return this.serializeWrite(() =>
+      this.addRootOwned(handle, { grantedAfresh: true, ...options })
+    );
   }
 
   private async addRootOwned(
     handle: DirectoryHandle,
-    { recordInRecentRoots = true }: AddRootOptions
+    { grantedAfresh = false, recordInRecentRoots = true }: AddRootOptions
   ): Promise<RootDescriptor> {
     const presentationPath = path.normalize(handle.path);
-    // Read storage before opening the probe so a failed read cannot leak it.
+    // Read the catalog before opening the probe so a failed read cannot leak it.
     // serializeMutation already orders callers; these reads need no parallelism.
-    const entries = await readStoredRootsOrQuarantine(this.storage);
+    const entries = await this.readOpenRoots();
     // Read the recent-root ledger before mounting or persisting to avoid partial
     // success on storage failure. The same flag guards its later invariant check.
     const recentRootEntries = recordInRecentRoots
-      ? await readRecentRootsOrQuarantine(this.storage)
+      ? await readRecentRootsOrQuarantine(this.recents)
       : null;
     // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store reads above have succeeded, so the try/finally owns it from the instant it exists.
     const probe = await this.createSecureRoot(presentationPath);
@@ -167,38 +160,47 @@ export class WorkspaceRootRegistry {
       this.assertActive();
       const canonicalPath = path.normalize(probe.canonicalPath);
       const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
-      const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
+      const existing = this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
 
       const db = await this.getRootsCatalog();
       // Reuse the retained folder identity after disconnect, including path aliases (BST-1990).
       const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
         this.findExistingStoredRoot(records, undefined, canonicalPath)
       );
-      const rootId = await recordWorkspaceRoot(db, {
-        path: recorded?.path ?? presentationPath,
-        preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
-      });
-      const entry: StoredWorkspaceRoot = {
+      // The picker re-pins: a retained folder keeps its id and moves to the path just picked, so
+      // a path alias that is gone or now leads elsewhere never serves it. Without the picker the
+      // record keeps its path.
+      const entryPath = grantedAfresh ? presentationPath : (recorded?.path ?? presentationPath);
+      const { id: rootId, kind } = await recordWorkspaceRoot(
+        db,
+        {
+          canonicalPath,
+          path: entryPath,
+          preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
+        },
+        // Without the picker, the store refuses a recorded path that now resolves elsewhere.
+        grantedAfresh
+      );
+      const entry: RecordedWorkspaceRoot = {
         addedAt: Date.now(),
-        path: recorded?.path ?? presentationPath,
+        canonicalPath,
+        path: entryPath,
         rootId,
       };
 
       // reconcileAddMount owns the probe: it adopts it or closes it as redundant.
       await this.reconcileAddMount(entry, mountedMatch, probe).catch(async (error: unknown) => {
-        await this.convergeDatabase(); // the record must not stay live without its mount
+        // The record must not stay live without its mount, nor open unless it already was.
+        await this.convergeDatabase(existing ? [] : [rootId]);
         throw error;
       });
       probeAdopted = true;
 
-      const persisted = await this.persistAddedRoot(entries, existing, entry);
-      if (!persisted) {
-        await this.convergeDatabase(); // a session-only mount keeps no live record
-      }
-      if (persisted) {
-        await writeLastFolderBestEffort(this.storage, entry.path);
-      }
-      if (recordInRecentRoots) {
+      // Registering the record opened it, in the same commit: unless it is a managed worktree,
+      // which is mounted for its thread but never opened (ADR-0034).
+      this.mounts.clearSessionMount(entry.rootId);
+      const worktree = kind === 'worktree';
+      if (recordInRecentRoots && !worktree) {
         // Retain the ledger read before mounting; a missing snapshot is an
         // invariant failure, never permission to overwrite the ledger as empty.
         if (recentRootEntries === null) {
@@ -206,19 +208,18 @@ export class WorkspaceRootRegistry {
             'Invariant violated: recentRootEntries must be populated when recordInRecentRoots is true.'
           );
         }
-        // The grant happened whether or not rootsList persistence succeeded,
-        // so the ledger records it either way. Passes the entries read
-        // above rather than letting recordRecentRoot re-read them — the
+        // Passes the entries read above rather than letting recordRecentRoot re-read them — the
         // hoist's whole point is that this write can no longer fail on an
         // I/O problem the read above would already have surfaced.
-        await recordRecentRoot(this.storage, entry.path, undefined, recentRootEntries);
+        await recordRecentRoot(this.recents, entry.path, undefined, recentRootEntries);
         // Same gate as the ledger write above (BST-1393 review finding): a
         // managed-worktree mount passes recordInRecentRoots: false and must
         // not reach the OS recent-documents list either — the registry
         // already decided it doesn't belong in Recents.
         this.onRootGranted?.(entry.path);
       }
-      return descriptorFor(entry, 'granted', persisted);
+      const descriptor = descriptorFor(entry, 'granted', true);
+      return worktree ? asWorktree(descriptor) : descriptor;
     } finally {
       if (!probeAdopted) {
         try {
@@ -231,13 +232,14 @@ export class WorkspaceRootRegistry {
   }
 
   addRootByPath(requestedPath: string): Promise<RootDescriptor> {
-    return this.serializeMutation(async () => {
+    return this.serializeWrite(async () => {
       const granted = await resolveGrantedRootHandle(
-        this.storage,
+        this.recents,
         requestedPath,
         this.managedWorktreeAuthorizer ?? undefined
       );
       const descriptor = await this.addRootOwned(granted.handle, {
+        grantedAfresh: false,
         recordInRecentRoots: granted.grantSource === 'recents',
       });
       if (granted.grantSource === 'managed-worktree') {
@@ -258,8 +260,8 @@ export class WorkspaceRootRegistry {
     this.disposed = true;
     this.disposal ??= this.retireSourceLeases()
       .finally(async () => {
-        // Join caller-owned reads and mutations before closing mounts, even if source retirement failed.
-        await Promise.all([this.mutations.settled, Promise.allSettled([...this.directReads])]);
+        // Join mutations before closing mounts, even if source retirement failed.
+        await this.mutations.settled;
       })
       .then(() => {
         this.mounts.closeAll();
@@ -269,36 +271,6 @@ export class WorkspaceRootRegistry {
         this.disposal = undefined;
       });
     return this.disposal;
-  }
-
-  async borrowSourceRoot(
-    rootId: string,
-    subscribe: SubscribeMountedWorkspaceRoot
-  ): Promise<CanonicalWorkspaceLease> {
-    this.assertSourceBorrow(rootId);
-    await this.mutations.settled;
-    this.assertActive();
-    return this.borrowMountedRoot(rootId, subscribe);
-  }
-
-  private assertSourceBorrow(rootId: string): void {
-    if (!isDurableRootId(rootId)) {
-      throw new Error('A mounted source borrow requires a durable rootId.');
-    }
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
-  }
-
-  private borrowMountedRoot(
-    rootId: string,
-    subscribe: SubscribeMountedWorkspaceRoot
-  ): CanonicalWorkspaceLease {
-    const mounted = this.mounts.get(rootId);
-    if (!mounted) {
-      throw new Error('Canonical source rootId is not mounted.');
-    }
-    return this.borrowMountedSourceRoot(mounted, subscribe);
   }
 
   async borrowSourceRootForPath(
@@ -376,6 +348,34 @@ export class WorkspaceRootRegistry {
     return owned;
   }
 
+  /**
+   * Runs `use` on the folder's mounted handle, the one this registry opened at grant. Refused
+   * once the folder is not mounted, is being retired, or holds a root data deletion; the mount
+   * closes only after `use` settles.
+   */
+  async useMountedRoot<T>(
+    rootId: string,
+    use: (mounted: MountedWorkspaceRoot) => Promise<T>
+  ): Promise<T> {
+    this.assertActive();
+    const mounted = this.mounts.get(rootId);
+    if (
+      !mounted ||
+      this.retiringSourceRoots.has(mounted) ||
+      this.rootDataDeletion?.mounted === mounted
+    ) {
+      throw new NativeAuthorityTransitionError('The folder is not mounted in the workspace.');
+    }
+    const done = use(mounted);
+    const entry = { done, mounted };
+    this.mountUses.add(entry);
+    try {
+      return await done;
+    } finally {
+      this.mountUses.delete(entry);
+    }
+  }
+
   private async retireSourceLeases(mounted?: MountedWorkspaceRoot): Promise<void> {
     // Fence path borrows still resolving this exact mount before capturing its leases.
     // Failed retirement keeps admission closed until the owned cleanup is retried.
@@ -385,12 +385,22 @@ export class WorkspaceRootRegistry {
     const entries = [...this.sourceLeases].filter(
       (entry) => mounted === undefined || entry.mounted === mounted
     );
-    const results = await Promise.allSettled(
-      entries.map(async (entry) => {
+    const uses = [...this.mountUses].filter(
+      (entry) => mounted === undefined || entry.mounted === mounted
+    );
+    const results = await Promise.allSettled([
+      ...entries.map(async (entry) => {
         await entry.lease.retire();
         this.sourceLeases.delete(entry);
-      })
-    );
+      }),
+      // A use's own failure is its caller's; the mount only waits for it to end.
+      ...uses.map((entry) =>
+        entry.done.then(
+          () => undefined,
+          () => undefined
+        )
+      ),
+    ]);
     const errors = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []
     );
@@ -408,139 +418,35 @@ export class WorkspaceRootRegistry {
   }
 
   listRecentRoots(): Promise<readonly RecentRootEntry[]> {
-    return this.serializeMutation(() => listRecentRootEntries(this.storage));
+    return this.serializeMutation(() => listRecentRootEntries(this.recents));
   }
 
-  readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
-    const diagnosticPath = projectReadDenialDiagnostic(handle.path);
-    const diagnosticRootId =
-      handle.rootId === undefined ? undefined : projectReadDenialDiagnostic(handle.rootId);
-    return withReadDenialLogging(logger, 'readDirectory', diagnosticPath, diagnosticRootId, () =>
-      this.ownDirectRead(() => this.readDirectoryUnlogged(handle))
-    );
-  }
-
-  private async readDirectoryUnlogged(handle: DirectoryHandle): Promise<IFileNode[]> {
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
-    await this.mutations.settled;
-    this.assertActive();
-    const resolved = await this.resolveRead(handle.path, handle.rootId);
-    const listing = await resolved.mounted.root.listDir(
-      resolved.relativePath,
-      MAX_DIRECTORY_ENTRIES
-    );
-    if (!listing) {
-      throw refusalError(
-        'availability',
-        'workspace.directory-unavailable',
-        'Directory is not accessible.',
-        'Check that the folder is available, then refresh.'
-      );
-    }
-    return buildDirectoryListing(resolved.mounted, handle.path, listing);
-  }
-
-  readFile(request: FileHandle | string): Promise<string> {
-    const requestedPath = typeof request === 'string' ? request : request.path;
-    const rootId = typeof request === 'string' ? undefined : request.rootId;
-    const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
-    const diagnosticRootId = rootId === undefined ? undefined : projectReadDenialDiagnostic(rootId);
-    return withReadDenialLogging(logger, 'readFile', diagnosticPath, diagnosticRootId, () =>
-      this.ownDirectRead(() => this.readFileUnlogged(requestedPath, rootId))
-    );
-  }
-
-  readFileByAbsolutePath(
-    requestedPath: unknown,
-    claimedRootPath: unknown,
-    claimedRootId: unknown
-  ): Promise<string> {
-    const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
-    return withReadDenialLogging(logger, 'readFileByAbsolutePath', diagnosticPath, undefined, () =>
-      this.ownDirectRead(() => {
-        assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
-        assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
-        if (!isDurableRootId(claimedRootId)) {
-          throw refusalError(
-            'input',
-            'workspace.root-id-invalid',
-            'The workspace folder identity is invalid.',
-            'Reconnect the folder and retry.'
-          );
-        }
-        return this.readFileByAbsolutePathUnlogged(requestedPath, claimedRootPath, claimedRootId);
-      })
-    );
-  }
-
-  private async ownDirectRead<T>(run: () => Promise<T>): Promise<T> {
-    this.assertActive();
-    const pending = run();
-    this.directReads.add(pending);
-    try {
-      return await pending;
-    } finally {
-      this.directReads.delete(pending);
-    }
-  }
-
-  private async readFileByAbsolutePathUnlogged(
-    requestedPath: string,
-    claimedRootPath: string,
-    claimedRootId: string
-  ): Promise<string> {
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
-    await this.mutations.settled;
-    this.assertActive();
-    const mounted = this.mounts.get(claimedRootId);
-    if (!mounted) {
-      throw refusalError(
-        'availability',
-        'workspace.root-unmounted',
-        'The workspace folder is no longer connected.',
-        'Reconnect the folder and retry.'
-      );
-    }
-    if (
-      !(
-        pathsEqual(mounted.presentationPath, claimedRootPath) ||
-        pathsEqual(mounted.canonicalPath, claimedRootPath)
+  /**
+   * The open folders mounted now, each with the canonical path its handle pinned at grant. A
+   * folder whose data is being deleted is absent.
+   */
+  mountedRoots(): readonly { canonicalPath: string; path: string; rootId: string }[] {
+    const persisted = this.mounts.persistedIds();
+    return this.mounts
+      .snapshot()
+      .filter(
+        (mounted) => persisted.has(mounted.rootId) && !this.isDeletingRootData(mounted.rootId)
       )
-    ) {
-      throw refusalError(
-        'authorization',
-        'workspace.root-mismatch',
-        'The requested path does not match the connected folder.',
-        'Choose a file inside the connected folder.'
-      );
-    }
-    const resolved = await resolveReadAgainstMountedRoot(
-      requestedPath,
-      mounted,
-      this.resolveReadPath
-    );
-    return readResolvedWorkspaceFile(requestedPath, resolved);
+      .map((mounted) => ({
+        canonicalPath: mounted.canonicalPath,
+        path: mounted.presentationPath,
+        rootId: mounted.rootId,
+      }));
   }
 
-  private async readFileUnlogged(
-    requestedPath: string,
-    rootId: string | undefined
-  ): Promise<string> {
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
-    await this.mutations.settled;
-    this.assertActive();
-    const resolved = await this.resolveRead(requestedPath, rootId);
-    return readResolvedWorkspaceFile(requestedPath, resolved);
+  /** Whether a root data deletion holds this folder: from its reservation until its release. */
+  isDeletingRootData(rootId: string): boolean {
+    return this.rootDataDeletion?.mounted.rootId === rootId;
   }
 
   reserveRootDataDeletion(rootId: string): RootDataDeletionReservation {
     this.assertActive();
+    this.assertWritable();
     this.mutations.assertAdmission();
     if (!isDurableRootId(rootId)) {
       throw new Error('Root data deletion requires a durable root ID.');
@@ -591,148 +497,61 @@ export class WorkspaceRootRegistry {
     return reservation;
   }
 
-  /** The content-reset owner already closes native writers; do not reopen the catalog here. */
-  clearForContent(): Promise<void> {
-    return this.serializeMutation(async () => {
-      await this.retireSourceLeases();
-      for (const rootId of this.mounts.ids()) {
-        await this.retireMount(rootId);
-      }
-      await clearStoredWorkspaceGrants(this.storage);
-      this.availability.clear();
-    });
-  }
-
-  /** Resolves whether the removal retired a mounted folder, which its borrowers then re-read. */
+  /** Resolves whether the removal retired a mounted folder. */
   removeRoot(rootId: string): Promise<boolean> {
-    return this.serializeMutation(() => this.removeRootOwned(rootId));
+    return this.serializeWrite(() => this.removeRootOwned(rootId));
   }
 
   private async removeRootOwned(rootId: string, resourcesRetired = false): Promise<boolean> {
-    const entries = await readStoredRootsOrQuarantine(this.storage);
-    const removed = entries.find((entry) => entry.rootId === rootId);
     const mounted = this.mounts.get(rootId);
     if (mounted) {
       await this.retireSourceLeases(mounted);
     }
-    if (!removed) {
-      // Even a quarantined or session-only grant must retire its mount and
-      // converge the canonical catalog; absence from stored grants is not absence from memory.
-      await this.retireMount(rootId);
-      await this.convergeDatabase();
-      this.availability.forget(rootId);
-      return mounted !== undefined;
-    }
-
-    const remaining = entries.filter((entry) => entry.rootId !== rootId);
-    await writeStoredRoots(this.storage, remaining);
-    let disconnected: readonly { id: string; path: string }[];
-    try {
-      const db = await this.getRootsCatalog();
-      disconnected = await markRootsDisconnectedExcept(
-        db,
-        this.mounts.persistedMountedPaths(rootId)
-      );
-    } catch (error) {
-      try {
-        await writeStoredRoots(this.storage, entries);
-      } catch (rollbackError) {
-        throw new AggregateError(
-          [error, rollbackError],
-          'Workspace disconnect failed and its persisted-root rollback also failed.'
-        );
-      }
-      throw error;
-    }
-
-    if (resourcesRetired) {
-      await clearLastFolderIfMatches(this.storage, removed.path);
-      await this.unmountSourceRoot(rootId);
-      this.availability.forget(rootId);
-      return mounted !== undefined;
-    }
+    // Closing the folder and disconnecting it commit together, so nothing needs a rollback.
+    const disconnected = await markRootsDisconnectedExcept(
+      await this.getRootsCatalog(),
+      this.mounts.persistedMountedPaths(rootId),
+      [rootId]
+    );
+    this.mounts.clearSessionMount(rootId);
     await this.unmountSourceRoot(rootId);
-    await this.cleanupRootResources(disconnected.map((row) => row.id));
-    await clearLastFolderIfMatches(this.storage, removed.path);
+    if (!resourcesRetired) {
+      await this.cleanupRootResources([...new Set([rootId, ...disconnected.map((row) => row.id)])]);
+    }
     this.availability.forget(rootId);
     return mounted !== undefined;
   }
 
-  restoreLastFolder(): Promise<DirectoryHandle | null> {
-    return this.serializeMutation(async () => {
-      const lastFolder = await readLastFolder(this.storage);
-      if (!lastFolder) {
-        return null;
-      }
-      const mounted = this.mounts.findByPresentationPath(lastFolder);
-      if (!mounted) {
-        return null;
-      }
-      return descriptorFor(
-        {
-          addedAt: 0,
-          path: mounted.presentationPath,
-          rootId: mounted.rootId,
-        },
-        'granted'
-      ).handle;
-    });
-  }
-
-  restoreRoots({
-    persistPreferences = true,
-  }: {
-    readonly persistPreferences?: boolean;
-  } = {}): Promise<RootDescriptor[]> {
-    return this.serializeMutation(async () => {
-      const descriptors = await this.restoreRootsOwned(persistPreferences);
-      const borrowed = this.borrowedRootIds;
-      const mounted = this.mounts.persistedIds();
-      // Before the borrower's next open, that open will borrow these mounts itself.
-      if (
-        borrowed &&
-        (borrowed.size !== mounted.size || [...mounted].some((id) => !borrowed.has(id)))
-      ) {
-        this.onRestoredRootsChanged?.();
-      }
-      return descriptors;
-    });
-  }
-
-  /** Restores the stored roots, then runs `work` in that mutation: no removal falls inside. */
-  borrowRestoredRoots<T>(
-    work: (
-      descriptors: readonly RootDescriptor[],
-      borrow: WorkspaceRootRegistry['borrowSourceRoot']
-    ) => Promise<T>
-  ): Promise<T> {
-    return this.serializeMutation(async () => {
-      const descriptors = await this.restoreRootsOwned(true);
-      this.borrowedRootIds = this.mounts.persistedIds();
-      return work(descriptors, async (rootId, subscribe) => {
-        this.assertSourceBorrow(rootId);
-        return this.borrowMountedRoot(rootId, subscribe);
-      });
-    });
-  }
-
   /**
-   * The borrower closed and retired its borrows: its next open restores and borrows what it
-   * finds. A factory reset's replacement window restores while the index is closed, and those
-   * restores must not each queue another reopen behind the reset's own.
+   * Mounts the folders the person has open, in their order, then the worktree ledger's
+   * worktrees, so a thread bound to one still runs (ADR-0034); a folder that cannot mount stays
+   * open. A worktree's descriptor says so: it is a thread's checkout, not an open folder.
    */
-  releaseRestoredRoots(): void {
-    this.borrowedRootIds = undefined;
+  restoreRoots(): Promise<RootDescriptor[]> {
+    return this.serializeMutation(() => this.restoreRootsOwned());
   }
 
-  private async restoreRootsOwned(persistPreferences: boolean): Promise<RootDescriptor[]> {
-    const entries = await readStoredRoots(this.storage);
+  private async restoreRootsOwned(): Promise<RootDescriptor[]> {
+    const open = await this.readOpenRoots();
+    const openIds = new Set(open.map((entry) => entry.rootId));
+    const worktrees = (await this.readWorktreeRoots()).filter(
+      (entry) => !openIds.has(entry.rootId)
+    );
+    const worktreeIds = new Set(worktrees.map((entry) => entry.rootId));
+    const entries = [...open, ...worktrees];
+    const describe = (
+      entry: RecordedWorkspaceRoot,
+      state: 'granted' | 'unknown'
+    ): RootDescriptor =>
+      worktreeIds.has(entry.rootId)
+        ? asWorktree(descriptorFor(entry, state))
+        : descriptorFor(entry, state);
     this.availability.retain(entries);
     const descriptors: RootDescriptor[] = [];
     const retainedRootIds = this.mounts.sessionMountIds();
     const retainedCanonicalPaths = new Set<string>();
-    const storedSurvivors: StoredWorkspaceRoot[] = [];
-    const recentRootCandidates: StoredWorkspaceRoot[] = [];
+    const duplicateRootIds: string[] = [];
+    const recentRootCandidates: RecordedWorkspaceRoot[] = [];
 
     for (const entry of entries) {
       // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
@@ -740,25 +559,24 @@ export class WorkspaceRootRegistry {
         this.mount(stored)
       );
       if (!mountResult.ok) {
-        descriptors.push(descriptorFor(entry, 'unknown'));
-        storedSurvivors.push(entry);
+        descriptors.push(describe(entry, 'unknown'));
         continue;
       }
       const { canonicalPath } = mountResult;
       if (retainedCanonicalPaths.has(pathKey(canonicalPath))) {
-        logger.warn('Discarding a duplicate persisted alias for the same workspace root', {
+        logger.warn('Closing a duplicate open alias for the same workspace root', {
           rootId: entry.rootId,
         });
         await this.unmountSourceRoot(entry.rootId);
+        duplicateRootIds.push(entry.rootId);
         continue;
       }
       // A session mint of the same canonical path is superseded by the persisted identity.
       await this.supersedeSessionMountsFor(entry, canonicalPath, retainedRootIds);
       retainedCanonicalPaths.add(pathKey(canonicalPath));
       retainedRootIds.add(entry.rootId);
-      storedSurvivors.push(entry);
       recentRootCandidates.push(entry);
-      descriptors.push(descriptorFor(entry, 'granted'));
+      descriptors.push(describe(entry, 'granted'));
     }
 
     for (const mountedRootId of this.mounts.ids()) {
@@ -766,25 +584,19 @@ export class WorkspaceRootRegistry {
         await this.unmountSourceRoot(mountedRootId);
       }
     }
-    if (persistPreferences && storedSurvivors.length !== entries.length) {
-      await writeStoredRoots(this.storage, storedSurvivors);
+    // A read-only catalog is served as it stands: nothing is recorded or converged.
+    if (this.readOnlyRefusal()) {
+      return descriptors;
     }
-    if (persistPreferences) {
-      await recordRestoredRecentRoots(this.storage, this.getRootsCatalog, recentRootCandidates);
-    }
+    // A worktree is re-registered for its thread but never joins Recents.
+    await recordRestoredRecentRoots(
+      this.recents,
+      this.getRootsCatalog,
+      recentRootCandidates.filter((entry) => !worktreeIds.has(entry.rootId))
+    );
     await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
-    await this.convergeDatabase();
+    await this.convergeDatabase(duplicateRootIds);
     return descriptors;
-  }
-
-  setLastFolder(folderPath: string): Promise<void> {
-    return this.serializeMutation(async () => {
-      const mounted = this.mounts.findByEitherPath(path.normalize(folderPath));
-      if (!(mounted && !this.mounts.isSessionMount(mounted.rootId))) {
-        throw new Error('The last-folder preference must reference a persisted mounted root.');
-      }
-      await writeLastFolder(this.storage, mounted.presentationPath);
-    });
   }
 
   setManagedWorktreeAuthorizer(authorizer: ManagedWorktreeAuthorizer | null): void {
@@ -795,46 +607,52 @@ export class WorkspaceRootRegistry {
     return cleanupWorkspaceRootResources(this.resources, rootIds, strict);
   }
 
-  private convergeDatabase(): Promise<void> {
+  /** The folders the person has open, in their order, as the catalog records them. */
+  private async readOpenRoots(): Promise<RecordedWorkspaceRoot[]> {
+    const { roots } = await (await this.getRootsCatalog()).workspaceRoots({
+      operation: 'list-open',
+    });
+    return roots.map(recordedRoot);
+  }
+
+  /** The roots of the worktree ledger's unarchived worktrees, as the catalog records them. */
+  private async readWorktreeRoots(): Promise<RecordedWorkspaceRoot[]> {
+    const { roots } = await (await this.getRootsCatalog()).workspaceRoots({
+      operation: 'list-worktrees',
+    });
+    return roots.map(recordedRoot);
+  }
+
+  /** Disconnects every record that is not mounted; `closeRootIds` also leave the open list. */
+  private convergeDatabase(closeRootIds: readonly string[] = []): Promise<void> {
     return convergeWorkspaceRootCatalog({
       cleanup: (rootIds) => this.cleanupRootResources(rootIds),
+      closeRootIds,
       getRootsCatalog: this.getRootsCatalog,
       isExpectedCatalogRefusal: this.isExpectedCatalogRefusal,
       mountedPaths: this.mounts.persistedMountedPaths(),
-      whenCatalogOpen: this.whenCatalogOpen,
     });
   }
 
-  private async findExistingStoredRoot(
-    entries: readonly StoredWorkspaceRoot[],
+  /** The recorded folder with this identity: the mounted match's own record wins. */
+  private findExistingStoredRoot(
+    entries: readonly RecordedWorkspaceRoot[],
     mountedMatch: MountedWorkspaceRoot | undefined,
     canonicalPath: string
-  ): Promise<StoredWorkspaceRoot | undefined> {
+  ): RecordedWorkspaceRoot | undefined {
     // The mounted match's own persisted entry (if any) always wins over an
-    // incidental canonicalization match on some other stored alias — order
-    // in `entries` must never decide which stored root a live mount owns.
+    // incidental identity match on some other stored alias — order in
+    // `entries` must never decide which stored root a live mount owns.
     if (mountedMatch) {
       const owned = entries.find((candidate) => candidate.rootId === mountedMatch.rootId);
       if (owned) {
         return owned;
       }
     }
-    for (const candidate of entries) {
-      if (this.mounts.has(candidate.rootId)) {
-        continue;
-      }
-      try {
-        if (pathsEqual(await this.resolveCanonicalRoot(candidate.path), canonicalPath)) {
-          return candidate;
-        }
-      } catch (error) {
-        logger.warn('Could not canonicalize a stored root while adding a folder', {
-          error,
-          rootId: candidate.rootId,
-        });
-      }
-    }
-    return;
+    return entries.find(
+      (candidate) =>
+        !this.mounts.has(candidate.rootId) && pathsEqual(candidate.canonicalPath, canonicalPath)
+    );
   }
 
   private async retireMount(rootId: string): Promise<void> {
@@ -878,36 +696,7 @@ export class WorkspaceRootRegistry {
     return canonicalPath;
   }
 
-  private async persistAddedRoot(
-    entries: readonly StoredWorkspaceRoot[],
-    existing: StoredWorkspaceRoot | undefined,
-    entry: StoredWorkspaceRoot
-  ): Promise<boolean> {
-    const nextEntries = existing
-      ? entries.map((candidate) => (candidate.rootId === existing.rootId ? entry : candidate))
-      : [...entries, entry];
-    try {
-      await writeStoredRoots(this.storage, nextEntries);
-      this.mounts.clearSessionMount(entry.rootId);
-      return true;
-    } catch (error) {
-      if (existing) {
-        logger.warn('Failed to refresh an already-persisted workspace root', {
-          error,
-          rootId: entry.rootId,
-        });
-        return true;
-      }
-      this.mounts.markSessionMount(entry.rootId);
-      logger.warn('Workspace root is mounted for this session but could not be persisted', {
-        error,
-        rootId: entry.rootId,
-      });
-      return false;
-    }
-  }
-
-  private async mount(entry: StoredWorkspaceRoot): Promise<string> {
+  private async mount(entry: RecordedWorkspaceRoot): Promise<string> {
     this.assertActive();
     // Mount-then-ask: the capability's handle-derived canonicalPath is the
     // identity authority; no pre-open path lookup vouches for it.
@@ -921,6 +710,11 @@ export class WorkspaceRootRegistry {
       this.assertActive();
     }
     try {
+      // The folder was pinned when it was granted; a reopen that resolves elsewhere (a symlink
+      // swapped in at its path) is refused, never adopted. It stays open, needing reconnect.
+      if (!pathsEqual(path.normalize(secureRoot.canonicalPath), entry.canonicalPath)) {
+        throw new WorkspaceRootIdentityChangedError();
+      }
       return await this.installSourceRoot(entry, secureRoot);
     } catch (error) {
       secureRoot.close();
@@ -946,36 +740,19 @@ export class WorkspaceRootRegistry {
     }
   }
 
-  private async resolveRead(
-    requestedPath: string,
-    rootId?: string
-  ): Promise<ResolvedWorkspaceRead> {
-    if (requestedPath.includes('\0')) {
-      throw refusalError(
-        'input',
-        'workspace.path-invalid',
-        'The requested path is invalid.',
-        'Choose a file inside a connected folder.'
-      );
+  /** A change to the open folders: refused up front while the catalog is read-only. */
+  private serializeWrite<T>(operation: () => Promise<T>): Promise<T> {
+    return this.serializeMutation(async () => {
+      this.assertWritable();
+      return await operation();
+    });
+  }
+
+  private assertWritable(): void {
+    const refusal = this.readOnlyRefusal();
+    if (refusal) {
+      throw refusal;
     }
-    if (rootId === undefined && !path.isAbsolute(requestedPath)) {
-      throw refusalError(
-        'input',
-        'workspace.root-id-invalid',
-        'A relative file read needs a connected folder identity.',
-        'Reconnect the folder and retry.'
-      );
-    }
-    const mounted = this.mounts.resolveForRead(requestedPath, rootId);
-    if (!mounted) {
-      throw refusalError(
-        rootId ? 'availability' : 'authorization',
-        rootId ? 'workspace.root-unmounted' : 'workspace.path-outside-root',
-        rootId ? 'Workspace root is not mounted.' : 'Path is outside every mounted workspace root.',
-        'Reconnect the folder or choose a file inside a connected folder.'
-      );
-    }
-    return resolveReadAgainstMountedRoot(requestedPath, mounted, this.resolveReadPath);
   }
 
   private serializeMutation<T>(

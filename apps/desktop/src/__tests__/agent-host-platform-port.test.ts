@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,12 +10,7 @@ import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { expect, it, vi } from 'vitest';
-import {
-  CancellationTokenSource,
-  ErrorCodes,
-  type MessageConnection,
-  ResponseError,
-} from 'vscode-jsonrpc/node';
+import { CancellationTokenSource, ResponseError } from 'vscode-jsonrpc/node';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
@@ -59,15 +53,6 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
   close(): void {
     this.port.close();
   }
-}
-/** Main lends a thread's bound workspace under the lease the host names. */
-function lending(
-  close = vi.fn(async () => undefined),
-  roots: Awaited<ReturnType<DesktopAdmissionReads['acquireWorkspace']>>['roots'] = []
-): DesktopAdmissionReads {
-  return mainReads({
-    acquireWorkspace: async () => ({ close, revalidate: async () => undefined, roots }),
-  });
 }
 function harness(
   admission: DesktopAdmissionReads,
@@ -255,19 +240,6 @@ it('a failed private close logs every inner failure in Main and sends the host t
   }
 });
 
-const BINDING = { operatingRootDisplayName: 'Bound', operatingRootId: 'root-bound' };
-
-/** The host borrows a thread's bound workspace for a run. */
-async function acquire(
-  client: MessageConnection,
-  token?: CancellationTokenSource['token']
-): Promise<unknown> {
-  const params = { binding: BINDING, leaseId: randomUUID(), threadId: 'thread' };
-  return token
-    ? client.sendRequest('platform/admission/workspace/acquire', params, token)
-    : client.sendRequest('platform/admission/workspace/acquire', params);
-}
-
 const DIAGNOSTIC_EVENTS = { filter: { limit: 5 }, threadId: 'thread' };
 
 /** A diagnostics read that holds until its physical tail is released. */
@@ -284,15 +256,14 @@ function heldRead(tail: Promise<void>) {
   return { diagnostics, entered: entered.promise };
 }
 
-it('utility loss joins an in-flight Main read’s physical tail before returning the workspace lease', async () => {
+it('utility loss joins an in-flight Main read’s physical tail before closing borrowed capabilities', async () => {
   const physicalTail = Promise.withResolvers<void>();
   const serverClosed = Promise.withResolvers<void>();
   const release = vi.fn(async () => undefined);
   const read = heldRead(physicalTail.promise);
-  const h = harness(lending(release), undefined, { diagnostics: read.diagnostics });
+  const h = harness(mainReads(), release, { diagnostics: read.diagnostics });
   h.server.onClose(() => serverClosed.resolve());
   try {
-    await acquire(h.client);
     const reading = h.client.sendRequest('desktop-read/diagnostics/events', DIAGNOSTIC_EVENTS);
     reading.catch(() => undefined);
     await read.entered;
@@ -320,11 +291,10 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
   const joined = Promise.withResolvers<void>();
   const close = vi.fn(async () => undefined);
   const read = heldRead(joined.promise);
-  const h = harness(lending(close), undefined, { diagnostics: read.diagnostics });
+  const h = harness(mainReads(), close, { diagnostics: read.diagnostics });
   const cancellation = new CancellationTokenSource();
   let settled = false;
   try {
-    await acquire(h.client);
     const reading = h.client.sendRequest(
       'desktop-read/diagnostics/events',
       DIAGNOSTIC_EVENTS,
@@ -347,80 +317,6 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
   } finally {
     joined.resolve();
     cancellation.dispose();
-    h.destroy();
-  }
-});
-
-it('an aborted acquisition returns the arriving borrow and keeps its cleanup failure', async () => {
-  const entered = Promise.withResolvers<AbortSignal>();
-  const release = Promise.withResolvers<void>();
-  const cleanup = new Error('fixture cleanup failure');
-  const close = vi.fn(async () => {
-    throw cleanup;
-  });
-  const h = harness(
-    mainReads({
-      acquireWorkspace: async ({ signal }) => {
-        entered.resolve(signal);
-        await release.promise;
-        return { close, revalidate: async () => undefined, roots: [] };
-      },
-    })
-  );
-  const cancellation = new CancellationTokenSource();
-  const records: LogRecord[] = [];
-  const unsubscribe = addLogListener((record) => records.push(record));
-  try {
-    const acquired = acquire(h.client, cancellation.token);
-    acquired.catch(() => undefined);
-    const signal = await entered.promise;
-    cancellation.cancel();
-    // Main learns the host stopped waiting while the borrow is still arriving.
-    await vi.waitFor(() => expect(signal.aborted).toBe(true));
-    expect(close).not.toHaveBeenCalled();
-    release.resolve();
-    const failure = await acquired.catch((cause: unknown) => cause);
-    expect(failure).toBeInstanceOf(ResponseError);
-    const response = failure as ResponseError<unknown>;
-    expect(response.code).toBe(ErrorCodes.InternalError);
-    expect(response.data).toEqual({ ...INTERNAL_FAULT, correlationId: expect.any(String) });
-    const correlationId = (response.data as { correlationId: string }).correlationId;
-    const fields = records
-      .flatMap((record) => record.args)
-      .find(
-        (arg) =>
-          typeof arg === 'object' &&
-          arg !== null &&
-          'correlationId' in arg &&
-          arg.correlationId === correlationId
-      ) as { error: { name: string; errors: readonly { message: string }[] } };
-    expect(fields.error.name).toBe('AggregateError');
-    expect(fields.error.errors.map((error) => error.message)).toEqual([
-      signal.reason.message,
-      cleanup.message,
-    ]);
-    expect(close).toHaveBeenCalledTimes(1);
-    // The refused borrow is not held: closing Main returns nothing twice.
-    await h.owner.close();
-    expect(close).toHaveBeenCalledTimes(1);
-  } finally {
-    unsubscribe();
-    release.resolve();
-    cancellation.dispose();
-    h.destroy();
-  }
-});
-
-it('a borrow whose roots cannot cross the wire is returned before the acquisition fails', async () => {
-  const close = vi.fn(async () => undefined);
-  // The wire's root ids are nonempty: this root cannot cross to the host.
-  const h = harness(lending(close, [{ displayName: 'Bound', path: '/bound', rootId: '' }]));
-  try {
-    await expect(acquire(h.client)).rejects.toBeInstanceOf(Error);
-    expect(close).toHaveBeenCalledTimes(1);
-    await h.owner.close();
-    expect(close).toHaveBeenCalledTimes(1);
-  } finally {
     h.destroy();
   }
 });

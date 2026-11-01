@@ -44,6 +44,11 @@ export interface StoredWorkspaceRoot {
   readonly rootId: string;
 }
 
+/** A folder as the catalog records it: with the identity it was granted under. */
+export interface RecordedWorkspaceRoot extends StoredWorkspaceRoot {
+  readonly canonicalPath: string;
+}
+
 export interface MountedWorkspaceRoot {
   readonly canonicalPath: string;
   readonly presentationPath: string;
@@ -65,26 +70,17 @@ export interface WorkspaceRootRegistryOptions {
   readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
   readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
-  /**
-   * A roots-catalog refusal its owner expects, such as the desktop quitting
-   * while the catalog's profile is retired. Convergence logs it at info.
-   */
+  /** A roots-catalog refusal its owner expects, such as the host closing. Convergence logs it at info. */
   readonly isExpectedCatalogRefusal?: (error: unknown) => boolean;
-  /**
-   * A restore mounted a different set of persisted roots than the source borrower last
-   * restored and borrowed (`borrowRestoredRoots`), as after storage rewritten out of band or a
-   * folder that came back. The borrower re-reads them, as it does after a removal.
-   */
-  readonly onRestoredRootsChanged?: (() => void) | undefined;
   readonly onRootGranted?: (grantedPath: string) => void;
   readonly pathExists: (rootPath: string) => Promise<boolean>;
-  readonly resolveCanonicalRoot?: (rootPath: string) => Promise<string>;
-  readonly resolveReadPath?: (requestedPath: string, canonicalRoot: string) => Promise<string>;
-  readonly storage: WorkspaceRootStorage;
   /**
-   * Resolves once the roots catalog's profile is open. The desktop factory reset holds it from
-   * data deletion until its resume reopens the profile, and rejects it if the reset never
-   * reopens. Convergence waits for it before reading the catalog.
+   * The catalog's refusal while it is read-only (a damaged store), or null while it is writable.
+   * A read-only registry mounts and serves the open folders without recording or converging
+   * anything, and refuses every change with this refusal before it touches a folder.
    */
-  readonly whenCatalogOpen?: () => Promise<void>;
+  readonly readOnlyRefusal?: () => Error | null;
+  /** The recent-folders ledger: the grants that let a folder reopen without the picker. */
+  readonly recents: WorkspaceRootStorage;
+  readonly resolveReadPath?: (requestedPath: string, canonicalRoot: string) => Promise<string>;
 }

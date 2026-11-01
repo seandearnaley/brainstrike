@@ -1,12 +1,7 @@
 const REQUIRED_VISIBLE_UI_BRIDGE_PATHS = [
   ['agentHost', 'onPrepareClose'],
   ['desktopLifecycle', 'requestReload'],
-  ['electronAPI', 'fileSystem', 'requestDirectoryAccess'],
-  ['electronAPI', 'fileSystem', 'readDirectory'],
-  ['electronAPI', 'fileSystem', 'readFile'],
-  ['electronAPI', 'fileSystem', 'exists'],
-  ['electronAPI', 'fileSystem', 'restoreLastFolder'],
-  ['electronAPI', 'fileSystem', 'saveLastFolder'],
+  ['electronAPI', 'fileSystem', 'deleteRootData'],
   ['electronAPI', 'factoryReset', 'resetLocal'],
   ['electronAPI', 'content', 'clear'],
   ['modelCatalog', 'read'],

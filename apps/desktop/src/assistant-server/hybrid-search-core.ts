@@ -13,6 +13,7 @@ import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { BoundaryFailureError, ToolInputError } from '@brainstrike/assistant-contract';
 import { resolveOptionalWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
+import { checkoutFileRecords } from './checkout-read-through';
 import {
   resolveAdmittedRetrievalRoots,
   resolveNativeAssistantCollection,
@@ -148,7 +149,9 @@ export async function runHybridSearchWith(
     const native = await searchNativeAssistantChunks({
       ...input,
       admittedWorkspaceRootIds: admittedRootIds,
+      boundRootId: runtimeData?.boundWorkspaceRootId,
       capability: nativeIndexSearch,
+      checkout: dependencies.checkout,
       embeddingSet,
       embeddingSetId,
       mode: 'hybrid',
@@ -159,7 +162,11 @@ export async function runHybridSearchWith(
       threshold: input.vectorThreshold ?? DEFAULT_VECTOR_THRESHOLD,
       workspaceRoots: runtimeData?.workspaceRoots,
     });
-    const fileMap = await store.fileRecords(native.hits.map(({ hit }) => hit.fileId));
+    const fileMap = checkoutFileRecords(
+      await store.fileRecords(native.hits.map(({ hit }) => hit.fileId)),
+      native.hits.map(({ hit }) => hit),
+      native.readThrough
+    );
     assertAdmittedRetrievalFileRoots(
       fileMap,
       native.hits.map(({ hit }) => hit.fileId),

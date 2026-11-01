@@ -299,6 +299,31 @@ export async function readHostThreadTree(userDataDir: string): Promise<readonly 
   }
 }
 
+/**
+ * The folders open in a host Root's workspace, in their order: the host's root registry commits
+ * them (`roots.open_position`), so a test outside test mode reads them from its own disposable
+ * profile's store.
+ */
+export function readOpenWorkspaceFolders(
+  hostRoot: string
+): readonly { id: string; path: string; status: string }[] {
+  const db = new DatabaseSync(path.join(hostRoot, 'state.db'), { readOnly: true });
+  try {
+    return db
+      .prepare(
+        'SELECT id, path, status FROM roots WHERE open_position IS NOT NULL ORDER BY open_position'
+      )
+      .all()
+      .map((row) => ({
+        id: String(row['id']),
+        path: String(row['path']),
+        status: String(row['status']),
+      }));
+  } finally {
+    db.close();
+  }
+}
+
 /** Read-only acceptance receipts from the existing host writer, never a renderer SQL capability. */
 export async function readHostRootRecords(
   userDataDir: string

@@ -28,6 +28,7 @@ import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
   GIT_WORKSPACE_RESULT_SCHEMAS,
 } from './protocol-git-workspace.ts';
+import { HOOK_TRUST_METHOD_SCHEMAS, HOOK_TRUST_RESULT_SCHEMAS } from './protocol-hook-trust.ts';
 import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.ts';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -71,6 +72,14 @@ import {
   WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
 } from './protocol-workspace-discovery.ts';
 import {
+  WORKSPACE_FILES_METHOD_SCHEMAS,
+  WORKSPACE_FILES_RESULT_SCHEMAS,
+} from './protocol-workspace-files.ts';
+import {
+  WORKSPACE_ROOTS_METHOD_SCHEMAS,
+  WORKSPACE_ROOTS_RESULT_SCHEMAS,
+} from './protocol-workspace-roots.ts';
+import {
   RunVerdictDetailSchema,
   RunVerdictSchema,
   RunVerdictSourceSchema,
@@ -89,6 +98,7 @@ import {
 export * from './mcp-authority-wire.ts';
 export * from './protocol-canvas.ts';
 export * from './protocol-git-workspace.ts';
+export * from './protocol-hook-trust.ts';
 export * from './protocol-mcp-content.ts';
 export * from './protocol-mcp-presentation.ts';
 export * from './protocol-mcp-settings.ts';
@@ -100,65 +110,13 @@ export * from './protocol-selection.ts';
 export * from './protocol-state-health.ts';
 export * from './protocol-terminals.ts';
 export * from './protocol-thread-workspace.ts';
+export * from './protocol-version.ts';
 export * from './protocol-workspace-discovery.ts';
+export * from './protocol-workspace-files.ts';
+export * from './protocol-workspace-roots.ts';
 export * from './run-wire.ts';
 export * from './workspace-wire.ts';
-// 11: committed branch history (`run/start` parentMessageId, `run/regenerate`, and the explicit
-// branch links they commit on `run.started`), thread presentation (`thread/update`,
-// `thread.updated`: title, colour and icon, also in `thread/list`), withheld observational memory,
-// tool catalog IDs on committed tool events, image attachments on a user message (`run/start` and
-// `run.started`), committed workspace edit attribution, `checkpoint/revert`, per-thread tool state,
-// the prompt breakdown on `provider.request.prepared`, `run/steer` (end the active run at its next
-// step boundary), run attempt records, `mcp.tools.unavailable`, committed with `run.started` for
-// each configured MCP server whose tools the run proceeds without, permission grants answered with
-// an approval (`interaction/respond` grant, `permission.granted`, the request's risk), plan mode
-// (`run/start`, `run/regenerate` and `run.started` planMode), child threads (BST-1932):
-// `thread.started` with a delegation `origin`, the child results a `run.started` delivers, an
-// approval the root's policy answered, and `thread/children` (a thread's direct children),
-// lifecycle hook context (`hook.context`), host-owned project hook trust (`hooks/trust`,
-// `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory readiness for the next run),
-// run_python's network consent (an `interaction.requested` of kind `network`, answered by
-// `interaction/resume` with `{ action }` and, when the policy also asked, an approval grant), a
-// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`), restore to before a
-// message (`thread/rewind/preview`, `thread/rewind`, `thread/rewind/redo`; `thread.rewind.started`,
-// `thread.rewound`, `thread.rewind.redo.started`, `thread.rewind.redone`,
-// `thread.rewind.interrupted`), the hook files a run did not load (`hooks.skipped`), `ledger/read`
-// (every thread's runs and costed provider calls, as Core folds them), the threads `thread/delete`
-// deleted (`threadIds`), and the desktop's MCP settings (`mcp/config/*`, `mcp/extensions/*`,
-// `mcp/tools/*`, `mcp/settings/subscribe` and its `mcp/settings/event`) with server status and
-// control (`mcp/status/read`, `mcp/server/control`, the event's `status` variant), and its MCP
-// presentations (`mcp/tasks/list`, `mcp/tasks/act`, `mcp/elicitation/settle`,
-// `mcp/presentation/subscribe` and its `mcp/presentation/event`), content browsing
-// (`mcp/content/complete`, `mcp/content/prompt`, `mcp/content/read`), an MCP App's own tool calls
-// (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning thread's policy, and
-// `worktree.created` (a worktree a call's shell command made, which the desktop adopted), and a
-// provider request's tool calls (the breakdown's `toolCallsTokens` and `toolCallsByTool`, and the
-// request's `toolCallWindow`), `state/health/read` (BST-1880), and `thread/memory/read`'s
-// observation lifecycle, reflection threshold and memory models (BST-2201). These additions are
-// optional fields, new variants and new methods, so a v11 reader that uses none of them sees
-// nothing new.
-// v12 (2026-10-18): `mcp/config/read` returns the config text's `revision` (a SHA-256 of its
-// content). `mcp/config/write` requires `baseRevision` and refuses a stale base with
-// `conflict: true` instead of overwriting. Write and catalog-install successes return the new
-// `revision`. The required parameter is why this is a version bump and not a v11 addition.
-// Config status carries `watchError` while the config file watcher cannot run. Additions since:
-// `memory/embedder/probe` (BST-2227), a new method, so a v12 client that never calls it sees
-// nothing new; `memory.recall.failed` (a turn's failed semantic recall, which the turn answers
-// without), a new variant.
-// v13 (2026-10-22): ChatGPT subscription sign-in is removed: `auth/connect`, `auth/cancel`,
-// `auth/disconnect`, `auth/status`, `auth/verify` and the host-to-client `client/open-external`
-// are gone, and a login credential is an API key or an AWS credential. Additions since:
-// `workspace/skills` and `workspace/commands` (ADR-0029 stage 2), new methods.
-// v14 (2026-10-26): `forge/*` and the git history, staging, pull and diff methods are gone.
-// Additions since: `canvas/list` and `canvas/read` (the Artifacts gallery), and workspace trust
-// (`workspace/trust`, `workspace/trust/read`, `workspace/trust/list`; ADR-0032), new methods.
-// v15 (2026-10-31): `terminal/*` and `command-sessions/*` results are the one boundary
-// envelope: a failure is a `BoundaryFailure` instead of a string or a `{ code, message }` pair,
-// and a call with nothing to return answers `value: null`. The required field is why this is a
-// version bump.
-// v16 (2026-10-31): `auth/clear` is gone; a factory reset deletes the credential store (ADR-0015).
-// Additions since: `workspace/personas` and `workspace/context-files` (ADR-0029 stage 2a).
-export const AGENT_HOST_PROTOCOL_VERSION = 16;
+
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
@@ -368,20 +326,10 @@ export const HostRunSnapshotSchema = hostRunSnapshotSchema(() => Schema.MutableJ
 export type HostRunSnapshot = (typeof HostRunSnapshotSchema)['Type'];
 const LoginCredential = Schema.declare<ProviderCredential>(isProviderCredential);
 const Provider = { provider: Id };
-/** A workspace root by its durable ID: the desktop's DB `roots.id`. */
-const HookRoot = { rootId: Id };
-/**
- * A root's trusted project hooks: its absolute path and the SHA-256 of
- * `<path>/.brainstrike/hooks.json`'s raw bytes. The host is the only writer.
- */
-export const HostHookTrustSchema = Schema.Struct({
-  path: Schema.String.check(Schema.isMinCodePoints(1)),
-  sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
-});
-export type HostHookTrust = (typeof HostHookTrustSchema)['Type'];
 export const HOST_METHOD_SCHEMAS = {
   ...CANVAS_METHOD_SCHEMAS,
   ...GIT_WORKSPACE_METHOD_SCHEMAS,
+  ...HOOK_TRUST_METHOD_SCHEMAS,
   ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
@@ -403,14 +351,6 @@ export const HOST_METHOD_SCHEMAS = {
     entryId: Schema.optional(Id),
     force: Schema.optional(Schema.Boolean),
   }),
-  /**
-   * Trust a root's project hooks at the hash its reviewer saw. The host
-   * re-hashes the file and refuses a mismatch; a later edit needs a new trust.
-   */
-  'hooks/trust': Schema.Struct({ ...HookRoot, ...HostHookTrustSchema.fields }),
-  'hooks/trust/read': Schema.Struct(HookRoot),
-  /** Revoke a root's trust; removing the root revokes it too. */
-  'hooks/untrust': Schema.Struct(HookRoot),
   /** Provider availability: the host's configured keys, unreadable entries and env-file failures. */
   'host/status': Schema.Record(Schema.String, Schema.Never),
   'host/stop': Schema.Record(Schema.String, Schema.Never),
@@ -535,6 +475,8 @@ export const HOST_METHOD_SCHEMAS = {
   ...REWIND_METHOD_SCHEMAS,
   ...SEARCH_METHOD_SCHEMAS,
   ...WORKSPACE_DISCOVERY_METHOD_SCHEMAS,
+  ...WORKSPACE_FILES_METHOD_SCHEMAS,
+  ...WORKSPACE_ROOTS_METHOD_SCHEMAS,
   ...SELECTION_METHOD_SCHEMAS,
   'thread/start': Schema.Struct(Command),
   'thread/update': Schema.Struct({ ...Command, ...Thread, ...ThreadPresentation }).check(
@@ -969,6 +911,7 @@ export type HostLogRow = (typeof HostLogRowSchema)['Type'];
 export const HOST_RESULT_SCHEMAS = {
   ...CANVAS_RESULT_SCHEMAS,
   ...GIT_WORKSPACE_RESULT_SCHEMAS,
+  ...HOOK_TRUST_RESULT_SCHEMAS,
   ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
@@ -980,10 +923,6 @@ export const HOST_RESULT_SCHEMAS = {
   'checkpoint/revert': Schema.Struct({
     outcomes: Schema.mutable(Schema.Array(HostEditRevertOutcomeSchema)),
   }),
-  'hooks/trust': Schema.Struct({ trusted: Schema.Literal(true) }),
-  'hooks/trust/read': Schema.Struct({ trust: Schema.NullOr(HostHookTrustSchema) }),
-  /** Whether a trust was revoked; false when the root had none. */
-  'hooks/untrust': Schema.Struct({ untrusted: Schema.Boolean }),
   // The renderer validates the availability payload strictly (use-assistant-availability).
   'host/status': Schema.Record(Schema.String, Schema.MutableJson),
   'host/stop': Schema.Struct({
@@ -1083,6 +1022,8 @@ export const HOST_RESULT_SCHEMAS = {
   ...REWIND_RESULT_SCHEMAS,
   ...SEARCH_RESULT_SCHEMAS,
   ...WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
+  ...WORKSPACE_FILES_RESULT_SCHEMAS,
+  ...WORKSPACE_ROOTS_RESULT_SCHEMAS,
   ...SELECTION_RESULT_SCHEMAS,
   'thread/start': Schema.Struct(Thread),
   'thread/update': Schema.Struct({ accepted: Schema.Literal(true) }),

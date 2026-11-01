@@ -33,6 +33,7 @@ test('host retrieval reads canonical collection/source/root facts without the re
     workspaceRoots: async () => ({
       roots: [
         {
+          canonicalPath: '/root',
           createdAt: 0,
           displayName: 'My folder',
           id: 'root',

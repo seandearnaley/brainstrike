@@ -62,12 +62,12 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     const subscribe = vi.fn<SubscribeMountedWorkspaceRoot>().mockRejectedValueOnce(failure);
     const root = secureRoot(WORKSPACE);
     const f = await mounted(root);
-    const lease = await f.registry.borrowSourceRoot(f.rootId, subscribe);
+    const lease = await f.registry.borrowSourceRootForPath(WORKSPACE, subscribe);
     await expect(lease.subscribe(vi.fn(), vi.fn(), vi.fn(), context())).rejects.toBe(failure);
     await expect(f.registry.removeRoot(f.rootId)).rejects.toThrow('retirement failed');
     expect(retire).toHaveBeenCalledTimes(1);
     expect(root.close).not.toHaveBeenCalled();
-    await expect(f.registry.borrowSourceRoot(f.rootId, subscriber())).rejects.toThrow();
+    await expect(f.registry.borrowSourceRootForPath(WORKSPACE, subscriber())).rejects.toThrow();
     await expect(f.registry.borrowSourceRootForPath(WORKSPACE, subscriber())).rejects.toThrow();
     let disconnected = false;
     const retry = f.registry.removeRoot(f.rootId).then(() => {
@@ -106,7 +106,7 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
   it('uses the same opened capability and exact bounded relative operations', async () => {
     const root = secureRoot(WORKSPACE);
     const { createSecureRoot, registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
 
     expect(lease.rootId).toBe(rootId);
     expect(lease.canonicalPath).toBe(root.canonicalPath);
@@ -120,24 +120,16 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
 
     await lease.retire();
     expect(root.close).not.toHaveBeenCalled();
-    await expect(registry.readFile(path.join(WORKSPACE, 'src', 'file.txt'))).resolves.toBe(
-      'inside'
-    );
-  });
-
-  it('refuses a missing or path-shaped identity without opening another root', async () => {
-    const { registry, createSecureRoot } = await mounted();
-    await expect(registry.borrowSourceRoot(WORKSPACE, subscriber())).rejects.toThrow();
-    await expect(
-      registry.borrowSourceRoot('b67ef28a-aab8-4ab1-a7d9-3c003184d869', subscriber())
-    ).rejects.toThrow('not mounted');
-    expect(createSecureRoot).toHaveBeenCalledTimes(1);
+    // The mount outlives the retired lease: a new borrow reads through it.
+    const next = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
+    await expect(next.readFile('src/file.txt', 37, context())).resolves.toBeDefined();
+    await next.retire();
   });
 
   it('refuses malformed relative paths and out-of-policy bounds before native I/O', async () => {
     const root = secureRoot(WORKSPACE);
-    const { registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const { registry } = await mounted(root);
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
     for (const relativePath of [
       '/outside',
       '../secret',
@@ -172,8 +164,8 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
         return nativeRead.promise;
       }),
     };
-    const { registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const { registry } = await mounted(root);
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
     const controller = new AbortController();
     const canceled = new Error('request canceled');
     const outcome = lease
@@ -207,8 +199,8 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
         });
       }),
     };
-    const { registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const { registry } = await mounted(root);
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
     const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
     await started.promise;
     let retired = false;
@@ -237,7 +229,7 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
       }),
     };
     const { registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
     const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
     await started.promise;
     const removal = registry.removeRoot(rootId);
@@ -275,7 +267,7 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
       }),
     };
     const { registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
     const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
     await started.promise;
     // The deletion owns the mount before it retires the lease: the read finishes in between.
@@ -306,7 +298,7 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
       }),
     };
     const { registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
     const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
     await started.promise;
     let disconnected = false;
@@ -321,10 +313,13 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     expect(await outcome).toBeInstanceOf(Error);
     await disconnect;
     expect(root.close).toHaveBeenCalledTimes(1);
-    await expect(registry.borrowSourceRoot(rootId, subscriber())).rejects.toThrow('not mounted');
+    await expect(registry.borrowSourceRootForPath(WORKSPACE, subscriber())).rejects.toThrow(
+      'exact mounted root'
+    );
   });
 
-  it.each(['replacement', 'unmount'] as const)(
+  // A reopen whose path resolves elsewhere is refused, which retires the mount like a removal.
+  it.each(['changed identity', 'unmount'] as const)(
     'refuses a path borrow resolving after %s captured its retirement snapshot',
     async (retirementKind) => {
       const readStarted = Promise.withResolvers<void>();
@@ -340,13 +335,15 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
         }),
       };
       const replacement = secureRoot(REPLACEMENT);
+      // The first path borrow resolves at once; the late one is held mid-resolution.
+      let workspaceResolutions = 0;
       const registry = createRegistry({
         createSecureRoot: vi
           .fn<(rootPath: string) => Promise<SecureWorkspaceRoot>>()
           .mockResolvedValueOnce(original)
           .mockResolvedValueOnce(replacement),
         resolveReadPath: async (requestedPath) => {
-          if (requestedPath === WORKSPACE) {
+          if (requestedPath === WORKSPACE && ++workspaceResolutions === 2) {
             pathStarted.resolve();
             return resolvedPath.promise;
           }
@@ -354,7 +351,7 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
         },
       });
       const { rootId } = await registry.addRoot(rootHandle(WORKSPACE));
-      const admitted = await registry.borrowSourceRoot(rootId, subscriber());
+      const admitted = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
       const read = admitted.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
       await readStarted.promise;
       const lateBorrow = registry
@@ -362,24 +359,27 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
         .catch((error: unknown) => error);
       await pathStarted.promise;
       const retirement =
-        retirementKind === 'replacement' ? registry.restoreRoots() : registry.removeRoot(rootId);
+        retirementKind === 'changed identity'
+          ? registry.restoreRoots()
+          : registry.removeRoot(rootId);
       await waitForAbort(admitted.signal);
       try {
         resolvedPath.resolve(WORKSPACE);
         expect(await lateBorrow).toBeInstanceOf(Error);
         expect(original.close).not.toHaveBeenCalled();
-        expect(replacement.close).not.toHaveBeenCalled();
+        // The reopen that resolved elsewhere was closed at once, never adopted.
+        expect(replacement.close).toHaveBeenCalledTimes(
+          retirementKind === 'changed identity' ? 1 : 0
+        );
         nativeRead.resolve({ content: Buffer.from('retired bytes'), status: 'ok' });
         expect(await read).toBeInstanceOf(Error);
         await retirement;
         expect(original.close).toHaveBeenCalledTimes(1);
-        if (retirementKind === 'replacement') {
-          const fresh = await registry.borrowSourceRoot(rootId, subscriber());
-          expect(fresh.generation).not.toBe(admitted.generation);
-          await expect(fresh.readFile('inside.txt', 37, context())).resolves.toMatchObject({
-            status: 'ok',
-          });
-          expect(replacement.close).not.toHaveBeenCalled();
+        if (retirementKind === 'changed identity') {
+          await expect(registry.borrowSourceRootForPath(REPLACEMENT, subscriber())).rejects.toThrow(
+            'exact mounted root'
+          );
+          expect(registry.mountedRoots()).toEqual([]);
         }
       } finally {
         resolvedPath.resolve(WORKSPACE);
@@ -391,7 +391,7 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     }
   );
 
-  it('retains an unchanged incumbent but fences a replacement mount with a fresh generation', async () => {
+  it('retains an unchanged incumbent, and retires it when a reopen resolves elsewhere', async () => {
     const original = secureRoot(WORKSPACE);
     const redundant = secureRoot(WORKSPACE);
     const replacement = secureRoot(REPLACEMENT);
@@ -404,20 +404,20 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
       createSecureRoot,
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
     });
-    const descriptor = await registry.addRoot(rootHandle(WORKSPACE));
-    const first = await registry.borrowSourceRoot(descriptor.rootId, subscriber());
+    await registry.addRoot(rootHandle(WORKSPACE));
+    const first = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
     await registry.addRoot(rootHandle(WORKSPACE));
     expect(first.signal.aborted).toBe(false);
     expect(redundant.close).toHaveBeenCalledTimes(1);
     await registry.restoreRoots();
     expect(first.signal.aborted).toBe(true);
     await expect(first.readFile('inside.txt', 37, context())).rejects.toThrow();
-    const second = await registry.borrowSourceRoot(descriptor.rootId, subscriber());
-    expect(second.generation).not.toBe(first.generation);
-    expect(second.canonicalPath).toBe(REPLACEMENT);
+    await expect(registry.borrowSourceRootForPath(REPLACEMENT, subscriber())).rejects.toThrow(
+      'exact mounted root'
+    );
     expect(original.close).toHaveBeenCalledTimes(1);
-    await second.retire();
-    expect(replacement.close).not.toHaveBeenCalled();
+    expect(replacement.close).toHaveBeenCalledTimes(1);
+    await registry.dispose();
   });
 
   it('retains failed watch retirement for an explicit retry and suppresses late callbacks', async () => {
@@ -431,8 +431,8 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
       return { close };
     });
     const root = secureRoot(WORKSPACE);
-    const { registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscribe);
+    const { registry } = await mounted(root);
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscribe);
     const batch = vi.fn();
     await lease.subscribe(batch, vi.fn(), vi.fn(), context());
     onBatch?.([]);
@@ -443,7 +443,9 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     expect(root.close).not.toHaveBeenCalled();
     await lease.retire();
     expect(close).toHaveBeenCalledTimes(2);
-    await expect(registry.readFile(path.join(WORKSPACE, 'inside.txt'))).resolves.toBe('inside');
+    const next = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
+    await expect(next.readFile('inside.txt', 37, context())).resolves.toBeDefined();
+    await next.retire();
   });
 
   it('closing one subscription suppresses its queued callbacks while retaining the mounted lease', async () => {
@@ -452,8 +454,8 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
       onBatch = batch;
       return { close: vi.fn(async () => undefined) };
     });
-    const { registry, rootId } = await mounted();
-    const lease = await registry.borrowSourceRoot(rootId, subscribe);
+    const { registry } = await mounted();
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscribe);
     const batch = vi.fn();
     const subscription = await lease.subscribe(batch, vi.fn(), vi.fn(), context());
     onBatch?.([]);
@@ -478,8 +480,8 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
         return nativeRead.promise;
       }),
     };
-    const { registry, rootId } = await mounted(root);
-    const lease = await registry.borrowSourceRoot(rootId, subscriber());
+    const { registry } = await mounted(root);
+    const lease = await registry.borrowSourceRootForPath(WORKSPACE, subscriber());
     const outcome = lease.readFile('inside.txt', 37, context()).catch((error: unknown) => error);
     await started.promise;
     let disposed = false;

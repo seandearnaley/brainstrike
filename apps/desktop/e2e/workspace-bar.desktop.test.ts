@@ -9,13 +9,14 @@
  *
  * Isolation: each test gets its OWN freshly-created temp folder(s) (a real
  * `git init`'d repo where the checkout matters), and the Electron fixture
- * derives a per-test `userDataDir`, so main's `rootsList`/`recentRootsList`
- * ledgers can never leak between tests. Every temp dir is tracked and removed
+ * derives a per-test `userDataDir`, so the host's open and recent folders can
+ * never leak between tests. Every temp dir is tracked and removed
  * in `afterAll`.
  *
  * Root setup uses the shared `seedRoot` helper (`e2e/utils/seed-root.ts`):
- * seed Main's ledgers (the real paths) through the E2E-only seeding IPC, then reload — main restores the root and the
- * renderer reconciles the durable `roots` row the bar resolves against.
+ * seed the host's open folders (the real paths) through its E2E-only
+ * `workspace/roots/seed-for-e2e`, then reload — the host restores the root and
+ * the bar resolves against its durable `roots` row.
  */
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -80,7 +81,7 @@ async function openComposer(page: Page): Promise<void> {
 
 /**
  * The folder "Add folder…" resolves to. The OS picker cannot open headlessly,
- * so `fs:addRoot` returns this REAL directory (the real adapter still stats
+ * so the picker answers this REAL directory (the real adapter still stats
  * it) instead of a dialog — the add path under test stays unmocked. It must be
  * set BEFORE any Electron app in this file launches, because the fixture
  * starts the app while resolving the `window` fixture, i.e. before a test body
@@ -174,11 +175,9 @@ test.describe('Workspace bar (desktop)', () => {
     test.setTimeout(150_000);
     const primary = freshRepo('primary');
     const recent = freshNonGitDir('recent');
-    // The recents grant is seeded in the SAME write as `rootsList`, before the
-    // only reload: the boot that reload triggers runs `restoreRoots` →
-    // `recordRecentRootIfNew`, a read-modify-write on `recentRootsList`, and a
-    // seed landing after it would race that write. Being present in the ledger
-    // is the ONLY thing that authorizes the picker-less `fs:addRootByPath`.
+    // The recents grant is seeded in the same request as the open folder, before
+    // the only reload. Being present in the recent-folders ledger is the ONLY
+    // thing that authorizes the picker-less `workspace/roots/add`.
     await seedRoot(page, primary, { recentPaths: [recent] });
     await openComposer(page);
 

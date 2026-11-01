@@ -13,10 +13,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
-  AssistantDetailLevelProvider,
-} from '../assistant-detail-level-context';
+import { setAssistantDetailLevel } from '../assistant-detail-level-store.ts';
 import { AssistantRunEventProvider } from '../assistant-run-event-context';
 import { AssistantRunTimelineDataPart } from '../assistant-run-timeline-data-part';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
@@ -63,13 +60,11 @@ function renderHydrated(
   messages: ThreadMessageLike[],
   detail: 'standard' | 'developer' = 'standard'
 ) {
-  window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, detail);
+  setAssistantDetailLevel(detail);
   return render(
-    <AssistantDetailLevelProvider>
-      <Harness adapter={neverRun} initialMessages={messages}>
-        {withRunEventContext}
-      </Harness>
-    </AssistantDetailLevelProvider>
+    <Harness adapter={neverRun} initialMessages={messages}>
+      {withRunEventContext}
+    </Harness>
   );
 }
 
@@ -412,11 +407,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
       },
     };
     const user = userEvent.setup();
-    const { container } = render(
-      <AssistantDetailLevelProvider>
-        <Harness adapter={adapter}>{withRunEventContext}</Harness>
-      </AssistantDetailLevelProvider>
-    );
+    const { container } = render(<Harness adapter={adapter}>{withRunEventContext}</Harness>);
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     await screen.findByText('I found the issue.');

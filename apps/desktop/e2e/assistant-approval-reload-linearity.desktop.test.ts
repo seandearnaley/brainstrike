@@ -19,7 +19,6 @@ import {
   ensureAssistantShellVisible,
   ensureMockWorkspaceOpen,
 } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { type ModelProviderRequest, startModelProviderShim } from './utils/model-provider-shim';
 import { startThread } from './utils/new-thread';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -59,8 +58,6 @@ function lastUserMessage({ messages }: ModelProviderRequest): string {
 
 /** Mocked workspace files for the cases that need no real workspace root. */
 async function prepareMockWorkspace(window: Page): Promise<void> {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
 }
 

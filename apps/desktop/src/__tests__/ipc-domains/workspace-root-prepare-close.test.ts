@@ -3,20 +3,16 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import {
   createRegistry,
-  createRegistryCatalogRequest,
-  createStorage,
+  openRootsCatalog,
   rootHandle,
   secureRoot,
 } from './workspace-root-registry-test-helpers';
 
 test('terminal preparation joins the complete admitted restore batch before catalog retirement', async () => {
-  const storage = createStorage({
-    rootsList: JSON.stringify([
-      { addedAt: 1, path: '/alpha', rootId: 'root-alpha' },
-      { addedAt: 2, path: '/beta', rootId: 'root-beta' },
-    ]),
-  });
-  const request = createRegistryCatalogRequest();
+  const request = openRootsCatalog([
+    { addedAt: 1, path: '/alpha', rootId: 'root-alpha' },
+    { addedAt: 2, path: '/beta', rootId: 'root-beta' },
+  ]);
   const original = request.getMockImplementation();
   if (!original) {
     throw new Error('Missing fixture catalog');
@@ -41,7 +37,6 @@ test('terminal preparation joins the complete admitted restore batch before cata
         }
         return handle;
       },
-      storage,
     },
     request
   );

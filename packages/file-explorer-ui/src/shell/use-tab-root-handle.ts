@@ -2,7 +2,7 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useMemo } from 'react';
 import { useFileSystem } from './file-system-provider';
 
-type RootDirectoryHandleEntry = ReturnType<typeof useFileSystem>['rootDirectoryHandles'][number];
+type RootDirectoryHandleEntry = ReturnType<typeof useFileSystem>['mountedRootHandles'][number];
 
 /**
  * Resolve a file tab's workspace root (BST-1269/BST-1319): decode the tab's
@@ -15,7 +15,7 @@ export function useTabRootHandle(compositeKey: string): {
   folderId: string | null;
   handle: RootDirectoryHandleEntry | null;
 } {
-  const { rootDirectoryHandles, rootIdByPath } = useFileSystem();
+  const { mountedRootHandles, rootIdByPath } = useFileSystem();
   const folderId = useMemo(() => {
     try {
       return decodeFileSelection(compositeKey).folderId;
@@ -24,7 +24,7 @@ export function useTabRootHandle(compositeKey: string): {
     }
   }, [compositeKey]);
   const handle =
-    rootDirectoryHandles.find(
+    mountedRootHandles.find(
       (candidate) =>
         (candidate.rootId ?? rootIdByPath?.get(candidate.path) ?? candidate.path) === folderId
     ) ?? null;

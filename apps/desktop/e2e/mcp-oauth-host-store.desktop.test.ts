@@ -61,7 +61,7 @@ async function openTools(page: Page): Promise<void> {
   await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
 }
 
-async function configureServer(page: Page, url: string): Promise<void> {
+async function configureServer(page: Page, server: Record<string, unknown>): Promise<void> {
   await new HomePage(page).openSettings();
   await new SettingsPage(page).openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
@@ -70,14 +70,7 @@ async function configureServer(page: Page, url: string): Promise<void> {
   await editor.fill(
     JSON.stringify({
       servers: [
-        {
-          auth: { type: 'oauth-user' },
-          name: SERVER_ID,
-          protocol: '2026-07-28',
-          startup: 'authentication-required',
-          transport: 'streamable-http',
-          url,
-        },
+        { name: SERVER_ID, protocol: '2026-07-28', transport: 'streamable-http', ...server },
       ],
     })
   );
@@ -105,7 +98,11 @@ test('the agent host stores an MCP OAuth grant in its profile store and reconnec
   const fixture = await startOAuthFixture();
   try {
     await installBrowserStandIn(electron);
-    await configureServer(page, fixture.manifest.url);
+    await configureServer(page, {
+      auth: { type: 'oauth-user' },
+      startup: 'authentication-required',
+      url: fixture.manifest.url,
+    });
     const row = page.getByTestId(`mcp-server-row-${SERVER_ID}`);
     await page
       .getByRole('button', { exact: true, name: `Connect ${SERVER_ID}` })
@@ -137,6 +134,36 @@ test('the agent host stores an MCP OAuth grant in its profile store and reconnec
       restarted.getByRole('button', { exact: true, name: `Connect ${SERVER_ID}` })
     ).toHaveCount(0);
     expect(Object.keys(await readOAuthRecords(userDataDir))).toEqual(Object.keys(records));
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Connect signs a server added by URL alone in with OAuth, and its config entry records it', async ({
+  electron,
+  window: page,
+}) => {
+  test.setTimeout(240_000);
+  const fixture = await startOAuthFixture();
+  try {
+    await installBrowserStandIn(electron);
+    // No auth block: the server's 401 is the only sign that it wants OAuth.
+    await configureServer(page, { url: fixture.manifest.url });
+    const row = page.getByTestId(`mcp-server-row-${SERVER_ID}`);
+    await expect(row).toContainText('authentication-required', { timeout: 60_000 });
+
+    await page
+      .getByRole('button', { exact: true, name: `Connect ${SERVER_ID}` })
+      .click({ timeout: 60_000 });
+
+    await expect(row).toContainText('OAuth credentials stored', { timeout: 60_000 });
+    await expect(row).not.toContainText('MCP lifecycle control failed');
+    const config: unknown = JSON.parse(
+      await readFile(path.join(electron.getUserDataDir(), 'mcp', 'mcp.config.json'), 'utf8')
+    );
+    expect(config).toEqual({
+      servers: [expect.objectContaining({ auth: { type: 'oauth-user' }, name: SERVER_ID })],
+    });
   } finally {
     await fixture.close();
   }

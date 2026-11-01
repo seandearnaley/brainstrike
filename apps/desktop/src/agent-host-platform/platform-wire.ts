@@ -5,7 +5,6 @@ import {
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
-import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import {
@@ -49,10 +48,7 @@ export const PlatformNativeChildSchema = Schema.Struct({
   pid: Schema.Int.check(Schema.isGreaterThan(0)),
   start: Schema.String.check(Schema.isMinCodePoints(1)),
 });
-export const PlatformWorkspaceBindingRequestSchema = Schema.Struct({
-  binding: ThreadWorkspaceBindingSchema,
-  threadId: Id,
-});
+
 /** The indexer's one vector profile rule validates a recall embedding profile. */
 const PlatformVectorProfileSchema = Schema.declare(
   (input: unknown): input is VectorProfile => {
@@ -158,12 +154,20 @@ export const PlatformSelectionSchema = Schema.Struct({
  * answers the vector, or its refusal as data (`RefusableOutcomeSchema`, BST-1996).
  */
 export const PlatformEmbeddingQuerySchema = Schema.Struct({ request: QueryEmbeddingPayloadSchema });
-/** A worktree an agent created, mounted by Main as a workspace folder (ADR-0028 step 3). */
-export const PlatformWorktreeFolderSchema = Schema.Struct({ path: Id });
-export const PlatformWorktreeFolderResultSchema = Schema.Struct({
-  displayName: Schema.String,
-  path: Id,
-  rootId: Id,
+/** ADR-0029 stage 4: a folder the host opened that the focused window should show. */
+export const PlatformShowFolderSchema = Schema.Struct({ path: Id });
+/** Main's native folder picker: the chosen folder, or the person's cancel. */
+export const PlatformPickFolderResultSchema = Schema.Union(
+  [Schema.Struct({ path: Id }), Schema.Struct({ cancelled: Schema.Literal(true) })],
+  { mode: 'oneOf' }
+);
+/**
+ * The host's open folders changed: Main's native index re-reads the live roots, and the OS
+ * recent documents and File > Open Recent follow the recent-folders ledger.
+ */
+export const PlatformRootsChangedSchema = Schema.Struct({
+  grantedPath: Schema.optionalKey(Id),
+  recentPaths: Schema.Array(Id),
 });
 /** A root a rewind restored, for Main's native index to rescan. */
 export const PlatformIndexRefreshSchema = Schema.Struct({ rootId: Id });
@@ -196,13 +200,3 @@ export const PlatformMemoryVectorsSchema = Schema.Struct({
   settings: PlatformMemorySettingsSchema,
 });
 export const PlatformMemoryVectorsResultSchema = Schema.NullOr(PlatformVectorProfileSchema);
-export const PlatformWorkspaceLeaseSchema = Schema.Struct({
-  leaseId: Schema.String.check(Schema.isUUID()),
-});
-export const PlatformWorkspaceAcquireSchema = Schema.Struct({
-  ...PlatformWorkspaceLeaseSchema.fields,
-  ...{ binding: ThreadWorkspaceBindingSchema, threadId: Id },
-});
-export const PlatformWorkspaceAcquireResultSchema = Schema.Struct({
-  roots: CliWorkspaceRootsSchema,
-});

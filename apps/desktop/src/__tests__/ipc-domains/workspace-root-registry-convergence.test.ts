@@ -1,8 +1,9 @@
-import path from 'node:path';
+import {
+  WorkspaceRootRegistry,
+  type WorkspaceRootStorage,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
-import { WorkspaceRootRegistry } from '../../ipc-domains/workspace-root-registry';
 
 const records: LogRecord[] = [];
 const removeListener = addLogListener((record) => {
@@ -18,14 +19,17 @@ afterEach(() => {
 });
 afterAll(removeListener);
 
-function createStorage(): ElectronStorageAdapter {
+function createStorage(): WorkspaceRootStorage {
   const values = new Map<string, string>();
   return {
     getItem: vi.fn(async (key: string) => values.get(key) ?? null),
+    removeItem: vi.fn(async (key: string) => {
+      values.delete(key);
+    }),
     setItem: vi.fn(async (key: string, value: string) => {
       values.set(key, value);
     }),
-  } as unknown as ElectronStorageAdapter;
+  };
 }
 
 it.each([
@@ -38,15 +42,26 @@ it.each([
     const registry = new WorkspaceRootRegistry({
       disposeCommandSessionsForRoot: vi.fn(async () => 0),
       evictLspServersForRoot: vi.fn(async () => undefined),
-      getRootsCatalog: () => Promise.reject(refused),
+      // The open folders and worktrees read; the convergence after the restore is refused.
+      getRootsCatalog: async () => ({
+        workspaceRoots: async (request) => {
+          if (
+            request.operation === 'list-open' ||
+            request.operation === 'list-worktrees' ||
+            request.operation === 'list'
+          ) {
+            return { roots: [] };
+          }
+          throw refused;
+        },
+      }),
       isExpectedCatalogRefusal: (error) => expected && error === refused,
       pathExists: async () => true,
-      resolveCanonicalRoot: async (rootPath) => path.normalize(rootPath),
-      storage: createStorage(),
+      recents: createStorage(),
     });
 
-    // Removing an unknown root still converges the catalog, which refuses.
-    await registry.removeRoot('unknown-root');
+    // A restore converges the catalog to the mounted folders, which the catalog refuses.
+    await registry.restoreRoots();
 
     expect(records.map((record) => [record.level, record.message])).toEqual([[level, message]]);
   }

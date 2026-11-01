@@ -447,7 +447,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     }
 
     // CRITICAL: Wait for file system access loading to complete.
-    // On desktop, restoreLastFolder is called on startup and sets isAccessLoading=true.
+    // On desktop, restoreRoots is called on startup and sets isAccessLoading=true.
     // We must not clear state until that restore attempt completes.
     if (isAccessLoading) {
       return;

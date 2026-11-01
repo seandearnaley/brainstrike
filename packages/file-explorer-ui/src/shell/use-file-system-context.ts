@@ -30,6 +30,7 @@ import {
 } from './file-explorer-provider';
 import { createFileExplorerRefreshEvent } from './file-explorer-refresh-event';
 import { useOptionalRootDataDeletion } from './root-data-deletion-context';
+import { threadCheckoutView, useThreadCheckout } from './thread-checkout-context';
 import { useFactoryResetWatchFence } from './use-factory-reset-watch-fence';
 
 const logger = createLogger('FileSystemContext');
@@ -392,7 +393,7 @@ export function useFileSystemInstance() {
 
   // CRITICAL: Sync isAccessLoading from core hook to store.
   // The stale state clearing effect in use-file-explorer-context checks the STORE's
-  // isAccessLoading value. On Electron, restoreLastFolder sets the core hook's local
+  // isAccessLoading value. On startup, restoreRoots sets the core hook's local
   // isAccessLoading but not the store's. Without this sync, the stale clearing effect
   // sees store.isAccessLoading=false and incorrectly clears selections/expansions.
   useEffect(() => {
@@ -646,6 +647,26 @@ export function useFileSystemInstance() {
     roots: watcherRoots,
   });
 
+  // ADR-0034: the folders as the person sees them. A worktree is never an open folder: the
+  // active thread's worktree stands in for the folder it was made from. Watchers above keep
+  // every mounted root, so a checkout switch needs no re-watch.
+  const threadCheckout = useThreadCheckout();
+  const view = useMemo(
+    () =>
+      threadCheckoutView(coreApi.rootDirectoryHandles, coreApi.rootDirectoryHandle, threadCheckout),
+    [coreApi.rootDirectoryHandles, coreApi.rootDirectoryHandle, threadCheckout]
+  );
+  // Focus follows the view, so the store's current folder is a folder the person can see. The
+  // view changes with the active thread, which another store owns, so no handler here sees it.
+  const viewFocusedRootId = view.focused?.rootId;
+  const { setFocusedRoot } = coreApi;
+  // biome-ignore lint/plugin: syncs this store's focus to the thread store's selection
+  useEffect(() => {
+    if (viewFocusedRootId && viewFocusedRootId !== coreApi.rootDirectoryHandle?.rootId) {
+      setFocusedRoot(viewFocusedRootId);
+    }
+  }, [coreApi.rootDirectoryHandle?.rootId, setFocusedRoot, viewFocusedRootId]);
+
   // Memoize the return object. Every member — data values and functions
   // alike — is a referentially-stable dependency (coreApi members via the
   // core hook's own memo; locally-defined wrappers via useCallback above),
@@ -664,15 +685,20 @@ export function useFileSystemInstance() {
       isFileSystemAccessSupported: coreApi.isFileSystemAccessSupported,
       /** Desktop-only companion to addRootDirectoryByPath; see its note. */
       listRecentRoots: coreApi.listRecentRoots,
+      /**
+       * Every mounted root, every thread's worktree included. Resolve a root by id here (a tab,
+       * a change, the index); show folders from `rootDirectoryHandles`.
+       */
+      mountedRootHandles: coreApi.rootDirectoryHandles,
       /** Shared refresh signal for supported flows that may mutate Recents. */
       recentRootsRevision: coreApi.recentRootsRevision,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
       /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
       removeRootDirectory,
-      rootDirectoryHandle: coreApi.rootDirectoryHandle,
-      /** All active root handles (multi-root, Phase 4+). */
-      rootDirectoryHandles: coreApi.rootDirectoryHandles,
+      rootDirectoryHandle: view.focused,
+      /** The open folders, with the active thread's worktree in place of its folder (ADR-0034). */
+      rootDirectoryHandles: view.handles,
       /**
        * Maps handle.path → RootId UUID (storage v5).
        * Consumers use this to resolve the durable identity for a given handle path.
@@ -700,7 +726,7 @@ export function useFileSystemInstance() {
     [
       coreApi.addRootDirectory,
       coreApi.addRootDirectoryByPath,
-      coreApi.rootDirectoryHandle,
+      view,
       coreApi.rootDirectoryHandles,
       coreApi.isAccessLoading,
       coreApi.isFileSystemAccessSupported,

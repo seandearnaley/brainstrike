@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import * as playwrightEnvironment from '@brainstrike/config/playwright-environment';
-import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
@@ -69,15 +68,6 @@ const ignoredElectronOutputPatterns = [
   'this app to unnecessary security risks.',
   "Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
   '(Use `Electron --trace-warnings ...` to show where the warning was created)',
-  '🔸 Setting up file system API mocks...',
-  '🔸 Mocked requestDirectoryAccess called',
-  '🔸 Mocked exists called with path:',
-  '🔸 Mocked readDirectory called with path:',
-  '🔸 Mocked readFile called with path:',
-  '🔸 Mocked writeFile called with path:',
-  '🔸 Mocked watchDirectory called with path:',
-  '🔸 Mocked unwatch called',
-  '🔸 Mocked showDirectoryPicker called',
   '🔸 Mocked showOpenDialog called with options:',
   '🔸 Mocked showSaveDialog called with options:',
   '🔸 Mocked showMessageBox called with options:',
@@ -889,24 +879,25 @@ export async function reloadClearedRenderer(page: Page, reason: string): Promise
 
 export async function resetAppState(window: Page): Promise<void> {
   await noteRendererReloadIntent(window, 'playwright-reset-state-clear');
+  // The renderer installs its test hooks once it has mounted.
+  await window.waitForFunction(() => '__brainstrikeTestHooks__' in globalThis);
 
   await window.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();
 
-    // Clear Main's root ledgers so no "last folder" state persists between tests.
-    const fileSystem = (
+    // Clear the host's open and recent folders so no folder state persists between tests.
+    const hooks = (
       globalThis as typeof globalThis & {
-        electronAPI?: { fileSystem?: { clearLedgersForE2e?: () => Promise<void> } };
+        __brainstrikeTestHooks__?: {
+          requestAgentHost?: (method: string, params: unknown) => Promise<unknown>;
+        };
       }
-    ).electronAPI?.fileSystem;
-    if (!fileSystem?.clearLedgersForE2e) {
-      throw new Error(
-        'electronAPI.fileSystem.clearLedgersForE2e is unavailable during desktop E2E reset'
-      );
+    ).__brainstrikeTestHooks__;
+    if (!hooks?.requestAgentHost) {
+      throw new Error('The renderer test hook requestAgentHost is unavailable during reset');
     }
-
-    await fileSystem.clearLedgersForE2e();
+    await hooks.requestAgentHost('workspace/roots/seed-for-e2e', { recentPaths: [], roots: [] });
   });
 }
 
@@ -969,100 +960,6 @@ export async function setupDialogMocking(app: ElectronApplication): Promise<void
         if (verboseLogging) {
           console.log('🔸 Mocked showCertificateTrustDialog called with args:', args);
         }
-      };
-    }
-  }, isVerboseE2eLoggingEnabled);
-}
-
-export async function mockFileSystemOperations(window: Page): Promise<void> {
-  await window.evaluate((verboseLogging: boolean) => {
-    const electronAPI = (
-      window as unknown as {
-        electronAPI?: { fileSystem?: Record<string, unknown> };
-      }
-    ).electronAPI;
-
-    if (electronAPI?.fileSystem) {
-      if (verboseLogging) {
-        console.log('🔸 Setting up file system API mocks...');
-      }
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.requestDirectoryAccess = async () => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked requestDirectoryAccess called');
-        }
-        return {
-          ok: true,
-          value: {
-            id: 'mock-directory-handle',
-            kind: 'directory',
-            name: 'mock-test-directory',
-            path: '/mock/test/directory',
-            platform: 'electron',
-            type: 'directory',
-          },
-        };
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.exists = async (p: string) => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked exists called with path:', p);
-        }
-        // Main spells mock paths natively (`C:\mock\…` on Windows), while this
-        // mock's own handles use `/mock/…`: match the `mock` segment in either.
-        return { ok: true, value: p.replaceAll('\\', '/').includes('/mock/') };
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.readDirectory = async (_p: string) => {
-        const rootPath = '/mock/test/directory';
-        if (verboseLogging) {
-          console.log('🔸 Mocked readDirectory called with path:', _p);
-        }
-        return { ok: true, value: getTestDirectoryStructure(rootPath) };
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.readFile = async (_p: string) => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked readFile called with path:', _p);
-        }
-        return { ok: true, value: 'Mock file content for testing' };
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.writeFile = async (p: string, content: string) => {
-        if (verboseLogging) {
-          console.log(
-            '🔸 Mocked writeFile called with path:',
-            p,
-            'content length:',
-            content.length
-          );
-        }
-        return true;
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.watchDirectory = async (p: string) => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked watchDirectory called with path:', p);
-        }
-        return {
-          unwatch: () => {
-            if (verboseLogging) {
-              console.log('🔸 Mocked unwatch called');
-            }
-          },
-        };
-      };
-    } else if (verboseLogging) {
-      console.log('🔸 No electronAPI.fileSystem found to mock');
-    }
-
-    const w = window as unknown as { showDirectoryPicker?: () => Promise<unknown> };
-    if (w.showDirectoryPicker) {
-      w.showDirectoryPicker = async () => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked showDirectoryPicker called');
-        }
-        return { kind: 'directory', name: 'mock-directory' };
       };
     }
   }, isVerboseE2eLoggingEnabled);

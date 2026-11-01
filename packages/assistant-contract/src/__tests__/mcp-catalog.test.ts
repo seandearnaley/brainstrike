@@ -20,8 +20,14 @@ function entry(id: string) {
 }
 
 describe('MCP catalog', () => {
-  it('lists Linear, GitHub, Atlassian and GitLab once each, by valid server name', () => {
-    expect(MCP_CATALOG.map(({ id }) => id)).toEqual(['linear', 'github', 'atlassian', 'gitlab']);
+  it('lists Linear, GitHub, Atlassian, GitLab and Suno once each, by valid server name', () => {
+    expect(MCP_CATALOG.map(({ id }) => id)).toEqual([
+      'linear',
+      'github',
+      'atlassian',
+      'gitlab',
+      'suno',
+    ]);
     for (const { id } of MCP_CATALOG) {
       expect(parseConfiguredMcpServerId(id)).toBe(id);
     }
@@ -106,6 +112,10 @@ describe('MCP catalog', () => {
       ['gitlab', 'read-write', true, 'GitLab signs in with OAuth and takes no token.'],
       ['gitlab', 'read-only', false, 'GitLab has no read-only endpoint.'],
       ['gitlab', 'read-only', true, 'GitLab has no read-only endpoint.'],
+      ['suno', 'read-write', false, undefined],
+      ['suno', 'read-write', true, 'Suno signs in with OAuth and takes no token.'],
+      ['suno', 'read-only', false, 'Suno has no read-only endpoint.'],
+      ['suno', 'read-only', true, 'Suno has no read-only endpoint.'],
     ]);
   });
 });

@@ -15,7 +15,6 @@ import type { FixtureDefinition } from '../dev-fixture-types.js';
 import { DEV_INLINE_FIXTURE } from '../fixtures/dev-inline-fixture.js';
 
 interface AdapterOptions {
-  includeRestoreLastFolder?: boolean;
   includeStreaming?: boolean;
   includeWatchDirectory?: boolean;
 }
@@ -41,18 +40,11 @@ const NULL_SHORTHAND_FIXTURE: FixtureDefinition = {
 };
 
 function createBaseAdapter(options: AdapterOptions = {}): FileSystemAdapter {
-  const includeRestoreLastFolder = options.includeRestoreLastFolder ?? true;
   const includeStreaming = options.includeStreaming ?? true;
   const realRoot: DirectoryHandle = {
     kind: 'directory',
     name: 'real-root',
     path: '/real-root',
-    platform: 'electron',
-  };
-  const restoredRoot: DirectoryHandle = {
-    kind: 'directory',
-    name: 'restored',
-    path: '/restored',
     platform: 'electron',
   };
 
@@ -67,10 +59,6 @@ function createBaseAdapter(options: AdapterOptions = {}): FileSystemAdapter {
     adapter.readDirectoryStreaming = vi.fn(async () => {
       throw new Error('readDirectoryStreaming should not be called when fixture is active');
     });
-  }
-
-  if (includeRestoreLastFolder) {
-    adapter.restoreLastFolder = vi.fn(async () => restoredRoot);
   }
 
   if (options.includeWatchDirectory) {
@@ -457,24 +445,6 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     ).rejects.toBe(abortReason);
 
     expect(streamed).toEqual([]);
-  });
-
-  it('restores folders from fixture when active and delegates when inactive', async () => {
-    const base = createBaseAdapter({ includeRestoreLastFolder: true });
-    const baseRestore = base.restoreLastFolder as unknown as ReturnType<typeof vi.fn>;
-    const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
-
-    const root = await adapter.loadInlineFixture(FIXTURE);
-    await expect(adapter.restoreLastFolder?.()).resolves.toEqual(root);
-
-    await adapter.clearInlineFixture();
-    await expect(adapter.restoreLastFolder?.()).resolves.toEqual({
-      kind: 'directory',
-      name: 'restored',
-      path: '/restored',
-      platform: 'electron',
-    });
-    expect(baseRestore).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the same rootId when reloading the same fixture root name', async () => {

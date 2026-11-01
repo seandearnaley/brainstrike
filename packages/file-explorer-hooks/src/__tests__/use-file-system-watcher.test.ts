@@ -52,7 +52,6 @@ function makeAdapter(supportsWatch = true): FileSystemAdapter & {
     readFile: vi.fn(),
     requestDirectoryAccess: vi.fn(),
     requestPermission: vi.fn(),
-    restoreLastFolder: vi.fn(),
     watchCalls,
   } as unknown as FileSystemAdapter & { watchCalls: WatchCall[] };
 

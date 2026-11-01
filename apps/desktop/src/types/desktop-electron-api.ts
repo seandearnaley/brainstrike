@@ -1,67 +1,9 @@
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type {
-  ContentClearCapability,
-  FileSystemWatchEvent,
-  IFileNode,
-  RecentRootEntry,
-  RootDescriptor,
-  WatcherHealthEvent,
-  WatcherHealthTransition,
-} from '@brainstrike/types';
+import type { ContentClearCapability } from '@brainstrike/types';
 import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
-/** E2E only: seeds and clears Main's workspace ledgers. Absent outside test mode. */
-export interface DesktopWorkspaceLedgersForE2e {
-  clearLedgersForE2e?: () => Promise<void>;
-  seedLedgerForE2e?: (key: string, value: string) => Promise<void>;
-}
-
+/** The agent host owns the workspace's folders (ADR-0029 stage 4); Main keeps the index's deletion. */
 export interface DesktopFileSystemBridge {
-  addRoot: () => Promise<RootDescriptor>;
-  addRootByPath: (path: string) => Promise<RootDescriptor>;
   deleteRootData: (rootId: string) => Promise<void>;
-  exists: (path: string) => Promise<boolean>;
-  getWatcherTelemetry: () => Promise<{
-    activeWatchers: number;
-    batches: number;
-    cleanups: number;
-    degradedTransitions: number;
-    duplicateRegistrations: number;
-    events: number;
-    failures: number;
-    healthPushes: number;
-    lastSetupLatencyMs: number;
-    retries: number;
-    setupLatencySamples: number;
-  }>;
-  listRecentRoots: () => Promise<readonly RecentRootEntry[]>;
-  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void;
-  onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void;
-  readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
-  readFile: (handle: FileHandle) => Promise<string>;
-  readFileByAbsolutePath: (
-    absolutePath: string,
-    rootPath: string,
-    rootId: string
-  ) => Promise<string>;
-  readFileByPath: (absolutePath: string) => Promise<string>;
-  removeRoot: (rootId: string) => Promise<void>;
-  requestDirectoryAccess: () => Promise<DirectoryHandle>;
-  restoreLastFolder: () => Promise<DirectoryHandle | null>;
-  restoreRoots: () => Promise<RootDescriptor[]>;
-  retryWatch: (watchId: string) => Promise<
-    | { retried: true }
-    | {
-        reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown';
-        retried: false;
-        retryAfterMs?: number;
-      }
-  >;
-  saveLastFolder: (folderPath: string) => Promise<void>;
-  unwatchDirectory: (watchId: string) => Promise<void>;
-  watchDirectory: (
-    handle: DirectoryHandle
-  ) => Promise<{ health?: WatcherHealthTransition; watchId: string }>;
 }
 
 interface DesktopFactoryResetBridge {
@@ -72,7 +14,7 @@ interface DesktopFactoryResetBridge {
 export interface VisibleDesktopElectronApi {
   content: ContentClearCapability;
   factoryReset: DesktopFactoryResetBridge;
-  fileSystem: DesktopFileSystemTransport & DesktopWorkspaceLedgersForE2e;
+  fileSystem: DesktopFileSystemTransport;
   getUserDataPath: () => Promise<string>;
 }
 

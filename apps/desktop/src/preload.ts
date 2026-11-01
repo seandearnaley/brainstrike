@@ -16,7 +16,7 @@ import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
-import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
+import { fileSystemContract } from './ipc-domains/file-system.contract';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
@@ -129,18 +129,7 @@ if (shouldExposeBridge('electronAPI')) {
       ...createIpcBridge(ipcRenderer, factoryResetContract),
       unavailableReason: getFactoryResetUnavailableReason(process.platform),
     },
-    fileSystem: {
-      ...createIpcBridge(ipcRenderer, fileSystemContract),
-      ...createIpcBridge(ipcRenderer, fileSystemWatchContract),
-      ...(DESKTOP_TEST_MODE
-        ? {
-            clearLedgersForE2e: () =>
-              ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.clearLedgersForE2e),
-            seedLedgerForE2e: (key: string, value: string) =>
-              ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.seedLedgerForE2e, key, value),
-          }
-        : {}),
-    },
+    fileSystem: createIpcBridge(ipcRenderer, fileSystemContract),
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
   } satisfies VisibleDesktopElectronApi;

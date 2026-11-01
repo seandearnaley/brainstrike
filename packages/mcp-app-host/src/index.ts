@@ -41,6 +41,7 @@ export {
   parseMcpAppResourceMeta,
   parseMcpAppResourceUri,
   parseMcpAppToolMeta,
+  readMcpAppToolResourceUri,
 } from './metadata.ts';
 export {
   type McpAppAudience,

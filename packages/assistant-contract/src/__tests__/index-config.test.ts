@@ -24,7 +24,6 @@ describe('index config', () => {
       model: null,
       paused: false,
       policy: 'balanced',
-      worktrees: {},
     });
   });
 

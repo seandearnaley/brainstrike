@@ -4,19 +4,11 @@ import { createApplicationIpcDomain } from '../../ipc-handlers';
 const ipcOwners = vi.hoisted(() => ({
   clear: vi.fn(async () => undefined),
   files: vi.fn(async () => undefined),
-  ledgers: vi.fn(async () => undefined),
   path: vi.fn(async () => undefined),
   reset: vi.fn(async () => undefined),
-  watch: vi.fn(async () => undefined),
 }));
 vi.mock('../../ipc-domains/file-system-ipc', () => ({
-  createFileSystemIpcDomain: vi.fn(() => ({ close: ipcOwners.files, roots: {} })),
-}));
-vi.mock('../../ipc-domains/file-system-watch-ipc', () => ({
-  registerFileSystemWatchIpcHandlers: vi.fn(() => ipcOwners.watch),
-}));
-vi.mock('../../ipc-domains/workspace-ledgers-e2e-ipc', () => ({
-  registerWorkspaceLedgersE2eHandlers: vi.fn(() => ipcOwners.ledgers),
+  registerFileSystemIpcHandlers: vi.fn(() => ipcOwners.files),
 }));
 vi.mock('../../ipc-factory-reset', () => ({
   registerContentClearIpcHandlers: vi.fn(() => ipcOwners.clear),
@@ -26,22 +18,18 @@ vi.mock('../../ipc-factory-reset', () => ({
 
 describe('runtime host boundary', () => {
   it('joins every owned application IPC domain even when one retirement fails', async () => {
-    const failure = new Error('Source lease retirement failed');
+    const failure = new Error('Files IPC retirement failed');
     ipcOwners.files.mockRejectedValueOnce(failure);
-    const domain = createApplicationIpcDomain(
-      {} as Parameters<typeof createApplicationIpcDomain>[0],
-      {} as Parameters<typeof createApplicationIpcDomain>[1],
-      {
-        getRootsCatalog: async () => {
-          throw new Error('Unexpected catalog read during registration');
-        },
-        getUserDataPath: () => '/disposable/profile',
-        onClearContent: async () => {
-          throw new Error('Unexpected content clear');
-        },
-        onResetLocal: async () => ({ success: true }),
-      }
-    );
+    const domain = createApplicationIpcDomain({
+      getUserDataPath: () => '/disposable/profile',
+      onClearContent: async () => {
+        throw new Error('Unexpected content clear');
+      },
+      onResetLocal: async () => ({ success: true }),
+      readMountedRoots: async () => {
+        throw new Error('Unexpected host mounts read during registration');
+      },
+    });
     await expect(domain.close()).rejects.toMatchObject({ errors: [failure] });
     for (const owner of Object.values(ipcOwners)) {
       expect(owner).toHaveBeenCalledOnce();

@@ -4,7 +4,8 @@ import type { McpCredentialReferenceSchema } from './mcp-host.ts';
 /**
  * Curated official remote MCP servers that Settings installs in one click
  * (docs/superpowers/specs/2026-10-18-mcp-catalog-design.md). Endpoints and auth
- * were verified against each vendor on 2026-10-18; re-verify before changing one.
+ * were verified against each vendor on 2026-10-18 (Suno on 2026-11-01);
+ * re-verify before changing one.
  */
 export const MCP_CATALOG_ACCESS = ['read-write', 'read-only'] as const;
 export type McpCatalogAccess = (typeof MCP_CATALOG_ACCESS)[number];
@@ -73,6 +74,14 @@ export const MCP_CATALOG: readonly McpCatalogEntry[] = [
     id: 'gitlab',
     name: 'GitLab',
     urls: { 'read-write': 'https://gitlab.com/api/v4/mcp' },
+  },
+  {
+    auth: 'oauth',
+    description: 'Songs, covers, speech and playlists in your Suno library.',
+    docsUrl: 'https://suno.com/mcp',
+    id: 'suno',
+    name: 'Suno',
+    urls: { 'read-write': 'https://api.suno.com/mcp' },
   },
 ];
 

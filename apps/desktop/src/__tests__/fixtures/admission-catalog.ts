@@ -20,6 +20,7 @@ export function admissionCatalogFixture(
   const workspaceRoots = vi.fn(async () => ({
     roots: readRoots().map((root) => ({
       ...root,
+      canonicalPath: root.path,
       createdAt: 1,
       kind: 'path' as const,
       lastVerifiedAt: 1,

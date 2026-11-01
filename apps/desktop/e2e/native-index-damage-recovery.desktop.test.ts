@@ -15,6 +15,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { withAppHost } from './utils/agent-host-log';
+import { restoreWorkspaceFolders } from './utils/agent-host-request';
 import { readIndexConfig } from './utils/index-config';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { profileFile } from './utils/profile-files';
@@ -67,19 +68,12 @@ function corruptIndexLeaf(file: string): { index: string; offset: number } {
   return { index, offset };
 }
 
-/** The registered folders, as Main restores them. */
+/** The open folders, as the host's root registry restores them. */
 async function restoredRoots(page: Page): Promise<unknown> {
-  return await page.evaluate(async () => {
-    const files = window.electronAPI?.fileSystem;
-    if (!files) {
-      throw new Error('The desktop file system bridge is unavailable');
-    }
-    const reply = await files.restoreRoots();
-    if (!reply.ok) {
-      throw new Error(reply.error.message);
-    }
-    return reply.value.map((root) => ({ id: root.rootId, path: root.handle.path }));
-  });
+  return (await restoreWorkspaceFolders(page)).map((root) => ({
+    id: root.rootId,
+    path: root.path,
+  }));
 }
 
 async function searchFor(page: Page, text: string) {

@@ -97,30 +97,16 @@ async function run(mode: string) {
 }
 
 describe('real Electron desktop reset lease adapter', () => {
-  it.each(['success', 'storage-failure'])(
-    'joins the actual native utility and protects profile ancestry through %s',
-    async (mode) => {
-      const { profile, report } = await run(mode);
-      expect(report.result).toEqual({ success: true });
-      expect(report.events.indexOf('native-stop')).toBeLessThan(report.events.indexOf('guard'));
-      expect(report.events.indexOf('profile')).toBeLessThan(report.events.indexOf('storage'));
-      expect(report.events.indexOf('storage')).toBeLessThan(report.events.indexOf('renderer'));
-      expect(processStartTime(report.nativePid)).not.toBe(report.nativeStart);
-      expect(RootLock.inspect(profile)?.owner.released).toBe(true);
-      if (mode === 'storage-failure') {
-        expect(report.first).toEqual({
-          message: 'Injected Electron storage failure',
-          success: false,
-        });
-        expect(report.retained).toBe(true);
-        expect(report.events.filter((event) => event === 'guard')).toHaveLength(1);
-        expect(report.events.filter((event) => event === 'profile')).toHaveLength(2);
-      }
-      const contender = await RootLock.acquire(profile);
-      contender.release();
-    },
-    60_000
-  );
+  it('joins the actual native utility and protects profile ancestry through a reset', async () => {
+    const { profile, report } = await run('success');
+    expect(report.result).toEqual({ success: true });
+    expect(report.events.indexOf('native-stop')).toBeLessThan(report.events.indexOf('guard'));
+    expect(report.events.indexOf('profile')).toBeLessThan(report.events.indexOf('renderer'));
+    expect(processStartTime(report.nativePid)).not.toBe(report.nativeStart);
+    expect(RootLock.inspect(profile)?.owner.released).toBe(true);
+    const contender = await RootLock.acquire(profile);
+    contender.release();
+  }, 60_000);
 
   it('refuses an actual live CLI owner before any profile/userData deletion and never kills it', async () => {
     const profile = join(directory, 'external-cli', 'data', 'profiles', 'default');
@@ -136,7 +122,7 @@ describe('real Electron desktop reset lease adapter', () => {
       expect(report.result.success).toBe(false);
       expect(report.retained).toBe(false);
       expect(report.events).not.toContain('profile');
-      expect(report.events).not.toContain('storage');
+      expect(report.events).not.toContain('renderer');
       expect(processStartTime(cli.record.pid)).toBe(cli.record.start);
       expect(await readFile(join(profile, 'host.json'), 'utf8')).toBe(before);
       expect(await readFile(join(profile, 'state.db'), 'utf8')).toBe('state payload');

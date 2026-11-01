@@ -40,6 +40,11 @@ import {
   writeStoredMcpExtensionPreferences,
 } from './extension-preferences.ts';
 import {
+  connectSignsInWithOAuth,
+  isAuthenticationRequired,
+  signInWithOAuthWith,
+} from './oauth-sign-in.ts';
+import {
   applyToolPreferenceMutation,
   buildToolPreferencesFaultMessage,
   type DiscoveredServerTools,
@@ -392,7 +397,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
   /**
    * A lifecycle control, as Settings asks for it. A disconnect or reauthorize
    * reloads the config whatever its outcome; a connect that succeeds reloads it
-   * so discovery reaches the newly connected server.
+   * so discovery reaches the newly connected server. A connect that a server
+   * configured without auth answers with 401 signs in: OAuth is written into its
+   * config entry, and the connect goes to the OAuth server it reloads as.
    */
   control(request: McpHostControlRequest): Promise<McpHostServerSnapshot> {
     const host = this.options.runtime.host;
@@ -406,7 +413,30 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
           () => this.#reloadForLifecycle(lifecycleEpoch)
         );
       }
-      const result = await host.control(request);
+      const server = this.status().servers.find(
+        ({ configuredServerId }) => configuredServerId === request.configuredServerId
+      );
+      let result: McpHostServerSnapshot;
+      try {
+        result = await host.control(request);
+      } catch (cause) {
+        if (
+          !(
+            request.action === 'connect' &&
+            connectSignsInWithOAuth(server) &&
+            isAuthenticationRequired(cause)
+          )
+        ) {
+          throw cause;
+        }
+        await signInWithOAuthWith({
+          commit: (content, baseRevision, conflictMessage) =>
+            this.#writeAndSync(content, baseRevision, lifecycleEpoch, conflictMessage),
+          configFile: this.options.configFile,
+          serverName: request.configuredServerId,
+        });
+        result = await host.control(request);
+      }
       if (result.state === 'connected') {
         await this.#reloadForLifecycle(lifecycleEpoch);
       }

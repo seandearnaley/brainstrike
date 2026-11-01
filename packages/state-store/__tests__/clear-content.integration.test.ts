@@ -44,7 +44,12 @@ test('terminal content clear removes canonical content and blobs but preserves c
     const choices = await store.modelChoices({ operation: 'snapshot' });
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Clear', path: '/disposable/clear', preferredId: 'root' },
+      root: {
+        canonicalPath: '/disposable/clear',
+        displayName: 'Clear',
+        path: '/disposable/clear',
+        preferredId: 'root',
+      },
     });
     const content = 'Actual canonical source bytes';
     const contentHash = createHash('sha256').update(content).digest('hex');

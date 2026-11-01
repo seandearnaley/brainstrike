@@ -92,7 +92,7 @@ const backgroundEvent = {
   timestamp: '2026-07-24T12:00:02.000Z',
 } satisfies AssistantRunEvent;
 
-// No AssistantDetailLevelProvider is mounted, so `useAssistantDetailLevel`
+// The Detail level is untouched, so `useAssistantDetailLevel`
 // returns DEFAULT_ASSISTANT_DETAIL_LEVEL ('standard') — exactly the level a
 // user sees without touching the Detail control.
 describe('AssistantRunTimelineDataPart at the DEFAULT detail level', () => {

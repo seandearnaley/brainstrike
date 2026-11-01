@@ -67,6 +67,9 @@ type PlatformClientService =
   | 'searchState'
   | 'searchWorkspace'
   | 'terminals'
+  | 'fileReads'
+  | 'rootRegistry'
+  | 'fileWatches'
   | 'workspaceDiscovery';
 function platformClientServices(
   platform: HostPlatform | undefined
@@ -84,6 +87,9 @@ function platformClientServices(
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
     ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.terminals ? { terminals: platform.terminals } : {}),
+    ...(platform?.fileReads ? { fileReads: platform.fileReads } : {}),
+    ...(platform?.rootRegistry ? { rootRegistry: platform.rootRegistry } : {}),
+    ...(platform?.fileWatches ? { fileWatches: platform.fileWatches } : {}),
     ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
   };
 }

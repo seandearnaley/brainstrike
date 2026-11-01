@@ -359,9 +359,15 @@ async function runMultiRootRestore({
     }
 
     // Register persisted roots in the store. Accessed via ref to avoid reactive dep.
+    // A managed worktree keeps its descriptor but is never an open folder (ADR-0034).
     const storedDescriptors: StoredRootDescriptor[] = granted
       .filter((d) => d.persisted)
-      .map((d) => ({ displayName: d.displayName, path: d.handle.path, rootId: d.rootId }));
+      .map((d) => ({
+        displayName: d.displayName,
+        path: d.handle.path,
+        rootId: d.rootId,
+        ...(d.handle.worktree ? { worktree: true as const } : {}),
+      }));
     setActiveRootsRef.current(storedDescriptors);
   } catch (error) {
     if (!cancelledRef.value) {
@@ -465,7 +471,12 @@ export function useFileSystem({
         updateCurrentFolderId(rootId);
         // Only register in the persistent store when the handle was actually persisted
         if (persisted) {
-          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+          addActiveRoot({
+            displayName,
+            path: getCanonicalFolderId(handle),
+            rootId,
+            ...(handle.worktree ? { worktree: true as const } : {}),
+          });
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;
@@ -515,7 +526,12 @@ export function useFileSystem({
         dispatch({ handle, rootId, type: 'addOrFocusHandle' });
         updateCurrentFolderId(rootId);
         if (persisted) {
-          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+          addActiveRoot({
+            displayName,
+            path: getCanonicalFolderId(handle),
+            rootId,
+            ...(handle.worktree ? { worktree: true as const } : {}),
+          });
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;
@@ -737,49 +753,8 @@ export function useFileSystem({
     dispatch({ loading, type: 'setAccessLoading' });
   }, []);
 
-  const applyRestoredFolderState = useCallback(
-    async (restored: DirectoryHandle, isCancelled: () => boolean) => {
-      if (isCancelled()) {
-        return;
-      }
-      // CRITICAL: Wait for store hydration before calling setCurrentFolderId.
-      // Without this, the store may still have empty initial state, and
-      // setCurrentFolderId would read from the empty folderStates, overwriting
-      // the persisted selections that are about to be hydrated.
-      if (waitForHydration) {
-        await waitForHydration();
-      }
-      if (isCancelled()) {
-        return;
-      }
-      // Legacy single-root (Branch B): REUSE the persisted currentFolderId as
-      // this root's RootId. For the single restored root, the persisted id IS
-      // the prior session's identity — reusing it keeps the storage v5
-      // contract (currentFolderId = RootId) and preserves the keyed
-      // folderStates entry. A per-boot crypto.randomUUID() could never match
-      // any persisted id. Only mint a fresh UUID when nothing was persisted
-      // (true first run).
-      const persistedFolderId = getPersistedCurrentFolderId?.() ?? null;
-      const rootId = persistedFolderId ?? crypto.randomUUID();
-      dispatch({ handle: restored, rootId, type: 'addOrFocusHandle' });
-
-      if (persistedFolderId === null) {
-        updateCurrentFolderId(rootId);
-      } else {
-        // currentFolderId already equals rootId in the persisted store; skip
-        // the redundant write so the folder-switching logic doesn't re-run
-        // against freshly-hydrated state.
-        logger.debug('Skipping setCurrentFolderId - reusing persisted folder id as rootId', {
-          folderId: rootId,
-        });
-      }
-    },
-    [getPersistedCurrentFolderId, updateCurrentFolderId, waitForHydration]
-  );
-
-  // Auto-restore on startup. Runs once and never changes hook order.
-  // Branch A: adapter has restoreRoots → restore ALL granted roots (multi-root).
-  // Branch B: adapter has restoreLastFolder only → legacy single-root path.
+  // Auto-restore on startup: an adapter with restoreRoots restores ALL granted roots.
+  // Runs once and never changes hook order.
   useEffect(() => {
     if (hasAttemptedRestoreRef.current || rootDirectoryHandle || isRestoringRef.current) {
       return;
@@ -789,86 +764,35 @@ export function useFileSystem({
       restoreRoots?: () => Promise<RootDescriptor[]>;
     };
 
-    // --- Branch A: multi-root restore ---
-    if (typeof adapterWithRestoreRoots.restoreRoots === 'function') {
-      isRestoringRef.current = true;
-      dispatch({ loading: true, type: 'setAccessLoading' });
-      // Use a mutable object so the cleanup closure can signal cancellation.
-      const cancelledRef = { value: false };
-      void runMultiRootRestore({
-        cancelledRef,
-        dispatch,
-        getFolderAccessOrderRef,
-        getPersistedCurrentFolderId,
-        hasAttemptedRestoreRef,
-        isRestoringRef,
-        // BIND: the web adapter's restoreRoots reads this.handleCache — an
-        // unbound reference would lose `this` and throw at call time.
-        restoreRoots: adapterWithRestoreRoots.restoreRoots.bind(fileSystemAdapter),
-        setActiveRootsRef,
-        updateCurrentFolderId,
-        waitForHydration,
-      });
-      return () => {
-        cancelledRef.value = true;
-        isRestoringRef.current = false;
-      };
-    }
-
-    // --- Branch B: legacy single-root restore ---
-    if (typeof fileSystemAdapter.restoreLastFolder !== 'function') {
+    if (typeof adapterWithRestoreRoots.restoreRoots !== 'function') {
       return;
     }
-
-    // CRITICAL: Set loading state SYNCHRONOUSLY before starting async operation.
-    // This prevents race conditions where other effects (like stale state clearing)
-    // might see isAccessLoading=false and rootDirectoryHandle=null before the
-    // restore completes, causing them to incorrectly clear persisted state.
     isRestoringRef.current = true;
     dispatch({ loading: true, type: 'setAccessLoading' });
-
-    let cancelled = false;
-
-    const restore = async () => {
-      const restoreFn = (
-        fileSystemAdapter as { restoreLastFolder?: () => Promise<DirectoryHandle | null> }
-      ).restoreLastFolder;
-      if (!restoreFn) {
-        return;
-      }
-      // BIND: same unbound-method hazard as restoreRoots above.
-      const restored = await restoreFn.call(fileSystemAdapter);
-      if (!restored || cancelled) {
-        return;
-      }
-      await applyRestoredFolderState(restored, () => cancelled);
-    };
-    const run = () =>
-      restore()
-        .catch((error: unknown) => {
-          if (!cancelled) {
-            logger.warn('Failed to restore last folder', { error });
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            // Mark as attempted only after a non-cancelled completion.
-            // This allows retries when a run is cancelled (e.g. effect preflight cleanup).
-            hasAttemptedRestoreRef.current = true;
-            dispatch({ loading: false, type: 'setAccessLoading' });
-          }
-          isRestoringRef.current = false;
-        });
-    void run();
+    // Use a mutable object so the cleanup closure can signal cancellation.
+    const cancelledRef = { value: false };
+    void runMultiRootRestore({
+      cancelledRef,
+      dispatch,
+      getFolderAccessOrderRef,
+      getPersistedCurrentFolderId,
+      hasAttemptedRestoreRef,
+      isRestoringRef,
+      // BIND: the web adapter's restoreRoots reads this.handleCache — an
+      // unbound reference would lose `this` and throw at call time.
+      restoreRoots: adapterWithRestoreRoots.restoreRoots.bind(fileSystemAdapter),
+      setActiveRootsRef,
+      updateCurrentFolderId,
+      waitForHydration,
+    });
     return () => {
-      cancelled = true;
+      cancelledRef.value = true;
       isRestoringRef.current = false;
     };
   }, [
     fileSystemAdapter,
     rootDirectoryHandle,
     updateCurrentFolderId,
-    applyRestoredFolderState,
     waitForHydration,
     getPersistedCurrentFolderId,
     // NOTE: getFolderAccessOrder and setActiveRoots are intentionally omitted from

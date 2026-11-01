@@ -5,23 +5,32 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { ControlsMenu } from '../assistant-controls-menu';
 import {
   ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
-  AssistantDetailLevelProvider,
-} from '../assistant-detail-level-context';
+  useAssistantDetailLevelStore,
+} from '../assistant-detail-level-store.ts';
+
+/** The Detail level the next launch reads back. */
+function savedDetailLevel(): unknown {
+  const saved = window.localStorage.getItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY);
+  return saved === null
+    ? null
+    : (JSON.parse(saved) as { state: { detailLevel: unknown } }).state.detailLevel;
+}
+
+function resetDetailLevel(): void {
+  useAssistantDetailLevelStore.setState(useAssistantDetailLevelStore.getInitialState(), true);
+  window.localStorage.clear();
+}
 
 async function setup(): Promise<ReturnType<typeof userEvent.setup>> {
   const user = userEvent.setup();
-  render(
-    <AssistantDetailLevelProvider>
-      <ControlsMenu />
-    </AssistantDetailLevelProvider>
-  );
+  render(<ControlsMenu />);
   await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
   return user;
 }
 
 describe('DetailLevelControl (real browser)', () => {
-  beforeEach(() => window.localStorage.clear());
-  afterEach(() => window.localStorage.clear());
+  beforeEach(resetDetailLevel);
+  afterEach(resetDetailLevel);
 
   test('lists all three levels with standard active by default', async () => {
     await setup();
@@ -35,7 +44,7 @@ describe('DetailLevelControl (real browser)', () => {
 
     await user.click(screen.getByRole('radio', { name: /Developer/u }));
 
-    expect(window.localStorage.getItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY)).toBe('developer');
+    expect(savedDetailLevel()).toBe('developer');
     expect(screen.getByRole('dialog', { name: 'Assistant controls' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /Developer/u })).toBeChecked();
   });
@@ -48,7 +57,7 @@ describe('DetailLevelControl (real browser)', () => {
     await user.keyboard('{ArrowRight}');
 
     expect(screen.getByRole('radio', { name: /Developer/u })).toBeChecked();
-    expect(window.localStorage.getItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY)).toBe('developer');
+    expect(savedDetailLevel()).toBe('developer');
     expect(screen.getByRole('dialog', { name: 'Assistant controls' })).toBeInTheDocument();
   });
 });

@@ -435,7 +435,7 @@ describe('native provider and search controller observation refresh', () => {
       vi.mocked(mounted.capability.status).mockReturnValueOnce(read.promise);
       await act(async () => mounted.emitLifecycle({ generation: 2, kind: 'ready' }));
       // Each change Main publishes arrives as a fresh copy of the whole config.
-      act(() => savedConfig(structuredClone({ ...SAVED_SEMANTIC, worktrees: { 'root-b': true } })));
+      act(() => savedConfig(structuredClone({ ...SAVED_SEMANTIC, policy: 'full-root' })));
       await act(async () => read.resolve(structuredClone(ready)));
       await waitForOnFakeTimers(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
       await waitForOnFakeTimers(() =>

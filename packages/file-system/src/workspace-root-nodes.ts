@@ -1,6 +1,6 @@
 import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils/collator';
-import { hostBasename, hostJoin } from '@brainstrike/utils/host-path';
+import { hostBasename } from '@brainstrike/utils/host-path';
 
 /** Projection data only; a root ID grants no filesystem authority. */
 interface WorkspaceRootIdentity {
@@ -21,8 +21,44 @@ export interface SecureWorkspaceDirEntry {
   readonly size?: number;
 }
 
+/** A listed entry at its native absolute path. */
+export interface PathedDirEntry extends SecureWorkspaceDirEntry {
+  readonly path: string;
+}
+
+/** A directory listing whose paths were joined where the path rules are native. */
+export interface PathedDirectoryListing {
+  readonly entries: readonly PathedDirEntry[];
+  readonly inspected: number;
+  readonly truncated: boolean;
+  /** The path of the marker node a truncated listing appends. */
+  readonly truncationPath: string;
+}
+
 export const MAX_DIRECTORY_ENTRIES = 10_000;
 const TRUNCATION_NODE_BASENAME = '…truncated…' as const;
+
+/**
+ * Gives a native listing its entries' absolute paths. `join` must apply the
+ * native path rules (Node's `path.join`), which a sandboxed renderer lacks, so
+ * the side that read the directory joins and the Explorer uses the paths as they are.
+ */
+export function pathDirectoryListing(
+  parentPath: string,
+  listing: {
+    readonly entries: readonly SecureWorkspaceDirEntry[];
+    readonly inspected: number;
+    readonly truncated: boolean;
+  },
+  join: (parent: string, name: string) => string
+): PathedDirectoryListing {
+  return {
+    entries: listing.entries.map((entry) => ({ ...entry, path: join(parentPath, entry.name) })),
+    inspected: listing.inspected,
+    truncated: listing.truncated,
+    truncationPath: join(parentPath, TRUNCATION_NODE_BASENAME),
+  };
+}
 
 export function descriptorFor(
   entry: WorkspaceRootPathIdentity,
@@ -46,12 +82,8 @@ export function descriptorFor(
   };
 }
 
-function buildDirectoryNode(
-  mounted: WorkspaceRootIdentity,
-  parentPath: string,
-  entry: SecureWorkspaceDirEntry
-): IFileNode {
-  const entryPath = hostJoin(parentPath, entry.name);
+function buildDirectoryNode(mounted: WorkspaceRootIdentity, entry: PathedDirEntry): IFileNode {
+  const entryPath = entry.path;
   const isDirectory = entry.isDirectory && !entry.isSymbolicLink;
   if (isDirectory) {
     return {
@@ -96,10 +128,9 @@ function buildDirectoryNode(
 
 function buildTruncationNode(
   mounted: WorkspaceRootIdentity,
-  parentPath: string,
+  entryPath: string,
   inspected: number
 ): IFileNode {
-  const entryPath = hostJoin(parentPath, TRUNCATION_NODE_BASENAME);
   return {
     depth: 0,
     handle: {
@@ -124,15 +155,10 @@ function buildTruncationNode(
  */
 export function buildDirectoryListing(
   mounted: WorkspaceRootIdentity,
-  parentPath: string,
-  listing: {
-    readonly entries: readonly SecureWorkspaceDirEntry[];
-    readonly inspected: number;
-    readonly truncated: boolean;
-  }
+  listing: PathedDirectoryListing
 ): IFileNode[] {
   const nodes = listing.entries
-    .map((entry) => buildDirectoryNode(mounted, parentPath, entry))
+    .map((entry) => buildDirectoryNode(mounted, entry))
     .sort((left, right) => {
       if (left.type !== right.type) {
         return left.type === 'directory' ? -1 : 1;
@@ -141,7 +167,7 @@ export function buildDirectoryListing(
     });
   if (listing.truncated) {
     // Partial result, surfaced: the native bound held, the caller sees it.
-    nodes.push(buildTruncationNode(mounted, parentPath, listing.inspected));
+    nodes.push(buildTruncationNode(mounted, listing.truncationPath, listing.inspected));
   }
   return nodes;
 }

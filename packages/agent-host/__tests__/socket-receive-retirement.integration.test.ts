@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { Server, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -69,9 +68,14 @@ test('retirement answers a complete frame still decoding when the last dispatch 
     });
   const host = await startAgentHost({ lifetime: 'persistent', root }, ({ store }) => {
     const workspaceRoots = store.workspaceRoots.bind(store);
+
+    // Main's catalog transport only reads roots: the first read is the held, admitted request.
+
+    let held = false;
     vi.spyOn(store, 'workspaceRoots').mockImplementation(async (request) => {
       const reply = await workspaceRoots(request);
-      if (request.operation === 'register') {
+      if (!held) {
+        held = true;
         entered.resolve();
         await releaseRequest.promise;
       }
@@ -95,10 +99,7 @@ test('retirement answers a complete frame still decoding when the last dispatch 
   // the decoder after physical close cannot rescue the refused request.
   socket.once('close', () => releaseDecoder.resolve());
   try {
-    const registering = client.catalog.workspaceRoots({
-      operation: 'register',
-      root: { displayName: 'workspace', path: root, preferredId: randomUUID() },
-    });
+    const admitted = client.catalog.workspaceRoots({ operation: 'list' });
     await entered.promise;
     const closing = host.close();
     await stopping.promise;
@@ -111,7 +112,7 @@ test('retirement answers a complete frame still decoding when the last dispatch 
       .catch((cause: unknown) => cause);
     await decoding.promise;
     releaseRequest.resolve();
-    await registering;
+    await admitted;
     expect(await refused).toMatchObject({ code: 'host.closing', failure: { kind: 'refusal' } });
     await closing;
   } finally {

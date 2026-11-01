@@ -11,6 +11,7 @@ export * from './file-filter-bar';
 export * from './file-system-provider';
 export * from './file-tab-body';
 export * from './root-data-deletion-context';
+export * from './thread-checkout-context';
 export * from './use-file-explorer-context';
 export * from './use-file-system-context';
 export * from './use-selection-manager-context';
