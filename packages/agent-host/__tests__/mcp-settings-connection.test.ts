@@ -2,8 +2,9 @@ import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import { StateStoreReadOnlyError } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
-import { type MessageConnection, ResponseError } from 'vscode-jsonrpc';
+import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from '../src/auth-connection.js';
+import { toBoundaryFailure } from '../src/boundary-wire.js';
 import { bindHostMcpSettingsMethods } from '../src/mcp-settings-connection.js';
 import type { HostMcpSettingsService } from '../src/ports.js';
 import { HOST_RESULT_SCHEMAS, type HostMethod, McpSettingsEventSchema } from '../src/protocol.js';
@@ -38,12 +39,16 @@ describe('host MCP settings methods', () => {
     await expect(bound(() => Promise.reject(closing))({})).rejects.toBe(closing);
   });
 
-  it('shows any other failure as the host wrote it', async () => {
+  it('shows any other failure as the host wrote it, on the far side of the boundary', async () => {
     const failed = await bound(() => Promise.reject(new Error('Extension id is invalid')))(
       {}
     ).catch((cause: unknown) => cause);
-    expect(failed).toBeInstanceOf(ResponseError);
-    expect(failed).toMatchObject({ message: 'Extension id is invalid' });
+
+    expect(toBoundaryFailure(failed, vi.fn())).toMatchObject({
+      correlationId: expect.any(String),
+      kind: 'fault',
+      message: 'Extension id is invalid',
+    });
   });
 
   it('routes a catalog install, token included, to the settings authority', async () => {
