@@ -30,8 +30,6 @@ const fields = {
   model: Schema.NullOr(IndexModelSchema),
   paused: Schema.Boolean,
   policy: Schema.Literals(['balanced', 'full-root']),
-  /** Worktree RootId → indexed. Workspace folders are always indexed. */
-  worktrees: Schema.Record(Schema.String, Schema.Boolean),
 };
 
 /** One profile's search index: how it searches, with which model, over which files. */
@@ -43,14 +41,13 @@ export const IndexConfigSchema = Schema.Struct(fields).check(
   )
 );
 
-/** The fields one change sets; `worktrees` entries merge into the saved map. */
+/** The fields one change sets. */
 export const IndexConfigPatchSchema = Schema.Struct({
   chunking: Schema.optionalKey(fields.chunking),
   mode: Schema.optionalKey(fields.mode),
   model: Schema.optionalKey(fields.model),
   paused: Schema.optionalKey(fields.paused),
   policy: Schema.optionalKey(fields.policy),
-  worktrees: Schema.optionalKey(fields.worktrees),
 });
 
 export type IndexChunking = typeof IndexChunkingSchema.Type;
@@ -65,7 +62,6 @@ export const DEFAULT_INDEX_CONFIG: IndexConfig = {
   model: null,
   paused: false,
   policy: 'balanced',
-  worktrees: {},
 };
 
 export const decodeIndexConfig = makeThrowingDecoder(IndexConfigSchema, {

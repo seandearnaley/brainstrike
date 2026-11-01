@@ -235,7 +235,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           continue;
         }
         const root = roots.find((row) => row.id === descriptor.rootId);
-        if (!(root && isPartitionRoot(root, settings))) {
+        if (!(root && isPartitionRoot(root))) {
           continue;
         }
         const lease = await borrow(

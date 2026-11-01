@@ -120,11 +120,7 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
     IndexConfigRefused | IndexConfigStoreFailed
   > {
     const previous = yield* read();
-    const next = yield* decodeConfig({
-      ...previous,
-      ...change,
-      worktrees: { ...previous.worktrees, ...change.worktrees },
-    }).pipe(Effect.mapError(refused));
+    const next = yield* decodeConfig({ ...previous, ...change }).pipe(Effect.mapError(refused));
     const rechunk = !sameIndexChunking(previous.chunking, next.chunking);
     if (rechunk && next.mode === 'off') {
       return yield* new IndexConfigRefused({ message: INDEX_CHUNKING_OFF_MESSAGE });
