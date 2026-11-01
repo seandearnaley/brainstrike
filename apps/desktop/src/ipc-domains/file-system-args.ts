@@ -1,8 +1,8 @@
-/** Main-only argument schemas for the desktop file-system and watch contracts. */
+/** Main-only argument schemas for the desktop file-system contract. */
 import type { DirectoryHandle, FileHandle } from '@brainstrike/types';
 import { Schema } from 'effect';
 import { type ContractArgs, NoArgs } from '../platform/ipc-args';
-import type { fileSystemContract, fileSystemWatchContract } from './file-system.contract';
+import type { fileSystemContract } from './file-system.contract';
 
 const handleFields = {
   _internal: Schema.optionalKey(Schema.Unknown),
@@ -60,10 +60,3 @@ export const fileSystemArgs = {
   restoreRoots: NoArgs,
   saveLastFolder: OneString,
 } satisfies ContractArgs<typeof fileSystemContract>;
-
-export const fileSystemWatchArgs = {
-  getWatcherTelemetry: NoArgs,
-  retryWatch: OneString,
-  unwatchDirectory: OneString,
-  watchDirectory: Schema.Tuple([DirectoryHandleSchema]),
-} satisfies ContractArgs<typeof fileSystemWatchContract>;
