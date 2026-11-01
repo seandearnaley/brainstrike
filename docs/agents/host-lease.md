@@ -33,8 +33,8 @@ Decision: [ADR-0017](../adr/0017-cli-first-agent-host.md). Implementation: `pack
   - Main logs one warning naming the stage it waits on if no `ready` arrives within 10 s; it never acts on it.
 - Desktop Main attaches its own host over the host's socket, from the ready record, with no deadline. Only the socket closing, the host's exit or the lease closing ends that attach.
   - The socket stays because Main's catalog client rides the lease attachment as a `public-socket` client; a private `desktop-ui` port would widen what that client may call.
-- Admission (`native-index-profile-admission.ts`) is the one place that starts another host, once, after a failed start's release is joined.
-- The first window waits for neither the host nor the index.
+- Admission (`host-profile-admission.ts`) is the one place that starts another host, once, after a failed start's release is joined.
+- The first window does not wait for the host.
 - Bounds remain only for owners a launch did not start (R5(a), the R2 exception):
   - **Startup, 90 s** (`HOST_STARTUP_TIMEOUT_MS`, or `startupTimeoutMs`), from the launch's start: waiting for a starting or leaving owner, and the handshake with an existing owner or a race's winner. A live but unreachable owner is refused at it.
     - The handshake gets no tighter bound: loaded runners slow it by orders of magnitude, and shorter bounds refused healthy hosts.

@@ -1,6 +1,6 @@
 # Explorer token indexing
 
-Owns token counting, the token cache and background token-indexer composition. This is separate from native workspace indexing and never establishes retrieval coverage.
+Owns token counting, the token cache and background token-indexer composition. It counts tokens only; it builds no search index.
 
 - The background integration hook only orchestrates; classification, content resolution, path normalization, batching and selection-shrink reconciliation live in its helpers.
 - Preserve root identity, per-key failures and late-completion generations. A missing capability is no licence to substitute another filesystem reader.

@@ -14,8 +14,7 @@ task touches.
 | Providers, credentials and MCP | [Providers](assistant-providers.md), [provider cassettes](provider-cassettes.md) |
 | Child runs and parent continuation | [Subagents](assistant-subagents.md) |
 | Agent eval tasks | [Evals](agent-evals.md) |
-| Canonical SQLite state and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
-| Derived index (being removed, ADR-0035) | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
+| Canonical SQLite state, its search index and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
 | Workspace instructions, roots and edits | [Workspace](workspace-context.md) |
 | Explorer, search and the thread context map | [Explorer](explorer-search-context-map.md) |
 | Git changes and managed worktrees | [Changesets](changeset-diff.md) |

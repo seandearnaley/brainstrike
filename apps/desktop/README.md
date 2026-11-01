@@ -42,8 +42,8 @@ Dev launches share one Keychain credential service, and the ad-hoc signed Electr
 - The Electron-free agent host owns runs, committed conversations and workspace authority.
   - Its SQLite StateStore owns the canonical catalog.
   - Desktop and CLI clients attach through the authenticated host protocol.
-- The derived SQLite index has its own process and lifecycle. The renderer has no SQL bridge.
-- Renderer preferences live in `localStorage` and Main's settings in its settings store (`brainstrike-settings`), both separate from the canonical catalog and derived indexes.
+- The host's derived conversation search index runs on its own worker thread. The renderer has no SQL bridge.
+- Renderer preferences live in `localStorage` and Main's settings in its settings store (`brainstrike-settings`), both separate from the canonical catalog and the derived index.
   - Clear content (Settings) keeps configuration and credentials; Factory Reset also clears them.
   - See the [reset contract](../../docs/agents/platform-contracts.md).
 - The preload and IPC code is the API reference. BrowserWindow security settings live in [`create-window.ts`](src/create-window.ts); see also [SECURITY.md](SECURITY.md).

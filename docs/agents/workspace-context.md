@@ -17,14 +17,10 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
 - A store that opened damaged is read-only (BST-2144).
   - The registry mounts and serves the open folders but records and converges nothing.
   - Every change (pick, add, remove, delete-data, seed) is refused with the store's read-only refusal before it touches a folder or opens the picker.
-- A data deletion is reserved on the host first (`workspace/roots/reserve-data-deletion`).
+- A data deletion (`workspace/roots/delete-data`, by `rootId`) is reserved inside the host's registry first.
   - A deletion the host would refuse (read-only store, folder not mounted, another change in flight) removes nothing.
-  - Only then does Main's index stop its sources and drop the folder's bindings; `workspace/roots/delete-data` consumes the reservation.
-  - Any earlier failure releases it (`release-data-deletion`) and resumes the index.
   - From the reservation to its end the folder is absent from `roots`, `mountedRoots()` and `useMountedRoot`, and run borrows are refused.
-- Main's native index opens its own read handles only on `workspace/roots/mounted` and refuses one whose canonical path differs.
-  - The host removes a folder first; `IndexSourceRoots.followHost()` then retires its leases.
-  - A refused `prepare` on a non-live root ends the scan as cancelled (`cancelScansOfRemovedRoots`).
+  - It retires the folder's sources, deletes its root record and disconnects it; Main only forwards the request.
 - Main root is the assistant's operating root; focused root is incidental UI selection.
   - Keep Main ordering across restore and re-add.
   - A terminal cwd pin is shell-only and never changes assistant authority.

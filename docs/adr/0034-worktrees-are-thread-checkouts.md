@@ -1,6 +1,8 @@
 # ADR-0034: A worktree is a thread's checkout, not another folder
 
 - **Status:** Accepted (Sean, 2026-11-01: "Adopt as proposed")
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): there is no index, so decision 5 (a worktree
+    reads its repository's index) is void. A worktree's search is live grep on the worktree.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the

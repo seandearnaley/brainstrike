@@ -4,6 +4,8 @@
   platform capabilities) and [ADR-0030](0030-one-process-supervisor.md) (one process
   supervisor). CLI retrieval is refined by
   [ADR-0026 (two-lane search)](0026-two-lane-agent-search.md).
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the host's embedding port (BST-2435) and
+    its workspace index are deleted; the indexer port now serves only the host state index.
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914; implementation BST-1941 to BST-1946
 
