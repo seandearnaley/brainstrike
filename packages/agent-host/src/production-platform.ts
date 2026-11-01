@@ -17,6 +17,8 @@ import {
   type PermissionToolGateSnapshot,
   resolveQuickModelTarget,
 } from '@brainstrike/assistant-contract';
+import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
+import { startAccurateTokenCounter } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { LanguageModel, Tool } from 'ai';
 import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.ts';
@@ -35,6 +37,7 @@ import {
 } from './adapters/state-store-host-memory.ts';
 import { withHostDelegationTools } from './child-runs.ts';
 import { type HostStateIndex, openHostStateIndex } from './host-state-index.ts';
+import { catalogModel } from './ledger-projection.ts';
 import type {
   HostDelegation,
   HostMcpRuntime,
@@ -326,6 +329,22 @@ function productionClientServices(
     ...(options.workspaceDiscovery ? { workspaceDiscovery: options.workspaceDiscovery } : {}),
   };
 }
+/**
+ * The host first learns a thread's model from the composer's memory read, sent
+ * when the thread opens and when its model changes. A model measured with a
+ * local tokenizer starts that tokenizer's one-time load then, while the person
+ * types, not inside its first provider request (BST-2437).
+ */
+function startModelTokenCounter(modelId: string): void {
+  const selected = catalogModel(modelId);
+  if (
+    selected &&
+    resolveTokenMeasurementCapability(selected.provider, selected.model).mode !==
+      'deterministic-serialized-character-backstop'
+  ) {
+    startAccurateTokenCounter();
+  }
+}
 /** thread/memory/read: the preconditions, then the observation record they locate. */
 function productionMemoryReadiness(
   options: Pick<ProductionHostPlatformOptions, 'readMemoryPreconditions' | 'startup'>
@@ -336,6 +355,7 @@ function productionMemoryReadiness(
   }
   return {
     readMemoryReadiness: async (request, threadId) => {
+      startModelTokenCounter(request.modelId);
       const preconditions = await read(request);
       if (!preconditions.ready) {
         return { admission: { ready: false, reason: preconditions.reason } };

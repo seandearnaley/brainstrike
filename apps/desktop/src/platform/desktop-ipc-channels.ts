@@ -25,6 +25,12 @@ export const DESKTOP_IPC_CHANNELS = {
     prepareClose: 'agent:prepare-close',
     showDataFolder: 'agent:show-data-folder',
   },
+  // Settings › Startup (ADR-0033): keep running in the tray, open at login.
+  appLifetime: {
+    getSettings: 'app-lifetime:get-settings',
+    setKeepRunningInTray: 'app-lifetime:set-keep-running-in-tray',
+    setOpenAtLogin: 'app-lifetime:set-open-at-login',
+  },
   appMenu: {
     // One-way main→renderer push: the app menu's Settings… item (⌘, / Ctrl+,)
     // triggers this on the FOCUSED window so the renderer opens Settings.

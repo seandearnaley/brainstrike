@@ -63,7 +63,7 @@ function ownerOf(
   return {
     delays: { delay: async () => undefined },
     isQuitting: () => false,
-    lastWindowQuits: false,
+    quitsWithLastWindow: () => false,
     visibleWindows: visible,
     ...overrides,
     quit,
@@ -84,7 +84,7 @@ describe('user window close', () => {
     prepare.prepareDocumentUnload.mockReturnValueOnce(flushed.promise);
     installDocumentUnload(
       window,
-      ownerOf(() => [window, other], { lastWindowQuits: true })
+      ownerOf(() => [window, other], { quitsWithLastWindow: () => true })
     );
 
     const event = userClose(window);
@@ -114,9 +114,9 @@ describe('user window close', () => {
     await vi.waitFor(() => expect(window.isDestroyed()).toBe(true));
   });
 
-  it('on Windows and Linux, the last visible window quits instead and leaves its unload to quit', () => {
+  it('where nothing keeps the app running, the last visible window quits instead and leaves its unload to quit', () => {
     const window = windowFixture();
-    const owner = ownerOf(() => [window], { lastWindowQuits: true });
+    const owner = ownerOf(() => [window], { quitsWithLastWindow: () => true });
     installDocumentUnload(window, owner);
 
     const event = userClose(window);
@@ -131,7 +131,7 @@ describe('user window close', () => {
     const first = windowFixture();
     const last = windowFixture();
     prepare.prepareDocumentUnload.mockReturnValue(new Promise(() => undefined));
-    const owner = ownerOf(() => [first, last], { lastWindowQuits: true });
+    const owner = ownerOf(() => [first, last], { quitsWithLastWindow: () => true });
     installDocumentUnload(first, owner);
     installDocumentUnload(last, owner);
 
@@ -141,9 +141,9 @@ describe('user window close', () => {
     expect(owner.quit).toHaveBeenCalledOnce();
   });
 
-  it('on macOS the last window closes through its own unload and the app keeps running', async () => {
+  it('where the Dock or tray keeps the app running, the last window closes through its own unload', async () => {
     const window = windowFixture();
-    const owner = ownerOf(() => [window], { lastWindowQuits: false });
+    const owner = ownerOf(() => [window], { quitsWithLastWindow: () => false });
     installDocumentUnload(window, owner);
 
     userClose(window);
@@ -155,7 +155,10 @@ describe('user window close', () => {
 
   it('once quit has started, a user close waits for quit to prepare and close the window', () => {
     const window = windowFixture();
-    const owner = ownerOf(() => [window], { isQuitting: () => true, lastWindowQuits: true });
+    const owner = ownerOf(() => [window], {
+      isQuitting: () => true,
+      quitsWithLastWindow: () => true,
+    });
     installDocumentUnload(window, owner);
 
     expect(userClose(window).preventDefault).toHaveBeenCalledOnce();

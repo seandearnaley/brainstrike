@@ -25,6 +25,13 @@ import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
+import { type AppLifetime, createAppLifetime } from './app-lifetime';
+import {
+  notify,
+  resolveBackgroundPresence,
+  resolveLoginItems,
+  wasLaunchedAtLogin,
+} from './app-lifetime-electron';
 import { createAppUpdates } from './app-update';
 import { checkForUpdatesFromMenu, offerMoveToApplicationsFolder } from './app-update-dialogs';
 import { readUpdatePreferences, writeUpdatePreferences } from './app-update-preferences';
@@ -112,6 +119,7 @@ import { createFactoryResetRendererReplacementCoordinator } from './factory-rese
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
+import { registerAppLifetimeIpcHandlers } from './ipc-app-lifetime';
 import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
@@ -346,6 +354,17 @@ let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
+// ADR-0033: whether the app stays running without a window, and its tray. Started at ready,
+// before the first window, so every window's close can ask it.
+let appLifetime: AppLifetime | undefined;
+function requireAppLifetime(): AppLifetime {
+  if (!appLifetime) {
+    throw new Error('The app lifetime starts once the app is ready.');
+  }
+  return appLifetime;
+}
+// Shows the app's window, opening one when none is open (tray, second launch). Set at ready.
+let openMainWindow: (() => void) | undefined;
 
 /** Every unload of a visible document flushes it first (ADR-0026 R1, `document-unload.ts`). */
 function documentUnloadOwner(): DocumentUnloadOwner<BrowserWindow> {
@@ -353,8 +372,8 @@ function documentUnloadOwner(): DocumentUnloadOwner<BrowserWindow> {
     // Resolved when a document unloads, not when its window is created.
     delays: { delay: (point) => lifecycleDelaySeam().delay(point) },
     isQuitting: isDesktopShuttingDown,
-    lastWindowQuits: process.platform !== 'darwin',
     quit: () => app.quit(),
+    quitsWithLastWindow: () => requireAppLifetime().quitsWithLastWindow(),
     visibleWindows: visibleDocumentWindows,
   };
 }
@@ -460,8 +479,12 @@ const gracefulShutdown = createDesktopGracefulShutdown({
   logger,
   markShuttingDown: markDesktopShuttingDown,
   planRun: planDesktopShutdownRun,
-  // Fence the current native/profile owner before any renderer can request more work.
-  retireBackgroundAdmission: () => nativeIndexActivation.fenceTerminal(),
+  // Fence the current native/profile owner before any renderer can request more work. The tray
+  // goes with it, so its Open item cannot start a window once quit has begun.
+  retireBackgroundAdmission: () => {
+    nativeIndexActivation.fenceTerminal();
+    appLifetime?.close();
+  },
 });
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
@@ -577,6 +600,13 @@ const handleResetLocal = createDesktopFactoryResetHandler({
       name: 'read-workspace-file-cursors',
       stop: clearReadWorkspaceFileCursorRegistry,
     },
+    // The OS login item lives outside userData: a factory reset turns it off, its default.
+    // Clearing content keeps settings, so it keeps this one too.
+    {
+      name: 'app-lifetime',
+      stop: () => appLifetime?.factoryReset() ?? Promise.resolve(),
+      stopForContent: () => Promise.resolve(),
+    },
     // electron-updater's cache (a downloaded update and its pending-install
     // record) lives outside userData. Clearing content retains it: an update
     // is not profile content.
@@ -631,6 +661,16 @@ ipcDisposers.add(
     restartToUpdate: appUpdates.restartToInstall,
     setBetaUpdates: (betaUpdates) =>
       writeUpdatePreferences(requireSettingsStore(), { betaUpdates }),
+  })
+);
+
+// Settings › Startup (ADR-0033): keep running in the tray, open at login.
+ipcDisposers.add(
+  'app-lifetime',
+  registerAppLifetimeIpcHandlers({
+    setKeepRunningInTray: (enabled) => requireAppLifetime().setKeepRunningInTray(enabled),
+    setOpenAtLogin: (enabled) => requireAppLifetime().setOpenAtLogin(enabled),
+    settings: () => requireAppLifetime().settings(),
   })
 );
 
@@ -1037,19 +1077,8 @@ if (singleInstanceLockAcquired) {
     });
   };
 
-  desktopBootstrap.bindSecondInstanceFocus(() => {
-    const existingWindow = BrowserWindow.getAllWindows()[0] ?? null;
-    if (!existingWindow) {
-      return;
-    }
-
-    if (typeof existingWindow.show === 'function') {
-      existingWindow.show();
-    }
-    if (typeof existingWindow.focus === 'function') {
-      existingWindow.focus();
-    }
-  });
+  // A second launch shows the app's window, opening one while the app runs in the tray.
+  desktopBootstrap.bindSecondInstanceFocus(() => openMainWindow?.());
 
   app.whenReady().then(async () => {
     if (isDesktopShuttingDown()) {
@@ -1566,8 +1595,66 @@ if (singleInstanceLockAcquired) {
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
+        win.once('closed', () => {
+          if (
+            !isDesktopShuttingDown() &&
+            visibleDocumentWindows().every((other) => other === win)
+          ) {
+            requireAppLifetime().lastWindowClosed();
+          }
+        });
         return win;
       };
+
+      // One window at a time: a tray click during the first window's creation shows that window.
+      let windowOpening: Promise<void> | undefined;
+      const showOrOpenWindow = (): void => {
+        if (isDesktopShuttingDown()) {
+          return;
+        }
+        const show = (window: BrowserWindow): void => {
+          if (window.isMinimized()) {
+            window.restore();
+          }
+          window.show();
+          window.focus();
+        };
+        const existing = visibleDocumentWindows()[0];
+        if (existing) {
+          show(existing);
+          return;
+        }
+        windowOpening ??= (async () => {
+          await initialWindowCreation;
+          if (isDesktopShuttingDown()) {
+            return;
+          }
+          const opened = visibleDocumentWindows()[0];
+          if (opened) {
+            show(opened);
+          } else {
+            await createMainWindow();
+          }
+        })().finally(() => {
+          windowOpening = undefined;
+        });
+        windowOpening.catch((error: unknown) => {
+          logger.error('Could not open a Brainstrike window', { error });
+        });
+      };
+
+      const lifetimeStore = requireSettingsStore();
+      appLifetime = createAppLifetime({
+        loginItems: resolveLoginItems(),
+        notify,
+        openWindow: () => openMainWindow?.(),
+        presence: resolveBackgroundPresence(),
+        quit: () => app.quit(),
+        store: {
+          get: (key) => lifetimeStore.get(key),
+          set: (key, value) => lifetimeStore.set(key, value),
+        },
+      });
 
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.
@@ -1692,26 +1779,38 @@ if (singleInstanceLockAcquired) {
           );
         },
         async () => {
+          if (isDesktopShuttingDown()) {
+            return;
+          }
+          // ADR-0033: a login launch starts in the Dock or tray, where the app stays reachable.
+          if (await requireAppLifetime().startsHidden(wasLaunchedAtLogin())) {
+            logger.info('Launched at login: starting without a window');
+            return;
+          }
           logger.debug('Creating main window...');
           // Owner decision 7.3(i): the first window waits for neither the host nor
           // the index; the renderer shows both as state while they start.
-          return isDesktopShuttingDown() ? undefined : await createMainWindow();
+          return await createMainWindow();
         }
       );
+      // From here a tray click or a second launch joins the first window's creation.
+      openMainWindow = showOrOpenWindow;
       const mainWindow = await initialWindowCreation;
-      if (!mainWindow || isDesktopShuttingDown()) {
+      if (isDesktopShuttingDown()) {
         return;
       }
-      logger.debug('Main window created successfully');
+      logger.debug('Main window created successfully', { hidden: mainWindow === undefined });
       // One line per launch, once the host, the index and the first paint have settled.
       void Promise.allSettled([
         agentHostProfile,
         indexStartup,
-        markRendererFirstPaint(mainWindow.webContents).catch((error: unknown) =>
-          logger.warn('Could not read the renderer first paint for the startup timeline', {
-            error,
-          })
-        ),
+        mainWindow
+          ? markRendererFirstPaint(mainWindow.webContents).catch((error: unknown) =>
+              logger.warn('Could not read the renderer first paint for the startup timeline', {
+                error,
+              })
+            )
+          : undefined,
       ]).then(() => logger.info('Startup timeline', readStartupTimeline()));
       appUpdates.start({
         publish: (status) => {
@@ -1727,9 +1826,13 @@ if (singleInstanceLockAcquired) {
         },
         settings: requireSettingsStore(),
       });
-      offerMoveToApplicationsFolder(requireSettingsStore(), mainWindow).catch((error: unknown) => {
-        logger.warn('The offer to move the app to Applications failed', { error });
-      });
+      if (mainWindow) {
+        offerMoveToApplicationsFolder(requireSettingsStore(), mainWindow).catch(
+          (error: unknown) => {
+            logger.warn('The offer to move the app to Applications failed', { error });
+          }
+        );
+      }
 
       // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
       // never re-enqueued by `app.on('activate')`'s later `createMainWindow()`
@@ -1762,10 +1865,10 @@ if (singleInstanceLockAcquired) {
       });
 
       // Window focus/blur: throttle IPC traffic when backgrounded
-      mainWindow.on('blur', () => {
+      mainWindow?.on('blur', () => {
         logger.info('window:blur');
       });
-      mainWindow.on('focus', () => {
+      mainWindow?.on('focus', () => {
         logger.info('window:focus');
       });
 
@@ -1790,8 +1893,9 @@ if (singleInstanceLockAcquired) {
 }
 
 // Quit on the last visible window's close is decided where that close is intercepted, so the
-// quit prepares the window first (`installDocumentUnload`). Subscribing still matters: without a
-// listener Electron itself quits whenever every window has closed.
+// quit prepares the window first (`installDocumentUnload`); where the Dock or tray keeps the app
+// running it stays (ADR-0033). Subscribing still matters: without a listener Electron itself
+// quits whenever every window has closed.
 app.on('window-all-closed', () => undefined);
 
 // Crashpad leaves a minidump for a crashed child process; this record names the
