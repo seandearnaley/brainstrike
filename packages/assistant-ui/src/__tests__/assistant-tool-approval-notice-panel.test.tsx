@@ -790,7 +790,7 @@ describe('AssistantToolApprovalNotice for a delegated child', () => {
     riskCategory: 'read',
     runId: 'root-run',
     toolCallId: 'background-child-2',
-    toolName: 'brainstrike.queryEmbeddingSpace',
+    toolName: 'brainstrike.lspInspect',
   } satisfies AssistantToolApprovalRequest;
 
   const renderIndexed = (data: unknown) =>
@@ -819,10 +819,8 @@ describe('AssistantToolApprovalNotice for a delegated child', () => {
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent(
       'Explorer · Act as the frontend and UX specialist. Survey the renderer.'
     );
-    expect(screen.getByText('brainstrike.queryEmbeddingSpace')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
-    ).toBeEnabled();
+    expect(screen.getByText('brainstrike.lspInspect')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve brainstrike.lspInspect' })).toBeEnabled();
   });
 
   it('does not lock on an answer for a different child', async () => {
@@ -835,7 +833,7 @@ describe('AssistantToolApprovalNotice for a delegated child', () => {
             reason: 'session-grant',
             runId: 'root-run',
             toolCallId: 'background-child-3',
-            toolName: 'brainstrike.queryEmbeddingSpace',
+            toolName: 'brainstrike.lspInspect',
           },
           name: 'brainstrike.tool-approval-answered',
           type: 'data',
@@ -848,9 +846,7 @@ describe('AssistantToolApprovalNotice for a delegated child', () => {
       expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent('Explorer')
     );
     expect(screen.queryByText('Allowed by session grant')).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Approve brainstrike.queryEmbeddingSpace' })
-    ).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Approve brainstrike.lspInspect' })).toBeEnabled();
   });
 });
 

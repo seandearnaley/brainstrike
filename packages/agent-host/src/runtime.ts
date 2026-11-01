@@ -63,7 +63,6 @@ type PlatformClientService =
   | 'mcpPresentation'
   | 'mcpSettings'
   | 'providers'
-  | 'resolveMemoryEmbedder'
   | 'searchState'
   | 'searchWorkspace'
   | 'terminals'
@@ -82,9 +81,6 @@ function platformClientServices(
     ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
-    ...(platform?.resolveMemoryEmbedder
-      ? { resolveMemoryEmbedder: platform.resolveMemoryEmbedder }
-      : {}),
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
     ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.terminals ? { terminals: platform.terminals } : {}),

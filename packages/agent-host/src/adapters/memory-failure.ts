@@ -39,35 +39,19 @@ export function* memoryFailureCauses(value: unknown): Generator<object> {
   }
 }
 
-/** A platform's model-safe reading of one of its embedder's failures (BST-2202). */
-interface HostMemoryEmbedderFailure {
-  /** No keys, host paths or provider body: shown to the user as is. */
-  readonly detail: string;
-  readonly httpStatus?: number;
-}
-
-/** The run's memory embedder, as its failures name it. */
-export interface HostMemoryEmbedderIdentity {
-  /** A platform's classification of a raw failure of its own embedder. */
-  classifyFailure?(cause: unknown): HostMemoryEmbedderFailure | undefined;
-  /** The embedder's catalog `provider::model`. */
-  readonly modelId: string;
-}
-
 /** What a memory step's failure is read against. */
 export interface MemoryFailureSources {
-  /** The memory part a provider or vector call failed in, from the run's provider enclosure. */
+  /** The memory part a provider call failed in, from the run's provider enclosure. */
   attribution(
     cause: unknown
   ): { readonly cause: object; readonly component: MemoryComponent } | undefined;
-  readonly embedder?: HostMemoryEmbedderIdentity;
   /** The observer's catalog `provider::model`. */
   readonly observerModelId?: string;
 }
 
 /**
  * The typed failure of a memory step: a typed failure its producer already
- * gave it, else the memory part its provider or vector call failed in, else
+ * gave it, else the memory part its provider call failed in, else
  * the internal fault. Never the chat provider's classification (BST-2202).
  */
 export function classifyMemoryFailure(
@@ -84,20 +68,11 @@ export function classifyMemoryFailure(
   if (!attributed) {
     return INTERNAL_FAULT;
   }
-  const { component } = attributed;
-  if (component === 'vector-store') {
-    return memoryComponentFailure({ component, step });
-  }
-  const embedder = component === 'embedder' ? sources.embedder : undefined;
-  const classified = embedder?.classifyFailure?.(attributed.cause);
-  const httpStatus = classified
-    ? classified.httpStatus
-    : extractProviderRunError(attributed.cause).httpStatus;
-  const modelId = component === 'embedder' ? embedder?.modelId : sources.observerModelId;
+  const { httpStatus } = extractProviderRunError(attributed.cause);
+  const modelId = sources.observerModelId;
   return memoryComponentFailure({
-    component,
+    component: attributed.component,
     step,
-    ...(classified ? { detail: classified.detail } : {}),
     ...(httpStatus === undefined ? {} : { httpStatus }),
     ...(modelId === undefined ? {} : { modelId }),
   });

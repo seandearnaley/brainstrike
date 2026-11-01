@@ -46,13 +46,6 @@ function selection(modelTarget = 'openai/observer-fixture'): MutableFixture<Plat
           retrievalMode: 'off',
           scope: 'thread',
         },
-        semanticRecall: {
-          embeddingModelTarget: null,
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
-        },
       },
     },
     nativeRuntime: { provider: 'anthropic', workspaceRoots: [] },
@@ -142,7 +135,6 @@ describe('admitted Memory model configuration', () => {
       expect(memory.native.options?.lastMessages).toBe(12);
       expect(memory.native.options?.workingMemory).toEqual(selected.memory.options.workingMemory);
       expect(memory.native.options?.workingMemory).not.toBe(selected.memory.options.workingMemory);
-      expect(memory.native.options?.semanticRecall).toBe(false);
     }
   );
   it.each(['thread', 'resource'] as const)(
@@ -192,7 +184,7 @@ describe('admitted Memory model configuration', () => {
     async (target) => {
       const selected = selection(target);
       selected.memory.settings.observationalMemory.enabled = false;
-      selected.memory.settings.observationalMemory.retrievalMode = 'vector';
+      selected.memory.settings.observationalMemory.retrievalMode = 'messages';
       const resolver = vi.fn(async (): Promise<Auth> => {
         throw new Error('Disabled Memory must not request a credential');
       });
@@ -213,25 +205,6 @@ describe('admitted Memory model configuration', () => {
       ).rejects.toBeInstanceOf(Error);
       expect(resolver.mock.calls.length).toBe(0);
       expect(factory.mock.calls.length).toBe(0);
-    }
-  );
-  it.each(['semanticRecall', 'vector'] as const)(
-    'preserves a visible failure for missing %s capability',
-    async (feature) => {
-      const selected = selection();
-      if (feature === 'semanticRecall') {
-        selected.memory.settings.semanticRecall.enabled = true;
-        selected.memory.settings.semanticRecall.embeddingModelTarget = 'openai/embed-fixture';
-      } else {
-        selected.memory.settings.observationalMemory.retrievalMode = 'vector';
-      }
-      const before = structuredClone(selected);
-      const resolver = vi.fn(async (): Promise<Auth> => undefined);
-      await expect(createDesktopHostMemoryConfiguration(selected, resolver)).rejects.toBeInstanceOf(
-        Error
-      );
-      expect(selected).toEqual(before);
-      expect(resolver.mock.calls.length).toBe(0);
     }
   );
   const missingAuth: readonly {
@@ -299,22 +272,9 @@ describe('the models thread/memory/read names for an admitted Memory selection',
     }));
     expect(memory.observerModelId).toBe('openrouter::vendor/observer-fixture');
   });
-  it('names no observer while observations are off or waiting, and the recall embedder while on', () => {
+  it('names no observer while observations are off or waiting', () => {
     const selected = selection('auto');
     selected.memory.settings.observationalMemory.enabled = false;
-    selected.memory.vectorProfile = {
-      dimensions: 1536,
-      distance: 'cosine',
-      modelId: 'text-embedding-3-small',
-      provider: 'openai',
-    };
-    expect(desktopMemoryModels(selected.memory)).toEqual({
-      embedder: {
-        dimensions: 1536,
-        distance: 'cosine',
-        modelId: 'text-embedding-3-small',
-        provider: 'openai',
-      },
-    });
+    expect(desktopMemoryModels(selected.memory)).toEqual({});
   });
 });

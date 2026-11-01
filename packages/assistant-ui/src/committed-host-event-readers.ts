@@ -175,27 +175,6 @@ function memorySettlementFailedNotice(
 }
 
 /**
- * The turn's semantic recall failed: the run answered without recalled
- * history, so the failure is a notice of its own, not the answer's outcome.
- */
-function memoryRecallFailedNotice(
-  event: Readonly<Record<string, unknown>>,
-  row: CommittedRowAddress,
-  runId: string,
-  timestamp: string
-): AssistantRunEvent {
-  return {
-    detail: requiredString(event, 'detail'),
-    id: `run-event-${row.threadId}-${row.seq}`,
-    kind: 'memory.semantic.completed',
-    label: 'Memory recall failed; this answer has no recalled history',
-    runId,
-    status: 'failed',
-    timestamp,
-  };
-}
-
-/**
  * A committed host event that is its run's timeline notice, else undefined.
  * Each sits at its run's creation, except a settlement failure, which commits
  * after the run's end and keeps its own time.
@@ -212,8 +191,6 @@ export function committedRunNotice(
       return mcpToolsUnavailableNotice(event, row, runId(), at);
     case 'worktree.created':
       return worktreeCreatedNotice(event, row, runId(), at);
-    case 'memory.recall.failed':
-      return memoryRecallFailedNotice(event, row, runId(), at);
     case 'memory.settlement.failed':
       return memorySettlementFailedNotice(
         event,

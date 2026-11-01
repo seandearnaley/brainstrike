@@ -20,11 +20,7 @@ export function hostMemoryTools(
   native: StateStoreHostMemoryOptions['native'],
   memory: (runId: string) => Promise<HostMemory>
 ): Record<string, HostTool> {
-  const declared = new Memory({
-    ...(native.embedder ? { embedder: native.embedder } : {}),
-    ...(native.options ? { options: native.options } : {}),
-    ...(native.vector ? { vector: native.vector } : {}),
-  }).listTools();
+  const declared = new Memory(native.options ? { options: native.options } : {}).listTools();
   return Object.fromEntries(
     Object.entries(declared).map(([name, tool]): [string, HostTool] => {
       // The vendor Tool already normalized its schema; the SDK consumes it directly.

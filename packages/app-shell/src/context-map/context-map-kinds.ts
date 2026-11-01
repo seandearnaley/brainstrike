@@ -5,20 +5,13 @@ import type {
 import type { SpanFreshness } from './span-freshness';
 
 /** Display order of the legend: the drawing priority, highest first. */
-export const KIND_ORDER: readonly ContextSpanKind[] = [
-  'edit',
-  'pinned',
-  'read',
-  'semantic',
-  'grep',
-];
+export const KIND_ORDER: readonly ContextSpanKind[] = ['edit', 'pinned', 'read', 'grep'];
 
 export const KIND_LABEL: Readonly<Record<ContextSpanKind, string>> = {
   edit: 'Edited',
   grep: 'Grep hit',
   pinned: 'Attached by you',
   read: 'Read',
-  semantic: 'Semantic hit',
 };
 
 /**
@@ -49,7 +42,6 @@ export const KIND_COLOR_CLASS: Readonly<Record<ContextSpanKind, string>> = {
   grep: 'text-warning',
   pinned: 'text-pink-800 dark:text-pink-300',
   read: 'text-blue-700 dark:text-blue-400',
-  semantic: 'text-purple-700 dark:text-purple-300',
 };
 
 /** Seen, but no longer in the window: hatched in the kind's color. */

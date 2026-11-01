@@ -11,7 +11,7 @@
 import { createContext, useContext } from 'react';
 
 /** How the model received a file, highest drawing priority first in `kinds`. */
-export type ExplorerThreadTouchKind = 'edit' | 'grep' | 'pinned' | 'read' | 'semantic';
+export type ExplorerThreadTouchKind = 'edit' | 'grep' | 'pinned' | 'read';
 
 /** `unknown`: nothing to compare, or not checked yet; `unavailable`: the file could not be read. */
 export type ExplorerThreadFreshness =

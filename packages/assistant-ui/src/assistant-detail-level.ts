@@ -82,7 +82,7 @@ export function resolveToolDisplayPolicy(level: AssistantDetailLevel): ToolDispl
 
 /**
  * Whether the thread shows the memory/context "background activity" run-event
- * rows (observational memory, semantic recall, context prep, run steps). Hidden
+ * rows (observational memory, context prep, run steps). Hidden
  * everywhere except Developer — by default the thread is just the grouped tool
  * calls + the answer, not a flood of internal bookkeeping.
  */

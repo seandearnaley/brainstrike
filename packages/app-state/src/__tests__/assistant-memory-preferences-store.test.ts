@@ -23,13 +23,6 @@ describe('assistant-memory-preferences-store', () => {
           retrievalMode: 'off',
           scope: 'thread',
         },
-        semanticRecall: {
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
-        },
       },
       version: 1,
     };
@@ -38,8 +31,6 @@ describe('assistant-memory-preferences-store', () => {
 
     const settings = useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings();
     expect(settings.observationalMemory.modelTarget).toBe('openai/gpt-5.4-mini');
-    // Embedding target was not dropped, so it is preserved.
-    expect(settings.semanticRecall.embeddingModelTarget).toBe('openai/text-embedding-3-small');
   });
 
   it('self-heals a stale model target persisted at the current version', async () => {
@@ -55,13 +46,6 @@ describe('assistant-memory-preferences-store', () => {
           observationTokens: 40_000,
           retrievalMode: 'off',
           scope: 'thread',
-        },
-        semanticRecall: {
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
         },
       },
       version: 2,
@@ -97,13 +81,6 @@ describe('assistant-memory-preferences-store', () => {
           retrievalMode: 'off',
           scope: 'thread',
         },
-        semanticRecall: {
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
-        },
       },
       version: 2,
     };
@@ -113,7 +90,7 @@ describe('assistant-memory-preferences-store', () => {
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory.modelTarget).toBe(to);
   });
 
-  it('enables observations by default with the auto observer target (BST-940) and disables semantic recall', () => {
+  it('enables observations by default with the auto observer target (BST-940)', () => {
     const state = useAssistantMemoryPreferencesStore.getState();
 
     expect(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME).toBe(
@@ -126,13 +103,6 @@ describe('assistant-memory-preferences-store', () => {
       observationTokens: 40_000,
       retrievalMode: 'off',
       scope: 'thread',
-    });
-    expect(state.semanticRecall).toEqual({
-      embeddingModelTarget: 'openai/text-embedding-3-small',
-      enabled: false,
-      messageRange: 2,
-      scope: 'resource',
-      topK: 5,
     });
   });
 
@@ -155,13 +125,11 @@ describe('assistant-memory-preferences-store', () => {
     });
   });
 
-  it('clamps token thresholds and semantic recall result counts to safe Mastra values', () => {
+  it('clamps token thresholds to safe Mastra values', () => {
     const store = useAssistantMemoryPreferencesStore.getState();
 
     store.setObservationMessageTokens(12);
     store.setReflectionObservationTokens(Number.NaN);
-    store.setSemanticRecallTopK(1000);
-    store.setSemanticRecallMessageRange(-10);
 
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory.messageTokens).toBe(
       1000
@@ -169,16 +137,12 @@ describe('assistant-memory-preferences-store', () => {
     expect(
       useAssistantMemoryPreferencesStore.getState().observationalMemory.observationTokens
     ).toBe(1000);
-    expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.topK).toBe(50);
-    expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.messageRange).toBe(0);
   });
 
   it('returns the exact runtime memory settings passed to Mastra', () => {
     const store = useAssistantMemoryPreferencesStore.getState();
 
-    store.setSemanticRecallEnabled(true);
-    store.setSemanticRecallEmbeddingModelTarget('google/gemini-embedding-001');
-    store.setSemanticRecallScope('thread');
+    store.setObservationalRetrievalMode('messages');
 
     expect(useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings()).toEqual({
       observationalMemory: {
@@ -186,15 +150,8 @@ describe('assistant-memory-preferences-store', () => {
         messageTokens: 30_000,
         modelTarget: 'auto',
         observationTokens: 40_000,
-        retrievalMode: 'off',
+        retrievalMode: 'messages',
         scope: 'thread',
-      },
-      semanticRecall: {
-        embeddingModelTarget: 'google/gemini-embedding-001',
-        enabled: true,
-        messageRange: 2,
-        scope: 'thread',
-        topK: 5,
       },
     });
   });

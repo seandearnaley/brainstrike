@@ -706,7 +706,7 @@ export async function runRenameWorkspaceFile(
     // DESTINATION is re-indexed through the edit seam, which no-ops for a
     // brand-new path — a not-previously-indexed destination's row is imported by
     // the background workspace sync (the documented staleness window: the moved
-    // file is searchable via the live grep pass immediately, and via the semantic
+    // file is searchable via the live grep pass immediately, and via the workspace
     // index once the next sync imports it).
     const invalidated =
       (await ports.index?.deleted({

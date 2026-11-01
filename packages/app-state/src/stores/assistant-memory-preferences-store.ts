@@ -16,13 +16,9 @@ const STORE_VERSION = 2;
  * against them visibly; the store normalizes persisted values into them.
  */
 export const ASSISTANT_MEMORY_NUMBER_LIMITS = {
-  messageRange: { max: 20, min: 0 },
   tokenThreshold: { max: Number.MAX_SAFE_INTEGER, min: 1000 },
-  topK: { max: 50, min: 1 },
 } as const;
 const MIN_TOKEN_THRESHOLD = ASSISTANT_MEMORY_NUMBER_LIMITS.tokenThreshold.min;
-const MAX_SEMANTIC_TOP_K = ASSISTANT_MEMORY_NUMBER_LIMITS.topK.max;
-const MAX_MESSAGE_RANGE = ASSISTANT_MEMORY_NUMBER_LIMITS.messageRange.max;
 
 // Remap `provider/model` memory targets that were dropped in the 2026 frontier
 // refresh so observational memory never runs against a removed model ID.
@@ -60,11 +56,6 @@ interface AssistantMemoryPreferencesActions {
   setObservationalRetrievalMode: (mode: RuntimeAssistantMemoryRetrievalMode) => void;
   setObservationMessageTokens: (value: number) => void;
   setReflectionObservationTokens: (value: number) => void;
-  setSemanticRecallEmbeddingModelTarget: (modelTarget: string | null) => void;
-  setSemanticRecallEnabled: (enabled: boolean) => void;
-  setSemanticRecallMessageRange: (value: number) => void;
-  setSemanticRecallScope: (scope: RuntimeAssistantMemoryScope) => void;
-  setSemanticRecallTopK: (value: number) => void;
 }
 
 interface AssistantMemoryPreferencesData extends RuntimeAssistantMemorySettings {
@@ -90,10 +81,7 @@ function normalizeScope(value: unknown): RuntimeAssistantMemoryScope {
 }
 
 function normalizeRetrievalMode(value: unknown): RuntimeAssistantMemoryRetrievalMode {
-  if (value === 'messages' || value === 'vector') {
-    return value;
-  }
-  return 'off';
+  return value === 'messages' ? 'messages' : 'off';
 }
 
 function normalizeMemorySettings(
@@ -101,7 +89,6 @@ function normalizeMemorySettings(
 ): RuntimeAssistantMemorySettings {
   const defaults = DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
   const observational = settings?.observationalMemory;
-  const semantic = settings?.semanticRecall;
 
   return {
     observationalMemory: {
@@ -120,18 +107,6 @@ function normalizeMemorySettings(
       ),
       scope: normalizeScope(observational?.scope ?? defaults.observationalMemory.scope),
     },
-    semanticRecall: {
-      embeddingModelTarget:
-        semantic?.embeddingModelTarget?.trim() || defaults.semanticRecall.embeddingModelTarget,
-      enabled: semantic?.enabled ?? defaults.semanticRecall.enabled,
-      messageRange: clampInteger(
-        semantic?.messageRange ?? defaults.semanticRecall.messageRange,
-        0,
-        MAX_MESSAGE_RANGE
-      ),
-      scope: normalizeScope(semantic?.scope ?? defaults.semanticRecall.scope),
-      topK: clampInteger(semantic?.topK ?? defaults.semanticRecall.topK, 1, MAX_SEMANTIC_TOP_K),
-    },
   };
 }
 
@@ -144,10 +119,7 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
       hasHydrated: false,
       ...initialMemorySettings,
       getRuntimeMemorySettings: () =>
-        normalizeMemorySettings({
-          observationalMemory: get().observationalMemory,
-          semanticRecall: get().semanticRecall,
-        }),
+        normalizeMemorySettings({ observationalMemory: get().observationalMemory }),
       setObservationalMemoryEnabled: (enabled: boolean) =>
         set((state) => ({
           observationalMemory: { ...state.observationalMemory, enabled },
@@ -182,35 +154,6 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
           observationalMemory: {
             ...state.observationalMemory,
             observationTokens: clampTokenThreshold(value),
-          },
-        })),
-      setSemanticRecallEmbeddingModelTarget: (embeddingModelTarget: string | null) =>
-        set((state) => ({
-          semanticRecall: {
-            ...state.semanticRecall,
-            embeddingModelTarget: embeddingModelTarget?.trim() || null,
-          },
-        })),
-      setSemanticRecallEnabled: (enabled: boolean) =>
-        set((state) => ({
-          semanticRecall: { ...state.semanticRecall, enabled },
-        })),
-      setSemanticRecallMessageRange: (value: number) =>
-        set((state) => ({
-          semanticRecall: {
-            ...state.semanticRecall,
-            messageRange: clampInteger(value, 0, MAX_MESSAGE_RANGE),
-          },
-        })),
-      setSemanticRecallScope: (scope: RuntimeAssistantMemoryScope) =>
-        set((state) => ({
-          semanticRecall: { ...state.semanticRecall, scope },
-        })),
-      setSemanticRecallTopK: (value: number) =>
-        set((state) => ({
-          semanticRecall: {
-            ...state.semanticRecall,
-            topK: clampInteger(value, 1, MAX_SEMANTIC_TOP_K),
           },
         })),
     }),
@@ -258,10 +201,7 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         }
         return normalizeMemorySettings(persistedState as Partial<RuntimeAssistantMemorySettings>);
       },
-      partialize: (state) => ({
-        observationalMemory: state.observationalMemory,
-        semanticRecall: state.semanticRecall,
-      }),
+      partialize: (state) => ({ observationalMemory: state.observationalMemory }),
       version: STORE_VERSION,
     }
   )

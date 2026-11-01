@@ -1,19 +1,10 @@
-import {
-  isSupportedProvider,
-  MEMORY_EMBEDDER_SELECTION_REMEDY,
-  MEMORY_FAILURE_CODES,
-  type ModelCatalogCapability,
-  refusalError,
-} from '@brainstrike/assistant-contract';
-import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
+import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
-import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopPlatformCapabilities } from './main-platform';
-import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 
 /** Supplied by the existing settings owner, never parsed from client configuration. */
 export type DesktopCliOwnerIntentReader = NonNullable<DesktopAdmissionReads['cliOwnerIntent']>;
@@ -22,29 +13,12 @@ export type DesktopCliOwnerIntentReader = NonNullable<DesktopAdmissionReads['cli
 export interface DesktopHostToolServices {
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly nativeIndexSearch?: IndexSearchCapability | undefined;
-  readonly retrievalStore: RetrievalStore;
   readonly workspaceRoots: WorkspaceRootPort;
-}
-
-/** A hosted recall embedder's catalog dimensions, from the provider registry. */
-function readHostedEmbeddingDimensions(provider: string, modelId: string): number {
-  const model = isSupportedProvider(provider)
-    ? listEmbeddingModels(provider).find((candidate) => candidate.id === modelId)
-    : undefined;
-  if (!model) {
-    throw refusalError(
-      'configuration',
-      MEMORY_FAILURE_CODES.configuration,
-      `The semantic recall embedding model ${provider}/${modelId} is not in the provider catalog.`,
-      MEMORY_EMBEDDER_SELECTION_REMEDY
-    );
-  }
-  return model.defaultDimension;
 }
 
 /**
  * The facts a host-composed run admission reads from Main (BST-1930 stage e): the model
- * catalog, the index status and the live roots. The host acquires the run's workspace itself
+ * catalog and the live roots. The host acquires the run's workspace itself
  * (ADR-0029 stage 4), from the folders its root registry holds.
  */
 function desktopAdmissionReads(
@@ -81,17 +55,8 @@ function desktopAdmissionReads(
         )
         .map((model) => `${model.providerId}/${model.id}`);
     },
-    indexStatus: async () =>
-      dependencies.nativeIndexSearch
-        ? await dependencies.nativeIndexSearch.status()
-        : { kind: 'unavailable', reason: 'This desktop has no workspace index.' },
     liveWorkspaceRoots: async () =>
       await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots),
-    memoryVectors: async (settings) =>
-      await resolveDesktopMemoryVectors(settings, {
-        readDimensions: async (provider, modelId) =>
-          readHostedEmbeddingDimensions(provider, modelId),
-      }),
   };
 }
 

@@ -56,7 +56,6 @@ export {
   type RuntimeAssistantMemoryScope,
   type RuntimeAssistantMemorySettings,
   type RuntimeAssistantObservationalMemorySettings,
-  type RuntimeAssistantSemanticRecallSettings,
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/assistant-contract/memory-settings';
 export type { ReadToolOutputArtifactCursorInput } from '@brainstrike/assistant-contract/native-tool-schemas';
@@ -262,7 +261,6 @@ export {
 } from './providers/provider-auth-input.ts';
 export {
   type ConcreteLanguageModel,
-  createEmbeddingProvider,
   createLanguageModelProvider,
   createProvider,
   getDefaultModel,
@@ -469,12 +467,8 @@ export {
   GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
-  type HybridSearchInput,
-  HybridSearchInputSchema,
   type InspectCommandSessionsInput,
   InspectCommandSessionsInputSchema,
-  type ListEmbeddingSetsInput,
-  ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
   type ListWorktreesInput,
@@ -496,8 +490,6 @@ export {
   normalizeManageWorktreeInput,
   type QueryDiagnosticsInput,
   QueryDiagnosticsInputSchema,
-  type QueryEmbeddingSpaceInput,
-  QueryEmbeddingSpaceInputSchema,
   type ReadWorkspaceContextInput,
   ReadWorkspaceContextInputSchema,
   type ReadWorkspaceDirectoryInput,
@@ -506,8 +498,6 @@ export {
   ReadWorkspaceFileInputSchema,
   type RenameWorkspaceFileInput,
   RenameWorkspaceFileInputSchema,
-  type RetrievalContextInput,
-  RetrievalContextInputSchema,
   type RunPythonInput,
   RunPythonInputSchema,
   type RunSkillScriptInput,
@@ -532,15 +522,6 @@ export {
   type StringReplaceResult,
 } from './tools/string-replace.ts';
 export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool.ts';
-export {
-  createWorkspaceIndexUnavailableResult,
-  hasWorkspaceIndexRuntimeStatus,
-  normalizeOptionalText,
-  normalizeWorkspaceIndexText,
-  type RetrievalUnavailableResult,
-  resolveWorkspaceIndexEmbeddingSetId,
-  type WorkspaceIndexRetrievalStatus,
-} from './tools/workspace-index-retrieval.ts';
 export type {
   AgentMessage,
   AgentMessagePart,

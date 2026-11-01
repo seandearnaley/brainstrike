@@ -60,7 +60,7 @@ describe('AssistantRunTimeline', () => {
     // Real kinds from the closed union (BST-978: the inbound guard rejects
     // fabricated `run.${status}` kinds the old partial check waved through).
     const cases = [
-      ['memory.semantic.started', 'running', 'Semantic recall'],
+      ['memory.observation.started', 'running', 'Observing memory'],
       ['tool.failed', 'failed', 'Tool failed'],
       ['run.cancelled', 'cancelled', 'Run cancelled'],
       ['hook.notice', 'info', 'Hook notice'],
@@ -82,7 +82,7 @@ describe('AssistantRunTimeline', () => {
       ))
     );
 
-    expect(screen.getByText('Semantic recall')).toBeInTheDocument();
+    expect(screen.getByText('Observing memory')).toBeInTheDocument();
     expect(screen.getByLabelText('Running')).toBeInTheDocument();
     expect(screen.getByText('Tool failed')).toBeInTheDocument();
     expect(screen.getByLabelText('Failed')).toBeInTheDocument();

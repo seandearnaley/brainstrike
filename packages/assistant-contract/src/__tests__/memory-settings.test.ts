@@ -138,7 +138,7 @@ describe('working-memory template (must never fall back to Mastra stock)', () =>
   it('is thread-scoped, so one thread cannot bill every other thread forever', () => {
     // 'resource' prepends this scratchpad to EVERY thread for the user, and
     // working memory has no decay — cross-thread continuity belongs to
-    // observational memory and semantic recall, which retrieve on relevance.
+    // observational memory, which retrieves on relevance.
     expect(DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.scope).toBe('thread');
   });
 });

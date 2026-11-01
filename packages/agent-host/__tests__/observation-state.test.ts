@@ -1,4 +1,3 @@
-import type { VectorProfile } from '@brainstrike/indexer';
 import type { MemoryDomainPort, MemoryJson, MemorySnapshot } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
@@ -209,51 +208,21 @@ test('a record without a positive reflection threshold is an error, never a zero
   );
 });
 
-test('the run’s models name its observer and its embedder by their identities', () => {
-  const profile: VectorProfile = {
-    dimensions: 1536,
-    distance: 'cosine',
-    modelId: 'text-embedding-3-small',
-    provider: 'openai',
-  };
-  expect(hostMemoryModels('openai::gpt-5-mini', profile)).toEqual({
-    embedder: {
-      dimensions: 1536,
-      distance: 'cosine',
-      modelId: 'text-embedding-3-small',
-      provider: 'openai',
-    },
-    observer: 'openai::gpt-5-mini',
-  });
-  expect(
-    hostMemoryModels(undefined, {
-      dimensions: 1536,
-      distance: 'cosine',
-      modelId: 'text-embedding-3-small',
-      provider: 'openai',
-    })
-  ).toEqual({
-    embedder: {
-      dimensions: 1536,
-      distance: 'cosine',
-      modelId: 'text-embedding-3-small',
-      provider: 'openai',
-    },
-  });
-  expect(hostMemoryModels(undefined, undefined)).toEqual({});
+test('the run’s models name its observer by its catalog identity', () => {
+  expect(hostMemoryModels('openai::gpt-5-mini')).toEqual({ observer: 'openai::gpt-5-mini' });
+  expect(hostMemoryModels(undefined)).toEqual({});
 });
 
 test('an admission names its observer only while its observational memory is on', () => {
   const on = { resourceId, scope: 'thread', state: 'on' } as const;
-  expect(admittedMemoryModels(on, 'openai::gpt-5-mini', undefined)).toEqual({
+  expect(admittedMemoryModels(on, 'openai::gpt-5-mini')).toEqual({
     observer: 'openai::gpt-5-mini',
   });
-  expect(admittedMemoryModels({ state: 'off' }, 'openai::gpt-5-mini', undefined)).toEqual({});
+  expect(admittedMemoryModels({ state: 'off' }, 'openai::gpt-5-mini')).toEqual({});
   expect(
     admittedMemoryModels(
       { reason: 'model-not-eligible', state: 'awaiting-observer' },
-      'openai::gpt-5-mini',
-      undefined
+      'openai::gpt-5-mini'
     )
   ).toEqual({});
 });

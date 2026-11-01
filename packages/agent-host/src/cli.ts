@@ -469,8 +469,8 @@ Per-run workspace input for a profile-backed host: repeat --workspace-root <exis
 --workspace-instructions inherit|off, and --skills inherit|off (default off).
 Selectors narrow live owner grants; they never add paths.
 An empty selection grants no workspace; Skills also require the owner's home-tier capability.
-Search/shell tools, Skills/workspace instructions, vector Memory,
-local inference and browser OAuth require platform capabilities.
+Search/shell tools, Skills/workspace instructions, local inference
+and browser OAuth require platform capabilities.
 An existing host keeps its own platform and admission policy.
 A new host composes configured MCP servers and their Tasks from --mcp-config <file> (the desktop's MCP config JSON).
 The interaction id is the committed mcp.input.requested event's interactionId; a non-interactive run exits 2 at one.

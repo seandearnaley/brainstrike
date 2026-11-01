@@ -36,7 +36,6 @@ export type NativeToolDiscoveryNamespace =
   | 'artifacts'
   | 'context'
   | 'database'
-  | 'embeddings'
   | 'execution'
   | 'semantics'
   | 'sessions'
@@ -63,7 +62,6 @@ export type DeferredCapabilityFamilyPhrase =
   | 'directory listings'
   | 'workspace context'
   | 'symbol and LSP inspection'
-  | 'embedding search'
   | 'diagnostics'
   | 'tool-output artifacts';
 

@@ -4,8 +4,6 @@ import { describe, expect, it } from 'vitest';
 import {
   GlobWorkspaceInputSchema,
   GrepSearchInputSchema,
-  HybridSearchInputSchema,
-  QueryEmbeddingSpaceInputSchema,
   validateToolInput,
 } from '../tools/schemas';
 
@@ -41,35 +39,6 @@ describe('tool schemas', () => {
     ).toBe(false);
   });
 
-  it('allows embedding-space queries to omit an explicit id for workspace-index defaulting', () => {
-    const ok = validateToolInput('brainstrike.queryEmbeddingSpace', {
-      query: 'where is context assembled?',
-    });
-    expect(ok.ok).toBe(true);
-  });
-
-  it('validates workspace-index embedding-space listing input', () => {
-    const ok = validateToolInput('brainstrike.listEmbeddingSpaces', {
-      includeStats: true,
-      workspaceIndexOnly: true,
-    });
-    expect(ok.ok).toBe(true);
-  });
-
-  it('marks embedding set id as optional in query display metadata', () => {
-    const schema = getToolSchemaDisplay('brainstrike.queryEmbeddingSpace');
-    const embeddingSetParam = schema?.parameters.find((param) => param.name === 'embeddingSetId');
-    expect(embeddingSetParam?.required).toBe(false);
-  });
-
-  it('documents workspace-index filtering for embedding-space listing', () => {
-    const schema = getToolSchemaDisplay('brainstrike.listEmbeddingSpaces');
-    const workspaceIndexOnly = schema?.parameters.find(
-      (param) => param.name === 'workspaceIndexOnly'
-    );
-    expect(workspaceIndexOnly?.type).toBe('boolean');
-  });
-
   it('validates globWorkspace input and rejects unknown fields (strict)', () => {
     expect(validateToolInput('brainstrike.globWorkspace', { pattern: '**/*.ts' }).ok).toBe(true);
     expect(
@@ -99,12 +68,7 @@ describe('tool schemas', () => {
   });
 
   it('preserves omitted and explicit root qualifiers for runtime scope resolution', () => {
-    const rootSchemas = [
-      GlobWorkspaceInputSchema.fields.root,
-      GrepSearchInputSchema.fields.root,
-      HybridSearchInputSchema.fields.root,
-      QueryEmbeddingSpaceInputSchema.fields.root,
-    ];
+    const rootSchemas = [GlobWorkspaceInputSchema.fields.root, GrepSearchInputSchema.fields.root];
 
     // The owning runtime tests exercise thread-wide versus explicit-folder
     // resolution. Parsing must not turn omission into a selected folder.

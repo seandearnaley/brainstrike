@@ -83,7 +83,6 @@ it('acquires the workspace index.sqlite with no state truth root or projection',
   expect(options).toMatchObject({ dbPath: join('/owned/profile', 'index.sqlite') });
   expect(options).not.toHaveProperty('stateRoot');
   expect(options).not.toHaveProperty('stateProjection');
-  expect(options).not.toHaveProperty('stateResources');
 });
 
 it.each([DEFAULT_MAX_FILE_SIZE, 4096])(

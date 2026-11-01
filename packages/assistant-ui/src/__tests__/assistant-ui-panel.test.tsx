@@ -336,7 +336,6 @@ const providerGroups: ProviderGroupConfig[] = [
           embeddings: false,
           llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'openai',
         models: [
@@ -363,7 +362,6 @@ const providerGroups: ProviderGroupConfig[] = [
           embeddings: false,
           llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'anthropic',
         models: [
@@ -594,8 +592,8 @@ describe('assistant thread surface', () => {
       <RunEventPart
         data={{
           id: 'evt-1',
-          kind: 'memory.semantic.completed',
-          label: 'Recalled memory',
+          kind: 'memory.reflection.completed',
+          label: 'Reflected memory',
           status: 'completed',
           timestamp: '2026-06-16T10:00:00.000Z',
         }}

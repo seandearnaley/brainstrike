@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseObservationalMemoryModelTarget,
-  parseSemanticRecallEmbeddingModelTarget,
   resolveRequestedProvider,
 } from '../memory-model-targets';
 
@@ -37,21 +36,6 @@ describe('parseObservationalMemoryModelTarget', () => {
     );
     expect(() => parseObservationalMemoryModelTarget('cohere/command-r')).toThrow(
       'requires a hosted model provider;'
-    );
-  });
-});
-
-describe('parseSemanticRecallEmbeddingModelTarget', () => {
-  it.each([
-    ['openai/text-embedding-3-small', { model: 'text-embedding-3-small', provider: 'openai' }],
-    ['GOOGLE/gemini-embedding-001', { model: 'gemini-embedding-001', provider: 'google' }],
-  ])('parses supported embedding target %s', (target, expected) => {
-    expect(parseSemanticRecallEmbeddingModelTarget(target)).toEqual(expected);
-  });
-
-  it('rejects a supported provider that is not an allowed desktop embedder', () => {
-    expect(() => parseSemanticRecallEmbeddingModelTarget('anthropic/claude-haiku-4-5')).toThrow(
-      'supports hosted OpenAI/Google embedders;'
     );
   });
 });
