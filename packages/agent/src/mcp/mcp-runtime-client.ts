@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { MCP_PROGRESS_STREAM_PART_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import { createLogger } from '@brainstrike/logging';
+import { readMcpAppToolResourceUri } from '@brainstrike/mcp-app-host/metadata';
 import { toStandardSchema } from '@mastra/schema-compat/schema';
 import type { HostToolDefinitions, HostToolExecutionContext } from '../host-tool-definition.ts';
 import { readToolCallId } from '../tools/read-tool-call-id.ts';
@@ -23,16 +24,12 @@ import type {
   ExplicitHttpMcpRequestOptions,
   ExplicitHttpMcpTool,
 } from './explicit-http-client.ts';
-import {
-  createMcpAppToolResult,
-  hasMcpAppToolMeta,
-  projectMcpAppOrTaskToolModelOutput,
-  readMcpAppToolResourceUri,
-} from './mcp-app-tool-result.ts';
+import { createMcpAppToolResult } from './mcp-app-tool-result.ts';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output.ts';
 import {
   createMcpTaskToolTracking,
   type McpTaskToolTracking,
+  projectMcpTaskToolModelOutput,
   readMcpCreatedTaskResult,
   settleMcpTaskToolResult,
 } from './mcp-task-tool-result.ts';
@@ -328,9 +325,7 @@ function createMcpTool(
   { client, server, taskTracking }: TransportOwnedServerClient,
   tool: ExplicitHttpMcpTool
 ): HostToolDefinitions[string] {
-  const toolMeta = stampServerIdInMeta(tool._meta, server.name);
-  const strict = readStrictMeta(toolMeta);
-  const hasAppMeta = hasMcpAppToolMeta(tool._meta);
+  const strict = readStrictMeta(tool._meta);
 
   return {
     description: tool.description ?? '',
@@ -345,18 +340,12 @@ function createMcpTool(
     // the model to invent filters such as Linear priority=0. Runtime JSON
     // Schema validation still runs; a server's explicit strict opt-in wins.
     strict: strict ?? false,
-    // Tasks and Apps share one projector: Tasks get their bounded status view,
-    // while Apps project the inner ordinary result. Definitions carrying
-    // neither contract keep the generic pipeline path without a custom seam.
-    ...(taskTracking || hasAppMeta ? { toModelOutput: projectMcpAppOrTaskToolModelOutput } : {}),
+    // Tasks get their bounded status view. The central model-output seam
+    // unwraps an Apps marker before any projector runs, so App results take
+    // the generic path like every other definition.
+    ...(taskTracking ? { toModelOutput: projectMcpTaskToolModelOutput } : {}),
     execute: async (input: unknown, context?: HostToolExecutionContext) =>
-      executeMcpTool(
-        { client, server, taskTracking },
-        tool.name,
-        requireToolArguments(input),
-        tool._meta,
-        context
-      ),
+      executeMcpTool({ client, server, taskTracking }, tool, requireToolArguments(input), context),
   };
 }
 
@@ -382,14 +371,14 @@ function readHostExecution(context: HostToolExecutionContext | undefined): {
 
 async function executeMcpTool(
   { client, server, taskTracking }: TransportOwnedServerClient,
-  toolName: string,
+  tool: ExplicitHttpMcpTool,
   input: Record<string, unknown>,
-  definitionMeta: Record<string, unknown> | undefined,
   context: HostToolExecutionContext | undefined
 ): Promise<unknown> {
   const serverName = server.name;
+  const toolName = tool.name;
   const host = readHostExecution(context);
-  const appResourceUri = readMcpAppToolResourceUri(definitionMeta);
+  const appResourceUri = readMcpAppToolResourceUri(tool);
   const appOrigin = appResourceUri
     ? { resourceUri: appResourceUri, serverId: serverName, toolName }
     : undefined;
@@ -576,23 +565,6 @@ function requireToolArguments(input: unknown): Record<string, unknown> {
     throw new Error('MCP tool arguments must be an object');
   }
   return input as Record<string, unknown>;
-}
-
-function stampServerIdInMeta(
-  meta: Record<string, unknown> | undefined,
-  serverName: string
-): Record<string, unknown> | undefined {
-  if (!meta) {
-    return;
-  }
-  const ui = meta['ui'];
-  if (!(ui && typeof ui === 'object' && 'resourceUri' in ui)) {
-    return meta;
-  }
-  return {
-    ...meta,
-    ui: { ...(ui as Record<string, unknown>), serverId: serverName },
-  };
 }
 
 function readStrictMeta(meta: Record<string, unknown> | undefined): boolean | undefined {
