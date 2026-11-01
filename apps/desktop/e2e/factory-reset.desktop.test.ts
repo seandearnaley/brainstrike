@@ -18,6 +18,8 @@ const FACTORY_RESET_BROWSER_CACHE_NAME = 'brainstrike-reset-e2e-cache';
 const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL = 'https://brainstrike.local/reset-e2e-cache-entry';
 const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-reset-e2e-indexed-db';
 const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:reset:e2e:local-storage';
+/** `DURABLE_KEY_PREFIX` (`@brainstrike/storage`): every durable renderer store's key. */
+const DURABLE_KEY_PREFIX = 'brainstrike:';
 const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:reset:e2e:session-storage';
 const AFTER_RESET_REPLY = 'The fresh profile answers.';
 
@@ -54,6 +56,44 @@ function readFolders(userDataDir: string): unknown[] {
 async function storedCredentials(window: Page): Promise<string[]> {
   return await window.evaluate(() =>
     (globalThis as unknown as { secrets: { listStored(): Promise<string[]> } }).secrets.listStored()
+  );
+}
+
+const USED_PROFILE_MARK = 'usedProfile';
+
+/**
+ * Marks every durable renderer store's saved envelope as the used profile's (zustand reads only
+ * `state` and `version`, so the mark changes nothing the stores see) and returns the marked keys.
+ */
+async function markDurableEntries(window: Page): Promise<string[]> {
+  return await window.evaluate(
+    ({ mark, prefix }) => {
+      const marked: string[] = [];
+      for (let index = 0; index < localStorage.length; index++) {
+        const key = localStorage.key(index);
+        const saved = key?.startsWith(prefix) ? (localStorage.getItem(key) ?? '') : '';
+        if (key && saved.startsWith('{')) {
+          localStorage.setItem(
+            key,
+            JSON.stringify({ ...(JSON.parse(saved) as object), [mark]: true })
+          );
+          marked.push(key);
+        }
+      }
+      return marked;
+    },
+    { mark: USED_PROFILE_MARK, prefix: DURABLE_KEY_PREFIX }
+  );
+}
+
+/** The durable keys that still hold a used-profile envelope. */
+async function markedDurableKeys(window: Page): Promise<string[]> {
+  return await window.evaluate(
+    ({ mark, prefix }) =>
+      Object.keys(localStorage).filter(
+        (key) => key.startsWith(prefix) && localStorage.getItem(key)?.includes(`"${mark}":true`)
+      ),
+    { mark: USED_PROFILE_MARK, prefix: DURABLE_KEY_PREFIX }
   );
 }
 
@@ -227,6 +267,8 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       await homePage.openSettings();
       await settingsPage.openCategory(/Factory Reset/iu, 'factory-reset');
       await confirmNextReset(window);
+      // Every durable renderer store the used profile saved, which the reset must clear whole.
+      expect(await markDurableEntries(window)).toContain('brainstrike:token-preferences.v1');
       // The retired document stays visually ready while Main purges its stores.
       // Join the replacement document before consulting its readiness or catalog.
       await Promise.all([
@@ -244,6 +286,8 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         });
       const { waitForAppReady } = await loadElectronHelpers();
       await waitForAppReady(window);
+      // No durable store's saved value survives: the fresh document starts on defaults.
+      expect(await markedDurableKeys(window)).toEqual([]);
       expect(await readNativeResetProbe(window, resetProbe)).toEqual({ folders: 0 });
       await expect.poll(() => readFolders(userDataDir)).toEqual([[], []]);
       await homePage.leaveSettings();

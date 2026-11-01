@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { useWorktreeSetupConsentStore } from '../stores/worktree-setup-consent-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
-const STORE_KEY = 'worktree-setup-consent.v1';
+const STORE_KEY = 'brainstrike:worktree-setup-consent.v1';
 const storeWithPersist = useWorktreeSetupConsentStore as PersistApi<
   typeof useWorktreeSetupConsentStore
 >;

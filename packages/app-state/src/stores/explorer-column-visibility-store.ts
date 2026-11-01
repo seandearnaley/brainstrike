@@ -11,12 +11,8 @@
  * `explorer-column-sizes-store.ts`. Keeping them apart means a resize never
  * rewrites visibility and a toggle never rewrites widths (the sizes store
  * deliberately preserves entries for columns that are currently hidden).
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -40,11 +36,8 @@ const DEFAULT_VISIBILITY: ExplorerColumnVisibility = {
   type: false,
 };
 
-const STORE_NAME = 'explorer-column-visibility.v1' as const;
+const STORE_NAME = 'brainstrike:explorer-column-visibility.v1' as const;
 const STORE_VERSION = 1 as const;
-const GLOBAL_KEY = '__brainstrike_explorer_column_visibility_store__' as const;
-const BRAND = '__brainstrike_store_brand__';
-const BRAND_VERSION = 1 as const;
 
 /**
  * Non-boolean and unknown keys are dropped rather than coerced: a malformed
@@ -66,56 +59,27 @@ export function sanitizeExplorerColumnVisibility(persisted: unknown): ExplorerCo
   return next;
 }
 
-function createExplorerColumnVisibilityStore() {
-  return create<ExplorerColumnVisibilityStoreState>()(
-    persist(
-      (set) => ({
-        ...DEFAULT_VISIBILITY,
-        reset: () => set({ ...DEFAULT_VISIBILITY }),
-        setColumnVisible: (columnId, visible) => set({ [columnId]: visible }),
+export const useExplorerColumnVisibilityStore = create<ExplorerColumnVisibilityStoreState>()(
+  persistDurable(
+    STORE_NAME,
+    (set) => ({
+      ...DEFAULT_VISIBILITY,
+      reset: () => set({ ...DEFAULT_VISIBILITY }),
+      setColumnVisible: (columnId, visible) => set({ [columnId]: visible }),
+    }),
+    {
+      merge: createSanitizedPersistMerge<
+        ExplorerColumnVisibilityStoreState,
+        ExplorerColumnVisibility
+      >(sanitizeExplorerColumnVisibility),
+      migrate: (persisted) => sanitizeExplorerColumnVisibility(persisted),
+      partialize: (state): ExplorerColumnVisibility => ({
+        size: state.size,
+        thread: state.thread,
+        tokens: state.tokens,
+        type: state.type,
       }),
-      {
-        merge: createSanitizedPersistMerge<
-          ExplorerColumnVisibilityStoreState,
-          ExplorerColumnVisibility
-        >(sanitizeExplorerColumnVisibility),
-        migrate: (persisted) => sanitizeExplorerColumnVisibility(persisted),
-        name: STORE_NAME,
-        partialize: (state): ExplorerColumnVisibility => ({
-          size: state.size,
-          thread: state.thread,
-          tokens: state.tokens,
-          type: state.type,
-        }),
-        storage: createJSONStorage(createBrowserJsonStorage),
-        version: STORE_VERSION,
-      }
-    )
-  );
-}
-
-type BoundStore = ReturnType<typeof createExplorerColumnVisibilityStore>;
-
-function isValidStore(candidate: unknown): candidate is BoundStore {
-  if (!candidate || typeof candidate !== 'function') {
-    return false;
-  }
-  const fn = candidate as { getState?: unknown; setState?: unknown; [BRAND]?: unknown };
-  return (
-    typeof fn.getState === 'function' &&
-    typeof fn.setState === 'function' &&
-    fn[BRAND] === BRAND_VERSION
-  );
-}
-
-// `typeof globalThis` carries an implicit string index signature, so the
-// registry view is a plain annotated assignment — no cast required.
-const globalStoreRegistry: Record<string, unknown> = globalThis;
-let singleton = globalStoreRegistry[GLOBAL_KEY] as unknown;
-if (!isValidStore(singleton)) {
-  singleton = createExplorerColumnVisibilityStore();
-  (singleton as Record<string, unknown>)[BRAND] = BRAND_VERSION;
-  globalStoreRegistry[GLOBAL_KEY] = singleton;
-}
-
-export const useExplorerColumnVisibilityStore = singleton as BoundStore;
+      version: STORE_VERSION,
+    }
+  )
+);

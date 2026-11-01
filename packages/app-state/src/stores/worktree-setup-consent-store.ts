@@ -14,9 +14,8 @@
  * factory reset, which clears every decision.
  */
 
-import { createBrowserJsonStorage } from '@brainstrike/storage';
+import { persistDurable } from '@brainstrike/storage';
 import type { WorktreeRepositorySetupDecision } from '@brainstrike/types';
-import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -45,7 +44,7 @@ interface WorktreeSetupConsentActions {
 
 export type WorktreeSetupConsentStore = WorktreeSetupConsentData & WorktreeSetupConsentActions;
 
-const STORE_NAME = 'worktree-setup-consent.v1' as const;
+const STORE_NAME = 'brainstrike:worktree-setup-consent.v1' as const;
 // No version bump for the decision-shape change (bare string → { decision,
 // scriptSha256, decidedAt }): `sanitizeDecisions` below already rejects any
 // entry that doesn't match the current shape regardless of the stored
@@ -99,7 +98,8 @@ function sanitizePersistedData(persistedState: unknown): WorktreeSetupConsentDat
 }
 
 export const useWorktreeSetupConsentStore = create<WorktreeSetupConsentStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       ...defaultData(),
       decide: (repositoryId, decision, scriptSha256) => {
@@ -131,12 +131,9 @@ export const useWorktreeSetupConsentStore = create<WorktreeSetupConsentStore>()(
         sanitizePersistedData
       ),
       migrate: (persistedState) => sanitizePersistedData(persistedState),
-      name: STORE_NAME,
       partialize: (state) => ({
         decisionsByRepositoryId: state.decisionsByRepositoryId,
       }),
-      // A saved value that is not JSON reads as nothing saved, so hydration completes.
-      storage: createJSONStorage(() => createBrowserJsonStorage()),
       version: STORE_VERSION,
     }
   )

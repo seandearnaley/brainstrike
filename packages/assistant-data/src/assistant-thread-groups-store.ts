@@ -1,6 +1,6 @@
+import { persistDurable } from '@brainstrike/storage';
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type {
   AssistantThreadColorId,
   AssistantThreadIconId,
@@ -276,7 +276,8 @@ export function migrateAssistantThreadGroupsPersistedState(
 }
 
 export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>()(
-  persist(
+  persistDurable(
+    'brainstrike:assistant-thread-groups.v1',
     (set, get) => ({
       ...DEFAULT_VIEW_STATE,
       applyThreadOrder: async (
@@ -711,7 +712,6 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
     }),
     {
       migrate: migrateAssistantThreadGroupsPersistedState,
-      name: 'brainstrike-assistant-thread-groups-v1',
       partialize: (state): PersistedAssistantThreadGroupsState => ({
         collapsedGroupIds: state.collapsedGroupIds,
         flatSortBy: state.flatSortBy,

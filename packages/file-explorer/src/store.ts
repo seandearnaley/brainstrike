@@ -7,10 +7,10 @@
  * Action logic is delegated to separate action creator functions imported from ./actions/*.
  */
 
+import { persistDurable } from '@brainstrike/storage';
 import type { FileExplorerState, PersistenceRecoveryNotice } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import type { StateCreator } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createActiveRootActions } from './actions/active-root-actions';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
@@ -23,6 +23,7 @@ import {
   createPersistOptions,
   hydrateFileExplorerStore,
 } from './persistence/file-explorer-persistence';
+import { FILE_EXPLORER_STORAGE_KEY } from './persistence/persistence-constants';
 
 // Explicitly type the state creator function
 const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown]], []> = (
@@ -110,10 +111,12 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
   } as FileExplorerState;
 };
 
-/** A store whose view state persists in this renderer's `localStorage`, read as it is made. */
+/** A store whose view state persists (`persistDurable`), read as it is made. */
 export function createFileExplorerStore() {
   return hydrateFileExplorerStore(
-    create<FileExplorerState>()(persist(stateCreator, createPersistOptions()))
+    create<FileExplorerState>()(
+      persistDurable(FILE_EXPLORER_STORAGE_KEY, stateCreator, createPersistOptions())
+    )
   );
 }
 

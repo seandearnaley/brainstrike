@@ -12,7 +12,7 @@ import {
   useSubagentPersonasStore,
 } from '../stores/subagent-personas-store.ts';
 
-const STORE_KEY = 'subagent-personas.v1';
+const STORE_KEY = 'brainstrike:subagent-personas.v1';
 
 beforeEach(() => {
   window.localStorage.clear();

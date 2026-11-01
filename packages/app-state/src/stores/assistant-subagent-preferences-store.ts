@@ -6,9 +6,6 @@
  * violate a range or a cross-field rule THROWS and nothing lands (no silent
  * coercion — AGENTS.md). Persisted hydration sanitizes an invalid payload back
  * to the defaults. Sent to the host as `runtimeData.subagentSettings`.
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
 
 import {
@@ -17,8 +14,7 @@ import {
   type RuntimeSubagentSettings,
   RuntimeSubagentSettingsError,
 } from '@brainstrike/assistant-contract/subagent-settings';
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -44,7 +40,7 @@ export type AssistantSubagentPreferencesStore = AssistantSubagentPreferencesData
   AssistantSubagentPreferencesActions;
 
 export const ASSISTANT_SUBAGENT_PREFERENCES_STORE_NAME =
-  'assistant-subagent-preferences.v1' as const;
+  'brainstrike:assistant-subagent-preferences.v1' as const;
 const STORE_VERSION = 3 as const;
 
 function defaultData(): AssistantSubagentPreferencesData {
@@ -97,10 +93,9 @@ function migratePersistedData(persistedState: unknown, version: number): unknown
   };
 }
 
-const storage = createJSONStorage(() => createBrowserJsonStorage());
-
 export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPreferencesStore>()(
-  persist(
+  persistDurable(
+    ASSISTANT_SUBAGENT_PREFERENCES_STORE_NAME,
     (set, get) => {
       const patch = <Field extends keyof RuntimeSubagentSettings>(
         field: Field,
@@ -128,9 +123,7 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
       merge: createSanitizedPersistMerge(sanitizePersistedData),
       migrate: (persistedState, version) =>
         sanitizePersistedData(migratePersistedData(persistedState, version)),
-      name: ASSISTANT_SUBAGENT_PREFERENCES_STORE_NAME,
       partialize: (state) => ({ settings: state.settings }),
-      storage,
       version: STORE_VERSION,
     }
   )

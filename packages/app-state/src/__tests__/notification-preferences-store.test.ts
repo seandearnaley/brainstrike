@@ -91,17 +91,20 @@ describe('notification-preferences-store', () => {
     if (options.version === undefined) {
       throw new Error('persist version unavailable for test');
     }
-    options.storage.setItem(options.name, {
-      state: {
-        events: {
-          removedEvent: false,
-          runFailed: 'nope',
-          runFinished: false,
+    localStorage.setItem(
+      options.name,
+      JSON.stringify({
+        state: {
+          events: {
+            removedEvent: false,
+            runFailed: 'nope',
+            runFinished: false,
+          },
+          masterEnabled: 'yes',
         },
-        masterEnabled: 'yes',
-      },
-      version: options.version,
-    });
+        version: options.version,
+      })
+    );
 
     await storeWithPersist.persist.rehydrate();
 

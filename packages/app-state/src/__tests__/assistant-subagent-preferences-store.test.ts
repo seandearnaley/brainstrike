@@ -88,10 +88,13 @@ describe('assistant subagent preferences store', () => {
     if (options.version === undefined) {
       throw new Error('persist version unavailable for test');
     }
-    options.storage.setItem(options.name, {
-      state: { settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 1001 } },
-      version: options.version,
-    });
+    localStorage.setItem(
+      options.name,
+      JSON.stringify({
+        state: { settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 1001 } },
+        version: options.version,
+      })
+    );
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
@@ -107,7 +110,10 @@ describe('assistant subagent preferences store', () => {
       throw new Error('persist version unavailable for test');
     }
     const settings = { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 12 };
-    options.storage.setItem(options.name, { state: { settings }, version: options.version });
+    localStorage.setItem(
+      options.name,
+      JSON.stringify({ state: { settings }, version: options.version })
+    );
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(settings);
   });
@@ -138,7 +144,7 @@ describe('assistant subagent preferences store', () => {
       maxStepOutputTokens: 8192,
       synthesisOutputTokens: 8192,
     };
-    options.storage.setItem(options.name, { state: { settings: v1 }, version: 1 });
+    localStorage.setItem(options.name, JSON.stringify({ state: { settings: v1 }, version: 1 }));
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
       ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
@@ -161,7 +167,7 @@ describe('assistant subagent preferences store', () => {
       maxStepOutputTokens: 16_384,
       synthesisOutputTokens: 4096,
     };
-    options.storage.setItem(options.name, { state: { settings: v2 }, version: 2 });
+    localStorage.setItem(options.name, JSON.stringify({ state: { settings: v2 }, version: 2 }));
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
       ...v2,

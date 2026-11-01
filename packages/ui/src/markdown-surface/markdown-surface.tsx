@@ -1,6 +1,6 @@
 /// <reference path="../vite-env.d.ts" />
 import 'katex/dist/katex.min.css';
-import { isValidElement, type ReactNode, useLayoutEffect, useRef } from 'react';
+import { isValidElement, type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import rehypeSlug from 'rehype-slug';
@@ -30,6 +30,10 @@ export interface MarkdownSurfaceProps {
     | undefined;
   /** Non-anchor link clicks (http, mailto, relative paths) — the host decides. */
   readonly onOpenLink: (href: string) => void;
+  /**
+   * The scroll position once scrolling settles (`scrollend`), not on every scroll frame,
+   * and once more on unmount if a scroll had not settled yet.
+   */
   readonly onScrollTopChange?: (scrollTop: number) => void;
   /** Resolve a raw image src (relative or absolute path) to a displayable URL. Reject => visible placeholder. */
   readonly resolveImageSrc: (src: string) => Promise<string>;
@@ -94,11 +98,39 @@ export function MarkdownSurface({
     }
   }, []);
 
-  const handleScroll = () => {
-    if (containerRef.current) {
-      onScrollTopChange?.(containerRef.current.scrollTop);
+  const onScrollTopChangeRef = useRef(onScrollTopChange);
+  useEffect(() => {
+    onScrollTopChangeRef.current = onScrollTopChange;
+  }, [onScrollTopChange]);
+
+  // React has no `scrollend` prop, so subscribe to the DOM events directly. The
+  // position of a scroll not yet reported is recorded on `scroll`, because the cleanup
+  // runs after React detaches the section, when `scrollTop` reads 0.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
     }
-  };
+    let unreportedScrollTop: number | null = null;
+    const handleScroll = () => {
+      unreportedScrollTop = container.scrollTop;
+    };
+    const handleScrollEnd = () => {
+      unreportedScrollTop = null;
+      onScrollTopChangeRef.current?.(container.scrollTop);
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    container.addEventListener('scrollend', handleScrollEnd, { passive: true });
+    return () => {
+      // Unmounting mid-scroll (a tab switch, preview/source toggle) still saves where
+      // the user was; without a scroll there is nothing to report.
+      if (unreportedScrollTop !== null) {
+        onScrollTopChangeRef.current?.(unreportedScrollTop);
+      }
+      container.removeEventListener('scroll', handleScroll);
+      container.removeEventListener('scrollend', handleScrollEnd);
+    };
+  }, []);
 
   const handleContextMenu = () => {
     if (!onContextMenuSelection) {
@@ -183,7 +215,6 @@ export function MarkdownSurface({
       className="h-full overflow-auto"
       data-testid={testId}
       onContextMenu={handleContextMenu}
-      onScroll={handleScroll}
       ref={containerRef}
     >
       <div className={cn('prose prose-sm dark:prose-invert mx-auto max-w-3xl px-6 py-4')}>

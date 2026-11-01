@@ -19,8 +19,7 @@
  */
 
 import type { SubagentPersonasAvailabilityRequest } from '@brainstrike/assistant-contract';
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -36,7 +35,7 @@ export interface SubagentPersonasActions {
 
 export type SubagentPersonasStore = SubagentPersonasData & SubagentPersonasActions;
 
-const STORE_NAME = 'subagent-personas.v1' as const;
+const STORE_NAME = 'brainstrike:subagent-personas.v1' as const;
 const STORE_VERSION = 1 as const;
 
 function defaultData(): SubagentPersonasData {
@@ -66,7 +65,8 @@ function sanitizePersistedData(persistedState: unknown): SubagentPersonasData {
 }
 
 export const useSubagentPersonasStore = create<SubagentPersonasStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       ...defaultData(),
       setDelegationEnabled: (enabled) => set({ delegationEnabled: enabled }),
@@ -92,13 +92,10 @@ export const useSubagentPersonasStore = create<SubagentPersonasStore>()(
         sanitizePersistedData
       ),
       migrate: sanitizePersistedData,
-      name: STORE_NAME,
       partialize: (state) => ({
         delegationEnabled: state.delegationEnabled,
         disabledPersonaIds: state.disabledPersonaIds,
       }),
-      // A saved value that is not JSON reads as nothing saved, so hydration completes.
-      storage: createJSONStorage(() => createBrowserJsonStorage()),
       version: STORE_VERSION,
     }
   )

@@ -7,4 +7,4 @@
  * neutral third module (instead of from the store) keeps the dependency edge
  * one-directional. Surfaced by react-doctor `deslop/circular-dependency`.
  */
-export const ASSISTANT_PREFERENCES_STORE_NAME = 'assistant-preferences.v1' as const;
+export const ASSISTANT_PREFERENCES_STORE_NAME = 'brainstrike:assistant-preferences.v1' as const;

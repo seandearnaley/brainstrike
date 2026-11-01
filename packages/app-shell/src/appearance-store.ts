@@ -1,3 +1,4 @@
+import { persistDurable } from '@brainstrike/storage';
 import {
   isCodeFontId,
   isCodeThemeId,
@@ -7,7 +8,6 @@ import {
   type ThemeMode,
 } from '@brainstrike/ui';
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
 const THEME_MODES: ReadonlySet<string> = new Set<ThemeMode>(['dark', 'light', 'system']);
 
@@ -15,7 +15,7 @@ function isThemeMode(value: unknown): value is ThemeMode {
   return typeof value === 'string' && THEME_MODES.has(value);
 }
 
-export const APPEARANCE_STORAGE_KEY = 'ui-appearance';
+export const APPEARANCE_STORAGE_KEY = 'brainstrike:ui-appearance';
 
 const VALIDATORS: { readonly [Key in keyof SavedAppearance]-?: (value: unknown) => boolean } = {
   codeFont: isCodeFontId,
@@ -44,14 +44,12 @@ function knownChoices(saved: unknown): SavedAppearance {
 }
 
 /**
- * The app's appearance choices: renderer-only view state, saved in this renderer's
- * `localStorage` (zustand's default) and read synchronously as the store is created,
- * so the first render already has them. `ThemeProvider` receives them as props.
+ * The app's appearance choices: renderer-only view state (`persistDurable`), read
+ * synchronously as the store is created, so the first render already has them. `ThemeProvider` receives them as props.
  */
 export const useAppearanceStore = create<SavedAppearance>()(
-  persist(() => ({}), {
+  persistDurable(APPEARANCE_STORAGE_KEY, () => ({}), {
     merge: (saved, current) => ({ ...current, ...knownChoices(saved) }),
-    name: APPEARANCE_STORAGE_KEY,
     version: 1,
   })
 );

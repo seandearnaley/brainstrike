@@ -1,5 +1,5 @@
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract/tool-metadata';
-import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -18,81 +18,7 @@ interface NativeToolPreferencesActions {
 
 export type NativeToolPreferencesStore = NativeToolPreferencesData & NativeToolPreferencesActions;
 
-const STORE_NAME = 'native-tool-preferences.v1' as const;
-
-function readLocalStorage(): Storage | undefined {
-  try {
-    return typeof globalThis.localStorage === 'undefined' ? undefined : globalThis.localStorage;
-  } catch {
-    return;
-  }
-}
-
-function removeStoredValue(storage: Storage | undefined, key: string): void {
-  try {
-    storage?.removeItem(key);
-  } catch {
-    // Best effort: blocked storage should not make cleanup flows fail.
-  }
-}
-
-function createNativeToolPreferencesStorage(): StateStorage {
-  const memory = new Map<string, string>();
-
-  const shouldPersistValue = (value: string): boolean => {
-    try {
-      const parsed = JSON.parse(value) as { state?: { toolStates?: unknown } };
-      const toolStates = parsed.state?.toolStates;
-      return Boolean(
-        toolStates && typeof toolStates === 'object' && Object.keys(toolStates).length > 0
-      );
-    } catch {
-      return true;
-    }
-  };
-
-  return {
-    getItem: (key) => {
-      const storage = readLocalStorage();
-      const raw = storage?.getItem(key) ?? memory.get(key) ?? null;
-      if (raw === null) {
-        return null;
-      }
-
-      try {
-        JSON.parse(raw);
-        return raw;
-      } catch {
-        removeStoredValue(storage, key);
-        memory.delete(key);
-        return null;
-      }
-    },
-    removeItem: (key) => {
-      removeStoredValue(readLocalStorage(), key);
-      memory.delete(key);
-    },
-    setItem: (key, value) => {
-      if (!shouldPersistValue(value)) {
-        removeStoredValue(readLocalStorage(), key);
-        memory.delete(key);
-        return;
-      }
-      const storage = readLocalStorage();
-      if (storage) {
-        try {
-          storage.setItem(key, value);
-          return;
-        } catch {
-          // Fall through to in-memory storage for quota/private-mode failures.
-        }
-      }
-      memory.set(key, value);
-    },
-  };
-}
-
-const storage = createJSONStorage(() => createNativeToolPreferencesStorage());
+const STORE_NAME = 'brainstrike:native-tool-preferences.v1' as const;
 
 const KNOWN_NATIVE_TOOL_IDS = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 
@@ -122,7 +48,8 @@ function resolveToolEnabled(toolId: string, states: NativeToolStateMap): boolean
 }
 
 export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set, get) => ({
       isToolEnabled: (toolId: string) => resolveToolEnabled(toolId, get().toolStates),
       resetTools: () => set({ toolStates: {} }),
@@ -182,11 +109,9 @@ export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>(
           toolStates: sanitizeToolStates(snapshot?.toolStates),
         } satisfies Partial<NativeToolPreferencesStore>;
       },
-      name: STORE_NAME,
       partialize: (store) => ({
         toolStates: store.toolStates,
       }),
-      storage,
       version: 1,
     }
   )

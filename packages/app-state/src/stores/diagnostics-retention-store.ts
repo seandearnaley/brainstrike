@@ -21,13 +21,9 @@
  *
  * Defaults are 30 days and 20_000 rows, so behavior is unchanged until a user
  * edits a preference.
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
 
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -49,7 +45,7 @@ interface DiagnosticsRetentionActions {
 
 export type DiagnosticsRetentionStore = DiagnosticsRetentionData & DiagnosticsRetentionActions;
 
-const STORE_NAME = 'diagnostics-retention.v1' as const;
+const STORE_NAME = 'brainstrike:diagnostics-retention.v1' as const;
 const STORE_VERSION = 1 as const;
 
 const DEFAULT_MAX_AGE_DAYS = 30;
@@ -102,8 +98,6 @@ function sanitizeMaxRows(value: unknown): number {
   return typeof value === 'number' && isValidMaxRows(value) ? value : DEFAULT_MAX_ROWS;
 }
 
-const storage = createJSONStorage(() => createBrowserJsonStorage());
-
 function sanitizePersistedData(persistedState: unknown): DiagnosticsRetentionData {
   if (!(persistedState && typeof persistedState === 'object')) {
     return defaultData();
@@ -116,7 +110,8 @@ function sanitizePersistedData(persistedState: unknown): DiagnosticsRetentionDat
 }
 
 export const useDiagnosticsRetentionStore = create<DiagnosticsRetentionStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       ...defaultData(),
       resetToDefaults: () => set(defaultData()),
@@ -132,12 +127,10 @@ export const useDiagnosticsRetentionStore = create<DiagnosticsRetentionStore>()(
     {
       merge: createSanitizedPersistMerge(sanitizePersistedData),
       migrate: sanitizePersistedData,
-      name: STORE_NAME,
       partialize: (state) => ({
         maxAgeDays: state.maxAgeDays,
         maxRows: state.maxRows,
       }),
-      storage,
       version: STORE_VERSION,
     }
   )
