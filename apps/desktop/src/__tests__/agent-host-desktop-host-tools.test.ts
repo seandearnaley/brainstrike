@@ -635,6 +635,7 @@ async function skillWorkspace(): Promise<{
   );
   await writeFile(join(skill, 'references', 'notes.md'), 'skill reference notes\n');
   await writeFile(join(skill, 'scripts', 'hello.sh'), 'printf hello-from-skill\n');
+  await writeFile(join(skill, 'scripts', 'hello.py'), 'print("hello-from-python")\n');
   return { home, root };
 }
 function admitSkills(root: string, home: string, masterEnabled = true) {
@@ -717,6 +718,29 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
       execution()
     )
   ).resolves.toMatchObject({ exitCode: 0, stdout: 'hello-from-skill' });
+  // A Python script runs on the bundled runtime the launch app paths name, never a
+  // PATH python: these resources hold none, so the model is told that runtime is missing.
+  await expect(
+    run.execute(
+      {
+        cwd: '.',
+        root: 'root-a',
+        runtime: 'python3',
+        scriptPath: 'scripts/hello.py',
+        skillName: 'demo-skill',
+      },
+      execution()
+    )
+  ).resolves.toMatchObject({
+    error: {
+      message: expect.stringContaining(
+        process.platform === 'win32'
+          ? 'does not support win32'
+          : join(home, 'python-runtime', 'manifest.json')
+      ),
+    },
+    ok: false,
+  });
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
     new Set(['admission/fresh-roots'])
   );
