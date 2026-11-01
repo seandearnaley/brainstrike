@@ -1,13 +1,8 @@
 import path from 'node:path';
-import type { ManagedWorktreeAuthorizer } from '@brainstrike/assistant-service/node-workspace-services';
-import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { startJoinedRootWatch } from '@brainstrike/file-system/native-watch';
-import type { WorkspaceRootPort } from '@brainstrike/state-store';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ContentClearResult } from '@brainstrike/types';
-import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
-import { registerWorkspaceLedgersE2eHandlers } from './ipc-domains/workspace-ledgers-e2e-ipc';
-import type { WorkspaceRootRegistry } from './ipc-domains/workspace-root-registry';
+import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
+import { type HostMountedRoot, IndexSourceRoots } from './ipc-domains/index-source-roots';
 import {
   createWorkspaceRootWatchOwner,
   type WorkspaceRootWatchOwner,
@@ -20,16 +15,12 @@ import {
 import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 
 interface RegisterIpcHandlerOptions {
-  readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   readonly getUserDataPath?: () => string;
-  readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
   readonly onClearContent?: () => Promise<ContentClearResult>;
   readonly onDeleteRootData?: (rootId: string) => Promise<void>;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
-  readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
-  readonly onWorkspaceRootsChanged?: () => void;
-  /** Resolves once the roots catalog's profile is open (a factory reset holds it). */
-  readonly whenRootsCatalogOpen?: () => Promise<void>;
+  /** The host's mounted folders, which Main's native index reads (ADR-0029 stage 4). */
+  readonly readMountedRoots: () => Promise<readonly HostMountedRoot[]>;
 }
 
 /**
@@ -39,23 +30,18 @@ interface RegisterIpcHandlerOptions {
  * `ipc-domains/*` so adding a channel requires one domain contract, one handler,
  * and focused tests without growing a monolithic Electron main-process file.
  */
-export function registerIpcHandlers(
-  fileSystem: ElectronFileSystemAdapter,
-  storage: ElectronStorageAdapter,
-  options: RegisterIpcHandlerOptions
-): () => Promise<void> {
-  return createApplicationIpcDomain(fileSystem, storage, options).close;
+export function registerIpcHandlers(options: RegisterIpcHandlerOptions): () => Promise<void> {
+  return createApplicationIpcDomain(options).close;
 }
 
 export interface ApplicationIpcDomain {
   close(): Promise<void>;
-  readonly roots: WorkspaceRootRegistry;
+  /** The native index's read handles on the folders the agent host keeps live. */
+  readonly roots: IndexSourceRoots;
   readonly watches: WorkspaceRootWatchOwner;
 }
 
 export function createApplicationIpcDomain(
-  fileSystem: ElectronFileSystemAdapter,
-  storage: ElectronStorageAdapter,
   options: RegisterIpcHandlerOptions
 ): ApplicationIpcDomain {
   const unregisterProfilePath = options.getUserDataPath
@@ -67,22 +53,11 @@ export function createApplicationIpcDomain(
   const unregisterFactoryReset = options.onResetLocal
     ? registerFactoryResetIpcHandlers(options.onResetLocal)
     : undefined;
-  const unregisterWorkspaceLedgersE2eHandlers = registerWorkspaceLedgersE2eHandlers({ storage });
-  const fileSystemDomain = createFileSystemIpcDomain({
-    fileSystem,
-    ...(options?.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
-    getRootsCatalog: options.getRootsCatalog,
-    ...(options.whenRootsCatalogOpen ? { whenRootsCatalogOpen: options.whenRootsCatalogOpen } : {}),
-    ...(options?.managedWorktreeAuthorizer
-      ? { managedWorktreeAuthorizer: options.managedWorktreeAuthorizer }
-      : {}),
-    ...(options?.onWorkspaceRootGranted
-      ? { onWorkspaceRootGranted: options.onWorkspaceRootGranted }
-      : {}),
-    ...(options?.onWorkspaceRootsChanged
-      ? { onWorkspaceRootsChanged: options.onWorkspaceRootsChanged }
-      : {}),
-    storage,
+  const unregisterFileSystem = registerFileSystemIpcHandlers({
+    ...(options.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
+  });
+  const roots = new IndexSourceRoots({
+    readMountedRoots: options.readMountedRoots,
   });
   const watches = createWorkspaceRootWatchOwner({
     startWatch: (mounted, onChanges, onHealth) =>
@@ -108,9 +83,9 @@ export function createApplicationIpcDomain(
         ...(unregisterProfilePath ? [unregisterProfilePath] : []),
         ...(unregisterContentClear ? [unregisterContentClear] : []),
         ...(unregisterFactoryReset ? [unregisterFactoryReset] : []),
-        unregisterWorkspaceLedgersE2eHandlers,
+        unregisterFileSystem,
+        () => roots.close(),
         () => watches.close(),
-        () => fileSystemDomain.close(),
       ];
       const results = await Promise.allSettled(retirements.map(async (retire) => retire()));
       const errors = results.flatMap((result) =>
@@ -124,5 +99,5 @@ export function createApplicationIpcDomain(
     });
     return closing;
   };
-  return { close, roots: fileSystemDomain.roots, watches };
+  return { close, roots, watches };
 }

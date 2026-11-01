@@ -37,53 +37,7 @@ vi.mock('electron-store', () => {
 // Mock Electron APIs
 const mockElectronAPI = {
   fileSystem: {
-    addRoot: vi.fn().mockResolvedValue({
-      ok: true,
-      value: {
-        displayName: 'mock-directory',
-        handle: {
-          kind: 'directory',
-          name: 'mock-directory',
-          path: '/mock/path',
-          platform: 'electron',
-        },
-        kind: 'path',
-        permissionState: 'granted',
-        persisted: true,
-        rootId: 'mock-root-id',
-      },
-    }),
-    addRootByPath: vi.fn().mockResolvedValue({
-      ok: true,
-      value: {
-        displayName: 'mock-directory',
-        handle: {
-          kind: 'directory',
-          name: 'mock-directory',
-          path: '/mock/path',
-          platform: 'electron',
-        },
-        kind: 'path',
-        permissionState: 'granted',
-        persisted: true,
-        rootId: 'mock-root-id',
-      },
-    }),
-    deleteRootData: vi.fn(),
-    listRecentRoots: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    removeRoot: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
-    requestDirectoryAccess: vi.fn().mockResolvedValue({
-      ok: true,
-      value: {
-        kind: 'directory',
-        name: 'mock-directory',
-        path: '/mock/path',
-        platform: 'electron',
-      },
-    }),
-    restoreLastFolder: vi.fn().mockResolvedValue({ ok: true, value: null }),
-    restoreRoots: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    saveLastFolder: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+    deleteRootData: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
   },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
 } satisfies Pick<VisibleDesktopElectronApi, 'fileSystem' | 'getUserDataPath'>;

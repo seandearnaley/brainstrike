@@ -24,9 +24,6 @@ describe('file-system IPC contracts', () => {
     expect(() => decode(fileSystemArgs.deleteRootData, ['r'.repeat(1025)])).toThrow(
       'durable root ID'
     );
-    expect(decode(fileSystemArgs.addRootByPath, ['/workspace'])).toEqual(['/workspace']);
-
-    expect(() => decode(fileSystemArgs.addRoot, ['extra'])).toThrow('invalid arguments');
-    expect(() => decode(fileSystemArgs.addRootByPath, [42])).toThrow('invalid arguments');
+    expect(() => decode(fileSystemArgs.deleteRootData, [42])).toThrow('invalid arguments');
   });
 });

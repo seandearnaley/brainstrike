@@ -12,7 +12,6 @@ import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
-import type { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
 import type { DesktopPlatformCapabilities } from './main-platform';
 import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 
@@ -44,22 +43,15 @@ function readHostedEmbeddingDimensions(provider: string, modelId: string): numbe
 }
 
 /**
- * The facts a host-composed run admission reads from Main (BST-1930 stage e):
- * the model catalog and live roots in Main's database and the live binding
- * authority.
+ * The facts a host-composed run admission reads from Main (BST-1930 stage e): the model
+ * catalog, the index status and the live roots. The host acquires the run's workspace itself
+ * (ADR-0029 stage 4), from the folders its root registry holds.
  */
 function desktopAdmissionReads(
   dependencies: DesktopHostToolServices,
-  readCliOwnerIntent: DesktopCliOwnerIntentReader | undefined,
-  workspaceAuthority: DesktopWorkspaceBindingAuthority | undefined
-): DesktopAdmissionReads {
+  readCliOwnerIntent: DesktopCliOwnerIntentReader | undefined
+): Omit<DesktopAdmissionReads, 'acquireWorkspace'> {
   return {
-    acquireWorkspace: async (request) => {
-      if (!workspaceAuthority) {
-        throw new Error('Desktop run has no live workspace binding owner');
-      }
-      return await workspaceAuthority.acquire(request);
-    },
     catalogModel: async ({ model, provider }) => {
       const row = (await dependencies.modelCatalog.read()).models.find(
         (candidate) => candidate.id === model && candidate.providerId === provider
@@ -106,14 +98,10 @@ function desktopAdmissionReads(
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
   dependencies: DesktopHostToolServices,
-  readCliOwnerIntent?: DesktopCliOwnerIntentReader,
-  workspaceAuthority?: DesktopWorkspaceBindingAuthority
+  readCliOwnerIntent?: DesktopCliOwnerIntentReader
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   return {
-    admission: desktopAdmissionReads(dependencies, readCliOwnerIntent, workspaceAuthority),
-    ...(workspaceAuthority
-      ? { validateWorkspaceBinding: workspaceAuthority.validateWorkspaceBinding }
-      : {}),
+    admission: desktopAdmissionReads(dependencies, readCliOwnerIntent),
     hostTools: desktopHostToolServices(dependencies),
     resolveWorkspaceRoot: async (rootId) => {
       const root = (await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots)).find(

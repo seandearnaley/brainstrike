@@ -8,13 +8,13 @@ import {
   resolveGrantedRootHandle,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import type { WorkspaceRootReply } from '@brainstrike/state-store';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loggerMock } from './workspace-root-registry-logger-test-helper';
 import {
   createRegistry,
   createRegistryCatalogRequest,
   createStorage,
+  openRootsCatalog,
   registryRoot,
   rootHandle,
 } from './workspace-root-registry-test-helpers';
@@ -41,7 +41,7 @@ function ws(name: string): string {
 }
 
 describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
-  let storage: ElectronStorageAdapter;
+  let storage: ReturnType<typeof createStorage>;
 
   beforeEach(() => {
     storage = createStorage();
@@ -51,7 +51,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('records every successful addRoot in recentRootsList, newest first, deduped', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     await registry.addRoot(rootHandle(ws('alpha')));
     await registry.addRoot(rootHandle(ws('beta')));
     await registry.addRoot(rootHandle(ws('alpha')));
@@ -63,7 +63,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('caps the ledger at the newest RECENT_ROOTS_LIMIT grants', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     const overflow = RECENT_ROOTS_LIMIT + 2;
     for (let index = 0; index < overflow; index += 1) {
       // eslint-disable-next-line react-doctor/async-await-in-loop -- grants must land serially: the cap under test is an ordering property of the grant sequence.
@@ -77,7 +77,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('keys a trailing-separator path to the same ledger slot as the bare path', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     await registry.addRoot(rootHandle(`${ws('alpha')}${path.sep}`));
 
     const recents = await registry.listRecentRoots();
@@ -93,7 +93,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('keeps disconnected grants past the connected-root count within the cap', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     await registry.addRoot(rootHandle(ws('disconnected')));
     const disconnected = await registry.listRecentRoots();
     expect(disconnected.map((entry) => entry.path)).toEqual([ws('disconnected')]);
@@ -113,12 +113,12 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('addRootByPath mounts a previously granted path without a picker and rejects an unknown one', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     await registry.addRoot(rootHandle(ws('alpha')));
     const restored = await registry.restoreRoots();
     const restoredRootId = restored[0]?.rootId;
     expect(restoredRootId).toBeDefined();
-    // Disconnecting drops the root from rootsList but must NOT revoke the
+    // Disconnecting closes the folder but must NOT revoke the
     // grant — that separation is what addRootByPath relies on.
     await registry.removeRoot(restoredRootId as string);
 
@@ -133,7 +133,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
 
   it('notifies onRootGranted for a recents-ledger picker-less addRootByPath mount (BST-1393 review finding)', async () => {
     const onRootGranted = vi.fn();
-    const registry = createRegistry({ onRootGranted, storage });
+    const registry = createRegistry({ onRootGranted, recents: storage });
     await registry.addRoot(rootHandle(ws('alpha')));
     onRootGranted.mockClear(); // isolate the addRootByPath re-mount below
 
@@ -154,7 +154,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
         'recentRootsList',
         JSON.stringify([{ lastGrantedAt: 1000, path: ws('alpha') }])
       );
-      const registry = createRegistry({ storage });
+      const registry = createRegistry({ recents: storage });
 
       await registry.addRootByPath(ws('alpha'));
 
@@ -167,7 +167,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('does not record an authorizer-granted managed worktree in Recents', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     registry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
 
     await expect(registry.addRootByPath(MANAGED)).resolves.toMatchObject({
@@ -182,13 +182,9 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('keeps a persisted managed worktree out of Recents after relaunch restore', async () => {
-    const firstRegistry = createRegistry({ storage });
+    const firstRegistry = createRegistry({ recents: storage });
     firstRegistry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
-    await firstRegistry.addRootByPath(MANAGED);
-    const storedRoots = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as Array<{
-      rootId: string;
-    }>;
-    const worktreeRootId = storedRoots[0]?.rootId;
+    const worktreeRootId: string | undefined = (await firstRegistry.addRootByPath(MANAGED)).rootId;
     expect(worktreeRootId).toBeDefined();
     await expect(firstRegistry.listRecentRoots()).resolves.toEqual([]);
 
@@ -198,7 +194,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     const catalogRequest = createRegistryCatalogRequest([
       registryRoot(worktreeRootId, MANAGED, 'worktree'),
     ]);
-    const relaunchedRegistry = createRegistry({ storage }, catalogRequest);
+    const relaunchedRegistry = createRegistry({ recents: storage }, catalogRequest);
 
     await relaunchedRegistry.restoreRoots();
 
@@ -206,12 +202,10 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('still records an ordinary persisted root in Recents after relaunch restore', async () => {
-    const firstRegistry = createRegistry({ storage });
-    await firstRegistry.addRoot(rootHandle(ws('ordinary')));
-    const storedRoots = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as Array<{
-      rootId: string;
-    }>;
-    const ordinaryRootId = storedRoots[0]?.rootId;
+    const firstRegistry = createRegistry({ recents: storage });
+    const ordinaryRootId: string | undefined = (
+      await firstRegistry.addRoot(rootHandle(ws('ordinary')))
+    ).rootId;
     expect(ordinaryRootId).toBeDefined();
     await storage.removeItem('recentRootsList');
 
@@ -221,7 +215,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     const catalogRequest = createRegistryCatalogRequest([
       registryRoot(ordinaryRootId, ws('ordinary')),
     ]);
-    const relaunchedRegistry = createRegistry({ storage }, catalogRequest);
+    const relaunchedRegistry = createRegistry({ recents: storage }, catalogRequest);
 
     await relaunchedRegistry.restoreRoots();
 
@@ -231,14 +225,12 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('mounts restored roots before reading persisted kinds from the database', async () => {
-    await storage.setItem(
-      'rootsList',
-      JSON.stringify([{ addedAt: 1, path: ws('ordinary'), rootId: 'root-ordinary' }])
-    );
     const order: string[] = [];
     const { promise: kindQuery, resolve: resolveKindQuery } =
       Promise.withResolvers<WorkspaceRootReply>();
-    const catalogRequest = createRegistryCatalogRequest();
+    const catalogRequest = openRootsCatalog([
+      { addedAt: 1, path: ws('ordinary'), rootId: 'root-ordinary' },
+    ]);
     const respond = catalogRequest.getMockImplementation()!;
     catalogRequest.mockImplementation(async (request) => {
       if (request.operation === 'list') {
@@ -261,7 +253,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
             })),
           };
         },
-        storage,
+        recents: storage,
       },
       catalogRequest
     );
@@ -274,11 +266,9 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('fails open to recording Recents when the persisted-kind query throws', async () => {
-    await storage.setItem(
-      'rootsList',
-      JSON.stringify([{ addedAt: 1, path: ws('ordinary'), rootId: 'root-ordinary' }])
-    );
-    const catalogRequest = createRegistryCatalogRequest();
+    const catalogRequest = openRootsCatalog([
+      { addedAt: 1, path: ws('ordinary'), rootId: 'root-ordinary' },
+    ]);
     const respond = catalogRequest.getMockImplementation()!;
     catalogRequest.mockImplementation(async (request) => {
       if (request.operation === 'list') {
@@ -286,7 +276,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
       }
       return respond(request);
     });
-    const registry = createRegistry({ storage }, catalogRequest);
+    const registry = createRegistry({ recents: storage }, catalogRequest);
 
     await registry.restoreRoots();
 
@@ -300,10 +290,9 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('restoreRoots records an absent restored entry with its stored addedAt', async () => {
-    const registry = createRegistry({ storage });
-    await storage.setItem(
-      'rootsList',
-      JSON.stringify([{ addedAt: 1_700_000_000_000, path: ws('gamma'), rootId: 'r-gamma' }])
+    const registry = createRegistry(
+      { recents: storage },
+      openRootsCatalog([{ addedAt: 1_700_000_000_000, path: ws('gamma'), rootId: 'r-gamma' }])
     );
 
     await registry.restoreRoots();
@@ -317,10 +306,9 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(1_000_000);
-      const registry = createRegistry({ storage });
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1, path: ws('gamma'), rootId: 'r-gamma' }])
+      const registry = createRegistry(
+        { recents: storage },
+        openRootsCatalog([{ addedAt: 1, path: ws('gamma'), rootId: 'r-gamma' }])
       );
 
       await registry.restoreRoots();
@@ -339,15 +327,14 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('records a multi-root restore with ONE shared ledger read, in the same order per-entry recording would produce (BST-1400 item 4)', async () => {
-    await storage.setItem(
-      'rootsList',
-      JSON.stringify([
+    const registry = createRegistry(
+      { recents: storage },
+      openRootsCatalog([
         { addedAt: 1, path: ws('alpha'), rootId: 'r-alpha' },
         { addedAt: 2, path: ws('beta'), rootId: 'r-beta' },
         { addedAt: 3, path: ws('gamma'), rootId: 'r-gamma' },
       ])
     );
-    const registry = createRegistry({ storage });
     const getItemMock = vi.mocked(storage.getItem);
     const setItemMock = vi.mocked(storage.setItem);
     getItemMock.mockClear();
@@ -367,7 +354,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('quarantines a malformed ledger on the read path instead of bricking Recents', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     const corruptRaw = JSON.stringify([{ path: ws('alpha') }]);
     await storage.setItem('recentRootsList', corruptRaw);
 
@@ -381,7 +368,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('quarantines a malformed ledger on the record path and self-heals from the next grant', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     const corruptRaw = JSON.stringify([{ path: ws('alpha') }]);
     await storage.setItem('recentRootsList', corruptRaw);
 
@@ -394,7 +381,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('quarantines a malformed ledger on addRootByPath and rejects with the never-granted remedy', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     const corruptRaw = 'not json at all';
     await storage.setItem('recentRootsList', corruptRaw);
 
@@ -407,7 +394,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('propagates a ledger read I/O failure rather than mistaking it for corruption', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     vi.mocked(storage.getItem).mockImplementation(async (key: string) => {
       if (key === 'recentRootsList') {
         throw new Error('storage offline');
@@ -421,7 +408,8 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('does not mount or persist a root when the recentRootsList read fails during addRoot (BST-1400 item 4)', async () => {
-    const registry = createRegistry({ storage });
+    const catalog = createRegistryCatalogRequest();
+    const registry = createRegistry({ recents: storage }, catalog);
     vi.mocked(storage.getItem).mockImplementation(async (key: string) => {
       if (key === 'recentRootsList') {
         throw new Error('storage offline');
@@ -431,16 +419,14 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
 
     await expect(registry.addRoot(rootHandle(ws('alpha')))).rejects.toThrow('storage offline');
 
-    // The read is hoisted above the mount+persist mutation, so a rejected
-    // addRoot() must leave rootsList untouched — before the fix, the mount
-    // and rootsList persist both completed BEFORE this read ran, so the
-    // caller saw a rejection for a call that had, in fact, already
-    // succeeded.
-    expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.anything());
+    // The read is hoisted above the mount and its catalog record, so a rejected
+    // addRoot() registers nothing: the caller never sees a rejection for a call
+    // that had, in fact, already succeeded.
+    expect(catalog.mock.calls.map(([request]) => request.operation)).not.toContain('register');
   });
 
   it('reads the recentRootsList ledger only once per addRoot call (no double-read after the hoist)', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     const getItemMock = vi.mocked(storage.getItem);
 
     await registry.addRoot(rootHandle(ws('alpha')));
@@ -450,7 +436,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('tolerates a recentRootsList write failure without failing addRoot (accepted deviation)', async () => {
-    const registry = createRegistry({ storage });
+    const registry = createRegistry({ recents: storage });
     const setItemMock = vi.mocked(storage.setItem);
     const originalSetItem = setItemMock.getMockImplementation();
     setItemMock.mockImplementation(async (key: string, value: string) => {

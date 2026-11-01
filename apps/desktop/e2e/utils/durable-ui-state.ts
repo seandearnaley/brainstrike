@@ -11,7 +11,7 @@ import { getContextExplorerFileExplorerPanel } from './context-explorer-locators
 import { updateIndexConfig } from './index-config';
 import { ensureAssistantShellVisible } from './layout-helpers';
 import { loadElectronHelpers } from './load-electron-helpers';
-import { seedMainLedgers } from './seed-root';
+import { seedWorkspaceFolders } from './seed-root';
 import { seedHostThreads } from './seed-threads';
 
 /**
@@ -51,10 +51,7 @@ export async function openDurableUiFixture(
   );
   await mkdir(path.join(rootPath, FOLDER));
   await writeFile(path.join(rootPath, FOLDER, 'index.ts'), 'export const durable = true;\n');
-  await seedMainLedgers(seedPage, {
-    lastFolderPath: rootPath,
-    rootsList: JSON.stringify([{ addedAt: 1_800_000_000_000, path: rootPath, rootId: ROOT_ID }]),
-  });
+  await seedWorkspaceFolders(seedPage, { roots: [{ path: rootPath, rootId: ROOT_ID }] });
   await updateIndexConfig(seedPage, { paused: true });
   // New creates nothing until a first send, so the thread is created through
   // the host, without a run.

@@ -51,9 +51,8 @@ Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
   - In-memory stores reset because the document is replaced. The renderer clears
     only its window-scoped `sessionStorage` and has no channel that wipes storage,
     settings or secrets.
-  - The fresh profile reopens only after the replacement renderer reports ready
-    (ADR-0015). Until then Main's workspace-root convergence waits for that reopen
-    (`reset-profile-reopen.ts`) and fails visibly if the reset never reopens.
+  - The fresh profile's host restores its open folders; Main keeps no workspace
+    ledger of its own to reset (ADR-0029 stage 4).
   - Windows Factory Reset is explicitly unavailable; do not imply otherwise.
 - Both resets use the existing admission/retirement owner: join renderer saves and
   retire persisted chat/tab references before host deletion and replacement.

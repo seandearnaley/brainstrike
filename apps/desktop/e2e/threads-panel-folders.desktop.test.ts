@@ -12,7 +12,7 @@
  * the durable root identity returned by the real registry.
  *
  * Isolation: a fresh temp repo per test plus the fixture's per-test
- * `userDataDir`, so neither main's `rootsList` nor the PGlite database can
+ * `userDataDir`, so neither the host's open folders nor its database can
  * leak between tests. Temp dirs are tracked and removed in `afterAll`.
  */
 import { realpathSync } from 'node:fs';

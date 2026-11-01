@@ -34,6 +34,7 @@ import {
   isElectronRendererUserAgent,
   validateDesktopBridgeContract,
 } from './desktop-bridge-contract';
+import { windowHostConnection } from './desktop-host-connection';
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
 import { createIpcCapability } from './ipc-capability';
 import './log-buffer';
@@ -128,6 +129,8 @@ declare global {
       enableCatalogModels: (modelIds: readonly string[]) => Promise<void>;
       indexSearch?: IndexSearchCapability;
       notifySecretsChanged: () => void;
+      /** Test mode: one request on this window's agent host connection, as its views send it. */
+      requestAgentHost: (method: string, params: unknown) => Promise<unknown>;
       setAssistantModel: (compositeKey: string) => void;
     };
   }
@@ -178,6 +181,12 @@ function App() {
         : {}),
       notifySecretsChanged: () => {
         useSecretsStore.getState().notifySecretsChanged();
+      },
+      requestAgentHost: async (method, params) => {
+        const client = await windowHostConnection().current();
+        // The host decodes the method and its params; a test that names a wrong one is refused there.
+        const request = client.request as (method: string, params: unknown) => Promise<unknown>;
+        return await request.call(client, method, params);
       },
       setAssistantModel: (compositeKey: string) => {
         useAssistantPreferencesStore.getState().setModel(compositeKey);

@@ -22,7 +22,12 @@ test('the canonical source belongs to the existing root writer and retains its I
   try {
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
+      root: {
+        canonicalPath: '/disposable/Alpha',
+        displayName: 'Alpha',
+        path: '/disposable/Alpha',
+        preferredId: 'root-alpha',
+      },
     });
     const original = source('An actual checked workspace file.\n'.repeat(1000));
     const prepared = await store.sourceCatalog({
@@ -78,7 +83,12 @@ test('stale completion and removal cannot mutate a replaced source', async () =>
   try {
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
+      root: {
+        canonicalPath: '/disposable/Alpha',
+        displayName: 'Alpha',
+        path: '/disposable/Alpha',
+        preferredId: 'root-alpha',
+      },
     });
     const initial = await store.sourceCatalog({
       embeddingSetId: null,
@@ -124,7 +134,12 @@ test('event erasure retains bytes still owned by a canonical source', async () =
   try {
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
+      root: {
+        canonicalPath: '/disposable/Alpha',
+        displayName: 'Alpha',
+        path: '/disposable/Alpha',
+        preferredId: 'root-alpha',
+      },
     });
     const prepared = await store.sourceCatalog({
       embeddingSetId: null,
@@ -174,7 +189,12 @@ test('a held source deletion survives reopen and physical cleanup rejoins the ex
   try {
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
+      root: {
+        canonicalPath: '/disposable/Alpha',
+        displayName: 'Alpha',
+        path: '/disposable/Alpha',
+        preferredId: 'root-alpha',
+      },
     });
     const prepared = await store.sourceCatalog({
       embeddingSetId: null,
@@ -215,7 +235,12 @@ test('source erasure preserves shared transcript bytes until the final transcrip
   try {
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
+      root: {
+        canonicalPath: '/disposable/Alpha',
+        displayName: 'Alpha',
+        path: '/disposable/Alpha',
+        preferredId: 'root-alpha',
+      },
     });
     const prepared = await store.sourceCatalog({
       embeddingSetId: null,
@@ -256,11 +281,21 @@ test('forgetting a captured root erases its sources and bytes, keeps the other r
   try {
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
+      root: {
+        canonicalPath: '/disposable/Alpha',
+        displayName: 'Alpha',
+        path: '/disposable/Alpha',
+        preferredId: 'root-alpha',
+      },
     });
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Beta', path: '/disposable/Beta', preferredId: 'root-beta' },
+      root: {
+        canonicalPath: '/disposable/Beta',
+        displayName: 'Beta',
+        path: '/disposable/Beta',
+        preferredId: 'root-beta',
+      },
     });
     await store.sourceCatalog({
       embeddingSetId: null,
@@ -325,7 +360,12 @@ test('a source batch trusts an existing hash-named blob and a damaged one fails 
   try {
     await store.workspaceRoots({
       operation: 'register',
-      root: { displayName: 'Alpha', path: '/disposable/Alpha', preferredId: 'root-alpha' },
+      root: {
+        canonicalPath: '/disposable/Alpha',
+        displayName: 'Alpha',
+        path: '/disposable/Alpha',
+        preferredId: 'root-alpha',
+      },
     });
     const original = source('A workspace file the cache already holds.\n'.repeat(200));
     // A blob left damaged on disk under the file's hash name (BST-2377): the batch writes no

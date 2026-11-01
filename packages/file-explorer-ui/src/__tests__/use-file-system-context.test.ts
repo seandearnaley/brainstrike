@@ -16,6 +16,7 @@ import {
 } from '../shell/file-explorer-refresh-event';
 import { RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 import { useFileSystemInstance as useFileSystem } from '../shell/use-file-system-context';
+import { grantedRoots } from './restored-roots';
 import { createDeletionTestWrapper, FileExplorerTestWrapper } from './test-helpers';
 import { createTokenCacheTestWrapper } from './token-cache-test-helpers';
 
@@ -527,12 +528,9 @@ describe('useFileSystem context hook', () => {
     } as DirectoryHandle;
 
     const adapterWithRestore = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => restoredHandle),
+      restoreRoots: vi.fn(async () => grantedRoots(restoredHandle)),
     });
 
-    // Isolated storage: legacy single-root restore REUSES a persisted
-    // currentFolderId as the rootId (storage v5). Without isolation, ids
-    // persisted by earlier tests in this file leak into this fresh-boot case.
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(FileExplorerTestWrapper, {
         children,
@@ -542,12 +540,11 @@ describe('useFileSystem context hook', () => {
     const { result } = renderHook(() => useExposed(), { wrapper });
 
     await waitFor(() => {
-      // The restored handle is stamped with a durable RootId (storage v5), so
+      // The restored handle is stamped with its durable RootId (storage v5), so
       // it's a superset of the input handle — match the known fields.
       expect(result.current.fs.rootDirectoryHandle).toMatchObject(restoredHandle);
-      // v5: on a true first run (nothing persisted) currentFolderId is a
-      // freshly minted durable RootId UUID, not the handle path.
-      expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/u);
+      // v5: currentFolderId is the restored folder's RootId, not the handle path.
+      expect(result.current.store.getState().currentFolderId).toBe('restored-root-id');
     });
   });
 
@@ -744,9 +741,6 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
   });
 
   it('debounces watcher changes into one typed incremental refresh event', async () => {
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
-      'bbbbbbbb-cccc-dddd-eeee-ffffffffffff' as ReturnType<typeof crypto.randomUUID>
-    );
     const refreshCapture = captureFileExplorerRefreshEvents();
 
     try {
@@ -762,7 +756,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       } as DirectoryHandle;
 
       const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-        restoreLastFolder: vi.fn(async () => handle),
+        restoreRoots: vi.fn(async () => grantedRoots(handle)),
         watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
           capturedCallback = cb;
           return vi.fn();
@@ -777,7 +771,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
 
       renderHook(() => useExposed(), { wrapper });
 
-      // Allow restoreLastFolder to settle so the watcher root is registered
+      // Allow restoreRoots to settle so the watcher root is registered
       await act(async () => {
         await vi.runAllTimersAsync();
       });
@@ -816,7 +810,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
         roots: [
           {
             changes,
-            rootId: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+            rootId: 'debounce-root-id',
             rootPath: '/debounce-root',
           },
         ],
@@ -841,7 +835,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       rootId: 'filtered-root-id',
     } as DirectoryHandle;
     const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => handle),
+      restoreRoots: vi.fn(async () => grantedRoots(handle)),
       watchDirectory: vi.fn(
         (
           _handle: DirectoryHandle,
@@ -925,7 +919,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       } as DirectoryHandle;
 
       const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-        restoreLastFolder: vi.fn(async () => handle),
+        restoreRoots: vi.fn(async () => grantedRoots(handle)),
         watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
           capturedCallback = cb;
           return vi.fn();
@@ -1222,7 +1216,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     } as DirectoryHandle;
 
     const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => handle),
+      restoreRoots: vi.fn(async () => grantedRoots(handle)),
       watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
         capturedCallback = cb;
         return vi.fn();
@@ -1297,7 +1291,7 @@ describe('useFileSystem — watcher health signals (overflow / errored)', () => 
     } as DirectoryHandle;
 
     const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => handle),
+      restoreRoots: vi.fn(async () => grantedRoots(handle)),
       watchDirectory: vi.fn(
         (
           _h: DirectoryHandle,

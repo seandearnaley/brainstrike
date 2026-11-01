@@ -1,7 +1,9 @@
 /** Current desktop conversations are created through the public host protocol. */
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { withAppHost } from './agent-host-log';
+import { restoreWorkspaceFolders } from './agent-host-request';
 
 /** A host-committed mounted workspace descriptor. */
 export interface WorkspaceRootRow {
@@ -16,25 +18,15 @@ export interface SeedThreadSpec {
   readonly title: string;
 }
 
-/** Every reconciled root row, in id order. */
+/** Every open folder the host's root registry restores, in id order. */
 async function readWorkspaceRootRows(page: Page): Promise<readonly WorkspaceRootRow[]> {
-  return await page.evaluate(async () => {
-    const files = window.electronAPI?.fileSystem;
-    if (!files) {
-      throw new Error('Desktop filesystem capability is unavailable');
-    }
-    const reply = await files.restoreRoots();
-    if (!reply.ok) {
-      throw new Error(reply.error.message);
-    }
-    return reply.value
-      .map((root) => ({
-        displayName: root.displayName,
-        id: root.rootId,
-        path: root.handle.path ?? null,
-      }))
-      .sort((a, b) => a.id.localeCompare(b.id));
-  });
+  return (await restoreWorkspaceFolders(page))
+    .map((root) => ({
+      displayName: path.basename(root.path) || root.path,
+      id: root.rootId,
+      path: root.path,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** Wait for the one host-committed mount expected by a fresh single-root fixture. */

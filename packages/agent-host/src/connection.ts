@@ -13,7 +13,11 @@ import { bindHostBrowserOriginMethods } from './browser-origin-answers.ts';
 import type { HostCore } from './core.ts';
 import { hostChildStatusChanged } from './core-child-runs.ts';
 import { HostRunNotAdmittedError } from './core-run-lifecycle.ts';
-import { bindHostFileReadMethods, bindHostFileWatchMethods } from './file-watch-connection.ts';
+import {
+  bindHostFileReadMethods,
+  bindHostFileWatchMethods,
+  bindHostRootRegistryMethods,
+} from './file-watch-connection.ts';
 import { bindHostGitWorkspaceMethods } from './git-workspace-connection.ts';
 import { bindHostHookTrustMethods } from './hook-trust.ts';
 import { bindHostMcpContentMethods } from './mcp-content-connection.ts';
@@ -32,6 +36,7 @@ import type {
   HostMcpSettingsService,
   HostPlatform,
   HostProviderService,
+  HostRootRegistry,
   HostTerminals,
   HostWorkspaceDiscovery,
 } from './ports.ts';
@@ -85,6 +90,8 @@ export interface HostConnectionOptions {
    * request that arrives afterwards is refused as `host.closing`.
    */
   readonly retiring?: AbortSignal;
+  /** ADR-0029 stage 4: the desktop workspace's open folders. */
+  readonly rootRegistry?: HostRootRegistry;
   /** Gap 10: the platform's state index search, where the host owns one. */
   readonly searchState?: HostPlatform['searchState'];
   readonly searchWorkspace?: HostPlatform['searchWorkspace'];
@@ -129,6 +136,7 @@ export function bindHostConnection(
   const {
     auth,
     fileReads,
+    rootRegistry,
     fileWatches,
     gitWorkspace,
     lifecycle,
@@ -316,6 +324,7 @@ export function bindHostConnection(
   disposables.push(bindHostGitWorkspaceMethods(handle, connection, gitWorkspace, origin));
   disposables.push(bindHostTerminalMethods(handle, connection, terminals, origin));
   bindHostFileReadMethods(handle, fileReads, origin);
+  bindHostRootRegistryMethods(handle, rootRegistry, origin);
   disposables.push(bindHostFileWatchMethods(handle, connection, fileWatches, origin));
   bindHostHookTrustMethods(handle, core.store);
   bindHostWorkspaceTrustMethods(handle, core.store);

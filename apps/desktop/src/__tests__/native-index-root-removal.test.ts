@@ -2,8 +2,9 @@
 /**
  * A folder removed while the index opens: the open lists the folders, reads the catalog and
  * borrows each folder, then its sources borrow each again, and a removal can arrive between any
- * of those steps. The index ends serving the folders left once Main re-reads them, and nothing
- * untyped crosses meanwhile.
+ * of those steps. The agent host's registry removes the folder first; Main's index handles then
+ * follow the host's mounts (D1). The index ends serving the folders left once Main re-reads
+ * them, and nothing untyped crosses meanwhile.
  */
 
 import {
@@ -13,14 +14,15 @@ import {
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { CanonicalRemoteWorkspaceDependencies } from '../canonical-utility-parent';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
+import { IndexSourceRoots } from '../ipc-domains/index-source-roots';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeRootRegistration } from '../native-root-registration';
 import {
   createRegistry,
   createRegistryCatalogRequest,
-  createStorage,
   rootHandle,
+  secureRoot,
 } from './ipc-domains/workspace-root-registry-test-helpers';
 import {
   emptyWorkspace,
@@ -48,8 +50,17 @@ function gate() {
 
 async function twoFolders() {
   const catalog = createRegistryCatalogRequest();
-  const storage = createStorage();
-  const registry = createRegistry({ storage }, catalog);
+  // The host's root registry writes the folders; Main's index handles follow its mounts.
+  const registry = createRegistry({}, catalog);
+  const roots = new IndexSourceRoots({
+    createSecureRoot: async (rootPath) => secureRoot(rootPath),
+    readMountedRoots: async () => registry.mountedRoots(),
+  });
+  /** The host removes the folder, then tells Main, whose handles follow (D1). */
+  const remove = async (rootId: string): Promise<void> => {
+    await registry.removeRoot(rootId);
+    await roots.followHost();
+  };
   const alpha = await registry.addRoot(rootHandle('/work/alpha'));
   const bravo = await registry.addRoot(rootHandle('/work/bravo'));
   const holds: {
@@ -76,17 +87,14 @@ async function twoFolders() {
     }
   );
   const f = fixture({
-    roots: registry,
+    roots,
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain);
   const transitions = createNativeRootDataDeletion({
     acquire: unused,
     captureOwner: unused,
     closeOwner: unused,
-    deleteCanonicalRoot: unused,
-    reserveRoot: () => {
-      throw new Error('This fixture deletes no folder data.');
-    },
+    reserveRootData: unused,
     resume: unused,
     stopSources: unused,
   });
@@ -104,6 +112,7 @@ async function twoFolders() {
   });
   onTestFinished(async () => {
     await f.activation.close();
+    await roots.close();
     await registry.dispose();
   });
   return {
@@ -124,7 +133,9 @@ async function twoFolders() {
     onError: f.onError,
     registration,
     registry,
+    remove,
     reported,
+    roots,
     /** The folders the index serves, as the Search panel's status reads them. */
     served: async () => {
       const status = await search.status();
@@ -132,7 +143,6 @@ async function twoFolders() {
         ? status.rootReadiness.map((root) => root.rootId).sort()
         : status;
     },
-    storage,
   };
 }
 
@@ -147,7 +157,7 @@ it('a folder removed while an open reads the catalog is removed after its borrow
   const listing = folders.holdListing();
   const registered = folders.registration.rootsRegistered().catch((error: unknown) => error);
   await listing.entered;
-  const removed = folders.registry.removeRoot(folders.bravo.rootId);
+  const removed = folders.remove(folders.bravo.rootId);
   listing.release();
   await removed;
   await registered;
@@ -165,9 +175,9 @@ it('quit during an open closes the folder registry cleanly, the open answering i
   const listing = folders.holdListing();
   const registered = folders.registration.rootsRegistered().catch((error: unknown) => error);
   await listing.entered;
-  // Quit fences native work, then joins the registry's in-flight mutation (the open's borrows).
+  // Quit fences native work, then closes the index's folder handles behind the open's borrows.
   folders.activation.fenceTerminal();
-  const prepared = folders.registry.prepareClose();
+  const prepared = folders.roots.close();
   listing.release();
   await expect(prepared).resolves.toBeUndefined();
   await registered;
@@ -175,29 +185,21 @@ it('quit during an open closes the folder registry cleanly, the open answering i
 
 it('a folder removed while its sources borrow it answers with its retirement', async () => {
   const folders = await twoFolders();
-  const read = folders.storage.getItem;
-  const removalRead = gate();
-  const borrow = folders.registry.borrowSourceRoot.bind(folders.registry);
-  let removed: Promise<boolean> | undefined;
-  // The open's own borrows are in; its sources borrow each folder again. A removal queued
-  // between the two folders' source borrows has not retired the second yet.
-  folders.registry.borrowSourceRoot = async (rootId, subscribe) => {
+  const borrow = folders.roots.borrowSourceRoot.bind(folders.roots);
+  let removed: Promise<void> | undefined;
+  // The open's own borrows are in; its sources borrow each folder again. The host removes the
+  // second folder between the two source borrows, and Main's handles follow before it is asked.
+  folders.roots.borrowSourceRoot = async (rootId, subscribe) => {
     const lease = await borrow(rootId, subscribe);
     if (rootId === folders.alpha.rootId && !removed) {
-      folders.storage.getItem = async (key) => {
-        folders.storage.getItem = read;
-        await removalRead.pass();
-        return read(key);
-      };
-      removed = folders.registry.removeRoot(folders.bravo.rootId);
+      removed = folders.remove(folders.bravo.rootId);
+      await removed;
     }
     return lease;
   };
   const registered = folders.registration.rootsRegistered().catch((error: unknown) => error);
-  await removalRead.entered;
-  removalRead.release();
-  await removed;
   await registered;
+  await removed;
 
   await folders.registration.rootsRegistered();
   expect(await folders.served()).toEqual([folders.alpha.rootId]);
@@ -212,7 +214,7 @@ it('a folder removed during its scan answers with its retirement, though the uti
   const scan = folders.holdScan(folders.bravo.rootId);
   const registered = folders.registration.rootsRegistered().catch((error: unknown) => error);
   await vi.waitFor(() => expect(scan.scanning).toBeDefined());
-  await folders.registry.removeRoot(folders.bravo.rootId);
+  await folders.remove(folders.bravo.rootId);
   // The utility's reads of the retired folder fail; the failure crosses back by name only.
   scan.scanning?.onError(
     'sync',
@@ -236,7 +238,7 @@ it('a folder removed during a scan that reports nothing more ends its wait, so t
   const scan = folders.holdScan(folders.bravo.rootId);
   const registered = folders.registration.rootsRegistered().catch((error: unknown) => error);
   await vi.waitFor(() => expect(scan.scanning).toBeDefined());
-  await folders.registry.removeRoot(folders.bravo.rootId);
+  await folders.remove(folders.bravo.rootId);
   // Main's re-read of the folders queues behind the registration that joined this scan.
   const reopened = folders.registration.rootsRegistered();
 

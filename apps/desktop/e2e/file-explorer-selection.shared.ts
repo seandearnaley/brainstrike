@@ -12,7 +12,7 @@ import type { Locator, Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { reloadRenderer } from './utils/electron-helpers.mts';
-import { seedMainLedgers } from './utils/seed-root';
+import { seedWorkspaceFolders } from './utils/seed-root';
 
 export { expect, test };
 // NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
@@ -411,15 +411,11 @@ export async function expectFileSelected(args: {
  * Fixed RootId used by every seeded selection fixture (storage v5).
  *
  * The app now keys `currentFolderId` / `folderStates` by a durable RootId UUID,
- * not by the root path. The desktop main process resolves a path to its RootId
- * via the `rootsList` storage entry (see file-system-ipc.ts `restoreRoots`), so
- * the seed functions below write a matching `rootsList` entry — the restored
- * root then carries this exact id and the seeded folder state hydrates.
+ * not by the root path. The agent host's root registry owns each folder's id, so
+ * the seed functions below seed its open folder with this id — the restored root
+ * then carries this exact id and the seeded folder state hydrates.
  */
 const E2E_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000001';
-
-/** Fixed addedAt for the seeded rootsList entry — deterministic fixture data. */
-const E2E_ROOT_ADDED_AT = 1_700_000_000_000;
 
 function createBaseExplorerState(rootPath: string): FileExplorerState {
   return {
@@ -604,7 +600,7 @@ function createRestoredQuerySelectionSnapshot(args: {
 }
 
 /**
- * Saves the root in Main's ledgers and the Explorer snapshot in the renderer's `localStorage`,
+ * Seeds the host's open folder and the Explorer snapshot in the renderer's `localStorage`,
  * reloads so the document restores both as a launch would, then closes the app for a restart.
  *
  * The running document owns the snapshot key: the reload flushes its in-memory state (ADR-0026
@@ -617,14 +613,9 @@ async function seedRestoredState(
   persistedState: unknown
 ): Promise<void> {
   const page = await electronHarness.ensureWindow();
-  // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this entry, so the
-  // restored root carries the same RootId the snapshot is keyed by.
-  await seedMainLedgers(page, {
-    lastFolderPath: rootPath,
-    rootsList: JSON.stringify([
-      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
-    ]),
-  });
+  // Storage v5: the host restores rootPath as E2E_ROOT_ID, so the restored root carries the
+  // same RootId the snapshot is keyed by.
+  await seedWorkspaceFolders(page, { roots: [{ path: rootPath, rootId: E2E_ROOT_ID }] });
   await page.addInitScript(
     ({ key, value }) => {
       if (window.top === window) {

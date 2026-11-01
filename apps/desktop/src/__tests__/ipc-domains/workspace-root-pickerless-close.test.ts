@@ -55,8 +55,8 @@ test.each(['recent-roots read', 'managed-worktree authorization'] as const)(
     const registry = createRegistry(
       {
         createSecureRoot: open,
+        recents: storage,
         resolveReadPath: async (requested) => requested,
-        storage,
       },
       request
     );
@@ -116,7 +116,7 @@ test.each(['recents', 'managed'] as const)(
         : {}
     );
     const open = vi.fn(async () => secureRoot('/late'));
-    const registry = createRegistry({ createSecureRoot: open, storage });
+    const registry = createRegistry({ createSecureRoot: open, recents: storage });
     const authorizer = vi.fn(async () => 'authorized' as const);
     registry.setManagedWorktreeAuthorizer(authorizer);
     await registry.prepareClose();
@@ -156,7 +156,7 @@ test.each(['storage failure', 'authorizer exception', 'authorizer denial'] as co
     const open = vi.fn(async () => secureRoot('/denied'));
     const granted = vi.fn();
     const registry = createRegistry(
-      { createSecureRoot: open, onRootGranted: granted, storage },
+      { createSecureRoot: open, onRootGranted: granted, recents: storage },
       request
     );
     const authorizer = vi.fn(async () => {
@@ -231,7 +231,7 @@ test('a pickerless workflow queued before close finishes without re-entering the
         }
         return handle;
       },
-      storage: createStorage({
+      recents: createStorage({
         recentRootsList: JSON.stringify([{ lastGrantedAt: 1, path: SECOND }]),
       }),
     },

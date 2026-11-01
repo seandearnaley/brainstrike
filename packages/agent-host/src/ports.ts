@@ -68,6 +68,7 @@ import type {
   WORKSPACE_FILES_METHOD_SCHEMAS,
   WorkspaceFilesEvent,
 } from './protocol-workspace-files.ts';
+import type { WORKSPACE_ROOTS_METHOD_SCHEMAS } from './protocol-workspace-roots.ts';
 import type { HostStateSearch } from './thread-search.ts';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
@@ -723,6 +724,13 @@ export type HostFileWatchSession = HostFileWatchSessionMethods & {
   close(): Promise<void>;
 };
 
+/** ADR-0029 stage 4: the desktop workspace's open folders, which the host's registry owns. */
+export type HostRootRegistry = {
+  readonly [M in keyof typeof WORKSPACE_ROOTS_METHOD_SCHEMAS]: (
+    params: HostParams<M>
+  ) => Promise<HostResults[M]>;
+};
+
 /** ADR-0029 stage 4: the Explorer's recursive watches on live workspace roots. */
 export interface HostFileWatches {
   /** Opens one client's watches; each of their events goes to `send`. */
@@ -909,6 +917,8 @@ export interface HostPlatform {
   }): Promise<string>;
   /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
   readonly rewindFiles?: HostRewindFiles | undefined;
+  /** The desktop workspace's open folders; absent where no window shows them (the CLI). */
+  readonly rootRegistry?: HostRootRegistry;
   /** Gap 10: the host's derived state index search, for `thread/search`. */
   readonly searchState?: HostStateSearch;
   /** Read scoped source text from the composing platform's existing native index. */

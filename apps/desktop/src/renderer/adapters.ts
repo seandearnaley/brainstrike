@@ -16,11 +16,9 @@ import type {
   WatcherRetryOutcome,
   WatcherRootHealthEvent,
 } from '@brainstrike/types';
-import { fileSystemContract } from '../ipc-domains/file-system.contract';
-import type { DesktopFileSystemBridge } from '../types/desktop-electron-api';
 import { type DesktopFileReads, resolveDesktopFileReads } from './host-file-reads';
 import { resolveDesktopFileWatches } from './host-file-watches';
-import { createIpcCapability } from './ipc-capability';
+import { type DesktopWorkspaceRoots, resolveDesktopWorkspaceRoots } from './host-workspace-roots';
 
 const logger = createLogger('ElectronRendererAdapters');
 
@@ -31,20 +29,12 @@ function assertExplicitAbsoluteReadPath(value: unknown, label: string): asserts 
   throw new Error(`${label} must be a non-empty absolute path`);
 }
 
-function getFileSystemBridge(): DesktopFileSystemBridge | undefined {
-  const api = window.electronAPI;
-  if (!(api && 'fileSystem' in api)) {
-    return;
+function requireWorkspaceRoots(): DesktopWorkspaceRoots {
+  const roots = resolveDesktopWorkspaceRoots();
+  if (!roots) {
+    throw new Error('Workspace folders need the agent host, which this window does not have');
   }
-  return createIpcCapability(api.fileSystem, fileSystemContract);
-}
-
-function requireFileSystemBridge(): DesktopFileSystemBridge {
-  const fileSystem = getFileSystemBridge();
-  if (!fileSystem) {
-    throw new Error('The desktop file-system capability is not available in this renderer role');
-  }
-  return fileSystem;
+  return roots;
 }
 
 function requireFileReads(): DesktopFileReads {
@@ -57,43 +47,41 @@ function requireFileReads(): DesktopFileReads {
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   public readonly platform = 'electron' as const;
-  /** Main's root registry is the one writer of folder records (BST-1990). */
+  /** The agent host's root registry is the one writer of folder records (ADR-0029 stage 4). */
   public readonly ownsRootRecords = true as const;
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
-    // Main owns the last-folder preference: fs:requestDirectoryAccess routes
-    // through the registry's addRoot, which persists it on success.
-    return requireFileSystemBridge().requestDirectoryAccess();
+    return (await requireWorkspaceRoots().pickRoot()).handle;
   }
 
   async addRoot(): Promise<RootDescriptor> {
-    return requireFileSystemBridge().addRoot();
+    return requireWorkspaceRoots().pickRoot();
   }
 
   /**
    * Desktop-only capability (web omits it rather than stubbing): re-mount a
-   * folder main's recent-roots ledger already records as granted. Main rejects
-   * anything else — this is not a general open-any-path door.
+   * folder the host's recent-folders ledger records as granted, or a managed
+   * worktree. The host rejects anything else: this is not an open-any-path door.
    */
   async addRootByPath(rootPath: string): Promise<RootDescriptor> {
-    return requireFileSystemBridge().addRootByPath(rootPath);
+    return requireWorkspaceRoots().addRootByPath(rootPath);
   }
 
   async listRecentRoots(): Promise<readonly RecentRootEntry[]> {
-    return requireFileSystemBridge().listRecentRoots();
+    return requireWorkspaceRoots().listRecentRoots();
   }
 
   async restoreRoots(): Promise<RootDescriptor[]> {
-    return requireFileSystemBridge().restoreRoots();
+    return requireWorkspaceRoots().restoreRoots();
   }
 
   /**
-   * Disconnect a root by RootId. Main owns the authoritative transition:
-   * persistence and DB live-status converge together, while indexed rows remain
-   * retained so re-adding the folder resumes without re-indexing.
+   * Disconnect a root by RootId. The host owns the transition: the folder closes
+   * and disconnects together, while indexed rows remain so re-adding the folder
+   * resumes without re-indexing.
    */
   async removeRoot(rootId: string): Promise<void> {
-    return requireFileSystemBridge().removeRoot(rootId);
+    return requireWorkspaceRoots().removeRoot(rootId);
   }
 
   /** The agent host lists a live root's directory (ADR-0029 stage 4). */
@@ -133,10 +121,6 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
   async exists(path: string): Promise<boolean> {
     return requireFileReads().exists(path);
-  }
-
-  async restoreLastFolder(): Promise<DirectoryHandle | null> {
-    return requireFileSystemBridge().restoreLastFolder();
   }
 
   /**

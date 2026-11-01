@@ -5,13 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
-import {
-  listRecentRootEntries,
-  loadWorkspaceRootsFromCatalog,
-} from '@brainstrike/assistant-service/node-workspace-services';
+import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import {
@@ -21,13 +17,11 @@ import {
   initializeLogging,
   LogBuffer,
 } from '@brainstrike/logging';
-import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, session, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
-import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
@@ -123,6 +117,7 @@ import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
+import { pickWorkspaceFolder } from './ipc-domains/file-system-ipc';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { createApplicationIpcDomain, registerIpcHandlers } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
@@ -150,7 +145,6 @@ import {
   createDesktopLoggingPreferencesController,
   readConsoleLevelOverride,
 } from './main/logging-preferences';
-import { prepareMainCatalogClose } from './main/main-catalog-close';
 import { installShutdownSignalHandlers } from './main/shutdown-signals';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
@@ -174,7 +168,6 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
-import { createResetProfileReopen } from './reset-profile-reopen';
 import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -327,16 +320,15 @@ loggingPreferences.applyInitial();
 // BST-1330: gates the developer-menu database reset so a repeat accelerator
 // press surfaces "already in progress" instead of the reset barrier's throw.
 let developerDatabaseResetInFlight = false;
-// NOT a replay buffer, despite the name's "pending" framing: a grant recorded
-// before this is assigned (inside app.whenReady()'s menu block) is a silent
-// no-op for THIS subscriber specifically — it never queues and never fires
-// late. That's safe because the grant itself is durable regardless (the
-// ledger write in workspace-recent-roots.ts happens unconditionally, and the
-// next application-menu rebuild reads the ledger fresh), so the only thing a
-// pre-assignment grant misses is that one mount's app.addRecentDocument call
-// — relevant only to a renderer-less/background window mounting before the
-// visible-UI menu block runs, which does not happen in the normal boot path.
-let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
+// ADR-0029 stage 4: the agent host's recent-folders ledger, as it last told Main
+// (`platform/workspace/roots-changed`). The File menu reads this copy; the ledger
+// is the host's. A change before the menu exists is kept here and the menu's first
+// build reads it; only that grant's OS recent-document entry is not added.
+let workspaceRecentRootPaths: readonly string[] = [];
+/** The menu's follower of the host's changes: a grant's OS recent document, and a rebuild. */
+let workspaceRootsMenuSubscriber:
+  | ((change: { readonly grantedPath?: string; readonly recentChanged: boolean }) => void)
+  | null = null;
 // The ONE holder of IPC-domain disposers (BST-1648 step 4): every
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
@@ -414,8 +406,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Finish accepted deletion; terminal quit cancels replacement startup.
       'factory-reset': () => handleResetLocal.close(),
       'file-system': () => applicationIpcDomain.close(),
-      'main-catalog': () =>
-        prepareMainCatalogClose(applicationIpcDomain.roots, workspaceRootCatalog),
+      'main-catalog': () => workspaceRootCatalog.prepareClose(),
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
@@ -522,18 +513,6 @@ function registerShutdownSignalHandlers(): void {
 }
 
 const fileSystem = new ElectronFileSystemAdapter();
-const storage = new ElectronStorageAdapter();
-
-const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
-  try {
-    return (await listRecentRootEntries(storage)).map((entry) => entry.path);
-  } catch (error) {
-    // A menu that cannot list recents still opens folders; a boot that dies
-    // on a storage read does not. Logged, never silent.
-    logger.warn('Could not read the recent workspace folders for the File menu', { error });
-    return [];
-  }
-};
 
 const profileReset = createDesktopProfileResetOwner({
   profilePath: () => {
@@ -543,13 +522,9 @@ const profileReset = createDesktopProfileResetOwner({
   retireProfile: () => nativeIndexActivation.destroyAndRetireProfile(),
 });
 
-// ADR-0015: the reset reopens the fresh profile only after its replacement renderer is ready;
-// until then root convergence waits for that reopen instead of reaching the closed profile.
-const resetProfileReopen = createResetProfileReopen();
 const handleResetLocal = createDesktopFactoryResetHandler({
   clearRetainedContent: async () => {
     await nativeIndexActivation.destroyNativeOwner();
-    await applicationIpcDomain.roots.clearForContent();
     const result = await desktopBootstrap.profile.clearAndRetireContent();
     for (const filePath of listErrorLogFilePaths(
       path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)
@@ -573,9 +548,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
   prepareDatabaseProfileReset: () => profileReset.prepare(),
-  profileReopen: resetProfileReopen,
   resetLocalDatabase: (lease) => profileReset.clear(lease),
-  resetPersistentStorageAfterDataDeletion: () => storage.clear(),
   resumeAfterReset: createDesktopResetResume({
     publishIndexConfig: () => indexConfig.publishSaved(),
     resumeIndex: (signal) => nativeIndexActivation.resume(signal),
@@ -667,13 +640,8 @@ const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(() =>
   nativeIndexActivation.acquireProfile()
 );
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
-const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, {
-  getRootsCatalog: async () => workspaceRootCatalog,
+const applicationIpcDomain = createApplicationIpcDomain({
   getUserDataPath: () => app.getPath('userData'),
-  // The host owns the worktree ledger and settings: it says whether a folder is a managed worktree.
-  managedWorktreeAuthorizer: async (candidate) =>
-    (await agentHostMainClient.request('worktrees/classify-path', { path: candidate }))
-      .classification,
   onClearContent: async () => {
     const result = await handleResetLocal.clearContent();
     if (
@@ -687,16 +655,35 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, {
   },
   onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
   onResetLocal: () => handleResetLocal.reset(),
-  onWorkspaceRootGranted: (grantedPath: string) => {
-    pendingRootGrantSubscriber?.(grantedPath);
-  },
-  onWorkspaceRootsChanged: () => {
-    // Not awaited, as a renderer's registration is not: the index status owns the outcome,
-    // and the registration reports its own failure.
-    nativeRootRegistration.rootsRegistered().catch(() => undefined);
-  },
-  whenRootsCatalogOpen: resetProfileReopen.whenOpen,
+  readMountedRoots: async () =>
+    (await agentHostMainClient.request('workspace/roots/mounted', {})).roots,
 });
+/** The host's open folders changed (ADR-0029 stage 4): the index re-reads them; the menu follows. */
+function onWorkspaceRootsChanged(change: {
+  readonly grantedPath?: string;
+  readonly recentPaths: readonly string[];
+}): void {
+  // Any change to the ledger rebuilds File > Open Recent, granted or not: the host's first
+  // publish at launch, a removal, and the empty ledger after a factory reset.
+  const recentChanged =
+    change.recentPaths.length !== workspaceRecentRootPaths.length ||
+    change.recentPaths.some((recentPath, index) => recentPath !== workspaceRecentRootPaths[index]);
+  workspaceRecentRootPaths = change.recentPaths;
+  workspaceRootsMenuSubscriber?.({
+    ...(change.grantedPath ? { grantedPath: change.grantedPath } : {}),
+    recentChanged,
+  });
+  // The index's handles follow first, so a scan of a removed folder ends before the re-read
+  // queues behind it. Not awaited, as a renderer's registration is not: the index status owns
+  // the outcome, and the registration reports its own failure.
+  applicationIpcDomain.roots
+    .followHost()
+    .catch((error: unknown) => {
+      logger.warn("The index's folder handles did not follow the host", { error });
+    })
+    .then(() => nativeRootRegistration.rootsRegistered())
+    .catch(() => undefined);
+}
 function activateSavedNativeIndexSettings(): Promise<void> {
   if (isDesktopShuttingDown()) {
     return Promise.resolve();
@@ -812,14 +799,22 @@ const nativeRootDataDeletion = createNativeRootDataDeletion({
     return nativeIndexActivation.captureAcknowledgedAuthority();
   },
   closeOwner: () => nativeIndexActivation.closeNativeOwner(),
-  deleteCanonicalRoot: async (mounted) => {
-    await workspaceRootCatalog.workspaceRoots({
-      operation: 'delete',
-      paths: [mounted.canonicalPath, mounted.presentationPath],
-      rootId: mounted.rootId,
-    });
+  reserveRootData: async (rootId) => {
+    const { reservationId } = await agentHostMainClient.request(
+      'workspace/roots/reserve-data-deletion',
+      { rootId }
+    );
+    return {
+      delete: async () => {
+        await agentHostMainClient.request('workspace/roots/delete-data', { reservationId });
+      },
+      release: async () => {
+        await agentHostMainClient.request('workspace/roots/release-data-deletion', {
+          reservationId,
+        });
+      },
+    };
   },
-  reserveRoot: (rootId) => applicationIpcDomain.roots.reserveRootDataDeletion(rootId),
   resume: () => nativeIndexActivation.resume(),
   stopSources: () => nativeIndexActivation.stopSources(),
 });
@@ -1448,7 +1443,7 @@ if (singleInstanceLockAcquired) {
 
       let applicationMenuRebuildScheduled = false;
       const rebuildApplicationMenu = async (): Promise<void> => {
-        const recents = await listWorkspaceRecentRootPaths();
+        const recents = workspaceRecentRootPaths;
         const template: Electron.MenuItemConstructorOptions[] = [
           ...(isMac
             ? [
@@ -1503,12 +1498,16 @@ if (singleInstanceLockAcquired) {
         }, 250);
       };
 
-      pendingRootGrantSubscriber = (grantedPath: string) => {
-        // Spec §7's explicit ask. This feeds the macOS Dock menu and the
-        // Windows jump list, whose clicks arrive back as `open-file` / argv —
-        // the entry points Layer 3 handles.
-        app.addRecentDocument(grantedPath);
-        scheduleApplicationMenuRebuild();
+      workspaceRootsMenuSubscriber = ({ grantedPath, recentChanged }) => {
+        if (grantedPath) {
+          // Spec §7's explicit ask. This feeds the macOS Dock menu and the
+          // Windows jump list, whose clicks arrive back as `open-file` / argv —
+          // the entry points Layer 3 handles.
+          app.addRecentDocument(grantedPath);
+        }
+        if (recentChanged) {
+          scheduleApplicationMenuRebuild();
+        }
       };
 
       await rebuildApplicationMenu();
@@ -1853,54 +1852,16 @@ app.on('will-quit', () => {
 });
 
 desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
-  const workspace = new DesktopWorkspaceBindingAuthority({
-    borrowRoot: (root) =>
-      applicationIpcDomain.roots.borrowSourceRootForPath(
-        root.path,
-        applicationIpcDomain.watches.subscribe.bind(applicationIpcDomain.watches)
-      ),
-    // The host owns the worktree ledger: a thread's checkout names one of its live worktrees.
-    readLiveWorktreePath: async (id) => {
-      const listed = await agentHostMainClient.request('worktrees/managed-paths', {});
-      if (!listed.ok) {
-        throw new BoundaryFailureError(listed.error);
-      }
-      return listed.value.find((worktree) => worktree.id === id)?.path ?? null;
-    },
-    // BST-1990: names a removed folder in the refusal, whatever its status now.
-    readRootNames: async (ids) => {
-      const { roots } = await workspaceRootCatalog.workspaceRoots({ operation: 'list' });
-      return new Map(
-        roots.filter((root) => ids.includes(root.id)).map((root) => [root.id, root.displayName])
-      );
-    },
-    readRoots: async () => loadWorkspaceRootsFromCatalog(workspaceRootCatalog),
-  });
   return bindDesktopPlatformPort(platformPort, {
-    ...productionDesktopCapabilities(
-      {
-        modelCatalog,
-        nativeIndexSearch,
-        retrievalStore: createCatalogRetrievalStore(workspaceRootCatalog),
-        workspaceRoots: workspaceRootCatalog,
-      },
-      undefined,
-      workspace
-    ),
+    ...productionDesktopCapabilities({
+      modelCatalog,
+      nativeIndexSearch,
+      retrievalStore: createCatalogRetrievalStore(workspaceRootCatalog),
+      workspaceRoots: workspaceRootCatalog,
+    }),
     // BST-1977: app-owned host/stop released Root with the native writer live.
     // Retiring the profile here would wait on this same Core close request.
-    closeRootCapabilities: async (host) => {
-      const results = await Promise.allSettled([
-        workspace.close(),
-        nativeIndexActivation.closeRootCapabilities(host),
-      ]);
-      const failures = results.flatMap((result) =>
-        result.status === 'rejected' ? [result.reason] : []
-      );
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'Desktop workspace and native Root retirement failed');
-      }
-    },
+    closeRootCapabilities: (host) => nativeIndexActivation.closeRootCapabilities(host),
     // ADR-0029: the host's sealed credential file borrows Main's safeStorage.
     credentialCipher: createSafeStorageCredentialCipher(),
     lifecycleDelays: lifecycleDelaySeam(),
@@ -1908,17 +1869,14 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
     // ADR-0017: the host reports its native processes; Main ends them if it dies.
     nativeChildren,
-    // The ledger authorizes a managed worktree's mount; no picker grant is needed.
-    // The window is then asked to show it, as for any folder Main opens.
-    openWorktreeFolder: async (path) => {
-      const root = await applicationIpcDomain.roots.addRootByPath(path);
-      desktopBootstrap.workspaceOpenQueue.enqueue({
-        origin: 'agent-worktree',
-        path: root.handle.path,
-      });
-      return { displayName: root.displayName, path: root.handle.path, rootId: root.rootId };
-    },
+    // ADR-0029 stage 4: the host owns the open folders; Main keeps the picker and the windows.
+    pickWorkspaceFolder: () => pickWorkspaceFolder(fileSystem),
     refreshWorkspaceIndex: (rootId) => nativeIndexActivation.requestWorkspaceScan(rootId),
+    // A worktree the host opened for an agent: the window shows it, as for any folder Main opens.
+    showWorkspaceFolder: (path) => {
+      desktopBootstrap.workspaceOpenQueue.enqueue({ origin: 'agent-worktree', path });
+    },
+    workspaceRootsChanged: onWorkspaceRootsChanged,
   });
 });
 

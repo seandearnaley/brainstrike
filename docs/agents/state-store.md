@@ -54,6 +54,14 @@ profile or reset target is that root derives it there. Node's JS `realpathSync`
 keeps another case or an 8.3 short name, so a second derivation refused a
 launcher's own host on Windows.
 
+A workspace root record carries the folder's grant-time identity
+(`roots.canonical_path`) and its place among the open folders
+(`roots.open_position`; NULL is a removed folder kept for its identity). The
+agent host's root registry is their only writer. `register` refuses a recorded
+path that now resolves to another folder unless the person picked it afresh
+(`repin`). Greenfield: these columns are part of the current schema, not an
+upgrade step.
+
 Content-addressed blobs store canonical edit baselines and current-format content
 through their existing owner. Hashes and scope must match the bytes; a transient
 cache or derived embedding does not become another source of truth. Delete/purge

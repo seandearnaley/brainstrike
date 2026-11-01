@@ -327,7 +327,7 @@ setInterval(() => {}, 1000);
       );
       await page.reload();
       await ensureAssistantShellVisible(page);
-      workspaceRootId = await addWorkspaceFolder(page, workspace);
+      workspaceRootId = await addWorkspaceFolder(page, workspace, profile);
       checkpoint('ordinary-assistant-visible');
       const record = decodeHostRecord(
         JSON.parse(await readFile(join(profile, 'host.json'), 'utf8'))
