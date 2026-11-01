@@ -1,209 +1,57 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { TreeNode } from '@brainstrike/ui';
-import type {
-  WorkspaceSearchChild,
-  WorkspaceSearchChunkHit,
-  WorkspaceSearchFileResult,
-  WorkspaceSearchResults,
-  WorkspaceSearchTextMatch,
-} from '../core/search-result-model';
+import type { WorkspaceSearchFileResult, WorkspaceSearchMatch } from '../core/search-result-model';
+import { fileResultId } from '../core/workspace-search-store';
 
 /**
- * Row payload for the workspace-search results tree. `compositeKey` is the
- * file-selection key (root-scoped) used by the selection bridge; it is only
- * ever null for defensive typing — files whose root is unmounted are omitted
- * entirely rather than rendered non-actionable, so emitted rows always carry a
- * real key.
- *
- * Tree shape:
- * - Text mode: file → chunk → match. The CHUNK is the single visible selection
- *   unit (checkbox); match rows are navigation-only leaves.
- * - Semantic mode: file → chunk (unchanged; chunk carries the checkbox).
+ * Row payload for the results tree: a file, then its matching lines.
+ * `compositeKey` is the file-selection key the selection bridge and the
+ * file-open seam use.
  */
 export type SearchNodeData =
-  | { kind: 'file'; file: WorkspaceSearchFileResult; compositeKey: string | null }
-  | {
-      chunk: WorkspaceSearchChunkHit;
-      compositeKey: string | null;
-      filePath: string;
-      kind: 'chunk';
-    }
-  | {
-      chunkEndLine: number;
-      chunkId: string;
-      chunkStartLine: number;
-      compositeKey: string | null;
-      filePath: string;
-      kind: 'text-chunk';
-      matchCount: number;
-    }
-  | {
-      compositeKey: string | null;
-      filePath: string;
-      kind: 'match';
-      match: WorkspaceSearchTextMatch;
-    };
+  | { compositeKey: string; file: WorkspaceSearchFileResult; kind: 'file' }
+  | { compositeKey: string; filePath: string; kind: 'match'; match: WorkspaceSearchMatch };
 
-/** Stable file row id (matches the store's expandedIds convention). */
-export function fileNodeId(file: Pick<WorkspaceSearchFileResult, 'dbRootId' | 'path'>): string {
-  return `f:${file.dbRootId}:${file.path}`;
-}
-
-/**
- * Stable child row id: `m:${chunkId}:${line}` for a text match (line
- * disambiguates multiple matches inside one chunk) or `m:${chunkId}` for a
- * whole-chunk semantic hit.
- */
-export function childNodeId(child: WorkspaceSearchChild): string {
-  return child.kind === 'match' ? `m:${child.chunkId}:${child.line}` : `m:${child.chunkId}`;
-}
-
-/** Stable text-mode chunk-group row id (matches the store's default expansion). */
-export function textChunkNodeId(chunkId: string): string {
-  return `c:${chunkId}`;
-}
-
-interface TextChunkGroup {
-  chunkEndLine: number;
-  chunkId: string;
-  chunkStartLine: number;
-  matches: WorkspaceSearchTextMatch[];
-}
-
-type OrderedChild =
-  | { chunk: WorkspaceSearchChunkHit; type: 'chunk' }
-  | { group: TextChunkGroup; type: 'text-chunk' };
-
-/**
- * Splits a file's children into ordered tree children. Semantic chunk hits pass
- * through 1:1; text matches are grouped by `chunkId` (first-seen chunk order,
- * match order preserved within a chunk) so several matches sharing a chunk
- * collapse to a single selectable chunk row.
- */
-function groupFileChildren(children: readonly WorkspaceSearchChild[]): OrderedChild[] {
-  const ordered: OrderedChild[] = [];
-  const groupByChunkId = new Map<string, TextChunkGroup>();
-
-  for (const child of children) {
-    if (child.kind === 'chunk') {
-      ordered.push({ chunk: child, type: 'chunk' });
-      continue;
-    }
-    let group = groupByChunkId.get(child.chunkId);
-    if (group === undefined) {
-      group = {
-        chunkEndLine: child.chunkEndLine,
-        chunkId: child.chunkId,
-        chunkStartLine: child.chunkStartLine,
-        matches: [],
-      };
-      groupByChunkId.set(child.chunkId, group);
-      ordered.push({ group, type: 'text-chunk' });
-    }
-    group.matches.push(child);
-  }
-
-  return ordered;
+/** A match row's id: unique per file and line. */
+export function matchNodeId(fileId: string, line: number): string {
+  return `m:${fileId}:${line}`;
 }
 
 /**
  * Flattens results into the PRE-FLATTENED visible row model TreeTable consumes
- * (`nodesArePreFlattened`). Respects `expandedIds` at both levels: a collapsed
- * file emits only its own row; an expanded text file emits its chunk-group rows,
- * and each chunk emits its match rows only when the chunk id is expanded.
- * Files whose `resolveAdapterRootId(dbRootId)` returns null (root not mounted)
- * are omitted along with all their children.
+ * (`nodesArePreFlattened`): every file row, followed by its match rows unless
+ * the user collapsed it.
  */
 export function buildSearchTreeNodes(args: {
-  results: WorkspaceSearchResults;
-  expandedIds: ReadonlySet<string>;
-  resolveAdapterRootId: (dbRootId: string) => string | null;
+  collapsedIds: ReadonlySet<string>;
+  files: readonly WorkspaceSearchFileResult[];
 }): TreeNode<SearchNodeData>[] {
-  const { results, expandedIds, resolveAdapterRootId } = args;
   const rows: TreeNode<SearchNodeData>[] = [];
-
-  for (const file of results.files) {
-    const compositeKey = mountedFileKey(file, resolveAdapterRootId);
-    if (compositeKey === undefined) {
-      continue;
-    }
-    const id = fileNodeId(file);
-    const orderedChildren = groupFileChildren(file.children);
-
+  for (const file of args.files) {
+    const id = fileResultId(file);
+    const compositeKey = encodeFileSelection(file.rootId, file.path);
     rows.push({
-      childCount: orderedChildren.length,
+      childCount: file.matches.length,
       data: { compositeKey, file, kind: 'file' },
       depth: 0,
-      hasChildren: orderedChildren.length > 0,
+      hasChildren: file.matches.length > 0,
       id,
       parentId: null,
       type: 'file',
     });
-
-    if (!expandedIds.has(id)) {
+    if (args.collapsedIds.has(id)) {
       continue;
     }
-
-    for (const entry of orderedChildren) {
-      if (entry.type === 'chunk') {
-        rows.push({
-          data: { chunk: entry.chunk, compositeKey, filePath: file.path, kind: 'chunk' },
-          depth: 1,
-          hasChildren: false,
-          id: childNodeId(entry.chunk),
-          parentId: id,
-          type: 'chunk',
-        });
-        continue;
-      }
-
-      const { group } = entry;
-      const chunkNodeId = textChunkNodeId(group.chunkId);
+    for (const match of file.matches) {
       rows.push({
-        childCount: group.matches.length,
-        data: {
-          chunkEndLine: group.chunkEndLine,
-          chunkId: group.chunkId,
-          chunkStartLine: group.chunkStartLine,
-          compositeKey,
-          filePath: file.path,
-          kind: 'text-chunk',
-          matchCount: group.matches.length,
-        },
+        data: { compositeKey, filePath: file.path, kind: 'match', match },
         depth: 1,
-        hasChildren: group.matches.length > 0,
-        id: chunkNodeId,
+        hasChildren: false,
+        id: matchNodeId(id, match.line),
         parentId: id,
-        type: 'chunk',
+        type: 'match',
       });
-
-      if (!expandedIds.has(chunkNodeId)) {
-        continue;
-      }
-
-      for (const match of group.matches) {
-        rows.push({
-          data: { compositeKey, filePath: file.path, kind: 'match', match },
-          depth: 2,
-          hasChildren: false,
-          id: childNodeId(match),
-          parentId: chunkNodeId,
-          type: 'match',
-        });
-      }
     }
   }
-
   return rows;
-}
-
-function mountedFileKey(
-  file: WorkspaceSearchFileResult,
-  resolve: (dbRootId: string) => string | null
-): string | null | undefined {
-  if (file.dbRootId === null) {
-    return null;
-  }
-  const adapterRootId = resolve(file.dbRootId);
-  return adapterRootId === null ? undefined : encodeFileSelection(adapterRootId, file.path);
 }

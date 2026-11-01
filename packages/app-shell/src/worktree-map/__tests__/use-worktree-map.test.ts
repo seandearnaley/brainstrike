@@ -49,7 +49,6 @@ vi.mock('../../changes/use-changes-live-refresh', () => ({
 // `publishCanonicalMapping` lands a new adapter→DB pair.
 let rootIdentityValue: {
   resolveAdapterRootId: (dbRootId: string) => string | null;
-  workspaceDbRootIds: readonly string[];
 } | null = null;
 vi.mock('../../roots/root-identity-context', () => ({
   useOptionalRootIdentity: () => rootIdentityValue,
@@ -221,7 +220,7 @@ describe('useWorktreeMap', () => {
   // context value only when a NEW pair lands (after `reconcileRoots` wrote the
   // row), so the hook re-reads exactly when the row provably exists.
   it('re-reads the list when a root registration publishes a new canonical identity', async () => {
-    rootIdentityValue = { resolveAdapterRootId: () => null, workspaceDbRootIds: [] };
+    rootIdentityValue = { resolveAdapterRootId: () => null };
     const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(listMock).toHaveBeenCalledTimes(1);
@@ -230,7 +229,6 @@ describe('useWorktreeMap', () => {
     act(() => {
       rootIdentityValue = {
         resolveAdapterRootId: () => 'adapter-1',
-        workspaceDbRootIds: ['db-root-1'],
       };
     });
     rerender();
@@ -243,7 +241,7 @@ describe('useWorktreeMap', () => {
   });
 
   it('does not re-read the list when the identity value is unchanged', async () => {
-    rootIdentityValue = { resolveAdapterRootId: () => null, workspaceDbRootIds: [] };
+    rootIdentityValue = { resolveAdapterRootId: () => null };
     const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(listMock).toHaveBeenCalledTimes(1);

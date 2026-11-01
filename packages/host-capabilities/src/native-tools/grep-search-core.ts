@@ -300,9 +300,8 @@ function buildContentResult(args: {
 /**
  * A count-only zero-match steering probe: the same on-disk pass with one
  * matcher setting changed (case-insensitive, or the pattern as a literal),
- * never exposing match text. The live pass offers no mid-scan cancellation, so
- * only a call that already lost its probe budget is skipped; the pass is
- * bounded by its own caps and ripgrep timeout.
+ * never exposing match text. The probe budget's abort ends the pass and its
+ * ripgrep mid-scan.
  */
 async function countLiveMatches(args: {
   caseSensitive: boolean;
@@ -322,6 +321,7 @@ async function countLiveMatches(args: {
       isRegex: args.isRegex,
       pattern: args.pattern,
       roots: args.roots,
+      signal: args.signal,
       ...(args.filePaths === undefined ? {} : { filePaths: args.filePaths }),
     },
     createModelPatternMatcher(args.pattern, args.isRegex, args.caseSensitive)

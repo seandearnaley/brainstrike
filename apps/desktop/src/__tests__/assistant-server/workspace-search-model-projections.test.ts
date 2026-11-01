@@ -314,8 +314,9 @@ describe('workspace search model projections', () => {
     const raw = {
       candidatesTruncated: true,
       hint: 'Showing matches 1-1 of 18. Continue with offset: 1 or narrow with filePaths.',
-      liveEngine: 'js-walk',
-      liveNote: 'ripgrep unavailable; bounded JavaScript walk used',
+      liveEngine: 'ripgrep',
+      liveNote:
+        'ripgrep reached its time limit, so some on-disk matches may be missing; narrow the pattern or scope.',
       matches: [
         {
           after: [`after ${'a'.repeat(400)}`],
@@ -338,15 +339,15 @@ describe('workspace search model projections', () => {
     const projected = projectGrepSearchModelOutput(raw);
 
     expect(projected.type).toBe('text');
-    expect(projected.value).toContain(
-      'grep content 1-1/18+ | live=js-walk | candidates_truncated | scan_limited'
-    );
+    expect(projected.value).toContain('grep content 1-1/18+ | candidates_truncated | scan_limited');
     expect(projected.value).toContain('/src/large.ts');
     expect(projected.value).toContain('  41- before ');
     expect(projected.value).toContain('  42: needle ');
     expect(projected.value).toContain('  43- after ');
     expect(projected.value).toContain('chars omitted]');
-    expect(projected.value).toContain('note: ripgrep unavailable; bounded JavaScript walk used');
+    expect(projected.value).toContain(
+      'note: ripgrep reached its time limit, so some on-disk matches may be missing; narrow the pattern or scope.'
+    );
     expect(projected.value).toContain(
       'continue: reuse the prior brainstrike.grepSearch input; Showing matches 1-1 of 18. Continue with offset: 1 or narrow with filePaths.'
     );
@@ -517,7 +518,7 @@ describe('workspace search model projections', () => {
         value: 'grep files | page=empty@offset=0/0',
       })
     ).toThrow(
-      'grepSearch model projection rejected liveEngine: expected "ripgrep", "js-walk", "js-files", or "skipped", received undefined'
+      'grepSearch model projection rejected liveEngine: expected "ripgrep", "js-files", or "skipped", received undefined'
     );
   });
 

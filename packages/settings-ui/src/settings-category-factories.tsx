@@ -151,7 +151,10 @@ export function createWorkspaceSettingsCategory(
 }
 
 export function createSearchIndexingSettingsCategory(
-  nativeIndex?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability
+  nativeIndex?: Pick<
+    import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability,
+    'rebuild'
+  >
 ): SettingsCategory {
   return {
     content: <SearchIndexSettingsSection {...(nativeIndex ? { nativeIndex } : {})} />,

@@ -1,6 +1,9 @@
 # ADR-0018: Isolated derived SQLite indexer
 
-- **Status:** Accepted. The schema-upgrade decision is superseded by
+- **Status:** Superseded by [ADR-0035](0035-workspace-retrieval-is-live-search.md)
+  (2026-11-01): workspace retrieval is live search and this index is removed. Until its
+  removal lands (BST-2436), the rest of this record describes the code that still runs.
+  Earlier: the schema-upgrade decision is superseded by
   [ADR-0020](0020-greenfield-data-lifecycle.md) (no legacy-data migration). The "PG"
   (PGlite) identities the M2 extension referred to are gone; canonical state now lives in the
   SQLite state store ([ADR-0011](0011-run-log-and-state-store.md)). Schema numbers below are

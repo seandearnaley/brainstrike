@@ -127,7 +127,7 @@ declare global {
     __BRAINSTRIKE_READY__?: boolean;
     __brainstrikeTestHooks__?: {
       enableCatalogModels: (modelIds: readonly string[]) => Promise<void>;
-      indexSearch?: IndexSearchCapability;
+      indexSearch?: Omit<IndexSearchCapability, 'grep'>;
       notifySecretsChanged: () => void;
       /** Test mode: one request on this window's agent host connection, as its views send it. */
       requestAgentHost: (method: string, params: unknown) => Promise<unknown>;

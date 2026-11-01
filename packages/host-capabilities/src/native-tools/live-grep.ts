@@ -2,21 +2,24 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { GrepMatch } from '@brainstrike/assistant-contract';
+import { pathsEqual } from '@brainstrike/assistant-service/node-workspace-services';
+import type { SecureFileReadCapability } from '@brainstrike/file-system/secure-file-read';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import type { LineMatcher } from '@brainstrike/utils/grep-line-matcher';
+import { utf8Decode } from '@brainstrike/utils/utf8';
 import { createAgentIgnoreGuard } from './agent-ignore-guard.ts';
 import { collectGrepMatchesInContent } from './grep-search.ts';
 import { resolveScopedGrepFile } from './live-grep-files.ts';
 import { buildLiveNote } from './live-grep-note.ts';
 import {
+  bundledRipgrepPath,
   PROBE_RIPGREP_TIMEOUT_MS,
   RipgrepRunError,
-  resolveRipgrepPath,
   resolveRipgrepPrefilterLiteral,
   runRipgrep,
+  streamRipgrep,
 } from './live-grep-ripgrep.ts';
-import { walkWorkspaceRoot } from './workspace-file-walk.ts';
 import { isWithinRoot } from './workspace-path.ts';
 
 const logger = createLogger('AssistantLiveGrep');
@@ -62,37 +65,63 @@ export function setMaxLiveCandidateFilesForTests(value?: number): void {
   maxLiveCandidateFiles = value ?? DEFAULT_MAX_LIVE_CANDIDATE_FILES;
 }
 
-/** Outcome of the live pass: matches plus how the prefilter ran (never silent). */
-export interface LiveGrepResult {
+/** How a live search ended: its caps and engine, never silent. */
+export interface LiveGrepOutcome {
   /**
-   * BST-1247 substrate cap (rg prefilter stdout cap or the global candidate
-   * cap), separate so `truncated` can stay output-only downstream.
+   * BST-1247 substrate cap (rg output cap or the global candidate cap),
+   * separate so `truncated` can stay output-only downstream.
    */
   candidatesTruncated: boolean;
   /**
    * The engine that produced the candidate file set:
-   * - 'ripgrep'  — `rg` prefilter ran.
+   * - 'ripgrep'  — the bundled `rg` streamed the candidates.
    * - 'js-files' — the exact requested files were resolved directly.
-   * - 'js-walk'  — `rg` was absent/errored/timed out; bounded JS file-walk used.
    * - 'skipped'  — the live pass could not run at all (e.g. no readable roots).
    */
-  engine: 'ripgrep' | 'js-walk' | 'js-files' | 'skipped';
-  /** Authoritative matches found fresh on disk (same shape as the indexed path). */
-  matches: GrepMatch[];
+  engine: 'ripgrep' | 'js-files' | 'skipped';
   /**
-   * Non-silent note when the live pass degraded (rg missing/failed) or hit a
-   * cap. Surfaced to the model so freshness limits are never hidden. Undefined on
-   * the clean path.
+   * Non-silent note when the search hit a cap, ran out of time or could not
+   * read a folder. Undefined on the clean path.
    */
   note?: string;
+  /**
+   * A regex with no literal ripgrep could prefilter on listed every eligible
+   * file, and that unprefiltered scan stopped at the candidate cap.
+   */
   scanLimited: boolean;
-  /** True when any live cap was hit (more may exist, unreached) — the union of the two flags above plus the prefilter cap. */
+  /** ripgrep reached its time budget on some root; what it found was kept. */
+  timedOut: boolean;
+  /** True when any live cap was hit (more may exist, unreached). */
   truncated: boolean;
+  /** Roots whose folder could not be opened, so they were not searched. */
+  unreadableRoots: readonly RuntimeWorkspaceRoot[];
+}
+
+/** The live search's outcome with every match it found, collected. */
+export interface LiveGrepResult extends LiveGrepOutcome {
+  /** Authoritative matches found fresh on disk. */
+  matches: GrepMatch[];
+}
+
+/** The handle a root was opened with: it reads only the folder it opened, wherever that is now. */
+export interface PinnedReadRoot extends SecureFileReadCapability {
+  readonly canonicalPath: string;
+}
+
+/**
+ * A root to search. With `pinned`, the root is searched only while its path
+ * still resolves to the handle's canonical path, and every candidate is read
+ * through the handle, so a folder swapped in at the path is never read.
+ */
+export interface LiveGrepRoot extends RuntimeWorkspaceRoot {
+  readonly pinned?: PinnedReadRoot | undefined;
 }
 
 /** A live candidate file to read + match, labelled with its owning root. */
 interface LiveCandidate {
   absolutePath: string;
+  /** Reads the candidate through its root's handle instead of by path. */
+  pinned?: PinnedReadRoot | undefined;
   relativePath: string;
   rootId: string;
   rootName: string;
@@ -125,15 +154,15 @@ function hasDotGitSegment(relativePath: string): boolean {
 type IndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 
 /**
- * Keep a ripgrep candidate only when (a) the indexer ignore policy keeps it (so
- * the live pass excludes exactly what glob/the indexer excludes — single source
- * of truth, not rg's `.gitignore`) and (b) its realpath stays inside the
- * canonical root (symlink-escape defence, mirroring glob).
+ * Keep a ripgrep candidate only when (a) the balanced entry policy keeps it (so
+ * the live pass excludes exactly what glob excludes — single source of truth,
+ * not rg's `.gitignore`) and (b) its realpath stays inside the canonical root
+ * (symlink-escape defence, mirroring glob).
  */
 async function resolveCandidate(args: {
   relativePath: string;
   canonicalRootPath: string;
-  root: RuntimeWorkspaceRoot;
+  root: LiveGrepRoot;
   policy: IndexingEntryPolicy;
 }): Promise<LiveCandidate | null> {
   const fileName = path.posix.basename(args.relativePath);
@@ -164,10 +193,65 @@ async function resolveCandidate(args: {
   }
   return {
     absolutePath: canonical,
+    pinned: args.root.pinned,
     relativePath: args.relativePath,
     rootId: args.root.rootId,
     rootName: args.root.displayName,
   };
+}
+
+/**
+ * Reads a candidate through its root's handle, by its root-relative path. The
+ * handle never follows a symlink, so an in-root link is skipped, as the
+ * Explorer's own reads refuse it.
+ */
+async function readPinnedCandidate(
+  candidate: LiveCandidate,
+  pinned: PinnedReadRoot,
+  exactScope: boolean
+): Promise<string | null> {
+  const result = await pinned.readFile(candidate.relativePath, MAX_READ_FILE_BYTES);
+  if (result.status === 'ok') {
+    return utf8Decode(result.content);
+  }
+  if (exactScope && result.status !== 'not-found') {
+    throw new Error(`A selected live grep file is ${result.status}.`);
+  }
+  return null;
+}
+
+/** Reads a candidate by its resolved path, size-bounded. */
+async function readCandidateByPath(
+  candidate: LiveCandidate,
+  exactScope: boolean
+): Promise<string | null> {
+  let stat: import('node:fs').Stats;
+  try {
+    stat = await fsPromises.stat(candidate.absolutePath);
+  } catch (error) {
+    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+    return null;
+  }
+  if (stat.size > MAX_READ_FILE_BYTES) {
+    if (exactScope) {
+      throw new Error('A selected live grep file exceeds the bounded read size.');
+    }
+    return null;
+  }
+  try {
+    return await fsPromises.readFile(candidate.absolutePath, 'utf8');
+  } catch (error) {
+    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+    logger.debug('live grep: unreadable candidate skipped', {
+      error,
+      path: candidate.relativePath,
+    });
+    return null;
+  }
 }
 
 /** Read a candidate file (size-bounded) and run the authoritative matcher over it. */
@@ -177,118 +261,22 @@ async function matchCandidate(
   contextLines: number,
   exactScope = false
 ): Promise<GrepMatch[]> {
-  let stat: import('node:fs').Stats;
-  try {
-    stat = await fsPromises.stat(candidate.absolutePath);
-  } catch (error) {
-    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-    return [];
-  }
-  if (stat.size > MAX_READ_FILE_BYTES) {
-    if (exactScope) {
-      throw new Error('A selected live grep file exceeds the bounded read size.');
-    }
-    return [];
-  }
-  let content: string;
-  try {
-    content = await fsPromises.readFile(candidate.absolutePath, 'utf8');
-  } catch (error) {
-    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-    logger.debug('live grep: unreadable candidate skipped', {
-      error,
-      path: candidate.relativePath,
-    });
+  const content = candidate.pinned
+    ? await readPinnedCandidate(candidate, candidate.pinned, exactScope)
+    : await readCandidateByPath(candidate, exactScope);
+  if (content === null) {
     return [];
   }
   return collectGrepMatchesInContent({
     content,
     contextLines,
     matcher,
-    // The indexed path reports root-relative paths without a leading slash; mirror
-    // that so live + indexed matches dedupe on identical (rootId, path, line) keys.
+    // Root-relative, without a leading slash.
     path: candidate.relativePath,
     rootId: candidate.rootId,
     rootName: candidate.rootName,
     startLine: 1,
   });
-}
-
-/** Collect candidate paths for one root via the bounded JS file-walk fallback. */
-async function collectJsWalkCandidates(
-  root: RuntimeWorkspaceRoot
-): Promise<{ candidates: LiveCandidate[]; scanLimited: boolean }> {
-  const candidates: LiveCandidate[] = [];
-  const { scanLimited } = await walkWorkspaceRoot({
-    includeIgnored: false,
-    onFile: ({ relativePath, absolutePath }) => {
-      candidates.push({
-        absolutePath,
-        relativePath,
-        rootId: root.rootId,
-        rootName: root.displayName,
-      });
-    },
-    root,
-  });
-  return { candidates, scanLimited };
-}
-
-/** Collect candidate paths for one root via ripgrep, filtered by the ignore policy. */
-async function collectRipgrepCandidates(args: {
-  ripgrepPath: string;
-  root: RuntimeWorkspaceRoot;
-  canonicalRootPath: string;
-  /** Fixed-string SUPERSET literal rg prefilters on (never the raw regex). */
-  prefilterLiteral: string;
-  caseSensitive: boolean;
-  /** Remaining global candidate budget — STOP resolving once this is reached. */
-  maxCandidates: number;
-}): Promise<{
-  candidates: LiveCandidate[];
-  prefilterTruncated: boolean;
-  capHit: boolean;
-  partialReadErrors: boolean;
-}> {
-  const run = await runRipgrep({
-    canonicalRootPath: args.canonicalRootPath,
-    caseSensitive: args.caseSensitive,
-    prefilterLiteral: args.prefilterLiteral,
-    ripgrepPath: args.ripgrepPath,
-  });
-  const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
-  const candidates: LiveCandidate[] = [];
-  let capHit = false;
-  for (const relativePath of run.candidatePaths) {
-    // Bound the realpath+stat syscall burst by the SAME cap as the reads: a very
-    // common literal in a huge repo can make rg emit tens of thousands of
-    // candidate paths, so stop resolving once the budget is spent (surfaced via
-    // capHit → the candidate-cap note) instead of statting them all before the
-    // final slice trims them.
-    if (candidates.length >= args.maxCandidates) {
-      capHit = true;
-      break;
-    }
-    const candidate = await resolveCandidate({
-      canonicalRootPath: args.canonicalRootPath,
-      policy,
-      relativePath,
-      root: args.root,
-    });
-    if (candidate) {
-      candidates.push(candidate);
-    }
-  }
-  return {
-    candidates,
-    capHit,
-    partialReadErrors: run.partialReadErrors,
-    prefilterTruncated: run.truncated,
-  };
 }
 
 export interface LiveGrepOptions {
@@ -297,8 +285,13 @@ export interface LiveGrepOptions {
   /** Optional exact-path allowlist (workspace-relative, no leading slash). */
   filePaths?: readonly string[];
   isRegex: boolean;
+  /** What ripgrep's prefilter literal comes from: every match the matcher keeps must contain it. */
   pattern: string;
-  roots: readonly RuntimeWorkspaceRoot[];
+  roots: readonly LiveGrepRoot[];
+  /** Cancels the search: ripgrep is killed, no further match is emitted, and the search rejects. */
+  signal?: AbortSignal | undefined;
+  /** Ends the search early, as the candidate cap does: it resolves with what it covered. */
+  stop?: AbortSignal | undefined;
 }
 
 export interface ExcludedPathProbeOptions {
@@ -435,7 +428,7 @@ async function probeExcludedRoot(args: {
       applyPolicyPrune: false,
       canonicalRootPath,
       caseSensitive: args.caseSensitive,
-      filesOnly: true,
+      mode: 'files-with-matches',
       prefilterLiteral: args.prefilterLiteral,
       ripgrepPath: args.ripgrepPath,
       signal: args.signal,
@@ -446,27 +439,19 @@ async function probeExcludedRoot(args: {
         rootId: args.root.rootId,
       });
     }
+    // BST-1246: the probe is a bounded best-effort hint (1.5s budget over
+    // policy-EXCLUDED trees, node_modules included by design). Blowing that
+    // budget on a big repo is the expected bounded outcome: its zero count
+    // reads as unfinished, never as "no matches".
+    if (run.timedOut) {
+      return { matchCount: 0, timedOut: true };
+    }
     candidatePaths = run.candidatePaths;
   } catch (error) {
     if (args.signal.aborted) {
       return empty;
     }
-    // BST-1246: the probe is a bounded best-effort hint (1.5s budget over
-    // policy-EXCLUDED trees, node_modules included by design). Blowing that
-    // budget on a big repo is the expected bounded outcome, not an anomaly —
-    // it logs at debug with the timing metadata. Any other failure stays a
-    // warn, now with the non-sensitive metadata attached.
     const metadata = error instanceof RipgrepRunError ? error.metadata : undefined;
-    if (metadata?.timedOut) {
-      logger.debug(
-        'excluded-path grep probe: ripgrep hit its bounded time budget; reporting as unfinished',
-        {
-          ripgrep: metadata,
-          rootId: args.root.rootId,
-        }
-      );
-      return { matchCount: 0, timedOut: true };
-    }
     logger.warn('excluded-path grep probe: ripgrep failed for a root', {
       error: redactErrorForLog(error),
       ...(metadata ? { ripgrep: metadata } : {}),
@@ -591,7 +576,7 @@ async function probeScopedExcludedRoot(args: {
  * Count authoritative matches only in files the balanced indexing policy would
  * exclude. Exact file scopes resolve directly; root-wide probing uses only a
  * safe ripgrep prefilter. Both are bounded more tightly than the live pass.
- * A missing root-wide prefilter never triggers a workspace walk.
+ * A regex with no literal is never probed root-wide.
  */
 export async function probeExcludedPathMatches(
   options: ExcludedPathProbeOptions,
@@ -617,14 +602,14 @@ export async function probeExcludedPathMatches(
       );
       return mergeExcludedPathProbeResults(rootResults);
     }
-    const ripgrepPath = await resolveRipgrepPath();
     const prefilterLiteral = resolveRipgrepPrefilterLiteral({
       isRegex: options.isRegex,
       pattern: options.pattern,
     });
-    if (ripgrepPath === null || prefilterLiteral === null || signal.aborted) {
+    if (prefilterLiteral === null || signal.aborted) {
       return empty;
     }
+    const ripgrepPath = bundledRipgrepPath();
 
     const filePathAllow = null;
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
@@ -662,65 +647,60 @@ export async function probeExcludedPathMatches(
   }
 }
 
-/**
- * Run a LIVE grep over the on-disk workspace roots, returning fresh matches the
- * indexed path may miss (just-edited / unindexed / not-yet-reindexed content).
- *
- * Exact scopes resolve requested files directly. Otherwise a FAST prefilter
- * (ripgrep, or a bounded JS file-walk) finds candidates. Each is read and run
- * through the SAME authoritative JS matcher the indexed service uses — so live
- * and indexed matches are shaped identically.
- *
- * Superset soundness (so the prefilter never silently drops a real match):
- * - Exclusions: ripgrep runs with its own .gitignore/.ignore/hidden filtering
- *   DISABLED (`--no-ignore --hidden`), so its candidate set is a raw superset;
- *   the indexer policy (`createBackgroundIndexingEntryPolicy`) + the `.git`
- *   re-assertion + realpath containment in resolveCandidate are the SINGLE
- *   authority on what is excluded — matching the JS-walk fallback exactly.
- * - Binary detection: ripgrep treats every file as text (`--text`), because the
- *   exclusion authority (`isBinaryFile`, the indexer policy) is EXTENSION-based.
- *   Otherwise rg's content heuristic would drop a policy-INCLUDED source file
- *   that happens to contain a NUL byte — a file the JS walk reads as utf8 and
- *   matches — breaking the superset.
- * - Matching: ripgrep ONLY ever prefilters on a FIXED-STRING literal, never a
- *   raw regex. For a regex grep that literal is the longest guaranteed-present
- *   substring (`extractTrigramLiteral`, the SAME extraction the indexed path
- *   uses); since every regex match must contain it, rg cannot drop a file the JS
- *   regex would match. A regex with NO extractable literal (the indexed path's
- *   `scanLimited` case) takes the bounded JS walk instead of trusting rg's
- *   narrower Rust regex dialect.
- * Symlink discipline and path containment are reused from glob (`isWithinRoot`),
- * scoped to the SAME root(s) the indexed path searches.
- *
- * Robust by contract: a missing / failing / timed-out rg degrades to the JS walk
- * (logged + a non-silent `note`), never throwing — grep still returns. An invalid
- * regex is the caller's responsibility (the matcher is built upstream and throws
- * before this runs).
- */
-/** Running state while gathering candidate files across the workspace roots. */
-interface CandidateGatherState {
+/** Running state while a live search walks the workspace roots. */
+interface LiveSearchState {
   anyRootAccessible: boolean;
-  /** The per-root resolve loop stopped at the global candidate cap (more on disk). */
+  /** The search stopped at the global candidate cap (more on disk). */
   candidateCapHit: boolean;
-  candidates: LiveCandidate[];
-  degradedToWalk: boolean;
-  degradeReason: string | null;
+  candidateCount: number;
   /** rg exited 2 with usable candidates: some files were unreadable (BST-1246). */
   partialReadErrors: boolean;
   prefilterTruncated: boolean;
-  scanLimited: boolean;
-  /** Folders whose root could not be opened; the result names them (ADR 0026). */
-  unreadableRoots: string[];
+  /** ripgrep reached its time budget on some root; its candidates were kept. */
+  timedOut: boolean;
+  /** Roots whose folder could not be opened; the result names them (ADR 0026). */
+  unreadableRoots: RuntimeWorkspaceRoot[];
 }
 
-async function gatherScopedCandidates(args: {
+type MatchSink = (matches: readonly GrepMatch[]) => void;
+
+/** Matches one permitted candidate and hands its matches on, unless the search ended. */
+async function emitCandidate(args: {
+  candidate: LiveCandidate;
+  contextLines: number;
+  exactScope: boolean;
+  matcher: LineMatcher;
+  onMatches: MatchSink;
+  signal: AbortSignal | undefined;
+}): Promise<void> {
+  const matches = await matchCandidate(
+    args.candidate,
+    args.matcher,
+    args.contextLines,
+    args.exactScope
+  );
+  if (matches.length > 0 && args.signal?.aborted !== true) {
+    args.onMatches(matches);
+  }
+}
+
+async function searchScopedRoot(args: {
   canonicalRootPath: string;
-  root: RuntimeWorkspaceRoot;
+  contextLines: number;
   filePathAllow: ReadonlySet<string>;
-  state: CandidateGatherState;
+  matcher: LineMatcher;
+  onMatches: MatchSink;
+  root: LiveGrepRoot;
+  signal: AbortSignal | undefined;
+  state: LiveSearchState;
+  stop: AbortSignal | undefined;
 }): Promise<void> {
   const guard = createAgentIgnoreGuard(args.canonicalRootPath);
   for (const relativePath of args.filePathAllow) {
+    args.signal?.throwIfAborted();
+    if (args.stop?.aborted) {
+      return;
+    }
     const absolutePath = await resolveScopedGrepFile({
       canonicalRootPath: args.canonicalRootPath,
       relativePath,
@@ -730,105 +710,110 @@ async function gatherScopedCandidates(args: {
     }
     const candidate = {
       absolutePath,
+      pinned: args.root.pinned,
       relativePath,
       rootId: args.root.rootId,
       rootName: args.root.displayName,
     };
-    const permitted = await dropAgentIgnored(args.canonicalRootPath, [candidate], guard);
-    if (permitted.length === 0) {
+    if ((await dropAgentIgnored(args.canonicalRootPath, [candidate], guard)).length === 0) {
       continue;
     }
-    if (args.state.candidates.length >= maxLiveCandidateFiles) {
+    if (args.state.candidateCount >= maxLiveCandidateFiles) {
       args.state.candidateCapHit = true;
       return;
     }
-    args.state.candidates.push(...permitted);
+    args.state.candidateCount += 1;
+    await emitCandidate({ ...args, candidate, exactScope: true });
   }
-}
-
-/** Gather candidate files for ONE root, mutating `state` (ripgrep-then-walk fallback). */
-async function gatherRootCandidates(args: {
-  root: RuntimeWorkspaceRoot;
-  ripgrepPath: string | null;
-  /**
-   * The fixed-string SUPERSET literal ripgrep prefilters on, or null when the
-   * pattern is a regex with no extractable literal. A null literal means rg
-   * CANNOT be used soundly (its raw-regex match set may be narrower than the JS
-   * matcher's) — every root must take the bounded JS walk instead.
-   */
-  prefilterLiteral: string | null;
-  caseSensitive: boolean;
-  state: CandidateGatherState;
-  /** Exact paths resolved directly before any root-wide candidate work. */
-  filePathAllow: ReadonlySet<string> | null;
-}): Promise<void> {
-  const { root, ripgrepPath, prefilterLiteral, caseSensitive, state, filePathAllow } = args;
-  let canonicalRootPath: string;
-  try {
-    canonicalRootPath = await fsPromises.realpath(root.path);
-  } catch (error) {
-    logger.warn('live grep: root is not accessible', {
-      error: redactErrorForLog(error),
-      rootId: root.rootId,
-    });
-    state.unreadableRoots.push(root.displayName);
-    return;
-  }
-  state.anyRootAccessible = true;
-
-  if (filePathAllow !== null) {
-    await gatherScopedCandidates({ canonicalRootPath, filePathAllow, root, state });
-    return;
-  }
-
-  // rg is usable only when it is present, has not already failed, AND a safe
-  // superset literal exists. A regex with no extractable literal takes the JS
-  // walk (it scans candidate files directly, which the authoritative matcher
-  // then re-checks) so a narrower rg regex dialect can never silently miss it.
-  if (ripgrepPath !== null && prefilterLiteral !== null && !state.degradedToWalk) {
-    try {
-      const { candidates, prefilterTruncated, capHit, partialReadErrors } =
-        await collectRipgrepCandidates({
-          canonicalRootPath,
-          caseSensitive,
-          // Remaining global budget so per-root resolve never overshoots the cap.
-          maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
-          prefilterLiteral,
-          ripgrepPath,
-          root,
-        });
-      state.candidates.push(...(await dropAgentIgnored(canonicalRootPath, candidates)));
-      state.prefilterTruncated = state.prefilterTruncated || prefilterTruncated;
-      state.candidateCapHit = state.candidateCapHit || capHit;
-      state.partialReadErrors = state.partialReadErrors || partialReadErrors;
-      return;
-    } catch (error) {
-      // rg ran but failed/timed out — fall back to the JS walk for THIS and
-      // every remaining root, and surface the reason (never silent). The
-      // RipgrepRunError message is pattern-free by construction, and its
-      // metadata (timeout vs exit code vs signal) is the non-sensitive half
-      // the BST-1246 audit was missing under full redaction.
-      state.degradedToWalk = true;
-      state.degradeReason = error instanceof Error ? error.message : String(error);
-      logger.warn('live grep: ripgrep failed; falling back to JS file-walk', {
-        error: redactErrorForLog(error),
-        ...(error instanceof RipgrepRunError ? { ripgrep: error.metadata } : {}),
-      });
-    }
-  }
-
-  const { candidates, scanLimited } = await collectJsWalkCandidates(root);
-  state.candidates.push(...(await dropAgentIgnored(canonicalRootPath, candidates)));
-  state.scanLimited = state.scanLimited || scanLimited;
 }
 
 /**
- * Drop candidates excluded by an agent ignore file (BST-1432).
- *
- * Applied HERE, where the ripgrep and JS-walk candidate sets converge, so both
- * engines are trimmed by one authority. Enforcing it inside each collector
- * would make the boundary's strength depend on whether `rg` is installed —
- * see `createAgentIgnoreGuard` for the full rationale.
+ * Streams one root's ripgrep candidates through the same filters and matcher
+ * as they arrive: the first matching file is matched and handed on while rg is
+ * still walking the rest. Reaching the candidate cap stops rg.
+ */
+async function searchRipgrepRoot(args: {
+  canonicalRootPath: string;
+  caseSensitive: boolean;
+  contextLines: number;
+  matcher: LineMatcher;
+  onMatches: MatchSink;
+  /** The fixed-string SUPERSET literal, or null to list every eligible file. */
+  prefilterLiteral: string | null;
+  ripgrepPath: string;
+  root: LiveGrepRoot;
+  signal: AbortSignal | undefined;
+  state: LiveSearchState;
+  stop: AbortSignal | undefined;
+}): Promise<void> {
+  const { canonicalRootPath, root, state } = args;
+  const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
+  const guard = createAgentIgnoreGuard(canonicalRootPath);
+  const queue: string[] = [];
+  let wake: (() => void) | undefined;
+  let rgEnded = false;
+  const stream = streamRipgrep(
+    {
+      canonicalRootPath,
+      caseSensitive: args.caseSensitive,
+      mode: args.prefilterLiteral === null ? 'files' : 'matches',
+      prefilterLiteral: args.prefilterLiteral ?? undefined,
+      ripgrepPath: args.ripgrepPath,
+      signal: args.signal,
+    },
+    (relativePath) => {
+      queue.push(relativePath);
+      wake?.();
+    }
+  );
+  const settle = (): void => {
+    rgEnded = true;
+    wake?.();
+  };
+  stream.done.then(settle, settle);
+  for (;;) {
+    if (args.signal?.aborted) {
+      break;
+    }
+    if (args.stop?.aborted) {
+      stream.stop();
+      break;
+    }
+    const relativePath = queue.shift();
+    if (relativePath === undefined) {
+      if (rgEnded) {
+        break;
+      }
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
+      wake = undefined;
+      continue;
+    }
+    if (state.candidateCount >= maxLiveCandidateFiles) {
+      state.candidateCapHit = true;
+      stream.stop();
+      break;
+    }
+    const candidate = await resolveCandidate({ canonicalRootPath, policy, relativePath, root });
+    if (
+      !candidate ||
+      (await dropAgentIgnored(canonicalRootPath, [candidate], guard)).length === 0
+    ) {
+      continue;
+    }
+    state.candidateCount += 1;
+    await emitCandidate({ ...args, candidate, exactScope: false });
+  }
+  const outcome = await stream.done;
+  state.prefilterTruncated = state.prefilterTruncated || outcome.truncated;
+  state.partialReadErrors = state.partialReadErrors || outcome.partialReadErrors;
+  state.timedOut = state.timedOut || outcome.timedOut;
+}
+
+/**
+ * Drop candidates excluded by an agent ignore file (BST-1432), checking both
+ * the candidate's own path and, for an in-root symlink, its target's.
  */
 async function dropAgentIgnored(
   canonicalRootPath: string,
@@ -853,132 +838,177 @@ async function dropAgentIgnored(
   return candidates.filter((_candidate, index) => verdicts[index] !== true);
 }
 
-export async function runLiveGrep(
-  options: LiveGrepOptions,
-  matcher: LineMatcher
-): Promise<LiveGrepResult> {
-  if (options.roots.length === 0) {
-    return {
-      candidatesTruncated: false,
-      engine: 'skipped',
-      matches: [],
-      scanLimited: false,
-      truncated: false,
-    };
-  }
-
-  // BST-764. `filePaths` arrives ALREADY normalized to root-relative form by
-  // `resolveGrepFilePaths`, which both this pass and the indexed pass share.
-  //
-  // This used to be `p.replace(/^\/+/, '')`, which turned an absolute path into
-  // `Users/sean/…` — never equal to the root-relative candidate `proof.html` —
-  // and so reported a clean zero-match for a file that plainly matched. Do NOT
-  // reintroduce a local transform here: a second, different normalization is
-  // exactly how the two passes diverged.
-  //
-  // Review follow-up on #2087: the guard was `length > 0`, so an EMPTY
-  // allowlist meant "nothing" to the indexed pass (`findGrepCandidates` returns
-  // no candidates) and "everything" here — `grepSearch({ pattern, filePaths: [] })`
-  // walked the whole workspace and merged those matches into a result the
-  // caller had scoped to nothing. `undefined` is now the only spelling of "no
-  // filter", which is what makes "one list, one meaning" actually true.
-  const filePathAllow = options.filePaths === undefined ? null : new Set(options.filePaths);
-
-  const ripgrepPath = filePathAllow === null ? await resolveRipgrepPath() : null;
-  const rgPresent = ripgrepPath !== null;
-  // The fixed-string SUPERSET literal rg prefilters on. For a regex this is the
-  // longest guaranteed-present literal (the SAME extraction the indexed path uses
-  // for its trigram prefilter); null when no such literal exists (the indexed
-  // path's `scanLimited` case). A null literal means rg cannot soundly prefilter
-  // a regex, so the live pass takes the bounded JS walk for every root instead.
-  const prefilterLiteral = resolveRipgrepPrefilterLiteral({
-    isRegex: options.isRegex,
-    pattern: options.pattern,
-  });
-  const regexNoLiteralPrefilter = options.isRegex && prefilterLiteral === null;
-  // rg actually runs only when it is present AND a safe superset literal exists.
-  const rgUsed = rgPresent && !regexNoLiteralPrefilter;
-  const state: CandidateGatherState = {
-    anyRootAccessible: false,
-    candidateCapHit: false,
-    candidates: [],
-    degradedToWalk: false,
-    degradeReason: null,
-    partialReadErrors: false,
-    prefilterTruncated: false,
-    scanLimited: false,
-    unreadableRoots: [],
-  };
-
-  for (const root of options.roots) {
-    await gatherRootCandidates({
-      caseSensitive: options.caseSensitive,
-      filePathAllow,
-      prefilterLiteral,
-      ripgrepPath,
-      root,
-      state,
-    });
-  }
-
+/** What a finished live search covered, with every cap it hit named. */
+function liveOutcome(
+  state: LiveSearchState,
+  search: { exactScope: boolean; prefilterLiteral: string | null }
+): LiveGrepOutcome {
   if (!state.anyRootAccessible) {
     return {
       candidatesTruncated: false,
       engine: 'skipped',
-      matches: [],
       note: 'No workspace root was readable on disk for the live pass.',
       scanLimited: false,
+      timedOut: false,
       truncated: false,
+      unreadableRoots: state.unreadableRoots,
     };
   }
-
-  const engine: LiveGrepResult['engine'] =
-    filePathAllow === null ? (state.degradedToWalk || !rgUsed ? 'js-walk' : 'ripgrep') : 'js-files';
-
-  // Apply the optional exact-path allowlist and the global candidate cap. The
-  // per-root resolve loop already STOPS at the cap (so the realpath+stat burst
-  // is bounded); this slice is the authoritative backstop and also bounds the
-  // JS-walk path + the allowlist filter. `candidateCapHit` (resolve stopped
-  // early) and a post-filter overflow both mean "more on disk, unreached".
-  const filtered = filePathAllow
-    ? state.candidates.filter((candidate) => filePathAllow.has(candidate.relativePath))
-    : state.candidates;
-  const candidateTruncated = state.candidateCapHit || filtered.length > maxLiveCandidateFiles;
-  const capped =
-    filtered.length > maxLiveCandidateFiles ? filtered.slice(0, maxLiveCandidateFiles) : filtered;
-
-  const matches: GrepMatch[] = [];
-  for (const candidate of capped) {
-    const fileMatches = await matchCandidate(
-      candidate,
-      matcher,
-      options.contextLines,
-      filePathAllow !== null
-    );
-    matches.push(...fileMatches);
-  }
-
-  const truncated = state.prefilterTruncated || state.scanLimited || candidateTruncated;
+  const scanLimited =
+    !search.exactScope && search.prefilterLiteral === null && state.candidateCapHit;
+  const candidatesTruncated = state.prefilterTruncated || state.candidateCapHit || state.timedOut;
   const note = buildLiveNote({
-    candidateTruncated,
-    degradedToWalk: state.degradedToWalk,
-    degradeReason: state.degradeReason,
-    exactScope: filePathAllow !== null,
+    candidateTruncated: state.candidateCapHit && !scanLimited,
     partialReadErrors: state.partialReadErrors,
     prefilterTruncated: state.prefilterTruncated,
-    regexNoLiteralPrefilter,
-    rgPresent,
-    rgUsed,
-    scanLimited: state.scanLimited,
-    unreadableRoots: state.unreadableRoots,
+    scanLimited,
+    timedOut: state.timedOut,
+    unreadableRoots: state.unreadableRoots.map((root) => root.displayName),
   });
-
   return {
-    candidatesTruncated: state.prefilterTruncated || candidateTruncated,
-    engine,
-    matches,
-    scanLimited: state.scanLimited,
-    truncated,
+    candidatesTruncated,
+    engine: search.exactScope ? 'js-files' : 'ripgrep',
+    scanLimited,
+    timedOut: state.timedOut,
+    truncated: candidatesTruncated,
+    unreadableRoots: state.unreadableRoots,
     ...(note ? { note } : {}),
   };
+}
+
+/**
+ * Stream a LIVE grep over the on-disk workspace roots. Each file's matches go
+ * to `onMatches` as soon as that file is read, while ripgrep is still walking;
+ * the returned outcome names every cap the search hit. The agent's grepSearch
+ * and the Explorer's Search tab both run this one core.
+ *
+ * Exact scopes resolve requested files directly. Otherwise the bundled ripgrep
+ * streams candidates, and each is read and run through the authoritative JS
+ * matcher. A root with a pinned handle is read only through that handle, so
+ * ripgrep's walk of its path picks candidates but never supplies content.
+ *
+ * Superset soundness (so the prefilter never silently drops a real match):
+ * - Exclusions: ripgrep runs with its own .gitignore/.ignore/hidden filtering
+ *   DISABLED (`--no-ignore --hidden`), so its candidate set is a raw superset;
+ *   the balanced entry policy, the `.git` re-assertion, realpath containment,
+ *   the agent ignore files and the credential floor are the SINGLE authority on
+ *   what is excluded.
+ * - Binary detection: ripgrep treats every file as text (`--text`), because the
+ *   exclusion authority (`isBinaryFile`, the entry policy) is EXTENSION-based.
+ * - Matching: ripgrep ONLY ever prefilters on a FIXED-STRING literal, never a
+ *   raw regex. For a regex that literal is the longest guaranteed-present
+ *   substring (`extractTrigramLiteral`). A regex with NO extractable literal has
+ *   ripgrep list every eligible file instead (`scanLimited` once that hits the
+ *   candidate cap) rather than trusting rg's narrower Rust regex dialect.
+ *
+ * A ripgrep timeout or output cap keeps what was found and says so; a ripgrep
+ * that cannot run rejects. An invalid regex is the caller's responsibility (the
+ * matcher is built upstream and throws before this runs). An abort rejects with
+ * the signal's reason, and no match is emitted after it.
+ */
+export async function streamLiveGrep(
+  options: LiveGrepOptions,
+  matcher: LineMatcher,
+  onMatches: MatchSink
+): Promise<LiveGrepOutcome> {
+  if (options.roots.length === 0) {
+    return {
+      candidatesTruncated: false,
+      engine: 'skipped',
+      scanLimited: false,
+      timedOut: false,
+      truncated: false,
+      unreadableRoots: [],
+    };
+  }
+  const { signal, stop } = options;
+  // BST-764. `filePaths` arrives ALREADY normalized to root-relative form by
+  // `resolveGrepFilePaths`. Do NOT reintroduce a local transform here: a second,
+  // different normalization once reported a clean zero-match for a file that
+  // plainly matched. `undefined` is the only spelling of "no filter"; an EMPTY
+  // allowlist scopes the search to nothing.
+  const filePathAllow = options.filePaths === undefined ? null : new Set(options.filePaths);
+  const prefilterLiteral = resolveRipgrepPrefilterLiteral({
+    isRegex: options.isRegex,
+    pattern: options.pattern,
+  });
+  const ripgrepPath = filePathAllow === null ? bundledRipgrepPath() : null;
+  const state: LiveSearchState = {
+    anyRootAccessible: false,
+    candidateCapHit: false,
+    candidateCount: 0,
+    partialReadErrors: false,
+    prefilterTruncated: false,
+    timedOut: false,
+    unreadableRoots: [],
+  };
+
+  try {
+    for (const root of options.roots) {
+      signal?.throwIfAborted();
+      if (state.candidateCapHit || stop?.aborted) {
+        break;
+      }
+      let canonicalRootPath: string;
+      try {
+        canonicalRootPath = await fsPromises.realpath(root.path);
+      } catch (error) {
+        logger.warn('live grep: root is not accessible', {
+          error: redactErrorForLog(error),
+          rootId: root.rootId,
+        });
+        state.unreadableRoots.push(root);
+        continue;
+      }
+      // The path now names another folder than the one the handle opened.
+      if (root.pinned && !pathsEqual(canonicalRootPath, root.pinned.canonicalPath)) {
+        logger.warn('live grep: root path no longer names its opened folder', {
+          rootId: root.rootId,
+        });
+        state.unreadableRoots.push(root);
+        continue;
+      }
+      state.anyRootAccessible = true;
+      const common = {
+        canonicalRootPath,
+        contextLines: options.contextLines,
+        matcher,
+        onMatches,
+        root,
+        signal,
+        state,
+        stop,
+      };
+      if (filePathAllow === null) {
+        await searchRipgrepRoot({
+          ...common,
+          caseSensitive: options.caseSensitive,
+          prefilterLiteral,
+          ripgrepPath: ripgrepPath ?? bundledRipgrepPath(),
+        });
+      } else {
+        await searchScopedRoot({ ...common, filePathAllow });
+      }
+    }
+    signal?.throwIfAborted();
+  } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason;
+    }
+    throw error;
+  }
+
+  return liveOutcome(state, { exactScope: filePathAllow !== null, prefilterLiteral });
+}
+
+/** {@link streamLiveGrep}, with every match collected (the agent's grepSearch). */
+export async function runLiveGrep(
+  options: LiveGrepOptions,
+  matcher: LineMatcher
+): Promise<LiveGrepResult> {
+  const matches: GrepMatch[] = [];
+  const outcome = await streamLiveGrep(options, matcher, (found) => {
+    matches.push(...found);
+  });
+  return { ...outcome, matches };
 }
