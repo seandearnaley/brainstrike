@@ -370,7 +370,10 @@ export async function createDesktopHostConfiguration(
   });
   await startup.register(() => mcpHost.close());
   return {
-    attachThreadReads: (reads) => gitWorkspace.attachThreadReads(reads),
+    attachThreadReads: (reads) => {
+      gitWorkspace.attachThreadReads(reads);
+      rootRegistry.attachThreadReads(reads);
+    },
     auth: host.auth,
     close: async () => {
       // Runs' workspace borrows end, then admitted folder changes finish while the store is open.

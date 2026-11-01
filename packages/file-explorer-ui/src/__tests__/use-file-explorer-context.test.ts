@@ -78,6 +78,7 @@ describe('useFileExplorer (context)', () => {
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ reason: '', supported: true }),
       listRecentRoots: undefined,
       mountedRootHandles: [],
+      openRootDirectory: undefined,
       recentRootsRevision: 0,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       removeRootDirectory: vi.fn().mockResolvedValue(undefined),

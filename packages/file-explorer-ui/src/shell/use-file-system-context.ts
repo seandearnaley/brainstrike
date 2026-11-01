@@ -690,6 +690,11 @@ export function useFileSystemInstance() {
        * a change, the index); show folders from `rootDirectoryHandles`.
        */
       mountedRootHandles: coreApi.rootDirectoryHandles,
+      /**
+       * Desktop-only: open a folder as the window's project, closing the other open folders
+       * (ADR-0034). `undefined` when the adapter lacks the capability (web).
+       */
+      openRootDirectory: coreApi.openRootDirectory,
       /** Shared refresh signal for supported flows that may mutate Recents. */
       recentRootsRevision: coreApi.recentRootsRevision,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
@@ -731,6 +736,7 @@ export function useFileSystemInstance() {
       coreApi.isAccessLoading,
       coreApi.isFileSystemAccessSupported,
       coreApi.listRecentRoots,
+      coreApi.openRootDirectory,
       coreApi.recentRootsRevision,
       coreApi.rootIdByPath,
       coreApi.setAccessLoading,

@@ -1439,3 +1439,111 @@ describe('useFileSystem', () => {
     });
   });
 });
+
+describe('useFileSystem: openRootDirectory (ADR-0034)', () => {
+  const descriptor = (name: string, worktree = false): RootDescriptor => ({
+    displayName: name,
+    handle: {
+      kind: 'directory',
+      name,
+      path: `/roots/${name}`,
+      platform: 'electron',
+      ...(worktree ? { worktree: true as const } : {}),
+    },
+    kind: 'fsa',
+    permissionState: 'granted',
+    persisted: true,
+    rootId: `root-id-${name}`,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function renderWith(adapter: FileSystemAdapter) {
+    return renderHook(() => useFileSystem(makeFsParams()), {
+      wrapper: createAdaptersTestWrapper(adapter),
+    });
+  }
+
+  it('replaces the open folders with the opened one and keeps each thread worktree', async () => {
+    const openRoot = vi.fn().mockResolvedValue(descriptor('gamma'));
+    const adapter: FileSystemAdapter = {
+      addRoot: vi
+        .fn()
+        .mockResolvedValueOnce(descriptor('alpha'))
+        .mockResolvedValueOnce(descriptor('beta'))
+        .mockResolvedValueOnce(descriptor('swift-badger', true)),
+      exists: vi.fn().mockResolvedValue(true),
+      openRoot,
+      readDirectory: vi.fn().mockResolvedValue([]),
+      readFile: vi.fn().mockResolvedValue(''),
+      requestDirectoryAccess: vi.fn(),
+    };
+    const { result } = renderWith(adapter);
+    await act(async () => {
+      await result.current?.addRootDirectory();
+      await result.current?.addRootDirectory();
+      await result.current?.addRootDirectory();
+    });
+    vi.clearAllMocks();
+
+    await act(async () => {
+      await result.current?.openRootDirectory?.('/roots/gamma');
+    });
+
+    expect(openRoot).toHaveBeenCalledExactlyOnceWith('/roots/gamma');
+    expect(result.current?.rootDirectoryHandles.map((handle) => handle.rootId)).toEqual([
+      'root-id-gamma',
+      'root-id-swift-badger',
+    ]);
+    expect(result.current?.rootDirectoryHandle?.rootId).toBe('root-id-gamma');
+    expect(mockSetCurrentFolderId).toHaveBeenCalledWith('root-id-gamma');
+    expect(mockRemoveActiveRoot.mock.calls.map(([rootId]) => rootId)).toEqual([
+      'root-id-alpha',
+      'root-id-beta',
+    ]);
+    expect(mockAddActiveRoot).toHaveBeenCalledExactlyOnceWith({
+      displayName: 'gamma',
+      path: '/roots/gamma',
+      rootId: 'root-id-gamma',
+    });
+  });
+
+  it('changes nothing when the person cancels the picker', async () => {
+    const adapter: FileSystemAdapter = {
+      addRoot: vi.fn().mockResolvedValueOnce(descriptor('alpha')),
+      exists: vi.fn().mockResolvedValue(true),
+      openRoot: vi.fn().mockRejectedValue(new UserCancelledError()),
+      readDirectory: vi.fn().mockResolvedValue([]),
+      readFile: vi.fn().mockResolvedValue(''),
+      requestDirectoryAccess: vi.fn(),
+    };
+    const { result } = renderWith(adapter);
+    await act(async () => {
+      await result.current?.addRootDirectory();
+    });
+    vi.clearAllMocks();
+
+    let opened: DirectoryHandle | null | undefined;
+    await act(async () => {
+      opened = await result.current?.openRootDirectory?.();
+    });
+
+    expect(opened).toBeNull();
+    expect(result.current?.rootDirectoryHandles.map((handle) => handle.rootId)).toEqual([
+      'root-id-alpha',
+    ]);
+    expect(mockRemoveActiveRoot).not.toHaveBeenCalled();
+  });
+
+  it('is absent where the adapter cannot replace the open folders (web)', () => {
+    const { result } = renderWith({
+      exists: vi.fn().mockResolvedValue(true),
+      readDirectory: vi.fn().mockResolvedValue([]),
+      readFile: vi.fn().mockResolvedValue(''),
+      requestDirectoryAccess: vi.fn(),
+    });
+    expect(result.current?.openRootDirectory).toBeUndefined();
+  });
+});

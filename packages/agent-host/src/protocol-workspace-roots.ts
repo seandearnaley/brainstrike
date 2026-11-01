@@ -45,6 +45,13 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
    * index opens only these, and refuses a reopen whose canonical path differs (never adopts it).
    */
   'workspace/roots/mounted': NoParams,
+  /**
+   * Opens a folder as the window's project (ADR-0034): with `path`, a folder granted before
+   * (Recents), else through the native picker. Every other open folder closes; one a running
+   * thread works in stays mounted, closed, so the run keeps working. A managed worktree is
+   * refused: it is a thread's checkout. `root` is null when the person cancelled the picker.
+   */
+  'workspace/roots/open': Schema.Struct({ path: Schema.optional(AbsolutePath) }),
   /** Folder grant through the native picker; `root` is null when the person cancelled. */
   'workspace/roots/pick': NoParams,
   'workspace/roots/recent': NoParams,
@@ -75,6 +82,7 @@ export const WORKSPACE_ROOTS_RESULT_SCHEMAS = {
       Schema.Struct({ canonicalPath: AbsolutePath, path: AbsolutePath, rootId: Id })
     ),
   }),
+  'workspace/roots/open': Schema.Struct({ root: Schema.NullOr(OpenRootSchema) }),
   'workspace/roots/pick': Schema.Struct({ root: Schema.NullOr(OpenRootSchema) }),
   'workspace/roots/recent': Schema.Struct({ roots: Schema.Array(RecentRootSchema) }),
   'workspace/roots/release-data-deletion': Schema.Null,

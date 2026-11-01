@@ -544,6 +544,67 @@ export function useFileSystem({
     };
   }, [adapterAddRootByPath, addActiveRoot, fileSystemAdapter, updateCurrentFolderId]);
 
+  const adapterOpenRoot = fileSystemAdapter.openRoot;
+
+  /**
+   * Desktop-only (ADR-0034): open a folder as the window's project, a recent one by path or
+   * through the picker. The platform closed every other open folder in the same write, so
+   * their handles and store entries go and the opened folder becomes the only one (and Main);
+   * managed worktrees stay, as their threads' checkouts. Resolves null when the person cancels
+   * the picker. `undefined` when the adapter lacks the capability (web).
+   */
+  const openRootDirectory = useMemo(() => {
+    if (typeof adapterOpenRoot !== 'function') {
+      return;
+    }
+    return async (rootPath?: string): Promise<DirectoryHandle | null> => {
+      dispatch({ loading: true, type: 'setAccessLoading' });
+      const open = async (): Promise<DirectoryHandle> => {
+        const { handle, rootId, displayName } = await adapterOpenRoot.call(
+          fileSystemAdapter,
+          rootPath
+        );
+        const opened = ensureStamped(stampRootId(handle, rootId), 'openRootDirectory');
+        const kept = rootDirectoryHandles.filter(
+          (candidate) => candidate.worktree === true && rootKeyOf(candidate) !== rootId
+        );
+        const closedRootIds = rootDirectoryHandles
+          .map(rootKeyOf)
+          .filter((key) => key !== rootId && !kept.some((worktree) => rootKeyOf(worktree) === key));
+        const handles = [opened, ...kept];
+        dispatch({
+          focused: opened,
+          handles,
+          rootIdByPath: new Map(handles.map((entry) => [entry.path, rootKeyOf(entry)])),
+          type: 'setAllHandles',
+        });
+        // Focus first: it snapshots the outgoing folder's state, which the purge below removes.
+        updateCurrentFolderId(rootId);
+        for (const closedRootId of closedRootIds) {
+          removeActiveRoot(closedRootId);
+        }
+        addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+        dispatch({ type: 'recordRecentRootMutation' });
+        return opened;
+      };
+      return open()
+        .catch((error: unknown) => {
+          if (isUserCancellation(error)) {
+            return null;
+          }
+          throw mapFileSystemError(error);
+        })
+        .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
+    };
+  }, [
+    adapterOpenRoot,
+    addActiveRoot,
+    fileSystemAdapter,
+    removeActiveRoot,
+    rootDirectoryHandles,
+    updateCurrentFolderId,
+  ]);
+
   /** Desktop-only companion to addRootDirectoryByPath; see its note. */
   const listRecentRoots = useMemo(() => {
     if (typeof adapterListRecentRoots !== 'function') {
@@ -810,6 +871,7 @@ export function useFileSystem({
       isAccessLoading,
       isFileSystemAccessSupported,
       listRecentRoots,
+      openRootDirectory,
       recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
@@ -830,6 +892,7 @@ export function useFileSystem({
       addRootDirectory,
       addRootDirectoryByPath,
       listRecentRoots,
+      openRootDirectory,
       recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
