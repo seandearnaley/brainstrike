@@ -1,6 +1,6 @@
 # Code execution
 
-Implementation: `packages/agent` code-execution adapters, desktop runtime assets and native process owners.
+Implementation: `packages/agent` code-execution adapters, the `host-capabilities` executors and native process owners, and Desktop's runtime assets (`python-runtime/*`, `sandbox-runtime-path`).
 
 ## Isolation and authority
 
@@ -11,9 +11,12 @@ Implementation: `packages/agent` code-execution adapters, desktop runtime assets
 - The fence owns the pinned runtime, validated helper/assets and OS enforcement.
   - A missing helper, unsupported policy or failed confinement is a refusal, never a system-Python or direct-spawn fallback.
   - Resolve packaged assets from the actual runtime layout and keep their digest and containment checks.
+- Each agent host injects its interpreter through the `CodeExecutionHost` port (`host-capabilities` `executors-code.ts`, which runs `run_python` and `runSkillScript`).
+  - Desktop passes its bundled CPython. The standalone CLI passes the system Python 3 (owner decision, 2026-11-01): `python3` then `python` on PATH, on Windows `py -3` then `python`, each asked for its own `sys.executable` once per host.
+  - A host with no interpreter refuses with a `python_*`-coded error: `run_python` reports `interpreter_unavailable`, and a skill script tells the model how to install one. Neither host falls back to the other's interpreter.
 - The bundled CPython is unpacked at build time and ships as loose files; nothing is extracted or written at runtime.
   - The resolver checks only the tree's sentinel against the manifest pin and the interpreter's executable bit.
-  - Every launch sets `PYTHONDONTWRITEBYTECODE=1`, so no run writes into the shipped (on macOS, signed) tree.
+- Every Python launch, bundled or system, sets `PYTHONDONTWRITEBYTECODE=1`, so no run writes into the shipped (on macOS, signed) tree or leaves `__pycache__` beside a skill script.
 - Workspace identity and permission come from validated host context.
 - Network is deny-first: requested domains grant nothing until the per-call decision allows the exact validated list.
 - Scratch-write confinement doesn't make reads private or confined. Treat every file read and returned output as sensitive.

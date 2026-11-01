@@ -10,12 +10,12 @@ import {
 } from '@brainstrike/agent';
 import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { runSkillScriptExecutor } from '@brainstrike/host-capabilities/native-tools';
 import { readHostSystemContext } from '@brainstrike/host-capabilities/workspace-context';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { desktopHostToolExecutors } from '../../agent-host-platform/host-executed-tools';
-import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-python';
 import {
   buildHostNativeTools,
   nativeRuntimeFor,
@@ -335,10 +335,12 @@ function buildPromptBudgetDesktopTools(
         nativeRuntimeFor(runtimeData),
         PROMPT_BUDGET_APP_PATHS
       ),
-      [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(
-        skillScriptResolver,
-        unusedPythonExecutable
-      ),
+      [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(skillScriptResolver, {
+        resolvePythonExecutable: unusedPythonExecutable,
+        windowsCommandEntry: () => {
+          throw new Error('The prompt-budget suite never runs a skill script');
+        },
+      }),
     },
     ports: {
       artifactReader: {
