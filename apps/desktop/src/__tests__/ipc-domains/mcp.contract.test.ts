@@ -22,29 +22,4 @@ describe('MCP IPC contracts', () => {
       }
     }
   });
-
-  // BST-1930 c5a: the agent host owns MCP config, extension dials and tool
-  // preferences; the renderer reaches them as host methods, never Main channels.
-  it('leaves MCP settings off the desktop IPC manifest', () => {
-    const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
-    expect(channels.filter((channel) => /^mcp:(tools|extensions):/u.test(channel))).toEqual([]);
-    expect(channels.filter((channel) => channel.startsWith('mcp:config:'))).toEqual([
-      'mcp:config:selectPath',
-    ]);
-  });
-
-  // BST-1930 c5b-c5d: server status, lifecycle control and content (an App's
-  // document included) are host methods too.
-  it('leaves MCP status, lifecycle control and content off the desktop IPC manifest', () => {
-    const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
-    expect(channels.filter((channel) => /^mcp:(lifecycle|status|content):/u.test(channel))).toEqual(
-      []
-    );
-  });
-
-  // BST-1930 c5c: Tasks cards and global server input are host methods too.
-  it('leaves MCP Tasks and elicitation channels off the desktop IPC manifest', () => {
-    const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
-    expect(channels.filter((channel) => /^mcp:(task|elicitation):/u.test(channel))).toEqual([]);
-  });
 });

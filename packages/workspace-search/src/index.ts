@@ -1,8 +1,3 @@
-export {
-  type FileSelectionState,
-  type SearchSelectionBridge,
-  useSearchSelectionBridge,
-} from './bridge/use-search-selection-bridge';
 export type {
   ResultProvenance,
   WorkspaceSearchChild,
@@ -23,6 +18,7 @@ export {
 export {
   buildSearchTreeNodes,
   childNodeId,
+  type FileSelectionState,
   fileNodeId,
   type HeadlineSegment,
   highlightQuery,
@@ -34,6 +30,7 @@ export {
   type SearchNodeData,
   SearchResultsTree,
   type SearchResultsTreeProps,
+  type SearchSelectionBridge,
   splitHeadline,
   textChunkNodeId,
   WorkspaceSearchPanel,

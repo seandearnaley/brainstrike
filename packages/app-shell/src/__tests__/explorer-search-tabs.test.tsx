@@ -21,6 +21,9 @@ vi.mock('@brainstrike/workspace-search', () => ({
 }));
 
 vi.mock('../use-attach-files-to-thread', () => ({ useAttachFilesToThread: () => attachFiles }));
+vi.mock('../use-search-selection-bridge', () => ({
+  useSearchSelectionBridge: () => ({ fileState: () => 'unchecked', toggleFile: vi.fn() }),
+}));
 vi.mock('../explorer-attach-action', () => ({ ExplorerAttachAction: () => null }));
 vi.mock('../context-map/explorer-thread-status-provider', () => ({
   ExplorerThreadStatusProvider: ({ children }: { children: React.ReactNode }) => children,

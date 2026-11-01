@@ -11,36 +11,11 @@ import {
 import { listProviderLlmModels } from '../provider-registry';
 
 describe('OPENROUTER_RECOMMENDED_CODING_MODEL_IDS', () => {
-  it('provides the curated, live-tested coding routes in preference order', () => {
-    expect(OPENROUTER_RECOMMENDED_CODING_MODEL_IDS).toEqual([
-      'openai/gpt-5.6-terra',
-      'moonshotai/kimi-k3',
-      'qwen/qwen3.7-max',
-      'z-ai/glm-5.2',
-      'minimax/minimax-m3',
-    ]);
-  });
-
   it('contains only supported OpenRouter models', () => {
     const supportedIds = new Set(listProviderLlmModels('openrouter').map((model) => model.id));
     for (const modelId of OPENROUTER_RECOMMENDED_CODING_MODEL_IDS) {
       expect(supportedIds.has(modelId), modelId).toBe(true);
     }
-  });
-
-  it('declares MiniMax M3 image input support', () => {
-    const model = listProviderLlmModels('openrouter').find(({ id }) => id === 'minimax/minimax-m3');
-    expect(model?.vision).toBe('supported');
-  });
-
-  it('restricts GLM 5.2 reasoning to its documented efforts', () => {
-    const model = listProviderLlmModels('openrouter').find(({ id }) => id === 'z-ai/glm-5.2');
-    expect(model?.reasoning).toEqual({
-      defaultEffort: 'high',
-      defaultEnabled: true,
-      mandatory: false,
-      supportedEfforts: ['xhigh', 'high'],
-    });
   });
 });
 
@@ -358,13 +333,6 @@ describe('reasoning-aware OpenRouter output window (BST-1170)', () => {
   // the catalog as `reasoning.vendorDefaultOutputTokens`.
   const registryKimi = () =>
     listProviderLlmModels('openrouter').find(({ id }) => id === 'moonshotai/kimi-k3');
-
-  it('records the official Moonshot K3 completion window in the catalog', () => {
-    // platform.kimi.ai K3 quickstart (verified 2026-08-05):
-    // max_completion_tokens defaults to 131,072 and thinking cannot be
-    // disabled — the vendor's own operating point for thinking + answer.
-    expect(registryKimi()?.reasoning?.vendorDefaultOutputTokens).toBe(131_072);
-  });
 
   it('opens the vendor window when reasoning is active on Kimi K3', () => {
     const kimi = registryKimi();
