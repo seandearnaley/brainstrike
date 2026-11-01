@@ -4,7 +4,8 @@ import type {
   RuntimeAssistantMemorySettings,
 } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import { persist } from 'zustand/middleware';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 export const ASSISTANT_MEMORY_PREFERENCES_STORE_NAME = 'assistant-memory-preferences.v1' as const;
@@ -261,6 +262,8 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         observationalMemory: state.observationalMemory,
         semanticRecall: state.semanticRecall,
       }),
+      // A saved value that is not JSON reads as nothing saved, so hydration completes.
+      storage: createJSONStorage(() => createBrowserJsonStorage()),
       version: STORE_VERSION,
     }
   )

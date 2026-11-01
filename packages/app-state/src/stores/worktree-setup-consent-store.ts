@@ -14,8 +14,9 @@
  * factory reset, which clears every decision.
  */
 
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import type { WorktreeRepositorySetupDecision } from '@brainstrike/types';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -134,6 +135,8 @@ export const useWorktreeSetupConsentStore = create<WorktreeSetupConsentStore>()(
       partialize: (state) => ({
         decisionsByRepositoryId: state.decisionsByRepositoryId,
       }),
+      // A saved value that is not JSON reads as nothing saved, so hydration completes.
+      storage: createJSONStorage(() => createBrowserJsonStorage()),
       version: STORE_VERSION,
     }
   )
