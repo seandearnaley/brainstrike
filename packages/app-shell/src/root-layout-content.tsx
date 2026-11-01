@@ -100,7 +100,7 @@ function FileTreeWrapper({
 }: {
   children: ReactNode;
   nativeIndexSearch:
-    | (IndexSearchCapability &
+    | (Omit<IndexSearchCapability, 'grep'> &
         IndexConfigCapability &
         IndexLifecycleCapability &
         IndexRootRegistrationCapability)
@@ -162,7 +162,7 @@ export interface RootLayoutContentProps {
    */
   readonly logsPageContent?: ReactNode;
   readonly nativeIndexSearch?:
-    | (IndexSearchCapability &
+    | (Omit<IndexSearchCapability, 'grep'> &
         IndexConfigCapability &
         IndexLifecycleCapability &
         IndexRootRegistrationCapability)
@@ -464,7 +464,7 @@ function ExplorerAppSurface({
   readonly threadContextPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
   readonly nativeIndexSearch:
-    | (IndexSearchCapability &
+    | (Omit<IndexSearchCapability, 'grep'> &
         IndexConfigCapability &
         IndexLifecycleCapability &
         IndexRootRegistrationCapability)

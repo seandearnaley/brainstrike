@@ -1,42 +1,23 @@
-export { nativeSourceCompletion } from './native-search-source-completion';
-// Core barrel: the UI-free search machinery (result model + executor + store).
+// Core barrel: the UI-free search machinery (result model, search seam, store).
 // Exposed as the `@brainstrike/workspace-search/core` subpath so composition-layer
-// consumers (e.g. app-shell's controller) can import the executor/store/types
-// WITHOUT pulling the panel component graph into their bundle — the panel stays
-// behind the root barrel's `React.lazy` split.
+// consumers (e.g. app-shell's controller) can import it WITHOUT pulling the panel
+// component graph into their bundle; the panel stays behind the root barrel's
+// `React.lazy` split.
 
-export {
-  fuseNativeSearchPools,
-  getNativeSemanticAvailability,
-  NATIVE_SEARCH_CANDIDATE_LIMIT,
-  NATIVE_SEARCH_FINAL_LIMIT,
-  type NativeSemanticAvailability,
-  NativeWorkspaceSearchExecutor,
-  type NativeWorkspaceSearchRequest,
-  noIndexedFolderRefusal,
-} from './native-workspace-search';
-export {
-  type NativeWorkspaceSearchDependencies,
-  useNativeWorkspaceSearchDependencies,
-} from './native-workspace-search-context';
-export { NativeWorkspaceSearchProvider } from './native-workspace-search-provider';
 export type {
-  ResultProvenance,
-  WorkspaceSearchChild,
-  WorkspaceSearchChunkHit,
   WorkspaceSearchFileResult,
-  WorkspaceSearchMode,
-  WorkspaceSearchNotices,
-  WorkspaceSearchResults,
-  WorkspaceSearchTextMatch,
+  WorkspaceSearchHit,
+  WorkspaceSearchMatch,
+  WorkspaceSearchRequest,
+  WorkspaceSearchSummary,
 } from './search-result-model';
 export {
-  buildGrepPattern,
-  escapeRegExpLiteral,
-  type TextSearchRequest,
-} from './workspace-search-executor';
+  useWorkspaceFileSearch,
+  type WorkspaceFileSearch,
+  WorkspaceFileSearchContext,
+} from './workspace-file-search';
 export {
-  type NativePendingSearch,
+  fileResultId,
   useWorkspaceSearchStore,
   type WorkspaceSearchStatus,
 } from './workspace-search-store';

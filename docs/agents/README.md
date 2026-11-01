@@ -15,7 +15,7 @@ task touches.
 | Child runs and parent continuation | [Subagents](assistant-subagents.md) |
 | Agent eval tasks | [Evals](agent-evals.md) |
 | Canonical SQLite state and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
-| Derived search and indexing | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
+| Derived index (being removed, ADR-0035) | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
 | Workspace instructions, roots and edits | [Workspace](workspace-context.md) |
 | Explorer, search and the thread context map | [Explorer](explorer-search-context-map.md) |
 | Git changes and managed worktrees | [Changesets](changeset-diff.md) |

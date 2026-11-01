@@ -7,11 +7,11 @@ import {
   TreeTable,
   type TreeTableCheckboxNextState,
 } from '@brainstrike/ui';
-import { File as FileIcon, Paperclip, TextQuote } from 'lucide-react';
+import { File as FileIcon, Paperclip } from 'lucide-react';
 import type * as React from 'react';
 import { useMemo } from 'react';
-import { unindexedFoldersNote } from '../core/native-workspace-search';
-import { useWorkspaceSearchStore } from '../core/workspace-search-store';
+import type { WorkspaceSearchSummary } from '../core/search-result-model';
+import { fileResultId, useWorkspaceSearchStore } from '../core/workspace-search-store';
 import { buildSearchTreeNodes, type SearchNodeData } from './build-tree-nodes';
 
 /** A search result file is either in the explorer selection or not. */
@@ -30,34 +30,9 @@ export interface SearchSelectionBridge {
 export type HeadlineSegment = string | { mark: string };
 
 /**
- * Tokenizes a PostgreSQL `ts_headline` string on the literal `<mark>` / `</mark>`
- * delimiters into text and mark segments. This is the sanitization boundary —
- * the caller renders mark segments as real `<mark>` elements, never via
- * `dangerouslySetInnerHTML`, so no headline markup is interpreted as HTML.
- */
-export function splitHeadline(headline: string): HeadlineSegment[] {
-  const segments: HeadlineSegment[] = [];
-  const pattern = /<mark>([\s\S]*?)<\/mark>/gu;
-  let lastIndex = 0;
-  let match = pattern.exec(headline);
-  while (match !== null) {
-    if (match.index > lastIndex) {
-      segments.push(headline.slice(lastIndex, match.index));
-    }
-    segments.push({ mark: match[1] ?? '' });
-    lastIndex = pattern.lastIndex;
-    match = pattern.exec(headline);
-  }
-  if (lastIndex < headline.length) {
-    segments.push(headline.slice(lastIndex));
-  }
-  return segments.length > 0 ? segments : [headline];
-}
-
-/**
- * Wraps literal occurrences of `query` inside `text` as mark segments. Text
- * mode only: the executor does not return per-match offsets, so we re-locate
- * the query in the line. When `query` is empty the whole line is plain.
+ * Wraps literal occurrences of `query` inside `text` as mark segments. A match
+ * carries no offsets, so the query is re-located in the line. When `query` is
+ * empty the whole line is plain.
  */
 export function highlightQuery(
   text: string,
@@ -100,51 +75,9 @@ function renderSegments(segments: HeadlineSegment[]): React.ReactNode {
   );
 }
 
-/** A chunk-level row's line bounds, 1-based and inclusive. */
-interface ChunkBounds {
-  chunkId: string;
-  endLine: number;
-  startLine: number;
-}
-
-/** The bounds of a chunk-level row (semantic chunk or grouped text chunk). */
-function chunkRowSelected(
-  data: Extract<SearchNodeData, { kind: 'chunk' | 'text-chunk' }>
-): ChunkBounds {
-  return data.kind === 'text-chunk'
-    ? { chunkId: data.chunkId, endLine: data.chunkEndLine, startLine: data.chunkStartLine }
-    : { chunkId: data.chunk.chunkId, endLine: data.chunk.endLine, startLine: data.chunk.startLine };
-}
-
-/** Where a row click navigates. Chunk rows also carry a range to select. */
+/** Where a row click navigates: a match row opens its line. */
 export interface SearchOpenTarget {
   line: number;
-  selection?: { startLine: number; endLine: number };
-}
-
-/**
- * Open target for a row click; `undefined` for file rows (whole-file open, no
- * line). Match rows navigate to the match line only. Chunk rows (semantic and
- * grouped text) carry the full chunk range so the opened file selects the block
- * (highlighted + ready to copy), scrolled to its start.
- */
-function openTargetForData(data: SearchNodeData): SearchOpenTarget | undefined {
-  switch (data.kind) {
-    case 'file':
-      return;
-    case 'match':
-      return { line: data.match.line };
-    case 'text-chunk':
-      return {
-        line: data.chunkStartLine,
-        selection: { endLine: data.chunkEndLine, startLine: data.chunkStartLine },
-      };
-    default:
-      return {
-        line: data.chunk.startLine,
-        selection: { endLine: data.chunk.endLine, startLine: data.chunk.startLine },
-      };
-  }
 }
 
 interface RowRenderContext {
@@ -153,6 +86,7 @@ interface RowRenderContext {
   /** Attach a result file to the active thread; absent where nothing can read mentions (web). */
   onAttachFile?: ((compositeKey: string) => void) | undefined;
   query: string;
+  rootName: (rootId: string) => string;
   showRootBadge: boolean;
 }
 
@@ -173,11 +107,11 @@ function FileRow({
         {file.path}
       </span>
       <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-        {file.children.length} {file.children.length === 1 ? 'match' : 'matches'}
+        {file.matches.length} {file.matches.length === 1 ? 'match' : 'matches'}
       </span>
-      {ctx.showRootBadge && file.rootDisplayName ? (
+      {ctx.showRootBadge ? (
         <Badge className="shrink-0" variant="secondary">
-          {file.rootDisplayName}
+          {ctx.rootName(file.rootId)}
         </Badge>
       ) : null}
       {onAttachFile && compositeKey ? (
@@ -202,40 +136,8 @@ function FileRow({
 }
 
 /**
- * Chunk-level row content. Text mode groups matches under a "Lines X–Y · N
- * matches" chunk; semantic mode renders the chunk headline/content. A chunk has
- * no checkbox: attaching is per file, and a row click opens the chunk's lines.
- */
-function ChunkRow({
-  data,
-}: {
-  data: Extract<SearchNodeData, { kind: 'chunk' | 'text-chunk' }>;
-}): React.ReactNode {
-  const chunk = chunkRowSelected(data);
-  const content =
-    data.kind === 'text-chunk' ? (
-      <>
-        <TextQuote aria-hidden="true" className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
-        <span className="text-muted-foreground truncate text-xs">
-          Lines {chunk.startLine}–{chunk.endLine}
-          {data.matchCount > 1 ? ` · ${data.matchCount} matches` : ''}
-        </span>
-      </>
-    ) : (
-      <span className="text-muted-foreground truncate font-mono text-xs">
-        {renderSegments(
-          data.chunk.headline ? splitHeadline(data.chunk.headline) : [data.chunk.content]
-        )}
-      </span>
-    );
-
-  return <span className="flex min-w-0 items-center gap-2">{content}</span>;
-}
-
-/**
- * Text match row: a navigation-only leaf under its chunk. No checkbox — the
- * containing chunk is the selection unit — just the line number and the
- * highlighted matched line. Row click navigates to the match line.
+ * Match row: a navigation-only leaf under its file, with the line number and
+ * the highlighted line. Row click opens the file at that line.
  */
 function MatchRow({
   data,
@@ -327,197 +229,145 @@ export interface SearchResultsTreeProps {
    * where nothing reads mentions (web): file rows then show no Attach button.
    */
   onAttachFile?: ((compositeKey: string) => void) | undefined;
-  /**
-   * Row-click navigation. Match rows pass `{ line }` (their match line); chunk
-   * rows pass `{ line, selection }` (the chunk range to scroll to AND select in
-   * the opened file so the block is highlighted, ready to copy); file rows pass
-   * no target.
-   */
+  /** Row-click navigation: a match row passes its line; a file row passes none. */
   onOpenFile: (compositeKey: string, target?: SearchOpenTarget) => void;
-  /** Optional paging affordance for `truncated` results (v1: may be absent). */
-  onShowMore?: () => void;
-  /**
-   * DB rootId → adapter rootId. Files whose root is not mounted (null) are
-   * omitted — the tree needs this to build actionable composite keys, which
-   * the session store does not hold.
-   */
-  resolveAdapterRootId: (dbRootId: string) => string | null;
+  /** The name the Explorer shows for an open folder. */
+  rootName: (rootId: string) => string;
   /** The explorer selection that file-row checkboxes read and write. */
   selection: SearchSelectionBridge;
   /**
-   * Count of currently mounted workspace roots. In a multi-root workspace
-   * (count > 1) every file row shows its root badge — even when the current
-   * result set happens to span a single root, the user cannot tell WHICH root
-   * without it. Defaults to 0 (badge falls back to result-set root diversity).
+   * Count of open workspace folders. With more than one, every file row shows
+   * its folder badge, even when the matches happen to span one folder.
    */
-  workspaceRootCount?: number;
+  workspaceRootCount: number;
+}
+
+/** The caps a finished search hit, in words; nothing for a complete search. */
+export function searchSummaryNotices(
+  summary: WorkspaceSearchSummary | null,
+  totalMatches: number,
+  rootName: (rootId: string) => string
+): string[] {
+  if (!summary) {
+    return [];
+  }
+  const notices: string[] = [];
+  for (const rootId of summary.unreadableRootIds) {
+    notices.push(`"${rootName(rootId)}" could not be read, so it was not searched.`);
+  }
+  if (summary.matchLimitReached) {
+    notices.push(
+      `Showing the first ${totalMatches.toLocaleString()} matches. Narrow the search to see the rest.`
+    );
+  }
+  if (summary.timedOut) {
+    notices.push('The search reached its time limit, so some files were not searched.');
+  } else if (summary.scanLimited) {
+    notices.push(
+      'This pattern has no plain text to look for, so the search read files directly and stopped at its file limit.'
+    );
+  } else if (summary.candidatesTruncated) {
+    notices.push(
+      'The search stopped at its file limit, so some files were not searched. Narrow the search to reach the rest.'
+    );
+  }
+  return notices;
 }
 
 /**
- * Results tree for workspace search. Composes the shared TreeTable over the
- * pre-flattened row model from `buildSearchTreeNodes`. Row CLICK navigates;
- * file checkboxes use TreeTable's pluggable API (`getCheckboxState` /
- * `onCheckboxChange`) to select explorer files; chunk and match rows have none.
+ * Results tree for workspace search, over the shared virtualized TreeTable.
+ * Rows render as matches stream in. Row CLICK navigates; file checkboxes use
+ * TreeTable's pluggable API (`getCheckboxState` / `onCheckboxChange`) to
+ * select explorer files; match rows have none.
  */
 export function SearchResultsTree({
   onAttachFile,
   onOpenFile,
-  resolveAdapterRootId,
-  onShowMore,
+  rootName,
   selection: bridge,
-  workspaceRootCount = 0,
+  workspaceRootCount,
 }: SearchResultsTreeProps): React.ReactNode {
-  const results = useWorkspaceSearchStore((state) => state.results);
+  const files = useWorkspaceSearchStore((state) => state.files);
+  const summary = useWorkspaceSearchStore((state) => state.summary);
+  const totalMatches = useWorkspaceSearchStore((state) => state.totalMatches);
   const query = useWorkspaceSearchStore((state) => state.query);
-  const mode = useWorkspaceSearchStore((state) => state.mode);
   const isRegex = useWorkspaceSearchStore((state) => state.isRegex);
   const caseSensitive = useWorkspaceSearchStore((state) => state.caseSensitive);
-  const expandedIds = useWorkspaceSearchStore((state) => state.expandedIds);
-  const toggleExpanded = useWorkspaceSearchStore((state) => state.toggleExpanded);
+  const collapsedIds = useWorkspaceSearchStore((state) => state.collapsedIds);
+  const toggleCollapsed = useWorkspaceSearchStore((state) => state.toggleCollapsed);
 
-  const nodes = results ? buildSearchTreeNodes({ expandedIds, resolveAdapterRootId, results }) : [];
-
-  const nodeById = useMemo(() => {
-    const map = new Map<string, TreeNode<SearchNodeData>>();
-    for (const node of nodes) {
-      map.set(node.id, node);
-    }
-    return map;
-  }, [nodes]);
-
-  // Composite keys of every currently loaded (rendered) file row, regardless of
-  // expansion — select-all operates on this set only, never on files omitted
-  // upstream for an unmounted root.
-  const fileKeys = nodes.reduce<string[]>((keys, node) => {
-    if (node.data.kind === 'file' && node.data.compositeKey !== null) {
-      keys.push(node.data.compositeKey);
-    }
-    return keys;
-  }, []);
-
-  // Badge whenever the WORKSPACE is multi-root (the user needs attribution
-  // even for a single-root result set), falling back to result-set diversity
-  // when the caller does not provide the mounted-root count.
-  const showRootBadge = useMemo(() => {
-    if (workspaceRootCount > 1) {
-      return true;
-    }
-    const roots = new Set<string>();
-    for (const node of nodes) {
-      if (node.data.kind === 'file' && node.data.file.dbRootId !== null) {
-        roots.add(node.data.file.dbRootId);
-      }
-    }
-    return roots.size > 1;
-  }, [nodes, workspaceRootCount]);
+  const nodes = useMemo(() => buildSearchTreeNodes({ collapsedIds, files }), [collapsedIds, files]);
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const expandedIds = useMemo(
+    () => new Set(files.map(fileResultId).filter((id) => !collapsedIds.has(id))),
+    [collapsedIds, files]
+  );
+  const fileKeys = useMemo(
+    () => files.map((file) => nodeById.get(fileResultId(file))?.data.compositeKey ?? ''),
+    [files, nodeById]
+  );
+  // Badge whenever the workspace has several folders (the user needs
+  // attribution even for a one-folder result set), or the results span several.
+  const showRootBadge =
+    workspaceRootCount > 1 || new Set(files.map((file) => file.rootId)).size > 1;
 
   const ctx: RowRenderContext = {
     caseSensitive,
-    highlightEnabled: mode === 'text' && !isRegex,
+    highlightEnabled: !isRegex,
     onAttachFile,
     query: query.trim(),
+    rootName,
     showRootBadge,
   };
 
-  const getCheckboxState = (node: TreeNode<SearchNodeData>): CheckboxState | 'hidden' => {
-    const { data } = node;
-    if (data.kind !== 'file' || data.compositeKey === null) {
-      return 'hidden';
-    }
-    return bridge.fileState(data.compositeKey);
-  };
+  const getCheckboxState = (node: TreeNode<SearchNodeData>): CheckboxState | 'hidden' =>
+    node.data.kind === 'file' ? bridge.fileState(node.data.compositeKey) : 'hidden';
 
-  const getCheckboxAriaLabel = (node: TreeNode<SearchNodeData>): string | undefined => {
-    const { data } = node;
-    return data.kind === 'file' ? `Select ${data.file.path}` : undefined;
-  };
+  const getCheckboxAriaLabel = (node: TreeNode<SearchNodeData>): string | undefined =>
+    node.data.kind === 'file' ? `Select ${node.data.file.path}` : undefined;
 
   const onCheckboxChange = (
     node: TreeNode<SearchNodeData>,
     nextState: TreeTableCheckboxNextState
   ) => {
-    const { data } = node;
-    if (data.kind === 'file' && data.compositeKey !== null) {
-      bridge.toggleFile(data.compositeKey, nextState === 'checked');
+    if (node.data.kind === 'file') {
+      bridge.toggleFile(node.data.compositeKey, nextState === 'checked');
     }
   };
 
   const columns = [
     {
-      cell: ({ node }: { node: TreeNode<SearchNodeData> }) => {
-        switch (node.data.kind) {
-          case 'file':
-            return <FileRow ctx={ctx} data={node.data} />;
-          case 'match':
-            return <MatchRow ctx={ctx} data={node.data} />;
-          default:
-            return <ChunkRow data={node.data} />;
-        }
-      },
+      cell: ({ node }: { node: TreeNode<SearchNodeData> }) =>
+        node.data.kind === 'file' ? (
+          <FileRow ctx={ctx} data={node.data} />
+        ) : (
+          <MatchRow ctx={ctx} data={node.data} />
+        ),
       header: 'Results',
       id: 'result',
-      // Reserve toggle space on EVERY row (default). A depth-0 file row shows a
-      // real expand toggle (28px); leaf semantic chunk rows (depth 1) have no
-      // children, so without the reserved spacer their checkbox would sit at
-      // 20px indent — LEFT of the file checkbox's 28px, the reported "chunks
-      // indented less than files" regression. Reserving the spacer keeps every
-      // level's checkbox aligned at `depth*20 + 28`.
       reserveToggleSpace: true,
     },
   ];
 
   const handleSelect = (nodeId: string | null) => {
-    if (nodeId === null) {
+    const node = nodeId === null ? undefined : nodeById.get(nodeId);
+    if (!node) {
       return;
     }
-    const node = nodeById.get(nodeId);
-    if (!node || node.data.compositeKey === null) {
-      return;
-    }
-    const target = openTargetForData(node.data);
-    if (target === undefined) {
+    if (node.data.kind === 'file') {
       onOpenFile(node.data.compositeKey);
       return;
     }
-    onOpenFile(node.data.compositeKey, target);
+    onOpenFile(node.data.compositeKey, { line: node.data.match.line });
   };
-
-  const notices = results?.notices;
-
-  // Count the leaf result rows actually rendered (text matches + semantic chunks)
-  // so the truncated notice can name an honest limit ("first N matches") instead
-  // of a false "Show more" affordance.
-  const renderedMatchCount = nodes.reduce(
-    (count, node) => (node.data.kind === 'match' || node.data.kind === 'chunk' ? count + 1 : count),
-    0
-  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1">
-      {notices?.unindexedFolders?.length ? (
-        <p className="text-muted-foreground text-xs" role="status">
-          {unindexedFoldersNote(notices.unindexedFolders)}
+      {searchSummaryNotices(summary, totalMatches, rootName).map((notice) => (
+        <p className="text-muted-foreground text-xs" key={notice} role="status">
+          {notice}
         </p>
-      ) : null}
-      {notices?.scanLimited ? (
-        <p className="text-muted-foreground text-xs" role="status">
-          Partial search coverage — some files may not be included
-        </p>
-      ) : null}
-      {notices && notices.skippedMissingLineMetadata > 0 ? (
-        <p className="text-muted-foreground text-xs" role="status">
-          {notices.skippedMissingLineMetadata} results hidden (stale or unattributed index rows —
-          reindexing fixes this)
-        </p>
-      ) : null}
-      {notices?.candidatesTruncated && !notices.scanLimited ? (
-        // scanLimited implies the candidate cap was hit (the grep service only
-        // reports it at the cap), so showing both would double-report the same
-        // limitation — the broader scanLimited notice wins.
-        <p className="text-muted-foreground text-xs" role="status">
-          Match list may be incomplete (candidate pool capped) — narrow the query.
-        </p>
-      ) : null}
+      ))}
       {fileKeys.length > 0 ? <SelectAllHeader bridge={bridge} fileKeys={fileKeys} /> : null}
       <div className="min-h-0 flex-1">
         <TreeTable<SearchNodeData>
@@ -528,39 +378,18 @@ export function SearchResultsTree({
           expandedIds={expandedIds}
           getCheckboxAriaLabel={getCheckboxAriaLabel}
           getCheckboxState={getCheckboxState}
-          // Fill the scroll region (mirrors the Explorer tree) — the default
-          // 600px cap would fight the panel's grid-rows-[auto_1fr_auto] middle.
+          // Fill the scroll region (mirrors the Explorer tree): the default
+          // 600px cap would fight the panel's grid rows.
           maxHeight="100%"
           nodes={nodes}
           nodesArePreFlattened
           onCheckboxChange={onCheckboxChange}
           onSelect={handleSelect}
-          onToggleExpand={toggleExpanded}
+          onToggleExpand={toggleCollapsed}
           showHeader={false}
           windowingStrategy="auto"
         />
       </div>
-      {notices?.truncated ? (
-        // NO semantic paging: the Show-more affordance is text-mode only, even
-        // if a caller passes onShowMore while semantic is active (defense in
-        // depth — see the `truncated: false` comment in
-        // workspace-search-executor.ts's buildSemanticResults).
-        mode === 'text' && onShowMore ? (
-          <button
-            className="text-primary self-start text-xs underline"
-            onClick={onShowMore}
-            type="button"
-          >
-            Show more
-          </button>
-        ) : (
-          // No paging affordance is wired: state the honest limit instead of a
-          // false "Show more" that does nothing.
-          <p className="text-muted-foreground text-xs" role="status">
-            Results limited to first {renderedMatchCount} matches
-          </p>
-        )
-      ) : null}
     </div>
   );
 }

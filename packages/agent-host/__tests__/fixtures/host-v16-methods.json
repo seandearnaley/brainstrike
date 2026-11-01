@@ -103,6 +103,7 @@
     "workspace/files/exists",
     "workspace/files/list",
     "workspace/files/read",
+    "workspace/files/search",
     "workspace/files/unwatch",
     "workspace/files/watch",
     "workspace/files/watch-retry",

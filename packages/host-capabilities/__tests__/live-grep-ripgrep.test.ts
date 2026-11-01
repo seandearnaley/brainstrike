@@ -1,7 +1,8 @@
-import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { runRipgrep } from '../src/native-tools/live-grep-ripgrep.js';
 
@@ -9,25 +10,27 @@ const recorded = vi.hoisted(() => ({ args: [] as readonly string[], stdout: '' }
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
-  const execFile = (
-    _file: string,
-    args: readonly string[],
-    _options: unknown,
-    callback: (error: Error | null, stdout: string, stderr: string) => void
-  ): ChildProcess => {
+  const spawn = (_file: string, args: readonly string[]) => {
     recorded.args = args;
-    const child = new actual.ChildProcess();
+    const stdout = new PassThrough();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null as number | null,
+      pid: undefined,
+      signalCode: null,
+      stdout,
+    });
     queueMicrotask(() => {
-      child.emit('exit', 0, null);
-      callback(null, recorded.stdout, '');
+      child.emit('spawn');
+      stdout.end(recorded.stdout);
+      stdout.once('end', () => {
+        child.exitCode = 0;
+        child.emit('exit', 0, null);
+        child.emit('close', 0, null);
+      });
     });
     return child;
   };
-  return {
-    ...actual,
-    default: { ...actual, execFile },
-    execFile,
-  };
+  return { ...actual, default: { ...actual, spawn }, spawn };
 });
 
 // Real Windows rg 15.2.0 path from PR #3543 receipt 6094014734. The live result
@@ -37,27 +40,28 @@ const recordedWindowsPath = '.\\src\\x.ts';
 describe('runRipgrep canonical candidate identity', () => {
   it.each([
     {
-      filesOnly: false,
       format: 'JSON begin event',
+      mode: 'matches' as const,
       stdout: `${JSON.stringify({ data: { path: { text: recordedWindowsPath } }, type: 'begin' })}\n`,
     },
-    { filesOnly: true, format: 'files-with-matches line', stdout: `${recordedWindowsPath}\r\n` },
-  ])('normalizes the recorded Windows path in a $format', async ({ filesOnly, stdout }) => {
+    {
+      format: 'files-with-matches line',
+      mode: 'files-with-matches' as const,
+      stdout: `${recordedWindowsPath}\r\n`,
+    },
+  ])('normalizes the recorded Windows path in a $format', async ({ mode, stdout }) => {
     recorded.stdout = stdout;
 
     const result = await runRipgrep({
       canonicalRootPath: path.resolve('recorded-workspace'),
       caseSensitive: true,
-      filesOnly,
+      mode,
       prefilterLiteral: 'BST_M3_RG_MATCH',
       ripgrepPath: 'recorded-rg',
     });
 
     expect([...result.candidatePaths]).toEqual(['src/x.ts']);
-    expect(result).toMatchObject({
-      partialReadErrors: false,
-      truncated: false,
-    });
+    expect(result).toMatchObject({ partialReadErrors: false, truncated: false });
   });
 });
 
@@ -71,6 +75,7 @@ describe('runRipgrep credential floor file', () => {
     await runRipgrep({
       canonicalRootPath: path.resolve('recorded-workspace'),
       caseSensitive: true,
+      mode: 'matches',
       prefilterLiteral: 'BST_M3_RG_MATCH',
       ripgrepPath: 'recorded-rg',
     });
