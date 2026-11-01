@@ -8,12 +8,16 @@ const {
   addRootDirectoryByPathMock,
   addRootDirectoryMock,
   fileSystemAccessSupportedRef,
+  openCapabilityRef,
+  openRootDirectoryMock,
   pickerlessCapabilityRef,
   toastMock,
 } = vi.hoisted(() => ({
   addRootDirectoryByPathMock: vi.fn(),
   addRootDirectoryMock: vi.fn(),
   fileSystemAccessSupportedRef: { current: true },
+  openCapabilityRef: { current: false },
+  openRootDirectoryMock: vi.fn(),
   pickerlessCapabilityRef: { current: true },
   toastMock: vi.fn(),
 }));
@@ -30,6 +34,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
         : 'File system access not supported in this environment',
       supported: fileSystemAccessSupportedRef.current,
     }),
+    openRootDirectory: openCapabilityRef.current ? openRootDirectoryMock : undefined,
   }),
 }));
 
@@ -43,7 +48,49 @@ describe('useConnectFolder', () => {
     vi.clearAllMocks();
     fileSystemAccessSupportedRef.current = true;
     pickerlessCapabilityRef.current = true;
+    openCapabilityRef.current = false;
     addRootDirectoryMock.mockResolvedValue(null);
+  });
+
+  describe('where the platform can replace the open folders (ADR-0034)', () => {
+    beforeEach(() => {
+      openCapabilityRef.current = true;
+      openRootDirectoryMock.mockResolvedValue({ name: 'bs', path: '/w/bs' });
+      addRootDirectoryByPathMock.mockResolvedValue({ name: 'bs', path: '/w/bs' });
+    });
+
+    it.each(['argv', 'menu-recent', 'open-file', 'second-instance'] as const)(
+      'a %s request opens the folder as the project',
+      async (origin) => {
+        const { result } = renderHook(() => useConnectFolder());
+        await act(async () => {
+          await result.current.connectPath?.({ origin, path: '/w/bs' });
+        });
+        expect(openRootDirectoryMock).toHaveBeenCalledExactlyOnceWith('/w/bs');
+        expect(addRootDirectoryByPathMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(['drop', 'agent-worktree'] as const)(
+      'a %s request joins the open folders',
+      async (origin) => {
+        const { result } = renderHook(() => useConnectFolder());
+        await act(async () => {
+          await result.current.connectPath?.({ origin, path: '/w/bs' });
+        });
+        expect(addRootDirectoryByPathMock).toHaveBeenCalledExactlyOnceWith('/w/bs');
+        expect(openRootDirectoryMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it('Open Folder… opens the picked folder as the project', async () => {
+      const { result } = renderHook(() => useConnectFolder());
+      await act(async () => {
+        await result.current.openPicker?.();
+      });
+      expect(openRootDirectoryMock).toHaveBeenCalledExactlyOnceWith();
+      expect(addRootDirectoryMock).not.toHaveBeenCalled();
+    });
   });
 
   it('uses the typed authorization code for the persistent picker remedy', async () => {

@@ -115,9 +115,7 @@ describe('AssistantChatPanel', () => {
 
     render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
-    expect(
-      screen.getByText('The assistant status endpoint reported that the assistant is disabled.')
-    ).toBeInTheDocument();
+    expect(screen.getByText('The assistant reported that it is turned off.')).toBeInTheDocument();
     expect(screen.getByText('Reason: future_server_reason')).toBeInTheDocument();
   });
 

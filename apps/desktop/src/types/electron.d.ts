@@ -10,6 +10,7 @@ import type { CrashDumpListing } from '../diagnostics/crash-dumps';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
 import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
+import type { appLifetimeContract } from '../ipc-domains/app-lifetime.contract';
 import type { appUpdatesContract } from '../ipc-domains/app-updates.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
@@ -30,6 +31,11 @@ declare global {
     };
     /** Desktop-only recovery actions for a damaged state store (BST-1880). */
     agentHostRecovery?: TransportBridge<typeof agentHostRecoveryContract>;
+    /**
+     * Desktop-only: Settings › Startup (ADR-0033). Whether closing the last window keeps the
+     * app running in the tray, and whether it opens at login.
+     */
+    appLifetime?: TransportBridge<typeof appLifetimeContract>;
     /** Desktop-only: the app menu's Settings… item. */
     appMenu?: {
       onOpenSettings: (callback: () => void) => () => void;

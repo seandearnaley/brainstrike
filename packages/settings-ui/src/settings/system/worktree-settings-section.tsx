@@ -34,8 +34,7 @@ export function WorktreeSettingsSection({
   if (status.kind === 'unavailable') {
     return (
       <p className="text-muted-foreground text-sm" data-testid="worktree-settings-unavailable">
-        Worktrees are a desktop feature. This build has no worktree bridge, so there is nothing to
-        configure here.
+        Worktrees are unavailable in this window, so there is nothing to configure here.
       </p>
     );
   }

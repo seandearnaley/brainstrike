@@ -7,7 +7,7 @@
  *
  * Two source shapes, one output contract:
  *
- * - **ESTree** (oxc on desktop, Babel on web): the full
+ * - **ESTree** (oxc; Babel also fed it when a web app shipped): the full
  *   Program crosses the adapter boundary with every identifier intact, so this
  *   module walks it generically. One extractor, two engines — Babel and oxc
  *   emit the same fields for everything read here (the #992 lesson: where they

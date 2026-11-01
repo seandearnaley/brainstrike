@@ -600,7 +600,7 @@ export function ViewFilterPresetDropdown({
           <div className="flex items-center gap-2 overflow-hidden">
             {React.createElement(selectedIconType, { className: 'size-4 shrink-0 text-primary' })}
             <span className="truncate font-medium">
-              {selectedPreset?.name ?? (hasCustomFilters ? 'Custom filters' : 'Select filter...')}
+              {selectedPreset?.name ?? (hasCustomFilters ? 'Custom filters' : 'Select filter…')}
             </span>
           </div>
           <ChevronDown
@@ -629,7 +629,7 @@ export function ViewFilterPresetDropdown({
                 className="h-8"
                 onChange={(e) => setSearchFilter(e.target.value)}
                 onKeyDown={handleSearchKeyDown}
-                placeholder="Filter presets..."
+                placeholder="Filter presets…"
                 ref={searchInputRef}
                 value={searchFilter}
               />
@@ -672,7 +672,7 @@ export function ViewFilterPresetDropdown({
               ) : null}
               {loading && filteredPresets.length === 0 && (
                 <div className="text-muted-foreground py-4 text-center text-sm">
-                  Loading presets...
+                  Loading presets…
                 </div>
               )}
               {filteredPresets.map((preset) => {

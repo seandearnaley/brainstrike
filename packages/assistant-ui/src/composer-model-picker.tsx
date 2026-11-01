@@ -48,7 +48,7 @@ function triggerLabel(selectedEntry: ComposerPickerEntry | undefined, hasOptions
     return selectedEntry.modelLabel;
   }
   if (hasOptions) {
-    return 'Select a model...';
+    return 'Select a model…';
   }
   return 'No models enabled';
 }
@@ -283,11 +283,7 @@ export function ComposerModelPicker({
         sideOffset={6}
       >
         <Command className="flex flex-col" label="Models" shouldFilter={false}>
-          <ModelPickerSearch
-            onValueChange={setQuery}
-            placeholder="Search models..."
-            value={query}
-          />
+          <ModelPickerSearch onValueChange={setQuery} placeholder="Search models…" value={query} />
           <Command.List className="max-h-[min(60vh,420px)] overflow-y-auto p-1">
             <Command.Empty className="text-muted-foreground px-2 py-6 text-center text-sm">
               No models match “{query.trim()}”.

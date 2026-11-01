@@ -8,6 +8,9 @@ import { createHostCatalogClient, type HostCatalog } from './catalog/transport.t
 import { markHostClosing, markHostDrained, sendHostRequest } from './client-request.ts';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
+  FILE_SEARCH_BATCH,
+  type FileSearchBatch,
+  FileSearchBatchSchema,
   GIT_WORKSPACE_EVENT,
   type GitWorkspaceEvent,
   GitWorkspaceEventSchema,
@@ -57,6 +60,8 @@ export interface HostClient {
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
+  /** The match batches of the `workspace/files/search` calls this client started. */
+  onFileSearch(listener: (batch: FileSearchBatch) => void): () => void;
   /** Repository and pull-request changes, after this client's `workspace/git/subscribe`. */
   onGitWorkspace(listener: (event: GitWorkspaceEvent) => void): () => void;
   /** MCP task changes and server input, after this client's `mcp/presentation/subscribe`. */
@@ -116,6 +121,7 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
   const presentationListeners = new Set<(event: McpPresentationEvent) => void>();
   const terminalListeners = new Set<(event: TerminalEvent) => void>();
   const workspaceFilesListeners = new Set<(event: WorkspaceFilesEvent) => void>();
+  const fileSearchListeners = new Set<(batch: FileSearchBatch) => void>();
   const childListeners = new Set<(threadId: string) => void>();
   const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   const closeConnection = async (): Promise<void> => {
@@ -131,6 +137,7 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     presentationListeners.clear();
     terminalListeners.clear();
     workspaceFilesListeners.clear();
+    fileSearchListeners.clear();
     childListeners.clear();
     telemetryListeners.clear();
     try {
@@ -203,6 +210,15 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
       listener(event);
     }
   });
+  connection.onNotification(FILE_SEARCH_BATCH, (input: unknown) => {
+    const batch = wireDecoder(FileSearchBatchSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
+    for (const listener of fileSearchListeners) {
+      listener(batch);
+    }
+  });
   connection.onNotification(MCP_PRESENTATION_EVENT, (input: unknown) => {
     const event = wireDecoder(McpPresentationEventSchema, {
       errors: 'all',
@@ -260,6 +276,10 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onFileSearch: (listener) => {
+      fileSearchListeners.add(listener);
+      return () => fileSearchListeners.delete(listener);
     },
     onGitWorkspace: (listener) => {
       gitWorkspaceListeners.add(listener);

@@ -63,10 +63,10 @@ export class WorkspaceRootMountTable {
   }
 
   /** Presentation paths of the mounts the database is allowed to converge on. */
-  persistedMountedPaths(excludeRootId?: string): string[] {
+  persistedMountedPaths(excludeRootIds: ReadonlySet<string> = new Set()): string[] {
     const paths: string[] = [];
     for (const mounted of this.mounted.values()) {
-      if (mounted.rootId !== excludeRootId && !this.sessionRootIds.has(mounted.rootId)) {
+      if (!(excludeRootIds.has(mounted.rootId) || this.sessionRootIds.has(mounted.rootId))) {
         paths.push(mounted.presentationPath);
       }
     }

@@ -1,11 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  WorkspaceSearchChunkHit,
-  WorkspaceSearchFileResult,
-  WorkspaceSearchResults,
-  WorkspaceSearchTextMatch,
-} from '../../core/search-result-model';
+import type { WorkspaceSearchHit, WorkspaceSearchSummary } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
 import {
   type FileSelectionState,
@@ -13,7 +9,7 @@ import {
   SearchResultsTree,
   type SearchResultsTreeProps,
   type SearchSelectionBridge,
-  splitHeadline,
+  searchSummaryNotices,
 } from '../search-results-tree';
 
 // Render every virtual row headlessly (happy-dom has no layout dimensions).
@@ -38,115 +34,55 @@ const bridgeMock: SearchSelectionBridge = {
   toggleFile: vi.fn(),
 };
 
-const resolveAdapterRootId = (dbRootId: string): string | null =>
-  dbRootId === 'root-unmounted' ? null : `adapter-${dbRootId}`;
+const ROOT_NAMES: Record<string, string> = { 'root-a': 'Root A', 'root-b': 'Root B' };
 
 /** The tree wired to the mock explorer selection, with test defaults. */
 function Tree(props: Partial<SearchResultsTreeProps>) {
   return (
     <SearchResultsTree
       onOpenFile={vi.fn()}
-      resolveAdapterRootId={resolveAdapterRootId}
+      rootName={(rootId) => ROOT_NAMES[rootId] ?? rootId}
       selection={bridgeMock}
+      workspaceRootCount={1}
       {...props}
     />
   );
 }
 
-function textMatch(overrides: Partial<WorkspaceSearchTextMatch> = {}): WorkspaceSearchTextMatch {
-  return {
-    after: [],
-    before: [],
-    chunkEndLine: 12,
-    chunkId: 'chunk-1',
-    chunkStartLine: 8,
-    kind: 'match',
-    line: 10,
-    lineText: 'const foo = 1;',
-    provenance: 'index',
-    ...overrides,
-  };
-}
+const hit = (overrides: Partial<WorkspaceSearchHit> = {}): WorkspaceSearchHit => ({
+  line: 10,
+  lineText: 'const foo = 1;',
+  path: 'src/a.ts',
+  rootId: 'root-a',
+  ...overrides,
+});
 
-function chunkHit(overrides: Partial<WorkspaceSearchChunkHit> = {}): WorkspaceSearchChunkHit {
-  return {
-    chunkId: 'chunk-9',
-    content: 'plain chunk content',
-    endLine: 20,
-    headline: 'alpha <mark>beta</mark> gamma',
-    kind: 'chunk',
-    provenance: 'index',
-    score: 0.5,
-    startLine: 14,
-    tokenCount: 42,
-    ...overrides,
-  };
-}
+const COMPLETE: WorkspaceSearchSummary = {
+  candidatesTruncated: false,
+  matchLimitReached: false,
+  scanLimited: false,
+  timedOut: false,
+  unreadableRootIds: [],
+};
 
-function fileResult(overrides: Partial<WorkspaceSearchFileResult> = {}): WorkspaceSearchFileResult {
-  return {
-    children: [textMatch()],
-    dbRootId: 'root-mounted',
-    path: 'src/a.ts',
-    rootDisplayName: 'Mounted Root',
-    ...overrides,
-  };
-}
-
-function makeResults(
-  files: WorkspaceSearchFileResult[],
-  notices: Partial<WorkspaceSearchResults['notices']> = {}
-): WorkspaceSearchResults {
-  return {
-    files,
-    mode: 'text',
-    notices: {
-      candidatesTruncated: false,
-      scanLimited: false,
-      skippedMissingLineMetadata: 0,
-      truncated: false,
-      ...notices,
-    },
-    totalMatches: files.reduce((n, f) => n + f.children.length, 0),
-  };
-}
-
-/** Mirror the store's default expansion: file ids + text-mode chunk-group ids. */
-function defaultExpandedIds(results: WorkspaceSearchResults): Set<string> {
-  const ids = new Set<string>();
-  for (const f of results.files) {
-    ids.add(`f:${f.dbRootId}:${f.path}`);
-    for (const child of f.children) {
-      if (child.kind === 'match') {
-        ids.add(`c:${child.chunkId}`);
-      }
-    }
-  }
-  return ids;
-}
-
-function seedResults(
-  results: WorkspaceSearchResults,
-  patch: Partial<ReturnType<typeof useWorkspaceSearchStore.getState>> = {}
+/** A finished search that found `hits`, for `query`. */
+function finishedSearch(
+  hits: readonly WorkspaceSearchHit[],
+  options: { query?: string; summary?: Partial<WorkspaceSearchSummary> } = {}
 ): void {
-  useWorkspaceSearchStore.setState({
-    expandedIds: defaultExpandedIds(results),
-    mode: 'text',
-    query: '',
-    results,
-    status: 'results',
-    ...patch,
-  });
+  const store = useWorkspaceSearchStore.getState();
+  store.setQuery(options.query ?? '');
+  const generation = store.beginSearch();
+  store.appendMatches(hits, generation);
+  store.completeSearch({ ...COMPLETE, ...options.summary }, generation);
 }
 
-describe('splitHeadline', () => {
-  it('tokenizes literal <mark> segments', () => {
-    expect(splitHeadline('a <mark>b</mark> c')).toEqual(['a ', { mark: 'b' }, ' c']);
-  });
+const keyOf = (rootId: string, path: string) => encodeFileSelection(rootId, path);
 
-  it('returns a single text segment when there are no marks', () => {
-    expect(splitHeadline('plain text')).toEqual(['plain text']);
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
+  useWorkspaceSearchStore.getState().reset();
 });
 
 describe('highlightQuery', () => {
@@ -159,149 +95,102 @@ describe('highlightQuery', () => {
   });
 
   it('returns the whole line when query is empty', () => {
-    expect(highlightQuery('anything', '', false)).toEqual(['anything']);
+    expect(highlightQuery('const x', '', false)).toEqual(['const x']);
   });
 });
 
 describe('SearchResultsTree', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
-    useWorkspaceSearchStore.getState().reset();
-  });
-
-  it('renders a treegrid with rows for the pre-flattened result model', () => {
-    seedResults(makeResults([fileResult()]));
+  it('shows each file with its match count, then its matching lines', () => {
+    finishedSearch([
+      hit({ line: 3, lineText: 'first foo' }),
+      hit({ line: 9, lineText: 'second foo' }),
+    ]);
     render(<Tree />);
     expect(screen.getByRole('treegrid')).toBeInTheDocument();
     expect(screen.getByText('src/a.ts')).toBeInTheDocument();
+    expect(screen.getByText('2 matches')).toBeInTheDocument();
+    expect(screen.getByText('first foo')).toBeInTheDocument();
+    expect(screen.getByText('second foo')).toBeInTheDocument();
   });
 
-  it('shows the root badge only when results span more than one distinct root', () => {
-    seedResults(makeResults([fileResult({ path: 'src/a.ts' })]));
+  it('hides a file’s lines when the user collapses it', () => {
+    finishedSearch([hit({ lineText: 'hidden line' })]);
+    useWorkspaceSearchStore.getState().toggleCollapsed('f:root-a:src/a.ts');
+    render(<Tree />);
+    expect(screen.getByText('src/a.ts')).toBeInTheDocument();
+    expect(screen.queryByText('hidden line')).not.toBeInTheDocument();
+  });
+
+  it('shows folder badges when the matches span folders, or the workspace has several', () => {
+    finishedSearch([hit()]);
     const single = render(<Tree />);
-    expect(single.queryByText('Mounted Root')).not.toBeInTheDocument();
+    expect(single.queryByText('Root A')).not.toBeInTheDocument();
     single.unmount();
 
-    seedResults(
-      makeResults([
-        fileResult({ dbRootId: 'root-a', path: 'src/a.ts', rootDisplayName: 'Root A' }),
-        fileResult({ dbRootId: 'root-b', path: 'src/b.ts', rootDisplayName: 'Root B' }),
-      ])
-    );
+    render(<Tree workspaceRootCount={2} />);
+    expect(screen.getByText('Root A')).toBeInTheDocument();
+  });
+
+  it('names both folders when the same path matches in each', () => {
+    finishedSearch([hit({ rootId: 'root-a' }), hit({ rootId: 'root-b' })]);
     render(<Tree />);
+    expect(screen.getAllByText('src/a.ts')).toHaveLength(2);
     expect(screen.getByText('Root A')).toBeInTheDocument();
     expect(screen.getByText('Root B')).toBeInTheDocument();
   });
 
-  it('shows the root badge for single-root results when the workspace mounts multiple roots', () => {
-    // A multi-root ("forest") workspace must always attribute results to their
-    // root — even when the current result set happens to come from one root,
-    // the user cannot know which root that is without the badge.
-    seedResults(makeResults([fileResult({ path: 'src/a.ts' })]));
-    render(<Tree workspaceRootCount={2} />);
-    expect(screen.getByText('Mounted Root')).toBeInTheDocument();
-  });
+  it('highlights the query in a matching line, but not for a regular expression', () => {
+    finishedSearch([hit({ lineText: 'const foo = 1;' })], { query: 'foo' });
+    const plain = render(<Tree />);
+    expect(screen.getAllByText('foo', { selector: 'mark' }).length).toBeGreaterThan(0);
+    plain.unmount();
 
-  it('hides the root badge for single-root results in a single-root workspace', () => {
-    seedResults(makeResults([fileResult({ path: 'src/a.ts' })]));
-    render(<Tree workspaceRootCount={1} />);
-    expect(screen.queryByText('Mounted Root')).not.toBeInTheDocument();
-  });
-
-  it('highlights the query substring on text-match rows', () => {
-    seedResults(
-      makeResults([fileResult({ children: [textMatch({ lineText: 'const foo = 1;' })] })]),
-      {
-        query: 'foo',
-      }
-    );
+    useWorkspaceSearchStore.getState().toggleRegex();
+    finishedSearch([hit({ lineText: 'const foo = 1;' })], { query: 'fo+' });
     render(<Tree />);
-    const marks = screen.getAllByText('foo', { selector: 'mark' });
-    expect(marks.length).toBeGreaterThan(0);
+    expect(screen.queryByText('foo', { selector: 'mark' })).not.toBeInTheDocument();
   });
 
   it('names a truncated match line and file path in full (BST-1981: a narrow panel cuts them off)', () => {
     const lineText = 'The zebra crossing outside the station is closed for repairs today.';
-    seedResults(makeResults([fileResult({ children: [textMatch({ lineText })] })]), {
-      query: 'zebra',
-    });
+    finishedSearch([hit({ lineText })], { query: 'zebra' });
     render(<Tree />);
     expect(screen.getByTitle(lineText)).toHaveTextContent(lineText);
     expect(screen.getByTitle('src/a.ts')).toHaveTextContent('src/a.ts');
   });
 
-  it('renders ts_headline marks as <mark> elements without dangerouslySetInnerHTML', () => {
-    seedResults(makeResults([fileResult({ children: [chunkHit()] })]), { mode: 'semantic' });
-    render(<Tree />);
-    expect(screen.getByText('beta', { selector: 'mark' })).toBeInTheDocument();
-    // The literal tag text must never reach the DOM.
-    expect(screen.queryByText(/<mark>/u)).not.toBeInTheDocument();
-  });
-
-  it('navigates on row click: match rows pass their line', () => {
+  it('opens the file at the matching line when a line is clicked, and at the top for a file row', () => {
     const onOpenFile = vi.fn();
-    seedResults(makeResults([fileResult({ children: [textMatch({ line: 10 })] })]));
+    finishedSearch([hit({ line: 10 })]);
     render(<Tree onOpenFile={onOpenFile} />);
     fireEvent.click(screen.getByText('const foo = 1;'));
-    // Match rows navigate to the line only (no selection range).
-    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', { line: 10 });
+    expect(onOpenFile).toHaveBeenLastCalledWith(keyOf('root-a', 'src/a.ts'), { line: 10 });
+    fireEvent.click(screen.getByText('src/a.ts'));
+    expect(onOpenFile).toHaveBeenLastCalledWith(keyOf('root-a', 'src/a.ts'));
   });
 
-  it('navigates on chunk row click passing the chunk range to select', () => {
+  it('selects a file in the Explorer from its checkbox, without opening it', () => {
     const onOpenFile = vi.fn();
-    seedResults(
-      makeResults([fileResult({ children: [chunkHit({ endLine: 20, startLine: 14 })] })]),
-      {
-        mode: 'semantic',
-      }
+    finishedSearch([hit(), hit({ line: 11 })]);
+    render(<Tree onOpenFile={onOpenFile} />);
+    // The select-all header and the one file row: match lines have no checkbox.
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(2);
+    fireEvent.click(checkboxes[1] as HTMLElement);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledExactlyOnceWith(
+      keyOf('root-a', 'src/a.ts'),
+      true
     );
-    render(<Tree onOpenFile={onOpenFile} />);
-    fireEvent.click(screen.getByText('beta', { selector: 'mark' }));
-    // Chunk rows scroll to startLine AND select the full chunk range so the
-    // opened file highlights the block, ready to copy.
-    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', {
-      line: 14,
-      selection: { endLine: 20, startLine: 14 },
-    });
-  });
-
-  it('toggles the bridge (not navigation) when a checkbox is clicked', () => {
-    const onOpenFile = vi.fn();
-    seedResults(makeResults([fileResult({ children: [textMatch()] })]));
-    render(<Tree onOpenFile={onOpenFile} />);
-    // [0] is the select-all header checkbox; [1] is the file row checkbox.
-    const [, fileCheckbox] = screen.getAllByRole('checkbox');
-    fireEvent.click(fileCheckbox as HTMLElement);
-    expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(1);
-    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', true);
     expect(onOpenFile).not.toHaveBeenCalled();
-  });
-
-  it('gives chunk and match rows no checkbox: only files are selected (BST-2019)', () => {
-    seedResults(
-      makeResults([
-        fileResult({
-          children: [
-            textMatch({ chunkEndLine: 12, chunkId: 'chunk-1', chunkStartLine: 8, line: 9 }),
-            textMatch({ chunkEndLine: 12, chunkId: 'chunk-1', chunkStartLine: 8, line: 11 }),
-          ],
-        }),
-      ])
-    );
-    render(<Tree />);
-    // The select-all header and the one file row.
-    expect(screen.getAllByRole('checkbox')).toHaveLength(2);
-    expect(screen.queryByRole('checkbox', { name: 'Select lines 8-12' })).toBeNull();
   });
 
   it('attaches a result file from its row without opening it, where attaching is offered', () => {
     const onAttachFile = vi.fn();
     const onOpenFile = vi.fn();
-    seedResults(makeResults([fileResult({ children: [textMatch()] })]));
+    finishedSearch([hit()]);
     const { rerender } = render(<Tree onAttachFile={onAttachFile} onOpenFile={onOpenFile} />);
     fireEvent.click(screen.getByRole('button', { name: 'Attach src/a.ts to the thread' }));
-    expect(onAttachFile).toHaveBeenCalledExactlyOnceWith('adapter-root-mounted|@|src/a.ts');
+    expect(onAttachFile).toHaveBeenCalledExactlyOnceWith(keyOf('root-a', 'src/a.ts'));
     expect(onOpenFile).not.toHaveBeenCalled();
 
     // Web reads no mentions: no attach button at all.
@@ -309,269 +198,105 @@ describe('SearchResultsTree', () => {
     expect(screen.queryByTestId('search-attach-file')).toBeNull();
   });
 
-  it('renders the "· N matches" chunk label only when N > 1', () => {
-    seedResults(
-      makeResults([
-        fileResult({
-          children: [
-            textMatch({ chunkId: 'chunk-1', line: 9 }),
-            textMatch({ chunkId: 'chunk-1', line: 11 }),
-          ],
-          path: 'src/multi.ts',
-        }),
-      ])
-    );
-    const multi = render(<Tree />);
-    expect(multi.getByText(/· 2 matches/u)).toBeInTheDocument();
-    multi.unmount();
-
-    seedResults(
-      makeResults([fileResult({ children: [textMatch({ chunkId: 'chunk-1', line: 9 })] })])
-    );
-    render(<Tree />);
-    expect(screen.queryByText(/matches/u)).not.toBeInTheDocument();
-  });
-
-  it('navigates to the chunk startLine and selects the range when a text chunk row is clicked', () => {
-    const onOpenFile = vi.fn();
-    seedResults(
-      makeResults([
-        fileResult({
-          children: [textMatch({ chunkEndLine: 12, chunkStartLine: 8, line: 10 })],
-          path: 'src/a.ts',
-        }),
-      ])
-    );
-    render(<Tree onOpenFile={onOpenFile} />);
-    fireEvent.click(screen.getByText(/Lines 8–/u));
-    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', {
-      line: 8,
-      selection: { endLine: 12, startLine: 8 },
-    });
-  });
-
-  it('renders the scanLimited notice', () => {
-    seedResults(makeResults([fileResult()], { scanLimited: true }));
-    render(<Tree />);
-    expect(
-      screen.getByText('Partial search coverage — some files may not be included')
-    ).toBeInTheDocument();
-  });
-
-  it('names the open folders the search left out and how to include them', () => {
-    seedResults(makeResults([fileResult()], { unindexedFolders: ['wt2', 'wt3'] }));
-    render(<Tree />);
-    expect(screen.getByRole('status')).toHaveTextContent(
-      '"wt2", "wt3" are not indexed, so they were not searched. Worktrees can be turned on in Settings, Search & Indexing.'
-    );
-  });
-
-  it('names the left-out folder even when the indexed folders have no match', () => {
-    seedResults(makeResults([], { unindexedFolders: ['wt2'] }));
+  it('says when the search found nothing', () => {
+    finishedSearch([]);
     render(<Tree />);
     expect(screen.getByText('No matches found')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(
-      '"wt2" is not indexed, so it was not searched. Worktrees can be turned on in Settings, Search & Indexing.'
-    );
   });
 
-  it('renders a Show more button for truncated results when onShowMore is provided', () => {
-    const onShowMore = vi.fn();
-    seedResults(makeResults([fileResult()], { truncated: true }));
-    render(<Tree onShowMore={onShowMore} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
-    expect(onShowMore).toHaveBeenCalledTimes(1);
-  });
-
-  it('states the honest limit (no false "Show more") for truncated results without onShowMore', () => {
-    seedResults(makeResults([fileResult()], { truncated: true }));
-    render(<Tree />);
-    // One match row rendered -> "first 1 matches"; no clickable affordance.
-    expect(screen.getByText('Results limited to first 1 matches')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
-  });
-
-  it('never shows "Show more" in semantic mode even when onShowMore is passed (no semantic paging)', () => {
-    const onShowMore = vi.fn();
-    // Semantic truncated is always false in real results, but the tree itself
-    // must not render a semantic paging affordance even if a caller mistakenly
-    // wires onShowMore + a hypothetical truncated notice through.
-    seedResults(makeResults([fileResult({ children: [chunkHit()] })], { truncated: true }), {
-      mode: 'semantic',
+  it('names every cap the finished search hit', () => {
+    finishedSearch([hit()], {
+      summary: { matchLimitReached: true, unreadableRootIds: ['root-b'] },
     });
-    render(<Tree onShowMore={onShowMore} />);
-    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
-    // The honest fallback copy still renders instead.
-    expect(screen.getByText(/Results limited to first/u)).toBeInTheDocument();
-  });
-
-  it('renders the missing-line-metadata notice with a count and honest cause copy', () => {
-    seedResults(makeResults([fileResult()], { skippedMissingLineMetadata: 3 }));
     render(<Tree />);
     expect(
-      screen.getByText(
-        '3 results hidden (stale or unattributed index rows — reindexing fixes this)'
-      )
+      screen.getByText('"Root B" could not be read, so it was not searched.')
     ).toBeInTheDocument();
+    expect(screen.getByText(/Narrow the search to see the rest\./u)).toBeInTheDocument();
+  });
+});
+
+describe('searchSummaryNotices', () => {
+  const name = (rootId: string) => rootId;
+
+  it('says nothing for a complete search, or one still running', () => {
+    expect(searchSummaryNotices(COMPLETE, 3, name)).toEqual([]);
+    expect(searchSummaryNotices(null, 3, name)).toEqual([]);
   });
 
-  it('renders the candidatesTruncated notice', () => {
-    seedResults(makeResults([fileResult()], { candidatesTruncated: true }));
-    render(<Tree />);
+  it('names the file cap, and a timeout in its place', () => {
+    expect(searchSummaryNotices({ ...COMPLETE, candidatesTruncated: true }, 3, name)).toEqual([
+      'The search stopped at its file limit, so some files were not searched. Narrow the search to reach the rest.',
+    ]);
     expect(
-      screen.getByText('Match list may be incomplete (candidate pool capped) — narrow the query.')
-    ).toBeInTheDocument();
+      searchSummaryNotices({ ...COMPLETE, candidatesTruncated: true, timedOut: true }, 3, name)
+    ).toEqual(['The search reached its time limit, so some files were not searched.']);
   });
 
-  it('shows only the scanLimited notice when both limit flags are set (scanLimited implies the cap)', () => {
-    // The grep service reports scanLimited only when the unprefiltered scan hit
-    // the candidate cap, so scanLimited ⟹ candidatesTruncated; stacking both
-    // notices would double-report the same limitation.
-    seedResults(makeResults([fileResult()], { candidatesTruncated: true, scanLimited: true }));
-    render(<Tree />);
+  it('explains a regular expression with no plain text that stopped at the file cap', () => {
     expect(
-      screen.getByText('Partial search coverage — some files may not be included')
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText('Match list may be incomplete (candidate pool capped) — narrow the query.')
-    ).not.toBeInTheDocument();
+      searchSummaryNotices({ ...COMPLETE, candidatesTruncated: true, scanLimited: true }, 3, name)
+    ).toEqual([
+      'This pattern has no plain text to look for, so the search read files directly and stopped at its file limit.',
+    ]);
   });
 
-  it('aligns rows per level: chunk rows indent further AND reserve toggle space (semantic)', () => {
-    // Semantic mode: file (depth 0, has a child chunk) → chunk (depth 1, LEAF).
-    seedResults(makeResults([fileResult({ children: [chunkHit()] })]), { mode: 'semantic' });
-    const { container } = render(<Tree />);
-
-    const fileRow = container.querySelector('[data-depth="0"]');
-    const chunkRow = container.querySelector('[data-depth="1"]');
-    expect(fileRow).not.toBeNull();
-    expect(chunkRow).not.toBeNull();
-
-    // Per-level indent: the chunk row (depth 1) sits deeper than the file row.
-    expect(Number(chunkRow?.getAttribute('data-depth'))).toBeGreaterThan(
-      Number(fileRow?.getAttribute('data-depth'))
-    );
-
-    // The leaf chunk row RESERVES the expand-toggle column (the h-6 w-6 spacer)
-    // so its content lines up under the file's instead of landing left of it.
-    expect(chunkRow?.querySelector('[data-testid="tree-toggle-spacer"]')).not.toBeNull();
-  });
-
-  it('passes the search windowing context to the tree', () => {
-    seedResults(makeResults([fileResult()]));
-    const { container } = render(<Tree />);
-    const grid = within(container).getByRole('treegrid');
-    expect(grid).toBeInTheDocument();
+  it('formats the match cap for the reader', () => {
+    expect(searchSummaryNotices({ ...COMPLETE, matchLimitReached: true }, 5000, name)).toEqual([
+      'Showing the first 5,000 matches. Narrow the search to see the rest.',
+    ]);
   });
 });
 
 describe('SearchResultsTree select-all header', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
-    useWorkspaceSearchStore.getState().reset();
-  });
+  const twoFiles = () =>
+    finishedSearch([hit({ path: 'src/a.ts' }), hit({ path: 'src/b.ts', rootId: 'root-b' })]);
 
-  it('renders with the exact "Select {N} shown" label/aria-label for N loaded files', () => {
-    seedResults(
-      makeResults([
-        fileResult({ path: 'src/a.ts' }),
-        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
-      ])
-    );
+  it('labels itself with the number of files shown', () => {
+    twoFiles();
     render(<Tree />);
-    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
-    expect(header).toBeInTheDocument();
-    expect(screen.getByText('Select 2 shown')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select 2 shown' })).toBeInTheDocument();
   });
 
-  it('renders no header when zero files are rendered', () => {
-    seedResults(makeResults([]));
+  it('renders no header when nothing matched', () => {
+    finishedSearch([]);
     render(<Tree />);
     expect(screen.queryByRole('checkbox', { name: /Select .* shown/u })).not.toBeInTheDocument();
   });
 
-  it('reads checked when every rendered file is checked', () => {
-    seedResults(
-      makeResults([
-        fileResult({ path: 'src/a.ts' }),
-        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
-      ])
-    );
-    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('checked');
-    render(<Tree />);
-    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
-    expect(header).toHaveAttribute('data-state', 'checked');
-  });
-
-  it('reads indeterminate when some but not all rendered files are checked', () => {
-    seedResults(
-      makeResults([
-        fileResult({ path: 'src/a.ts' }),
-        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
-      ])
-    );
+  it('reads checked, indeterminate or unchecked from the files shown', () => {
+    twoFiles();
     (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockImplementation(
       (key: string): FileSelectionState => (key.endsWith('src/a.ts') ? 'checked' : 'unchecked')
     );
+    const some = render(<Tree />);
+    expect(screen.getByRole('checkbox', { name: 'Select 2 shown' })).toHaveAttribute(
+      'data-state',
+      'indeterminate'
+    );
+    some.unmount();
+
+    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('checked');
     render(<Tree />);
-    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
-    expect(header).toHaveAttribute('data-state', 'indeterminate');
+    expect(screen.getByRole('checkbox', { name: 'Select 2 shown' })).toHaveAttribute(
+      'data-state',
+      'checked'
+    );
   });
 
-  it('reads unchecked when no rendered file is selected', () => {
-    seedResults(
-      makeResults([
-        fileResult({ path: 'src/a.ts' }),
-        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
-      ])
-    );
-    render(<Tree />);
-    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
-    expect(header).toHaveAttribute('data-state', 'unchecked');
-  });
-
-  it('clicking while unchecked/indeterminate calls toggleFile(key, true) for every rendered file', () => {
-    seedResults(
-      makeResults([
-        fileResult({ path: 'src/a.ts' }),
-        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
-      ])
-    );
-    render(<Tree />);
+  it('selects every file shown, or clears them all when all are selected', () => {
+    twoFiles();
+    const unchecked = render(<Tree />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select 2 shown' }));
-    expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(2);
-    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', true);
-    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-b|@|src/b.ts', true);
-  });
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith(keyOf('root-a', 'src/a.ts'), true);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith(keyOf('root-b', 'src/b.ts'), true);
+    unchecked.unmount();
 
-  it('clicking while checked calls toggleFile(key, false) for every rendered file', () => {
-    seedResults(
-      makeResults([
-        fileResult({ path: 'src/a.ts' }),
-        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
-      ])
-    );
+    vi.clearAllMocks();
     (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('checked');
     render(<Tree />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select 2 shown' }));
-    expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(2);
-    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', false);
-    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-b|@|src/b.ts', false);
-  });
-
-  it('never touches files whose root is unmounted (omitted from the rendered set)', () => {
-    seedResults(
-      makeResults([
-        fileResult({ path: 'src/a.ts' }),
-        fileResult({ dbRootId: 'root-unmounted', path: 'src/unmounted.ts' }),
-      ])
-    );
-    render(<Tree />);
-    // Only 1 file is actually rendered/loaded (the unmounted-root file is omitted).
-    const header = screen.getByRole('checkbox', { name: 'Select 1 shown' });
-    fireEvent.click(header);
-    expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(1);
-    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', true);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith(keyOf('root-a', 'src/a.ts'), false);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith(keyOf('root-b', 'src/b.ts'), false);
   });
 });

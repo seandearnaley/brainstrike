@@ -123,7 +123,7 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
   // Fetch repository data when repository changes.
   // This effect must re-run on React dev replay as well as true repository changes.
   // Suppressing the replay with a ref leaves the first aborted request as the only
-  // one that ever ran, which traps the UI in "Loading presets..." forever.
+  // one that ever ran, which traps the UI in "Loading presets…" forever.
   useEffect(() => {
     if (!repository) {
       // No repository, ensure loading is false

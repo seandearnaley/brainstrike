@@ -70,6 +70,7 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/windows-job-native": "workspace:*",
     "@modelcontextprotocol/client": "catalog:",
+    "@vscode/ripgrep": "catalog:",
     "effect": "catalog:",
     "jsonc-parser": "catalog:",
     "minimatch": "catalog:",

@@ -17,7 +17,7 @@ describe('FileFilterBar', () => {
   it('renders with placeholder text', () => {
     render(<FileFilterBar {...defaultProps} />);
     expect(
-      screen.getByPlaceholderText(/Type to filter files... \(e.g. 'test component -spec'\)/iu)
+      screen.getByPlaceholderText(/Type to filter files… \(e.g. 'test component -spec'\)/iu)
     ).toBeInTheDocument();
   });
 

@@ -39,7 +39,7 @@ vi.mock('../hosted-embeddings', async (original) => ({
 }));
 
 // The native index and catalog answer the way Main's IndexSearchCapability and
-// PGlite catalog do; only their transport (Main's typed reads) is under test.
+// SQLite catalog do; only their transport (Main's typed reads) is under test.
 const profile = {
   dimensions: 1536,
   distance: 'cosine',

@@ -8,7 +8,10 @@ import { bindHostTerminalMethods } from '../src/terminal-connection.js';
 function bound(terminals: HostTerminals, origin: HostClientOrigin) {
   const handlers = new Map<HostMethod, (params: unknown) => Promise<unknown>>();
   const handle: HostMethodHandler = (method, request) => {
-    handlers.set(method, async (params) => await request(params as never));
+    handlers.set(
+      method,
+      async (params) => await request(params as never, new AbortController().signal)
+    );
   };
   const sendNotification = vi.fn(async () => undefined);
   const binding = bindHostTerminalMethods(

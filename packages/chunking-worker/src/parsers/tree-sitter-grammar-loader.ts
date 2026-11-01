@@ -75,13 +75,12 @@ async function loadGrammarBytes(language: TreeSitterLanguage): Promise<Uint8Arra
   //
   // Resolve relative to the worker module's OWN URL (import.meta.url) rather
   // than using an absolute `/assets/...` path. Reasons:
-  //  - apps/web serves from the document root, so /assets/... happens to work
   //  - apps/desktop runs under file:// with `base: './'` in vite.config; an
   //    absolute `/assets/...` resolves to file:///assets/... — wrong path
   //  - Vite's static-copy plugin (Phase 4) puts grammars under the same
   //    /assets/ dir as the worker bundle. `./grammars/<lang>.wasm` relative
   //    to a worker URL like `<base>/assets/chunking-worker-XYZ.js` resolves
-  //    correctly in BOTH environments.
+  //    correctly in both dev and packaged builds.
   //
   // P1 fix (review comment on #1000): absolute path crashed Electron.
   //

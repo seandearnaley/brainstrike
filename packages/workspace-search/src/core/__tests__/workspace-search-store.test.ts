@@ -1,315 +1,103 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { WorkspaceSearchResults } from '../search-result-model';
+import type { WorkspaceSearchHit, WorkspaceSearchSummary } from '../search-result-model';
 import { useWorkspaceSearchStore } from '../workspace-search-store';
 
-function makeResults(overrides?: Partial<WorkspaceSearchResults>): WorkspaceSearchResults {
-  return {
-    files: [
-      {
-        children: [],
-        dbRootId: 'root-1',
-        path: 'src/a.ts',
-        rootDisplayName: 'root-1-display',
-      },
-      {
-        children: [],
-        dbRootId: 'root-1',
-        path: 'src/b.ts',
-        rootDisplayName: 'root-1-display',
-      },
-    ],
-    mode: 'text',
-    notices: {
-      candidatesTruncated: false,
-      scanLimited: false,
-      skippedMissingLineMetadata: 0,
-      truncated: false,
-    },
-    totalMatches: 2,
-    ...overrides,
-  };
-}
+const store = () => useWorkspaceSearchStore.getState();
 
-/** Seed results tagged with the CURRENT generation so they actually apply. */
-function seedResults(overrides?: Partial<WorkspaceSearchResults>): void {
-  const generation = useWorkspaceSearchStore.getState().generation;
-  useWorkspaceSearchStore.getState().resolveResults(makeResults(overrides), generation);
-}
-
-describe('useWorkspaceSearchStore', () => {
-  beforeEach(() => {
-    useWorkspaceSearchStore.getState().reset();
-  });
-
-  it('starts with idle status and empty results', () => {
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.status).toBe('idle');
-    expect(state.results).toBeNull();
-    expect(state.error).toBeNull();
-    expect(state.query).toBe('');
-    expect(state.mode).toBe('text');
-    expect(state.expandedIds.size).toBe(0);
-  });
-
-  it('beginSearch sets status to searching and clears error', () => {
-    useWorkspaceSearchStore.setState({ error: 'previous failure' });
-    useWorkspaceSearchStore.getState().beginSearch();
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.status).toBe('searching');
-    expect(state.error).toBeNull();
-  });
-
-  it('resolveResults populates results, sets status results, and expands all file ids', () => {
-    const results = makeResults();
-    const generation = useWorkspaceSearchStore.getState().generation;
-    useWorkspaceSearchStore.getState().resolveResults(results, generation);
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.status).toBe('results');
-    expect(state.results).toBe(results);
-    expect(state.expandedIds).toEqual(new Set(['f:root-1:src/a.ts', 'f:root-1:src/b.ts']));
-  });
-
-  it('resolveResults also expands text-mode chunk-group ids so matches render', () => {
-    const results = makeResults({
-      files: [
-        {
-          children: [
-            {
-              after: [],
-              before: [],
-              chunkEndLine: 12,
-              chunkId: 'chunk-1',
-              chunkStartLine: 8,
-              kind: 'match',
-              line: 9,
-              lineText: 'a',
-              provenance: 'index',
-            },
-            {
-              after: [],
-              before: [],
-              chunkEndLine: 20,
-              chunkId: 'chunk-2',
-              chunkStartLine: 14,
-              kind: 'match',
-              line: 15,
-              lineText: 'b',
-              provenance: 'index',
-            },
-          ],
-          dbRootId: 'root-1',
-          path: 'src/a.ts',
-          rootDisplayName: 'root-1-display',
-        },
-      ],
-    });
-    const generation = useWorkspaceSearchStore.getState().generation;
-    useWorkspaceSearchStore.getState().resolveResults(results, generation);
-    expect(useWorkspaceSearchStore.getState().expandedIds).toEqual(
-      new Set(['f:root-1:src/a.ts', 'c:chunk-1', 'c:chunk-2'])
-    );
-  });
-
-  it('failSearch sets status error and surfaces the message', () => {
-    const generation = useWorkspaceSearchStore.getState().generation;
-    useWorkspaceSearchStore.getState().failSearch('search backend unavailable', generation);
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.status).toBe('error');
-    expect(state.error).toBe('search backend unavailable');
-  });
-
-  it('beginSearch increments the generation and returns the new value', () => {
-    const before = useWorkspaceSearchStore.getState().generation;
-    const generation = useWorkspaceSearchStore.getState().beginSearch();
-    expect(generation).toBe(before + 1);
-    expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
-  });
-
-  it('resolveResults is a no-op when the generation is stale (superseded run)', () => {
-    const staleGeneration = useWorkspaceSearchStore.getState().beginSearch();
-    // A newer run (or any invalidating change) advances the generation.
-    useWorkspaceSearchStore.getState().setMode('semantic');
-    useWorkspaceSearchStore.getState().resolveResults(makeResults(), staleGeneration);
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
-  });
-
-  it('failSearch is a no-op when the generation is stale (superseded run)', () => {
-    const staleGeneration = useWorkspaceSearchStore.getState().beginSearch();
-    const freshGeneration = useWorkspaceSearchStore.getState().beginSearch();
-    useWorkspaceSearchStore.getState().resolveResults(makeResults(), freshGeneration);
-    // Older run rejects after the newer run resolved — must not clobber results.
-    useWorkspaceSearchStore.getState().failSearch('stale grep died', staleGeneration);
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.status).toBe('results');
-    expect(state.error).toBeNull();
-    expect(state.results).not.toBeNull();
-  });
-
-  it('invalidating changes advance the generation', () => {
-    const start = useWorkspaceSearchStore.getState().generation;
-    useWorkspaceSearchStore.getState().setMode('semantic');
-    useWorkspaceSearchStore.getState().toggleCase();
-    useWorkspaceSearchStore.getState().toggleRegex();
-    useWorkspaceSearchStore.getState().toggleWholeWord();
-    expect(useWorkspaceSearchStore.getState().generation).toBe(start + 4);
-  });
-
-  it('setMode clears results, resets status to idle, and updates mode', () => {
-    seedResults();
-    useWorkspaceSearchStore.getState().setMode('semantic');
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.mode).toBe('semantic');
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
-  });
-
-  it('toggleCase clears results and resets status to idle', () => {
-    seedResults();
-    useWorkspaceSearchStore.getState().toggleCase();
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.caseSensitive).toBe(true);
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
-  });
-
-  it('toggleRegex clears results and resets status to idle', () => {
-    seedResults();
-    useWorkspaceSearchStore.getState().toggleRegex();
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.isRegex).toBe(true);
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
-  });
-
-  it('toggleWholeWord clears results and resets status to idle', () => {
-    seedResults();
-    useWorkspaceSearchStore.getState().toggleWholeWord();
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.wholeWord).toBe(true);
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
-  });
-
-  it('toggleExpanded flips membership of a node id', () => {
-    useWorkspaceSearchStore.getState().toggleExpanded('f:root-1:src/a.ts');
-    expect(useWorkspaceSearchStore.getState().expandedIds.has('f:root-1:src/a.ts')).toBe(true);
-    useWorkspaceSearchStore.getState().toggleExpanded('f:root-1:src/a.ts');
-    expect(useWorkspaceSearchStore.getState().expandedIds.has('f:root-1:src/a.ts')).toBe(false);
-  });
-
-  it('clearResults nulls results, resets to idle, and bumps the generation', () => {
-    seedResults();
-    const before = useWorkspaceSearchStore.getState().generation;
-    useWorkspaceSearchStore.getState().clearResults();
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
-    expect(state.error).toBeNull();
-    expect(state.generation).toBe(before + 1);
-  });
-
-  it('clearResults bumps the generation so a superseded run cannot resurrect results', () => {
-    const generation = useWorkspaceSearchStore.getState().beginSearch();
-    useWorkspaceSearchStore.getState().clearResults();
-    // The in-flight run resolving with the pre-clear generation must be dropped.
-    useWorkspaceSearchStore.getState().resolveResults(makeResults(), generation);
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
-  });
-
-  it('setQuery updates the query without touching results/status', () => {
-    seedResults();
-    useWorkspaceSearchStore.getState().setQuery('foo');
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.query).toBe('foo');
-    expect(state.status).toBe('results');
-    expect(state.results).not.toBeNull();
-  });
-
-  it('reset restores initial state', () => {
-    useWorkspaceSearchStore.getState().setQuery('foo');
-    seedResults();
-    useWorkspaceSearchStore.getState().reset();
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.query).toBe('');
-    expect(state.status).toBe('idle');
-    expect(state.results).toBeNull();
-    expect(state.expandedIds.size).toBe(0);
-  });
-
-  describe('textResultLimit (Show-more paging)', () => {
-    it('starts at the 200 default', () => {
-      expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(200);
-    });
-
-    it('increaseTextResultLimit bumps by 200 without touching generation/results/status', () => {
-      seedResults();
-      const before = useWorkspaceSearchStore.getState();
-      const beforeGeneration = before.generation;
-      const beforeStatus = before.status;
-      const beforeResults = before.results;
-
-      useWorkspaceSearchStore.getState().increaseTextResultLimit();
-
-      const after = useWorkspaceSearchStore.getState();
-      expect(after.textResultLimit).toBe(400);
-      expect(after.generation).toBe(beforeGeneration);
-      expect(after.status).toBe(beforeStatus);
-      expect(after.results).toBe(beforeResults);
-    });
-
-    it('increaseTextResultLimit compounds across repeated calls', () => {
-      useWorkspaceSearchStore.getState().increaseTextResultLimit();
-      useWorkspaceSearchStore.getState().increaseTextResultLimit();
-      expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(600);
-    });
-
-    it.each([
-      ['setMode', () => useWorkspaceSearchStore.getState().setMode('semantic')],
-      ['toggleCase', () => useWorkspaceSearchStore.getState().toggleCase()],
-      ['toggleRegex', () => useWorkspaceSearchStore.getState().toggleRegex()],
-      ['toggleWholeWord', () => useWorkspaceSearchStore.getState().toggleWholeWord()],
-      ['clearResults', () => useWorkspaceSearchStore.getState().clearResults()],
-      ['setQuery', () => useWorkspaceSearchStore.getState().setQuery('foo')],
-      ['reset', () => useWorkspaceSearchStore.getState().reset()],
-    ])('%s resets textResultLimit back to 200', (_name, act) => {
-      useWorkspaceSearchStore.getState().increaseTextResultLimit();
-      expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(400);
-      act();
-      expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(200);
-    });
-  });
+const hit = (path: string, line: number, rootId = 'root-a'): WorkspaceSearchHit => ({
+  line,
+  lineText: `line ${line} of ${path}`,
+  path,
+  rootId,
 });
 
-describe('native pending command ownership', () => {
-  it.each(['clearResults', 'toggleCase', 'toggleRegex', 'toggleWholeWord', 'reset'] as const)(
-    'retires the pending command with %s',
-    (action) => {
-      const store = useWorkspaceSearchStore.getState();
-      store.setQuery('notarize');
-      const command = { after: null, generation: store.beginSearch(), mode: 'text' as const };
-      store.retainNativeSearch(command);
-      expect(useWorkspaceSearchStore.getState().nativePendingSearch).toBe(command);
-      store[action]();
-      expect(useWorkspaceSearchStore.getState().nativePendingSearch).toBeNull();
-      expect(store.consumeNativeSearch(command)).toBe(false);
-    }
-  );
-  it('only consumes the exact current command and refuses superseded completions', () => {
-    const store = useWorkspaceSearchStore.getState();
-    store.setQuery('notarize');
-    const command = { after: null, generation: store.beginSearch(), mode: 'text' as const };
-    const replacement = { ...command };
-    store.retainNativeSearch(command);
-    store.retainNativeSearch(replacement);
-    expect(store.consumeNativeSearch(command)).toBe(false);
-    expect(store.consumeNativeSearch(replacement)).toBe(true);
-    expect(store.consumeNativeSearch(replacement)).toBe(false);
-    store.beginSearch();
-    store.retainNativeSearch(command);
-    expect(useWorkspaceSearchStore.getState().nativePendingSearch).toBeNull();
+const SUMMARY: WorkspaceSearchSummary = {
+  candidatesTruncated: false,
+  matchLimitReached: true,
+  scanLimited: false,
+  timedOut: false,
+  unreadableRootIds: [],
+};
+
+describe('workspace search store', () => {
+  beforeEach(() => {
+    store().reset();
+  });
+
+  it('groups streamed matches by file, in the order they were found', () => {
+    const generation = store().beginSearch();
+    store().appendMatches([hit('b.ts', 4), hit('a.ts', 1)], generation);
+    store().appendMatches([hit('b.ts', 9), hit('a.ts', 1, 'root-b')], generation);
+
+    expect(store().files).toEqual([
+      {
+        matches: [
+          { line: 4, lineText: 'line 4 of b.ts' },
+          { line: 9, lineText: 'line 9 of b.ts' },
+        ],
+        path: 'b.ts',
+        rootId: 'root-a',
+      },
+      { matches: [{ line: 1, lineText: 'line 1 of a.ts' }], path: 'a.ts', rootId: 'root-a' },
+      { matches: [{ line: 1, lineText: 'line 1 of a.ts' }], path: 'a.ts', rootId: 'root-b' },
+    ]);
+    expect(store().totalMatches).toBe(4);
+    expect(store().status).toBe('searching');
+  });
+
+  it('keeps the finished search caps, and none while it runs', () => {
+    const generation = store().beginSearch();
+    expect(store().summary).toBeNull();
+    store().completeSearch(SUMMARY, generation);
+    expect(store().status).toBe('results');
+    expect(store().summary).toEqual(SUMMARY);
+  });
+
+  it('drops the matches and answer of a search a newer one replaced', () => {
+    const first = store().beginSearch();
+    store().appendMatches([hit('old.ts', 1)], first);
+    const second = store().beginSearch();
+    store().appendMatches([hit('old.ts', 2)], first);
+    store().completeSearch(SUMMARY, first);
+    store().failSearch('late failure', first);
+
+    expect(store().files).toEqual([]);
+    expect(store().status).toBe('searching');
+    store().appendMatches([hit('new.ts', 1)], second);
+    expect(store().files.map((file) => file.path)).toEqual(['new.ts']);
+  });
+
+  it('a match option change ends the running search and clears its results', () => {
+    const generation = store().beginSearch();
+    store().appendMatches([hit('a.ts', 1)], generation);
+    store().toggleCase();
+
+    expect(store()).toMatchObject({ caseSensitive: true, files: [], status: 'idle' });
+    store().appendMatches([hit('a.ts', 2)], generation);
+    expect(store().files).toEqual([]);
+  });
+
+  it('a failed search shows its message', () => {
+    const generation = store().beginSearch();
+    store().failSearch('No folder is open.', generation);
+    expect(store()).toMatchObject({ error: 'No folder is open.', status: 'error' });
+  });
+
+  it('collapsing a file is remembered until the next search', () => {
+    const generation = store().beginSearch();
+    store().appendMatches([hit('a.ts', 1)], generation);
+    store().toggleCollapsed('f:root-a:a.ts');
+    expect(store().collapsedIds.has('f:root-a:a.ts')).toBe(true);
+    store().beginSearch();
+    expect(store().collapsedIds.size).toBe(0);
+  });
+
+  it('reset never reuses a generation, so a search from before it stays dropped', () => {
+    const before = store().beginSearch();
+    store().reset();
+    const after = store().beginSearch();
+    expect(after).toBeGreaterThan(before);
+    store().appendMatches([hit('a.ts', 1)], before);
+    expect(store().files).toEqual([]);
   });
 });

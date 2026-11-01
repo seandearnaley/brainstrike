@@ -159,6 +159,7 @@ test("a subagent's canvases are read from the host, whose catalog lists top-leve
     closed: new Promise<void>(() => undefined),
     onChildrenChanged: () => () => undefined,
     onEvent: () => () => undefined,
+    onFileSearch: () => () => undefined,
     onGitWorkspace: () => () => undefined,
     onMcpPresentation: () => () => undefined,
     onMcpSettings: () => () => undefined,

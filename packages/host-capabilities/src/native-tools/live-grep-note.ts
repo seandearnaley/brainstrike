@@ -1,20 +1,15 @@
 /**
- * The live grep pass's non-silent note composer, split from `live-grep.ts`
- * (that file sits at the 1000-line lint ceiling). Degradations and caps are
- * surfaced to the model here so freshness limits are never hidden.
+ * The live grep pass's non-silent note composer, split from `live-grep.ts`.
+ * Caps, time limits and unreadable folders are surfaced here so a search's
+ * limits are never hidden.
  */
-/** Compose the non-silent live-pass note (degradation + cap warnings), or undefined when clean. */
+/** Compose the non-silent live-pass note (cap and coverage warnings), or undefined when clean. */
 export function buildLiveNote(args: {
-  exactScope?: boolean;
-  rgPresent: boolean;
-  rgUsed: boolean;
-  regexNoLiteralPrefilter: boolean;
-  degradedToWalk: boolean;
-  degradeReason: string | null;
   partialReadErrors: boolean;
   scanLimited: boolean;
   candidateTruncated: boolean;
   prefilterTruncated: boolean;
+  timedOut: boolean;
   /** Display names of folders whose root could not be opened, so they were not searched. */
   unreadableRoots?: readonly string[];
 }): string | undefined {
@@ -31,28 +26,14 @@ export function buildLiveNote(args: {
       'ripgrep reported unreadable files during the live pass; matches inside unreadable files may be missing.'
     );
   }
-  if (args.exactScope) {
-    // Direct file scopes need no prefilter and no root walk.
-  } else if (!args.rgPresent) {
-    parts.push('ripgrep is unavailable; the live (on-disk) pass used a bounded file-walk instead.');
-  } else if (args.degradedToWalk) {
+  if (args.timedOut) {
     parts.push(
-      `ripgrep failed (${args.degradeReason ?? 'unknown error'}); the live pass fell back to a bounded file-walk.`
-    );
-  } else if (args.regexNoLiteralPrefilter) {
-    // rg is present but was deliberately not used: this regex has no literal that
-    // rg could prefilter on as a guaranteed superset, so the live pass scanned
-    // candidate files directly with the authoritative matcher (consistent with
-    // the indexed path's scanLimited regex case) rather than trusting rg's
-    // narrower regex dialect. Never silent.
-    parts.push(
-      'The live pass scanned on-disk files without a ripgrep prefilter ' +
-        '(this regex has no extractable literal), so it was bounded by the file-walk cap.'
+      'ripgrep reached its time limit, so some on-disk matches may be missing; narrow the pattern or scope.'
     );
   }
   if (args.scanLimited) {
     parts.push(
-      'The live file-walk hit its per-root visit cap, so some on-disk matches may be missing.'
+      'This regex has no literal ripgrep can prefilter on, so files were scanned directly and the scan stopped at its file cap; some matches may be missing.'
     );
   }
   if (args.candidateTruncated) {

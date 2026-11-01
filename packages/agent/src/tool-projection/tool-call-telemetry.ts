@@ -9,13 +9,13 @@ export interface ToolCallTelemetryMetadata {
   /**
    * BST-1247: substrate flags recorded SEPARATELY from `truncated`.
    * `truncated` means exactly "model-facing output was clipped" — folding
-   * engine degradation (rg → capped JS walk) or candidate caps into it made
+   * candidate caps or a ripgrep timeout into it made
    * the self-improvement waste ranking blame the model for infrastructure
    * failure it cannot influence.
    */
   readonly candidatesTruncated?: boolean;
-  /** Live-pass engine for search tools ('ripgrep' | 'js-walk' | 'js-files' | 'skipped'). */
-  readonly engine?: 'js-files' | 'js-walk' | 'ripgrep' | 'skipped';
+  /** Live-pass engine for search tools ('ripgrep' | 'js-files' | 'skipped'). */
+  readonly engine?: 'js-files' | 'ripgrep' | 'skipped';
   readonly isPaginationFollowup: boolean;
   readonly scanLimited?: boolean;
   readonly truncated: boolean;

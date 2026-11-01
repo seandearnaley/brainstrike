@@ -120,7 +120,7 @@ test.describe('Logs workspace tab (BST-1791)', () => {
     await expect(page.getByTestId('settings-route')).toBeHidden();
     const viewer = page.getByRole('region', { name: 'Log Viewer' });
     // Only the seeded records, oldest first and auto-scrolled to the newest.
-    await viewer.getByPlaceholder('Search logs...').fill('Logs tab');
+    await viewer.getByPlaceholder('Search logs…').fill('Logs tab');
     await expect(viewer.getByText(LONG_PAYLOAD_MESSAGE, { exact: true })).toBeVisible();
 
     // One page of every record, so the list overflows; the filters fold away again.
