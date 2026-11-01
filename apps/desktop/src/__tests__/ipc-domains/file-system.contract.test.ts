@@ -5,13 +5,6 @@ import { fileSystemArgs } from '../../ipc-domains/file-system-args';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 import { ipcArgsDecoder } from '../../platform/ipc-args';
 
-const directoryHandle = {
-  kind: 'directory' as const,
-  name: 'workspace',
-  path: '/workspace',
-  platform: 'electron' as const,
-};
-
 describe('file-system IPC contracts', () => {
   it('maps each transport envelope', () => {
     const expectedChannels = new Set<string>(Object.values(DESKTOP_IPC_CHANNELS.files));
@@ -31,15 +24,9 @@ describe('file-system IPC contracts', () => {
     expect(() => decode(fileSystemArgs.deleteRootData, ['r'.repeat(1025)])).toThrow(
       'durable root ID'
     );
-    expect(decode(fileSystemArgs.readDirectory, [directoryHandle])).toEqual([directoryHandle]);
+    expect(decode(fileSystemArgs.addRootByPath, ['/workspace'])).toEqual(['/workspace']);
 
     expect(() => decode(fileSystemArgs.addRoot, ['extra'])).toThrow('invalid arguments');
-    expect(() => decode(fileSystemArgs.readDirectory, [{ ...directoryHandle, path: 42 }])).toThrow(
-      'invalid arguments'
-    );
-    expect(() => decode(fileSystemArgs.readFile, [directoryHandle])).toThrow('invalid arguments');
-    expect(() => decode(fileSystemArgs.readFileByAbsolutePath, ['/a', '/root'])).toThrow(
-      'invalid arguments'
-    );
+    expect(() => decode(fileSystemArgs.addRootByPath, [42])).toThrow('invalid arguments');
   });
 });

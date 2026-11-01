@@ -85,8 +85,10 @@ its Main side and quit step:
    `fs.watch`, which closes on the event loop. The Explorer's watches are host
    methods gated to the desktop's private client, with a per-connection
    `workspace/files/event` stream; a connection's watches end when it closes, and
-   the `fs:watch*` IPC domain goes. Explorer reads, then the root registry, follow;
-   the `file-system` step goes once those and the native index's watches have left.
+   the `fs:watch*` IPC domain goes. Explorer reads (`workspace/files/list`, `read`,
+   `exists`) follow the same gate over the host's live catalog roots, and Main's
+   `fs:read*`/`fs:exists` channels and E2E mock tree go. The root registry follows;
+   the `file-system` step goes once it and the native index's watches have left.
 5. MCP control, then index activation if the retrieval decision keeps it.
 
 Quit then ends as: factory reset, renderers, `host/stop`, join utility and hidden

@@ -114,7 +114,7 @@ amended by ADR-0027).
 - Ordering:
   - Main prepares its workspace mutations before profile retirement.
   - The agent host retires worktree operations, Git inventory, snapshot
-    maintenance, terminals, Explorer root watches, command sessions, language
+    maintenance, terminals, Explorer reads and root watches, command sessions, language
     servers and shell commands in its own close (ADR-0029). Accepted workflows finish while mounts, git,
     setup and the authenticated catalog stay available; new mutations are refused.
   - The catalog borrower then fences new calls and joins admitted acquisitions and
