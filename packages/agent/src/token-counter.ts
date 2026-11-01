@@ -58,7 +58,6 @@ function lose(lost: Running, error: TokenCounterUnavailableError): void {
 
 function spawn(): Running {
   const spawned: Running = { pending: new Map(), worker: new Worker(WORKER_ENTRY) };
-  spawned.worker.unref();
   spawned.worker.on('message', (reply: TokenCounterReply) => {
     const waiter = spawned.pending.get(reply.id);
     if (waiter) {
@@ -78,6 +77,8 @@ function spawn(): Running {
   spawned.worker.on('exit', (code) => {
     lose(spawned, new TokenCounterUnavailableError(`The token counter exited (code ${code})`));
   });
+  // After the listeners: attaching a 'message' listener refs the worker's port again.
+  spawned.worker.unref();
   running = spawned;
   return spawned;
 }
