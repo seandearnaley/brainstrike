@@ -55,9 +55,6 @@ describe('validateDesktopBridgeContract', () => {
         content: { clear: async () => ({}) },
         factoryReset: { resetLocal: async () => ({ success: true }) },
         fileSystem: {
-          exists: async () => true,
-          readDirectory: async () => [],
-          readFile: async () => '',
           requestDirectoryAccess: async () => ({
             kind: 'directory',
             name: 'root',
