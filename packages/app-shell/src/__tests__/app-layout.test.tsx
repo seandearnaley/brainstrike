@@ -17,6 +17,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     <div data-testid="file-explorer-provider">{children}</div>
   ),
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
+  ThreadCheckoutProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 // Mock the file-explorer-hooks package

@@ -33,6 +33,7 @@ function register(db, request, paths) {
         );
       const now = Date.now();
       // A registered folder is open: it keeps its place, or joins the end of the open folders.
+      // A managed worktree never opens: it is a thread's checkout, not a folder (ADR-0034).
       const nextPosition = '(SELECT COALESCE(MAX(open_position) + 1, 0) FROM roots)';
       if (existing) {
         // A folder at a recorded path that resolves elsewhere is another folder: only a fresh
@@ -41,7 +42,8 @@ function register(db, request, paths) {
           throw new Error('The workspace folder at this path is not the one that was granted');
         }
         db.prepare(`UPDATE roots SET status = 'live', last_verified_at = ?, canonical_path = ?,
-          open_position = COALESCE(open_position, ${nextPosition}) WHERE id = ?`).run(
+          open_position = CASE WHEN kind = 'worktree' THEN NULL
+            ELSE COALESCE(open_position, ${nextPosition}) END WHERE id = ?`).run(
           now,
           root.canonicalPath,
           existing.id
@@ -95,7 +97,7 @@ function register(db, request, paths) {
       const kind = managed ? 'worktree' : 'path';
       db.prepare(`INSERT INTO roots (id, path, canonical_path, display_name, kind, status,
         created_at, last_verified_at, open_position)
-      VALUES (?, ?, ?, ?, ?, 'live', ?, ?, ${nextPosition})`).run(
+      VALUES (?, ?, ?, ?, ?, 'live', ?, ?, ${managed ? 'NULL' : nextPosition})`).run(
         root.preferredId,
         root.path,
         root.canonicalPath,
@@ -153,7 +155,20 @@ export function executeWorkspaceRootRequest(db, request, paths) {
         roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
           db
             .prepare(
-              `SELECT ${projection} FROM roots WHERE open_position IS NOT NULL ORDER BY open_position`
+              `SELECT ${projection} FROM roots WHERE open_position IS NOT NULL AND kind = 'path'
+                ORDER BY open_position`
+            )
+            .all()
+        ),
+      };
+    case 'list-worktrees':
+      return {
+        roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
+          db
+            .prepare(
+              `SELECT ${projection} FROM roots WHERE kind = 'worktree' AND path IN
+                (SELECT path FROM brainstrike_worktrees WHERE archived_at IS NULL)
+              ORDER BY created_at, rowid`
             )
             .all()
         ),

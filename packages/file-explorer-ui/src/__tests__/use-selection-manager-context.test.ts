@@ -1,6 +1,8 @@
 import { renderHook } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import { ThreadCheckoutProvider } from '../shell/thread-checkout-context';
 import { useSelectionManager } from '../shell/use-selection-manager-context';
 
 vi.mock('../shell/file-explorer-provider', () => {
@@ -251,6 +253,32 @@ describe('useSelectionManager', () => {
       expect(result.current.selectedFilesList).toEqual(expect.arrayContaining([KEY_A, KEY_B]));
       // The focused root's stale folderState snapshot must NOT leak in.
       expect(result.current.effectiveSelection.has(`${ROOT_A}|@|stale.ts`)).toBe(false);
+    });
+
+    it("spans the thread's worktree in place of its hidden folder (ADR-0034)", () => {
+      const WORKTREE = 'cccccccc-0000-4000-8000-000000000003';
+      const KEY_W = `${WORKTREE}|@|src/w.ts`;
+      const { store, setFolderSelection } = createMockStore({
+        activeRootIds: [ROOT_A, ROOT_B],
+        currentFolderId: ROOT_B,
+        folderStates: {
+          [ROOT_A]: { selectedFilePaths: new Set([KEY_A]) },
+          [WORKTREE]: { selectedFilePaths: new Set([KEY_W]) },
+        },
+        selectedFilePaths: new Set([KEY_B]),
+      });
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+      const checkout = { localRootId: ROOT_A, worktreeRootId: WORKTREE };
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(ThreadCheckoutProvider, { checkout, children });
+
+      const { result } = renderHook(() => useSelectionManager(), { wrapper });
+
+      expect(result.current.effectiveSelection).toEqual(new Set([KEY_B, KEY_W]));
+      expect(result.current.selectedCount).toBe(2);
+      result.current.setSelectedFilesFromList([KEY_B, KEY_W]);
+      expect(setFolderSelection).toHaveBeenCalledWith(WORKTREE, [KEY_W]);
+      expect(setFolderSelection).not.toHaveBeenCalledWith(ROOT_A, expect.anything());
     });
 
     it('keeps set identity when no other root has selections (memo stability)', () => {

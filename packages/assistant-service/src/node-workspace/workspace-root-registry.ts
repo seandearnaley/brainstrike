@@ -72,6 +72,11 @@ interface AddRootOptions {
   readonly recordInRecentRoots?: boolean;
 }
 
+/** A managed worktree's descriptor: a thread's checkout, never an open folder (ADR-0034). */
+function asWorktree(descriptor: RootDescriptor): RootDescriptor {
+  return { ...descriptor, handle: { ...descriptor.handle, worktree: true } };
+}
+
 /** A recorded folder whose path no longer resolves to the folder it was granted under. */
 export class WorkspaceRootIdentityChangedError extends Error {
   constructor() {
@@ -166,7 +171,7 @@ export class WorkspaceRootRegistry {
       // a path alias that is gone or now leads elsewhere never serves it. Without the picker the
       // record keeps its path.
       const entryPath = grantedAfresh ? presentationPath : (recorded?.path ?? presentationPath);
-      const rootId = await recordWorkspaceRoot(
+      const { id: rootId, kind } = await recordWorkspaceRoot(
         db,
         {
           canonicalPath,
@@ -191,9 +196,11 @@ export class WorkspaceRootRegistry {
       });
       probeAdopted = true;
 
-      // Registering the record opened it, in the same commit.
+      // Registering the record opened it, in the same commit: unless it is a managed worktree,
+      // which is mounted for its thread but never opened (ADR-0034).
       this.mounts.clearSessionMount(entry.rootId);
-      if (recordInRecentRoots) {
+      const worktree = kind === 'worktree';
+      if (recordInRecentRoots && !worktree) {
         // Retain the ledger read before mounting; a missing snapshot is an
         // invariant failure, never permission to overwrite the ledger as empty.
         if (recentRootEntries === null) {
@@ -211,7 +218,8 @@ export class WorkspaceRootRegistry {
         // already decided it doesn't belong in Recents.
         this.onRootGranted?.(entry.path);
       }
-      return descriptorFor(entry, 'granted', true);
+      const descriptor = descriptorFor(entry, 'granted', true);
+      return worktree ? asWorktree(descriptor) : descriptor;
     } finally {
       if (!probeAdopted) {
         try {
@@ -514,13 +522,30 @@ export class WorkspaceRootRegistry {
     return mounted !== undefined;
   }
 
-  /** Mounts the folders the person has open, in their order; one that cannot mount stays open. */
+  /**
+   * Mounts the folders the person has open, in their order, then the worktree ledger's
+   * worktrees, so a thread bound to one still runs (ADR-0034); a folder that cannot mount stays
+   * open. A worktree's descriptor says so: it is a thread's checkout, not an open folder.
+   */
   restoreRoots(): Promise<RootDescriptor[]> {
     return this.serializeMutation(() => this.restoreRootsOwned());
   }
 
   private async restoreRootsOwned(): Promise<RootDescriptor[]> {
-    const entries = await this.readOpenRoots();
+    const open = await this.readOpenRoots();
+    const openIds = new Set(open.map((entry) => entry.rootId));
+    const worktrees = (await this.readWorktreeRoots()).filter(
+      (entry) => !openIds.has(entry.rootId)
+    );
+    const worktreeIds = new Set(worktrees.map((entry) => entry.rootId));
+    const entries = [...open, ...worktrees];
+    const describe = (
+      entry: RecordedWorkspaceRoot,
+      state: 'granted' | 'unknown'
+    ): RootDescriptor =>
+      worktreeIds.has(entry.rootId)
+        ? asWorktree(descriptorFor(entry, state))
+        : descriptorFor(entry, state);
     this.availability.retain(entries);
     const descriptors: RootDescriptor[] = [];
     const retainedRootIds = this.mounts.sessionMountIds();
@@ -534,7 +559,7 @@ export class WorkspaceRootRegistry {
         this.mount(stored)
       );
       if (!mountResult.ok) {
-        descriptors.push(descriptorFor(entry, 'unknown'));
+        descriptors.push(describe(entry, 'unknown'));
         continue;
       }
       const { canonicalPath } = mountResult;
@@ -551,7 +576,7 @@ export class WorkspaceRootRegistry {
       retainedCanonicalPaths.add(pathKey(canonicalPath));
       retainedRootIds.add(entry.rootId);
       recentRootCandidates.push(entry);
-      descriptors.push(descriptorFor(entry, 'granted'));
+      descriptors.push(describe(entry, 'granted'));
     }
 
     for (const mountedRootId of this.mounts.ids()) {
@@ -563,7 +588,12 @@ export class WorkspaceRootRegistry {
     if (this.readOnlyRefusal()) {
       return descriptors;
     }
-    await recordRestoredRecentRoots(this.recents, this.getRootsCatalog, recentRootCandidates);
+    // A worktree is re-registered for its thread but never joins Recents.
+    await recordRestoredRecentRoots(
+      this.recents,
+      this.getRootsCatalog,
+      recentRootCandidates.filter((entry) => !worktreeIds.has(entry.rootId))
+    );
     await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
     await this.convergeDatabase(duplicateRootIds);
     return descriptors;
@@ -581,6 +611,14 @@ export class WorkspaceRootRegistry {
   private async readOpenRoots(): Promise<RecordedWorkspaceRoot[]> {
     const { roots } = await (await this.getRootsCatalog()).workspaceRoots({
       operation: 'list-open',
+    });
+    return roots.map(recordedRoot);
+  }
+
+  /** The roots of the worktree ledger's unarchived worktrees, as the catalog records them. */
+  private async readWorktreeRoots(): Promise<RecordedWorkspaceRoot[]> {
+    const { roots } = await (await this.getRootsCatalog()).workspaceRoots({
+      operation: 'list-worktrees',
     });
     return roots.map(recordedRoot);
   }

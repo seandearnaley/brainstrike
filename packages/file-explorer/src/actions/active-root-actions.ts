@@ -8,6 +8,7 @@ export interface ActiveRootActions {
   /**
    * Append a new root if absent by rootId; if the rootId already exists,
    * update its descriptor (displayName/path refresh) without appending again.
+   * A managed worktree gets its descriptor but never joins activeRootIds (ADR-0034).
    */
   addActiveRoot: (root: StoredRootDescriptor) => void;
   /**
@@ -33,6 +34,7 @@ export interface ActiveRootActions {
    * `addActiveRoot`/re-add-after-remove demotion semantics). An id no longer
    * reported (e.g. pruned as missing-on-disk) is dropped.
    * rootDescriptors = keyed by rootId (always replaced from the given roots).
+   * A managed worktree gets its descriptor but never joins activeRootIds (ADR-0034).
    */
   setActiveRoots: (roots: StoredRootDescriptor[]) => void;
   /**
@@ -52,7 +54,7 @@ export const createActiveRootActions = (
 ): ActiveRootActions => ({
   addActiveRoot: (root: StoredRootDescriptor) => {
     set((state: FileExplorerState) => {
-      const alreadyPresent = state.activeRootIds.includes(root.rootId);
+      const alreadyPresent = root.worktree === true || state.activeRootIds.includes(root.rootId);
       return {
         // Only append the id if it is not already in the list
         activeRootIds: alreadyPresent ? state.activeRootIds : [...state.activeRootIds, root.rootId],
@@ -79,7 +81,7 @@ export const createActiveRootActions = (
   },
   setActiveRoots: (roots: StoredRootDescriptor[]) => {
     set((state: FileExplorerState) => {
-      const reportedIds = roots.map((r) => r.rootId);
+      const reportedIds = roots.filter((r) => r.worktree !== true).map((r) => r.rootId);
       const reportedIdSet = new Set(reportedIds);
       // Keep the existing (possibly Main-reordered) relative order for ids
       // still reported; a ghost id no longer reported is dropped.
