@@ -18,7 +18,7 @@ import { useDurableNdjsonExport } from './use-durable-ndjson-export';
 
 type LogSourceMode = 'persistent' | 'session';
 
-const DURABLE_EMPTY_STATE_TEXT = 'No durable warn+ events recorded.';
+const DURABLE_EMPTY_STATE_TEXT = 'No saved warnings or errors.';
 
 export interface LogsPageProps {
   /** A hidden workspace tab stays mounted, so the page reads its source only while shown. */
@@ -90,7 +90,7 @@ export function LogsPage({
           ) : null}
           <p className="text-muted-foreground text-xs">
             {persistent
-              ? 'Durable warn+ events stored in the database.'
+              ? 'Warnings and errors saved in the local database.'
               : 'In-memory logs since launch.'}
           </p>
         </div>

@@ -24,8 +24,7 @@ import type { RetrievalStore } from './retrieval-store';
 
 const logger = createLogger('AssistantHybridSearchTool');
 
-const NO_NATIVE_INDEX_HYBRID_SEARCH =
-  'Retrieval without a native index runs only on Main’s database.';
+const NO_NATIVE_INDEX_HYBRID_SEARCH = 'Retrieval needs the workspace index, which is unavailable.';
 const DEFAULT_VECTOR_THRESHOLD = 0.5;
 /** Per-result content cap so a 20-result payload stays inside the tool output budget. */
 const MAX_CONTENT_CHARS_PER_RESULT = 700;

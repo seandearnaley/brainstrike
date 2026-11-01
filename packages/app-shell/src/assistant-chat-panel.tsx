@@ -159,7 +159,7 @@ function getAssistantDisabledDescription(reason: string | undefined): string {
     case 'production_auth_required':
       return 'Use a protected Preview deployment, or add application authentication with distributed quota and cost controls before enabling the assistant publicly.';
     default:
-      return 'The assistant status endpoint reported that the assistant is disabled.';
+      return 'The assistant reported that it is turned off.';
   }
 }
 

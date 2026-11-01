@@ -33,16 +33,16 @@ export function ThreadDebugPackButton() {
       <p className="py-2">
         Includes this conversation and its subagents: messages, tool inputs and results, approvals
         and live decisions, the prompts each leg and specialist received, parent wakeups, run
-        settings, per-leg model identity and diagnostics. On desktop it also includes the
-        main-process log for the run window and process counters. Saved locally; review private
-        conversation and file content before sharing.
+        settings, per-leg model identity and diagnostics. It also includes the main-process log for
+        the run window and process counters. Saved locally; review private conversation and file
+        content before sharing.
       </p>
       <Button
         className="text-muted-foreground h-7 gap-1 text-xs"
         disabled={building}
         onClick={() => void download()}
         size="sm"
-        title="Save this thread and its subagents: messages, tool inputs/results, approvals and live decisions, leg and specialist prompts, parent wakeups, run settings, per-leg model identity and diagnostics; on desktop also the main-process log for the run window and process counters. May contain private conversation and file content. Review locally before sharing."
+        title="Save this thread and its subagents: messages, tool inputs/results, approvals and live decisions, leg and specialist prompts, parent wakeups, run settings, per-leg model identity and diagnostics, plus the main-process log for the run window and process counters. May contain private conversation and file content. Review locally before sharing."
         variant="ghost"
       >
         <Download aria-hidden="true" className="size-3" />

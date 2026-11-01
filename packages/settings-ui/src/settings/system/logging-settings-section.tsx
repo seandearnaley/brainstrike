@@ -522,7 +522,7 @@ function DiagnosticsRetentionCard({
       <CardHeader>
         <CardTitle>Diagnostics Retention</CardTitle>
         <CardDescription>
-          Control how long warn+ diagnostic events stay in the local database before they're purged
+          Control how long warning and error events stay in the local database before they're purged
           automatically.
         </CardDescription>
       </CardHeader>

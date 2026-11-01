@@ -2,7 +2,7 @@ import { Cause, Exit, Schema, type SchemaAST } from 'effect';
 
 /**
  * Builds a synchronous decoder for code that reports bad data by throwing,
- * such as a repository mapping PGlite rows.
+ * such as a repository mapping SQLite rows.
  *
  * A failure throws a `TypeError` whose message is the schema's own: a custom
  * `message` annotation on the failing schema or check, followed by the path to

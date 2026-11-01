@@ -76,7 +76,7 @@ describe('ModelPicker', () => {
   describe('rendering', () => {
     it('renders trigger with placeholder', () => {
       render(<ModelPicker models={models} providers={providers} />);
-      expect(screen.getByText('Select a model...')).toBeInTheDocument();
+      expect(screen.getByText('Select a model…')).toBeInTheDocument();
     });
 
     it('renders with custom placeholder', () => {
@@ -92,7 +92,7 @@ describe('ModelPicker', () => {
 
     it('opens on click and shows options', () => {
       render(<ModelPicker models={models} providers={providers} />);
-      fireEvent.click(screen.getByText('Select a model...'));
+      fireEvent.click(screen.getByText('Select a model…'));
       expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
       expect(screen.getByText('Claude Sonnet 4.6')).toBeInTheDocument();
     });
@@ -108,7 +108,7 @@ describe('ModelPicker', () => {
     it('selects an option in single mode', () => {
       const onChange = vi.fn();
       render(<ModelPicker models={models} onChange={onChange} providers={providers} />);
-      fireEvent.click(screen.getByText('Select a model...'));
+      fireEvent.click(screen.getByText('Select a model…'));
       fireEvent.click(screen.getByText('GPT-5.2'));
       expect(onChange).toHaveBeenCalledWith('gpt-5.2');
     });
@@ -199,20 +199,20 @@ describe('ModelPicker', () => {
     it('renders search input when searchable is true', () => {
       render(<ModelPicker models={models} providers={providers} searchable />);
       fireEvent.click(screen.getByRole('combobox'));
-      expect(screen.getByPlaceholderText('Search models...')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Search models…')).toBeInTheDocument();
     });
 
     it('does not render search input when searchable is false', () => {
       render(<ModelPicker models={models} providers={providers} searchable={false} />);
       fireEvent.click(screen.getByRole('combobox'));
-      expect(screen.queryByPlaceholderText('Search models...')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('Search models…')).not.toBeInTheDocument();
     });
 
     it('filters models based on search query', async () => {
       render(<ModelPicker models={models} providers={providers} searchable />);
       fireEvent.click(screen.getByRole('combobox'));
 
-      const searchInput = screen.getByPlaceholderText('Search models...');
+      const searchInput = screen.getByPlaceholderText('Search models…');
       fireEvent.change(searchInput, { target: { value: 'claude' } });
 
       await waitFor(() => {
@@ -224,26 +224,26 @@ describe('ModelPicker', () => {
     it('clears a stale search query after the picker closes', async () => {
       render(<ModelPicker models={models} providers={providers} searchable />);
       fireEvent.click(screen.getByRole('combobox'));
-      fireEvent.change(screen.getByPlaceholderText('Search models...'), {
+      fireEvent.change(screen.getByPlaceholderText('Search models…'), {
         target: { value: 'claude' },
       });
       fireEvent.click(screen.getByText('Claude Sonnet 4.6'));
       fireEvent.click(screen.getByRole('combobox'));
 
-      expect(screen.getByPlaceholderText('Search models...')).toHaveValue('');
+      expect(screen.getByPlaceholderText('Search models…')).toHaveValue('');
       expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
     });
 
     it('clears a stale search query when Escape closes the picker', () => {
       render(<ModelPicker models={models} providers={providers} searchable />);
       fireEvent.click(screen.getByRole('combobox'));
-      fireEvent.change(screen.getByPlaceholderText('Search models...'), {
+      fireEvent.change(screen.getByPlaceholderText('Search models…'), {
         target: { value: 'claude' },
       });
-      fireEvent.keyDown(screen.getByPlaceholderText('Search models...'), { key: 'Escape' });
+      fireEvent.keyDown(screen.getByPlaceholderText('Search models…'), { key: 'Escape' });
       fireEvent.click(screen.getByRole('combobox'));
 
-      expect(screen.getByPlaceholderText('Search models...')).toHaveValue('');
+      expect(screen.getByPlaceholderText('Search models…')).toHaveValue('');
       expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
     });
   });

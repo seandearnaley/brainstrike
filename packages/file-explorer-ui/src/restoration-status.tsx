@@ -39,7 +39,7 @@ export const RestorationStatus = React.memo(
 
     const statusText = useMemo(() => {
       if (!progress) {
-        return 'Restoring folders...';
+        return 'Restoring folders…';
       }
 
       const boundedSuffix =

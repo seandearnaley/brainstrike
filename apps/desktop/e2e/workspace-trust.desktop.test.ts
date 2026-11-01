@@ -80,7 +80,7 @@ test("a cloned folder's AGENTS.md and skills load only after the person trusts i
   expect(after).toContain(CONVENTIONS);
   expect(after).toContain(SKILL);
 
-  // Settings › Workspace trust keeps the answer and changes it.
+  // Settings › Workspace Trust keeps the answer and changes it.
   await new HomePage(window).openSettings();
   const settings = await new SettingsPage(window).openCategory(
     /Workspace trust/iu,

@@ -14,7 +14,7 @@ export default mergeConfig(
       // jsdom + unstubGlobals match app-shell, where these suites lived — the
       // move stays behavior-preserving down to the DOM implementation.
       environment: 'jsdom',
-      // The PGlite integration suites ran with these ceilings in app-shell;
+      // These suites ran with these ceilings in app-shell;
       // vitest's 5s default times them out on CI's 2-vCPU runners (proven in
       // #2308's Coverage lane, which runs test:coverage over ALL suites).
       hookTimeout: 30_000,
