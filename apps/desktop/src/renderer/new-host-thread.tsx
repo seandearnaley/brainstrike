@@ -28,6 +28,7 @@ import {
 import { hostRunSettings, settleLostSend } from './committed-host-conversation';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { bindHostThreadToMainRoot } from './host-thread-root-binding';
+import type { HostThreadRuns } from './host-thread-runs';
 import { sendNewThreadFirstMessage } from './new-thread-first-send';
 import {
   type ProviderReadErrors,
@@ -99,12 +100,15 @@ export function NewHostThread({
   reconnect,
   replacement,
   resourceId,
+  runs,
 }: {
   readonly client: HostClient;
   readonly providerReadErrors: ProviderReadErrors | undefined;
   readonly reconnect: 'automatic' | (() => void) | undefined;
   readonly replacement: (lost: HostClient) => Promise<HostClient>;
   readonly resourceId: string;
+  /** The window's committed run state, which the view the first send opens announces from. */
+  readonly runs: HostThreadRuns;
 }): ReactElement {
   const host = useAssistantThreadHost();
   const explorer = useFileExplorerStoreContext();
@@ -179,6 +183,7 @@ export function NewHostThread({
               readPlanMode: current.readPlanMode,
             }),
           selection: current.selection.selection ?? null,
+          sentBeforeOpening: (created, commandId) => runs.sentBeforeOpening(created, commandId),
           settleLost: (created) => settleLostSend(client, replacement, created),
         },
         message
@@ -187,7 +192,7 @@ export function NewHostThread({
       });
     };
     return { onNew: sendFirst };
-  }, [client, explorer, host, replacement, resourceId]);
+  }, [client, explorer, host, replacement, resourceId, runs]);
   const budgetGuardrail = useBudgetGuardrailBinding();
   return (
     <BudgetGuardrailProvider value={budgetGuardrail}>

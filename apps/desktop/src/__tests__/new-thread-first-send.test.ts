@@ -67,6 +67,7 @@ function scripted(answer: (method: HostMethod) => unknown = () => ({ runId: 'run
     resourceId: 'workspace',
     runSettings: () => ({ configuration: { provider: 'openai' }, modelId: 'openai::gpt' }),
     selection: { configuration: { provider: 'openai' }, modelId: 'openai::gpt' },
+    sentBeforeOpening: vi.fn(),
   };
   return { send, steps };
 }
