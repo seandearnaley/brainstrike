@@ -1,70 +1,38 @@
 # @brainstrike/secure-fs-native
 
-Native filesystem capabilities for authorized Node owners, including Electron
-main and the utility/CLI host. Renderers use admitted bridges. Public signatures
-and result variants live in [`index.d.ts`](index.d.ts).
+Native filesystem capabilities for authorized Node owners, including Electron main and the utility/CLI host. Renderers use admitted bridges. Public signatures and result variants live in [`index.d.ts`](index.d.ts). Built with `node-gyp` (`pnpm --filter @brainstrike/secure-fs-native build`). See the [host lease contract](../../docs/agents/host-lease.md).
 
 ## Identity and traversal
 
-`SecureRoot` opens and pins the trusted root directory. `canonicalPath` is derived
-from its opened handle, not a pre-open pathname lookup. Root establishment may
-resolve a symlink because that path comes from trusted picker/store input;
-repository-controlled descendants remain no-follow.
-
-Descendants open component by component relative to the pinned handle, using
-POSIX `openat` or Windows handle-relative traversal. Symlinks/reparse points,
-`..`, embedded separators and NUL bytes refuse. No pathname fallback is allowed
-when the native binding or secure traversal is unavailable.
-
-Each enumeration owns an independent cursor; concurrent calls do not share it or
-hold a lock across blocking I/O. `listDir`/`listDirAsync` return entries, inspected
-count and visible truncation. Debit inspected work from the caller's budget;
-truncation is not complete membership. Bounded file reads distinguish missing,
-oversized and unreadable content.
+- `SecureRoot` opens and pins the trusted root directory; `canonicalPath` comes from the opened handle, not a pre-open pathname lookup.
+  - Root establishment may resolve a symlink, because that path comes from trusted picker/store input. Repository-controlled descendants stay no-follow.
+  - Root establishment distinguishes a genuine `ENOENT` from `ERR_SECURE_FS_ROOT`.
+- Descendants open component by component relative to the pinned handle (POSIX `openat`, Windows handle-relative traversal).
+  - Symlinks/reparse points, `..`, embedded separators and NUL bytes refuse.
+  - No pathname fallback when the native binding or secure traversal is unavailable.
+- Each enumeration owns an independent cursor; concurrent calls never share it or hold a lock across blocking I/O.
+  - `listDir`/`listDirAsync` return entries, inspected count and visible truncation. Debit inspected work from the caller's budget; truncation is not complete membership.
+- Bounded file reads distinguish missing, oversized and unreadable content.
 
 ## Revocation and private files
 
-`close()` revokes new operations without blocking. Admitted work retains the pinned
-root until it drains; the descriptor releases after the last operation finishes.
-A close notification is not proof that in-flight I/O ended.
+- `close()` revokes new operations without blocking. Admitted work keeps the pinned root until it drains; the descriptor releases after the last operation. A close notification doesn't prove in-flight I/O ended.
+- Private reads validate the opened regular file: exact POSIX `0600`, or current-user ownership plus a protected Windows DACL holding only the explicit owner FullControl ACE.
+  - No extra size limit; missing and unsafe/unreadable results stay distinct.
+  - POSIX opens are nonblocking, so a FIFO can't wait for a writer.
+- Private writes create an exclusive private temp file under the pinned parent, flush and replace in the same directory, refusing unsafe existing targets.
+  - Completion joins I/O, closes and owned temp cleanup. Failures reject with `ERR_PRIVATE_FILE_OPERATION`, without credential content.
+  - The caller owns serialization. Accepted operations pin before queueing.
+  - Privacy is rechecked around I/O, but this doesn't protect against an unrestricted malicious process with the same user identity changing files or ACLs.
+- `tryExclusiveFlock` is POSIX-only. Inherited descriptors share its open-file lock, so close the owned descriptor rather than unlocking the shared lock. Windows same-directory replacement uses its own native primitive.
 
-Private reads validate the opened regular file: exact POSIX `0600`, or current-user
-ownership plus a protected Windows DACL containing only the explicit owner
-FullControl ACE. They have no additional size limit; missing and unsafe/unreadable
-results stay distinct. POSIX opens are nonblocking so a FIFO cannot wait for a writer.
+## Private directories and default owner (Windows)
 
-Private writes create an exclusive private temporary file under the pinned parent,
-flush and replace in the same directory, refusing unsafe existing targets. Completion
-joins I/O, closes and owned temporary cleanup. Failures reject with
-`ERR_PRIVATE_FILE_OPERATION` without credential content; the caller owns
-serialization. Accepted operations pin before queueing.
-Privacy is checked again around I/O, but this does not protect against an
-unrestricted malicious process with the same user identity mutating files/ACLs.
-
-## Private directories (Windows)
-
-`verifyPrivateDirectorySync` and `applyPrivateDirectorySync` check and set a
-directory's privacy in-process, so host start and every lease check start no
-process (BST-2237). Each opens the directory once, following reparse points,
-with `FILE_FLAG_BACKUP_SEMANTICS`, and reads (and, for apply, writes) its owner
-and DACL on that handle. Private means the current user owns it and its
-protected DACL holds exactly one ACE: an explicit Allow of `FILE_ALL_ACCESS` to
-that user, inherited by containers and objects. That is the private file rule
-with directory inheritance, compared ACE for ACE. Apply refuses a directory
-another principal owns without writing, never takes ownership, and throws unless
-it reads back private. Both throw typed errors, and `ENOTSUP` on POSIX.
-
-`setDefaultOwnerToCurrentUserSync` sets this process token's default owner to
-its own user SID and reads it back (BST-2246). It throws `ERR_DEFAULT_OWNER` and
-does nothing on POSIX. Objects the process creates afterwards, and children it
-starts afterwards, then belong to the user even under an elevated token whose
-default is `BUILTIN\Administrators`. Process entries import
-`@brainstrike/secure-fs-native/default-owner` first rather than calling it.
-
-Root establishment distinguishes genuine `ENOENT` from `ERR_SECURE_FS_ROOT`.
-`tryExclusiveFlock` is POSIX-only; inherited descriptors share its open-file lock,
-so close the owned descriptor rather than unlocking the shared lock. Windows
-same-directory replacement uses its separate native primitive.
-
-Built with `node-gyp` (`pnpm --filter @brainstrike/secure-fs-native build`). See the
-[host lease contract](../../docs/agents/host-lease.md).
+- `verifyPrivateDirectorySync` and `applyPrivateDirectorySync` check and set a directory's privacy in-process, so host start and every lease check start no process (BST-2237).
+  - Each opens the directory once, following reparse points, with `FILE_FLAG_BACKUP_SEMANTICS`, and reads (and for apply, writes) its owner and DACL on that handle.
+  - Private means the current user owns it and its protected DACL holds exactly one ACE: an explicit Allow of `FILE_ALL_ACCESS` to that user, inherited by containers and objects. That is the private-file rule with directory inheritance, compared ACE for ACE.
+  - Apply refuses a directory another principal owns without writing, never takes ownership, and throws unless it reads back private.
+  - Both throw typed errors, and `ENOTSUP` on POSIX.
+- `setDefaultOwnerToCurrentUserSync` sets the process token's default owner to its own user SID and reads it back (BST-2246); it throws `ERR_DEFAULT_OWNER`, and does nothing on POSIX.
+  - Objects and children the process creates afterwards belong to the user, even under an elevated token whose default is `BUILTIN\Administrators`.
+  - Process entries import `@brainstrike/secure-fs-native/default-owner` first rather than calling it.

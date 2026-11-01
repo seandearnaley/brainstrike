@@ -4,8 +4,8 @@ Explorer composition, treegrid, file tabs and token-status UI. Reuses core explo
 
 ## Providers
 
-- The platform supplies `AdaptersProvider` with admitted filesystem and storage capabilities.
-- `FileExplorerProvider` owns its explorer store and takes a stable storage adapter.
+- The platform supplies `AdaptersProvider` with the admitted filesystem adapter.
+- `FileExplorerProvider` owns its explorer store and content-load authority.
 - Mount the shared `FileSystemProvider` once; a second instance would split root state.
 - Cross-package imports use the `/shell`, `/tree` and `/indexing` subpaths (full list in [`package.json`](package.json)).
 

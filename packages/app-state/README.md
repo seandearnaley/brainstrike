@@ -10,5 +10,6 @@ Client-side application state and persistence: Zustand stores, sync hooks, notif
   import { prepareFactoryReset } from '@brainstrike/app-state/factory-reset';
   ```
 
-- Add new public state to `package.json` deliberately, and register every new persistent store with factory reset.
+- Add new public state to `package.json` deliberately.
+- Persistent stores use `persistDurable` from `@brainstrike/storage` and join factory reset by construction; a writer that must stop first registers with `registerFactoryResetPreparation`.
 - Presentation belongs in `@brainstrike/settings-ui`.

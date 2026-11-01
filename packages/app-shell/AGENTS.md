@@ -3,8 +3,8 @@
 This package composes shared UI; it does not become a
 second agent runtime or durable storage owner.
 
-- Select desktop/web behavior through available capabilities. Optional bridges
-  must not prevent the rest of the shell from rendering.
+- Select behavior through injected capabilities. Optional bridges must not
+  prevent the rest of the shell from rendering.
 - Reuse shared TreeTable, TabStrip and context actions. Preserve accessible
   keyboard/focus behavior and use the existing layout/state owners.
 - Runtime teardown, explicit Stop and reset have different ownership semantics.

@@ -3,8 +3,8 @@
 Each page holds the non-obvious invariants for one subsystem; read the one your
 task touches.
 
-- Root `AGENTS.md` owns working rules; `pnpm check` owns delivery policy;
-  accepted decisions live in `docs/adr/`.
+- Root `AGENTS.md` owns working rules and delivery policy; accepted decisions
+  live in `docs/adr/`.
 - Verify details against current source and tests.
 
 | Working on | Contract |
