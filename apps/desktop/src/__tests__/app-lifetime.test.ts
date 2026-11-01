@@ -7,58 +7,54 @@ import {
   createAppLifetime,
   type RunStatus,
   type TrayMenuItem,
+  type TrayMenus,
 } from '../app-lifetime';
 
-/** One OS tray icon as the user sees it: its menu, its tooltip, and a click on it. */
+const labelsOf = (items: readonly TrayMenuItem[] | undefined) =>
+  items?.flatMap((item) => (item.kind === 'separator' ? [] : [item.label]));
+
+/** One OS tray icon as the user sees it: a click on it, its menu as it opens, and its fixed menu. */
 function fakeTray() {
-  const icons: {
-    activate: () => void;
-    destroyed: boolean;
-    menu: readonly TrayMenuItem[];
-    toolTip: string;
-  }[] = [];
+  const icons: { destroyed: boolean; menus: TrayMenus }[] = [];
   const presence: BackgroundPresence = {
     kind: 'tray',
     tray: {
-      show: (activate) => {
-        const icon = {
-          activate,
-          destroyed: false,
-          menu: [] as readonly TrayMenuItem[],
-          toolTip: '',
-        };
+      show: (menus) => {
+        const icon = { destroyed: false, menus };
         icons.push(icon);
         return {
           destroy: () => {
             icon.destroyed = true;
-          },
-          setMenu: (items) => {
-            icon.menu = items;
-          },
-          setToolTip: (text) => {
-            icon.toolTip = text;
           },
         };
       },
     },
   };
   const shown = () => icons.filter((icon) => !icon.destroyed);
+  const current = () => {
+    const icon = shown()[0];
+    if (!icon) {
+      throw new Error('No tray icon shows');
+    }
+    return icon.menus;
+  };
   return {
-    /** Clicks the menu item with this label. */
-    click(label: string) {
-      const item = shown()[0]?.menu.find(
-        (entry) => entry.kind === 'action' && entry.label === label
-      );
-      if (item?.kind !== 'action') {
-        throw new Error(`No tray menu item ${label}`);
-      }
-      item.run();
-    },
-    labels: () =>
-      shown()[0]?.menu.flatMap((item) => (item.kind === 'separator' ? [] : [item.label])),
+    activate: () => current().activate(),
+    /** The menu a tray sets once (Linux). */
+    fixedMenu: () => current().fixed,
+    /** Opens the menu the way Windows does (right-click), and returns what it shows. */
+    openMenu: async () => await current().live(),
     presence,
     shown,
   };
+}
+
+function click(items: readonly TrayMenuItem[], label: string): void {
+  const item = items.find((entry) => entry.kind === 'action' && entry.label === label);
+  if (item?.kind !== 'action') {
+    throw new Error(`No tray menu item ${label}`);
+  }
+  item.run();
 }
 
 /** The desktop settings store: one JSON document, as electron-store keeps it. */
@@ -89,11 +85,12 @@ function lifetimeOf(
 }
 
 describe('closing the last window where a tray can show', () => {
-  it('keeps the app running, with a tray that opens a window, says what runs and quits', async () => {
+  it('keeps the app running, with a tray that opens a window, says what runs as its menu opens, and quits', async () => {
     const tray = fakeTray();
+    const readRunStatus = vi.fn<() => Promise<RunStatus>>(async () => ({ running: 2, waiting: 1 }));
     const { lifetime, options } = lifetimeOf({
       presence: Promise.resolve(tray.presence),
-      readRunStatus: async () => ({ running: 2, waiting: 1 }),
+      readRunStatus,
     });
 
     await expect(lifetime.settings()).resolves.toMatchObject({
@@ -101,22 +98,38 @@ describe('closing the last window where a tray can show', () => {
       lastWindowClose: 'keeps-running',
     });
     expect(lifetime.quitsWithLastWindow()).toBe(false);
-    await vi.waitFor(() =>
-      expect(tray.labels()).toEqual([
-        'Open Brainstrike',
-        '2 runs running',
-        '1 waiting for you',
-        'Quit Brainstrike',
-      ])
-    );
-    expect(tray.shown()[0]?.toolTip).toBe('Brainstrike · 2 runs running · 1 waiting for you');
+    // Nothing reads the host while the menu is closed, the last close included.
+    lifetime.lastWindowClosed();
+    expect(readRunStatus).not.toHaveBeenCalled();
 
-    tray.click('Open Brainstrike');
-    tray.shown()[0]?.activate();
+    const menu = await tray.openMenu();
+    expect(labelsOf(menu)).toEqual([
+      'Open Brainstrike',
+      '2 runs running',
+      '1 waiting for you',
+      'Quit Brainstrike',
+    ]);
+    expect(readRunStatus).toHaveBeenCalledOnce();
+
+    click(menu, 'Open Brainstrike');
+    tray.activate();
     expect(options.openWindow).toHaveBeenCalledTimes(2);
     expect(options.quit).not.toHaveBeenCalled();
-    tray.click('Quit Brainstrike');
+    click(menu, 'Quit Brainstrike');
     expect(options.quit).toHaveBeenCalledOnce();
+    lifetime.close();
+  });
+
+  it('a tray whose menu is set once (Linux) offers Open and Quit, with no status to go stale', async () => {
+    const tray = fakeTray();
+    const { lifetime, options } = lifetimeOf({ presence: Promise.resolve(tray.presence) });
+    await lifetime.settings();
+
+    const menu = tray.fixedMenu();
+    expect(labelsOf(menu)).toEqual(['Open Brainstrike', 'Quit Brainstrike']);
+    click(menu, 'Quit Brainstrike');
+    expect(options.quit).toHaveBeenCalledOnce();
+    expect(options.readRunStatus).not.toHaveBeenCalled();
     lifetime.close();
   });
 
@@ -190,13 +203,11 @@ describe('closing the last window where a tray can show', () => {
     });
     await lifetime.settings();
 
-    await vi.waitFor(() =>
-      expect(tray.labels()).toEqual([
-        'Open Brainstrike',
-        'Run status unavailable',
-        'Quit Brainstrike',
-      ])
-    );
+    expect(labelsOf(await tray.openMenu())).toEqual([
+      'Open Brainstrike',
+      'Run status unavailable',
+      'Quit Brainstrike',
+    ]);
     lifetime.close();
   });
 

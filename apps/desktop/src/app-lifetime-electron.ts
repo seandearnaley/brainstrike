@@ -42,10 +42,15 @@ function trayMenuTemplate(items: readonly TrayMenuItem[]): MenuItemConstructorOp
   });
 }
 
-/** Electron's Tray with the icon build-main copies beside the bundled main. */
-function electronTray(iconFileName: string): TrayCapability {
+/**
+ * Electron's Tray with the icon build-main copies beside the bundled main. Where the tray can pop
+ * a menu up on demand (Windows: `right-click`, then `popUpContextMenu`), the menu is built as it
+ * opens, with what is running. Elsewhere (Linux AppIndicator) the menu is set once and stays
+ * fixed, so it carries no status that would go stale.
+ */
+function electronTray(iconFileName: string, menuOpensOnDemand: boolean): TrayCapability {
   return {
-    show: (activate) => {
+    show: (menus) => {
       const image = nativeImage.createFromPath(
         resolveBundledSiblingPath('tray icon', iconFileName)
       );
@@ -54,13 +59,20 @@ function electronTray(iconFileName: string): TrayCapability {
       }
       // Held by the returned icon until it is destroyed.
       const tray = new Tray(image);
-      tray.on('click', activate);
-      return {
-        destroy: () => tray.destroy(),
-        // Linux applies a changed menu only when it is set again, so every change sets it.
-        setMenu: (items) => tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(items))),
-        setToolTip: (text) => tray.setToolTip(text),
-      };
+      tray.setToolTip('Brainstrike');
+      tray.on('click', menus.activate);
+      if (menuOpensOnDemand) {
+        tray.on('right-click', () => {
+          void menus.live().then((items) => {
+            if (!tray.isDestroyed()) {
+              tray.popUpContextMenu(Menu.buildFromTemplate(trayMenuTemplate(items)));
+            }
+          });
+        });
+      } else {
+        tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(menus.fixed)));
+      }
+      return { destroy: () => tray.destroy() };
     },
   };
 }
@@ -127,10 +139,10 @@ export async function resolveBackgroundPresence(): Promise<BackgroundPresence> {
     case 'darwin':
       return { kind: 'dock' };
     case 'win32':
-      return { kind: 'tray', tray: electronTray('tray-icon.ico') };
+      return { kind: 'tray', tray: electronTray('tray-icon.ico', true) };
     default:
       return (await statusNotifierHostRegistered())
-        ? { kind: 'tray', tray: electronTray('tray-icon.png') }
+        ? { kind: 'tray', tray: electronTray('tray-icon.png', false) }
         : { kind: 'none', reason: NO_TRAY_REASON };
   }
 }

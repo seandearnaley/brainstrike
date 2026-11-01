@@ -4,12 +4,6 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 
 const logger = createLogger('AppLifetime');
 
-/**
- * The host has no catalog push, so the tray reads `thread/list` this often while it shows.
- * A read refuses nothing and starts nothing; it only relabels the tray.
- */
-export const TRAY_STATUS_REFRESH_MS = 5000;
-
 /** Where the app stays once its last window closes (ADR-0033); Main injects what this desktop has. */
 export type BackgroundPresence =
   /** macOS: the Dock and the app menu keep the app reachable. */
@@ -25,13 +19,22 @@ export type TrayMenuItem =
 
 export interface TrayIcon {
   destroy(): void;
-  setMenu(items: readonly TrayMenuItem[]): void;
-  setToolTip(text: string): void;
+}
+
+export interface TrayMenus {
+  /** The icon's click (Windows) or activation (Linux). */
+  readonly activate: () => void;
+  /** Open and Quit, for a tray whose menu is set once (Linux AppIndicator). */
+  readonly fixed: readonly TrayMenuItem[];
+  /**
+   * The menu with what is running, read when it opens. Only a tray that builds its menu as it
+   * opens (Windows) asks for it; a fixed menu would go stale, so it never carries a status.
+   */
+  readonly live: () => Promise<readonly TrayMenuItem[]>;
 }
 
 export interface TrayCapability {
-  /** Shows the icon; `activate` is its click (Windows) or activation (Linux). */
-  show(activate: () => void): TrayIcon;
+  show(menus: TrayMenus): TrayIcon;
 }
 
 export type LoginItems =
@@ -134,78 +137,45 @@ export function createAppLifetime(options: AppLifetimeOptions): AppLifetime {
   let presence: BackgroundPresence | undefined;
   let closed = false;
   let icon: TrayIcon | undefined;
-  let refreshTimer: ReturnType<typeof setInterval> | undefined;
-  let refreshing = false;
-  let statusLines: readonly string[] = [];
-  let statusFailed = false;
 
   const keepRunningInTray = (): boolean => readStored(store).keepRunningInTray ?? true;
   const staysInTray = (): boolean => presence?.kind === 'tray' && keepRunningInTray();
 
-  const render = (): void => {
-    if (!icon) {
-      return;
-    }
-    icon.setToolTip(['Brainstrike', ...statusLines].join(' · '));
-    icon.setMenu([
-      { kind: 'action', label: 'Open Brainstrike', run: options.openWindow },
-      { kind: 'separator' },
-      ...statusLines.map((label) => ({ kind: 'status', label }) as const),
-      { kind: 'separator' },
-      { kind: 'action', label: 'Quit Brainstrike', run: options.quit },
-    ]);
-  };
-
-  const refresh = async (): Promise<void> => {
-    if (refreshing || !icon) {
-      return;
-    }
-    refreshing = true;
-    try {
-      const next = describeRunStatus(await options.readRunStatus());
-      statusFailed = false;
-      if (next.join('\n') !== statusLines.join('\n')) {
-        statusLines = next;
-        render();
-      }
-    } catch (error) {
-      // A read quit overtook has nothing left to label.
-      if (closed) {
-        return;
-      }
-      // Logged once per failure spell; the tray says it cannot tell.
-      if (!statusFailed) {
+  const open: TrayMenuItem = { kind: 'action', label: 'Open Brainstrike', run: options.openWindow };
+  const quit: TrayMenuItem = { kind: 'action', label: 'Quit Brainstrike', run: options.quit };
+  const menus: TrayMenus = {
+    activate: options.openWindow,
+    fixed: [open, { kind: 'separator' }, quit],
+    // One catalog read per opening: nothing reads the host while the menu is closed.
+    live: async () => {
+      let status: readonly string[];
+      try {
+        status = describeRunStatus(await options.readRunStatus());
+      } catch (error) {
         logger.warn('The tray could not read what is running from the agent host', { error });
+        status = ['Run status unavailable'];
       }
-      statusFailed = true;
-      if (statusLines.join() !== 'Run status unavailable') {
-        statusLines = ['Run status unavailable'];
-        render();
-      }
-    } finally {
-      refreshing = false;
-    }
+      return [
+        open,
+        { kind: 'separator' },
+        ...status.map((label) => ({ kind: 'status', label }) as const),
+        { kind: 'separator' },
+        quit,
+      ];
+    },
   };
 
   const syncTray = (): void => {
     const shown = !closed && presence?.kind === 'tray' && keepRunningInTray();
     if (shown && presence?.kind === 'tray' && !icon) {
       try {
-        icon = presence.tray.show(options.openWindow);
+        icon = presence.tray.show(menus);
       } catch (error) {
         // No icon means no way back to the app: closing the last window quits instead.
         presence = { kind: 'none', reason: 'Brainstrike could not show its tray icon.' };
         logger.error('The tray icon could not be shown; closing the last window quits', { error });
-        return;
       }
-      statusLines = [];
-      render();
-      void refresh();
-      refreshTimer = setInterval(() => void refresh(), TRAY_STATUS_REFRESH_MS);
-      refreshTimer.unref?.();
     } else if (!shown && icon) {
-      clearInterval(refreshTimer);
-      refreshTimer = undefined;
       icon.destroy();
       icon = undefined;
     }
@@ -252,7 +222,6 @@ export function createAppLifetime(options: AppLifetimeOptions): AppLifetime {
       if (closed || !staysInTray()) {
         return;
       }
-      void refresh();
       if (readStored(store).trayNoticeShown) {
         return;
       }

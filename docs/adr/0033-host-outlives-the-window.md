@@ -43,8 +43,11 @@ Option 1.
      canonical login item for an AppImage, so the switch is shown as unavailable there, as it
      is in a copy that was not installed.
 4. **The tray says what is running** from the host's catalog (`thread/list`, each thread's
-   latest run): "2 runs running", "1 waiting for you". It adds no state. The host pushes no
-   catalog changes, so the tray reads it every 5 s while it shows. It opens a window, and
+   latest run): "2 runs running", "1 waiting for you". It adds no state and no timer: the host
+   pushes no run lifecycle to a client that has not subscribed to a thread, so the catalog is
+   read once each time the menu opens, where the tray builds its menu then (Windows,
+   `right-click` and `popUpContextMenu`). A tray whose menu is set once (Linux AppIndicator)
+   shows Open and Quit only, never a status that would go stale. The tray opens a window, and
    "Quit Brainstrike" is today's joined quit.
 5. **The first close to the tray shows one notice** that Brainstrike is still running. Its
    "shown" flag lives in the desktop settings store, which factory reset deletes with userData.
@@ -56,8 +59,9 @@ Option 1.
 
 - Main, the host and the indexer stay resident with no window. Idle memory with no window open
   is measured in the PR that ships this. No idle-shutdown timer is added.
-- The tray adds no new failure path. A tray icon that cannot show makes the last close quit.
-  When the host cannot answer, the tray says "Run status unavailable".
+- The tray adds no idle work and no new failure path. Nothing reads the host while the menu is
+  closed. A tray icon that cannot show makes the last close quit. When the host cannot answer,
+  the opened menu says "Run status unavailable".
 - Factory reset leaves the OS login item in place: Settings reads it back from the OS.
 - Deferred: remote and phone clients, and runs that survive Quit (option 2, after L1, when a
   feature needs them).
