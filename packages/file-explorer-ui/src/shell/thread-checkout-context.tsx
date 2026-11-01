@@ -1,5 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createContext, type ReactNode, useContext } from 'react';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
 
 /**
  * ADR-0034: the active thread works in a worktree. `localRootId` is the open folder the
@@ -76,4 +77,27 @@ export function threadCheckoutRootIds(
   const { localRootId, worktreeRootId } = checkout;
   const ids = openRootIds.map((rootId) => (rootId === localRootId ? worktreeRootId : rootId));
   return ids.includes(worktreeRootId) ? ids : [...ids, worktreeRootId];
+}
+
+/**
+ * The open folder a shown root acts for: itself, or, for the thread's worktree, the folder it
+ * stands in for. `null` when the worktree stands in for no open folder. Disconnect and Main act
+ * on this folder, so closing the section the person sees never unmounts the thread's checkout.
+ */
+export function openFolderFor(
+  rootId: string,
+  checkout: ThreadCheckout | null,
+  openRootIds: readonly string[]
+): string | null {
+  if (checkout === null || rootId !== checkout.worktreeRootId) {
+    return rootId;
+  }
+  const { localRootId } = checkout;
+  return localRootId !== null && openRootIds.includes(localRootId) ? localRootId : null;
+}
+
+export function useOpenFolderFor(rootId: string): string | null {
+  const checkout = useThreadCheckout();
+  const openRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
+  return openFolderFor(rootId, checkout, openRootIds);
 }

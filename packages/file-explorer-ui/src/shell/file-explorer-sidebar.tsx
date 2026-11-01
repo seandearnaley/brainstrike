@@ -28,6 +28,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { useOptionalForestTreeActions } from './forest-tree-actions-context';
+import { useOpenFolderFor } from './thread-checkout-context';
 import {
   useRootSectionContextMenu,
   useSingleRootHeaderMenu,
@@ -678,6 +679,11 @@ const RootSectionInner = ({
   const handleDisconnectRequest = () => {
     setIsDisconnectDialogOpen(true);
   };
+  // The open folder this section acts for: the thread's worktree acts for the folder it
+  // stands in for, so Disconnect closes that folder and never unmounts the checkout (ADR-0034).
+  const openFolderId = useOpenFolderFor(rootIdentity);
+  const canDisconnect = onRemoveRoot !== undefined && openFolderId !== null;
+  const isMain = rest.mainRootId !== undefined && rest.mainRootId === openFolderId;
 
   // A web FSA handle's `path` IS its `name` (packages/types/src/
   // file-system.ts: "on web `path` is only the directory name") — there is
@@ -699,8 +705,8 @@ const RootSectionInner = ({
   } = useRootSectionContextMenu({
     displayName: rootDirectoryHandle.name,
     isDisconnectDialogOpen,
-    isMain: rest.mainRootId !== undefined && rest.mainRootId === rootIdentity,
-    ...(onRemoveRoot ? { onDisconnect: handleDisconnectRequest } : {}),
+    isMain,
+    ...(canDisconnect ? { onDisconnect: handleDisconnectRequest } : {}),
     path: rootPath,
     restoreFocusRef: toggleButtonRef,
     rootActions,
@@ -715,7 +721,9 @@ const RootSectionInner = ({
     // context.ts) catches every failure path internally (deletion AND
     // adapter disconnect) and surfaces a toast instead of rejecting, so
     // there is no unhandled-rejection path to `.catch` here.
-    void onRemoveRoot?.(rootIdentity, options);
+    if (openFolderId !== null) {
+      void onRemoveRoot?.(openFolderId, options);
+    }
   };
 
   const handleTreeInteraction = () => {
@@ -742,9 +750,9 @@ const RootSectionInner = ({
             // section's resolved root identity — never the raw path when a durable
             // RootId exists.
             isFocused={rest.currentFolderId !== null && rest.currentFolderId === rootIdentity}
-            isMain={rest.mainRootId !== undefined && rest.mainRootId === rootIdentity}
+            isMain={isMain}
             onContextMenu={claimRootTarget}
-            onDisconnect={onRemoveRoot ? handleDisconnectRequest : undefined}
+            onDisconnect={canDisconnect ? handleDisconnectRequest : undefined}
             onToggleCollapse={handleToggle}
             // Web FSA handles carry no absolute path distinct from the name —
             // suppress the tooltip when the path adds nothing (same hoisted

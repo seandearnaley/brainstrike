@@ -359,10 +359,15 @@ async function runMultiRootRestore({
     }
 
     // Register persisted roots in the store. Accessed via ref to avoid reactive dep.
-    // A managed worktree is a thread's checkout, never one of the open folders (ADR-0034).
+    // A managed worktree keeps its descriptor but is never an open folder (ADR-0034).
     const storedDescriptors: StoredRootDescriptor[] = granted
-      .filter((d) => d.persisted && !d.handle.worktree)
-      .map((d) => ({ displayName: d.displayName, path: d.handle.path, rootId: d.rootId }));
+      .filter((d) => d.persisted)
+      .map((d) => ({
+        displayName: d.displayName,
+        path: d.handle.path,
+        rootId: d.rootId,
+        ...(d.handle.worktree ? { worktree: true as const } : {}),
+      }));
     setActiveRootsRef.current(storedDescriptors);
   } catch (error) {
     if (!cancelledRef.value) {
@@ -465,8 +470,13 @@ export function useFileSystem({
         // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
         updateCurrentFolderId(rootId);
         // Only register in the persistent store when the handle was actually persisted
-        if (persisted && !handle.worktree) {
-          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+        if (persisted) {
+          addActiveRoot({
+            displayName,
+            path: getCanonicalFolderId(handle),
+            rootId,
+            ...(handle.worktree ? { worktree: true as const } : {}),
+          });
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;
@@ -515,8 +525,13 @@ export function useFileSystem({
         );
         dispatch({ handle, rootId, type: 'addOrFocusHandle' });
         updateCurrentFolderId(rootId);
-        if (persisted && !handle.worktree) {
-          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+        if (persisted) {
+          addActiveRoot({
+            displayName,
+            path: getCanonicalFolderId(handle),
+            rootId,
+            ...(handle.worktree ? { worktree: true as const } : {}),
+          });
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;
