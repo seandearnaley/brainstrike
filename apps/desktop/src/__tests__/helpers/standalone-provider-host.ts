@@ -1,9 +1,9 @@
 /**
- * The installed standalone `brainstrike` host over a disposable data root and
- * workspace, with every provider base-URL knob pointed at one loopback server
- * (the model-provider shim, or the cassette recorder). Real bin, real
- * HostCore, real provider SDKs; the committed log is read back through the
- * CLI exactly as any client reads it.
+ * The installed standalone `brainstrike` host over a disposable data root,
+ * home and workspace, with every provider base-URL knob pointed at one
+ * loopback server (the model-provider shim, or the cassette recorder). Real
+ * bin, real HostCore, real provider SDKs; the committed log is read back
+ * through the CLI exactly as any client reads it.
  */
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
@@ -15,6 +15,7 @@ import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { z } from 'zod';
+import { homeEnvironment } from '../../../e2e/utils/node-command';
 
 const require = createRequire(import.meta.url);
 const bin = join(
@@ -74,6 +75,9 @@ export async function createStandaloneWorkspace(
 /**
  * `environment` is the host's whole provider environment: base-URL knobs and
  * credentials. Nothing else from this process's environment reaches the host.
+ * Its home is disposable too: without one, `os.homedir()` falls back to the
+ * account's real home, and that home's skills, personas and commands reach
+ * every request.
  */
 export async function startStandaloneProviderHost(options: {
   readonly environment: Readonly<Record<string, string>>;
@@ -81,8 +85,10 @@ export async function startStandaloneProviderHost(options: {
 }): Promise<StandaloneProviderHost> {
   const { workspace } = options;
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-cassette-data-'));
+  const home = await mkdtemp(join(tmpdir(), 'bs-cassette-home-'));
   const env = {
     ...options.environment,
+    ...homeEnvironment(home),
     LC_ALL: 'C',
     PATH: process.env['PATH'] ?? '',
     TZ: 'UTC',
@@ -107,6 +113,8 @@ export async function startStandaloneProviderHost(options: {
     });
   const started = await cli(['host', 'start', '--workspace', workspace]);
   if (started.code !== 0) {
+    await rm(dataRoot, { force: true, recursive: true });
+    await rm(home, { force: true, recursive: true });
     throw new Error(`The standalone host did not start: ${started.stderr || started.stdout}`);
   }
   const rows = async (threadId: string): Promise<readonly HostLogRow[]> => {
@@ -149,6 +157,7 @@ export async function startStandaloneProviderHost(options: {
         }
       }
       await rm(dataRoot, { force: true, recursive: true });
+      await rm(home, { force: true, recursive: true });
     },
     rows,
     async run(prompt, model) {
