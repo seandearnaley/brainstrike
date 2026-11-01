@@ -77,7 +77,6 @@ export function WorktreeMapSurface(): ReactElement {
   const {
     actionError,
     archiveConfirmation,
-    onAddAsRoot,
     onAdopt,
     onArchive,
     onHandOffToLocal,
@@ -212,7 +211,6 @@ export function WorktreeMapSurface(): ReactElement {
                   <WorktreeMapCard
                     card={card}
                     key={card.entry.path}
-                    onAddAsRoot={onAddAsRoot}
                     onAdopt={onAdopt}
                     onArchive={onArchive}
                     // Present only for the card holding the SELECTED thread's

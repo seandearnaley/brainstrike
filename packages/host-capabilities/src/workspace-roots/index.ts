@@ -80,6 +80,7 @@ function wireRoot(descriptor: RootDescriptor): HostOpenRoot {
     available: descriptor.permissionState === 'granted',
     path: descriptor.handle.path,
     rootId: descriptor.rootId,
+    worktree: descriptor.handle.worktree === true,
   };
 }
 

@@ -163,3 +163,54 @@ test('a recorded path that now resolves to another folder is refused unless the 
     await store.close();
   }
 });
+
+test('a managed worktree registers live but never opens, and is listed while unarchived', async () => {
+  const store = await StateStore.open(freshDir('workspace-roots-worktree'));
+  const linked = {
+    canonicalPath: '/disposable/linked',
+    displayName: 'linked',
+    path: '/disposable/linked',
+    preferredId: '0b8f3d2e-7c41-4a5e-9d36-2f1e8a4c6b90',
+  };
+  try {
+    await store.worktreeLedger({
+      operation: 'insert',
+      row: {
+        archivedAt: null,
+        archiveSnapshotRef: null,
+        baseRef: 'a'.repeat(40),
+        branch: 'feature',
+        createdAt: '2026-11-01T00:00:00.000Z',
+        createdBy: 'user',
+        id: 'worktree-linked',
+        path: linked.path,
+        repoCommonDir: '/disposable/Alpha/.git',
+        runId: null,
+        setupOutput: null,
+        setupReason: null,
+        setupStatus: 'none',
+        threadId: 'thread-linked',
+      },
+    });
+    await store.workspaceRoots({ operation: 'register', root: folderA });
+    expect((await store.workspaceRoots({ operation: 'register', root: linked })).roots).toEqual([
+      expect.objectContaining({ id: linked.preferredId, kind: 'worktree', status: 'live' }),
+    ]);
+    // Re-registering (a restart re-mounting the checkout) still leaves it out of the open folders.
+    await store.workspaceRoots({ operation: 'register', root: linked });
+    expect((await store.workspaceRoots({ operation: 'list-open' })).roots).toEqual([
+      expect.objectContaining({ id: folderA.preferredId }),
+    ]);
+    expect((await store.workspaceRoots({ operation: 'list-worktrees' })).roots).toEqual([
+      expect.objectContaining({ id: linked.preferredId }),
+    ]);
+    await store.worktreeLedger({
+      id: 'worktree-linked',
+      operation: 'archive',
+      snapshotRef: 'refs/brainstrike/archive/linked',
+    });
+    expect((await store.workspaceRoots({ operation: 'list-worktrees' })).roots).toEqual([]);
+  } finally {
+    await store.close();
+  }
+});

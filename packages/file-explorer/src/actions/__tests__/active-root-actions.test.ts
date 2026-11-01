@@ -201,3 +201,31 @@ describe('setActiveRoots survives restart with a non-default Main root (restore-
     expect(getState().activeRootIds).toEqual([ROOT_C.rootId, ROOT_A.rootId, ROOT_B.rootId]);
   });
 });
+
+describe('a managed worktree (ADR-0034)', () => {
+  const WORKTREE: StoredRootDescriptor = {
+    displayName: 'ProjectA-bright-fox',
+    path: '/worktrees/ProjectA-bright-fox',
+    rootId: 'root-worktree',
+    worktree: true,
+  };
+
+  it('gets a descriptor from addActiveRoot but never joins the open folders', () => {
+    const { actions, getState } = makeHarness({});
+    actions.addActiveRoot(ROOT_A);
+    actions.addActiveRoot(WORKTREE);
+    expect(getState().activeRootIds).toEqual([ROOT_A.rootId]);
+    expect(getState().rootDescriptors[WORKTREE.rootId]).toEqual(WORKTREE);
+  });
+
+  it('gets a descriptor from setActiveRoots but never joins the open folders', () => {
+    const { actions, getState } = makeHarness({});
+    actions.setActiveRoots([ROOT_A, WORKTREE, ROOT_B]);
+    expect(getState().activeRootIds).toEqual([ROOT_A.rootId, ROOT_B.rootId]);
+    expect(Object.keys(getState().rootDescriptors)).toEqual([
+      ROOT_A.rootId,
+      WORKTREE.rootId,
+      ROOT_B.rootId,
+    ]);
+  });
+});

@@ -26,11 +26,15 @@ export function registryRoot(
 }
 
 export function createRegistryCatalogRequest(
-  initial: readonly WorkspaceRootRecord[] = []
+  initial: readonly WorkspaceRootRecord[] = [],
+  /** Paths the worktree ledger manages: a root registered there is a worktree, never opened. */
+  worktreePaths: readonly string[] = []
 ): Mock<WorkspaceRootPort['workspaceRoots']> {
   const roots = new Map(initial.map((root) => [root.path, root]));
   // The catalog's open order (`open_position`): a registered folder opens; a closed one leaves it.
-  const open = initial.filter((root) => root.status === 'live').map((root) => root.id);
+  const open = initial
+    .filter((root) => root.status === 'live' && root.kind === 'path')
+    .map((root) => root.id);
   return vi.fn(async (request) => {
     switch (request.operation) {
       case 'list':
@@ -39,6 +43,8 @@ export function createRegistryCatalogRequest(
         const byId = new Map([...roots.values()].map((root) => [root.id, root]));
         return { roots: open.flatMap((id) => byId.get(id) ?? []) };
       }
+      case 'list-worktrees':
+        return { roots: [...roots.values()].filter((root) => root.kind === 'worktree') };
       case 'register': {
         const previous = roots.get(request.root.path);
         if (previous && previous.canonicalPath !== request.root.canonicalPath && !request.repin) {
@@ -55,12 +61,16 @@ export function createRegistryCatalogRequest(
           ...(previous ??
             (moved
               ? { ...moved, path: request.root.path }
-              : registryRoot(request.root.preferredId, request.root.path))),
+              : registryRoot(
+                  request.root.preferredId,
+                  request.root.path,
+                  worktreePaths.includes(request.root.path) ? 'worktree' : 'path'
+                ))),
           canonicalPath: request.root.canonicalPath,
           status: 'live' as const,
         };
         roots.set(root.path, root);
-        if (!open.includes(root.id)) {
+        if (root.kind === 'path' && !open.includes(root.id)) {
           open.push(root.id);
         }
         return { roots: [root] };

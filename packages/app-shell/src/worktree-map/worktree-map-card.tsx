@@ -25,8 +25,7 @@ import type { WorktreeMapCardModel } from './worktree-map-model';
 
 export interface WorktreeMapCardProps {
   readonly card: WorktreeMapCardModel;
-  readonly onAddAsRoot: (card: WorktreeMapCardModel) => void;
-  /** Present on every card; enabled only for `!entry.managed` (spec §10 "Add as root" / A7). */
+  /** Present on every card; enabled only for `!entry.managed` (spec §10 A7). */
   readonly onAdopt: (card: WorktreeMapCardModel) => void;
   readonly onArchive: (card: WorktreeMapCardModel) => void;
   /** Present only for the card holding the SELECTED thread's checkout [A11]. */
@@ -130,7 +129,6 @@ function WorktreeThreadDetails({
 
 export function WorktreeMapCard({
   card,
-  onAddAsRoot,
   onAdopt,
   onArchive,
   onHandOffToLocal,
@@ -229,12 +227,9 @@ export function WorktreeMapCard({
             {onHandOffToLocal ? (
               <DropdownMenuItem onSelect={onHandOffToLocal}>Hand off to Local</DropdownMenuItem>
             ) : null}
-            {entry.rootId === null ? (
-              <DropdownMenuItem onSelect={() => onAddAsRoot(card)}>Add as root</DropdownMenuItem>
-            ) : null}
             {/*
               An unmanaged card is not "refused" — Adopt is its own ENABLED
-              action (spec §10 "Add as root" / A7), the only surface that ever
+              action (spec §10 A7), the only surface that ever
               calls `worktrees.adopt` for real: the Mode chip's picker never
               could (every unmanaged row is `usable: false`, so its select
               button stays disabled — see A1's correction). New thread here
@@ -255,9 +250,8 @@ export function WorktreeMapCard({
               <DropdownMenuItem onSelect={() => onAdopt(card)}>Adopt</DropdownMenuItem>
             )}
             {/*
-              Complementary with "Add as root" above, never both: a checkout
-              with no containing root has nothing to authorize a shell, and
-              "Add as root" IS the stated next step. `entry.rootId` is the
+              A checkout with no containing root has nothing to authorize a
+              shell. `entry.rootId` is the
               CONTAINING root (see `rootIdIsExactMount` in
               packages/types/src/worktree.ts) while `entry.path` is the
               checkout itself — main pins the shell to the path after a
