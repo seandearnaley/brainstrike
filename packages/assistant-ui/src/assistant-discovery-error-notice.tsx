@@ -17,7 +17,7 @@ export const AssistantDiscoveryErrorNotice = ({ data }: { data: unknown }) => {
         </p>
         <p className="text-muted-foreground">
           {validStatus && data.reason === 'timed-out'
-            ? 'The assistant server did not respond in time. '
+            ? 'The assistant did not respond in time. '
             : null}
           Reopen this thread to check again. Your conversation is still available.
         </p>

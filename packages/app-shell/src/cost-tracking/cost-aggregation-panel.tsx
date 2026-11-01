@@ -29,8 +29,8 @@ interface CostAggregationPanelViewProps {
 
 /**
  * Presentational cost panel — receives the resolved cross-root state so it can
- * be rendered with a stubbed state in tests without a live DB. The web fallback
- * is honest ("session-only", not zeros) and capability-gated on `available`.
+ * be rendered with a stubbed state in tests without a live DB. The fallback
+ * without recorded usage is honest (no zeros) and capability-gated on `available`.
  */
 export function CostAggregationPanelView({ state }: CostAggregationPanelViewProps) {
   const { available, error, loading, rows } = state;
@@ -58,8 +58,7 @@ export function CostAggregationPanelView({ state }: CostAggregationPanelViewProp
           />
         ) : (
           <p className="text-muted-foreground text-sm" data-testid="cost-aggregation-session-only">
-            Cross-root cost tracking is persisted on desktop only. On the web app, usage is
-            session-only and is not stored across reloads.
+            Cost by workspace needs recorded assistant usage, which isn’t available here.
           </p>
         )}
       </CardContent>

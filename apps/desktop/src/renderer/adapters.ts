@@ -67,6 +67,11 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     return requireWorkspaceRoots().addRootByPath(rootPath);
   }
 
+  /** The host closes the other open folders in the same write (ADR-0034). */
+  async openRoot(rootPath?: string): Promise<RootDescriptor> {
+    return requireWorkspaceRoots().openRoot(rootPath);
+  }
+
   async listRecentRoots(): Promise<readonly RecentRootEntry[]> {
     return requireWorkspaceRoots().listRecentRoots();
   }

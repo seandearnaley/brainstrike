@@ -15,6 +15,7 @@ import { hostChildStatusChanged } from './core-child-runs.ts';
 import { HostRunNotAdmittedError } from './core-run-lifecycle.ts';
 import {
   bindHostFileReadMethods,
+  bindHostFileSearchMethods,
   bindHostFileWatchMethods,
   bindHostRootRegistryMethods,
 } from './file-watch-connection.ts';
@@ -29,6 +30,7 @@ import type {
   HostAuthService,
   HostClientOrigin,
   HostFileReads,
+  HostFileSearch,
   HostFileWatches,
   HostGitWorkspace,
   HostMcpContentService,
@@ -68,6 +70,8 @@ export interface HostConnectionOptions {
   readonly bindCatalog?: (connection: Pick<MessageConnection, 'onRequest'>) => Promise<void>;
   /** ADR-0029 stage 4: the desktop Explorer's reads. */
   readonly fileReads?: HostFileReads;
+  /** ADR-0035: the desktop Explorer's Search tab. */
+  readonly fileSearch?: HostFileSearch;
   /** ADR-0029 stage 4: the desktop Explorer's root watches. */
   readonly fileWatches?: HostFileWatches;
   /** ADR-0029 stage 2: the desktop's git cluster, where the host owns one. */
@@ -136,6 +140,7 @@ export function bindHostConnection(
   const {
     auth,
     fileReads,
+    fileSearch,
     rootRegistry,
     fileWatches,
     gitWorkspace,
@@ -326,6 +331,7 @@ export function bindHostConnection(
   bindHostFileReadMethods(handle, fileReads, origin);
   bindHostRootRegistryMethods(handle, rootRegistry, origin);
   disposables.push(bindHostFileWatchMethods(handle, connection, fileWatches, origin));
+  bindHostFileSearchMethods(handle, connection, fileSearch, origin);
   bindHostHookTrustMethods(handle, core.store);
   bindHostWorkspaceTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);

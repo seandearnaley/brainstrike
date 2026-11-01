@@ -54,7 +54,7 @@ export function ToolsFilterBar({
             className="h-9 max-w-xs pl-10"
             data-testid="search-input"
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search tools..."
+            placeholder="Search tools…"
             style={SETTINGS_SEARCH_INPUT_STYLE}
             type="text"
             value={searchQuery}

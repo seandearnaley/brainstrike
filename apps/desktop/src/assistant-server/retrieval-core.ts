@@ -14,7 +14,7 @@ import { resolveOptionalWorkspaceRoot } from '@brainstrike/assistant-service/nod
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import type { QueryEmbeddingRequest } from '../ipc-domains/index-search.contract';
+import type { QueryEmbeddingRequest } from '../hosted-embeddings';
 import { checkoutFileRecords } from './checkout-read-through';
 import {
   type CheckoutAccess,
@@ -52,7 +52,7 @@ function redactRetrievalErrorForLog(error: unknown): {
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
 /** Retrieval reads the native index only; the agent host has no other similarity path. */
-const NO_NATIVE_INDEX_RETRIEVAL = 'Retrieval without a native index runs only on Main’s database.';
+const NO_NATIVE_INDEX_RETRIEVAL = 'Retrieval needs the workspace index, which is unavailable.';
 
 const RETRIEVAL_ERROR_MESSAGES = {
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',

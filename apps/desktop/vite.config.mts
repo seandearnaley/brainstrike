@@ -208,9 +208,8 @@ export default defineConfig({
     headers: {
       'Content-Security-Policy': getDevCSP(),
     },
-    // CRITICAL: keep desktop renderer dev URL deterministic and isolated from the
-    // web app's default/fallback dev-server ports. Repo-root `pnpm run dev` starts
-    // both apps, so desktop must not share the web port neighborhood.
+    // CRITICAL: keep the desktop renderer dev URL deterministic: a fixed port with
+    // strictPort, so Electron never loads a dev server on a fallback port.
     port: DESKTOP_DEV_RENDERER_PORT,
     strictPort: true,
     warmup: {

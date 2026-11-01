@@ -1,5 +1,5 @@
 /**
- * Settings › Workspace trust (ADR-0032): every mounted folder, whether the
+ * Settings › Workspace Trust (ADR-0032): every mounted folder, whether the
  * person trusts it, and what trusting it loads. The composer asks once for a
  * folder that brings agent configuration; this panel changes the answer.
  */
@@ -103,7 +103,7 @@ export function WorkspaceTrustSettingsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Workspace trust</CardTitle>
+        <CardTitle>Workspace Trust</CardTitle>
         <CardDescription>
           A folder’s <code>AGENTS.md</code>, skills, slash commands and subagents can steer the
           assistant, so Brainstrike loads them only from folders you trust. A folder you haven’t

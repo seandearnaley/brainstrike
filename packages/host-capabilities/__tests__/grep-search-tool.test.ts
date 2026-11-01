@@ -243,8 +243,8 @@ describe('grep search tool', () => {
   });
 
   // The ripgrep prefilter admits these files on the regex's literal `needle`,
-  // and the authoritative matcher then rejects every line. The JS walk admits
-  // every file. Either way the candidate cap is hit before all are read.
+  // and the authoritative matcher then rejects every line, so the candidate
+  // cap is hit before all are read.
   const PREFILTER_ONLY_ROWS: readonly DiskGrepRow[] = Array.from({ length: 4 }, (_, i) => ({
     content: 'needle without digits',
     path: `src/candidate-${i}.ts`,

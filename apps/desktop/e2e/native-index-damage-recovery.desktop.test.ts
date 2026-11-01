@@ -1,7 +1,7 @@
 /**
  * Desktop E2E (BST-1878): a damaged native search index is a derived store, so
- * the user learns it needs a rebuild and Rebuild restores search, with chats
- * and the folder catalog intact. The damage is one flipped byte in an index
+ * the user learns it needs a rebuild and Rebuild restores it, with chats and the
+ * folder catalog intact; Explorer search never depended on it (ADR-0035). The damage is one flipped byte in an index
  * b-tree leaf of `index.sqlite`: `integrity_check` refuses it at open while
  * the table pages stay readable.
  */
@@ -90,7 +90,7 @@ async function searchFor(page: Page, text: string) {
 }
 
 test.describe('Native index damage (desktop) @desktop-db-storage', () => {
-  test('a damaged native index asks for a rebuild, and Rebuild restores search with chats and catalog intact', async ({
+  test('a damaged native index asks for a rebuild, and Rebuild restores it with chats and catalog intact', async ({
     electron,
     electronApp,
     window: page,
@@ -107,8 +107,6 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
       await expect
         .poll(() => textReadiness(page), { timeout: 120_000 })
         .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
-      const ready = await searchFor(page, MARKER);
-      await expect(ready.getByText('notes.txt').first()).toBeVisible({ timeout: 30_000 });
 
       const userData = electron.getUserDataDir();
       const [threadId] = await seedHostThreads(userData, [
@@ -145,12 +143,10 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
       await expect(popover).toContainText(REBUILD_REQUIRED);
       await expect(popover).not.toContainText('integrity_check');
       await reopened.keyboard.press('Escape');
+      // Explorer search reads the folder on disk, not the index (ADR-0035): it still finds the text.
       const panel = await searchFor(reopened, MARKER);
-      await expect(panel.getByTestId('workspace-search-results-error')).toContainText(
-        REBUILD_REQUIRED,
-        { timeout: 30_000 }
-      );
-      await expect(panel).not.toContainText('integrity_check');
+      await expect(panel.getByText('notes.txt').first()).toBeVisible({ timeout: 30_000 });
+      await expect(panel.getByTestId('workspace-search-results-error')).toHaveCount(0);
 
       const home = new HomePage(reopened);
       await home.openSettings();
@@ -167,8 +163,6 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
       await expect
         .poll(() => textReadiness(reopened), { timeout: 120_000 })
         .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
-      const restored = await searchFor(reopened, MARKER);
-      await expect(restored.getByText('notes.txt').first()).toBeVisible({ timeout: 30_000 });
       expect(integrity(profileFile(userData, 'index.sqlite')).full).toEqual([
         { integrity_check: 'ok' },
       ]);

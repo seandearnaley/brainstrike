@@ -57,7 +57,7 @@ const SelectAllLoadingIndicator = () => (
   >
     <div className="bg-background/90 flex items-center gap-2 rounded-md px-3 py-2 shadow-sm">
       <Loader2 className="text-primary h-4 w-4 animate-spin" />
-      <span className="text-muted-foreground text-xs">Selecting files...</span>
+      <span className="text-muted-foreground text-xs">Selecting files…</span>
     </div>
   </div>
 );
@@ -142,7 +142,7 @@ const EmptyStateComponent = ({
   rootDirectoryHandle: DirectoryHandle | null;
 }) => (
   <div className="text-muted-foreground py-8 text-center">
-    {isLoading ? 'Loading files...' : 'No matching files found'}
+    {isLoading ? 'Loading files…' : 'No matching files found'}
   </div>
 );
 

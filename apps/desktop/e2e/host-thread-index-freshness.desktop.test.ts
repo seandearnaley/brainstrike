@@ -43,7 +43,9 @@ async function indexedPathsMatching(page: Page, pattern: string): Promise<string
   return await page.evaluate(async (needle) => {
     const capability = (
       window as Window & {
-        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+        readonly __brainstrikeTestHooks__?: {
+          readonly indexSearch?: Omit<IndexSearchCapability, 'grep'>;
+        };
       }
     ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
@@ -57,12 +59,11 @@ async function indexedPathsMatching(page: Page, pattern: string): Promise<string
     ) {
       return 'not-ready';
     }
-    const result = await capability.grep({
-      caseSensitive: true,
-      isRegex: false,
+    const result = await capability.search({
       limit: 10,
-      pattern: needle,
+      mode: 'trigram',
       rootIds: status.authorizedRootIds,
+      text: needle,
     });
     return result.hits.map((hit) => hit.relativePath ?? '').sort();
   }, pattern);

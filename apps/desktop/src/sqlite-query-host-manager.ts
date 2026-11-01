@@ -61,7 +61,7 @@ export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' |
   const registered = target;
   if (!registered) {
     throw new ToolInputError(
-      'The SQLite workspace index is unavailable. Enable indexing and wait for its host to become ready.'
+      'The workspace index is unavailable. Turn on indexing and wait for it to become ready.'
     );
   }
   const index = registered.acquire();

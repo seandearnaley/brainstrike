@@ -67,7 +67,7 @@ test('native-index pause exposes a correlated start, action and cleanup timeline
   const logging = await new SettingsPage(window).openCategory(/Logging & Diagnostics/iu, 'logging');
   await logging.getByRole('button', { name: 'Open Logs' }).click();
   const viewer = window.getByRole('region', { name: 'Log Viewer' });
-  await viewer.getByPlaceholder('Search logs...').fill(pauseEnd.traceId);
+  await viewer.getByPlaceholder('Search logs…').fill(pauseEnd.traceId);
   await expect(viewer.getByText('Effect native-index.pause end', { exact: true })).toBeVisible();
   await viewer
     .getByRole('button', { name: 'View details for Effect native-index.pause end' })

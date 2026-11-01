@@ -75,7 +75,7 @@ describe('computeScanningStatusProps', () => {
 
       expect(result).toEqual({
         cancellable: true,
-        currentPath: 'Preparing to expand directories...',
+        currentPath: 'Preparing to expand directories…',
         isCancelling: false,
         isScanning: true,
         onCancel: mockCancelExpandAll,
@@ -143,7 +143,7 @@ describe('computeScanningStatusProps', () => {
       expect(result).not.toHaveProperty('loadedCount');
       expect(result).not.toHaveProperty('totalCount');
       expect(result).not.toHaveProperty('percentage');
-      expect(result?.currentPath).toBe('Preparing to expand directories...');
+      expect(result?.currentPath).toBe('Preparing to expand directories…');
     });
   });
 

@@ -111,7 +111,7 @@ const InlineScanningIndicator = React.memo(
         )}
         {isCancelling ? (
           <span className="text-muted-foreground hidden text-xs @[236px]/explorer-toolbar:inline">
-            Stopping...
+            Stopping…
           </span>
         ) : (
           countText && (
@@ -139,7 +139,7 @@ const InlineScanningIndicator = React.memo(
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{isCancelling ? 'Cancelling...' : 'Cancel operation'}</p>
+              <p>{isCancelling ? 'Cancelling…' : 'Cancel operation'}</p>
             </TooltipContent>
           </Tooltip>
         )}

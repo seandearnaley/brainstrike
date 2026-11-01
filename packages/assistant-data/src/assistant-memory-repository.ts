@@ -245,9 +245,8 @@ export interface RunLedgerRow {
   readonly completedAt: Date | null;
   readonly durationMs: number | null;
   /**
-   * Edits the run made. Only agent-host rows carry it (the host's run log
-   * records each edit); a PGlite row has no edit record, so it omits the
-   * count rather than claim zero.
+   * Edits the run made, from the host's run log (which records each edit). A
+   * row without an edit record omits the count rather than claim zero.
    */
   readonly editCount?: number;
   /** Anthropic cache-write share of `estimatedInputTokens` (0 elsewhere). */

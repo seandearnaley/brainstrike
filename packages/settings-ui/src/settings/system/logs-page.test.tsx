@@ -198,7 +198,7 @@ describe('LogsPage log source switch', () => {
     await user.click(screen.getByText('Persistent errors'));
 
     await waitFor(() => {
-      expect(screen.getByText('No durable warn+ events recorded.')).toBeInTheDocument();
+      expect(screen.getByText('No saved warnings or errors.')).toBeInTheDocument();
     });
   });
 });
@@ -249,7 +249,7 @@ describe('LogsPage export NDJSON button', () => {
     await selectPersistentSource();
 
     await waitFor(() => {
-      expect(screen.getByText('No durable warn+ events recorded.')).toBeInTheDocument();
+      expect(screen.getByText('No saved warnings or errors.')).toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: /export ndjson/iu })).not.toBeInTheDocument();
   });
@@ -350,7 +350,7 @@ describe('LogsPage export NDJSON button', () => {
         expect(toastMock).toHaveBeenCalledWith(
           expect.objectContaining({
             description:
-              'Exported the most recent 2000 of 5000 warn+ events. Older events were not included.',
+              'Exported the most recent 2000 of 5000 warnings and errors. Older events were not included.',
             title: 'Export truncated',
           })
         )
@@ -422,7 +422,7 @@ describe('LogsPage export NDJSON button', () => {
       await waitFor(() =>
         expect(toastMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            description: 'There are no durable warn+ events to export.',
+            description: 'There are no saved warnings or errors to export.',
             title: 'No diagnostics to export',
           })
         )

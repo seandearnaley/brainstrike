@@ -8,7 +8,7 @@ import type { GrepToolResult } from './grep-search-result-contract.ts';
 
 /**
  * BST-1247: `truncated` records exactly "model-facing output was clipped".
- * Substrate degradation (rg → capped JS walk, candidate caps, walk caps) is
+ * Substrate limits (candidate caps, a ripgrep timeout, glob walk caps) are
  * recorded in its own fields — the pre-split OR fold made the 2026-08 audit's
  * waste ranking blame the model for infrastructure failure: all 40 glob calls
  * were "truncated", including 33 zero-match results with nothing to clip.
