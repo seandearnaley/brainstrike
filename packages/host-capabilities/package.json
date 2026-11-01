@@ -47,6 +47,7 @@
     "bin"
   ],
   "scripts": {
+    "postinstall": "node scripts/chmod-pty-spawn-helper.mjs",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts"
