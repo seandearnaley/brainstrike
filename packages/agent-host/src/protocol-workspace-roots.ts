@@ -4,11 +4,16 @@ const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const AbsolutePath = Schema.String.check(Schema.isMinCodePoints(1));
 const NoParams = Schema.Record(Schema.String, Schema.Never);
 
-/** An open folder: `available` is false while it cannot be mounted (an unplugged drive). */
+/**
+ * A mounted folder: `available` is false while it cannot be mounted (an unplugged drive).
+ * `worktree` marks a managed worktree, a thread's checkout that is never an open folder
+ * (ADR-0034).
+ */
 const OpenRootSchema = Schema.Struct({
   available: Schema.Boolean,
   path: AbsolutePath,
   rootId: Id,
+  worktree: Schema.Boolean,
 });
 export type HostOpenRoot = (typeof OpenRootSchema)['Type'];
 

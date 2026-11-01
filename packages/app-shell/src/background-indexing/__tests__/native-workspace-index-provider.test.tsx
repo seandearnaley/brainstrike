@@ -35,7 +35,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({ fileSystemAdapter: adapter }),
 }));
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  useFileSystem: () => ({ rootDirectoryHandles: roots }),
+  useFileSystem: () => ({ mountedRootHandles: roots }),
 }));
 vi.mock('../../roots/use-roots-reconciliation', () => ({
   useRootsReconciliation: () => reconciliation,

@@ -359,9 +359,15 @@ async function runMultiRootRestore({
     }
 
     // Register persisted roots in the store. Accessed via ref to avoid reactive dep.
+    // A managed worktree keeps its descriptor but is never an open folder (ADR-0034).
     const storedDescriptors: StoredRootDescriptor[] = granted
       .filter((d) => d.persisted)
-      .map((d) => ({ displayName: d.displayName, path: d.handle.path, rootId: d.rootId }));
+      .map((d) => ({
+        displayName: d.displayName,
+        path: d.handle.path,
+        rootId: d.rootId,
+        ...(d.handle.worktree ? { worktree: true as const } : {}),
+      }));
     setActiveRootsRef.current(storedDescriptors);
   } catch (error) {
     if (!cancelledRef.value) {
@@ -465,7 +471,12 @@ export function useFileSystem({
         updateCurrentFolderId(rootId);
         // Only register in the persistent store when the handle was actually persisted
         if (persisted) {
-          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+          addActiveRoot({
+            displayName,
+            path: getCanonicalFolderId(handle),
+            rootId,
+            ...(handle.worktree ? { worktree: true as const } : {}),
+          });
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;
@@ -515,7 +526,12 @@ export function useFileSystem({
         dispatch({ handle, rootId, type: 'addOrFocusHandle' });
         updateCurrentFolderId(rootId);
         if (persisted) {
-          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+          addActiveRoot({
+            displayName,
+            path: getCanonicalFolderId(handle),
+            rootId,
+            ...(handle.worktree ? { worktree: true as const } : {}),
+          });
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;

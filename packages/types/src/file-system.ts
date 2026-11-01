@@ -143,6 +143,12 @@ export interface DirectoryHandle {
    * (the `setRoot` path), where `path` is unique anyway.
    */
   rootId?: RootId;
+  /**
+   * The root is a managed worktree: a thread's checkout, mounted for the thread but never one
+   * of the open folders (ADR-0034). The Explorer shows it only in place of its repository's
+   * folder while the active thread works in it.
+   */
+  worktree?: true;
 }
 
 /**

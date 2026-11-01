@@ -81,7 +81,7 @@ function resolveGitScopeResolutionRootId(
 }
 
 export function ChangesSurface(): ReactElement {
-  const { rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } = useFileSystem();
+  const { mountedRootHandles, rootDirectoryHandle, rootIdByPath } = useFileSystem();
   const rootId = useMemo<string | null>(() => {
     if (!rootDirectoryHandle) {
       return null;
@@ -95,14 +95,14 @@ export function ChangesSurface(): ReactElement {
   // resolve an absolute path from otherwise.
   const rootPathById = useMemo<ReadonlyMap<string, string>>(() => {
     const map = new Map<string, string>();
-    for (const handle of rootDirectoryHandles) {
+    for (const handle of mountedRootHandles) {
       const handleRootId = handle.rootId ?? rootIdByPath?.get(handle.path) ?? null;
       if (handleRootId !== null) {
         map.set(handleRootId, handle.path);
       }
     }
     return map;
-  }, [rootDirectoryHandles, rootIdByPath]);
+  }, [mountedRootHandles, rootIdByPath]);
 
   const rootLabelById = useRootLabelById();
   const commentToThread = useDiffLineCommentToThread(rootLabelById);

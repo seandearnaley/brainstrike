@@ -13,18 +13,23 @@ export interface DesktopWorkspaceRoots {
   restoreRoots(): Promise<RootDescriptor[]>;
 }
 
-/** One open folder as `workspace/roots/*` answers it. */
+/** One mounted folder as `workspace/roots/*` answers it. */
 interface HostOpenRoot {
   readonly available: boolean;
   readonly path: string;
   readonly rootId: string;
+  /** A managed worktree: a thread's checkout, never one of the open folders (ADR-0034). */
+  readonly worktree: boolean;
 }
 
 function descriptor(root: HostOpenRoot): RootDescriptor {
-  return descriptorFor(
+  const described = descriptorFor(
     { addedAt: 0, path: root.path, rootId: root.rootId },
     root.available ? 'granted' : 'unknown'
   );
+  return root.worktree
+    ? { ...described, handle: { ...described.handle, worktree: true } }
+    : described;
 }
 
 /**
