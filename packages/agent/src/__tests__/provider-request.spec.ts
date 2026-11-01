@@ -159,6 +159,74 @@ describe('canonical provider request preparation', () => {
     }
   );
 
+  it.each([
+    ['anthropic', 'anthropic.messages', 'claude-sonnet-5'],
+    ['openrouter', 'openrouter', 'anthropic/claude-sonnet-5'],
+  ] as const)(
+    'replays foreign history to %s with valid tool ids, its own thinking only, and every input',
+    async (provider, sdkProvider, modelId) => {
+      const prompt: LanguageModelV4Prompt = [
+        user('read it'),
+        {
+          content: [
+            {
+              providerOptions: { openai: { itemId: 'rs_foreign' } },
+              text: 'gpt',
+              type: 'reasoning',
+            },
+            {
+              input: undefined,
+              toolCallId: 'functions.read:0',
+              toolName: 'read',
+              type: 'tool-call',
+            },
+          ],
+          role: 'assistant',
+        },
+        {
+          content: [
+            {
+              output: { type: 'text', value: 'file' },
+              toolCallId: 'functions.read:0',
+              toolName: 'read',
+              type: 'tool-result',
+            },
+          ],
+          role: 'tool',
+        },
+        user('continue'),
+      ];
+      const before = JSON.stringify(prompt);
+      const prepared = await prepareProviderRequest(
+        { prompt },
+        { ...model(sdkProvider), modelId },
+        { provider, tokenMeasurement: measurement }
+      );
+      expect(prepared.params.prompt).toEqual([
+        prompt[0],
+        {
+          content: [
+            { input: {}, toolCallId: 'functions_read_0', toolName: 'read', type: 'tool-call' },
+          ],
+          role: 'assistant',
+        },
+        {
+          content: [
+            {
+              output: { type: 'text', value: 'file' },
+              toolCallId: 'functions_read_0',
+              toolName: 'read',
+              type: 'tool-result',
+            },
+          ],
+          role: 'tool',
+        },
+        prompt[3],
+      ]);
+      expect(JSON.stringify(prompt)).toBe(before);
+    }
+  );
+
   it('sweeps an orphan reasoning item even when there are no duplicates', async () => {
     const prompt: LanguageModelV4Prompt = [
       user('earlier'),

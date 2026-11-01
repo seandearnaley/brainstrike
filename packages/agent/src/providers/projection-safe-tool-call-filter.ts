@@ -1,32 +1,19 @@
+import type {
+  LanguageModelV4Prompt,
+  LanguageModelV4ToolCallPart,
+  LanguageModelV4ToolResultPart,
+} from '@ai-sdk/provider';
 import { isGuardedToolError, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
   denormalizeNativeToolName,
   STALE_REPLAYABLE_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage } from '@mastra/core/agent';
-import type {
-  ProcessInputStepArgs,
-  ProcessLLMRequestArgs,
-  ProcessLLMRequestResult,
-  Processor,
-} from '@mastra/core/processors';
 import { Predicate } from 'effect';
 
-type LanguageModelV2Prompt = ProcessLLMRequestArgs['prompt'];
-type LanguageModelV2Message = LanguageModelV2Prompt[number];
-type LanguageModelV2ToolCallPart = Extract<
-  Extract<LanguageModelV2Message, { role: 'assistant' }>['content'][number],
-  { type: 'tool-call' }
->;
-type LanguageModelV2ToolResultPart = Extract<
-  Extract<LanguageModelV2Message, { role: 'tool' }>['content'][number],
-  { type: 'tool-result' }
->;
-type LanguageModelV2ToolResultOutput = LanguageModelV2ToolResultPart['output'];
+type PromptMessage = LanguageModelV4Prompt[number];
+type ToolResultOutput = LanguageModelV4ToolResultPart['output'];
 
-const logger = createLogger('MastraToolHistoryFilter');
-const FILTER_STATE_KEY = 'brainstrikeProjectionSafeToolCallFilter';
 const MULTIMODAL_PART_TYPES = new Set([
   'audio',
   'audio-data',
@@ -71,10 +58,6 @@ const ARG_ELISION_MIN_SERIALIZED_CHARS = 2000;
 const ARG_ELISION_KEEP_FIELDS = ['path', 'root'] as const;
 
 const TOOL_HISTORY_FILTER_RECENT_TOOL_STEPS = 1;
-
-interface FilterLogger {
-  info(metadata: Record<string, unknown>, message: string): void;
-}
 
 interface MutableToolCall {
   id?: unknown;
@@ -147,13 +130,6 @@ function collectMatchingIds<TGroup>(
   return ids;
 }
 
-interface FilterState {
-  readonly argElidableToolCallIds: readonly string[];
-  readonly ineligibleToolCallCount: number;
-  readonly recentToolCallCount: number;
-  readonly safeToolCallIds: readonly string[];
-}
-
 const MESSAGE_BOUNDARY = Symbol('message-boundary');
 
 /**
@@ -187,7 +163,6 @@ function formatStaleToolResultReplay(toolName: string, projection: string): stri
 
 export interface ProjectionSafeToolCallFilterOptions {
   readonly filterAfterToolSteps?: number;
-  readonly logger?: FilterLogger;
   readonly toolNameMap: ReadonlyMap<string, string>;
 }
 
@@ -216,16 +191,16 @@ function readMessageParts(message: MastraDBMessage): unknown[] {
 }
 
 function collectPromptToolParts(
-  prompt: LanguageModelV2Prompt,
+  prompt: LanguageModelV4Prompt,
   safeIds: ReadonlySet<string>
 ): {
   assistantEmbeddedResultIds: Set<string>;
-  calls: Map<string, LanguageModelV2ToolCallPart>;
-  results: Map<string, LanguageModelV2ToolResultPart>;
+  calls: Map<string, LanguageModelV4ToolCallPart>;
+  results: Map<string, LanguageModelV4ToolResultPart>;
 } {
   const assistantEmbeddedResultIds = new Set<string>();
-  const calls = new Map<string, LanguageModelV2ToolCallPart>();
-  const results = new Map<string, LanguageModelV2ToolResultPart>();
+  const calls = new Map<string, LanguageModelV4ToolCallPart>();
+  const results = new Map<string, LanguageModelV4ToolResultPart>();
   for (const message of prompt) {
     if (!Array.isArray(message.content)) {
       continue;
@@ -350,18 +325,12 @@ function readStoredModelOutput(part: ToolInvocationPart): unknown {
 }
 
 /**
- * Strict provider-boundary equivalent of Mastra 1.51 ToolCallFilter.
- *
- * Mastra's processInput/processInputStep message transforms are applied back to
- * the live MessageList. Eligibility is therefore computed without mutation in
- * processInputStep, while the actual rewrite runs in processLLMRequest, the
- * documented transient hook after stored model projections are resolved.
+ * Strict provider-boundary equivalent of Mastra 1.51 ToolCallFilter, as a
+ * transient rewrite of the outgoing V4 prompt: eligibility comes from the
+ * stored history, and stored messages are never changed.
  */
-export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter'> {
-  readonly id = 'tool-call-filter';
-  readonly name = 'Projection-safe tool call filter';
+export class ProjectionSafeToolCallFilter {
   readonly #filterAfterToolSteps: number;
-  readonly #logger: FilterLogger;
   readonly #toolNameMap: ReadonlyMap<string, string>;
 
   constructor(options: ProjectionSafeToolCallFilterOptions) {
@@ -372,57 +341,13 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     }
     this.#filterAfterToolSteps = filterAfterToolSteps;
     this.#toolNameMap = options.toolNameMap;
-    this.#logger = options.logger ?? {
-      info: (metadata, message) => logger.info(metadata, message),
-    };
   }
 
-  processInputStep(args: ProcessInputStepArgs): void {
-    const { argElidableIds, ineligibleToolCallCount, recentToolCallCount, safeIds } =
-      this.collectSafeToolCallIds(args.messages);
-    args.state[FILTER_STATE_KEY] = {
-      argElidableToolCallIds: [...argElidableIds],
-      ineligibleToolCallCount,
-      recentToolCallCount,
-      safeToolCallIds: [...safeIds],
-    } satisfies FilterState;
-  }
-
-  processLLMRequest(args: ProcessLLMRequestArgs): ProcessLLMRequestResult | undefined {
-    const filterState = this.readFilterState(args.state);
-    if (
-      !filterState ||
-      (filterState.safeToolCallIds.length === 0 && filterState.argElidableToolCallIds.length === 0)
-    ) {
-      return;
-    }
-    const { argElidedToolCallCount, filteredToolCallCount, prompt } = this.filterPrompt(
-      args.prompt,
-      new Set(filterState.safeToolCallIds),
-      new Set(filterState.argElidableToolCallIds)
-    );
-    if (filteredToolCallCount === 0 && argElidedToolCallCount === 0) {
-      return;
-    }
-    this.#logger.info(
-      {
-        code: 'mastra_agent_tool_history_filtered',
-        ...(argElidedToolCallCount > 0 ? { argElidedToolCallCount } : {}),
-        filteredToolCallCount,
-        ineligibleToolCallCount: filterState.ineligibleToolCallCount,
-        preservedRecentToolCallCount: filterState.recentToolCallCount,
-        preservedRecentToolStepLimit: this.#filterAfterToolSteps,
-      },
-      'filtered stale tool history from provider input'
-    );
-    return { prompt };
-  }
-
-  /** Reuse the canonical eligibility and rewrite passes outside the Mastra loop. */
+  /** The prompt with stale tool history replayed compactly; unchanged when nothing qualifies. */
   preparePrompt(
-    prompt: LanguageModelV2Prompt,
+    prompt: LanguageModelV4Prompt,
     messages: readonly MastraDBMessage[]
-  ): LanguageModelV2Prompt {
+  ): LanguageModelV4Prompt {
     const { safeIds, argElidableIds } = this.collectSafeToolCallIds(messages);
     return this.filterPrompt(prompt, safeIds, argElidableIds).prompt;
   }
@@ -480,8 +405,6 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
 
   private collectSafeToolCallIds(messages: readonly MastraDBMessage[]): {
     argElidableIds: ReadonlySet<string>;
-    ineligibleToolCallCount: number;
-    recentToolCallCount: number;
     safeIds: ReadonlySet<string>;
   } {
     const groups = new Map<string, ToolCallGroup>();
@@ -511,25 +434,8 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
       [...argCandidateIds].filter((toolCallId) => !recentIds.has(toolCallId))
     );
 
-    const safeIds = new Set<string>();
-    let ineligibleToolCallCount = 0;
-    let recentToolCallCount = 0;
-    for (const [toolCallId, group] of groups) {
-      if (recentIds.has(toolCallId)) {
-        recentToolCallCount += 1;
-      }
-      if (group.hasSafeResult && !group.unsafe && !recentIds.has(toolCallId)) {
-        safeIds.add(toolCallId);
-        continue;
-      }
-      ineligibleToolCallCount += 1;
-    }
-    return {
-      argElidableIds,
-      ineligibleToolCallCount,
-      recentToolCallCount,
-      safeIds,
-    };
+    const safeIds = new Set([...eligibleIds].filter((toolCallId) => !recentIds.has(toolCallId)));
+    return { argElidableIds, safeIds };
   }
 
   /**
@@ -598,38 +504,14 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     groups.set(toolCallId, group);
   }
 
-  private readFilterState(state: Record<string, unknown>): FilterState | undefined {
-    const value = state[FILTER_STATE_KEY];
-    if (!(Predicate.isObject(value) && Array.isArray(value['safeToolCallIds']))) {
-      return;
-    }
-    const safeToolCallIds = value['safeToolCallIds'].filter(
-      (candidate): candidate is string => typeof candidate === 'string'
-    );
-    const argElidableToolCallIds = (
-      Array.isArray(value['argElidableToolCallIds']) ? value['argElidableToolCallIds'] : []
-    ).filter((candidate): candidate is string => typeof candidate === 'string');
-    const ineligibleToolCallCount = value['ineligibleToolCallCount'];
-    const recentToolCallCount = value['recentToolCallCount'];
-    if (typeof ineligibleToolCallCount !== 'number' || typeof recentToolCallCount !== 'number') {
-      return;
-    }
-    return {
-      argElidableToolCallIds,
-      ineligibleToolCallCount,
-      recentToolCallCount,
-      safeToolCallIds,
-    };
-  }
-
   private filterPrompt(
-    prompt: LanguageModelV2Prompt,
+    prompt: LanguageModelV4Prompt,
     safeIds: ReadonlySet<string>,
     argElidableIds: ReadonlySet<string>
   ): {
     argElidedToolCallCount: number;
     filteredToolCallCount: number;
-    prompt: LanguageModelV2Prompt;
+    prompt: LanguageModelV4Prompt;
   } {
     const { assistantEmbeddedResultIds, calls, results } = collectPromptToolParts(prompt, safeIds);
     const projections = new Map<string, string>();
@@ -647,7 +529,7 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
       return { argElidedToolCallCount: 0, filteredToolCallCount: 0, prompt };
     }
 
-    const filteredPrompt: LanguageModelV2Prompt = [];
+    const filteredPrompt: LanguageModelV4Prompt = [];
     const argElidedIds = new Set<string>();
     let pendingReplays: string[] = [];
     const flushReplays = () => {
@@ -657,7 +539,7 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
       filteredPrompt.push({
         content: pendingReplays.map((text) => ({ text, type: 'text' as const })),
         role: 'user',
-      } as LanguageModelV2Message);
+      } as PromptMessage);
       pendingReplays = [];
     };
     for (const message of prompt) {
@@ -687,11 +569,11 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
   }
 
   private filterPromptMessage(
-    message: LanguageModelV2Message,
+    message: PromptMessage,
     projections: ReadonlyMap<string, string>,
     argElidableIds: ReadonlySet<string>,
     argElidedIds: Set<string>
-  ): { message: LanguageModelV2Message | undefined; replays: string[] } {
+  ): { message: PromptMessage | undefined; replays: string[] } {
     if (!Array.isArray(message.content)) {
       return { message, replays: [] };
     }
@@ -728,10 +610,10 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     if (content.length === 0) {
       return { message: undefined, replays };
     }
-    return { message: { ...message, content } as LanguageModelV2Message, replays };
+    return { message: { ...message, content } as PromptMessage, replays };
   }
 
-  private modelOutputToText(output: LanguageModelV2ToolResultOutput): string | undefined {
+  private modelOutputToText(output: ToolResultOutput): string | undefined {
     if (output.type === 'text') {
       return output.value || undefined;
     }

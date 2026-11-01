@@ -29,10 +29,16 @@ tool at the SDK edge; a function named `tool_search` is a different tool
 ([vendor identity contract](https://github.com/vercel/ai/pull/19754)). The host
 retains its existing discovery catalog. Drop orphaned reasoning, aborted-step
 items and foreign-provider executed parts from
-requests without rewriting canonical history. Brainstrike's provider fixes are
-plain functions over the AI SDK V4 prompt in `transformParams`; only Mastra's
-`ProviderHistoryCompat` and `TokenLimiter` cross its V2 prompt type, in one
-place. OpenAI uses stored responses.
+requests without rewriting canonical history. Provider history rules and the context limit are
+plain functions over the AI SDK V4 prompt in `transformParams`; the AI SDK has
+neither primitive, and no Mastra processor or V2 prompt is involved. Anthropic
+routes (its own API and OpenRouter's `anthropic/*`) get valid tool-call IDs and
+only their own thinking; signed thinking another SDK provider stamped is
+dropped for every target. Over the input limit, the request keeps every system
+message and the most recent conversation that fits, starting at a user turn so
+no tool call loses its result, measured exactly as it is accounted; when even
+the latest turn cannot fit, the run refuses with `provider.context-overflow`.
+OpenAI uses stored responses.
 Expired stored items are typed, non-retryable failures; replaying without them
 requires the user's decision.
 
