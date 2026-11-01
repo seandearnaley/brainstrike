@@ -16,6 +16,7 @@ import {
   type CheckoutReadThrough,
   type ReadCheckoutFile,
   type ResolveCheckout,
+  cachedCheckoutReader,
   relocateCheckoutHits,
   resolveCheckoutReadThrough,
 } from './checkout-read-through';
@@ -269,12 +270,13 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   );
   signal?.throwIfAborted();
   const droppedChunks = new Set<string>();
+  const readWorktreeFile = request.checkout ? cachedCheckoutReader(request.checkout.read) : null;
   // A read-through source's hits move onto the worktree that still holds them.
   const relocated = async (pool: IndexerSearchResult): Promise<IndexerSearchResult> => {
-    if (readThrough.length === 0 || !request.checkout) {
+    if (readThrough.length === 0 || !readWorktreeFile) {
       return pool;
     }
-    const moved = await relocateCheckoutHits(pool.hits, readThrough, request.checkout.read);
+    const moved = await relocateCheckoutHits(pool.hits, readThrough, readWorktreeFile);
     for (const chunkId of moved.dropped) {
       droppedChunks.add(chunkId);
     }
@@ -456,7 +458,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   };
 }
 
-/** Which checkout answered for each worktree, and how many of its hits the worktree no longer holds. */
+/** Which checkout answered for each worktree, and how many candidate chunks the worktree no longer holds. */
 function readThroughNote(
   readThrough: readonly CheckoutReadThrough[],
   dropped: number,
@@ -473,7 +475,7 @@ function readThroughNote(
   const changed =
     dropped === 0
       ? ''
-      : ` ${dropped} ${dropped === 1 ? 'result was' : 'results were'} left out because the worktree's file differs; grepSearch reads the worktree directly.`;
+      : ` ${dropped} ${dropped === 1 ? 'candidate chunk was' : 'candidate chunks were'} left out because the worktree's file differs; grepSearch reads the worktree directly.`;
   return `Worktree results come from the index of another checkout of the same repository, checked against the worktree's files: ${pairs}.${changed}`;
 }
 

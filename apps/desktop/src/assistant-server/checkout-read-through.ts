@@ -73,21 +73,15 @@ function linesOf(text: string, startLine: number, endLine: number): string {
 }
 
 /**
- * Moves each hit of a read-through source onto its worktree when the worktree's
- * file still holds the chunk at the same lines, and drops it otherwise. The
- * source keeps none of its own hits: it is the same repository, and the thread
- * works in the worktree. Returns the chunk ids it dropped.
+ * One search's reader of worktree files: each file is read once and every arm
+ * of the search checks its hits against the same text. A file that cannot be
+ * read (missing, ignored, binary or escaping) reads as null.
  */
-export async function relocateCheckoutHits(
-  hits: readonly IndexerSearchHit[],
-  readThrough: readonly CheckoutReadThrough[],
+export function cachedCheckoutReader(
   readFile: ReadCheckoutFile
-): Promise<{ readonly dropped: readonly string[]; readonly hits: readonly IndexerSearchHit[] }> {
-  if (readThrough.length === 0) {
-    return { dropped: [], hits };
-  }
+): (rootId: string, relativePath: string) => Promise<string | null> {
   const files = new Map<string, Promise<string | null>>();
-  const read = (rootId: string, relativePath: string): Promise<string | null> => {
+  return (rootId, relativePath) => {
     const key = JSON.stringify([rootId, relativePath]);
     let file = files.get(key);
     if (!file) {
@@ -96,6 +90,22 @@ export async function relocateCheckoutHits(
     }
     return file;
   };
+}
+
+/**
+ * Moves each hit of a read-through source onto its worktree when the worktree's
+ * file still holds the chunk at the same lines, and drops it otherwise. The
+ * source keeps none of its own hits: it is the same repository, and the thread
+ * works in the worktree. Returns the chunk ids it dropped.
+ */
+export async function relocateCheckoutHits(
+  hits: readonly IndexerSearchHit[],
+  readThrough: readonly CheckoutReadThrough[],
+  read: (rootId: string, relativePath: string) => Promise<string | null>
+): Promise<{ readonly dropped: readonly string[]; readonly hits: readonly IndexerSearchHit[] }> {
+  if (readThrough.length === 0) {
+    return { dropped: [], hits };
+  }
   const dropped: string[] = [];
   const kept = await Promise.all(
     hits.map(async (hit): Promise<readonly IndexerSearchHit[]> => {

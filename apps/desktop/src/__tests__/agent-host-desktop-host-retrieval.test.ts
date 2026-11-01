@@ -430,7 +430,7 @@ test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
       );
       expect(JSON.stringify(output)).not.toContain('Selected A marker');
       expect(output).toMatchObject({
-        hint: expect.stringContaining('1 result was left out'),
+        hint: expect.stringContaining('1 candidate chunk was left out'),
       });
     } finally {
       await cleanup();
