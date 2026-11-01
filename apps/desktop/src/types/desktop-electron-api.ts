@@ -1,12 +1,9 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
   ContentClearCapability,
-  FileSystemWatchEvent,
   IFileNode,
   RecentRootEntry,
   RootDescriptor,
-  WatcherHealthEvent,
-  WatcherHealthTransition,
 } from '@brainstrike/types';
 import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
@@ -21,22 +18,7 @@ export interface DesktopFileSystemBridge {
   addRootByPath: (path: string) => Promise<RootDescriptor>;
   deleteRootData: (rootId: string) => Promise<void>;
   exists: (path: string) => Promise<boolean>;
-  getWatcherTelemetry: () => Promise<{
-    activeWatchers: number;
-    batches: number;
-    cleanups: number;
-    degradedTransitions: number;
-    duplicateRegistrations: number;
-    events: number;
-    failures: number;
-    healthPushes: number;
-    lastSetupLatencyMs: number;
-    retries: number;
-    setupLatencySamples: number;
-  }>;
   listRecentRoots: () => Promise<readonly RecentRootEntry[]>;
-  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void;
-  onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void;
   readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
   readFile: (handle: FileHandle) => Promise<string>;
   readFileByAbsolutePath: (
@@ -49,19 +31,7 @@ export interface DesktopFileSystemBridge {
   requestDirectoryAccess: () => Promise<DirectoryHandle>;
   restoreLastFolder: () => Promise<DirectoryHandle | null>;
   restoreRoots: () => Promise<RootDescriptor[]>;
-  retryWatch: (watchId: string) => Promise<
-    | { retried: true }
-    | {
-        reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown';
-        retried: false;
-        retryAfterMs?: number;
-      }
-  >;
   saveLastFolder: (folderPath: string) => Promise<void>;
-  unwatchDirectory: (watchId: string) => Promise<void>;
-  watchDirectory: (
-    handle: DirectoryHandle
-  ) => Promise<{ health?: WatcherHealthTransition; watchId: string }>;
 }
 
 interface DesktopFactoryResetBridge {
