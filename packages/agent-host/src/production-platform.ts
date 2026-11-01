@@ -11,6 +11,7 @@ import {
   type RuntimeData,
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
+import { startTokenCounter } from '@brainstrike/agent/token-counter';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   AUTO_REVIEW_MODEL_AUTO,
@@ -18,7 +19,6 @@ import {
   resolveQuickModelTarget,
 } from '@brainstrike/assistant-contract';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
-import { startAccurateTokenCounter } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { LanguageModel, Tool } from 'ai';
 import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.ts';
@@ -330,10 +330,12 @@ function productionClientServices(
   };
 }
 /**
- * The host first learns a thread's model from the composer's memory read, sent
- * when the thread opens and when its model changes. A model measured with a
- * local tokenizer starts that tokenizer's one-time load then, while the person
- * types, not inside its first provider request (BST-2437).
+ * The host learns a thread's model from the composer's memory read, sent when
+ * the thread opens and when its model changes, and at the latest from the run's
+ * admission. A model measured with a local tokenizer starts the token counter
+ * worker then, so the worker's start and encoder load run beside the person's
+ * typing or the admission, not inside the first provider request (BST-2437,
+ * BST-2438).
  */
 function startModelTokenCounter(modelId: string): void {
   const selected = catalogModel(modelId);
@@ -342,7 +344,7 @@ function startModelTokenCounter(modelId: string): void {
     resolveTokenMeasurementCapability(selected.provider, selected.model).mode !==
       'deterministic-serialized-character-backstop'
   ) {
-    startAccurateTokenCounter();
+    startTokenCounter();
   }
 }
 /** thread/memory/read: the preconditions, then the observation record they locate. */
@@ -524,6 +526,7 @@ export async function createProductionHostPlatform<Configuration extends Product
         throw new Error('Production host is closing');
       }
       request.signal.throwIfAborted();
+      startModelTokenCounter(request.modelId);
       const selected = await options.readConfiguration(request);
       let acquired: Awaited<ReturnType<typeof acquireMcp>>;
       let joined: Promise<void> | undefined;

@@ -11,8 +11,8 @@ import {
   FenceQueueTimeoutError,
   FenceUnsupportedLanguageError,
   FenceUnsupportedPlatformError,
-  isFenceSupported,
 } from '../fence/fence-executor';
+import { isFenceSupported } from '../fence/fence-support';
 
 const sandbox = vi.hoisted(() => ({
   checkDependenciesAsync: vi.fn(async () => ({ errors: [] as string[], warnings: [] as string[] })),
@@ -94,7 +94,8 @@ describe('isFenceSupported', () => {
       SandboxManager: { isSupportedPlatform: () => true },
     }));
     const mod = await import('../fence/fence-executor');
-    expect(mod.isFenceSupported()).toBe(false);
+    const support = await import('../fence/fence-support');
+    expect(support.isFenceSupported()).toBe(false);
     expect(mod.createFenceExecutorFactory({ interpreters: {} })).toBeUndefined();
     await expect(mod.createFenceExecutor({ interpreters })).rejects.toMatchObject({
       reason: 'sandbox_unsupported_runtime',

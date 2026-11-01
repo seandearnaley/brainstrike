@@ -81,7 +81,6 @@ function hostTools(
         {
           description: id,
           identity: id,
-          inputSchema: { type: 'object' },
           permissionToolId: id,
           risk: risks[id],
         },

@@ -1,6 +1,5 @@
 export { materializeHostProviderModel } from '@brainstrike/agent/provider-runtime';
 export {
-  canonicalToolInputJsonSchema,
   canonicalToolModelOutput,
   createCanonicalToolContext,
   platformToolInputSchema,
