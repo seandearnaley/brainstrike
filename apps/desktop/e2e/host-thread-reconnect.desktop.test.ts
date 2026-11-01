@@ -16,7 +16,6 @@ import { expect, test } from './fixtures/electron-fixture';
 import { readHostProcess, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { suspendProcess } from './utils/suspend-process';
 
 const FIRST_PROMPT = 'Reply until the host is lost';
@@ -28,8 +27,6 @@ const UNREAD_PROMPT = 'The frozen host never reads this';
 const DISCONNECTED = 'Agent host disconnected. Reconnect to continue.';
 
 async function openHostThread(page: Page): Promise<void> {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(page);
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
   await ensureAssistantShellVisible(page);

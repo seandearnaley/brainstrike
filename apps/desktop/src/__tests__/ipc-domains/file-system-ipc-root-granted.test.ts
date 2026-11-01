@@ -8,6 +8,7 @@ import {
   createFileSystem,
   createStorage,
   getRootsCatalog,
+  inMemoryRootSeams,
   resetRootsCatalog,
 } from './file-system-ipc-test-harness';
 import { loggerMock } from './workspace-root-registry-logger-test-helper';
@@ -55,9 +56,9 @@ describe('file system IPC root-granted notification', () => {
     register({
       fileSystem: createFileSystem(grantedPath),
       getRootsCatalog,
-      isSyntheticFileSystemPath: () => true,
       onWorkspaceRootGranted,
       storage: grantedStorage(grantedPath),
+      workspaceRootRegistryFileSystemSeams: inMemoryRootSeams,
     });
 
     await expect(invokeAddRootByPath(grantedPath)).resolves.toMatchObject({
@@ -71,9 +72,9 @@ describe('file system IPC root-granted notification', () => {
     register({
       fileSystem: createFileSystem(),
       getRootsCatalog,
-      isSyntheticFileSystemPath: () => true,
       onWorkspaceRootGranted,
       storage: createStorage(),
+      workspaceRootRegistryFileSystemSeams: inMemoryRootSeams,
     });
 
     await expect(invokeAddRootByPath('/users/test/ungranted')).rejects.toThrow(
@@ -88,11 +89,11 @@ describe('file system IPC root-granted notification', () => {
     register({
       fileSystem: createFileSystem(grantedPath),
       getRootsCatalog,
-      isSyntheticFileSystemPath: () => true,
       onWorkspaceRootGranted: () => {
         throw subscriberError;
       },
       storage: grantedStorage(grantedPath),
+      workspaceRootRegistryFileSystemSeams: inMemoryRootSeams,
     });
 
     await expect(invokeAddRootByPath(grantedPath)).resolves.toMatchObject({

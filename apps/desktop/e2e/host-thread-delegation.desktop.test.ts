@@ -4,7 +4,6 @@ import { type HostThreadLog, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const TASK = 'EXPLORE_TASK_5A: list what the notes say.';
@@ -59,8 +58,6 @@ test('a host thread delegates to a background persona child, wakes with its resu
   modelProvider,
   window,
 }) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   modelProvider.setScript(({ messages, requestBody, toolNames }) => {

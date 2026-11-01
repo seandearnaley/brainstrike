@@ -1,3 +1,6 @@
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
@@ -45,8 +48,10 @@ describe('ipc-handlers error branches', () => {
   let fsAdapter: ElectronFileSystemAdapter;
   let storage: ElectronStorageAdapter;
   let close: () => Promise<void>;
+  let workspace: string;
 
   beforeEach(() => {
+    workspace = realpathSync(mkdtempSync(path.join(tmpdir(), 'ipc-handlers-root-')));
     resetRootsCatalog();
     vi.resetModules();
     vi.clearAllMocks();
@@ -58,8 +63,8 @@ describe('ipc-handlers error branches', () => {
       readFile: vi.fn(),
       requestDirectoryAccess: vi.fn(async () => ({
         kind: 'directory',
-        name: 'workspace',
-        path: '/test/workspace',
+        name: path.basename(workspace),
+        path: workspace,
         platform: 'electron',
       })),
       watchDirectory: vi.fn(),
@@ -75,12 +80,12 @@ describe('ipc-handlers error branches', () => {
 
     close = registerIpcHandlers(fsAdapter, storage, {
       getRootsCatalog,
-      isSyntheticFileSystemPath: () => true,
     });
   });
 
   afterEach(async () => {
     await close();
+    rmSync(workspace, { force: true, recursive: true });
   });
 
   it('fs:restoreLastFolder propagates storage errors', async () => {
@@ -96,7 +101,7 @@ describe('ipc-handlers error branches', () => {
     const original = new Error('fixture storage write failure');
     vi.mocked(storage.setItem).mockRejectedValueOnce(original);
     await expectCorrelatedStorageFault(
-      () => handler(createTrustedInvokeEvent(), '/test/workspace'),
+      () => handler(createTrustedInvokeEvent(), workspace),
       original
     );
     expect(storage.setItem).toHaveBeenCalled();
