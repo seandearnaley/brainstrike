@@ -5,7 +5,6 @@ export * from './inaccessible-content.js';
 export * from './progress-utils.js';
 export * from './report-generation-worker.js';
 export * from './use-file-content-loading.js';
-export * from './use-file-explorer.js';
 export * from './use-file-system.js';
 export * from './use-file-system-watcher.js';
 export * from './use-file-tree.js';

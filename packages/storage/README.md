@@ -1,6 +1,6 @@
 # @brainstrike/storage
 
-String key/value adapters for browser preferences, Electron preference files and in-memory tests. Separate from the host StateStore, conversation log and derived index.
+String key/value adapters for browser `localStorage`, Main's workspace-root ledgers and in-memory tests. Separate from the host StateStore, conversation log and derived index.
 
 ## API
 
@@ -17,7 +17,7 @@ await storage.setItem('theme', 'dark');
 
 - `createBrowserStorageAdapter()` / `WebStorageAdapter`: browser `localStorage` (or an injected `Storage`). The async interface doesn't make the underlying I/O nonblocking.
 - `createMemoryStorageAdapter()` / `MemoryStorageAdapter`: explicitly ephemeral; never a persistence fallback.
-- `ElectronStorageAdapter` (from `@brainstrike/storage/electron`, Electron main only):
+- `ElectronStorageAdapter` (from `@brainstrike/storage/electron`, Electron main only). It holds Main's workspace-root ledgers (`rootsList`, `recentRootsList`, `lastFolderPath`); the renderer has no IPC path to it. Renderer-only preferences use zustand `persist` on `localStorage`.
   - Optional filename, default `electron-storage.json` under `app.getPath('userData')`.
   - JSON files with ordered temp-file/rename writes.
   - Invalid paths and corrupt or unreadable storage reject visibly.

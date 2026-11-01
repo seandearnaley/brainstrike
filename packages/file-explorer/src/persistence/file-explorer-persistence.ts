@@ -6,21 +6,15 @@
  */
 
 import { createLogger } from '@brainstrike/logging';
-import type { StorageAdapter } from '@brainstrike/storage';
 import type {
   FileExplorerState,
   PersistenceRecoveryNotice,
   SerializedState,
 } from '@brainstrike/types';
-import type { PersistOptions, PersistStorage } from 'zustand/middleware';
+import { createJSONStorage, type PersistOptions, type PersistStorage } from 'zustand/middleware';
 import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
-import {
-  isSerializedStateCandidate,
-  migrateState,
-  validateAndRecoverSerializedState,
-} from './state-migration';
+import { migrateState, validateAndRecoverSerializedState } from './state-migration';
 import { mergeState, serializeState } from './state-serialization';
-import { createStorageWrapper, type PersistedStateDiscardReason } from './storage-wrapper';
 import { detectTestEnvironment } from './test-environment';
 
 const logger = createLogger('Persistence');
@@ -31,22 +25,6 @@ const isDev = nodeEnv !== 'production';
 
 const isTest = detectTestEnvironment();
 const shouldLog = isDev && !isTest;
-
-function isPersistEnvelope(value: unknown): value is { state: unknown; version?: number } {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    return false;
-  }
-  const envelope = value as Record<string, unknown>;
-  const version = envelope['version'];
-  return (
-    'state' in envelope &&
-    envelope['state'] !== null &&
-    typeof envelope['state'] === 'object' &&
-    !Array.isArray(envelope['state']) &&
-    (version === undefined ||
-      (typeof version === 'number' && Number.isInteger(version) && Number.isFinite(version)))
-  );
-}
 
 function isRehydratedFileExplorerState(
   state: FileExplorerState | undefined
@@ -70,130 +48,54 @@ export function createPersistedFileExplorerSnapshot(state: FileExplorerState): {
   };
 }
 
-export const createPersistOptions = (
-  storageAdapter: StorageAdapter
-): PersistOptions<FileExplorerState, SerializedState> => {
-  let pendingRecoveryNotice: PersistenceRecoveryNotice | null = null;
-  let currentReadWasUnavailable = false;
-  let recoveryProbeValueJson: string | null = null;
-  let shouldPreserveUnreadSnapshot = false;
-  let storageReadDidDiscard = false;
-  let unreadHydratedValueJson: string | null = null;
-  const recordPersistedStateDiscard = (reason?: PersistedStateDiscardReason): void => {
-    pendingRecoveryNotice =
-      reason === 'unavailable-read' ? 'persisted-state-unavailable' : 'persisted-state-discarded';
-    if (reason !== undefined) {
-      storageReadDidDiscard = true;
-    }
-    if (reason === 'unavailable-read') {
-      currentReadWasUnavailable = true;
-      shouldPreserveUnreadSnapshot = true;
-    }
-  };
-
-  // Add legacy-key migration from v3 to v4 (only if localStorage exists)
-  if (typeof localStorage !== 'undefined') {
-    try {
-      const legacyKey = 'fileExplorerSettings';
-      const newKey = FILE_EXPLORER_STORAGE_KEY;
-      const legacy = localStorage.getItem(legacyKey);
-
-      if (legacy && !localStorage.getItem(newKey)) {
-        if (shouldLog) {
-          logger.debug(`Migrating settings from legacy key "${legacyKey}" to "${newKey}"`);
-        }
-        localStorage.setItem(newKey, legacy);
-        localStorage.removeItem(legacyKey);
-      }
-    } catch (error) {
-      // Ignore potential localStorage access errors in restricted environments
-      if (shouldLog) {
-        logger.warn('Could not perform legacy settings migration', {
-          errorName: error instanceof Error ? error.name : typeof error,
-        });
-      }
-    }
+/**
+ * Zustand's default storage, this renderer's `localStorage`, except that a saved value
+ * that is not JSON reads as nothing saved and is reported through `onUnreadable`.
+ * Zustand's own read would reject, which leaves the store never hydrated, so nothing
+ * waiting on hydration (folder restore, scroll restore) would run.
+ */
+function createFileExplorerStorage(
+  onUnreadable: () => void
+): PersistStorage<SerializedState> | undefined {
+  const storage = createJSONStorage<SerializedState>(() => localStorage);
+  if (!storage) {
+    return undefined;
   }
-
-  // Writes go straight to the adapter the app composed: desktop hands in its one write-behind
-  // writer over Main's storage (ADR-0026 R1); web writes localStorage immediately.
-  const persistedStorage = createStorageWrapper(
-    storageAdapter,
-    shouldLog,
-    recordPersistedStateDiscard
-  ) as PersistStorage<SerializedState>;
-  const shouldSkipUnreadSnapshotWrite = async (
-    name: string,
-    valueJson: string
-  ): Promise<boolean> => {
-    if (!shouldPreserveUnreadSnapshot) {
-      return false;
-    }
-    unreadHydratedValueJson ??= valueJson;
-    currentReadWasUnavailable = false;
-    await persistedStorage.getItem(name);
-    if (currentReadWasUnavailable) {
-      if (shouldLog) {
-        logger.debug('Skipping persistence write while prior snapshot remains unread', {
-          name,
-        });
+  return {
+    ...storage,
+    getItem: (name) => {
+      try {
+        return storage.getItem(name);
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          onUnreadable();
+          return null;
+        }
+        throw error;
       }
-      return true;
-    }
-    shouldPreserveUnreadSnapshot = false;
-    recoveryProbeValueJson = unreadHydratedValueJson;
-    unreadHydratedValueJson = null;
-    return false;
+    },
   };
-  const validatedPersistedStorage: PersistStorage<SerializedState> = {
-    ...persistedStorage,
-    getItem: async (name) => {
-      currentReadWasUnavailable = false;
-      const envelope = (await persistedStorage.getItem(name)) as unknown;
-      if (!currentReadWasUnavailable) {
-        shouldPreserveUnreadSnapshot = false;
-      }
-      if (name !== FILE_EXPLORER_STORAGE_KEY || envelope === null || isPersistEnvelope(envelope)) {
-        return envelope as Awaited<ReturnType<PersistStorage<SerializedState>['getItem']>>;
-      }
-      if (isSerializedStateCandidate(envelope)) {
-        return {
-          state: validateAndRecoverSerializedState(
-            envelope,
-            shouldLog,
-            recordPersistedStateDiscard
-          ),
-          version: FILE_EXPLORER_STORAGE_VERSION,
-        };
-      }
+}
 
-      recordPersistedStateDiscard('malformed-value');
-      if (shouldLog) {
-        logger.error('Persisted storage envelope missing state; clearing value', { name });
-      }
-      await persistedStorage.removeItem(name);
-      return null;
-    },
-    setItem: async (name, value) => {
-      if (name === FILE_EXPLORER_STORAGE_KEY) {
-        const valueJson = JSON.stringify(value);
-        if (await shouldSkipUnreadSnapshotWrite(name, valueJson)) {
-          return;
-        }
-        if (recoveryProbeValueJson !== null) {
-          const isRepeatedRecoveryWrite = valueJson === recoveryProbeValueJson;
-          recoveryProbeValueJson = null;
-          if (isRepeatedRecoveryWrite) {
-            return;
-          }
-        }
-      }
-      await persistedStorage.setItem(name, value);
-    },
+/**
+ * The Explorer's view state is renderer-only, so it persists in this renderer's
+ * `localStorage` (Main's Factory Reset clears it). Writes are synchronous: a change is
+ * saved when `set` returns. The store hydrates once it exists (`skipHydration`, then
+ * {@link hydrateFileExplorerStore}), so a discard found while reading can still land its
+ * recovery notice in the store.
+ */
+export const createPersistOptions = (): PersistOptions<FileExplorerState, SerializedState> => {
+  let pendingRecoveryNotice: PersistenceRecoveryNotice | null = null;
+  const recordPersistedStateDiscard = (): void => {
+    pendingRecoveryNotice = 'persisted-state-discarded';
   };
 
   return {
     merge: (persisted, current) => {
+      // `undefined` is "nothing saved"; a saved envelope whose state is `null` is a discard.
+      if (persisted === null) {
+        recordPersistedStateDiscard();
+      }
       if (persisted === null || persisted === undefined) {
         return mergeState(null, current, shouldLog);
       }
@@ -210,20 +112,17 @@ export const createPersistOptions = (
     name: FILE_EXPLORER_STORAGE_KEY,
 
     onRehydrateStorage: (preHydrationState) => (state, error) => {
-      const failureStage = storageReadDidDiscard ? 'storage-read' : 'merge-or-set';
       if (pendingRecoveryNotice !== null) {
         const notice = pendingRecoveryNotice;
         pendingRecoveryNotice = null;
         preHydrationState.reportPersistedStateDiscard(notice);
       }
-      storageReadDidDiscard = false;
       if (!shouldLog) {
         return;
       }
       if (error) {
         logger.warn('onRehydrateStorage - Storage rehydration failed', {
           errorName: error instanceof Error ? error.name : typeof error,
-          stage: failureStage,
         });
         return;
       }
@@ -240,8 +139,16 @@ export const createPersistOptions = (
     },
 
     partialize: (state) => createPersistedFileExplorerSnapshot(state).state,
-
-    storage: validatedPersistedStorage,
+    skipHydration: true,
+    storage: createFileExplorerStorage(recordPersistedStateDiscard),
     version: FILE_EXPLORER_STORAGE_VERSION,
   };
 };
+
+/** Reads the saved state into a store made with {@link createPersistOptions}; synchronous. */
+export function hydrateFileExplorerStore<Store extends { persist: { rehydrate: () => unknown } }>(
+  store: Store
+): Store {
+  void store.persist.rehydrate();
+  return store;
+}

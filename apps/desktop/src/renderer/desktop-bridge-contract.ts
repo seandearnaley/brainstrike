@@ -1,8 +1,6 @@
 const REQUIRED_VISIBLE_UI_BRIDGE_PATHS = [
   ['agentHost', 'onPrepareClose'],
   ['desktopLifecycle', 'requestReload'],
-  ['electronAPI', 'storage', 'getItem'],
-  ['electronAPI', 'storage', 'setItem'],
   ['electronAPI', 'fileSystem', 'requestDirectoryAccess'],
   ['electronAPI', 'fileSystem', 'readDirectory'],
   ['electronAPI', 'fileSystem', 'readFile'],

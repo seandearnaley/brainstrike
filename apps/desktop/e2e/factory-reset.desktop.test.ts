@@ -40,22 +40,15 @@ async function confirmNextReset(window: Page): Promise<void> {
   });
 }
 
-/** The renderer's saved workspace folders: the open list and the recent list. */
-async function readFolders(window: Page): Promise<unknown[]> {
-  return await window.evaluate(async () => {
-    const storage = (
-      globalThis as typeof globalThis & {
-        electronAPI?: { storage?: { getItem: (key: string) => Promise<string | null> } };
-      }
-    ).electronAPI?.storage;
-    if (!storage) {
-      throw new Error('Desktop storage capability unavailable');
-    }
-    const values = await Promise.all(
-      ['rootsList', 'recentRootsList'].map((key) => storage.getItem(key))
-    );
-    return values.map((value): unknown => (value === null ? [] : JSON.parse(value)));
-  });
+/** Main's saved workspace folders, from its own file under userData: the open list and the recent list. */
+function readFolders(userDataDir: string): unknown[] {
+  const ledgerFile = path.join(userDataDir, 'electron-storage.json');
+  const ledgers: Record<string, string> = fs.existsSync(ledgerFile)
+    ? JSON.parse(fs.readFileSync(ledgerFile, 'utf8'))
+    : {};
+  return ['rootsList', 'recentRootsList'].map((key): unknown =>
+    ledgers[key] === undefined ? [] : JSON.parse(ledgers[key])
+  );
 }
 
 async function storedCredentials(window: Page): Promise<string[]> {
@@ -213,7 +206,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         folders: 2,
         retainedProbeIds: [resetProbe.indexedFileId],
       });
-      const mounted = await readFolders(window);
+      const mounted = readFolders(userDataDir);
       expect(mounted[0]).toHaveLength(roots.length);
       expect(mounted[1]).toHaveLength(roots.length);
 
@@ -252,7 +245,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       const { waitForAppReady } = await loadElectronHelpers();
       await waitForAppReady(window);
       expect(await readNativeResetProbe(window, resetProbe)).toEqual({ folders: 0 });
-      await expect.poll(() => readFolders(window)).toEqual([[], []]);
+      await expect.poll(() => readFolders(userDataDir)).toEqual([[], []]);
       await homePage.leaveSettings();
       for (const index of roots.keys()) {
         await expect(window.getByText(`reset-folder-${index}.txt`, { exact: true })).toHaveCount(0);
@@ -277,7 +270,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       const restartedSettingsPage = new SettingsPage(restarted);
       await waitForAppReady(restarted);
       expect(await readNativeResetProbe(restarted, resetProbe)).toEqual({ folders: 0 });
-      expect(await readFolders(restarted)).toEqual([[], []]);
+      expect(readFolders(userDataDir)).toEqual([[], []]);
       expect(await storedCredentials(restarted)).toEqual([]);
       await restartedHomePage.leaveSettings();
       for (const [index, root] of roots.entries()) {

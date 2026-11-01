@@ -113,13 +113,7 @@ const mockElectronAPI = {
     watchDirectory: vi.fn().mockResolvedValue({ watchId: 'mock-watch-id' }),
   },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
-  storage: {
-    getAllKeys: vi.fn().mockResolvedValue([]),
-    getItem: vi.fn().mockResolvedValue(null),
-    removeItem: vi.fn().mockResolvedValue(undefined),
-    setItem: vi.fn().mockResolvedValue(undefined),
-  },
-} satisfies Pick<VisibleDesktopElectronApi, 'fileSystem' | 'getUserDataPath' | 'storage'>;
+} satisfies Pick<VisibleDesktopElectronApi, 'fileSystem' | 'getUserDataPath'>;
 
 // Guard: this file's `Object.defineProperty(window, ...)` calls below are
 // jsdom-only bootstrapping. `window` is always defined under this package's

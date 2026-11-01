@@ -174,6 +174,7 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
+import { createResetProfileReopen } from './reset-profile-reopen';
 import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -542,6 +543,9 @@ const profileReset = createDesktopProfileResetOwner({
   retireProfile: () => nativeIndexActivation.destroyAndRetireProfile(),
 });
 
+// ADR-0015: the reset reopens the fresh profile only after its replacement renderer is ready;
+// until then root convergence waits for that reopen instead of reaching the closed profile.
+const resetProfileReopen = createResetProfileReopen();
 const handleResetLocal = createDesktopFactoryResetHandler({
   clearRetainedContent: async () => {
     await nativeIndexActivation.destroyNativeOwner();
@@ -569,6 +573,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
   prepareDatabaseProfileReset: () => profileReset.prepare(),
+  profileReopen: resetProfileReopen,
   resetLocalDatabase: (lease) => profileReset.clear(lease),
   resetPersistentStorageAfterDataDeletion: () => storage.clear(),
   resumeAfterReset: createDesktopResetResume({
@@ -690,6 +695,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, {
     // and the registration reports its own failure.
     nativeRootRegistration.rootsRegistered().catch(() => undefined);
   },
+  whenRootsCatalogOpen: resetProfileReopen.whenOpen,
 });
 function activateSavedNativeIndexSettings(): Promise<void> {
   if (isDesktopShuttingDown()) {

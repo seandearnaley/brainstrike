@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetFsWatchDispatcherForTest,
   ElectronRendererFileSystemAdapter,
-  ElectronRendererStorageAdapter,
 } from '../../renderer/adapters';
 import { mockElectronAPI } from '../setup';
 
@@ -589,78 +588,6 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     const outcome = await adapter.retryWatcher('/roots/alpha');
     expect(outcome).toEqual({ reason: 'unknown', retried: false });
     unsubscribe();
-  });
-});
-
-describe('ElectronRendererStorageAdapter', () => {
-  let adapter: ElectronRendererStorageAdapter;
-
-  beforeEach(() => {
-    adapter = new ElectronRendererStorageAdapter();
-    vi.clearAllMocks();
-  });
-
-  describe('getItem', () => {
-    it('should call electronAPI.storage.getItem with key', async () => {
-      const key = 'test-key';
-      const value = 'test-value';
-      mockElectronAPI.storage.getItem.mockResolvedValue(value);
-
-      const result = await adapter.getItem(key);
-
-      expect(mockElectronAPI.storage.getItem).toHaveBeenCalledWith(key);
-      expect(result).toBe(value);
-    });
-
-    it('should return null for non-existent key', async () => {
-      const key = 'nonexistent-key';
-      mockElectronAPI.storage.getItem.mockResolvedValue(null);
-
-      const result = await adapter.getItem(key);
-
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('setItem', () => {
-    it('should call electronAPI.storage.setItem with key and value', async () => {
-      const key = 'test-key';
-      const value = 'test-value';
-
-      await adapter.setItem(key, value);
-
-      expect(mockElectronAPI.storage.setItem).toHaveBeenCalledWith(key, value);
-    });
-  });
-
-  describe('removeItem', () => {
-    it('should call electronAPI.storage.removeItem with key', async () => {
-      const key = 'test-key';
-
-      await adapter.removeItem(key);
-
-      expect(mockElectronAPI.storage.removeItem).toHaveBeenCalledWith(key);
-    });
-  });
-
-  describe('getAllKeys', () => {
-    it('should call electronAPI.storage.getAllKeys', async () => {
-      const mockKeys = ['key1', 'key2', 'key3'];
-      mockElectronAPI.storage.getAllKeys.mockResolvedValue(mockKeys);
-
-      const result = await adapter.getAllKeys();
-
-      expect(mockElectronAPI.storage.getAllKeys).toHaveBeenCalledOnce();
-      expect(result).toEqual(mockKeys);
-    });
-
-    it('should return empty array when no keys exist', async () => {
-      mockElectronAPI.storage.getAllKeys.mockResolvedValue([]);
-
-      const result = await adapter.getAllKeys();
-
-      expect(result).toEqual([]);
-    });
   });
 });
 

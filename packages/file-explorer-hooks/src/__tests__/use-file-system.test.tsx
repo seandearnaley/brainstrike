@@ -6,7 +6,6 @@ import {
   PermissionError,
   UserCancelledError,
 } from '@brainstrike/file-system';
-import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { RootDescriptor } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -533,7 +532,6 @@ describe('useFileSystem', () => {
         path: '/test/restored/path',
         platform: 'web',
       };
-      const storageAdapter = createBrowserStorageAdapter();
 
       let resolveFirstRestore: ((value: DirectoryHandle | null) => void) | undefined;
 
@@ -562,9 +560,7 @@ describe('useFileSystem', () => {
       let activeAdapter: FileSystemAdapter = firstAdapter;
 
       const DynamicAdaptersWrapper = ({ children }: { children: ReactNode }) => (
-        <AdaptersProvider fileSystemAdapter={activeAdapter} storageAdapter={storageAdapter}>
-          {children}
-        </AdaptersProvider>
+        <AdaptersProvider fileSystemAdapter={activeAdapter}>{children}</AdaptersProvider>
       );
 
       const { result, rerender } = renderHook(() => useFileSystem(makeFsParams()), {
@@ -733,7 +729,7 @@ describe('useFileSystem', () => {
         readFile: vi.fn().mockResolvedValue(''),
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
-      const wrapper = createAdaptersTestWrapper(adapter, createBrowserStorageAdapter());
+      const wrapper = createAdaptersTestWrapper(adapter);
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
       expect(result.current.recentRootsRevision).toBe(0);
@@ -752,7 +748,6 @@ describe('useFileSystem', () => {
         persisted: true,
         rootId: 'root-id-1',
       };
-      const storageAdapter = createBrowserStorageAdapter();
       const addRootFn = vi.fn().mockResolvedValue(descriptor);
       const adapter: FileSystemAdapter = {
         addRoot: addRootFn,
@@ -762,7 +757,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -792,7 +787,6 @@ describe('useFileSystem', () => {
         persisted: false,
         rootId: 'ephemeral-id',
       };
-      const storageAdapter = createBrowserStorageAdapter();
       const adapter: FileSystemAdapter = {
         addRoot: vi.fn().mockResolvedValue(descriptor),
         exists: vi.fn().mockResolvedValue(true),
@@ -801,7 +795,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -820,7 +814,6 @@ describe('useFileSystem', () => {
 
   describe('multi-root: addRootDirectory fallback (no addRoot on adapter)', () => {
     it('falls back to requestDirectoryAccess and creates a synthetic descriptor', async () => {
-      const storageAdapter = createBrowserStorageAdapter();
       const handle: DirectoryHandle = {
         kind: 'directory',
         name: 'fallback-path',
@@ -835,7 +828,7 @@ describe('useFileSystem', () => {
         // No addRoot
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -875,7 +868,6 @@ describe('useFileSystem', () => {
         persisted: true,
         rootId: 'root-shared',
       };
-      const storageAdapter = createBrowserStorageAdapter();
       const adapter: FileSystemAdapter = {
         addRoot: vi.fn().mockResolvedValue(descriptor),
         exists: vi.fn().mockResolvedValue(true),
@@ -884,7 +876,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -923,7 +915,6 @@ describe('useFileSystem', () => {
         persisted: true,
         rootId: 'id-b',
       };
-      const storageAdapter = createBrowserStorageAdapter();
       let callCount = 0;
       const adapter: FileSystemAdapter = {
         addRoot: vi.fn().mockImplementation(() => {
@@ -936,7 +927,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn(),
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1000,7 +991,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn(),
         restoreRoots: vi.fn().mockResolvedValue([descriptor]),
       };
-      const wrapper = createAdaptersTestWrapper(adapter, createBrowserStorageAdapter());
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1025,7 +1016,6 @@ describe('useFileSystem', () => {
         persisted: true,
         rootId: 'rid-b',
       };
-      const storageAdapter = createBrowserStorageAdapter();
       const adapter: FileSystemAdapter = {
         exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
@@ -1034,7 +1024,7 @@ describe('useFileSystem', () => {
         restoreRoots: vi.fn().mockResolvedValue([desc1, desc2]),
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       // folderAccessOrder is oldest first: /folder/b was focused last → /folder/b is focused
       // getFolderAccessOrder is passed directly as a param (no module mock manipulation needed)
@@ -1077,7 +1067,6 @@ describe('useFileSystem', () => {
         persisted: true,
         rootId: 'rid-prompt',
       };
-      const storageAdapter = createBrowserStorageAdapter();
       const adapter: FileSystemAdapter = {
         exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
@@ -1086,7 +1075,7 @@ describe('useFileSystem', () => {
         restoreRoots: vi.fn().mockResolvedValue([grantedDesc, promptDesc]),
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1138,7 +1127,6 @@ describe('useFileSystem', () => {
         persisted: true,
         rootId: 'rid-registered',
       };
-      const storageAdapter = createBrowserStorageAdapter();
       const adapter: FileSystemAdapter = {
         addRoot: vi.fn().mockResolvedValue(descriptor),
         exists: vi.fn().mockResolvedValue(true),
@@ -1147,7 +1135,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1203,7 +1191,6 @@ describe('useFileSystem', () => {
         persisted: true,
         rootId: 'root-sel-id',
       };
-      const storageAdapter = createBrowserStorageAdapter();
       const addRootFn = vi.fn().mockResolvedValue(descriptor);
       const adapter: FileSystemAdapter = {
         addRoot: addRootFn,
@@ -1213,7 +1200,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1242,7 +1229,6 @@ describe('useFileSystem', () => {
     };
 
     it('registers BOTH restored handles, derives rootIds from adapter descriptors, focuses handles[0]', async () => {
-      const storageAdapter = createBrowserStorageAdapter();
       // restoreRoots returns permissionState 'prompt' (boot restore skips them —
       // exactly the banner scenario), but the descriptors still carry rootId+path.
       const restoreRootsFn = vi.fn().mockResolvedValue([
@@ -1271,7 +1257,7 @@ describe('useFileSystem', () => {
         restoreRoots: restoreRootsFn,
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1317,7 +1303,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn(),
         restoreRoots: vi.fn().mockResolvedValue([grantedDescriptor]),
       };
-      const wrapper = createAdaptersTestWrapper(adapter, createBrowserStorageAdapter());
+      const wrapper = createAdaptersTestWrapper(adapter);
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
       await waitFor(() => expect(result.current.recentRootsRevision).toBe(1));
 
@@ -1329,7 +1315,6 @@ describe('useFileSystem', () => {
     });
 
     it('falls back to synthetic rootIds when the adapter has no restoreRoots', async () => {
-      const storageAdapter = createBrowserStorageAdapter();
       const adapter: FileSystemAdapter = {
         exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
@@ -1338,7 +1323,7 @@ describe('useFileSystem', () => {
         // No restoreRoots
       };
 
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1398,8 +1383,7 @@ describe('useFileSystem', () => {
     }
 
     function renderMultiRootHook(adapter: FileSystemAdapter) {
-      const storageAdapter = createBrowserStorageAdapter();
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
       return renderHook(
         () =>
           useFileSystem({
@@ -1567,8 +1551,7 @@ describe('useFileSystem', () => {
         removeRoot: vi.fn().mockResolvedValue(undefined),
         requestDirectoryAccess: vi.fn().mockResolvedValue(descA.handle),
       };
-      const storageAdapter = createBrowserStorageAdapter();
-      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
+      const wrapper = createAdaptersTestWrapper(adapter);
       const hook = renderHook(
         () =>
           useFileSystem({
@@ -1730,12 +1713,11 @@ describe('useFileSystem', () => {
     }
 
     function wrapperFor(adapter: FileSystemAdapter) {
-      const storageAdapter = createBrowserStorageAdapter();
       // Delegates to the shared factory in test-helpers.tsx (see its doc
       // comment) rather than inlining another AdaptersProvider wrapper here —
       // one place owns the "optional children, matches AdaptersTestWrapper"
       // shape for every per-test adapter.
-      return createAdaptersTestWrapper(adapter, storageAdapter);
+      return createAdaptersTestWrapper(adapter);
     }
 
     it('registers the root on a successful picker-less add', async () => {

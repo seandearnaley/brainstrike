@@ -23,11 +23,16 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: null,
-    storageAdapter: null,
   }),
 }));
 
 // Mock the UI package
+// The real store imports theme validators from `@brainstrike/ui`, which is mocked below.
+vi.mock('../appearance-store', () => ({
+  chooseAppearance: vi.fn(),
+  useAppearanceStore: () => ({}),
+}));
+
 vi.mock('@brainstrike/ui', () => ({
   // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
   ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
@@ -109,15 +114,12 @@ vi.mock('../status-items/workspace-root-status-item', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: {},
-    storageAdapter: {},
   }),
 }));
 
 const mockConfig: AppShellConfig = {
   description: 'A test application',
   navigationItems: [{ icon: () => null, name: 'Home', path: '/' }],
-  themePaletteStorageKey: 'test-theme-palette',
-  themeStorageKey: 'test-theme',
   title: 'Test App',
 };
 

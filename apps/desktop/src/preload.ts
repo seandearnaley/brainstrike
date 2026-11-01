@@ -20,13 +20,11 @@ import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
-import { storageContract } from './ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
 import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import {
   createBridgeExposer,
   createDesktopIpcTransport,
@@ -97,10 +95,6 @@ ipcRenderer.on(
 ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, payload: unknown) => {
   window.postMessage({ payload, type: 'agent-host/disconnected' }, '*');
 });
-// This set only selects the E2E-only seed channel; MAIN validates the exact
-// authoritative allowlist again on every call.
-const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
-
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 
@@ -128,9 +122,7 @@ function shouldExposeBridge(name: string): boolean {
   return !disabledBridgeNames.has(name);
 }
 
-// Expose storage APIs to renderer
 if (shouldExposeBridge('electronAPI')) {
-  const storageBridge = createIpcBridge(ipcRenderer, storageContract);
   const electronAPI = {
     content: createIpcBridge(ipcRenderer, contentClearContract),
     factoryReset: {
@@ -140,21 +132,17 @@ if (shouldExposeBridge('electronAPI')) {
     fileSystem: {
       ...createIpcBridge(ipcRenderer, fileSystemContract),
       ...createIpcBridge(ipcRenderer, fileSystemWatchContract),
+      ...(DESKTOP_TEST_MODE
+        ? {
+            clearLedgersForE2e: () =>
+              ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.clearLedgersForE2e),
+            seedLedgerForE2e: (key: string, value: string) =>
+              ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.seedLedgerForE2e, key, value),
+          }
+        : {}),
     },
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
-    storage: {
-      ...(DESKTOP_TEST_MODE
-        ? { clearAllForE2e: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.clearAllForE2e) }
-        : {}),
-      getAllKeys: storageBridge.getAllKeys,
-      getItem: storageBridge.getItem,
-      removeItem: storageBridge.removeItem,
-      setItem: (key: string, value: string) =>
-        DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
-          ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e, key, value)
-          : storageBridge.setItem(key, value),
-    },
   } satisfies VisibleDesktopElectronApi;
   assertDesktopElectronApiKeyParity(electronAPI);
   contextBridge.exposeInMainWorld('electronAPI', electronAPI);
@@ -297,6 +285,13 @@ contextBridge.exposeInMainWorld('appMenu', {
 // resolving a Finder-dropped folder to an absolute path. The two `on*` members
 // mirror commandPalette; `getDroppedPath` is preload-local.
 let workspaceResetGenerationPayload: unknown = { resetGeneration: null };
+let workspaceOpenPathReady = false;
+const sendOpenPathReady = (): void => {
+  void ipcRenderer.invoke(
+    DESKTOP_IPC_CHANNELS.workspace.openPathReady,
+    workspaceResetGenerationPayload
+  );
+};
 ipcRenderer.on(
   DESKTOP_IPC_CHANNELS.workspace.factoryResetGeneration,
   (_event: unknown, payload: unknown) => {
@@ -304,6 +299,11 @@ ipcRenderer.on(
     // wiring becomes an immediate reset diagnostic rather than being silently
     // normalized into a timeout.
     workspaceResetGenerationPayload = payload;
+    // The renderer can be ready before Main's challenge arrives (Main pushes it at
+    // dom-ready); answer it now so readiness does not depend on that order.
+    if (workspaceOpenPathReady) {
+      sendOpenPathReady();
+    }
   }
 );
 
@@ -323,10 +323,8 @@ if (shouldExposeBridge('workspace')) {
     // subscribes to `onOpenPath`, so main can gate delivery on the renderer
     // actually being ready to receive rather than merely having loaded.
     notifyOpenPathReady: (): void => {
-      void ipcRenderer.invoke(
-        DESKTOP_IPC_CHANNELS.workspace.openPathReady,
-        workspaceResetGenerationPayload
-      );
+      workspaceOpenPathReady = true;
+      sendOpenPathReady();
     },
     onOpenFolderPicker: (callback: () => void) => {
       const listener = () => callback();

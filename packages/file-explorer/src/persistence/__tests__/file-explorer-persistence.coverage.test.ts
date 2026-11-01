@@ -27,74 +27,17 @@ describe('file-explorer-persistence coverage', () => {
     mockLogger.error.mockReset();
   });
 
-  it('migrates the legacy localStorage key and logs in dev browser mode', async () => {
-    const values = new Map<string, string>([['fileExplorerSettings', '{"legacy":true}']]);
-    (globalThis as Record<string, unknown>)['localStorage'] = {
-      clear: vi.fn(),
-      getItem: vi.fn((key: string) => values.get(key) ?? null),
-      key: vi.fn(),
-      length: 0,
-      removeItem: vi.fn((key: string) => values.delete(key)),
-      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
-    };
-    vi.stubEnv('NODE_ENV', 'development');
-
-    const mod = await import('../file-explorer-persistence');
-    mod.createPersistOptions({
-      getAllKeys: async () => [],
-      getItem: async () => null,
-      removeItem: async () => {},
-      setItem: async () => {},
-    });
-
-    expect(values.get('file-explorer-storage-v5')).toBe('{"legacy":true}');
-    expect(values.get('fileExplorerSettings')).toBeUndefined();
-    expect(mockLogger.debug).toHaveBeenCalledWith(
-      'Migrating settings from legacy key "fileExplorerSettings" to "file-explorer-storage-v5"'
-    );
-  });
-
-  it('logs a warning when legacy key migration hits a localStorage error', async () => {
-    (globalThis as Record<string, unknown>)['localStorage'] = {
-      clear: vi.fn(),
-      getItem: vi.fn(() => {
-        throw new Error('localStorage blocked');
-      }),
-      key: vi.fn(),
-      length: 0,
-      removeItem: vi.fn(),
-      setItem: vi.fn(),
-    };
-    vi.stubEnv('NODE_ENV', 'development');
-
-    const mod = await import('../file-explorer-persistence');
-    mod.createPersistOptions({
-      getAllKeys: async () => [],
-      getItem: async () => null,
-      removeItem: async () => {},
-      setItem: async () => {},
-    });
-
-    expect(mockLogger.warn).toHaveBeenCalledWith('Could not perform legacy settings migration', {
-      errorName: 'Error',
-    });
-  });
-
   it('logs rehydrate success and failure in dev browser mode', async () => {
     vi.stubEnv('NODE_ENV', 'development');
     const hydratedState = {
       currentFolderId: 'folder-1',
       folderAccessOrder: [],
       folderStates: { a: {}, b: {} },
+      reportPersistedStateDiscard: vi.fn(),
     } as unknown as FileExplorerState;
 
     const mod = await import('../file-explorer-persistence');
-    const persistOptions = mod.createPersistOptions({
-      getAllKeys: async () => [],
-      getItem: async () => null,
-      removeItem: async () => {},
-      setItem: async () => {},
-    });
+    const persistOptions = mod.createPersistOptions();
     // onRehydrateStorage's outer arg (pre-hydration state) is ignored by the
     // implementation but required by the zustand type; reuse hydratedState.
     const callback = persistOptions.onRehydrateStorage?.(hydratedState);
@@ -109,54 +52,14 @@ describe('file-explorer-persistence coverage', () => {
     );
     expect(mockLogger.warn).toHaveBeenCalledWith(
       'onRehydrateStorage - Storage rehydration failed',
-      { errorName: 'Error', stage: 'merge-or-set' }
-    );
-  });
-
-  it('keeps merge-time recovery diagnostics out of the storage-read stage', async () => {
-    vi.stubEnv('NODE_ENV', 'development');
-    const preHydrationState = {
-      ...DEFAULT_STATE,
-      folderAccessOrder: [],
-      folderStates: {},
-      reportPersistedStateDiscard: vi.fn(),
-    } as unknown as FileExplorerState;
-
-    const mod = await import('../file-explorer-persistence');
-    const persistOptions = mod.createPersistOptions({
-      getAllKeys: async () => [],
-      getItem: async () => null,
-      removeItem: async () => {},
-      setItem: async () => {},
-    });
-    persistOptions.merge?.(
-      {
-        currentFolderId: null,
-        expandedDirectoryPaths: [],
-        folderAccessOrder: null,
-        folderStates: {},
-        selectedFilePaths: [],
-      },
-      preHydrationState
-    );
-    const callback = persistOptions.onRehydrateStorage?.(preHydrationState);
-    callback?.(preHydrationState, new Error('merge failed'));
-
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      'onRehydrateStorage - Storage rehydration failed',
-      { errorName: 'Error', stage: 'merge-or-set' }
+      { errorName: 'Error' }
     );
   });
 
   it('does not run the migration pipeline again when merging a migrated version mismatch', async () => {
     vi.stubEnv('NODE_ENV', 'development');
     const mod = await import('../file-explorer-persistence');
-    const persistOptions = mod.createPersistOptions({
-      getAllKeys: async () => [],
-      getItem: async () => null,
-      removeItem: async () => {},
-      setItem: async () => {},
-    });
+    const persistOptions = mod.createPersistOptions();
     const serializedState = {
       currentFolderId: null,
       expandedDirectoryPaths: [],
@@ -183,12 +86,7 @@ describe('file-explorer-persistence coverage', () => {
     vi.stubEnv('NODE_ENV', 'development');
 
     const mod = await import('../file-explorer-persistence');
-    const persistOptions = mod.createPersistOptions({
-      getAllKeys: async () => [],
-      getItem: async () => null,
-      removeItem: async () => {},
-      setItem: async () => {},
-    });
+    const persistOptions = mod.createPersistOptions();
     const invalidState = {
       folderAccessOrder: null,
       folderStates: null,
@@ -205,12 +103,7 @@ describe('file-explorer-persistence coverage', () => {
     vi.stubEnv('NODE_ENV', 'development');
 
     const mod = await import('../file-explorer-persistence');
-    const persistOptions = mod.createPersistOptions({
-      getAllKeys: async () => [],
-      getItem: async () => null,
-      removeItem: async () => {},
-      setItem: async () => {},
-    });
+    const persistOptions = mod.createPersistOptions();
     const minimalState = {
       currentFolderId: null,
       folderAccessOrder: [],

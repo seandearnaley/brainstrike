@@ -1,5 +1,5 @@
 /**
- * Seed main's workspace ledgers through the renderer's `storage:` bridge and
+ * Seed main's workspace ledgers through the E2E-only ledger seed channel and
  * reload, so the main process restores the roots on boot and the renderer
  * reconciles the durable `roots` rows the UI resolves against.
  *
@@ -41,11 +41,6 @@ export interface SeededRoot {
   readonly rootId: string;
 }
 
-interface SeedPayload {
-  readonly recentPaths: readonly string[];
-  readonly roots: readonly SeededRoot[];
-}
-
 export async function seedRoot(
   page: Page,
   rootPath: string,
@@ -67,39 +62,51 @@ export async function seedRoots(
   if (roots.length === 0) {
     throw new Error('seedRoots needs at least one root');
   }
-  await page.evaluate(
-    async ({ recentPaths: recents, roots: seeded }: SeedPayload) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
+  await seedMainLedgers(page, {
+    lastFolderPath: roots[0]?.path ?? '',
+    rootsList: JSON.stringify(
+      roots.map((root, index) => ({
+        addedAt: 1_800_000_000_000 + index,
+        path: root.path,
+        rootId: root.rootId,
+      }))
+    ),
+    ...(recentPaths.length > 0
+      ? {
+          recentRootsList: JSON.stringify(
+            recentPaths.map((recentPath) => ({ lastGrantedAt: 1, path: recentPath }))
+          ),
         }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('lastFolderPath', seeded[0]?.path ?? '');
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify(
-          seeded.map((root, index) => ({
-            addedAt: 1_800_000_000_000 + index,
-            path: root.path,
-            rootId: root.rootId,
-          }))
-        )
-      );
-      if (recents.length > 0) {
-        await storage.setItem(
-          'recentRootsList',
-          JSON.stringify(recents.map((recentPath) => ({ lastGrantedAt: 1, path: recentPath })))
-        );
-      }
-    },
-    { recentPaths, roots } satisfies SeedPayload
-  );
+      : {}),
+  });
   if (disableBackgroundIndexing) {
     await updateIndexConfig(page, { paused: true });
   }
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, reloadReason);
+}
+
+/**
+ * Writes Main's workspace ledgers (`rootsList`, `recentRootsList`, `lastFolderPath`) through the
+ * E2E-only seed channel. Main restores them on the next renderer reload.
+ */
+export async function seedMainLedgers(
+  page: Page,
+  ledgers: Readonly<Record<string, string>>
+): Promise<void> {
+  await page.evaluate(async (entries) => {
+    const fileSystem = (
+      globalThis as typeof globalThis & {
+        electronAPI?: {
+          fileSystem?: { seedLedgerForE2e?: (key: string, value: string) => Promise<void> };
+        };
+      }
+    ).electronAPI?.fileSystem;
+    if (!fileSystem?.seedLedgerForE2e) {
+      throw new Error('electronAPI.fileSystem.seedLedgerForE2e is unavailable');
+    }
+    for (const [key, value] of Object.entries(entries)) {
+      await fileSystem.seedLedgerForE2e(key, value);
+    }
+  }, ledgers);
 }

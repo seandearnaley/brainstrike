@@ -58,12 +58,6 @@ function createHost(
   };
 }
 
-const themeStorageAdapter = {
-  getItem: () => Promise.resolve('light'),
-  removeItem: () => Promise.resolve(),
-  setItem: () => Promise.resolve(),
-};
-
 /** The workspace's view of every open canvas tab: its label and its body. */
 function CanvasTabs({ autoOpen = false }: { readonly autoOpen?: boolean }) {
   useCanvasAutoOpen(autoOpen);
@@ -81,7 +75,7 @@ function CanvasTabs({ autoOpen = false }: { readonly autoOpen?: boolean }) {
 
 function renderTabs(host: AssistantThreadHostCapability, autoOpen = false) {
   return render(
-    <ThemeProvider storageAdapter={themeStorageAdapter}>
+    <ThemeProvider defaultMode="light">
       <AssistantThreadHostContext.Provider value={host}>
         <CanvasTabs autoOpen={autoOpen} />
       </AssistantThreadHostContext.Provider>

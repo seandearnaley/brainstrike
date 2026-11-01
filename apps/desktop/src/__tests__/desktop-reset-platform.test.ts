@@ -59,6 +59,70 @@ describe('createDesktopFactoryResetHandler', () => {
     expect(completeSuccessfulReset).toHaveBeenCalledWith(expect.any(AbortSignal), 'factory');
   });
 
+  it('holds root-catalog work from data deletion until the reset reopens the profile', async () => {
+    const { createResetProfileReopen } = await import('../reset-profile-reopen');
+    const profileReopen = createResetProfileReopen();
+    const order: string[] = [];
+    const completeSuccessfulReset = vi.fn(async () => {
+      // The replacement renderer restores its folders before it reports ready.
+      void profileReopen.whenOpen().then(() => order.push('catalog'));
+      await Promise.resolve();
+      order.push('renderer-ready');
+    });
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      completeSuccessfulReset,
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      prepareDatabaseProfileReset,
+      profileReopen,
+      resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      resumeAfterReset: async () => {
+        order.push('profile-reopened');
+      },
+      runTransition: (work) => work(),
+      runtimes: [],
+      sessionDataPath: '/mock/userData/session-data',
+      userDataPath: '/mock/userData',
+    });
+
+    await expect(handleReset.reset()).resolves.toEqual({ success: true });
+    await profileReopen.whenOpen();
+    expect(order).toEqual(['renderer-ready', 'profile-reopened', 'catalog']);
+  });
+
+  it('fails waiting root-catalog work when the reset never reopens the profile', async () => {
+    const { createResetProfileReopen } = await import('../reset-profile-reopen');
+    const profileReopen = createResetProfileReopen();
+    const rendererFailure = new Error('Timed out waiting for renderer 1 readiness');
+    let waiting: Promise<void> | undefined;
+    const completeSuccessfulReset = vi.fn(async () => {
+      waiting = profileReopen.whenOpen();
+      throw rendererFailure;
+    });
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      completeSuccessfulReset,
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      prepareDatabaseProfileReset,
+      profileReopen,
+      resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      resumeAfterReset: vi.fn(async () => undefined),
+      runTransition: (work) => work(),
+      runtimes: [],
+      sessionDataPath: '/mock/userData/session-data',
+      userDataPath: '/mock/userData',
+    });
+
+    await expect(handleReset.reset()).resolves.toMatchObject({ success: false });
+    await expect(waiting).rejects.toBe(rendererFailure);
+    // The next reader is not held by the failed reset.
+    await expect(profileReopen.whenOpen()).resolves.toBeUndefined();
+  });
+
   it('stops every background runtime and requires the profile lease before deletion', async () => {
     const resetLocalDatabase = vi.fn(async () => undefined);
     const nativeIndexSourcesStop = vi.fn(async () => undefined);

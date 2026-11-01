@@ -31,18 +31,8 @@ function makeEvent(
 }
 
 function renderChip(adapter: Partial<FileSystemAdapter>, rootPath: string) {
-  const storageAdapter = {
-    clear: vi.fn(),
-    getAllKeys: vi.fn(),
-    getItem: vi.fn(),
-    removeItem: vi.fn(),
-    setItem: vi.fn(),
-  };
   return render(
-    <AdaptersProvider
-      fileSystemAdapter={adapter as FileSystemAdapter}
-      storageAdapter={storageAdapter as never}
-    >
+    <AdaptersProvider fileSystemAdapter={adapter as FileSystemAdapter}>
       <WatcherHealthChip rootPath={rootPath} />
     </AdaptersProvider>
   );

@@ -4,7 +4,6 @@ import { clipboardContract } from '../ipc-domains/clipboard.contract';
 import { databasePathContract } from '../ipc-domains/database.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
-import { storageContract } from '../ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from '../ipc-domains/window-focus.contract';
@@ -83,10 +82,8 @@ describe('preload contract-derived bridges', () => {
     expect(mockOn.mock.calls.map(([channel]) => channel)).toEqual([DESKTOP_IPC_PUSH_CHANNEL]);
     mockInvoke.mockResolvedValueOnce({ ok: true, value: undefined });
     await exposedApi('clipboard')['writeText']?.('copied');
-    mockInvoke.mockResolvedValueOnce(['alpha']);
-    await (
-      exposedApi('electronAPI') as unknown as { storage: { getAllKeys: () => unknown } }
-    ).storage.getAllKeys();
+    mockInvoke.mockResolvedValueOnce([]);
+    await exposedApi('threadGroups')['readRoots']?.();
     expect(mockInvoke.mock.calls.map(([channel]) => channel)).toEqual([
       DESKTOP_IPC_INVOKE_CHANNEL,
       DESKTOP_IPC_INVOKE_CHANNEL,
@@ -219,20 +216,6 @@ describe('preload contract-derived bridges', () => {
   it('omits the retired PostgreSQL integrity owner from the visible preload', () => {
     expect(mockExposeInMainWorld.mock.calls.some(([name]) => name === 'databaseIntegrity')).toBe(
       false
-    );
-  });
-
-  it('derives the nested production storage bridge', async () => {
-    const electronApi = exposedApi('electronAPI') as unknown as {
-      storage: Record<string, (...args: unknown[]) => Promise<unknown>>;
-    };
-    expect(Object.keys(electronApi.storage).sort()).toEqual(Object.keys(storageContract).sort());
-
-    mockInvoke.mockResolvedValueOnce(['alpha']);
-    await expect(electronApi.storage['getAllKeys']?.()).resolves.toEqual(['alpha']);
-    expect(mockInvoke).toHaveBeenLastCalledWith(
-      DESKTOP_IPC_INVOKE_CHANNEL,
-      DESKTOP_IPC_CHANNELS.storage.getAllKeys
     );
   });
 

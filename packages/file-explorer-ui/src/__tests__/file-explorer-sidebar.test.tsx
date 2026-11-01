@@ -1,6 +1,5 @@
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
@@ -24,10 +23,7 @@ import { FileExplorerTestWrapper } from './test-helpers';
 
 function makeWrapper(adapter?: MockFileSystemAdapter) {
   return composeWrappers(({ children }) => (
-    <FileExplorerTestWrapper
-      mockStorageAdapter={new MemoryStorageAdapter()}
-      {...(adapter ? { mockFileSystemAdapter: adapter } : {})}
-    >
+    <FileExplorerTestWrapper {...(adapter ? { mockFileSystemAdapter: adapter } : {})}>
       {children}
     </FileExplorerTestWrapper>
   ));

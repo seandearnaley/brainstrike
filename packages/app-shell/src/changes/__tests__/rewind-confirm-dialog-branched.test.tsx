@@ -74,7 +74,6 @@ it('says the later turns leave the conversation for their branch, before and aft
           platform: 'electron',
         } as unknown as FileSystemAdapter
       }
-      storageAdapter={{} as never}
     >
       <ActionRegistryProvider registry={createTestActionRegistry().registry}>
         <RewindConfirmDialog />

@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExplorerContextExportAction } from '../shell/explorer-context-export-action';
-import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 
 const state = vi.hoisted(() => ({
   copy: vi.fn(async () => ({ ok: true as const })),
@@ -22,12 +21,6 @@ const state = vi.hoisted(() => ({
   selected: new Set<string>(),
 }));
 
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: () => ({ storageAdapter: {} }),
-}));
-vi.mock('../utils/persist-file-explorer-state', () => ({
-  persistFileExplorerStateImmediately: vi.fn(async () => undefined),
-}));
 vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => ({ getState: () => ({}) }),
   useFileExplorerStoreSelector: <T,>(selector: (s: typeof state.explorer) => T): T =>
@@ -63,7 +56,6 @@ beforeEach(() => {
   state.download.mockResolvedValue({ ok: true });
   state.explorer.includeProjectTree = true;
   state.explorer.setIncludeProjectTree.mockClear();
-  vi.mocked(persistFileExplorerStateImmediately).mockClear();
 });
 
 describe('ExplorerContextExportAction', () => {
@@ -97,12 +89,11 @@ describe('ExplorerContextExportAction', () => {
     expect(screen.getByTestId('explorer-export-download')).toBeEnabled();
   });
 
-  it('carries the project-tree options, and persists the tree choice', () => {
+  it('carries the project-tree options and sets the tree choice', () => {
     render(<ExplorerContextExportAction />);
     fireEvent.click(screen.getByTestId('explorer-export-trigger'));
     expect(screen.getByLabelText('Tree detail:')).toHaveValue(5);
     fireEvent.click(screen.getByTestId('explorer-export-include-tree'));
     expect(state.explorer.setIncludeProjectTree).toHaveBeenCalledWith(false);
-    expect(persistFileExplorerStateImmediately).toHaveBeenCalledOnce();
   });
 });

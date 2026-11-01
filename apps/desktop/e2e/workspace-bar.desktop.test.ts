@@ -14,8 +14,7 @@
  * in `afterAll`.
  *
  * Root setup uses the shared `seedRoot` helper (`e2e/utils/seed-root.ts`):
- * seed the ledgers (the real paths)
- * into `electronAPI.storage`, then reload — main restores the root and the
+ * seed Main's ledgers (the real paths) through the E2E-only seeding IPC, then reload — main restores the root and the
  * renderer reconciles the durable `roots` row the bar resolves against.
  */
 import { writeFileSync } from 'node:fs';

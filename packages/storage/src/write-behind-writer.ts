@@ -1,9 +1,6 @@
-import type { StorageAdapter } from './types.ts';
-
 /**
  * The owner a write-behind writer hands each key's latest value to. It must apply and settle
- * writes in invocation order: `localStorage` does, and Main's storage adapter serializes them
- * under its lock. A synchronous owner is written synchronously, so a `flush()` from `pagehide`
+ * writes in invocation order, as `localStorage` does. A synchronous owner is written synchronously, so a `flush()` from `pagehide`
  * still lands.
  */
 export interface WriteBehindAdapter {
@@ -154,25 +151,5 @@ export function createWriteBehindWriter(
       });
       return settled.promise;
     },
-  };
-}
-
-/** {@link createWriteBehindWriter} over an asynchronous `StorageAdapter`, keeping its shape. */
-export function createWriteBehindStorageAdapter(
-  adapter: StorageAdapter,
-  options: WriteBehindWriterOptions
-): StorageAdapter & Pick<WriteBehindWriter, 'flush' | 'retire'> {
-  const writer = createWriteBehindWriter(adapter, options);
-  return {
-    flush: writer.flush,
-    getAllKeys: async () => {
-      // A whole-store read sees every buffered write first.
-      await writer.flush();
-      return await adapter.getAllKeys();
-    },
-    getItem: async (key) => await writer.getItem(key),
-    removeItem: writer.removeItem,
-    retire: writer.retire,
-    setItem: writer.setItem,
   };
 }

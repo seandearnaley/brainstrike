@@ -5,7 +5,7 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystemIpcDomain } from '../../ipc-domains/file-system-ipc';
 import type { StartFileSystemWatch } from '../../ipc-domains/file-system-watch-ipc';
-import { registerStoragePreferencesIpcHandlers } from '../../ipc-domains/storage-preferences-ipc';
+import { registerWorkspaceLedgersE2eHandlers } from '../../ipc-domains/workspace-ledgers-e2e-ipc';
 import { createApplicationIpcDomain } from '../../ipc-handlers';
 import {
   createRegistry,
@@ -41,8 +41,8 @@ vi.mock('../../ipc-domains/file-system-ipc', () => ({
   }),
 }));
 
-vi.mock('../../ipc-domains/storage-preferences-ipc', () => ({
-  registerStoragePreferencesIpcHandlers: vi.fn(() => () => undefined),
+vi.mock('../../ipc-domains/workspace-ledgers-e2e-ipc', () => ({
+  registerWorkspaceLedgersE2eHandlers: vi.fn(() => () => undefined),
 }));
 
 async function fixture() {
@@ -129,8 +129,8 @@ describe('Explorer watcher composition', () => {
   });
 
   it('retires native owners even when an independent IPC unregister throws', async () => {
-    const failure = new Error('Storage IPC unregister failed.');
-    vi.mocked(registerStoragePreferencesIpcHandlers).mockReturnValueOnce(() => {
+    const failure = new Error('Ledger IPC unregister failed.');
+    vi.mocked(registerWorkspaceLedgersE2eHandlers).mockReturnValueOnce(() => {
       throw failure;
     });
     const f = await fixture();

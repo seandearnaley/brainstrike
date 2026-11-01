@@ -10,7 +10,6 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   ),
   useAdapters: () => ({
     fileSystemAdapter: {},
-    storageAdapter: {},
   }),
 }));
 
@@ -84,13 +83,6 @@ beforeEach(() => {
         requestDirectoryAccess: vi.fn(),
         restoreLastFolder: vi.fn(),
         saveLastFolder: vi.fn(),
-      },
-      storage: {
-        clear: vi.fn(),
-        getAllKeys: vi.fn(),
-        getItem: vi.fn(),
-        removeItem: vi.fn(),
-        setItem: vi.fn(),
       },
     },
     writable: true,

@@ -39,38 +39,6 @@ export type SubagentPersonasStore = SubagentPersonasData & SubagentPersonasActio
 const STORE_NAME = 'subagent-personas.v1' as const;
 const STORE_VERSION = 1 as const;
 
-interface ElectronStorageBridge {
-  readonly getItem: (key: string) => Promise<string | null>;
-  readonly removeItem: (key: string) => Promise<void>;
-  readonly setItem: (key: string, value: string) => Promise<void>;
-}
-
-function getElectronStorageBridge(): ElectronStorageBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = (
-    window as Window & {
-      electronAPI?: { storage?: ElectronStorageBridge };
-    }
-  ).electronAPI?.storage;
-  return bridge ?? null;
-}
-
-function createSubagentPersonasStorage() {
-  const electronStorage = getElectronStorageBridge();
-  if (electronStorage) {
-    return {
-      getItem: (key: string) => electronStorage.getItem(key),
-      removeItem: (key: string) => electronStorage.removeItem(key),
-      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
-    };
-  }
-  return createBrowserJsonStorage();
-}
-
-const storage = createJSONStorage(() => createSubagentPersonasStorage());
-
 function defaultData(): SubagentPersonasData {
   return {
     delegationEnabled: true,
@@ -129,7 +97,8 @@ export const useSubagentPersonasStore = create<SubagentPersonasStore>()(
         delegationEnabled: state.delegationEnabled,
         disabledPersonaIds: state.disabledPersonaIds,
       }),
-      storage,
+      // A saved value that is not JSON reads as nothing saved, so hydration completes.
+      storage: createJSONStorage(() => createBrowserJsonStorage()),
       version: STORE_VERSION,
     }
   )
