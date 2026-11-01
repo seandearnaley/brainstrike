@@ -67,6 +67,21 @@ async function copyNodeGrammars() {
   );
 }
 
+/**
+ * The tray icon (ADR-0033) ships beside the bundled main, inside the app: electron-builder keeps
+ * `build/` out of the package. Windows draws the .ico; Linux the PNG, with its @2x for HiDPI.
+ */
+async function copyTrayIcons() {
+  const icons = [
+    ['icon.ico', 'tray-icon.ico'],
+    ['icons/32x32.png', 'tray-icon.png'],
+    ['icons/64x64.png', 'tray-icon@2x.png'],
+  ];
+  await Promise.all(
+    icons.map(([from, to]) => cp(path.join(appRoot, 'build', from), path.join(appRoot, 'dist', to)))
+  );
+}
+
 /** Each launcher is its imports, in order (see PROCESS_LAUNCHERS). */
 async function writeProcessLaunchers() {
   for (const [name, imports] of Object.entries(PROCESS_LAUNCHERS)) {
@@ -96,4 +111,5 @@ const results = await Promise.all(NODE_BUILDS.map((options) => build(options)));
 await writeNodeLicenseReport(results);
 await writeProcessLaunchers();
 await copyNodeGrammars();
+await copyTrayIcons();
 await assertPreloadBundlesAreSandboxSafe();
