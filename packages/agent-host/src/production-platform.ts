@@ -17,6 +17,7 @@ import {
   type PermissionToolGateSnapshot,
   resolveQuickModelTarget,
 } from '@brainstrike/assistant-contract';
+import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { startAccurateTokenCounter } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { LanguageModel, Tool } from 'ai';
@@ -39,6 +40,7 @@ import {
 import type { StateStoreMemoryVector } from './adapters/state-store-memory-vector.ts';
 import { withHostDelegationTools } from './child-runs.ts';
 import { type HostStateIndex, openHostStateIndex } from './host-state-index.ts';
+import { catalogModel } from './ledger-projection.ts';
 import type {
   HostDelegation,
   HostMcpRuntime,
@@ -344,6 +346,22 @@ function productionClientServices(
     ...(options.workspaceDiscovery ? { workspaceDiscovery: options.workspaceDiscovery } : {}),
   };
 }
+/**
+ * The host first learns a thread's model from the composer's memory read
+ * (sent when the thread opens and when its model changes), else from the run's
+ * admission. A model measured with a local tokenizer starts that tokenizer's
+ * one-time load then, not inside its first provider request (BST-2437).
+ */
+function startModelTokenCounter(modelId: string): void {
+  const selected = catalogModel(modelId);
+  if (
+    selected &&
+    resolveTokenMeasurementCapability(selected.provider, selected.model).mode !==
+      'deterministic-serialized-character-backstop'
+  ) {
+    startAccurateTokenCounter();
+  }
+}
 function productionMemoryReadiness(
   options: Pick<
     ProductionHostPlatformOptions,
@@ -358,6 +376,7 @@ function productionMemoryReadiness(
   return {
     ...probe,
     readMemoryReadiness: async (request, threadId) => {
+      startModelTokenCounter(request.modelId);
       const preconditions = await read(request);
       if (!preconditions.ready) {
         return { admission: { ready: false, reason: preconditions.reason } };
@@ -470,9 +489,6 @@ export async function createProductionHostPlatform<Configuration extends Product
   await input.startup.register(close);
   // The same owner starts the worker before evaluating desktop configuration.
   stateIndex = openHostStateIndex(input.startup.store.root, input.memoryResourceIds, input.startup);
-  // The o200k counter loads beside startup, so the first measured provider
-  // request of this process does not pay its one-time load (BST-2437).
-  startAccurateTokenCounter();
   const configuring =
     'configure' in input
       ? Promise.resolve().then(() =>
@@ -546,6 +562,7 @@ export async function createProductionHostPlatform<Configuration extends Product
         throw new Error('Production host is closing');
       }
       request.signal.throwIfAborted();
+      startModelTokenCounter(request.modelId);
       const selected = await options.readConfiguration(request);
       let acquired: Awaited<ReturnType<typeof acquireMcp>>;
       let joined: Promise<void> | undefined;
