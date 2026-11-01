@@ -113,6 +113,8 @@ export async function startStandaloneProviderHost(options: {
     });
   const started = await cli(['host', 'start', '--workspace', workspace]);
   if (started.code !== 0) {
+    await rm(dataRoot, { force: true, recursive: true });
+    await rm(home, { force: true, recursive: true });
     throw new Error(`The standalone host did not start: ${started.stderr || started.stdout}`);
   }
   const rows = async (threadId: string): Promise<readonly HostLogRow[]> => {
