@@ -36,6 +36,13 @@ test.describe('Application menu (desktop)', () => {
       'Developer',
       'Help',
     ]);
+    // Developer Tools is only in the Developer menu, which shipped builds drop.
+    expect(menu.find((item) => item.label === 'View')?.submenu).not.toContain(
+      'Toggle Developer Tools'
+    );
+    expect(menu.find((item) => item.label === 'Developer')?.submenu[0]).toBe(
+      'Toggle Developer Tools'
+    );
     const file = menu.find((item) => item.label === 'File')?.submenu ?? [];
     expect(file.includes('Settings…')).toBe(!isMac);
     expect(menu.find((item) => item.label === 'Help')?.submenu.slice(0, 3)).toEqual([
