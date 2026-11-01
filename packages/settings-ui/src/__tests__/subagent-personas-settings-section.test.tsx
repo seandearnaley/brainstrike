@@ -286,7 +286,7 @@ describe('SubagentPersonasSettingsSection', () => {
     render(<Section />);
     const scope = await screen.findByTestId('subagent-persona-scope-minimal');
     expect(scope).toHaveTextContent('Read-only');
-    expect(scope).toHaveTextContent('7 tools:');
+    expect(scope).toHaveTextContent('6 tools:');
     expect(scope).toHaveTextContent('readWorkspaceFile');
     expect(scope).not.toHaveTextContent('every tool');
     expect(scope).not.toHaveTextContent('edit and run');

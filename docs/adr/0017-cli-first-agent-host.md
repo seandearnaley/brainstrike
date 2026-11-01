@@ -37,7 +37,7 @@
   embedding port, notifier, indexer port, explicit data root. No runtime `electron` imports.
 - **CLI retrieval** originally defaulted to FTS5 BM25 + trigram + grep, using vectors only when
   the desktop had built them. ADR-0026 since made the core tools read the disk and the index an
-  optional lane.
+  optional lane, and the retrieval decision (BST-2428) removed that lane on 2026-11-01.
 
 ### Standalone model and credential selection (approved 2026-10-08)
 
@@ -107,7 +107,8 @@ parent dies.
     process group);
   - command sessions (node-pty duplicates only the pty into fds 0–2; SIGHUP on hang-up);
   - stdio MCP servers (`StdioClientTransport` uses `[pipe, pipe, stderr]`; stdin reaches EOF);
-  - short `execFile` calls (git, ripgrep), otherwise bounded by their own timeouts.
+  - short `execFile` calls (git) and ripgrep searches, otherwise bounded by their own
+    timeouts.
 
 ## Consequences
 

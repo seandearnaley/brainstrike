@@ -12,7 +12,7 @@ if (!port) {
   throw new Error('memory-calculator-worker must run on a worker thread');
 }
 // The configured calculator module (StateStoreOptions.memoryCalculatorModule). A module that fails to load fails this
-// worker, and with it the request that started it; the next request starts a fresh worker.
+// worker and any request it holds; the next request starts a fresh worker.
 const module = await import(pathToFileURL(String(workerData)).href);
 
 /** @param {{ op: string; [k: string]: unknown }} m */

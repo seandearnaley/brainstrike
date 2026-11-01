@@ -83,7 +83,6 @@ export type {
   MemoryCycleDisplay,
   MemoryCyclesDisplay,
   MemoryModelsDisplay,
-  MemoryRecallDisplay,
   OmAwaitingObserverReason,
   OmMeterState,
   OmRecordLifecycle,

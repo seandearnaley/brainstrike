@@ -12,6 +12,5 @@ export function desktopHostToolServices(
     ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
     browser: mainBrowserToolRunner,
     diagnostics: mainDiagnosticsReader,
-    retrievalStore: dependencies.retrievalStore,
   };
 }

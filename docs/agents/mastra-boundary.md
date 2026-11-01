@@ -19,8 +19,8 @@ Implementation: `packages/agent-host` (memory adapters, `HostMemory`) and `packa
 - `@mastra/core` is a direct dependency of `packages/agent`, `packages/agent-host`
   and `packages/test-utils`, used for:
   - hosted tool discovery (`ToolSearchProcessor`), skills
-  - provider-request shaping (`TripWire`, `TokenLimiter`, `ProviderHistoryCompat`,
-    `ModelRouterLanguageModel`)
+  - OpenRouter model routing (`ModelRouterLanguageModel`); provider-request
+    shaping uses no Mastra processor
   - memory and background-task storage adapters, schema
   - Each use is its own decision; none makes Mastra an owner or licenses widening
     the surface.
@@ -75,10 +75,6 @@ Pins and patches live in `pnpm-workspace.yaml` and `patches/`.
   `appendBufferedObservations` (vendor drops `persisted: false` chunks) to the
   native calculator, returning the real outcome. Never fall back to the base
   class's assumed success. Both write existing observation rows.
-- Observation vector `record_id` metadata must name a committed record in the
-  indexer's plan for that group. The derived index keeps its own row identity, so
-  recall hits carry no `record_id`; Mastra resolves the generation via its lineage
-  lookup.
 
 ## Memory, context and adapter integrity
 

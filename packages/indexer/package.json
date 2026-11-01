@@ -11,8 +11,7 @@
     "./transport": "./src/transport.ts",
     "./host": "./src/process-core.ts",
     "./metadata": "./src/metadata-reader.ts",
-    "./coverage-reader": "./src/coverage-reader.ts",
-    "./test-fixtures/state-observation-schema": "./__tests__/fixtures/state-observation-schema.ts"
+    "./coverage-reader": "./src/coverage-reader.ts"
   },
   "sideEffects": false,
   "dependencies": {

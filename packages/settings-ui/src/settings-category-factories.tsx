@@ -12,7 +12,6 @@ import {
   Sigma,
   Webhook,
 } from 'lucide-react';
-import type { TestMemoryEmbedder } from './settings/models/assistant-memory-embedder-test';
 import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import type { ClearContentProps } from './settings/system/clear-content-panel';
@@ -42,7 +41,7 @@ import type { SettingsCategory } from './settings-page-content';
 export function createAppearanceSettingsCategory(): SettingsCategory {
   return {
     content: <ThemeSettings />,
-    description: 'Choose your theme, fonts and code colours.',
+    description: 'Choose your theme, fonts and code colors.',
     icon: Palette,
     id: 'appearance',
     keywords: [
@@ -151,7 +150,10 @@ export function createWorkspaceSettingsCategory(
 }
 
 export function createSearchIndexingSettingsCategory(
-  nativeIndex?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability
+  nativeIndex?: Pick<
+    import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability,
+    'rebuild'
+  >
 ): SettingsCategory {
   return {
     content: <SearchIndexSettingsSection {...(nativeIndex ? { nativeIndex } : {})} />,
@@ -207,27 +209,23 @@ export function createPermissionSettingsCategory(options?: {
 export interface CreateAssistantMemorySettingsCategoryOptions {
   readonly assistantMemoryBackendAvailable: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
-  /** The host's test of the selected embedder (BST-2227). */
-  readonly testEmbedder?: TestMemoryEmbedder;
 }
 
 export function createAssistantMemorySettingsCategory({
   assistantMemoryBackendAvailable,
   providerKeySources,
-  testEmbedder,
 }: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
   return {
     content: (
       <AssistantMemorySettingsSection
         assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
         {...(providerKeySources ? { providerKeySources } : {})}
-        {...(testEmbedder ? { testEmbedder } : {})}
       />
     ),
-    description: 'Configure the assistant’s observational memory and semantic recall.',
+    description: 'Configure the assistant’s observational memory.',
     icon: BrainCircuit,
     id: 'assistant-memory',
-    keywords: ['memory', 'observations', 'semantic recall', 'mastra', 'embedding'],
+    keywords: ['memory', 'observations', 'mastra'],
     title: 'Assistant Memory',
   };
 }

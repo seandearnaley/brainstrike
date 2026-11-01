@@ -57,5 +57,10 @@
 // the Explorer's root watches (`workspace/files/watch`, `workspace/files/unwatch`,
 // `workspace/files/watch-retry` and the `workspace/files/event` stream) and reads
 // (`workspace/files/list`, `workspace/files/read`, `workspace/files/exists`; ADR-0029 stage 4),
-// and the workspace's open folders (`workspace/roots/*`; ADR-0029 stage 4).
-export const AGENT_HOST_PROTOCOL_VERSION = 16;
+// and the workspace's open folders (`workspace/roots/*`; ADR-0029 stage 4), with
+// `workspace/roots/open`, which replaces them (ADR-0034), and the Explorer's live text search
+// (`workspace/files/search` and its `workspace/files/search/batch` stream; ADR-0035).
+// v17 (2026-11-01): semantic recall and memory embeddings are gone (the retrieval decision,
+// BST-2428): `memory/embedder/probe`, the `memory.recall.failed` event, `memory.usage` of kind
+// `embedding` and `thread/memory/read`'s embedder model are removed.
+export const AGENT_HOST_PROTOCOL_VERSION = 17;

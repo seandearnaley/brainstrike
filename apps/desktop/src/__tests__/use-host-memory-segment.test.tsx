@@ -8,7 +8,6 @@ import {
   type HostMethod,
   type HostParams,
   type HostResults,
-  type HostRunTelemetry,
 } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import {
@@ -68,22 +67,11 @@ class RowSource implements HostMemoryRowSource {
     readonly rows: readonly HostLogRow[];
   } = { rows: [] };
   private readonly listeners = new Set<() => void>();
-  private readonly telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   readonly getSnapshot = () => this.snapshot;
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
-  readonly onTelemetry = (listener: (telemetry: HostRunTelemetry) => void) => {
-    this.telemetryListeners.add(listener);
-    return () => this.telemetryListeners.delete(listener);
-  };
-  /** One uncommitted chunk, as the thread view delivers its live telemetry. */
-  live(chunk: HostRunTelemetry['chunk']): void {
-    for (const listener of this.telemetryListeners) {
-      listener({ chunk, runId: STARTED_RUN_ID, threadId: started?.threadId ?? THREAD });
-    }
-  }
   commit(row: HostLogRow): void {
     this.snapshot = { rows: [...this.snapshot.rows, row] };
     for (const listener of this.listeners) {
@@ -146,12 +134,6 @@ const OBSERVED_AT = Date.UTC(2026, 9, 18, 21, 30);
 const LIVE: MemoryRead = {
   admission: { ready: true },
   models: {
-    embedder: {
-      dimensions: 1536,
-      distance: 'cosine',
-      modelId: 'text-embedding-3-small',
-      provider: 'openai',
-    },
     observer: 'openai::gpt-5-mini',
   },
   observational: {
@@ -177,7 +159,7 @@ const LIVE: MemoryRead = {
   },
 };
 const NOT_READY: MemoryRead = {
-  admission: { ready: false, reason: 'Semantic recall requires a configured OpenAI API key.' },
+  admission: { ready: false, reason: 'Observational memory requires a configured OpenAI API key.' },
 };
 afterEach(() => {
   cleanup();
@@ -236,22 +218,14 @@ describe('the meter reads the host memory state the next send would admit', () =
     await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
     // Mastra's flags are the record's as of this read; no row marks their end.
     expect(result.current.omSegment?.readAt).toBeGreaterThanOrEqual(before);
-    expect(result.current.omSegment?.models).toEqual({
-      embedder: {
-        dimensions: 1536,
-        distance: 'cosine',
-        modelId: 'text-embedding-3-small',
-        provider: 'openai',
-      },
-      observer: 'openai::gpt-5-mini',
-    });
+    expect(result.current.omSegment?.models).toEqual({ observer: 'openai::gpt-5-mini' });
   });
   test('a typed refusal is the segment error with its code', async () => {
     const client = memoryClient(async () => {
       throw refusalError(
         'configuration',
         'memory.credential-missing',
-        'Semantic recall requires a configured OpenAI API key.'
+        'Observational memory requires a configured OpenAI API key.'
       );
     });
     const { result } = renderHook(() =>
@@ -262,7 +236,7 @@ describe('the meter reads the host memory state the next send would admit', () =
         code: 'memory.credential-missing',
         kind: 'error',
         readAt: expect.any(Number),
-        reason: 'Semantic recall requires a configured OpenAI API key.',
+        reason: 'Observational memory requires a configured OpenAI API key.',
       })
     );
   });
@@ -272,9 +246,9 @@ describe('the meter reads the host memory state the next send would admit', () =
       throw new BoundaryFailureError(
         fault({
           category: 'availability',
-          code: 'memory.embedder-unavailable',
+          code: 'memory.observer-failed',
           correlationId,
-          message: 'The memory embedder cannot be reached.',
+          message: 'The memory observer cannot be reached.',
         })
       );
     });
@@ -283,19 +257,21 @@ describe('the meter reads the host memory state the next send would admit', () =
     );
     await waitFor(() =>
       expect(result.current.omSegment).toEqual({
-        code: 'memory.embedder-unavailable',
+        code: 'memory.observer-failed',
         kind: 'error',
         readAt: expect.any(Number),
-        reason: `The memory embedder cannot be reached. Reference: ${correlationId}`,
+        reason: `The memory observer cannot be reached. Reference: ${correlationId}`,
       })
     );
   });
   test('a memory precondition gates the send after any notice that already gates it', () => {
-    const refused = { admissionReason: 'Semantic recall requires a configured OpenAI API key.' };
+    const refused = {
+      admissionReason: 'Observational memory requires a configured OpenAI API key.',
+    };
     const provider = { disabledReason: 'Add an OpenAI key to send', isComposerDisabled: true };
     expect(withMemoryGate(provider, refused)).toEqual(provider);
     expect(withMemoryGate({ disabledReason: 'Model discovery is stale' }, refused)).toEqual({
-      disabledReason: 'Semantic recall requires a configured OpenAI API key.',
+      disabledReason: 'Observational memory requires a configured OpenAI API key.',
       isComposerDisabled: true,
     });
     expect(withMemoryGate({}, { omSegment: { kind: 'empty' } })).toEqual({});
@@ -320,7 +296,7 @@ describe('the meter reads the host memory state the next send would admit', () =
     );
     await waitFor(() =>
       expect(notReady.result.current).toEqual({
-        admissionReason: 'Semantic recall requires a configured OpenAI API key.',
+        admissionReason: 'Observational memory requires a configured OpenAI API key.',
       })
     );
   });
@@ -441,42 +417,6 @@ describe('the meter reads the host memory state the next send would admit', () =
       )
     );
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
-  });
-  test('the last recall the thread delivers live joins the segment; another thread starts empty (BST-2225)', async () => {
-    const { client } = hostClient(ACTIVE, ACTIVE);
-    const first = new RowSource();
-    const { result, rerender } = renderHook(
-      ({ source }: { source: RowSource }) =>
-        useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source }),
-      { initialProps: { source: first } }
-    );
-    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
-    expect(result.current.omSegment?.recall).toBeUndefined();
-    // A chunk of any other kind is not a recall.
-    act(() => first.live({ delta: 'Paris', id: 'text-1', type: 'text-delta' }));
-    expect(result.current.omSegment?.recall).toBeUndefined();
-    const before = Date.now();
-    act(() =>
-      first.live({
-        latencyMs: 85,
-        messages: 2,
-        scope: 'thread',
-        topK: 4,
-        type: 'brainstrike.memory.recall',
-      })
-    );
-    expect(result.current.omSegment?.recall).toEqual({
-      at: expect.any(Number),
-      latencyMs: 85,
-      messages: 2,
-      scope: 'thread',
-      topK: 4,
-    });
-    expect(result.current.omSegment?.recall?.at).toBeGreaterThanOrEqual(before);
-    // The recall was never committed: the next thread's view has none.
-    rerender({ source: new RowSource() });
-    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
-    expect(result.current.omSegment?.recall).toBeUndefined();
   });
   test('a re-render that builds an equal request reads nothing more', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE);

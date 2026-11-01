@@ -144,7 +144,8 @@ export interface CommittedHostThread {
  */
 export async function startCommittedTurn(
   options: Omit<CommittedHostThreadOptions, 'onEntryCommitted'>,
-  message: AppendMessage
+  message: AppendMessage,
+  commandId: string = crypto.randomUUID()
 ): Promise<void> {
   const { client, settleLost, threadId } = options;
   if (message.content.some((part) => part.type !== 'text')) {
@@ -152,7 +153,6 @@ export async function startCommittedTurn(
   }
   const attachments = (message.attachments ?? []).map(hostImageAttachment);
   const prompt = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
-  const commandId = crypto.randomUUID();
   // BST-2004: a send whose host was lost before it answered, or before the
   // send left, is settled from the replacement's committed log; nothing is resent.
   try {
@@ -216,7 +216,12 @@ export function createCommittedHostThread(
     liveShellOutputs.accept(telemetry.chunk);
     store.acceptTelemetry(telemetry.runId, telemetry.chunk);
   });
-  const startTurn = (message: AppendMessage): Promise<void> => startCommittedTurn(options, message);
+  // The host published the run's rows before it answered: the view shows the
+  // run before the send settles, so the composer never offers a second send.
+  const startTurn = async (message: AppendMessage): Promise<void> => {
+    await startCommittedTurn(options, message);
+    source.deliverReceived();
+  };
   // The thread's catalog entry: its title, colour and icon, and the workspace
   // it is bound to, which the host moves when the thread enters a worktree.
   let entrySeq = -1;

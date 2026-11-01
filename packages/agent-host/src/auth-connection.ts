@@ -2,7 +2,7 @@ import type { HostAuthService, HostClientOrigin } from './ports.ts';
 import type { HostMethod, HostParams } from './protocol.ts';
 export type HostMethodHandler = <M extends HostMethod>(
   method: M,
-  request: (params: HostParams<M>) => unknown
+  request: (params: HostParams<M>, signal: AbortSignal) => unknown
 ) => void;
 /**
  * The host's credential methods on one authenticated connection. Writes other

@@ -5,14 +5,12 @@ import {
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
-import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import {
   PlatformMemoryOptionsSchema,
   PlatformMemorySettingsSchema,
   PlatformModelConfigurationSchema,
 } from './platform-client-configuration';
-import { QueryEmbeddingPayloadSchema } from './retrieval-wire';
 
 export {
   PlatformClientConfigurationSchema,
@@ -49,18 +47,6 @@ export const PlatformNativeChildSchema = Schema.Struct({
   start: Schema.String.check(Schema.isMinCodePoints(1)),
 });
 
-/** The indexer's one vector profile rule validates a recall embedding profile. */
-const PlatformVectorProfileSchema = Schema.declare(
-  (input: unknown): input is VectorProfile => {
-    try {
-      vectorProfileHash(input);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  { message: 'Memory vectors require a supported embedding profile' }
-);
 /** A resolved persona crossing from Main's persona owner to the host. */
 const PlatformPersonaSchema = Schema.Struct({
   allowedToolIds: Schema.mutable(Schema.Array(Id)),
@@ -96,7 +82,6 @@ export const PlatformAdmittedSkillSchema = Schema.Struct({
 export const PlatformNativeRuntimeSchema = Schema.Struct({
   boundWorkspaceRootId: Schema.optional(Id),
   provider: Id,
-  retrievalRootsOnly: Schema.optional(Schema.Literal(true)),
   selectionFolderId: Schema.optional(Id),
   skills: Schema.optional(Schema.mutable(Schema.Array(PlatformAdmittedSkillSchema))),
   workspaceRootPath: Schema.optional(Id),
@@ -119,7 +104,6 @@ export const PlatformSelectionSchema = Schema.Struct({
     observerAwaiting: Schema.optional(Schema.Literals(HOST_OBSERVER_AWAITING_REASONS)),
     options: PlatformMemoryOptionsSchema,
     settings: PlatformMemorySettingsSchema,
-    vectorProfile: Schema.optional(PlatformVectorProfileSchema),
   }),
   nativeRuntime: PlatformNativeRuntimeSchema,
   referencedFileFailures: Schema.optional(
@@ -149,11 +133,6 @@ export const PlatformSelectionSchema = Schema.Struct({
     Schema.Struct({ boundWorkspaceRootId: Id, roots: CliWorkspaceRootsSchema })
   ),
 });
-/**
- * A retrieval tool's query, which Main embeds with the index's hosted model; Main
- * answers the vector, or its refusal as data (`RefusableOutcomeSchema`, BST-1996).
- */
-export const PlatformEmbeddingQuerySchema = Schema.Struct({ request: QueryEmbeddingPayloadSchema });
 /** ADR-0029 stage 4: a folder the host opened that the focused window should show. */
 export const PlatformShowFolderSchema = Schema.Struct({ path: Id });
 /** Main's native folder picker: the chosen folder, or the person's cancel. */
@@ -196,7 +175,3 @@ export const PlatformObserverCandidatesSchema = Schema.Struct({
   candidates: Schema.mutable(Schema.Array(Id)),
 });
 export const PlatformObserverCandidatesResultSchema = Schema.mutable(Schema.Array(Id));
-export const PlatformMemoryVectorsSchema = Schema.Struct({
-  settings: PlatformMemorySettingsSchema,
-});
-export const PlatformMemoryVectorsResultSchema = Schema.NullOr(PlatformVectorProfileSchema);

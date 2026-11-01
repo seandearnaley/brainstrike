@@ -11,6 +11,7 @@ import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/ma
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
+import { appLifetimeContract } from './ipc-domains/app-lifetime.contract';
 import { appUpdatesContract } from './ipc-domains/app-updates.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
@@ -351,6 +352,11 @@ if (shouldExposeBridge('windowFocus')) {
 // app launched, and show the profile's data folder. Desktop-only.
 if (shouldExposeBridge('agentHostRecovery')) {
   exposeBridge('agentHostRecovery', agentHostRecoveryContract);
+}
+
+// Settings › Startup (ADR-0033, desktop-only): keep running in the tray, open at login.
+if (shouldExposeBridge('appLifetime')) {
+  exposeBridge('appLifetime', appLifetimeContract);
 }
 
 // Settings › Updates (BST-2367, desktop-only): whether update checks offer betas.

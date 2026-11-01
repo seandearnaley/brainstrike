@@ -63,11 +63,11 @@ type PlatformClientService =
   | 'mcpPresentation'
   | 'mcpSettings'
   | 'providers'
-  | 'resolveMemoryEmbedder'
   | 'searchState'
   | 'searchWorkspace'
   | 'terminals'
   | 'fileReads'
+  | 'fileSearch'
   | 'rootRegistry'
   | 'fileWatches'
   | 'workspaceDiscovery';
@@ -81,13 +81,11 @@ function platformClientServices(
     ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
-    ...(platform?.resolveMemoryEmbedder
-      ? { resolveMemoryEmbedder: platform.resolveMemoryEmbedder }
-      : {}),
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
     ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.terminals ? { terminals: platform.terminals } : {}),
     ...(platform?.fileReads ? { fileReads: platform.fileReads } : {}),
+    ...(platform?.fileSearch ? { fileSearch: platform.fileSearch } : {}),
     ...(platform?.rootRegistry ? { rootRegistry: platform.rootRegistry } : {}),
     ...(platform?.fileWatches ? { fileWatches: platform.fileWatches } : {}),
     ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
@@ -103,6 +101,32 @@ function announceClosing(connection: MessageConnection): void {
 /** `HOST_DRAINED_EVENT`, once every request the connection read is answered. */
 async function announceDrained(connection: MessageConnection): Promise<void> {
   await connection.sendNotification(HOST_DRAINED_EVENT).catch(() => undefined);
+}
+/**
+ * A client's retirement, from the moment its connection is bound. A client
+ * whose transport closed (or whose connection the host disposed) is gone: what
+ * it left unanswered is lost to it, and its side reads that loss. Neither that
+ * nor the announcement a gone connection refuses fails the host's close (BST-2442).
+ */
+function clientRetirement(
+  connection: MessageConnection,
+  retire: () => Promise<void>
+): () => Promise<void> {
+  let gone = false;
+  const ended = (): void => {
+    gone = true;
+  };
+  connection.onClose(ended);
+  connection.onDispose(ended);
+  return async () => {
+    try {
+      await retire();
+    } catch (cause) {
+      if (!gone) {
+        throw cause;
+      }
+    }
+  };
 }
 /** The owned facade forwards each optional capability the acquired platform supplies. */
 function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void {
@@ -494,7 +518,7 @@ export async function startAgentHost(
           // Keep refusing new requests while dispatched work joins. Once it
           // settles, stop reads before joining the received decode/dispatch tail:
           // an empty dispatch queue does not mean the reader is empty (BST-2282).
-          return async () => {
+          return clientRetirement(connection, async () => {
             announceClosing(connection);
             retiring.abort();
             await connection.drain();
@@ -502,7 +526,7 @@ export async function startAgentHost(
             await reader.drain();
             await connection.drain();
             await announceDrained(connection);
-          };
+          });
         },
         acquireRoot: async (retainRun) => {
           const { core, store } = await host.open(retainRun);
@@ -575,13 +599,13 @@ export async function startAgentHost(
         },
         { origin, retiring: retiring.signal, ...host.clientCapabilities() }
       );
-      const retire = async (): Promise<void> => {
+      const retire = clientRetirement(connection, async () => {
         announceClosing(connection);
         retiring.abort();
         await connection.drain();
         // A frame read after this is refused, so nothing admitted is left unanswered.
         await announceDrained(connection);
-      };
+      });
       privateClients.add(retire);
       const closed = connection.onClose(() => {
         privateClients.delete(retire);

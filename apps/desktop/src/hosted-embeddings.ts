@@ -3,10 +3,7 @@ import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { listProviderEmbeddingModels } from '@brainstrike/assistant-contract/provider-registry';
 import { resolveProviderBaseUrl } from '@brainstrike/host-capabilities/provider-base-url';
-import {
-  type EmbeddingProviderType,
-  parseEmbeddingProviderModelKey,
-} from '@brainstrike/indexing-contract';
+import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { type EmbeddingModel, embedMany } from 'ai';
 import { createVoyage } from 'voyage-ai-provider';
@@ -15,7 +12,6 @@ import {
   HostedEmbeddingError,
   hostedRefusal,
 } from './hosted-embedding-error';
-import type { QueryEmbeddingRequest } from './ipc-domains/index-search.contract';
 import { readProviderApiKey } from './provider-api-key';
 
 const logger = createLogger('DesktopHostedEmbeddings');
@@ -40,13 +36,13 @@ function embeddingModel(
   }
 }
 
-/** Existing provider and credential owners, shared by canonical documents and native queries. */
+/** Embeds the index's documents through the existing provider and credential owners. */
 export async function generateHostedEmbeddings(input: {
   readonly provider: EmbeddingProviderType;
   readonly modelId: string;
   readonly dimensions: number;
   readonly texts: readonly string[];
-  readonly purpose: 'document' | 'query';
+  readonly purpose: 'document';
   readonly signal: AbortSignal;
 }): Promise<number[][]> {
   input.signal.throwIfAborted();
@@ -69,9 +65,9 @@ export async function generateHostedEmbeddings(input: {
       // Report a refusal as it happened instead of retrying it.
       maxRetries: 0,
       model: embeddingModel(input.provider, input.modelId, apiKey),
-      // Each provider reads only its own key: the retrieval side of the text.
+      // Each provider reads only its own key: the text is a document to index.
       providerOptions: {
-        cohere: { inputType: input.purpose === 'document' ? 'search_document' : 'search_query' },
+        cohere: { inputType: 'search_document' },
         voyage: { inputType: input.purpose },
       },
       values: [...input.texts],
@@ -105,27 +101,4 @@ export async function generateHostedEmbeddings(input: {
     );
   }
   return embeddings;
-}
-
-/** Embeds one search query with the index's hosted model; the signal cancels the request. */
-export async function hostedQueryEmbedding(
-  request: QueryEmbeddingRequest,
-  signal: AbortSignal
-): Promise<number[]> {
-  const selected = parseEmbeddingProviderModelKey(request.modelKey);
-  if (!selected || selected.modelId !== request.modelId) {
-    throw new Error('The query embedding model disagrees with its provider/model key.');
-  }
-  const [vector] = await generateHostedEmbeddings({
-    dimensions: request.dimensions,
-    modelId: request.modelId,
-    provider: selected.provider,
-    purpose: 'query',
-    signal,
-    texts: [request.query],
-  });
-  if (!vector) {
-    throw new Error('Hosted query returned no vector.');
-  }
-  return vector;
 }

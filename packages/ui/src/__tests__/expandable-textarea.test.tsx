@@ -34,7 +34,7 @@ describe('ExpandableTextarea', () => {
     const onChange = vi.fn();
     render(<ExpandableTextarea onChange={onChange} value="" />);
 
-    expect(screen.getByPlaceholderText('Enter search query...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Enter search query…')).toBeInTheDocument();
   });
 
   it('calls onChange when text is entered', () => {

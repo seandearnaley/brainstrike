@@ -3,9 +3,8 @@ import type { HostWorkspaceEditTracker } from '@brainstrike/agent-host';
 
 /**
  * The shell-supplied capabilities of the shared native tools. The agent host
- * passes Core's capabilities; Desktop's legacy assistant server passes its
- * PGlite-backed adapters for legacy threads. An absent optional port is the
- * capability result, reported in the tool output where the tool has one.
+ * passes Core's capabilities. An absent optional port is the capability
+ * result, reported in the tool output where the tool has one.
  */
 
 /** The tool call an edit is attributed to. */

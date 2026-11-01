@@ -45,6 +45,7 @@ import { createProviderCredentialReader } from '@brainstrike/host-capabilities/p
 import { hostWorkspaceDiscovery } from '@brainstrike/host-capabilities/workspace-context';
 import {
   createHostFileReads,
+  createHostFileSearch,
   createHostFileWatches,
   createWorkspaceRootPins,
 } from '@brainstrike/host-capabilities/workspace-files';
@@ -71,16 +72,14 @@ import {
   desktopMemoryModels,
 } from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
-import { resolveDesktopMemoryEmbedderProbe } from './memory-vector-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
-  PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformPickFolderResultSchema,
 } from './platform-wire';
-import { IndexSearchResultSchema, IndexStatusSchema } from './retrieval-wire';
+import { IndexSearchResultSchema } from './retrieval-wire';
 
 const logger = createLogger('DesktopNodePlatform');
 function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {
@@ -146,24 +145,14 @@ function mainAdmissionReads(
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/observers', { candidates }, signal)),
-    indexStatus: async (signal) =>
-      Schema.decodeUnknownSync(IndexStatusSchema, { errors: 'all', onExcessProperty: 'ignore' })(
-        await request('platform/admission/index-status', {}, signal)
-      ),
     liveWorkspaceRoots: async (signal) =>
       Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/roots', {}, signal)),
-    memoryVectors: async (settings, signal) =>
-      Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/admission/memory-vectors', { settings }, signal)) ?? undefined,
   };
 }
-interface DesktopHostConfiguration
-  extends Omit<ProductionHostPlatformOptions, 'startup' | 'memoryResourceIds'> {
+interface DesktopHostConfiguration extends Omit<ProductionHostPlatformOptions, 'startup'> {
   confirmMainReady(): Promise<void>;
 }
 export async function createDesktopHostConfiguration(
@@ -332,8 +321,11 @@ export async function createDesktopHostConfiguration(
   await startup.register(() => terminals.close());
   // ADR-0029 stage 4: the Explorer's reads of, and root watches on, live workspace roots,
   // borrowing the root registry's one pinned handle per folder, which it closes after them.
+  // ADR-0035: its Search tab borrows the same handles for the length of one search, which
+  // the connection's retirement cancels.
   const rootPins = createWorkspaceRootPins({ mounts: rootRegistry.registry });
   const fileReads = createHostFileReads({ pins: rootPins });
+  const fileSearch = createHostFileSearch({ pins: rootPins });
   const fileWatches = createHostFileWatches({ pins: rootPins });
   const closeWorkspaceFiles = async (): Promise<void> => {
     const owners = await Promise.allSettled([fileReads.close(), fileWatches.close()]);
@@ -373,7 +365,10 @@ export async function createDesktopHostConfiguration(
   });
   await startup.register(() => mcpHost.close());
   return {
-    attachThreadReads: (reads) => gitWorkspace.attachThreadReads(reads),
+    attachThreadReads: (reads) => {
+      gitWorkspace.attachThreadReads(reads);
+      rootRegistry.attachThreadReads(reads);
+    },
     auth: host.auth,
     close: async () => {
       // Runs' workspace borrows end, then admitted folder changes finish while the store is open.
@@ -410,6 +405,7 @@ export async function createDesktopHostConfiguration(
       );
     },
     fileReads: fileReads.service,
+    fileSearch,
     fileWatches: fileWatches.service,
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     gitWorkspace: gitWorkspace.service,
@@ -519,7 +515,7 @@ export async function createDesktopHostConfiguration(
       };
     },
     // The admission's preconditions, then the memory credentials, nothing acquired;
-    // once they pass, the observer and embedder that admission would use.
+    // once they pass, the observer that admission would use.
     readMemoryPreconditions: async (admission) => {
       const readiness = await runAdmission.readMemoryReadiness(admission);
       if (!readiness.ready) {
@@ -534,14 +530,6 @@ export async function createDesktopHostConfiguration(
     },
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),
-    // BST-2227: Settings' Test embedder, resolved as a run's admission resolves its embedder.
-    resolveMemoryEmbedder: ({ memorySettings, signal }) =>
-      resolveDesktopMemoryEmbedderProbe(
-        memorySettings,
-        admissionReads.memoryVectors,
-        (provider) => host.auth.resolveProviderAuth(provider),
-        signal
-      ),
     resolveProviderAuth: async () => {
       throw refusalError(
         'authorization',

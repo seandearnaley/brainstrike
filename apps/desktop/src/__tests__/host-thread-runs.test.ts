@@ -199,3 +199,37 @@ test('a live question notifies as one, in the approval notification kind', () =>
     ],
   ]);
 });
+
+test("a question this window's own first send started notifies from the view's replay, and a reopen does not repeat it (BST-2441)", () => {
+  const accepted = question.find(
+    (row) => row.event.type === 'command.accepted' && row.event.method === 'run/start'
+  )?.event;
+  const requested = question[indexOf(question, 'interaction.requested')]?.event;
+  if (accepted?.type !== 'command.accepted' || requested?.type !== 'interaction.requested') {
+    throw new Error('The recording has no started question');
+  }
+  const runs = new HostThreadRuns();
+  runs.sentBeforeOpening(threadId, accepted.commandId);
+  // The run committed its question before the view it opened had subscribed.
+  const opened = new Source();
+  const onNotification = vi.fn();
+  const stop = runs.observe(threadId, opened, onNotification);
+  opened.replay(question.slice(0, indexOf(question, 'interaction.requested') + 1));
+  expect(onNotification.mock.calls).toEqual([
+    [
+      {
+        decisionKey: requested.interactionId,
+        input: 'question',
+        kind: 'toolApprovalRequired',
+        runId: requested.runId,
+      },
+    ],
+  ]);
+  stop();
+  // A later view of the same thread is a reopen: its replay announces nothing.
+  const reopened = new Source();
+  const again = vi.fn();
+  runs.observe(threadId, reopened, again);
+  reopened.replay(question.slice(0, indexOf(question, 'interaction.requested') + 1));
+  expect(again).not.toHaveBeenCalled();
+});

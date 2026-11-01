@@ -50,7 +50,7 @@ export interface ExpandableTextareaProps {
 export function ExpandableTextarea({
   value,
   onChange,
-  placeholder = 'Enter search query...',
+  placeholder = 'Enter search query…',
   minRows = 1,
   maxRows = 6,
   minHeight,

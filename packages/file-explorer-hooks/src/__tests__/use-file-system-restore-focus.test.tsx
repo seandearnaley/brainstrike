@@ -51,6 +51,7 @@ function restartAfter(
     addActiveRoot: state.addActiveRoot,
     getFolderAccessOrder: () => store.getState().folderAccessOrder,
     getPersistedCurrentFolderId: () => store.getState().currentFolderId,
+    openActiveRoot: state.openActiveRoot,
     removeActiveRoot: state.removeActiveRoot,
     setActiveRoots: state.setActiveRoots,
     setCurrentFolderId: state.setCurrentFolderId,

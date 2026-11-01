@@ -16,7 +16,6 @@ import {
   ModelRouterLanguageModel,
   type OpenAICompatibleConfig,
 } from '@mastra/core/llm';
-import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
 import { resolveBedrockModelId } from './bedrock-model-id.ts';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content.ts';
@@ -307,51 +306,6 @@ function isConcreteLanguageModel(
     'doGenerate' in modelConfig &&
     'doStream' in modelConfig
   );
-}
-
-/** Create a hosted embedding model instance for Mastra semantic recall. */
-export function createEmbeddingProvider(
-  provider: SupportedProvider | string,
-  apiKey: string | undefined,
-  model: string
-): MastraEmbeddingModel<string> {
-  if (!isSupportedProvider(provider)) {
-    throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      context: { provider, supportedProviders: listSupportedProviderIds() },
-      detail: `Unsupported embedding provider: ${provider}`,
-    });
-  }
-
-  switch (provider) {
-    case 'openai': {
-      const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
-      return openaiProvider.embeddingModel(model);
-    }
-
-    case 'google': {
-      const googleProvider = createGoogle(apiKey ? { apiKey } : undefined);
-      return googleProvider.embeddingModel(model);
-    }
-
-    case 'anthropic':
-    case 'openrouter':
-    case 'cohere':
-    case 'voyage':
-    // Bedrock exposes embedding models upstream, but Brainstrike's Bedrock
-    // phase 1 is LLM-only (registry capabilities.embeddings: false) — an
-    // explicit throw, never a silent degrade (BST-1350).
-    case 'bedrock':
-      throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders: listSupportedProviderIds() },
-        detail: `Mastra semantic recall embedder is not supported for provider: ${provider}`,
-      });
-
-    default:
-      throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders: listSupportedProviderIds() },
-        detail: `Unsupported embedding provider: ${provider}`,
-      });
-  }
 }
 
 /**

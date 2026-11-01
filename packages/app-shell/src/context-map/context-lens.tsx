@@ -82,7 +82,7 @@ export function ContextLens({
               <tr
                 className="border-border/60 border-t align-top"
                 data-freshness={fresh ?? 'unknown'}
-                key={`${at.call.toolCallId}:${span.startLine ?? 'all'}:${span.chunkId ?? ''}`}
+                key={`${at.call.toolCallId}:${span.startLine ?? 'all'}`}
               >
                 <td className="text-muted-foreground py-1.5 font-mono">T{at.turn}</td>
                 <td className="min-w-0 py-1.5">
@@ -92,7 +92,6 @@ export function ContextLens({
                       className={`h-2 w-2 shrink-0 rounded-[2px] bg-current ${KIND_COLOR_CLASS[span.kind]}`}
                     />
                     {KIND_LABEL[span.kind]} {linesLabel(span)}
-                    {span.partial ? ' (part)' : ''}
                     {span.repeat ? ' (unchanged repeat)' : ''}
                   </span>
                   <span className="text-muted-foreground block truncate font-mono text-[11px]">

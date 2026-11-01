@@ -214,7 +214,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
     expect(messages).toHaveLength(6);
   });
 
-  it('enforces the observed final budget even for V4 parts the legacy estimator ignores', async () => {
+  it('trims by the measured size of V4-only parts and refuses when the latest turn cannot fit', async () => {
     const prompt: LanguageModelV4Prompt = [
       user('start'),
       {
@@ -230,7 +230,10 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
       },
       user('continue'),
     ];
-    await expect(prepare(prompt, 200)).rejects.toMatchObject({
+    const trimmed = await prepare(prompt, 200);
+    expect(trimmed.params.prompt).toEqual([prompt[2]]);
+    expect(trimmed.accounting.totalTokens).toBeLessThanOrEqual(200);
+    await expect(prepare([user('long '.repeat(1000))], 200)).rejects.toMatchObject({
       accounting: { totalTokens: expect.any(Number) },
       code: 'provider.context-overflow',
     });

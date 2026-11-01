@@ -78,6 +78,8 @@ const workspaceGitMock = vi.fn((): WorkspaceGitServices => NO_WORKSPACE_GIT_SERV
 vi.mock('../../../renderer/host-git-workspace', () => ({
   resolveDesktopWorkspaceGitServices: () => workspaceGitMock(),
 }));
+// The Search tab's live search goes to the agent host; this test renders no search.
+vi.mock('../../../renderer/host-file-search', () => ({ resolveDesktopFileSearch: () => null }));
 
 const WORKTREES_BRIDGE: WorktreesBridge = {
   adopt: vi.fn(),

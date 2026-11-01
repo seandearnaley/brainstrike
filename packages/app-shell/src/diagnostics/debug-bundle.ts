@@ -427,7 +427,7 @@ function applyNextElisionStep(
 
 function renderHeader(data: ThreadDebugBundleData): string {
   return [
-    '# BrainStrike Debug Bundle',
+    '# Brainstrike Debug Bundle',
     `bundle_format: ${DEBUG_BUNDLE_FORMAT_VERSION}`,
     `generated_at: ${data.environment.generatedAt}`,
     `thread_id: ${data.threadId}`,
@@ -523,7 +523,7 @@ function renderResilienceHistory(): string {
   return [
     '## 4. Resilience history',
     '',
-    '_Retry-attempt history is intentionally absent: the current Mastra error-processor seam has no honest producer for terminal-attempt counts or actual provider-directed wait time._',
+    '_Retry-attempt history is not included: terminal attempt counts and provider-directed wait times are not recorded yet._',
   ].join('\n');
 }
 

@@ -11,9 +11,8 @@ export interface AssistantMemoryModelOption {
   target: string;
 }
 
-// The assistant server allows the same provider sets.
+// The assistant server allows the same provider set.
 const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google', 'openrouter']);
-const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google']);
 
 function providerById(providers: readonly DbProvider[]): Map<string, DbProvider> {
   return new Map(providers.map((provider) => [provider.id, provider]));
@@ -76,31 +75,6 @@ export function listObservationalMemoryModelOptions(args: {
         isEnabledProvider(provider) &&
         model.isEnabled &&
         model.capabilities.type === 'llm'
-      );
-    })
-    .sort((left, right) => compareOptions(providers, left, right))
-    .map((model) => toOption(providers.get(model.providerId) as DbProvider, model));
-}
-
-export function listSemanticRecallEmbeddingModelOptions(args: {
-  models: readonly DbModel[];
-  providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
-  providers: readonly DbProvider[];
-}): readonly AssistantMemoryModelOption[] {
-  const providers = providerById(args.providers);
-  const providersWithKeys = new Set<string>(
-    (args.providerKeySources ?? []).map(({ provider }) => provider)
-  );
-  return args.models
-    .filter((model) => {
-      const provider = providers.get(model.providerId);
-      return (
-        SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(model.providerId) &&
-        (args.providerKeySources === undefined || providersWithKeys.has(model.providerId)) &&
-        isEnabledProvider(provider) &&
-        model.isEnabled &&
-        model.capabilities.type === 'embedding' &&
-        typeof model.capabilities.defaultDimension === 'number'
       );
     })
     .sort((left, right) => compareOptions(providers, left, right))

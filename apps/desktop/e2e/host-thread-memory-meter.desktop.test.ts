@@ -76,15 +76,14 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
     { timeout: 30_000 }
   );
 
-  // Semantic recall saved on a Google embedder whose credential the profile
-  // does not hold. Settings offers only keyed embedders, so a key removed
-  // after the embedder was chosen is how a profile reaches this state.
+  // Observations saved on a Google observer whose credential the profile does
+  // not hold. Settings offers only keyed observers, so a key removed after the
+  // observer was chosen is how a profile reaches this state.
   const settings = {
     ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-    semanticRecall: {
-      ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-      embeddingModelTarget: 'google/gemini-embedding-001',
-      enabled: true,
+    observationalMemory: {
+      ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+      modelTarget: 'google/gemini-2.5-flash',
     },
   };
   await page.evaluate(
@@ -104,7 +103,7 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
   // The reason is the error run/start would fail with, shown before any send.
   await expect(
     reopened.getByText(
-      'Semantic recall requires a configured Google AI Studio API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn semantic recall off.'
+      'Observational memory requires a configured Google AI Studio API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.'
     )
   ).toBeVisible({ timeout: 30_000 });
   await expect(reopened.getByRole('textbox', { name: 'Message input' })).toBeDisabled();

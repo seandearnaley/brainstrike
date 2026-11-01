@@ -6,7 +6,7 @@
  */
 import { access, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import type { HostOpenRoot, HostRootRegistry } from '@brainstrike/agent-host';
+import type { HostOpenRoot, HostRootRegistry, HostThreadReads } from '@brainstrike/agent-host';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type ManagedWorktreeAuthorizer,
@@ -18,6 +18,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { type StateStore, StateStoreReadOnlyError } from '@brainstrike/state-store';
 import type { RootDescriptor } from '@brainstrike/types';
+import { runningRunRootIds } from '../git-workspace/worktree-host-activity.ts';
 import { createWorkspaceRootResolver, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 
 const logger = createLogger('HostRootRegistry');
@@ -55,6 +56,8 @@ export interface HostRootRegistryOptions {
 }
 
 export interface HostRootRegistryOwner {
+  /** Core's thread reads: an open keeps the folders a running run works in mounted. */
+  attachThreadReads(reads: HostThreadReads): void;
   /** Disposes every mount after the registry's mutations settle. */
   close(): Promise<void>;
   /** Refuses new mutations and joins the admitted ones while the store is still open. */
@@ -168,6 +171,18 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
     }
     deletions.clear();
   };
+  let threadReads: HostThreadReads | undefined;
+  /** The folders running runs were admitted with: an open closes them but keeps them mounted. */
+  const runningRoots = (): Promise<Set<string>> => {
+    const reads = threadReads;
+    if (!reads) {
+      throw new Error('The agent host has not opened its threads yet');
+    }
+    return runningRunRootIds({
+      readLedger: async () => reads.readLedger(),
+      readThread: (threadId) => reads.read(threadId, 0),
+    });
+  };
   const roots: WorkspaceRootResolver = {
     listRoots: async () =>
       (await catalogRoots.listRoots()).filter((root) => !registry.isDeletingRootData(root.rootId)),
@@ -203,6 +218,25 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       return null;
     },
     'workspace/roots/mounted': async () => ({ roots: registry.mountedRoots() }),
+    'workspace/roots/open': async ({ path: folder }) => {
+      let opened: RootDescriptor;
+      if (folder === undefined) {
+        // A read-only store refuses before the person chooses a folder it could not open.
+        const refused = readOnlyRefusal();
+        if (refused) {
+          throw refused;
+        }
+        const picked = await options.pickFolder();
+        if (picked === null) {
+          return { root: null };
+        }
+        opened = await registry.openRoot(directoryHandle(picked), await runningRoots());
+      } else {
+        opened = await registry.openRootByPath(folder, await runningRoots());
+      }
+      await publish();
+      return { root: wireRoot(opened) };
+    },
     'workspace/roots/pick': async () => {
       // A read-only store refuses before the person chooses a folder it could not open.
       const refused = readOnlyRefusal();
@@ -284,6 +318,9 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
   };
 
   return {
+    attachThreadReads: (reads) => {
+      threadReads = reads;
+    },
     close: () => {
       releaseDeletions();
       return registry.dispose();

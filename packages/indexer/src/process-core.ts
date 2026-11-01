@@ -17,11 +17,6 @@ import {
   scopedRemoveSchema,
   stateCountsSchema,
   stateHealthSchema,
-  stateMessageHitSchema,
-  stateMessagePlanSchema,
-  stateMessageUpsertResultSchema,
-  stateObservationHitSchema,
-  stateObservationPlanSchema,
   stateSearchHitSchema,
   stateStatsSchema,
 } from './contracts.ts';
@@ -163,22 +158,6 @@ export async function runIndexerProcess(
         }
         let work: unknown | Promise<unknown>;
         switch (request.op) {
-          case 'state-observation-prepare':
-            work = client.call(request.op, request.payload, decoder(stateObservationPlanSchema));
-            break;
-          case 'state-observation-upsert':
-            work = client.call(request.op, request.payload, decoder(Schema.Array(Schema.String)));
-            break;
-          case 'state-observation-query':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(Schema.Array(stateObservationHitSchema))
-            );
-            break;
-          case 'state-observation-purge':
-            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
-            break;
           case 'coverage-authority':
             decoder(Schema.Null)(request.payload);
             work = connection.db.transaction(() =>
@@ -191,26 +170,6 @@ export async function runIndexerProcess(
               })
             )();
             assertCoverageAuthorityBound(work);
-            break;
-          case 'state-message-prepare':
-            work = client.call(request.op, request.payload, decoder(stateMessagePlanSchema));
-            break;
-          case 'state-message-upsert':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(stateMessageUpsertResultSchema)
-            );
-            break;
-          case 'state-message-query':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(Schema.Array(stateMessageHitSchema))
-            );
-            break;
-          case 'state-message-purge':
-            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
             break;
           case 'state-health':
             work = client.call(request.op, request.payload, decoder(stateHealthSchema));

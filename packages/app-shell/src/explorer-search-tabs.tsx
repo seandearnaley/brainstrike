@@ -15,7 +15,7 @@ import { useWorkspaceSearchController } from './use-workspace-search-controller'
 import { useWorkspaceRootActions } from './workspace-root-context-actions';
 
 /**
- * The Search panel is code-split: its tree/executor machinery only loads once
+ * The Search panel is code-split: its tree machinery only loads once
  * the user first opens the Search tab, keeping it out of the always-mounted
  * explorer bundle.
  */
@@ -29,9 +29,9 @@ function isExplorerActiveTab(value: string): value is ExplorerActiveTab {
 }
 
 /**
- * The Search tab's live content. Instantiating the controller (which resolves
- * the embedder + model registry) is deferred to this component so it runs ONLY
- * once Search is first activated — never on the always-mounted explorer render.
+ * The Search tab's live content. Instantiating the controller is deferred to
+ * this component so it runs ONLY once Search is first activated, never on the
+ * always-mounted explorer render.
  */
 function WorkspaceSearchTabContent(): ReactElement {
   const controller = useWorkspaceSearchController();
@@ -42,16 +42,13 @@ function WorkspaceSearchTabContent(): ReactElement {
   return (
     <Suspense fallback={<div className="text-muted-foreground p-3 text-sm">Loading search…</div>}>
       <LazyWorkspaceSearchPanel
-        allowTextPaging={controller.allowTextPaging}
         // A result file attaches like the selection bar's Attach: desktop host threads read mentions.
         {...(hasDurableAssistantUsageCapability() ? { onAttachFile } : {})}
         onOpenFile={controller.onOpenFile}
-        resolveAdapterRootId={controller.resolveAdapterRootId}
-        runSemanticSearch={controller.runSemanticSearch}
-        runTextSearch={controller.runTextSearch}
+        rootName={controller.rootName}
+        runSearch={controller.runSearch}
         selection={selection}
-        semanticAvailability={controller.semanticAvailability}
-        workspaceDbRootIds={controller.workspaceDbRootIds}
+        workspaceRootCount={controller.workspaceRootCount}
       />
     </Suspense>
   );

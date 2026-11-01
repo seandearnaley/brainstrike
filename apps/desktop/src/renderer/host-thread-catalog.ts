@@ -4,8 +4,8 @@
  */
 import type { HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
-// Types only from the assistant-data barrel: its values reach the PGlite
-// repositories, which no browser bundle of this package may load (BST-2106).
+// Types only from the assistant-data barrel: this module takes none of its
+// runtime values (BST-2106).
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import { ASSISTANT_THREAD_ICON_IDS, type AssistantThreadIconId } from '@brainstrike/types';

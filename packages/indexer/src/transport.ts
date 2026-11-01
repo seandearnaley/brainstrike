@@ -44,19 +44,6 @@ import {
   stateGcSchema,
   stateHealthSchema,
   stateMatchSchema,
-  stateMessageHitSchema,
-  stateMessagePlanSchema,
-  stateMessagePrepareSchema,
-  stateMessagePurgeSchema,
-  stateMessageQuerySchema,
-  stateMessageUpsertResultSchema,
-  stateMessageUpsertSchema,
-  stateObservationHitSchema,
-  stateObservationPlanSchema,
-  stateObservationPrepareSchema,
-  stateObservationPurgeSchema,
-  stateObservationQuerySchema,
-  stateObservationUpsertSchema,
   stateSearchHitSchema,
   stateSearchSchema,
   stateStatsSchema,
@@ -69,8 +56,6 @@ import type {
   PurgeIndexerPort,
   ScopedIndexerPort,
   StateIndexerPort,
-  StateMessageVectorPort,
-  StateObservationVectorPort,
 } from './index.ts';
 import { decodeIndexerOptions } from './options.ts';
 import { RpcClient } from './rpc-client.ts';
@@ -146,13 +131,7 @@ export interface IndexerConnection {
   destroy(): Promise<void>;
   readonly exited: boolean;
   readonly ready: Promise<
-    IndexerPort &
-      PurgeIndexerPort &
-      ScopedIndexerPort &
-      StateIndexerPort &
-      StateMessageVectorPort &
-      StateObservationVectorPort &
-      CoverageAuthorityPort
+    IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort & CoverageAuthorityPort
   >;
 }
 export function createIndexerConnection(
@@ -341,8 +320,6 @@ export function createIndexerConnection(
     PurgeIndexerPort &
     ScopedIndexerPort &
     StateIndexerPort &
-    StateMessageVectorPort &
-    StateObservationVectorPort &
     CoverageAuthorityPort = {
     catchUpState: (threads) => catchUp(decoder(stateThreadsSchema)(threads)),
     catchUpStateStep: (threads, maxEvents) =>
@@ -400,44 +377,8 @@ export function createIndexerConnection(
       call('prepare-file', decoder(snapshotSchema)(snapshot), decoder(planSchema)),
     prepareScopedFile: async (request) =>
       call('prepare-scoped-file', decoder(scopedPrepareSchema)(request), decoder(scopedPlanSchema)),
-    prepareStateMessageVectors: async (request) =>
-      call(
-        'state-message-prepare',
-        decoder(stateMessagePrepareSchema)(request),
-        decoder(stateMessagePlanSchema)
-      ),
-    prepareStateObservationVectors: async (request) =>
-      call(
-        'state-observation-prepare',
-        decoder(stateObservationPrepareSchema)(request),
-        decoder(stateObservationPlanSchema)
-      ),
     purgeFile: async (identity) =>
       call('purge-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
-    purgeStateMessageVectors: async (request) =>
-      call(
-        'state-message-purge',
-        decoder(stateMessagePurgeSchema)(request),
-        decoder(Schema.Boolean)
-      ),
-    purgeStateObservationVectors: async (request) =>
-      call(
-        'state-observation-purge',
-        decoder(stateObservationPurgeSchema)(request),
-        decoder(Schema.Boolean)
-      ),
-    queryStateMessageVectors: async (request) =>
-      call(
-        'state-message-query',
-        decoder(stateMessageQuerySchema)(request),
-        decoder(Schema.Array(stateMessageHitSchema))
-      ),
-    queryStateObservationVectors: async (request) =>
-      call(
-        'state-observation-query',
-        decoder(stateObservationQuerySchema)(request),
-        decoder(Schema.Array(stateObservationHitSchema))
-      ),
     readScopedFileChunkBounds: async (request) =>
       call(
         'read-scoped-file-chunk-bounds',
@@ -505,18 +446,6 @@ export function createIndexerConnection(
     stateHealth: () => call('state-health', null, decoder(stateHealthSchema)),
     stateStats: (threadId) =>
       call('state-stats', decoder(Schema.NonEmptyString)(threadId), decoder(stateStatsSchema)),
-    upsertStateMessageVectors: async (request) =>
-      call(
-        'state-message-upsert',
-        decoder(stateMessageUpsertSchema)(request),
-        decoder(stateMessageUpsertResultSchema)
-      ),
-    upsertStateObservationVectors: async (request) =>
-      call(
-        'state-observation-upsert',
-        decoder(stateObservationUpsertSchema)(request),
-        decoder(Schema.Array(Schema.String))
-      ),
     verifyManifest: async (request) =>
       call(
         'verify-manifest',

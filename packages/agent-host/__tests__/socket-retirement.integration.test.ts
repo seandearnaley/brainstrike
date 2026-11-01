@@ -88,7 +88,6 @@ test("a run/start held behind a memory settlement is answered host.closing, join
   const host = await startAgentHost({ lifetime: 'persistent', root }, (startup) =>
     createProductionHostPlatform({
       close: async () => undefined,
-      memoryResourceIds: [resourceId],
       readConfiguration: async (): Promise<ProductionHostRunConfiguration> => ({
         configuration,
         durableConfiguration: { model: modelId, provider: 'openai' },
@@ -103,7 +102,6 @@ test("a run/start held behind a memory settlement is answered host.closing, join
                 reflection: { observationTokens: 40_000 },
                 scope: 'thread',
               },
-              semanticRecall: false,
               workingMemory: { enabled: false },
             },
           },

@@ -1,8 +1,8 @@
 /**
  * Desktop E2E (BST-1988): text search is the default and needs no embedding
- * model. On a fresh profile, adding a folder makes Explorer Text search read the
- * native text index, and the agent's grepSearch finds the same text on disk
- * (ADR 0026); no model is chosen and no collection is invented.
+ * model. On a fresh profile, adding a folder builds the native text index with
+ * no model or collection, and both Explorer search (ADR-0035) and the agent's
+ * grepSearch (ADR 0026) find the folder's text on disk.
  */
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -101,7 +101,7 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
     await home.leaveSettings();
     expect(await readIndexConfig(page)).toMatchObject({ mode: 'text', model: null });
 
-    // Explorer Text search finds the marker through the index.
+    // Explorer search finds the marker on disk, through the host (ADR-0035).
     await ensureFileExplorerPanelVisible(page);
     await page
       .getByRole('tablist', { name: 'Explorer and search' })

@@ -7,15 +7,10 @@ import { createLogger, error as logError, fatal as logFatal } from '@brainstrike
 import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import { hostedQueryEmbedding } from '../hosted-embeddings';
 import type { LifecycleDelaySeam } from '../lifecycle-delay-seam';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
-import {
-  type HostToolServiceCapabilities,
-  refusalOutcome,
-  serveHostToolServices,
-} from './host-tool-services';
+import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
@@ -24,10 +19,7 @@ import {
   PlatformCredentialOpenSchema,
   PlatformCredentialSealSchema,
   PlatformDiagnosticRecordSchema,
-  PlatformEmbeddingQuerySchema,
   PlatformIndexRefreshSchema,
-  PlatformMemoryVectorsResultSchema,
-  PlatformMemoryVectorsSchema,
   PlatformNativeChildSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformObserverCandidatesSchema,
@@ -129,24 +121,6 @@ function serveAdmissionReads(
       )
     )
   );
-  connection.onRequest(
-    'platform/admission/memory-vectors',
-    (input: unknown, token: CancellationToken) =>
-      execute(token, async (signal) =>
-        Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(
-          (await reads.memoryVectors(
-            Schema.decodeUnknownSync(PlatformMemoryVectorsSchema, {
-              errors: 'all',
-              onExcessProperty: 'error',
-            })(input).settings,
-            signal
-          )) ?? null
-        )
-      )
-  );
   connection.onRequest('platform/admission/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       wireDecoder(Schema.Record(Schema.String, Schema.Never), {
@@ -158,17 +132,6 @@ function serveAdmissionReads(
         onExcessProperty: 'error',
       })(await reads.liveWorkspaceRoots(signal));
     })
-  );
-  connection.onRequest(
-    'platform/admission/index-status',
-    (input: unknown, token: CancellationToken): Promise<unknown> =>
-      execute(token, async (signal) => {
-        wireDecoder(Schema.Record(Schema.String, Schema.Never), {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input);
-        return await reads.indexStatus(signal);
-      })
   );
 }
 /** One private connection borrows existing owners; it constructs no platform store. */
@@ -264,16 +227,6 @@ export function serveDesktopPlatform(
       await capabilities.lifecycleDelays?.delay('platform-ready');
       signal.throwIfAborted();
       return null;
-    })
-  );
-  connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
-    // The outcome union crosses as JSON; the host parses it (RefusableOutcomeSchema).
-    execute(token, async (signal): Promise<unknown> => {
-      const { request } = Schema.decodeUnknownSync(PlatformEmbeddingQuerySchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(input);
-      return await refusalOutcome(() => hostedQueryEmbedding(request, signal));
     })
   );
   const cipher = (): CredentialCipher => {

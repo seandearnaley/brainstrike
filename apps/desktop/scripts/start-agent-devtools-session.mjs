@@ -518,7 +518,7 @@ export function isOwnerAlive(pid, kill = process.kill) {
  * reclaims `$TMPDIR` while a machine stays up — 121 profiles totalling 262 GB
  * had accumulated over a single eleven-day uptime when this was written.
  * Because the profile doubles as `BRAINSTRIKE_DB_ROOT_PATH`, each abandoned one
- * holds an entire PGlite cluster, so the leak is measured in gigabytes rather
+ * holds the app's databases and index, so the leak is measured in gigabytes rather
  * than kilobytes.
  *
  * This is opportunistic hygiene, not the ownership guarantee. It removes only
@@ -529,7 +529,7 @@ export function isOwnerAlive(pid, kill = process.kill) {
  * A dead launcher pid is NOT sufficient proof on POSIX. `pnpm dev` is spawned
  * detached, so SIGKILLing the launcher leaves the whole tree reparented and
  * still writing to `BRAINSTRIKE_DB_ROOT_PATH` -- which is this directory.
- * Reclaiming on the pid alone would `rm -rf` a live PGlite cluster, and on
+ * Reclaiming on the pid alone would `rm -rf` live databases, and on
  * macOS would also delete the running app's own `electron-dist` bundle. The
  * owned process group must be proven empty as well.
  */

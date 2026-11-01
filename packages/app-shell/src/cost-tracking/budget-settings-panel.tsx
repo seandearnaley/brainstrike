@@ -131,9 +131,8 @@ export function BudgetGuardrailSettingsPanel() {
             Budget guardrails
           </CardTitle>
           <CardDescription data-testid="budget-guardrail-unavailable">
-            Budget guardrails need durable usage tracking, which is available on desktop only. On
-            the web app, assistant usage is session-only, so spend caps cannot be measured or
-            enforced here.
+            Budget guardrails need recorded assistant usage, which isn’t available here, so spend
+            caps can’t be measured or enforced.
           </CardDescription>
         </CardHeader>
       </Card>

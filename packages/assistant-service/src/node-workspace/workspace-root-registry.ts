@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
@@ -94,6 +95,11 @@ export class WorkspaceRootRegistry {
   private readonly isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
+  /**
+   * Folders an open closed while a run worked in them (ADR-0034): no longer open, still mounted
+   * and live until this registry ends, so a restore keeps them.
+   */
+  private readonly closedForRuns = new Set<string>();
   private readonly availability = new WorkspaceRootAvailability();
   private readonly mutations = new WorkspaceRootMutationLifetime();
   private rootDataDeletion: RootDataDeletionReservation | undefined;
@@ -199,6 +205,7 @@ export class WorkspaceRootRegistry {
       // Registering the record opened it, in the same commit: unless it is a managed worktree,
       // which is mounted for its thread but never opened (ADR-0034).
       this.mounts.clearSessionMount(entry.rootId);
+      this.closedForRuns.delete(entry.rootId);
       const worktree = kind === 'worktree';
       if (recordInRecentRoots && !worktree) {
         // Retain the ledger read before mounting; a missing snapshot is an
@@ -232,24 +239,74 @@ export class WorkspaceRootRegistry {
   }
 
   addRootByPath(requestedPath: string): Promise<RootDescriptor> {
-    return this.serializeWrite(async () => {
-      const granted = await resolveGrantedRootHandle(
-        this.recents,
-        requestedPath,
-        this.managedWorktreeAuthorizer ?? undefined
-      );
-      const descriptor = await this.addRootOwned(granted.handle, {
-        grantedAfresh: false,
-        recordInRecentRoots: granted.grantSource === 'recents',
-      });
-      if (granted.grantSource === 'managed-worktree') {
-        logger.info('Mounted managed worktree without picker', {
-          path: granted.handle.path,
-          rootId: descriptor.rootId,
-        });
-      }
-      return descriptor;
+    return this.serializeWrite(() => this.addRootByPathOwned(requestedPath));
+  }
+
+  private async addRootByPathOwned(requestedPath: string): Promise<RootDescriptor> {
+    const granted = await resolveGrantedRootHandle(
+      this.recents,
+      requestedPath,
+      this.managedWorktreeAuthorizer ?? undefined
+    );
+    const descriptor = await this.addRootOwned(granted.handle, {
+      grantedAfresh: false,
+      recordInRecentRoots: granted.grantSource === 'recents',
     });
+    if (granted.grantSource === 'managed-worktree') {
+      logger.info('Mounted managed worktree without picker', {
+        path: granted.handle.path,
+        rootId: descriptor.rootId,
+      });
+    }
+    return descriptor;
+  }
+
+  /**
+   * Opens a folder as the window's project (ADR-0034): it is granted as `addRoot` grants it,
+   * and every other open folder closes in the same write. A folder in `keepMounted`, one a
+   * running thread works in, leaves the open folders but stays mounted, so its run keeps
+   * working; nothing restores it at the next launch.
+   */
+  openRoot(handle: DirectoryHandle, keepMounted: ReadonlySet<string>): Promise<RootDescriptor> {
+    return this.serializeWrite(async () =>
+      this.closeOtherOpenRoots(
+        await this.addRootOwned(handle, { grantedAfresh: true }),
+        keepMounted
+      )
+    );
+  }
+
+  /** `openRoot` for a folder granted before (Recents), without the picker. */
+  openRootByPath(requestedPath: string, keepMounted: ReadonlySet<string>): Promise<RootDescriptor> {
+    return this.serializeWrite(async () => {
+      // Recents alone grant an open: a managed worktree is a thread's checkout, never the
+      // window's project.
+      const granted = await resolveGrantedRootHandle(this.recents, requestedPath);
+      return this.closeOtherOpenRoots(
+        await this.addRootOwned(granted.handle, { grantedAfresh: false }),
+        keepMounted
+      );
+    });
+  }
+
+  private async closeOtherOpenRoots(
+    opened: RootDescriptor,
+    keepMounted: ReadonlySet<string>
+  ): Promise<RootDescriptor> {
+    if (opened.handle.worktree) {
+      // Granting it mounted it as its thread's checkout, which is all a worktree ever is.
+      throw refusalError(
+        'input',
+        'workspace.open-worktree',
+        'This folder is a Brainstrike worktree, a checkout of its repository.',
+        "Open the repository's folder, then choose the worktree in its thread."
+      );
+    }
+    const others = (await this.readOpenRoots())
+      .map((entry) => entry.rootId)
+      .filter((rootId) => rootId !== opened.rootId);
+    await this.closeRootsOwned(others, { keepMounted });
+    return opened;
   }
 
   prepareClose(): Promise<void> {
@@ -410,6 +467,7 @@ export class WorkspaceRootRegistry {
   }
 
   private async unmountSourceRoot(rootId: string): Promise<void> {
+    this.closedForRuns.delete(rootId);
     const mounted = this.mounts.get(rootId);
     if (mounted) {
       await this.retireSourceLeases(mounted);
@@ -469,7 +527,7 @@ export class WorkspaceRootRegistry {
       assertCurrent,
       disconnect: async () => {
         assertCurrent();
-        await this.removeRootOwned(rootId, true);
+        await this.closeRootsOwned([rootId], { resourcesRetired: true });
       },
       mounted,
       release: () => {
@@ -499,27 +557,53 @@ export class WorkspaceRootRegistry {
 
   /** Resolves whether the removal retired a mounted folder. */
   removeRoot(rootId: string): Promise<boolean> {
-    return this.serializeWrite(() => this.removeRootOwned(rootId));
+    return this.serializeWrite(async () => (await this.closeRootsOwned([rootId])) > 0);
   }
 
-  private async removeRootOwned(rootId: string, resourcesRetired = false): Promise<boolean> {
-    const mounted = this.mounts.get(rootId);
-    if (mounted) {
-      await this.retireSourceLeases(mounted);
+  /**
+   * Closes folders: each leaves the open folders, unmounts and disconnects, in one commit, so
+   * nothing needs a rollback. A folder in `keepMounted` only leaves the open folders. Resolves
+   * how many mounted folders it retired.
+   */
+  private async closeRootsOwned(
+    rootIds: readonly string[],
+    {
+      keepMounted = new Set<string>(),
+      resourcesRetired = false,
+    }: { readonly keepMounted?: ReadonlySet<string>; readonly resourcesRetired?: boolean } = {}
+  ): Promise<number> {
+    const unmounting = rootIds.filter((rootId) => !keepMounted.has(rootId));
+    for (const rootId of rootIds) {
+      if (keepMounted.has(rootId) && this.mounts.get(rootId)) {
+        this.closedForRuns.add(rootId);
+      }
     }
-    // Closing the folder and disconnecting it commit together, so nothing needs a rollback.
+    let retired = 0;
+    for (const rootId of unmounting) {
+      const mounted = this.mounts.get(rootId);
+      if (mounted) {
+        await this.retireSourceLeases(mounted);
+        retired += 1;
+      }
+    }
     const disconnected = await markRootsDisconnectedExcept(
       await this.getRootsCatalog(),
-      this.mounts.persistedMountedPaths(rootId),
-      [rootId]
+      this.mounts.persistedMountedPaths(new Set(unmounting)),
+      rootIds
     );
-    this.mounts.clearSessionMount(rootId);
-    await this.unmountSourceRoot(rootId);
-    if (!resourcesRetired) {
-      await this.cleanupRootResources([...new Set([rootId, ...disconnected.map((row) => row.id)])]);
+    for (const rootId of unmounting) {
+      this.mounts.clearSessionMount(rootId);
+      await this.unmountSourceRoot(rootId);
     }
-    this.availability.forget(rootId);
-    return mounted !== undefined;
+    if (!resourcesRetired) {
+      await this.cleanupRootResources([
+        ...new Set([...unmounting, ...disconnected.map((row) => row.id)]),
+      ]);
+    }
+    for (const rootId of unmounting) {
+      this.availability.forget(rootId);
+    }
+    return retired;
   }
 
   /**
@@ -548,7 +632,8 @@ export class WorkspaceRootRegistry {
         : descriptorFor(entry, state);
     this.availability.retain(entries);
     const descriptors: RootDescriptor[] = [];
-    const retainedRootIds = this.mounts.sessionMountIds();
+    // A folder an open closed for a running run stays mounted, though it is not restored.
+    const retainedRootIds = new Set([...this.mounts.sessionMountIds(), ...this.closedForRuns]);
     const retainedCanonicalPaths = new Set<string>();
     const duplicateRootIds: string[] = [];
     const recentRootCandidates: RecordedWorkspaceRoot[] = [];

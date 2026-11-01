@@ -557,7 +557,7 @@ function usePauseIndexing(config: IndexConfig | null) {
 export function IndexingStatusItem({
   nativeIndexSearch,
 }: {
-  readonly nativeIndexSearch?: IndexSearchCapability | null;
+  readonly nativeIndexSearch?: Omit<IndexSearchCapability, 'grep'> | null;
 }) {
   const [open, setOpen] = useState(false);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);

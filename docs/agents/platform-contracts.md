@@ -2,7 +2,8 @@
 
 Decisions: [ADR-0015](../adr/0015-desktop-platform-ipc-reset-diagnostics.md),
 [ADR-0026](../adr/0026-lifecycle-readiness-liveness-joined-quit.md),
-[ADR-0027](../adr/0027-canonical-electron-quit.md).
+[ADR-0027](../adr/0027-canonical-electron-quit.md),
+[ADR-0033](../adr/0033-host-outlives-the-window.md).
 Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
 `apps/desktop/src/main/desktop-graceful-shutdown.ts`.
 
@@ -87,6 +88,20 @@ Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
   resolution and native completion (alongside mutations and source leases) before
   closing mounted capabilities. Read errors stay with their callers.
 
+## App lifetime (ADR-0033)
+
+- The host outlives the window, not the app: with the Dock (macOS) or a tray (Windows; Linux
+  where a StatusNotifierItem host answers on the session bus), closing the last window leaves
+  Main and its host running. Without either, it still quits.
+- `app-lifetime.ts` owns the decision and the tray; `app-lifetime-electron.ts` injects the
+  platform's presence, login item and notification.
+- "Keep running in the tray" and the one closed-to-tray notice live in Main's
+  `brainstrike-settings` store, so factory reset's userData purge clears them. "Open at login"
+  is the OS login item, read back, never copied.
+- The tray menu is static, Open and Quit, built once on Windows and Linux. It shows no run
+  status and never reads the host; run status belongs in the window and OS notifications. Quit
+  is the joined quit below.
+
 ## Graceful shutdown
 
 Quit is one ordered, joined retirement with no global deadline (ADR-0026 R4,
@@ -169,7 +184,8 @@ amended by ADR-0027).
   owns, then unloads regardless of the answer:
   - quit's `renderers` step, then the normal window close
   - a user window close (X, Alt+F4, Cmd+W): Main prevents, prepares, then closes.
-    On Windows/Linux the last visible window's close is quit instead.
+    The last visible window's close is quit instead only where nothing keeps the app
+    running: no Dock, no tray, or the tray turned off (ADR-0033).
   - menu Reload, `desktopLifecycle.requestReload` (failed-chunk recovery, visible
     main frame only) and the developer database reset (flushes before clearing the
     profile). A failed flush is logged and the reload proceeds.

@@ -11,7 +11,7 @@ export interface DisposableAppProfile {
   readonly root: string;
 }
 
-// A profile holds a PGlite database and the app's logs: removal takes seconds.
+// A profile holds the app's SQLite databases and logs: removal takes seconds.
 const TEARDOWN_TIMEOUT_MS = 60_000;
 
 /**

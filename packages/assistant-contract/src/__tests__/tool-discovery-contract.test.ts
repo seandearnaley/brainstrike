@@ -28,13 +28,8 @@ const EXPECTED_DEFERRED_NAMESPACES = {
     'brainstrike.readWorkspaceDirectory',
   ],
   database: ['brainstrike.queryDiagnostics'],
-  embeddings: ['brainstrike.listEmbeddingSpaces', 'brainstrike.queryEmbeddingSpace'],
   execution: ['brainstrike.runPython'],
-  semantics: [
-    'brainstrike.findWorkspaceSymbol',
-    'brainstrike.hybridSearch',
-    'brainstrike.lspInspect',
-  ],
+  semantics: ['brainstrike.findWorkspaceSymbol', 'brainstrike.lspInspect'],
   sessions: ['brainstrike.inspectCommandSessions', 'brainstrike.manageCommandSession'],
   skills: ['brainstrike.runSkillScript', 'skill', 'skill_read', 'skill_search'],
   web: [

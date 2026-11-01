@@ -53,6 +53,7 @@ describe('useFileExplorerStore Actions Integration', () => {
     getFileContentCacheStats: vi.fn(),
     hydrateFolderState: vi.fn(),
     lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files', // Ensure default
+    openActiveRoot: vi.fn(),
     reconcileSelectionWithDirectorySnapshot: vi.fn(),
     reconcileSelectionWithDirectorySnapshots: vi.fn(),
     removeActiveRoot: vi.fn(),

@@ -53,6 +53,12 @@ The agent's search has three lanes.
 The index itself stays. It serves Explorer search, collections, notes, thread
 history and the retrieval lane.
 
+> **Amended 2026-11-01 by [ADR-0035](0035-workspace-retrieval-is-live-search.md):**
+> the derived index is removed. Explorer search runs on the same live ripgrep core
+> as grep, through the host. The retrieval lane (2) and semantic recall in the memory
+> lane (3) go with the index; if semantic retrieval returns, it is a hosted service or
+> MCP server offered next to grep, as lane 2 describes.
+
 ## Consequences
 
 - Grep no longer returns index rows for files the live pass excludes, for
@@ -61,9 +67,27 @@ history and the retrieval lane.
   `skippedMissingLineMetadata` count. Stored results that still have them
   replay unchanged, because the parser ignores fields it does not read.
 - On very large repositories, grep is bounded by the live pass's caps: 1,500
-  candidate files, then a bounded walk if ripgrep fails or times out. Every
-  cap is reported to the model. If that becomes a problem, the answer is a
+  candidate files and ripgrep's time limit. Every cap is reported to the model.
+  (Amended 2026-11-01, ADR-0035: ripgrep ships with the app, and the bounded walk
+  that stood in for a missing or failed ripgrep is gone; a ripgrep that cannot run
+  fails the call.) If that becomes a problem, the answer is a
   lexical accelerator that includes the agent's own edits immediately, not a
   return to the semantic index.
 - Admitting the retrieval tools and running recall once per turn are separate
   changes under this decision.
+
+## Amendment (2026-11-01): the retrieval and memory lanes are removed
+
+Owner approval (Sean, 2026-11-01) of the retrieval decision (BST-2428), applied
+by BST-2435:
+
+- Lane 2 is gone. `hybridSearch`, `queryEmbeddingSpace` and
+  `listEmbeddingSpaces`, their `desktop-read/index/*` routes (except
+  `desktop-read/index/search`, which the host's `workspace/search` reads until
+  the index goes in BST-2436) and the `listWorkspaceContext` index hint are
+  deleted. The agent searches with lane 1 only.
+- Lane 3 is gone. Memory has no semantic recall, embedder or vector store, and
+  the host state index keeps no message or observation vectors. Thread search
+  (FTS5) stays.
+- Semantic retrieval, if wanted again, comes back as a hosted service or MCP
+  server beside grep, not as a revived local index.

@@ -307,24 +307,3 @@ export interface IndexSearchCapability {
   search(request: IndexerSearchRequest): Promise<IndexerSearchResult>;
   status(): Promise<IndexerStatus>;
 }
-
-/** Same canonical profile identity used by native scoped storage. */
-export function indexerEmbeddingProfileValues(
-  profile: IndexerEmbeddingProfile
-): readonly unknown[] {
-  return [profile.provider, profile.modelId, profile.dimensions, profile.distance];
-}
-
-const EMBEDDING_PROVIDERS: readonly string[] = ['openai', 'google', 'cohere', 'voyage'];
-const DISTANCE_METRICS: readonly string[] = ['cosine', 'l2', 'ip'];
-
-export function validIndexerEmbeddingProfile(profile: IndexerEmbeddingProfile): boolean {
-  return (
-    profile.modelId.trim().length > 0 &&
-    Number.isSafeInteger(profile.dimensions) &&
-    profile.dimensions > 0 &&
-    profile.dimensions <= 16_000 &&
-    EMBEDDING_PROVIDERS.includes(profile.provider) &&
-    DISTANCE_METRICS.includes(profile.distance)
-  );
-}

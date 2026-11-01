@@ -10,7 +10,6 @@ import type {
 } from '@brainstrike/indexing-contract/indexer-client';
 import { Schema } from 'effect';
 import { ipcMain } from 'electron';
-import { hostedQueryEmbedding } from './hosted-embeddings';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import {
   createDesktopIpcRegistry,
@@ -23,10 +22,6 @@ const RootIds = Schema.Array(NonBlankString).check(
   Schema.isUnique({ expected: 'unique root IDs' })
 );
 const Limit = Schema.Int.check(Schema.isBetween({ maximum: 100, minimum: 1 }));
-const PositiveInt = Schema.Int.check(
-  Schema.isGreaterThan(0),
-  Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
-);
 const NonEmptyString = Schema.String.check(Schema.isNonEmpty());
 const CoverageRequest = Schema.Struct({ rootIds: RootIds });
 const EmbeddingProfile = Schema.Struct({
@@ -39,28 +34,10 @@ const EmbeddingProfile = Schema.Struct({
 export const indexSearchArgs = {
   coverage: Schema.Tuple([CoverageRequest]),
   coverageBatch: Schema.Tuple([Schema.NonEmptyArray(CoverageRequest)]),
-  embedQuery: Schema.Tuple([
-    Schema.Struct({
-      dimensions: PositiveInt,
-      modelId: Schema.String,
-      modelKey: Schema.String,
-      query: NonBlankString,
-    }),
-  ]),
   fileChunks: Schema.Tuple([
     Schema.Struct({
       paths: Schema.Array(NonEmptyString).check(Schema.isBetweenLength(1, 100)),
       rootId: NonBlankString,
-    }),
-  ]),
-  grep: Schema.Tuple([
-    Schema.Struct({
-      caseSensitive: Schema.Boolean,
-      filePaths: Schema.optionalKey(Schema.Array(NonEmptyString).check(Schema.isMaxLength(1000))),
-      isRegex: Schema.Boolean,
-      limit: Limit,
-      pattern: Schema.String,
-      rootIds: RootIds,
     }),
   ]),
   readConfig: NoArgs,
@@ -92,7 +69,7 @@ export const indexSearchArgs = {
   updateConfig: Schema.Tuple([IndexConfigPatchSchema]),
 } satisfies ContractArgs<typeof indexSearchContract>;
 
-/** Root composes the authoritative runtime, complete-scan receipts and separate read-only grep host. */
+/** Root composes the authoritative runtime and its complete-scan receipts. */
 export function registerIndexSearchIpcHandlers(
   capability: IndexSearchCapability & IndexChunkBoundsCapability,
   registration: IndexRootRegistrationCapability,
@@ -107,11 +84,7 @@ export function registerIndexSearchIpcHandlers(
   registerDomain(registry, 'workspace', indexSearchContract, indexSearchArgs, {
     coverage: (request) => settleIpcResult(failure, () => capability.coverage(request)),
     coverageBatch: (requests) => settleIpcResult(failure, () => capability.coverageBatch(requests)),
-    // An aborted search drops the answer in the renderer; the request itself is one HTTP call.
-    embedQuery: (request) =>
-      settleIpcResult(failure, () => hostedQueryEmbedding(request, new AbortController().signal)),
     fileChunks: (request) => settleIpcResult(failure, () => capability.fileChunks(request)),
-    grep: (request) => settleIpcResult(failure, () => capability.grep(request)),
     readConfig: () => settleIpcResult(failure, () => config.read()),
     rebuild: () => settleIpcResult(failure, () => capability.rebuild()),
     resetConfig: () => settleIpcResult(failure, () => config.reset()),

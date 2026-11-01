@@ -164,38 +164,6 @@ export interface RuntimeWorkspaceRoot {
   rootId: string;
 }
 
-/**
- * Mirrors `WorkspaceCollectionSyncState` (`@brainstrike/app-state/stores/workspace-collection-sync-status-store`)
- * for this dependency-light wire contract — this package must not import
- * app-state, so the union is duplicated deliberately and must be kept in
- * sync by hand. `unconfigured` (BST-1335): no workspace root has been
- * selected yet; setup is incomplete, not a failure.
- */
-export const RUNTIME_WORKSPACE_INDEX_STATUS_STATES = [
-  'blocked',
-  'disabled',
-  'idle',
-  'paused',
-  'recovering',
-  'unconfigured',
-  'waiting',
-  'scanning',
-  'importing',
-  'chunking',
-  'embedding',
-  'error',
-] as const;
-export type RuntimeWorkspaceIndexStatusState =
-  (typeof RUNTIME_WORKSPACE_INDEX_STATUS_STATES)[number];
-
-export interface RuntimeWorkspaceIndexQueueProgress {
-  failed: number;
-  lastError?: string | null;
-  pending: number;
-  processed: number;
-  totalQueued: number;
-}
-
 export type RuntimeMemoryOptions = RuntimeJsonObject;
 
 /**
@@ -269,7 +237,6 @@ export interface RuntimeData {
     params?: Record<string, unknown>,
     opts?: { onProgress?: (payload: unknown) => void }
   ) => Promise<unknown>;
-  embeddingSetId?: string;
   enabledNativeToolIds?: readonly string[];
   /**
    * The client's declared MAIN root (activeRootIds[0] in the file-explorer
@@ -363,14 +330,6 @@ export interface RuntimeData {
    */
   taskList?: readonly AssistantTaskItem[];
   transportImageElision?: RuntimeTransportImageElision;
-  workspaceIndexBlockedReason?: string | null;
-  workspaceIndexEmbeddingSetId?: string;
-  workspaceIndexingEnabled?: boolean;
-  workspaceIndexingMode?: string;
-  workspaceIndexingPaused?: boolean;
-  workspaceIndexLastError?: string | null;
-  workspaceIndexQueueProgress?: RuntimeWorkspaceIndexQueueProgress | null;
-  workspaceIndexStatusState?: RuntimeWorkspaceIndexStatusState;
   /**
    * Renderer-supplied preference for auto-injecting a root's workspace
    * instructions file into the system context. A preference, not a security

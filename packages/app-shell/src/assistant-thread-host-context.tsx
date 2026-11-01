@@ -5,7 +5,6 @@ import type {
   SupportedProvider,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
-import type { RuntimeAssistantMemorySettings } from '@brainstrike/assistant-contract/memory-settings';
 import type {
   AssistantMemoryThread,
   AssistantThreadCatalogRepository,
@@ -64,16 +63,6 @@ export interface AssistantHostProviders {
   readOpenRouterModel(modelId: string): Promise<OpenRouterModelMetadataSnapshot>;
   /** The availability payload; `createAssistantStatusFetcher` validates it. */
   readStatus(): Promise<unknown>;
-  /**
-   * BST-2227: one test embedding with the hosted embedder these memory
-   * settings select, resolved and credentialed as a run resolves it. Rejects
-   * with the embedder's typed failure; a host without memory omits it.
-   */
-  testMemoryEmbedder?(settings: RuntimeAssistantMemorySettings): Promise<{
-    readonly dimensions: number;
-    readonly latencyMs: number;
-    readonly modelId: string;
-  }>;
   verifyProvider(providerId: string): Promise<ProviderVerificationSnapshot>;
 }
 

@@ -15,6 +15,7 @@ import { hostChildStatusChanged } from './core-child-runs.ts';
 import { HostRunNotAdmittedError } from './core-run-lifecycle.ts';
 import {
   bindHostFileReadMethods,
+  bindHostFileSearchMethods,
   bindHostFileWatchMethods,
   bindHostRootRegistryMethods,
 } from './file-watch-connection.ts';
@@ -23,12 +24,12 @@ import { bindHostHookTrustMethods } from './hook-trust.ts';
 import { bindHostMcpContentMethods } from './mcp-content-connection.ts';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.ts';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.ts';
-import { probeHostMemoryEmbedder } from './memory-embedder-probe.ts';
 import { bindHostPermissionPolicyMethods } from './permission-policy.ts';
 import type {
   HostAuthService,
   HostClientOrigin,
   HostFileReads,
+  HostFileSearch,
   HostFileWatches,
   HostGitWorkspace,
   HostMcpContentService,
@@ -68,6 +69,8 @@ export interface HostConnectionOptions {
   readonly bindCatalog?: (connection: Pick<MessageConnection, 'onRequest'>) => Promise<void>;
   /** ADR-0029 stage 4: the desktop Explorer's reads. */
   readonly fileReads?: HostFileReads;
+  /** ADR-0035: the desktop Explorer's Search tab. */
+  readonly fileSearch?: HostFileSearch;
   /** ADR-0029 stage 4: the desktop Explorer's root watches. */
   readonly fileWatches?: HostFileWatches;
   /** ADR-0029 stage 2: the desktop's git cluster, where the host owns one. */
@@ -83,8 +86,6 @@ export interface HostConnectionOptions {
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
   readonly providers?: HostProviderService;
-  /** BST-2227: the embedder `memory/embedder/probe` tests, where the host has a composer. */
-  readonly resolveMemoryEmbedder?: HostPlatform['resolveMemoryEmbedder'];
   /**
    * The transport's retirement: each in-flight request's signal aborts as `host.closing`, and a
    * request that arrives afterwards is refused as `host.closing`.
@@ -136,6 +137,7 @@ export function bindHostConnection(
   const {
     auth,
     fileReads,
+    fileSearch,
     rootRegistry,
     fileWatches,
     gitWorkspace,
@@ -145,7 +147,6 @@ export function bindHostConnection(
     mcpSettings,
     origin = 'public-socket',
     providers,
-    resolveMemoryEmbedder,
     retiring,
     searchState,
     searchWorkspace,
@@ -326,6 +327,7 @@ export function bindHostConnection(
   bindHostFileReadMethods(handle, fileReads, origin);
   bindHostRootRegistryMethods(handle, rootRegistry, origin);
   disposables.push(bindHostFileWatchMethods(handle, connection, fileWatches, origin));
+  bindHostFileSearchMethods(handle, connection, fileSearch, origin);
   bindHostHookTrustMethods(handle, core.store);
   bindHostWorkspaceTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
@@ -338,9 +340,6 @@ export function bindHostConnection(
   handle('thread/delete', (params) => core.deleteThread(params));
   handle('thread/update', (params) => core.updateThread(params));
   handle('thread/memory/read', (params) => core.readThreadMemory(params, origin));
-  handle('memory/embedder/probe', (params, signal) =>
-    probeHostMemoryEmbedder(resolveMemoryEmbedder, params, signal)
-  );
   handle('thread/read', async (params) => ({
     rows: await core.published.read(params.threadId, params.fromSeq),
   }));

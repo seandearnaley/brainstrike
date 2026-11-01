@@ -18,7 +18,6 @@ const providerGroups: ProviderGroupConfig[] = [
           embeddings: true,
           llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: true,
         },
         id: 'openai',
         models: [
@@ -49,7 +48,6 @@ const providerGroups: ProviderGroupConfig[] = [
           embeddings: false,
           llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'anthropic',
         models: [
@@ -83,7 +81,6 @@ const providerGroups: ProviderGroupConfig[] = [
           embeddings: false,
           llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'openrouter',
         models: [

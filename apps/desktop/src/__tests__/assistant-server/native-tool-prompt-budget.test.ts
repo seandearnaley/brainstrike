@@ -242,10 +242,15 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // Merging the three into one action-union tool was REJECTED: the union costs
 // more tokens than it saves and diverges from the vendor's own tool shapes.
 // Both bounds move to centre 10521 (10,100 → 10,671 and 9,800 → 10,371).
-/** The same 39 the eager-baseline gate above counts: the tool half is unchanged. */
-const AUTHORED_PROVIDER_TOOL_COUNT = 39;
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_671;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_371;
+//
+// BST-2435 DROP: the retrieval decision (BST-2428) deletes `hybridSearch`,
+// `queryEmbeddingSpace` and `listEmbeddingSpaces`, their instructions and the
+// workspace index hint. A deliberate drop: measured 9752, so both bounds move
+// down to centre it (10,671 → 9,902 and 10,371 → 9,602), width 300 unchanged.
+/** The same 36 the eager-baseline gate above counts: the tool half is unchanged. */
+const AUTHORED_PROVIDER_TOOL_COUNT = 36;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9902;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9602;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const PROMPT_BUDGET_SKILL = {
   containmentRoot: '/workspace',
@@ -698,12 +703,14 @@ describe('desktop native tool provider prompt budget', () => {
     // took the description from +40 to +19 and the field from +25 to +23.
     // Main measured 8820 and this 8860, so both bounds move to centre it
     // (8670 → 8710, 8970 → 9010), width 300 unchanged.
+    // BST-2435: the three retrieval tools are deleted; measured 8120, so both
+    // bounds move to centre it (8710 → 7970, 9010 → 8270), width 300 unchanged.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8710);
+    ).toBeGreaterThanOrEqual(7970);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      9010
+      8270
     );
     // BST-2328: executeCommand is critical tier, so the same +40 lands here;
     // main measured 2292 and this 2332, so both bounds move to centre it
@@ -762,7 +769,8 @@ describe('desktop native tool provider prompt budget', () => {
       // −1 for the removed `querySelf` (BST-1995), with its +358/+44/+105 above.
       // −2 for the retired context selection tools (BST-2019).
       // +3 for browserClick, browserType and browserSelectOption (BST-2324).
-      eagerToolCount: 39,
+      // −3 for the deleted retrieval tools (BST-2435).
+      eagerToolCount: 36,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns

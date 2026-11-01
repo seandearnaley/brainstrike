@@ -58,7 +58,9 @@ close lifecycle that the CLI would not share.
    the Root flock like every other native process the host starts (ADR-0017, "Native
    processes hold the Root").
 5. **Index activation follows the retrieval decision.** It moves only if that decision
-   keeps the derived index; otherwise it is deleted, not moved.
+   keeps the derived index; otherwise it is deleted, not moved. (2026-11-01: the
+   decision removes the index, [ADR-0035](0035-workspace-retrieval-is-live-search.md);
+   index activation is deleted.)
 
 ## Stages
 
@@ -104,7 +106,9 @@ its Main side and quit step:
    run borrow; the index's sources stop around the host's `workspace/roots/delete-data`,
    which consumes the reservation. The `file-system` step goes once the native
    index's watches have left.
-5. MCP control, then index activation if the retrieval decision keeps it.
+5. MCP control, then index activation if the retrieval decision keeps it. (2026-11-01:
+   it does not, ADR-0035. Explorer search already runs in the host as
+   `workspace/files/search`; this stage is MCP control alone, and the index is deleted.)
 
 Quit then ends as: factory reset, renderers, `host/stop`, join utility and hidden
 renderer exits, database close.

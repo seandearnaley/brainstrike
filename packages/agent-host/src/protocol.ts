@@ -24,6 +24,7 @@ import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
 import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
+import { FILE_SEARCH_METHOD_SCHEMAS, FILE_SEARCH_RESULT_SCHEMAS } from './protocol-file-search.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
   GIT_WORKSPACE_RESULT_SCHEMAS,
@@ -40,8 +41,6 @@ import {
 } from './protocol-mcp-settings.ts';
 import {
   HostMemoryCycleEventSchema,
-  HostMemoryEmbedderProbeParamsSchema,
-  HostMemoryEmbedderProbeResultSchema,
   HostMemoryModelsSchema,
   HostObservationalMemoryStateSchema,
 } from './protocol-memory.ts';
@@ -97,6 +96,7 @@ import {
 
 export * from './mcp-authority-wire.ts';
 export * from './protocol-canvas.ts';
+export * from './protocol-file-search.ts';
 export * from './protocol-git-workspace.ts';
 export * from './protocol-hook-trust.ts';
 export * from './protocol-mcp-content.ts';
@@ -391,12 +391,6 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   // Values are process-local and never enter HostCommandLedger.
   'mcp/input/stage': Schema.Struct({ ...McpInput, content: Schema.optional(McpContent) }),
-  /**
-   * BST-2227: embeds one fixed probe text with the embedder these memory
-   * settings select, resolved and credentialed as a run's admission resolves
-   * it. Nothing is committed; a failure is the embedder's typed failure.
-   */
-  'memory/embedder/probe': HostMemoryEmbedderProbeParamsSchema,
   /** Model metadata through the host's OpenRouter key; the client sends only the model id. */
   'providers/openrouter-model': Schema.Struct({ model: Id }),
   /** The cheapest authenticated probe of one provider's stored or env credential. */
@@ -477,6 +471,7 @@ export const HOST_METHOD_SCHEMAS = {
   ...WORKSPACE_DISCOVERY_METHOD_SCHEMAS,
   ...WORKSPACE_FILES_METHOD_SCHEMAS,
   ...WORKSPACE_ROOTS_METHOD_SCHEMAS,
+  ...FILE_SEARCH_METHOD_SCHEMAS,
   ...SELECTION_METHOD_SCHEMAS,
   'thread/start': Schema.Struct(Command),
   'thread/update': Schema.Struct({ ...Command, ...Thread, ...ThreadPresentation }).check(
@@ -673,8 +668,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       Schema.Struct({
         type: Schema.Literal('memory.usage'),
         ...RunFields,
-        // BST-2226: `embedding` is a hosted memory embedder's provider-reported tokens.
-        kind: Schema.Literals(['observation', 'reflection', 'embedding']),
+        kind: Schema.Literals(['observation', 'reflection']),
         modelId: Id,
         usage: json(),
       }),
@@ -686,12 +680,6 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       }),
       Schema.Struct({
         type: Schema.Literal('memory.settlement.failed'),
-        ...RunFields,
-        detail: Schema.String.check(Schema.isMinCodePoints(1)),
-      }),
-      // A turn's failed semantic recall, which the turn answers without.
-      Schema.Struct({
-        type: Schema.Literal('memory.recall.failed'),
         ...RunFields,
         detail: Schema.String.check(Schema.isMinCodePoints(1)),
       }),
@@ -958,7 +946,6 @@ export const HOST_RESULT_SCHEMAS = {
     status: HostMcpInputStatusSchema,
   }),
   'mcp/input/stage': Schema.Struct({ staged: Schema.Literal(true) }),
-  'memory/embedder/probe': HostMemoryEmbedderProbeResultSchema,
   'providers/openrouter-model': opaqueWireSchema(
     (value): OpenRouterModelMetadataSnapshot => parseOpenRouterModelMetadataSnapshot(value)
   ),
@@ -1024,6 +1011,7 @@ export const HOST_RESULT_SCHEMAS = {
   ...WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
   ...WORKSPACE_FILES_RESULT_SCHEMAS,
   ...WORKSPACE_ROOTS_RESULT_SCHEMAS,
+  ...FILE_SEARCH_RESULT_SCHEMAS,
   ...SELECTION_RESULT_SCHEMAS,
   'thread/start': Schema.Struct(Thread),
   'thread/update': Schema.Struct({ accepted: Schema.Literal(true) }),

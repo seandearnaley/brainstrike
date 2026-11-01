@@ -453,7 +453,7 @@ and its SHA-256 for review; the host runs its project hooks only at that hash. -
 confirms without a prompt. Desktop roots are approved in Settings > Hooks.
 workspace trust lets a standalone root's agent configuration (its AGENTS.md, skills and
 personas) load; until then the root runs restricted. --yes confirms without a prompt. Desktop folders
-are trusted from the composer or Settings > Workspace trust.
+are trusted from the composer or Settings > Workspace Trust.
 
 threads search is lexical: words in committed messages and thread titles, fused into one
 ranked list; with no thread holding every word, it matches any word and says so. --scope-root
@@ -469,8 +469,8 @@ Per-run workspace input for a profile-backed host: repeat --workspace-root <exis
 --workspace-instructions inherit|off, and --skills inherit|off (default off).
 Selectors narrow live owner grants; they never add paths.
 An empty selection grants no workspace; Skills also require the owner's home-tier capability.
-Search/shell tools, Skills/workspace instructions, vector Memory,
-local inference and browser OAuth require platform capabilities.
+Search/shell tools, Skills/workspace instructions, local inference
+and browser OAuth require platform capabilities.
 An existing host keeps its own platform and admission policy.
 A new host composes configured MCP servers and their Tasks from --mcp-config <file> (the desktop's MCP config JSON).
 The interaction id is the committed mcp.input.requested event's interactionId; a non-interactive run exits 2 at one.

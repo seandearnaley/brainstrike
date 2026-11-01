@@ -60,7 +60,12 @@ for it.
 4. **Open replaces; add is secondary.** "Open Folder…" makes the chosen folder
    the window's project, and Recents is the switcher. "Add Folder to Workspace"
    stays for multi-repository work. Open is one more host method on the
-   open-folder list the host owns (ADR-0029 stage 4).
+   open-folder list the host owns (ADR-0029 stage 4), `workspace/roots/open`.
+   File ▸ Open Folder…, File ▸ Open Recent, ⌘K "Open folder…" and a path
+   handed to the app (`brainstrike <path>`, open-file, a second instance)
+   open; a dropped folder joins. A folder a running run was admitted with
+   leaves the open folders but stays mounted until the next launch, so the run
+   keeps working; its record and identity stay, so Recents reopen it as it was.
 5. **A worktree reads its repository's index.** Worktree roots are never indexed
    on their own and the opt-in goes. Semantic and hybrid search for a worktree
    query the local checkout's index, map each hit to the worktree by
@@ -73,6 +78,9 @@ for it.
 7. **New threads default to a worktree, created on first send**, so an empty
    thread creates nothing. Archive keeps its snapshot ref; a cap archives the
    oldest idle worktrees that no open thread uses.
+
+2026-11-01: the semantic and hybrid read-through of decision 5 is removed with the
+retrieval tools (the retrieval decision, BST-2428).
 
 ## Consequences
 

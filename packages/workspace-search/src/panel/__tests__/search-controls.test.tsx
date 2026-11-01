@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
 import { SearchInputBar } from '../search-input-bar';
-import { SearchModeToggle } from '../search-mode-toggle';
 
 describe('SearchInputBar', () => {
   beforeEach(() => {
@@ -49,21 +48,9 @@ describe('SearchInputBar', () => {
     expect(useWorkspaceSearchStore.getState().query).toBe('findMe');
   });
 
-  it('in text mode, Enter calls onSubmit', () => {
+  it('Enter calls onSubmit', () => {
     const onSubmit = vi.fn();
     render(<SearchInputBar onSubmit={onSubmit} />);
-
-    fireEvent.keyDown(screen.getByPlaceholderText('Search workspace'), { key: 'Enter' });
-
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows the semantic-mode hint and Enter still calls onSubmit', () => {
-    useWorkspaceSearchStore.getState().setMode('semantic');
-    const onSubmit = vi.fn();
-    render(<SearchInputBar onSubmit={onSubmit} />);
-
-    expect(screen.getByText('Press Enter to search')).toBeInTheDocument();
 
     fireEvent.keyDown(screen.getByPlaceholderText('Search workspace'), { key: 'Enter' });
 
@@ -101,47 +88,5 @@ describe('SearchInputBar', () => {
     fireEvent.keyDown(screen.getByPlaceholderText('Search workspace'), { key: 'Enter' });
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('SearchModeToggle', () => {
-  beforeEach(() => {
-    useWorkspaceSearchStore.getState().reset();
-    vi.clearAllMocks();
-  });
-
-  it('renders Text and Semantic buttons with Text active by default', () => {
-    render(<SearchModeToggle semanticAvailability={{ available: true, reason: null }} />);
-
-    expect(screen.getByRole('button', { name: 'Text' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Semantic' })).toHaveAttribute(
-      'aria-pressed',
-      'false'
-    );
-  });
-
-  it('switching mode calls setMode and clears results', () => {
-    useWorkspaceSearchStore.getState().resolveResults(
-      {
-        files: [],
-        mode: 'text',
-        notices: {
-          candidatesTruncated: false,
-          scanLimited: false,
-          skippedMissingLineMetadata: 0,
-          truncated: false,
-        },
-        totalMatches: 0,
-      },
-      useWorkspaceSearchStore.getState().generation
-    );
-
-    render(<SearchModeToggle semanticAvailability={{ available: true, reason: null }} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Semantic' }));
-
-    const state = useWorkspaceSearchStore.getState();
-    expect(state.mode).toBe('semantic');
-    expect(state.results).toBeNull();
-    expect(state.status).toBe('idle');
   });
 });

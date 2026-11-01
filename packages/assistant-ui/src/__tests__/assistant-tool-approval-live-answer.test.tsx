@@ -40,7 +40,7 @@ const approval = {
   riskCategory: 'read',
   runId: 'root-run',
   toolCallId: 'background-child-2',
-  toolName: 'brainstrike.queryEmbeddingSpace',
+  toolName: 'brainstrike.lspInspect',
 } satisfies AssistantToolApprovalRequest;
 
 function answer(

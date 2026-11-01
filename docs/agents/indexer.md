@@ -1,7 +1,10 @@
 # Derived indexer
 
 The index is rebuildable derived data, never the canonical store.
-Decision: [ADR-0018](../adr/0018-derived-sqlite-indexer.md).
+Decision: [ADR-0018](../adr/0018-derived-sqlite-indexer.md), superseded by
+[ADR-0035](../adr/0035-workspace-retrieval-is-live-search.md): the index is being
+removed (BST-2435, BST-2436). Explorer search no longer reads it; do not add a
+consumer.
 Implementation: `packages/indexer`, `packages/canonical-ingestion`,
 `packages/sqlite-query` and the desktop native-index owners.
 
@@ -67,25 +70,13 @@ Implementation: `packages/indexer`, `packages/canonical-ingestion`,
 ## Retrieval
 
 - Authorize roots/files before ranking.
-- A worktree root is never in the partition. Retrieval for one reads an open
-  checkout of the same repository (same git common dir) and keeps a hit only
-  while the worktree's file holds that chunk at those lines
-  (`apps/desktop/src/assistant-server/checkout-read-through.ts`, ADR-0034).
+- A worktree root is never in the partition.
 - Capture and revalidate the same store, scope, binding, profile and query plan
   around reads and inference; reject foreign or stale results.
 - Keep exact reranking and canonical hit metadata.
 - Semantic/hybrid reads may use committed partial coverage if the result discloses
   it; partial coverage never qualifies completion.
 - Progress-only changes do not cancel a query whose execution authority is unchanged.
-- Memory recall (`StateMessageVectors.query`):
-  - Each candidate is authorized by the committed rows its message identity came
-    from. The producer's `messages()` names them as `sources` (the message row and,
-    for run messages, the run's start and admission); upserts record their hashes.
-  - Recall reads only those rows in its truth snapshot and projects no thread
-    history, so cost follows candidate rows.
-  - Unchanged bytes keep the identity. A purge tombstone excludes the candidate;
-    any other change, or a missing or CRC-failed row, refuses the recall.
-  - Damage elsewhere in a thread is found by hydration and catch-up, not recall.
 - Canonical grep and coverage run in dedicated read-only process modes.
   - No caller SQL, attachments or unregistered scope.
   - Keep sandbox limits and the shared line matcher.
@@ -167,7 +158,7 @@ Liveness is the process's exit, never a clock.
 - Agent-host state index: joins a retired worker's exit and starts a new one on
   the next request; three consecutive replacements with none served stop it
   (`state-index.retired`).
-- The background coverage reader has no deadline; only a user's grep keeps its
+- The background coverage reader has no deadline; only an index grep keeps its
   bound (a typed refusal of that grep).
 - Catch-up: the Node transport sends bounded `catchUpStateStep` requests before a
   catch-up, rebuild or thread-scoped read. The worker projects at most one more

@@ -18,7 +18,7 @@ export interface AppLayoutProps {
   children: ReactNode;
   config: AppShellConfig;
   currentPath: string;
-  readonly nativeIndexSearch?: IndexSearchCapability | null;
+  readonly nativeIndexSearch?: Omit<IndexSearchCapability, 'grep'> | null;
   onNavigationClick?: (path: string) => void;
   onOpenSettings?: () => void;
   sidebarContent?: ReactNode;
