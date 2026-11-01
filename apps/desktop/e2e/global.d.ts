@@ -13,6 +13,10 @@ declare global {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
+    // Settings › Startup (ADR-0033): what closing the last window does.
+    appLifetime?: import('../src/platform/ipc-contract').TransportBridge<
+      typeof import('../src/ipc-domains/app-lifetime.contract').appLifetimeContract
+    >;
     electronAPI?: import('../src/types/desktop-electron-api').VisibleDesktopElectronApi;
     // Shape defined ONCE in
     // @brainstrike/assistant-contract/env-bootstrap-bridge. Declared so an

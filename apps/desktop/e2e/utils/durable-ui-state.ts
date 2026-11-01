@@ -164,9 +164,21 @@ export async function reloadFromMenu(app: ElectronApplication, page: Page): Prom
   }, id);
 }
 
+/** What Main says closing the last window does now (ADR-0033): stay in the Dock or tray, or quit. */
+export async function readLastWindowClose(page: Page): Promise<'keeps-running' | 'quits'> {
+  const answer = await page.evaluate(async () => {
+    const result = await window.appLifetime?.getSettings();
+    return result?.ok ? result.value.lastWindowClose : null;
+  });
+  if (answer === null) {
+    throw new Error('Main did not say what closing the last window does');
+  }
+  return answer;
+}
+
 /**
- * The user's window-X on the app's only visible window. macOS keeps the app running without a
- * window; Windows and Linux quit, and this joins that exit and returns its status.
+ * The user's window-X on the app's only visible window. Where the Dock or the tray keeps the app
+ * running it stays; otherwise it quits, and this joins that exit and returns its status.
  */
 export async function closeLastWindowLikeTheUser(
   electron: ElectronHarness,
@@ -174,7 +186,7 @@ export async function closeLastWindowLikeTheUser(
 ): Promise<{ readonly quit: false } | { readonly quit: true; readonly exitCode: number | null }> {
   const { app } = await electron.ensureContext();
   const window = await app.browserWindow(page);
-  if (process.platform === 'darwin') {
+  if ((await readLastWindowClose(page)) === 'keeps-running') {
     const closed = page.waitForEvent('close');
     await window.evaluate((win) => {
       win.close();
