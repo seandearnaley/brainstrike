@@ -68,7 +68,7 @@ export interface ModelPickerProps {
   onChange?: (value: string | string[]) => void;
 
   /** Placeholder text when nothing selected */
-  placeholder?: string; // default: 'Select a model...'
+  placeholder?: string; // default: 'Select a model…'
 
   /** Providers for grouping (typically from useModelRegistryStore) */
   providers: ModelPickerProvider[];

@@ -34,7 +34,7 @@ export function ModelPickerSearch({
           className
         )}
         onValueChange={onValueChange ?? (() => {})}
-        placeholder={placeholder ?? 'Search models...'}
+        placeholder={placeholder ?? 'Search models…'}
         value={value ?? ''}
       />
     </div>

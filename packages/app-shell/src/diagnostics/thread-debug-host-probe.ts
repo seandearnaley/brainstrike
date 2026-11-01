@@ -13,8 +13,8 @@ export interface ThreadDebugHostProbe {
 }
 
 /**
- * Capability probe (never `isElectron()`): a web build, or a preload that lacks
- * any of the readers, yields null, and the pack names that as the reason host
+ * Capability probe (never `isElectron()`): a renderer without the bridge (tests,
+ * or a preload that lacks any of the readers) yields null, and the pack names that as the reason host
  * evidence is absent.
  */
 export function readThreadDebugHostProbe(): ThreadDebugHostProbe | null {

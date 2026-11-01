@@ -21,7 +21,7 @@ export class HomePage {
   }
 
   get loadingIndicator() {
-    return this.page.getByText('Loading...');
+    return this.page.getByText('Loading…');
   }
 
   get rootElement() {

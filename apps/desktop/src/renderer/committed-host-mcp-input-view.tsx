@@ -16,7 +16,7 @@ function statusMessage(connected: boolean, status: CurrentInput['status']): stri
     case 'accepted':
       return 'Input sent. Waiting for the server.';
     case 'unknown':
-      return 'The server input delivery outcome is unknown.';
+      return 'It is unclear whether the server received this input.';
     case 'retired':
       return 'This server input is no longer available.';
     default:

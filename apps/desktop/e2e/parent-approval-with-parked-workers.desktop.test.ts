@@ -65,7 +65,7 @@ async function readHostState(userDataDir: string) {
 }
 
 // The provider boundary is scripted; Electron, Mastra, permission decisions,
-// PGlite and both root and Worker filesystem tools remain production code.
+// SQLite and both root and Worker filesystem tools remain production code.
 test('root approval resumes while three Workers are parked, then live grants complete their reads and writes @smoke', async ({
   electron,
 }, testInfo) => {

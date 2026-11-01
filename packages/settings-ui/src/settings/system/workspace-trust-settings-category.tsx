@@ -32,6 +32,6 @@ export function createWorkspaceTrustSettingsCategory(
       'subagents',
       'security',
     ],
-    title: 'Workspace trust',
+    title: 'Workspace Trust',
   };
 }

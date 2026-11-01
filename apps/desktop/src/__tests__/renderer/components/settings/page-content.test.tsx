@@ -266,7 +266,7 @@ describe('Desktop SettingsPageContent', () => {
     fireEvent.click(await within(nav).findByRole('button', { name: /^Workspace$/iu }));
 
     expect(await screen.findByTestId('worktree-settings-unavailable')).toHaveTextContent(
-      'Worktrees are a desktop feature'
+      'Worktrees are unavailable in this window'
     );
   });
 

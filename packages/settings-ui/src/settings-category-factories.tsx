@@ -42,7 +42,7 @@ import type { SettingsCategory } from './settings-page-content';
 export function createAppearanceSettingsCategory(): SettingsCategory {
   return {
     content: <ThemeSettings />,
-    description: 'Choose your theme, fonts and code colours.',
+    description: 'Choose your theme, fonts and code colors.',
     icon: Palette,
     id: 'appearance',
     keywords: [

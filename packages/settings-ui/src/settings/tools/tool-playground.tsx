@@ -275,7 +275,7 @@ export function ToolPlayground({
               size="sm"
             >
               <Play className="mr-1 h-3 w-3" />
-              {executing ? 'Running...' : 'Run'}
+              {executing ? 'Running…' : 'Run'}
             </Button>
           </div>
         </div>

@@ -210,7 +210,7 @@ describe('ToolPlayground', () => {
       fireEvent.click(executeButton);
 
       await waitFor(() => {
-        expect(screen.getByText('Running...')).toBeInTheDocument();
+        expect(screen.getByText('Running…')).toBeInTheDocument();
         expect(executeButton).toBeDisabled();
       });
 

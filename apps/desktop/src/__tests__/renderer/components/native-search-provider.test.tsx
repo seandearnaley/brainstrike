@@ -115,7 +115,7 @@ describe('native search follows Main’s saved choices', () => {
     const other = mount(ready);
     await waitFor(() =>
       expect(other.result.current?.profileUnavailableReason).toBe(
-        'Native search is activating the saved search mode and model.'
+        'Search is switching to your saved search mode and model.'
       )
     );
     expect(other.result.current?.profile).toBeNull();
@@ -129,9 +129,7 @@ describe('native search follows Main’s saved choices', () => {
     await act(async () => savedConfig(hosted('openai::text-embedding-3-large', 3072)));
     await expect(
       embedSearchQuery?.(profile, 'needle', { signal: new AbortController().signal })
-    ).rejects.toThrow(
-      'Native query inference no longer matches the explicit saved execution plan.'
-    );
+    ).rejects.toThrow('Search settings changed during this search. Try again.');
     expect(embedQuery).not.toHaveBeenCalled();
   });
 
@@ -148,7 +146,7 @@ describe('native search follows Main’s saved choices', () => {
     });
     await waitFor(() =>
       expect(result.current?.profileUnavailableReason).toBe(
-        'Native search is activating the saved search mode and model.'
+        'Search is switching to your saved search mode and model.'
       )
     );
     expect(result.current?.profile).toBeNull();

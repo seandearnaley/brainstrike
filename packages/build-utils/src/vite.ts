@@ -50,7 +50,7 @@ export function createCspQualifiedEvalWarningFilter(): NonNullable<Rolldown.Inpu
  * Forcing a single chunk removes the cross-chunk init-order hazard. Source
  * aliasing alone does NOT fix it — rolldown still splits the shared helper out
  * for dedup. Do NOT remove without re-verifying the built apps mount
- * (apps/web/e2e @web-smoke + desktop e2e smoke).
+ * (desktop e2e smoke).
  *
  * This is intentionally the ONLY manual code-splitting group. A previous
  * blanket `node_modules → vendor` group (plus assistant vendor groups) merged
