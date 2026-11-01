@@ -19,8 +19,7 @@ export const HOSTED_EMBEDDING_MISSING_KEY_MESSAGE =
 /**
  * A typed hosted embedding refusal. `message` is model-safe: no keys, host paths
  * or raw provider body. Raw provider detail travels only on `cause`, which is
- * logged and redacted. The name and shape are a contract with the
- * `platform/embedding/query` refusal mapping (BST-1996).
+ * logged and redacted.
  */
 export class HostedEmbeddingError extends Error {
   override readonly name = 'HostedEmbeddingError';
@@ -60,7 +59,7 @@ export const HOSTED_EMBEDDING_REFUSALS = {
   }),
 } as const;
 
-export function isActionableHostedEmbeddingError(
+function isActionableHostedEmbeddingError(
   error: unknown
 ): error is HostedEmbeddingError & { readonly kind: keyof typeof HOSTED_EMBEDDING_REFUSALS } {
   return (

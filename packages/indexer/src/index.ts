@@ -15,19 +15,6 @@ import type {
   ScopedManifestResult,
   ScopedSearchResult,
   SearchResult,
-  StateMessageHit,
-  StateMessagePlan,
-  StateMessagePrepare,
-  StateMessagePurge,
-  StateMessageQuery,
-  StateMessageUpsert,
-  StateMessageUpsertResult,
-  StateObservationHit,
-  StateObservationPlan,
-  StateObservationPrepare,
-  StateObservationPurge,
-  StateObservationQuery,
-  StateObservationUpsert,
   StateProjectionStats,
   StateSearch,
   StateSearchHit,
@@ -71,24 +58,6 @@ export type {
   ScopedSearchResult,
   SearchRequest,
   SearchResult,
-  StateMessageHit,
-  StateMessageIdentity,
-  StateMessagePlan,
-  StateMessagePrepare,
-  StateMessagePurge,
-  StateMessageQuery,
-  StateMessageScope,
-  StateMessageUpsert,
-  StateMessageUpsertResult,
-  StateObservationGroup,
-  StateObservationHit,
-  StateObservationPlan,
-  StateObservationPrepare,
-  StateObservationPurge,
-  StateObservationQuery,
-  StateObservationScope,
-  StateObservationSource,
-  StateObservationUpsert,
   StateProjectionOptions,
   StateProjectionStats,
   StateSearch,
@@ -97,7 +66,7 @@ export type {
   VectorProfile,
 } from './contracts.ts';
 export { decodeVectorProfile, IndexerError, STATE_CATCH_UP_STEP_EVENTS } from './contracts.ts';
-export type { StateMessageEvent, StateProducerDecoder } from './state-projection.ts';
+export type { StateProducerDecoder } from './state-projection.ts';
 export type { IndexerDeadlines } from './transport.ts';
 export interface IndexerPort {
   close(): Promise<void>;
@@ -135,22 +104,6 @@ export interface ScopedIndexerPort {
   replaceFileBindings(bindings: unknown): Promise<void>;
   searchScopes(request: unknown): Promise<ScopedSearchResult>;
   verifyScopedManifest(request: unknown): Promise<ScopedManifestResult>;
-}
-/** Acquired Root owner only. Join external inference before purge/reset. */
-export interface StateMessageVectorPort {
-  prepareStateMessageVectors(request: StateMessagePrepare): Promise<StateMessagePlan>;
-  purgeStateMessageVectors(request: StateMessagePurge): Promise<boolean>;
-  queryStateMessageVectors(request: StateMessageQuery): Promise<readonly StateMessageHit[]>;
-  upsertStateMessageVectors(request: StateMessageUpsert): Promise<StateMessageUpsertResult>;
-}
-/** Borrowed native OM route, sharing the existing writer and lifecycle fence. */
-export interface StateObservationVectorPort {
-  prepareStateObservationVectors(request: StateObservationPrepare): Promise<StateObservationPlan>;
-  purgeStateObservationVectors(request: StateObservationPurge): Promise<boolean>;
-  queryStateObservationVectors(
-    request: StateObservationQuery
-  ): Promise<readonly StateObservationHit[]>;
-  upsertStateObservationVectors(request: StateObservationUpsert): Promise<readonly string[]>;
 }
 export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
@@ -198,13 +151,7 @@ export async function openIndexer(
   input: unknown,
   deadlineInput: unknown
 ): Promise<
-  IndexerPort &
-    PurgeIndexerPort &
-    ScopedIndexerPort &
-    StateIndexerPort &
-    StateMessageVectorPort &
-    StateObservationVectorPort &
-    CoverageAuthorityPort
+  IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort & CoverageAuthorityPort
 > {
   if (process.versions['electron']) {
     throw new Error('Standalone indexer requires Node; use the explicit Electron utility adapter.');

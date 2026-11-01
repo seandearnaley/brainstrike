@@ -6,7 +6,6 @@ import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { describe, expect, it } from 'vitest';
 import { isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import {
-  createEmbeddingProvider,
   createLanguageModelProvider,
   createProvider,
   getDefaultModel,
@@ -193,62 +192,6 @@ describe('provider-factory', () => {
 
     it('returns an explicit unset default for an embeddings-only provider', () => {
       expect(getDefaultModel('cohere')).toBe('');
-    });
-  });
-
-  describe('createEmbeddingProvider', () => {
-    it('creates OpenAI embedding provider with the requested model', () => {
-      const model = createEmbeddingProvider('openai', 'test-key', 'text-embedding-3-small') as {
-        modelId: string;
-      };
-
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('text-embedding-3-small');
-    });
-
-    it('creates Google embedding provider with the requested model', () => {
-      const model = createEmbeddingProvider('google', 'test-key', 'gemini-embedding-001') as {
-        modelId: string;
-      };
-
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('gemini-embedding-001');
-    });
-
-    it('throws MastraAgentError for unsupported embedding provider names', () => {
-      try {
-        createEmbeddingProvider('unsupported', 'test-key', 'model');
-        throw new Error('Expected unsupported embedding provider to throw');
-      } catch (error) {
-        expect(isMastraAgentError(error)).toBe(true);
-        if (isMastraAgentError(error)) {
-          expect(error.code).toBe('mastra_agent_unsupported_provider');
-          expect(error.context).toEqual(
-            expect.objectContaining({
-              provider: 'unsupported',
-              supportedProviders: expect.arrayContaining(['openai', 'google']),
-            })
-          );
-        }
-      }
-    });
-
-    it('throws MastraAgentError for providers without hosted Mastra embedders', () => {
-      try {
-        createEmbeddingProvider('anthropic', 'test-key', 'claude-embedding');
-        throw new Error('Expected unsupported Mastra embedder provider to throw');
-      } catch (error) {
-        expect(isMastraAgentError(error)).toBe(true);
-        if (isMastraAgentError(error)) {
-          expect(error.code).toBe('mastra_agent_unsupported_provider');
-          expect(error.context).toEqual(
-            expect.objectContaining({
-              provider: 'anthropic',
-              supportedProviders: expect.arrayContaining(['openai', 'google']),
-            })
-          );
-        }
-      }
     });
   });
 

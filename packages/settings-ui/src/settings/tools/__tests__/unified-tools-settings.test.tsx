@@ -242,20 +242,20 @@ describe('UnifiedToolsSettings', () => {
   const mockTools: ToolDisplayMetadata[] = [
     {
       category: 'retrieval',
-      description: 'Hybrid search tool',
+      description: 'Content search tool',
       enabled: true,
       estimatedTokens: 150,
-      id: 'brainstrike.hybridSearch',
+      id: 'brainstrike.grepSearch',
       loadingTier: 'critical',
       requiresApproval: false,
       source: 'native',
     },
     {
       category: 'retrieval',
-      description: 'Vector search tool',
+      description: 'File-name search tool',
       enabled: false,
       estimatedTokens: 100,
-      id: 'brainstrike.vectorSearch',
+      id: 'brainstrike.globWorkspace',
       loadingTier: 'conditional',
       requiresApproval: false,
       source: 'native',
@@ -444,8 +444,8 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
-        expect(screen.getByTestId('tool-row-brainstrike.vectorSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.globWorkspace')).toBeInTheDocument();
         expect(screen.getByTestId('tool-row-mcp__github__search_code')).toBeInTheDocument();
       });
     });
@@ -458,16 +458,14 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
       });
 
-      const expandButton = screen.getByTestId('expand-brainstrike.hybridSearch');
+      const expandButton = screen.getByTestId('expand-brainstrike.grepSearch');
       fireEvent.click(expandButton);
 
       await waitFor(() => {
-        expect(
-          screen.getByTestId('tool-row-expanded-brainstrike.hybridSearch')
-        ).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-expanded-brainstrike.grepSearch')).toBeInTheDocument();
       });
     });
 
@@ -477,17 +475,15 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
       });
 
       // First click to expand
-      const expandButton = screen.getByTestId('expand-brainstrike.hybridSearch');
+      const expandButton = screen.getByTestId('expand-brainstrike.grepSearch');
       fireEvent.click(expandButton);
 
       await waitFor(() => {
-        expect(
-          screen.getByTestId('tool-row-expanded-brainstrike.hybridSearch')
-        ).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-expanded-brainstrike.grepSearch')).toBeInTheDocument();
       });
 
       // Second click to collapse
@@ -495,7 +491,7 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(
-          screen.queryByTestId('tool-row-expanded-brainstrike.hybridSearch')
+          screen.queryByTestId('tool-row-expanded-brainstrike.grepSearch')
         ).not.toBeInTheDocument();
       });
     });
@@ -528,14 +524,14 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
       });
 
       const searchInput = screen.getByTestId('search-input');
       fireEvent.change(searchInput, { target: { value: 'github' } });
 
       await waitFor(() => {
-        expect(screen.queryByTestId('tool-row-brainstrike.hybridSearch')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('tool-row-brainstrike.grepSearch')).not.toBeInTheDocument();
         expect(screen.getByTestId('tool-row-mcp__github__search_code')).toBeInTheDocument();
       });
     });
@@ -546,20 +542,20 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
       });
 
       fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'github' } });
 
       await waitFor(() => {
-        expect(screen.queryByTestId('tool-row-brainstrike.hybridSearch')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('tool-row-brainstrike.grepSearch')).not.toBeInTheDocument();
       });
 
       fireEvent.click(screen.getByTestId('reset-button'));
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
-        expect(screen.getByTestId('tool-row-brainstrike.vectorSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.globWorkspace')).toBeInTheDocument();
         expect(screen.getByTestId('tool-row-mcp__github__search_code')).toBeInTheDocument();
       });
     });
@@ -572,14 +568,14 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
       });
 
-      const toggleButton = screen.getByTestId('toggle-brainstrike.hybridSearch');
+      const toggleButton = screen.getByTestId('toggle-brainstrike.grepSearch');
       fireEvent.click(toggleButton);
 
       await waitFor(() => {
-        expect(operations.disableTools).toHaveBeenCalledWith(['brainstrike.hybridSearch']);
+        expect(operations.disableTools).toHaveBeenCalledWith(['brainstrike.grepSearch']);
       });
     });
 
@@ -589,14 +585,14 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.vectorSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.globWorkspace')).toBeInTheDocument();
       });
 
-      const toggleButton = screen.getByTestId('toggle-brainstrike.vectorSearch');
+      const toggleButton = screen.getByTestId('toggle-brainstrike.globWorkspace');
       fireEvent.click(toggleButton);
 
       await waitFor(() => {
-        expect(operations.enableTools).toHaveBeenCalledWith(['brainstrike.vectorSearch']);
+        expect(operations.enableTools).toHaveBeenCalledWith(['brainstrike.globWorkspace']);
       });
     });
 
@@ -607,10 +603,10 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
       });
 
-      const toggleButton = screen.getByTestId('toggle-brainstrike.hybridSearch');
+      const toggleButton = screen.getByTestId('toggle-brainstrike.grepSearch');
       fireEvent.click(toggleButton);
 
       await waitFor(() => {
@@ -626,10 +622,10 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('tool-row-brainstrike.hybridSearch')).toBeInTheDocument();
+        expect(screen.getByTestId('tool-row-brainstrike.grepSearch')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByTestId('toggle-brainstrike.hybridSearch'));
+      fireEvent.click(screen.getByTestId('toggle-brainstrike.grepSearch'));
 
       await waitFor(() => {
         expect(screen.getByText('Disable failed')).toBeInTheDocument();
@@ -663,14 +659,14 @@ describe('UnifiedToolsSettings', () => {
 
       render(<UnifiedToolsSettings operations={operations} />);
 
-      const playground = await expandTool('brainstrike.hybridSearch');
+      const playground = await expandTool('brainstrike.grepSearch');
       const input = within(playground).getByTestId('json-input');
       fireEvent.change(input, { target: { value: '{"query":"test"}' } });
 
       fireEvent.click(within(playground).getByTestId('execute-button'));
 
       await waitFor(() => {
-        expect(executeToolTest).toHaveBeenCalledWith('brainstrike.hybridSearch', {
+        expect(executeToolTest).toHaveBeenCalledWith('brainstrike.grepSearch', {
           query: 'test',
         });
       });
@@ -692,7 +688,7 @@ describe('UnifiedToolsSettings', () => {
 
       render(<UnifiedToolsSettings operations={operations} />);
 
-      const playground = await expandTool('brainstrike.hybridSearch');
+      const playground = await expandTool('brainstrike.grepSearch');
       const input = within(playground).getByTestId('json-input');
       fireEvent.change(input, { target: { value: '{"query":"bad"}' } });
 
@@ -711,7 +707,7 @@ describe('UnifiedToolsSettings', () => {
 
       render(<UnifiedToolsSettings operations={operations} />);
 
-      const playground = await expandTool('brainstrike.hybridSearch');
+      const playground = await expandTool('brainstrike.grepSearch');
       const input = within(playground).getByTestId('json-input');
       fireEvent.change(input, { target: { value: '{"query":"timeout"}' } });
 
@@ -734,7 +730,7 @@ describe('UnifiedToolsSettings', () => {
 
       render(<UnifiedToolsSettings operations={operations} />);
 
-      const playground = await expandTool('brainstrike.hybridSearch');
+      const playground = await expandTool('brainstrike.grepSearch');
       const input = within(playground).getByTestId('json-input');
       fireEvent.change(input, { target: { value: '{bad json' } });
 
@@ -758,7 +754,7 @@ describe('UnifiedToolsSettings', () => {
 
       render(<UnifiedToolsSettings operations={operations} />);
 
-      const firstPlayground = await expandTool('brainstrike.hybridSearch');
+      const firstPlayground = await expandTool('brainstrike.grepSearch');
       fireEvent.change(within(firstPlayground).getByTestId('json-input'), {
         target: { value: '{"query":"one"}' },
       });
@@ -768,7 +764,7 @@ describe('UnifiedToolsSettings', () => {
         expect(executeToolTest).toHaveBeenCalledTimes(1);
       });
 
-      const secondPlayground = await expandTool('brainstrike.vectorSearch');
+      const secondPlayground = await expandTool('brainstrike.globWorkspace');
       fireEvent.change(within(secondPlayground).getByTestId('json-input'), {
         target: { value: '{"query":"two"}' },
       });
@@ -778,15 +774,15 @@ describe('UnifiedToolsSettings', () => {
         expect(executeToolTest).toHaveBeenCalledTimes(2);
       });
 
-      expect(pending.has('brainstrike.hybridSearch')).toBe(true);
-      expect(pending.has('brainstrike.vectorSearch')).toBe(true);
+      expect(pending.has('brainstrike.grepSearch')).toBe(true);
+      expect(pending.has('brainstrike.globWorkspace')).toBe(true);
 
-      pending.get('brainstrike.hybridSearch')?.({
+      pending.get('brainstrike.grepSearch')?.({
         durationMs: 11,
         result: { ok: 1 },
         success: true,
       });
-      pending.get('brainstrike.vectorSearch')?.({
+      pending.get('brainstrike.globWorkspace')?.({
         durationMs: 22,
         result: { ok: 2 },
         success: true,
@@ -812,8 +808,8 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(operations.enableTools).toHaveBeenCalledWith([
-          'brainstrike.hybridSearch',
-          'brainstrike.vectorSearch',
+          'brainstrike.grepSearch',
+          'brainstrike.globWorkspace',
         ]);
       });
     });
@@ -865,8 +861,8 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(operations.disableTools).toHaveBeenCalledWith([
-          'brainstrike.hybridSearch',
-          'brainstrike.vectorSearch',
+          'brainstrike.grepSearch',
+          'brainstrike.globWorkspace',
         ]);
       });
     });
@@ -2878,7 +2874,7 @@ describe('UnifiedToolsSettings', () => {
     it('hides reload when the host has no recovery capability', async () => {
       const operations = createMockOperations();
       render(<UnifiedToolsSettings operations={operations} />);
-      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await screen.findByTestId('toggle-brainstrike.grepSearch');
       expect(
         screen.queryByRole('button', { name: 'Reload tool preferences' })
       ).not.toBeInTheDocument();
@@ -2888,7 +2884,7 @@ describe('UnifiedToolsSettings', () => {
       const operations = createMockOperations();
       operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
       render(<UnifiedToolsSettings operations={operations} />);
-      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await screen.findByTestId('toggle-brainstrike.grepSearch');
       expect(reloadButton()).toBeEnabled();
       expect(operations.reloadToolPreferences).not.toHaveBeenCalled();
     });
@@ -2901,9 +2897,9 @@ describe('UnifiedToolsSettings', () => {
       operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
       render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
       await screen.findByText(faultStats.preferencesFault?.message ?? '');
-      expect(screen.queryByTestId('toggle-brainstrike.hybridSearch')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('toggle-brainstrike.grepSearch')).not.toBeInTheDocument();
       fireEvent.click(reloadButton());
-      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await screen.findByTestId('toggle-brainstrike.grepSearch');
       await waitFor(() =>
         expect(
           screen.queryByText(faultStats.preferencesFault?.message ?? '')
@@ -2934,7 +2930,7 @@ describe('UnifiedToolsSettings', () => {
       const pending = Promise.withResolvers<void>();
       operations.reloadToolPreferences = vi.fn(() => pending.promise);
       render(<UnifiedToolsSettings operations={operations} />);
-      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await screen.findByTestId('toggle-brainstrike.grepSearch');
       fireEvent.click(reloadButton());
       fireEvent.click(reloadButton());
       expect(reloadButton()).toBeDisabled();
@@ -2956,7 +2952,7 @@ describe('UnifiedToolsSettings', () => {
         .mockResolvedValueOnce(mockStats)
         .mockReturnValueOnce(refreshed.promise);
       render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
-      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await screen.findByTestId('toggle-brainstrike.grepSearch');
       fireEvent.click(reloadButton());
       await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
       expect(reloadButton()).toBeDisabled();
@@ -2980,7 +2976,7 @@ describe('UnifiedToolsSettings', () => {
         .mockResolvedValueOnce(mockStats)
         .mockRejectedValueOnce(new Error('Stats unavailable'));
       render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
-      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await screen.findByTestId('toggle-brainstrike.grepSearch');
       fireEvent.click(reloadButton());
       await screen.findByText('Reload still unreadable');
       fireEvent.click(reloadButton());
@@ -3016,7 +3012,7 @@ describe('UnifiedToolsSettings', () => {
       operations.disableTools = vi.fn().mockRejectedValueOnce(new Error('Unrelated action failed'));
       operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
       render(<UnifiedToolsSettings operations={operations} />);
-      fireEvent.click(await screen.findByTestId('toggle-brainstrike.hybridSearch'));
+      fireEvent.click(await screen.findByTestId('toggle-brainstrike.grepSearch'));
       await screen.findByText('Unrelated action failed');
       fireEvent.click(reloadButton());
       await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
@@ -3055,7 +3051,7 @@ describe('UnifiedToolsSettings', () => {
       const onToolsChanged = vi.fn();
       render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
       await screen.findByText(faultMessage);
-      fireEvent.click(screen.getByTestId('toggle-brainstrike.hybridSearch'));
+      fireEvent.click(screen.getByTestId('toggle-brainstrike.grepSearch'));
       await screen.findByText(unrelatedMessage);
       fireEvent.click(reloadButton());
       await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
@@ -3152,7 +3148,7 @@ describe('UnifiedToolsSettings', () => {
         .mockResolvedValue(mockStats);
       operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
-      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await screen.findByTestId('toggle-brainstrike.grepSearch');
       act(() => notify?.());
       await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
       fireEvent.click(reloadButton());
@@ -3169,7 +3165,7 @@ describe('UnifiedToolsSettings', () => {
 
   describe('tool operation error recovery', () => {
     const cases = [
-      { operation: 'disableTools', testId: 'toggle-brainstrike.hybridSearch' },
+      { operation: 'disableTools', testId: 'toggle-brainstrike.grepSearch' },
       { operation: 'enableTools', testId: 'enable-all-native' },
       { operation: 'disableTools', testId: 'disable-all-native' },
     ] as const;
@@ -3195,14 +3191,14 @@ describe('UnifiedToolsSettings', () => {
         />
       );
       await screen.findByText('Configuration still invalid');
-      fireEvent.click(await screen.findByTestId('toggle-brainstrike.hybridSearch'));
+      fireEvent.click(await screen.findByTestId('toggle-brainstrike.grepSearch'));
       await screen.findByText('Disable failed');
       expect(screen.queryByText('Configuration still invalid')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Reload tool preferences' }));
       await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
       expect(screen.queryByText('Configuration still invalid')).not.toBeInTheDocument();
       expect(screen.getByText('Disable failed')).toBeInTheDocument();
-      fireEvent.click(screen.getByTestId('toggle-brainstrike.hybridSearch'));
+      fireEvent.click(screen.getByTestId('toggle-brainstrike.grepSearch'));
       await waitFor(() => expect(screen.queryByText('Disable failed')).not.toBeInTheDocument());
       expect(screen.getByText('Configuration still invalid')).toBeInTheDocument();
     });
@@ -3246,7 +3242,7 @@ describe('UnifiedToolsSettings', () => {
       const onToolsChanged = vi.fn();
       operations.disableTools = vi.fn().mockRejectedValueOnce(new Error('Disable failed'));
       render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
-      fireEvent.click(await screen.findByTestId('toggle-brainstrike.hybridSearch'));
+      fireEvent.click(await screen.findByTestId('toggle-brainstrike.grepSearch'));
       await screen.findByText('Disable failed');
       fireEvent.click(screen.getByTestId('enable-all-native'));
       await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
@@ -3282,7 +3278,7 @@ describe('UnifiedToolsSettings', () => {
         .mockResolvedValueOnce(mockStats)
         .mockRejectedValueOnce(new Error('Stats unavailable'));
       render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
-      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await screen.findByTestId('toggle-brainstrike.grepSearch');
       fireEvent.click(screen.getByRole('button', { name: 'Reload tool preferences' }));
       await screen.findByText('Stats unavailable');
       expect(onToolsChanged).not.toHaveBeenCalled();

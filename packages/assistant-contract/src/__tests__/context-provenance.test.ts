@@ -2,9 +2,7 @@ import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   formatGrepProjectionPageRange,
-  formatProjectionShownCount,
   parseGrepContentProjectionPage,
-  parseProjectionShownCount,
   ReadDeliverySchema,
   StringReplaceDeliverySchema,
 } from '../context-provenance.js';
@@ -27,12 +25,6 @@ describe('projection formats read back by the thread context map', () => {
   it('reads nothing from text that is not a grep content page', () => {
     expect(parseGrepContentProjectionPage('grep files 1-12/12 matches=12')).toBeUndefined();
     expect(parseGrepContentProjectionPage('[pruned old tool result]')).toBeUndefined();
-  });
-
-  it('round-trips a list projection shown count from its header line only', () => {
-    const header = `hybrid | set=s | ${formatProjectionShownCount(3, 9)} | truncated=false`;
-    expect(parseProjectionShownCount(`${header}\n#1 a.ts`)).toBe(3);
-    expect(parseProjectionShownCount('hybrid | set=s\nshown=2/3 in an excerpt')).toBeUndefined();
   });
 });
 

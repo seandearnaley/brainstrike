@@ -155,8 +155,6 @@ const EmbeddingModelSchema = Schema.Struct({
   ),
   id: Schema.String,
   label: Schema.optional(Schema.String),
-  /** A hosted embedder's list price per million input tokens (BST-2226). */
-  pricing: Schema.optional(Schema.Struct({ inputPerMTok: Schema.Finite })),
   supportsCustomDimensions: Schema.optional(Schema.Boolean),
   supportsStandardDimension: Schema.Boolean,
   type: Schema.Literal('embedding'),

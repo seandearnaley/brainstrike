@@ -172,7 +172,7 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     renderNotice({
       ...baseRequest,
       args: { query: 'hello' },
-      toolName: 'brainstrike.queryEmbeddingSpace',
+      toolName: 'brainstrike.lspInspect',
     });
     await settleLazyPreviews();
 

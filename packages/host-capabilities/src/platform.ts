@@ -116,7 +116,6 @@ const standaloneCapabilities = {
   nativeTools: { available: STANDALONE_NATIVE_TOOL_IDS, remaining: 'unavailable' },
   skills: 'available',
   tasks: 'unavailable',
-  vectorMemory: 'unavailable',
   workspaceInstructions: 'available',
 };
 
@@ -235,7 +234,7 @@ function standaloneSystemPrompt(
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
   const unavailable = configuredMcp ? 'Skill scripts' : 'Configured MCP/Tasks, skill scripts';
-  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob, content (grep) and symbol search, TypeScript/JavaScript language-server inspection and post-edit diagnostics, the task list, canvases, shell commands started in a workspace root, listing and archiving managed git worktrees (a new worktree is created from the desktop host, which opens it as a folder, and a launch root's own worktree is not archived here), Agent Skills from the home directory and trusted workspace roots (activation, reads and search; skill scripts do not run here), the trusted roots' workspace instructions files and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. ${unavailable}, browser OAuth and local inference are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -456,9 +455,6 @@ export async function createHostPlatform(
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),
-    // The same memory resource as the desktop host, so one state root keeps one
-    // derived identity whichever host opens it. Vector Memory stays unavailable here.
-    memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
       if (readCliWorkspaceRunInput(request.configuration)) {
@@ -587,7 +583,6 @@ export async function createHostPlatform(
             options: {
               lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
               observationalMemory: false,
-              semanticRecall: false,
               workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
             },
           },

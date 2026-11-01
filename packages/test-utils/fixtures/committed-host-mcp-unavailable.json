@@ -66,7 +66,6 @@
             },
             "skills": "unavailable",
             "tasks": "unavailable",
-            "vectorMemory": "unavailable",
             "workspaceInstructions": "unavailable"
           },
           "intent": {
@@ -94,13 +93,6 @@
                 "observationTokens": 40000,
                 "retrievalMode": "off",
                 "scope": "thread"
-              },
-              "semanticRecall": {
-                "embeddingModelTarget": "openai/text-embedding-3-small",
-                "enabled": false,
-                "messageRange": 2,
-                "scope": "resource",
-                "topK": 5
               }
             },
             "modelConfiguration": {

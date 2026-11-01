@@ -21,10 +21,9 @@ const NATIVE_TOOL_DISCOVERY_NAMESPACE_SUMMARIES: Record<NativeToolDiscoveryNames
   context: 'Inspect open workspace roots, and read named workspace files and directories.',
   database:
     "Inspect durable diagnostic failures or run read-only SQL over Brainstrike's own local database: assistant run history, edit checkpoints, token usage and cost, queue metrics, and the workspace code index.",
-  embeddings: 'Inspect and query configured embedding spaces.',
   execution:
     'Run code the assistant writes inside an OS sandbox: Python with no network access and writes confined to a temporary scratch directory. Use for computation, parsing, and data wrangling.',
-  semantics: 'Search indexed code and inspect language-server symbols and diagnostics.',
+  semantics: 'Inspect language-server symbols and diagnostics.',
   sessions: 'Inspect and control persistent workspace command sessions and development servers.',
   skills: 'Discover, activate, read, and run bundled scripts from installed Agent Skills.',
   web: "Search the public web, extract readable page content, and drive the app's embedded browser pane: navigate it and read the live page as text or an accessibility tree.",

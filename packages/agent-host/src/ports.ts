@@ -28,9 +28,7 @@ import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-pre
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
-import type { MemoryRecallTelemetry } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
-import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import type {
   FlexibleSchema,
   LanguageModel,
@@ -42,7 +40,6 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.ts';
-import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.ts';
 import type {
   HostApprovalTargetRoot,
   HostEditOp,
@@ -201,7 +198,7 @@ export interface HostRunContext {
   recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */
   recordObserverUsage?(receipt: {
-    readonly kind: 'observation' | 'reflection' | 'embedding';
+    readonly kind: 'observation' | 'reflection';
     readonly modelId: string;
     readonly usage: LanguageModelUsage;
   }): Promise<void>;
@@ -212,16 +209,6 @@ export interface HostRunContext {
     readonly provider: string;
     readonly toolCallWindow: PromptToolCallWindow;
   }): Promise<void>;
-  /**
-   * One semantic recall's diagnostics (BST-2225), sent live on the run's
-   * stream as uncommitted `run/telemetry` (ADR-0011 amendment).
-   */
-  recordRecall?(recall: MemoryRecallTelemetry): void;
-  /**
-   * A failed semantic recall's typed detail (BST-2202): the turn answers
-   * without recall, and Core commits this as the run's notice.
-   */
-  recordRecallFailed?(detail: string): Promise<void>;
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;
@@ -235,22 +222,20 @@ export interface HostRunContext {
 export interface HostPreparedStep {
   /**
    * The earlier committed turns (their run ids) whose messages this request
-   * holds, from the branch or recalled. Pre-request compaction measures this
-   * request, and only this thread's branch turns among them can leave it
-   * (ADR-0013): a turn recalled from another thread is that thread's history.
+   * holds, from the branch. Pre-request compaction measures this request, and
+   * only these turns can leave it (ADR-0013).
    */
   readonly historyRunIds: ReadonlySet<string>;
   readonly messages: ModelMessage[];
   /**
    * The same step's request reassembled from the committed log after Core
    * committed a compaction, so the compacted turns leave it. Memory's own step
-   * preparation and recall do not run again.
+   * preparation does not run again.
    */
   rebuild(): Promise<HostPreparedStep>;
   /**
    * The committed tool-output rewrites the provider request applies to these
-   * messages, from every thread the request reads (resource-wide with
-   * resource-scoped recall), so the request is measured as it is sent.
+   * messages, so the request is measured as it is sent.
    */
   readonly rewrites: ReadonlyMap<string, HostProjectionRewrite>;
   readonly system?: string;
@@ -417,7 +402,7 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
-  /** The observer and embedder this admission's memory uses, for `thread/memory/read`. */
+  /** The observer this admission's memory uses, for `thread/memory/read`. */
   readonly memoryModels?: HostMemoryModels;
   readonly model: LanguageModel;
   /**
@@ -615,17 +600,6 @@ export interface HostTool {
  * Provider reads a client makes by id: availability, a credential probe and
  * OpenRouter model metadata. Keys resolve inside the host and never cross.
  */
-/** What `memory/embedder/probe` asks a platform to resolve (BST-2227). */
-export interface HostMemoryEmbedderRequest {
-  /** The client's Assistant Memory settings, as a run's configuration carries them. */
-  readonly memorySettings: Readonly<Record<string, unknown>>;
-  readonly signal: AbortSignal;
-}
-/** A resolved memory embedder and the identity its failures name. */
-export interface HostMemoryEmbedderTarget {
-  readonly embedder: MastraEmbeddingModel<string>;
-  readonly identity: HostMemoryEmbedderIdentity;
-}
 export interface HostProviderService {
   /** `signal` is the request's: its abort cancels this caller's network wait with its reason. */
   openRouterModel(modelId: string, signal: AbortSignal): Promise<OpenRouterModelMetadataSnapshot>;
@@ -899,13 +873,6 @@ export interface HostPlatform {
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
-  /**
-   * BST-2227 `memory/embedder/probe`: the embedder these memory settings
-   * select, resolved and credentialed as a run's admission resolves it, with
-   * the identity its failures are read against. Absent where the host has no
-   * composer.
-   */
-  resolveMemoryEmbedder?(request: HostMemoryEmbedderRequest): Promise<HostMemoryEmbedderTarget>;
   resolveModel?(modelId: string): Promise<LanguageModel>;
   /**
    * The live absolute path of a mounted workspace root, for revert

@@ -14,7 +14,6 @@ import { projectListWorkspaceContextModelOutput } from './workspace-context-mode
 import {
   runListWorkspaceContext,
   runReadWorkspaceContext,
-  type WorkspaceIndexSummary,
 } from './workspace-context-read-tools.ts';
 
 /** The curated-context read tools' ids, for the host's executed-tool set. */
@@ -23,8 +22,8 @@ export const CONTEXT_READ_TOOL_IDS = [
   NATIVE_TOOL_ID.readWorkspaceContext,
 ] as const;
 
-/** The workspace-context reads; the listing reports the native index status `readWorkspaceIndex` returns. */
-export function contextReadExecutors(readWorkspaceIndex: () => Promise<WorkspaceIndexSummary>): {
+/** The workspace-context reads: the open roots, and curated file contents. */
+export function contextReadExecutors(): {
   readonly [NATIVE_TOOL_ID.listWorkspaceContext]: NativeToolExecutor;
   readonly [NATIVE_TOOL_ID.readWorkspaceContext]: NativeToolExecutor;
 } {
@@ -36,7 +35,7 @@ export function contextReadExecutors(readWorkspaceIndex: () => Promise<Workspace
           NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
           input
         );
-        return runListWorkspaceContext(resolvedInput, runtimeData, await readWorkspaceIndex());
+        return runListWorkspaceContext(resolvedInput, runtimeData);
       },
       id: NATIVE_TOOL_ID.listWorkspaceContext,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],

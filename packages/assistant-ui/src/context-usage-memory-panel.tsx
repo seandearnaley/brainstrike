@@ -8,7 +8,6 @@ import type {
   MemoryCycleDisplay,
   MemoryCyclesDisplay,
   MemoryModelsDisplay,
-  MemoryRecallDisplay,
   OmMeterState,
   OmRecordLifecycle,
 } from './context-usage-meter';
@@ -105,22 +104,6 @@ function observerValue(state: OmMeterState, models: MemoryModelsDisplay | undefi
   return models.observer ?? 'None';
 }
 
-function embedderValue(models: MemoryModelsDisplay | undefined): string {
-  if (!models) {
-    return NOT_REPORTED;
-  }
-  const { embedder } = models;
-  if (!embedder) {
-    return 'Off';
-  }
-  return [
-    embedder.provider,
-    embedder.modelId,
-    `${exact(embedder.dimensions)} dims`,
-    embedder.distance,
-  ].join(' · ');
-}
-
 const OUTCOME_LABELS: Record<MemoryCycleDisplay['outcome'], string> = {
   cancelled: 'Cancelled',
   completed: 'Completed',
@@ -174,31 +157,6 @@ function cycleRows(cycles: MemoryCyclesDisplay | undefined): PanelRow[] {
   return rows;
 }
 
-/** The last recall this view saw: what it returned, how wide it searched, and how long it took. */
-function recallRows(recall: MemoryRecallDisplay | undefined): PanelRow[] {
-  if (!recall) {
-    return [];
-  }
-  const parts = [
-    `${exact(recall.messages)} ${recall.messages === 1 ? 'message' : 'messages'}`,
-    ...(recall.topK === undefined ? [] : [`top ${exact(recall.topK)}`]),
-    recall.scope === 'resource' ? 'all threads' : 'this thread',
-    `${exact(recall.latencyMs)} ms`,
-  ];
-  return [
-    {
-      id: 'last-recall',
-      // Live telemetry, never committed: a reload clears it.
-      label: 'Last recall (live)',
-      value: (
-        <>
-          {parts.join(' · ')} · {storedTime(recall.at)}
-        </>
-      ),
-    },
-  ];
-}
-
 /** The rows a read state has; null for states with no host read behind them. */
 function stateRows(state: OmMeterState): PanelRow[] | null {
   switch (state.kind) {
@@ -209,7 +167,6 @@ function stateRows(state: OmMeterState): PanelRow[] | null {
           ? []
           : [{ id: 'error-code', label: 'Code', tone: 'error' as const, value: state.code }]),
         ...cycleRows(state.cycles),
-        ...recallRows(state.recall),
       ];
     case 'stats':
     case 'empty':
@@ -218,9 +175,7 @@ function stateRows(state: OmMeterState): PanelRow[] | null {
       return [
         ...(state.kind === 'stats' ? recordRows(state) : []),
         ...cycleRows(state.cycles),
-        ...recallRows(state.recall),
         { id: 'observer', label: 'Observer', value: observerValue(state, state.models) },
-        { id: 'embedder', label: 'Embedder', value: embedderValue(state.models) },
       ];
     case 'chat-only':
     case 'loading':

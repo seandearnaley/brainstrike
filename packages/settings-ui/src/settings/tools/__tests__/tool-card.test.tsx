@@ -62,10 +62,10 @@ vi.mock('../tool-playground', () => ({
 describe('ToolCard', () => {
   const mockTool: ToolDisplayMetadata = {
     category: 'retrieval',
-    description: 'Search across documents using hybrid semantic and keyword search',
+    description: 'Search workspace file contents with ripgrep',
     enabled: true,
     estimatedTokens: 150,
-    id: 'brainstrike.hybridSearch',
+    id: 'brainstrike.grepSearch',
     loadingTier: 'critical',
     requiresApproval: false,
     source: 'native',
@@ -82,8 +82,8 @@ describe('ToolCard', () => {
     it('renders the tool card with correct data', () => {
       render(<ToolCard onToggle={mockOnToggle} tool={mockTool} />);
 
-      expect(screen.getByTestId('tool-card-brainstrike.hybridSearch')).toBeInTheDocument();
-      expect(screen.getByText('brainstrike.hybridSearch')).toBeInTheDocument();
+      expect(screen.getByTestId('tool-card-brainstrike.grepSearch')).toBeInTheDocument();
+      expect(screen.getByText('brainstrike.grepSearch')).toBeInTheDocument();
       expect(screen.getByText('Critical')).toBeInTheDocument();
       expect(screen.getByText('Retrieval')).toBeInTheDocument();
       expect(screen.getByText(/~150 tokens/u)).toBeInTheDocument();
@@ -92,15 +92,13 @@ describe('ToolCard', () => {
     it('renders the tool description', () => {
       render(<ToolCard onToggle={mockOnToggle} tool={mockTool} />);
 
-      expect(
-        screen.getByText('Search across documents using hybrid semantic and keyword search')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Search workspace file contents with ripgrep')).toBeInTheDocument();
     });
 
     it('renders the toggle switch with correct state', () => {
       render(<ToolCard onToggle={mockOnToggle} tool={mockTool} />);
 
-      const toggle = screen.getByTestId('toggle-brainstrike.hybridSearch');
+      const toggle = screen.getByTestId('toggle-brainstrike.grepSearch');
       expect(toggle).toHaveAttribute('aria-checked', 'true');
     });
 
@@ -122,20 +120,20 @@ describe('ToolCard', () => {
     it('calls onToggle when switch is clicked', () => {
       render(<ToolCard onToggle={mockOnToggle} tool={mockTool} />);
 
-      const toggle = screen.getByTestId('toggle-brainstrike.hybridSearch');
+      const toggle = screen.getByTestId('toggle-brainstrike.grepSearch');
       fireEvent.click(toggle);
 
-      expect(mockOnToggle).toHaveBeenCalledWith('brainstrike.hybridSearch', true);
+      expect(mockOnToggle).toHaveBeenCalledWith('brainstrike.grepSearch', true);
     });
 
     it('passes correct enabled state when toggling disabled tool', () => {
       const disabledTool = { ...mockTool, enabled: false };
       render(<ToolCard onToggle={mockOnToggle} tool={disabledTool} />);
 
-      const toggle = screen.getByTestId('toggle-brainstrike.hybridSearch');
+      const toggle = screen.getByTestId('toggle-brainstrike.grepSearch');
       fireEvent.click(toggle);
 
-      expect(mockOnToggle).toHaveBeenCalledWith('brainstrike.hybridSearch', false);
+      expect(mockOnToggle).toHaveBeenCalledWith('brainstrike.grepSearch', false);
     });
   });
 
@@ -144,7 +142,7 @@ describe('ToolCard', () => {
       render(<ToolCard onToggle={mockOnToggle} tool={mockTool} />);
 
       // Should not show expanded content (playground)
-      expect(screen.queryByTestId('playground-brainstrike.hybridSearch')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('playground-brainstrike.grepSearch')).not.toBeInTheDocument();
     });
 
     it('shows expanded content when expanded prop is true', () => {
@@ -158,7 +156,7 @@ describe('ToolCard', () => {
         />
       );
 
-      expect(screen.getByTestId('playground-brainstrike.hybridSearch')).toBeInTheDocument();
+      expect(screen.getByTestId('playground-brainstrike.grepSearch')).toBeInTheDocument();
     });
 
     it('calls onExpandChange when header is clicked', () => {
@@ -262,7 +260,7 @@ describe('ToolCard', () => {
     it('does not render playground when onExecuteTest is not provided', () => {
       render(<ToolCard expanded={true} onToggle={mockOnToggle} tool={mockTool} />);
 
-      expect(screen.queryByTestId('playground-brainstrike.hybridSearch')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('playground-brainstrike.grepSearch')).not.toBeInTheDocument();
     });
 
     it('renders playground when onExecuteTest is provided and expanded', () => {
@@ -277,7 +275,7 @@ describe('ToolCard', () => {
         />
       );
 
-      expect(screen.getByTestId('playground-brainstrike.hybridSearch')).toBeInTheDocument();
+      expect(screen.getByTestId('playground-brainstrike.grepSearch')).toBeInTheDocument();
     });
   });
 });

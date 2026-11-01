@@ -1,5 +1,5 @@
 {
-  "version": 16,
+  "version": 17,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
@@ -63,7 +63,6 @@
     "mcp/tools/server/set",
     "mcp/tools/set",
     "mcp/tools/stats",
-    "memory/embedder/probe",
     "permissions/origins/read",
     "permissions/origins/remove",
     "permissions/policy/read",

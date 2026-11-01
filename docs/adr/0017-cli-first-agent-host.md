@@ -37,7 +37,7 @@
   embedding port, notifier, indexer port, explicit data root. No runtime `electron` imports.
 - **CLI retrieval** originally defaulted to FTS5 BM25 + trigram + grep, using vectors only when
   the desktop had built them. ADR-0026 since made the core tools read the disk and the index an
-  optional lane.
+  optional lane, and the retrieval decision (BST-2428) removed that lane on 2026-11-01.
 
 ### Standalone model and credential selection (approved 2026-10-08)
 

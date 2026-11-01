@@ -126,6 +126,9 @@ rows.
 - A hosted recall embedder's spend is billing and is committed (BST-2226).
 - The Developer memory panel shows the last recall received, labelled live; reload clears it.
 
+Superseded on 2026-11-01: semantic recall, its telemetry and its embedder spend are removed
+(the retrieval decision, BST-2428).
+
 ## Amendment (2026-10-31): what made host open slow
 
 - A profile of `HostCore.open` (BST-2388) found open re-validating every committed model message

@@ -39,7 +39,6 @@ import {
   releaseNotesUrl,
 } from './application-menu';
 import { registerAssetProtocol } from './asset-protocol';
-import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
 import {
   clearActiveBrowserPaneHost,
@@ -1856,7 +1855,6 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     ...productionDesktopCapabilities({
       modelCatalog,
       nativeIndexSearch,
-      retrievalStore: createCatalogRetrievalStore(workspaceRootCatalog),
       workspaceRoots: workspaceRootCatalog,
     }),
     // BST-1977: app-owned host/stop released Root with the native writer live.

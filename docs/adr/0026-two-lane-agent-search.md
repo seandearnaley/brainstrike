@@ -64,3 +64,18 @@ history and the retrieval lane.
   return to the semantic index.
 - Admitting the retrieval tools and running recall once per turn are separate
   changes under this decision.
+
+## Amendment (2026-11-01): the retrieval and memory lanes are removed
+
+Owner approval (Sean, 2026-11-01) of the retrieval decision (BST-2428), applied
+by BST-2435:
+
+- Lane 2 is gone. `hybridSearch`, `queryEmbeddingSpace` and
+  `listEmbeddingSpaces`, their `desktop-read/index/*` routes and the
+  `listWorkspaceContext` index hint are deleted. The agent searches with lane 1
+  only.
+- Lane 3 is gone. Memory has no semantic recall, embedder or vector store, and
+  the host state index keeps no message or observation vectors. Thread search
+  (FTS5) stays.
+- Semantic retrieval, if wanted again, comes back as a hosted service or MCP
+  server beside grep, not as a revived local index.

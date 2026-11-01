@@ -68,16 +68,14 @@ import {
   desktopMemoryModels,
 } from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
-import { resolveDesktopMemoryEmbedderProbe } from './memory-vector-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
-  PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformPickFolderResultSchema,
 } from './platform-wire';
-import { IndexSearchResultSchema, IndexStatusSchema } from './retrieval-wire';
+import { IndexSearchResultSchema } from './retrieval-wire';
 
 const logger = createLogger('DesktopNodePlatform');
 function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {
@@ -143,24 +141,14 @@ function mainAdmissionReads(
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/observers', { candidates }, signal)),
-    indexStatus: async (signal) =>
-      Schema.decodeUnknownSync(IndexStatusSchema, { errors: 'all', onExcessProperty: 'ignore' })(
-        await request('platform/admission/index-status', {}, signal)
-      ),
     liveWorkspaceRoots: async (signal) =>
       Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/roots', {}, signal)),
-    memoryVectors: async (settings, signal) =>
-      Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/admission/memory-vectors', { settings }, signal)) ?? undefined,
   };
 }
-interface DesktopHostConfiguration
-  extends Omit<ProductionHostPlatformOptions, 'startup' | 'memoryResourceIds'> {
+interface DesktopHostConfiguration extends Omit<ProductionHostPlatformOptions, 'startup'> {
   confirmMainReady(): Promise<void>;
 }
 export async function createDesktopHostConfiguration(
@@ -516,7 +504,7 @@ export async function createDesktopHostConfiguration(
       };
     },
     // The admission's preconditions, then the memory credentials, nothing acquired;
-    // once they pass, the observer and embedder that admission would use.
+    // once they pass, the observer that admission would use.
     readMemoryPreconditions: async (admission) => {
       const readiness = await runAdmission.readMemoryReadiness(admission);
       if (!readiness.ready) {
@@ -531,14 +519,6 @@ export async function createDesktopHostConfiguration(
     },
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),
-    // BST-2227: Settings' Test embedder, resolved as a run's admission resolves its embedder.
-    resolveMemoryEmbedder: ({ memorySettings, signal }) =>
-      resolveDesktopMemoryEmbedderProbe(
-        memorySettings,
-        admissionReads.memoryVectors,
-        (provider) => host.auth.resolveProviderAuth(provider),
-        signal
-      ),
     resolveProviderAuth: async () => {
       throw refusalError(
         'authorization',

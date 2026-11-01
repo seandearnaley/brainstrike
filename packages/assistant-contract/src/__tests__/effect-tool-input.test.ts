@@ -167,37 +167,6 @@ const cursor = encodeToolOutputArtifactCursor(
 const boundaryCases: ReadonlyArray<
   readonly [string, Record<string, unknown>, boolean, (readonly PropertyKey[])?]
 > = [
-  [
-    'hybridSearch',
-    {
-      filePaths: ['src/a.ts'],
-      ftsWeight: 0,
-      limit: 100,
-      query: 'context',
-      vectorThreshold: 1,
-      vectorWeight: 2,
-    },
-    true,
-  ],
-  ['hybridSearch', { filePaths: new Array(501).fill('a'), query: 'context' }, false],
-  ['hybridSearch', { filePaths: [''], query: 'context' }, false, ['filePaths', 0]],
-  ['hybridSearch', { limit: 1.5, query: 'context' }, false, ['limit']],
-  ['hybridSearch', { query: 'context', vectorThreshold: -0.1 }, false],
-  ['hybridSearch', { ftsWeight: 2.1, query: 'context' }, false],
-  ['hybridSearch', { query: 'context', root: '' }, false],
-  [
-    'queryEmbeddingSpace',
-    {
-      filePaths: new Array(5000).fill('a'),
-      maxChunks: 100,
-      query: 'context',
-      root: '',
-      tokenBudget: 200_000,
-    },
-    true,
-  ],
-  ['queryEmbeddingSpace', { filePaths: new Array(5001).fill('a'), query: 'context' }, false],
-  ['queryEmbeddingSpace', { query: 'context', tokenBudget: 200_001 }, false],
   ['grepSearch', { contextLines: 5, isRegex: false, offset: 2000, pattern: 'a(b' }, true],
   ['grepSearch', { isRegex: true, pattern: 'a(b' }, false, ['pattern']],
   ['grepSearch', { filePaths: new Array(1001).fill('a'), pattern: 'ab' }, false],
@@ -207,8 +176,6 @@ const boundaryCases: ReadonlyArray<
   ['webSearch', { maxResults: 10, query: 'ab' }, true],
   ['webSearch', { query: 'a' }, false],
   ['webSearch', { query: '🙂' }, false],
-  ['hybridSearch', { ftsWeight: Number.NaN, query: 'context' }, false],
-  ['hybridSearch', { ftsWeight: Number.POSITIVE_INFINITY, query: 'context' }, false],
   ['webSearch', { query: 'a'.repeat(401) }, false],
   ['webSearch', { maxResults: 11, query: 'ab' }, false],
   ['webExtract', { urls: ['https://example.com'] }, true],

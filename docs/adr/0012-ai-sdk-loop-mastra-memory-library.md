@@ -77,6 +77,11 @@ and externalized from browser bundles, unchanged.
 Nothing else in this ADR changes: the host still owns one AI SDK 7 `streamText`
 loop per run, with `ai` pinned exactly.
 
+## Amendment (2026-11-01): no semantic recall
+
+The retrieval decision (BST-2428) removes semantic recall. `@mastra/memory` is used
+for observational memory and working memory only, with no embedder or vector store.
+
 ## Sources
 
 Contract markers this ADR replaces (line numbers at `43daec7fb`):

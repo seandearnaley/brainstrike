@@ -1,7 +1,7 @@
 /**
  * The host's state producer: how the derived index reads committed host rows
- * (ADR-0011). It decodes a row, and projects its history text, search row and
- * message identities. The caller supplies blob reads: the desktop's producer
+ * (ADR-0011). It decodes a row, and projects its history text and search row.
+ * The caller supplies blob reads: the desktop's producer
  * module (`state-projection.ts`) reads the data root's blob files.
  */
 import {
@@ -12,9 +12,8 @@ import {
 } from '@brainstrike/state-store/event-schema';
 import { modelMessageSchema } from 'ai';
 import { Schema } from 'effect';
-import { committedRowAddress, committedRunSource } from './committed-identities.ts';
 import { decodeRunSnapshot, decodeStoredHostEvent, hostEventSpool } from './host-event-decoding.ts';
-import { type HostEvent, HostEventSchema, type HostLogRow, HostLogRowSchema } from './protocol.ts';
+import { type HostEvent, HostEventSchema } from './protocol.ts';
 export type DecodedHostEvent =
   | (HostEvent & {
       readonly seq: number;
@@ -156,72 +155,4 @@ export function search(input: unknown): {
       ? event.messages.flatMap(assistantText).join('\n').trim()
       : runHistoryText(event);
   return text ? { role: 'assistant', runId: event.runId, text } : null;
-}
-/**
- * Existing command and row addresses; no vendor IDs, timestamp guesses or ID
- * writer. Each message lists the rows its identity is read from: its own, and
- * for a run's messages the run's start and admission.
- */
-export function messages(
-  input: readonly {
-    readonly threadId: string;
-    readonly seq: number;
-    readonly event: unknown;
-  }[]
-): readonly {
-  readonly messageId: string;
-  readonly seq: number;
-  readonly sources: readonly number[];
-}[] {
-  const rows: HostLogRow[] = input.flatMap((row) => {
-    const event = projectedEvent(row.event);
-    return event
-      ? [
-          Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
-            event,
-            seq: row.seq,
-            threadId: row.threadId,
-          }),
-        ]
-      : [];
-  });
-  const selected: {
-    messageId: string;
-    seq: number;
-    sources: readonly number[];
-  }[] = [];
-  const ids = new Set<string>();
-  const append = (messageId: string, seq: number, sources: readonly number[]): void => {
-    if (ids.has(messageId)) {
-      throw new Error('Committed conversation identities collide');
-    }
-    ids.add(messageId);
-    selected.push({ messageId, seq, sources });
-  };
-  for (const row of rows) {
-    if (row.event.type === 'run.started') {
-      const admission = committedRunSource(rows, row.event.runId);
-      const run = [row.seq, ...admission.sources];
-      // A regeneration answers its committed user message again; it adds no message.
-      if (row.event.userMessageId === undefined) {
-        append(admission.admissionId, row.seq, run);
-      }
-      for (const segment of rows) {
-        const event = segment.event;
-        if (
-          segment.threadId !== row.threadId ||
-          (event.type !== 'model.step' && event.type !== 'model.messages') ||
-          event.runId !== row.event.runId ||
-          event.messages.length === 0
-        ) {
-          continue;
-        }
-        for (const message of event.messages) {
-          modelMessageSchema.parse(message);
-        }
-        append(committedRowAddress(segment), segment.seq, [segment.seq, ...run]);
-      }
-    }
-  }
-  return selected;
 }

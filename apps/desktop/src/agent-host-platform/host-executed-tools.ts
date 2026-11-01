@@ -1,4 +1,3 @@
-import { realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { FencedShell } from '@brainstrike/agent/fence-executor';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
@@ -23,8 +22,6 @@ import {
   admittedWorkspaceSkills,
   createSecureSkillsFs,
 } from '@brainstrike/host-capabilities/workspace-context';
-import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
-import type { CheckoutAccess } from '../assistant-server/native-assistant-retrieval';
 import {
   type BrowserToolRunner,
   browserToolExecutors,
@@ -34,11 +31,9 @@ import {
   runPythonExecutor,
   runSkillScriptExecutor,
 } from '../assistant-server/native-tool-executors-python';
-import { retrievalToolExecutors } from '../assistant-server/native-tool-executors-retrieval';
 import { selfInspectionExecutors } from '../assistant-server/native-tool-executors-self';
 import { commandSessionExecutors } from '../assistant-server/native-tool-executors-sessions';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
-import { nativeWorkspaceIndexSummary } from '../assistant-server/workspace-index-summary';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
 import {
@@ -46,7 +41,6 @@ import {
   resolveDesktopPythonRuntimeResourcesDir,
 } from '../python-runtime/resources-dir';
 import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
-import { hostIndexSearch, hostQueryEmbedding, hostRetrievalStore } from './host-retrieval-clients';
 import { hostCommandSessionManager } from './host-tool-process';
 import {
   BrowserActionResultSchema,
@@ -66,9 +60,6 @@ const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   ...Object.keys(INSPECTION_TOOL_EXECUTORS),
   NATIVE_TOOL_ID.executeCommand,
   NATIVE_TOOL_ID.grepSearch,
-  NATIVE_TOOL_ID.hybridSearch,
-  NATIVE_TOOL_ID.listEmbeddingSpaces,
-  NATIVE_TOOL_ID.queryEmbeddingSpace,
   NATIVE_TOOL_ID.listWorktrees,
   NATIVE_TOOL_ID.manageWorktree,
   NATIVE_TOOL_ID.browserClick,
@@ -220,72 +211,19 @@ function hostSkillExecutors(
   };
 }
 
-/**
- * How retrieval reads a worktree through its repository's index (ADR-0034):
- * git identity from the host's worktree service, file text through the shared
- * contained reader of the run's own folders.
- */
-function hostCheckoutAccess(
-  worktrees: HostWorktreeServices,
-  roots: readonly { readonly path: string; readonly rootId: string }[]
-): CheckoutAccess {
-  return {
-    read: async (rootId, relativePath) => {
-      const root = roots.find((candidate) => candidate.rootId === rootId);
-      if (!root) {
-        throw new Error('The folder is not open in this run.');
-      }
-      return (await readWorkspaceTextFile({ requestedPath: relativePath, rootPath: root.path }))
-        .content;
-    },
-    resolve: async (rootId) => {
-      const context = await worktrees.resolveWorktreeService?.()?.repositoryContextForRoot(rootId);
-      if (!context?.ok) {
-        return null;
-      }
-      const cwd = await realpath(context.value.cwd).catch(() => context.value.cwd);
-      return {
-        commonDir: context.value.commonDir,
-        topLevel: cwd === context.value.repositoryRoot,
-      };
-    },
-  };
-}
-
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
   /** The host's worktree services, which each run borrows under its own identity. */
   worktrees: HostWorktreeServices,
   threadId: string,
-  /** The run's admitted native runtime: its roots, retrieval scope and skills. */
+  /** The run's admitted native runtime: its roots and skills. */
   native: PlatformSelection['nativeRuntime'],
   /** Absent without a launching desktop; then run_python has no interpreter here. */
   appPaths?: HostAppPaths
 ): Readonly<Record<string, NativeToolExecutor>> {
-  const retrievalRootsOnly = native.retrievalRootsOnly === true;
-  const nativeIndexSearch = hostIndexSearch(request, threadId);
-  const queryEmbedder = hostQueryEmbedding(request);
-  const store = hostRetrievalStore(request, threadId);
   return {
-    ...retrievalToolExecutors(({ runtimeData }) => ({
-      dependencies: {
-        ...(retrievalRootsOnly
-          ? {
-              admittedWorkspaceRootIds: (runtimeData?.workspaceRoots ?? []).map(
-                (root) => root.rootId
-              ),
-            }
-          : {}),
-        checkout: hostCheckoutAccess(worktrees, runtimeData?.workspaceRoots ?? []),
-        nativeIndexSearch,
-        queryEmbedder,
-      },
-      store,
-    })),
-    ...contextReadExecutors(async () =>
-      nativeWorkspaceIndexSummary(await nativeIndexSearch.status())
-    ),
+    ...contextReadExecutors(),
     ...INSPECTION_TOOL_EXECUTORS,
     [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(),
     ...browserToolExecutors(hostBrowserTools(request, threadId)),

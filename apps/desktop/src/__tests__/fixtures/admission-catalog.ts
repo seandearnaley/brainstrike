@@ -27,19 +27,8 @@ export function admissionCatalogFixture(
       status: 'live' as const,
     })),
   }));
-  const unsupported = async (): Promise<never> => {
-    throw new Error('Unexpected retrieval catalog read in admission fixture');
-  };
-  const services: Pick<
-    DesktopHostToolServices,
-    'modelCatalog' | 'workspaceRoots' | 'retrievalStore'
-  > = {
+  const services: Pick<DesktopHostToolServices, 'modelCatalog' | 'workspaceRoots'> = {
     modelCatalog: { read: modelRead },
-    retrievalStore: {
-      embeddingSet: unsupported,
-      embeddingSpaces: unsupported,
-      fileRecords: unsupported,
-    },
     workspaceRoots: { workspaceRoots },
   };
   return { modelRead, services, workspaceRoots };

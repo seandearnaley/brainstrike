@@ -14,12 +14,6 @@ export interface DesktopObservationalMemoryModelTarget extends DesktopMemoryMode
   readonly cacheKey: string;
 }
 
-export interface DesktopSemanticRecallEmbeddingModelTarget
-  extends DesktopMemoryModelTargetDescriptor {
-  readonly apiKey: string;
-  readonly cacheKey: string;
-}
-
 export type DesktopMemoryModelTargetResolution<T extends DesktopMemoryModelTargetDescriptor> =
   | { readonly kind: 'disabled' }
   | {
@@ -39,10 +33,6 @@ const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
   'anthropic',
   'google',
   'openrouter',
-]);
-const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
-  'openai',
-  'google',
 ]);
 export function resolveRequestedProvider(
   data: RuntimeData | undefined
@@ -99,17 +89,5 @@ export function parseObservationalMemoryModelTarget(
       `Desktop observational memory requires a hosted model provider; received "${provider}" in "${modelTarget}".`,
     formatLabel: 'Observational memory model target',
     unsupportedProviderLabel: 'observational memory',
-  });
-}
-
-export function parseSemanticRecallEmbeddingModelTarget(
-  modelTarget: string
-): DesktopMemoryModelTargetDescriptor {
-  return parseModelTarget(modelTarget, {
-    allowedProviders: DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS,
-    disallowedProviderMessage: (provider) =>
-      `Desktop Mastra semantic recall supports hosted OpenAI/Google embedders; received "${provider}" in "${modelTarget}".`,
-    formatLabel: 'Semantic recall embedding model target',
-    unsupportedProviderLabel: 'semantic recall embedding',
   });
 }

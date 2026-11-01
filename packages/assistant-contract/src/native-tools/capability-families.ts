@@ -34,7 +34,6 @@ export const DEFERRED_CAPABILITY_FAMILY_PHRASES = [
   'directory listings',
   'workspace context',
   'symbol and LSP inspection',
-  'embedding search',
   'diagnostics',
   'tool-output artifacts',
 ] as const satisfies readonly DeferredCapabilityFamilyPhrase[];

@@ -10,8 +10,7 @@ function cellTitle(cell: ChunkCell): string {
     return `${lines}: not delivered in this thread`;
   }
   const parts = cell.spans.map(
-    ({ at, span }) =>
-      `T${at.turn} ${KIND_LABEL[span.kind]}${span.partial ? ' (part)' : ''}, ${STATE_LABEL[at.state].toLowerCase()}`
+    ({ at, span }) => `T${at.turn} ${KIND_LABEL[span.kind]}, ${STATE_LABEL[at.state].toLowerCase()}`
   );
   return `${lines}: ${parts.join('; ')}`;
 }

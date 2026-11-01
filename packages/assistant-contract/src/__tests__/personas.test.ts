@@ -141,7 +141,6 @@ describe('BUILT_IN_PERSONAS', () => {
   it('explore names exactly its D2 tool list', () => {
     const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
     expect(explore?.allowedToolIds).toEqual([
-      'brainstrike.queryEmbeddingSpace',
       'brainstrike.grepSearch',
       'brainstrike.globWorkspace',
       'brainstrike.readToolOutputArtifact',

@@ -29,7 +29,7 @@ describe('ToolFallback', () => {
       argsText: '{"q":"x"}',
       result: { ok: true },
       status: { type: 'complete' },
-      toolName: 'brainstrike.queryEmbeddingSpace',
+      toolName: 'brainstrike.lspInspect',
     });
     const card = screen.getByTestId('tool-fallback');
     expect(card.getAttribute('data-tool-category')).toBe('internal');

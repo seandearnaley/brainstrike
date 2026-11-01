@@ -515,9 +515,6 @@ export default function SettingsPageContent() {
       createAssistantMemorySettingsCategory({
         assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
         ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
-        ...(hostProviders?.testMemoryEmbedder
-          ? { testEmbedder: hostProviders.testMemoryEmbedder }
-          : {}),
       }),
       {
         content: <DesktopLoggingSettings />,

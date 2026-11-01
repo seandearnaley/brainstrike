@@ -34,7 +34,7 @@ Owners: [log projections](../../packages/agent-host/src/log-projections.ts),
 
 Mastra memory is a run-owned library adapter over committed host history and the
 existing StateStore writer. It creates no transcript store or independent
-permission authority. Recall from other threads includes settled turns only;
+permission authority. Memory drawn from other threads includes settled turns only;
 active or suspended work is not completed provider history.
 
 A run's memory settles after its answer, as Mastra documents for
@@ -53,17 +53,10 @@ started the cycle, how it ended (`completed`, `failed`, or `cancelled` by Stop),
 how long it took, and the usage it reported. A failed cycle also records its
 typed `memory.*` code and the reference its cause is logged under. A buffered
 cycle's failure reaches only its end hook, so this fact is where it first
-appears. Spend is billed from `memory.usage` alone. A semantic recall's
-diagnostics (messages returned, `topK`, scope, latency) are live `run/telemetry`,
-never a fact ([ADR-0011](../adr/0011-run-log-and-state-store.md) amendment of
-2026-10-19).
+appears. Spend is billed from `memory.usage` alone.
 
-Semantic recall runs once per turn, on its first step, as Mastra's own recall
-runs once per agent call (`processInput`); observation and the history window
-still follow each step. A failed recall is not the turn's outcome: the turn
-answers without recalled history, and the typed failure commits once as
-`memory.recall.failed`, with its cause logged under the reference it names. The
-timeline shows it as an always-visible notice.
+Memory has no semantic recall, embedder or vector store (the retrieval decision,
+BST-2428). Observation and the history window follow each step.
 
 Keep observations within the selected chat provider's privacy boundary under
 [ADR-0013](../adr/0013-observational-memory.md), with concrete resolved models and
@@ -73,7 +66,7 @@ history withholds observations it cannot attribute safely instead of guessing
 which text to remove. Strict deletion and reset must also erase affected memory.
 
 A memory failure carries a typed `memory.*` code at the step or admission that
-found it: observer, embedder, vector store, configuration or credential. It is
+found it: observer, configuration or credential. It is
 never classified as an error from the chat provider, and it names the memory
 model's own provider. A fault's correlation id is shown in the failure row and
 the send gate. The agent host forwards its error records, with those ids, to

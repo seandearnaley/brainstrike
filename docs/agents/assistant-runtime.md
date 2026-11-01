@@ -40,7 +40,7 @@ and [ADR-0017](../adr/0017-cli-first-agent-host.md).
   repeat a step that streamed tool input or a call. Context-overflow recovery
   requires a committed compaction that actually shortens the request.
 - Pre-request compaction measures the request the provider will receive. With
-  Memory, that is the request Memory builds (its selected and recalled turns,
+  Memory, that is the request Memory builds (its selected turns,
   rewritten tool outputs and system context), not the branch, and only the
   earlier turns that request holds can be compacted. Memory then reassembles the
   request from the log without re-running its step preparation. When the
