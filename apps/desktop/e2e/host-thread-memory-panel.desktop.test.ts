@@ -11,8 +11,8 @@ const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
 const MEMORY_SETTINGS_KEY = 'brainstrike:assistant-memory-preferences.v1';
 const MEMORY_SETTINGS_VERSION = 2;
-// The assistant panel's persisted Detail level (assistant-detail-level-context.tsx).
-const DETAIL_LEVEL_KEY = 'brainstrike.assistant.detail-level';
+// The assistant panel's persisted Detail level (assistant-detail-level-store.ts).
+const DETAIL_LEVEL_KEY = 'brainstrike:assistant-detail-level.v1';
 const ANSWER = 'MEMORY_PANEL_ANSWER_COMPLETE';
 // Mastra's observer system prompt, as the external provider receives it.
 const OBSERVER = /memory consciousness of an AI assistant\. Your observations/u;
@@ -85,7 +85,7 @@ test('the Developer memory panel shows the observer buffering live, then its buf
         window.localStorage.setItem(detailKey, detail);
       },
       {
-        detail: 'developer',
+        detail: JSON.stringify({ state: { detailLevel: 'developer' }, version: 1 }),
         detailKey: DETAIL_LEVEL_KEY,
         key: MEMORY_SETTINGS_KEY,
         value: JSON.stringify({ state: settings, version: MEMORY_SETTINGS_VERSION }),

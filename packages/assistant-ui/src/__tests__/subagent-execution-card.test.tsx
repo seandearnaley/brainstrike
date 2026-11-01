@@ -1,10 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AssistantDetailLevel } from '../assistant-detail-level';
-import {
-  ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
-  AssistantDetailLevelProvider,
-} from '../assistant-detail-level-context';
+import { setAssistantDetailLevel } from '../assistant-detail-level-store.ts';
 import { type SubagentCardProps, SubagentExecutionCard } from '../subagent-execution-card';
 import { personaLabelForToolName } from '../subagent-persona-label';
 import { type LooseProps, toolPartElement } from './tool-part-render';
@@ -17,12 +14,8 @@ function renderCardAtDetailLevel(
   props: LooseProps<SubagentCardProps>,
   level: AssistantDetailLevel
 ) {
-  window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, level);
-  return render(
-    <AssistantDetailLevelProvider>
-      {toolPartElement(SubagentExecutionCard, props)}
-    </AssistantDetailLevelProvider>
-  );
+  setAssistantDetailLevel(level);
+  return render(toolPartElement(SubagentExecutionCard, props));
 }
 
 /**
@@ -319,9 +312,6 @@ describe('SubagentExecutionCard', () => {
 // (`resolveToolDisplayPolicy`); this card's own `· N tool calls` chip reads the
 // same policy every other trailing chip in the trace reads.
 describe('SubagentExecutionCard detail level', () => {
-  beforeEach(() => window.localStorage.clear());
-  afterEach(() => window.localStorage.clear());
-
   const finished = {
     childRun: { status: 'completed', toolCalls: 43 },
     result: startedResult,
@@ -348,9 +338,6 @@ describe('SubagentExecutionCard detail level', () => {
 // its count folded in instead of just the verb. Rendered at an explicit
 // `standard` level so the chip is present-but-unnamed, not merely absent.
 describe('SubagentExecutionCard non-interactive row name', () => {
-  beforeEach(() => window.localStorage.clear());
-  afterEach(() => window.localStorage.clear());
-
   it('names a delegation by its verb alone, without the tool-call chip folded in', () => {
     renderCardAtDetailLevel(
       {

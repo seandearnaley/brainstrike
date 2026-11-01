@@ -1702,6 +1702,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/storage':
+        specifier: workspace:*
+        version: link:../storage
       '@brainstrike/tokenization':
         specifier: workspace:*
         version: link:../tokenization
@@ -2824,6 +2827,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/storage':
+        specifier: workspace:*
+        version: link:../storage
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -3006,9 +3012,6 @@ importers:
         specifier: 'catalog:'
         version: 5.0.16(@types/react@19.3.0)(immer@10.2.0)(react@19.3.1)(use-sync-external-store@1.6.0(react@19.3.1))
     devDependencies:
-      '@brainstrike/config':
-        specifier: workspace:*
-        version: link:../config
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
