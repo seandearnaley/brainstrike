@@ -286,14 +286,18 @@ describe('main boot order', () => {
 
   it('keeps owned native startup retirement informational during terminal shutdown', async () => {
     const reader = Promise.withResolvers<void>();
-    nativeAcquireRead.mockReturnValue(reader.promise);
+    // Terminal shutdown begins while the reader starts: the first window does not wait for the
+    // index (owner decision 7.3(i)), so shutdown must begin before the boot reaches its window.
+    nativeAcquireRead.mockImplementation(() => {
+      isDesktopShuttingDownMock.mockReturnValue(true);
+      return reader.promise;
+    });
     await import('../../main');
     await vi.waitFor(() => expect(nativeAcquireRead).toHaveBeenCalledOnce());
     const { NativeAuthorityTransitionError } = await import(
       '@brainstrike/assistant-service/node-native-text-services'
     );
     const failure = new NativeAuthorityTransitionError('Native owner retired');
-    isDesktopShuttingDownMock.mockReturnValue(true);
     reader.reject(failure);
     await vi.waitFor(() =>
       expect(
@@ -309,6 +313,7 @@ describe('main boot order', () => {
           details?.error === failure
       )
     ).toBe(false);
+    expect(bootWindow().show).not.toHaveBeenCalled();
   });
 
   it('keeps an independent reader failure visible during shutdown', async () => {
