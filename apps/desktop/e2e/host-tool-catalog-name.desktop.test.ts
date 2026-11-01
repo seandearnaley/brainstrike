@@ -3,7 +3,6 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 /** A committed host approval names the tool by its catalog ID, not the provider-sanitized name. */
@@ -11,8 +10,6 @@ test('a host tool approval is labelled with the catalog tool ID', async ({
   modelProvider,
   window,
 }) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   await new HomePage(window).openSettings();

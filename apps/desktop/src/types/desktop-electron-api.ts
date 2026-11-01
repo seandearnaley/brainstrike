@@ -1,10 +1,5 @@
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type {
-  ContentClearCapability,
-  IFileNode,
-  RecentRootEntry,
-  RootDescriptor,
-} from '@brainstrike/types';
+import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { ContentClearCapability, RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
 /** E2E only: seeds and clears Main's workspace ledgers. Absent outside test mode. */
@@ -17,16 +12,7 @@ export interface DesktopFileSystemBridge {
   addRoot: () => Promise<RootDescriptor>;
   addRootByPath: (path: string) => Promise<RootDescriptor>;
   deleteRootData: (rootId: string) => Promise<void>;
-  exists: (path: string) => Promise<boolean>;
   listRecentRoots: () => Promise<readonly RecentRootEntry[]>;
-  readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
-  readFile: (handle: FileHandle) => Promise<string>;
-  readFileByAbsolutePath: (
-    absolutePath: string,
-    rootPath: string,
-    rootId: string
-  ) => Promise<string>;
-  readFileByPath: (absolutePath: string) => Promise<string>;
   removeRoot: (rootId: string) => Promise<void>;
   requestDirectoryAccess: () => Promise<DirectoryHandle>;
   restoreLastFolder: () => Promise<DirectoryHandle | null>;

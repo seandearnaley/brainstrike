@@ -70,14 +70,7 @@ const mockElectronAPI = {
       },
     }),
     deleteRootData: vi.fn(),
-    exists: vi.fn().mockResolvedValue({ ok: true, value: true }),
     listRecentRoots: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    readDirectory: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    readFile: vi.fn().mockResolvedValue({ ok: true, value: 'mock file content' }),
-    readFileByAbsolutePath: vi
-      .fn()
-      .mockResolvedValue({ ok: true, value: 'mock file content by absolute path' }),
-    readFileByPath: vi.fn().mockResolvedValue({ ok: true, value: 'mock file content by path' }),
     removeRoot: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
     requestDirectoryAccess: vi.fn().mockResolvedValue({
       ok: true,

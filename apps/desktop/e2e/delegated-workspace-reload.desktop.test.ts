@@ -11,7 +11,6 @@ import {
   ensureAssistantShellVisible,
   ensureMockWorkspaceOpen,
 } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderRequest, ModelProviderScript } from './utils/model-provider-shim';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
@@ -173,8 +172,6 @@ test('restores distinct child tabs and native transcripts without executing a ru
   modelProvider,
   window,
 }, testInfo) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   modelProvider.setScript(scriptDelegationTree);
@@ -266,7 +263,6 @@ test('restores distinct child tabs and native transcripts without executing a ru
   // Every agent turn from here on would be a child or root executing.
   const settledModelCalls = modelCalls();
   await reloadRenderer(window, 'delegated-workspace-reload: reload 1');
-  await mockFileSystemOperations(window);
   await ensureAssistantShellVisible(window);
   await threadRow(ROOT_TITLE).click();
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
@@ -460,7 +456,6 @@ test('restores distinct child tabs and native transcripts without executing a ru
   });
 
   await reloadRenderer(window, 'delegated-workspace-reload: reload 2');
-  await mockFileSystemOperations(window);
   await ensureAssistantShellVisible(window);
   await expect(threadRow(OTHER_TITLE)).toBeVisible();
   await expect(window.getByRole('tab', { exact: true, name: first.callSign })).toHaveCount(0);

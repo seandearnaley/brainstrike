@@ -3,9 +3,8 @@ import {
   expandDirectoryIfNeeded,
   expect,
   expectFileSelected,
-  installNestedFolderFixture,
-  mockRootPath,
   test,
+  writeNestedFolderFixture,
 } from './file-explorer-selection.shared';
 
 /**
@@ -17,12 +16,12 @@ import {
  */
 test.describe('Desktop file explorer selection', () => {
   test('unchecking a selected folder removes its files from the selection on desktop', async ({
-    electronApp,
+    electronHarness,
     window,
   }) => {
     test.setTimeout(45_000);
 
-    await installNestedFolderFixture(electronApp.app, mockRootPath('desktop-context-deselect'));
+    await writeNestedFolderFixture(electronHarness.getWorkspaceRoot());
     await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
