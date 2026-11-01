@@ -31,7 +31,9 @@ export interface HostMemoryReadContext {
  *   make, or, for a paused run whose admission is not open, for that run's
  *   committed snapshot.
  * It never queues behind a send, acquires a selection, discovers MCP tools or
- * warms a model.
+ * warms a model. The production platform does start the shared tokenizer's
+ * one-time load when the model is measured with a local tokenizer, so that cost
+ * is paid while the person types rather than in the first request.
  */
 export async function readHostThreadMemory(
   platform: HostPlatform,
