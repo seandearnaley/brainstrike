@@ -15,7 +15,9 @@ import type { IndexSearchCapability } from '@brainstrike/indexing-contract/index
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { QueryEmbeddingRequest } from '../ipc-domains/index-search.contract';
+import { checkoutFileRecords } from './checkout-read-through';
 import {
+  type CheckoutAccess,
   resolveAdmittedRetrievalRoots,
   resolveNativeAssistantCollection,
   searchNativeAssistantChunks,
@@ -89,6 +91,8 @@ interface ContextChunkConversionResult {
 
 export interface RetrievalToolDependencies {
   admittedWorkspaceRootIds?: readonly string[] | undefined;
+  /** How a worktree folder reads its repository's index (ADR-0034). */
+  checkout?: CheckoutAccess | undefined;
   nativeIndexSearch?: IndexSearchCapability | undefined;
   queryEmbedder?: QueryEmbedder | undefined;
 }
@@ -276,14 +280,16 @@ async function packRetrievedContext(
     rank: number;
   }>,
   input: RetrievalContextInput,
-  admittedRootIds: readonly string[] | undefined
+  admittedRootIds: readonly string[] | undefined,
+  /** The catalog rows as the model sees them (a worktree's hits name the worktree). */
+  modelFiles: (files: ReadonlyMap<string, FileRecordRow>) => ReadonlyMap<string, FileRecordRow>
 ): Promise<{
   packed: ContextPackerResult;
   contextText: string;
   skippedSourceRangeChunks: SkippedSourceRangeChunk[];
 }> {
   const fileIds = Array.from(new Set(searchResults.map((result) => result.chunk.fileRecordId)));
-  const fileMap = await store.fileRecords(fileIds);
+  const fileMap = modelFiles(await store.fileRecords(fileIds));
   assertAdmittedRetrievalFileRoots(fileMap, fileIds, admittedRootIds);
   const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
   if (searchResults.length > 0 && skippedSourceRangeChunks.length === searchResults.length) {
@@ -336,7 +342,9 @@ async function runRetrieval(
   const native = await searchNativeAssistantChunks({
     ...input,
     admittedWorkspaceRootIds: admittedRootIds,
+    boundRootId: runtimeData?.boundWorkspaceRootId,
     capability: nativeIndexSearch,
+    checkout: dependencies.checkout,
     embeddingSet,
     embeddingSetId,
     mode: 'semantic',
@@ -375,7 +383,13 @@ async function runRetrieval(
     store,
     searchResults,
     input,
-    admittedRootIds
+    admittedRootIds,
+    (files) =>
+      checkoutFileRecords(
+        files,
+        native.hits.map(({ hit }) => hit),
+        native.readThrough
+      )
   );
   await native.assertCurrent();
   signal?.throwIfAborted();
