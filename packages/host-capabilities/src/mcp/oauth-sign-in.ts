@@ -60,10 +60,19 @@ export async function signInWithOAuthWith({
       `The MCP config no longer has a server named "${serverName}".`
     );
   }
+  // The 401 came from the config the runtime loaded. An edit saved since then
+  // that sets auth or changes the transport is the user's newer choice.
   if (
-    entry.transport !== 'stdio' &&
-    Object.keys(entry.headers ?? {}).some((name) => name.toLowerCase() === 'authorization')
+    entry.transport !== 'streamable-http' ||
+    (entry.auth !== undefined && entry.auth.type !== 'none')
   ) {
+    throw refusalError(
+      'conflict',
+      'mcp.oauth-sign-in-config-changed',
+      `The MCP config for ${serverName} changed after it asked for sign-in, so nothing was changed. Connect again once the new config has loaded.`
+    );
+  }
+  if (Object.keys(entry.headers ?? {}).some((name) => name.toLowerCase() === 'authorization')) {
     throw refusalError(
       'configuration',
       'mcp.oauth-sign-in-authorization-header',

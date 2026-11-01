@@ -119,4 +119,18 @@ describe('Connect on a server that asks for sign-in', () => {
     await expect(readFile(h.configPath, 'utf8')).resolves.toBe(original);
     expect(h.control).not.toHaveBeenCalled();
   });
+
+  it('keeps auth the user added on disk after the 401, before the watcher reloaded it', async () => {
+    const h = await started(config());
+    answeredUnauthorized(h);
+    const edited = config({ auth: { scopes: ['read'], type: 'oauth-user' } });
+    // Saved in another editor; the watcher has not delivered the change yet.
+    await writeFile(h.configPath, edited, 'utf8');
+
+    await expect(
+      h.authority.control({ action: 'connect', configuredServerId: suno })
+    ).rejects.toMatchObject({ failure: { category: 'conflict', kind: 'refusal' } });
+    await expect(readFile(h.configPath, 'utf8')).resolves.toBe(edited);
+    expect(h.control).not.toHaveBeenCalled();
+  });
 });
