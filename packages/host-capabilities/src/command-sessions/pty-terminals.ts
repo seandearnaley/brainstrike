@@ -20,7 +20,7 @@
  *
  * 2. LIFECYCLE / no orphans. Each client connection opens one session that
  *    tracks its live ptys. `terminal/destroy`, the connection's close (a closed
- *    window) and {@link DesktopTerminals.close} (host close, which quit and
+ *    window) and {@link PtyTerminals.close} (host close, which quit and
  *    factory reset join) kill them, so no shell survives its window, the host or
  *    a workspace reset. Reaping is order-critical: {@link killTerminalTree}
  *    ends the whole tree with `terminateTree` (while the leader is still alive) and
@@ -52,17 +52,17 @@ import {
   refusal,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import {
-  resolveContainedCwd,
-  resolveRootCwd,
-  type WorkspaceRootResolver,
-} from '@brainstrike/host-capabilities/workspace-root-cwd';
 import { createLogger } from '@brainstrike/logging';
 import { terminateTree, trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
-import type { CommandSessionManager } from '../assistant-server/command-session-manager';
-import { createCommandSessionHandlers } from './command-session-handlers';
+import {
+  resolveContainedCwd,
+  resolveRootCwd,
+  type WorkspaceRootResolver,
+} from '../workspace-root-cwd.ts';
+import { createCommandSessionHandlers } from './command-session-handlers.ts';
+import type { CommandSessionManager } from './command-session-manager.ts';
 
 const logger = createLogger('HostTerminals');
 
@@ -244,7 +244,7 @@ function killTerminalTree(entry: LiveTerminal): Promise<void> {
   return entry.reap;
 }
 
-export interface DesktopTerminalsOptions {
+export interface PtyTerminalsOptions {
   /** This host's command sessions, which the panel's inventory lists. */
   readonly commandSessions: CommandSessionManager;
   readonly resolver: WorkspaceRootResolver;
@@ -252,17 +252,17 @@ export interface DesktopTerminalsOptions {
   readonly spawn?: typeof pty.spawn;
 }
 
-export interface DesktopTerminals {
+export interface PtyTerminals {
   /** Ends every terminal of every client and joins their exits. */
   close(): Promise<void>;
   readonly service: HostTerminals;
 }
 
-export function createDesktopTerminals({
+export function createPtyTerminals({
   commandSessions,
   resolver,
   spawn = pty.spawn,
-}: DesktopTerminalsOptions): DesktopTerminals {
+}: PtyTerminalsOptions): PtyTerminals {
   // Every pty not yet joined, across sessions: host close drains them all,
   // including ones a destroy or a closed client already started reaping.
   const owned = new Set<LiveTerminal>();

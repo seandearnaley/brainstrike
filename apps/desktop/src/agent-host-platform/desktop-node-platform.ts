@@ -23,6 +23,11 @@ import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-me
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
+import {
+  createPtyTerminals,
+  disposeHostTools,
+  hostCommandSessionManager,
+} from '@brainstrike/host-capabilities/command-sessions';
 import { createGitWorkspace } from '@brainstrike/host-capabilities/git-workspace';
 import {
   getGlobalHooksPath,
@@ -57,11 +62,9 @@ import {
   type DesktopAdmissionReads,
   type DesktopRunSelection,
 } from './desktop-run-admission';
-import { createDesktopTerminals } from './desktop-terminals';
 import { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
 import { desktopManagedWorktreeDirectory } from './desktop-worktree-directory';
 import { forwardHostDiagnostics } from './host-diagnostics';
-import { disposeHostTools, hostCommandSessionManager } from './host-tool-process';
 import { lentCredentialCipher } from './lent-credential-cipher';
 import {
   createDesktopHostMemoryConfiguration,
@@ -322,7 +325,7 @@ export async function createDesktopHostConfiguration(
   });
   await startup.register(() => workspace.close());
   // ADR-0029 stage 3: the Terminal panel's terminals and command-session inventory.
-  const terminals = createDesktopTerminals({
+  const terminals = createPtyTerminals({
     commandSessions: hostCommandSessionManager(),
     resolver: roots,
   });

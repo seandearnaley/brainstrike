@@ -1,16 +1,14 @@
-import {
-  disposeLiveChildProcesses,
-  disposeLspServers,
-} from '@brainstrike/host-capabilities/native-tools';
 /**
- * The desktop agent host's process-lifetime tool state: the command sessions
- * its runs start, and the disposal of
- * every process-owned tool resource when the host closes. Runs in the host only.
+ * An agent host's process-lifetime tool state (desktop and standalone): the
+ * command sessions its runs start, and the disposal of every process-owned tool
+ * resource when the host closes.
  */
+import { disposeLiveChildProcesses } from '../native-tools/execute-command-tool.ts';
+import { disposeLspServers } from '../native-tools/lsp-diagnostics.ts';
 import {
   type CommandSessionManager,
   createCommandSessionManager,
-} from '../assistant-server/command-session-manager';
+} from './command-session-manager.ts';
 
 let sessions: CommandSessionManager | undefined;
 

@@ -21,7 +21,7 @@ import {
   type CommandSessionRead,
   type ExitedCommandSession,
   type RunningCommandSession,
-} from './command-session-manager';
+} from './command-session-manager.ts';
 
 export interface CommandSessionToolDependencies {
   readonly manager: CommandSessionManager;
