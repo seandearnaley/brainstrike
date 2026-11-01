@@ -18,7 +18,7 @@ import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-
 import { createLogger } from '@brainstrike/logging';
 import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { cn } from '@brainstrike/ui';
-import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import type { ConversationTokenEstimate } from './context-estimate';
 import { MemoryDeveloperPanel } from './context-usage-memory-panel';
 import type {

@@ -589,7 +589,7 @@ describe('assistant thread surface', () => {
       throw new Error('Expected a run-event data renderer to be registered.');
     }
 
-    // No AssistantDetailLevelProvider here → standard default → background hidden.
+    // Detail level untouched → standard default → background hidden.
     render(
       <RunEventPart
         data={{
@@ -616,7 +616,7 @@ describe('assistant thread surface', () => {
       throw new Error('Expected a run-event data renderer to be registered.');
     }
 
-    // No AssistantDetailLevelProvider → standard default → background hidden,
+    // Detail level untouched → standard default → background hidden,
     // yet a terminal run failure must still render so the turn isn't silently
     // swallowed.
     const { rerender } = render(

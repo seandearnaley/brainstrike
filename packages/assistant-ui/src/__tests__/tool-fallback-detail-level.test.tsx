@@ -1,13 +1,12 @@
 import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import type { AssistantDetailLevel } from '../assistant-detail-level';
 import {
-  ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
-  AssistantDetailLevelProvider,
+  setAssistantDetailLevel,
   useAssistantDetailLevel,
-} from '../assistant-detail-level-context';
+} from '../assistant-detail-level-store.ts';
 import { ToolFallback } from '../tool-fallback';
 
 beforeAll(() => {
@@ -31,21 +30,16 @@ const internalToolProps = {
 };
 
 function renderTool(props: Record<string, unknown>, level: AssistantDetailLevel) {
-  window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, level);
+  setAssistantDetailLevel(level);
   const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
   return render(
     <TooltipProvider>
-      <AssistantDetailLevelProvider>
-        <Comp {...props} />
-      </AssistantDetailLevelProvider>
+      <Comp {...props} />
     </TooltipProvider>
   );
 }
 
 describe('ToolFallback detail level', () => {
-  beforeEach(() => window.localStorage.clear());
-  afterEach(() => window.localStorage.clear());
-
   it('compact shows the call only — no expander or result summary (any tool)', () => {
     renderTool(internalToolProps, 'compact');
     expect(screen.queryByRole('button', { name: /expand details/iu })).not.toBeInTheDocument();
@@ -133,12 +127,10 @@ describe('ToolFallback detail level', () => {
       );
     }
 
-    window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, 'standard');
+    setAssistantDetailLevel('standard');
     render(
       <TooltipProvider>
-        <AssistantDetailLevelProvider>
-          <Harness />
-        </AssistantDetailLevelProvider>
+        <Harness />
       </TooltipProvider>
     );
 

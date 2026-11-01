@@ -21,7 +21,7 @@ import { StepRowHeader } from './activity-step-row';
 import { stepVerbText, toolCallRan, toolStepStateFor } from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
-import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import { McpTaskToolResult } from './mcp-task-tool-result';
 import {
   isSubagentDelegationToolName,

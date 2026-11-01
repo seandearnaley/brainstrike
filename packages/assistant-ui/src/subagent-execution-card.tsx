@@ -7,7 +7,7 @@ import { StepRowHeader } from './activity-step-row';
 import { toolStepStateFor } from './activity-trace-model';
 import { agentColorStyle } from './agent-color-style';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
-import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import { SubagentApprovalHistory } from './subagent-approval-history';
 import type {
   SubagentAnsweredApproval,
