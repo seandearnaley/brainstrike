@@ -216,7 +216,12 @@ export function createCommittedHostThread(
     liveShellOutputs.accept(telemetry.chunk);
     store.acceptTelemetry(telemetry.runId, telemetry.chunk);
   });
-  const startTurn = (message: AppendMessage): Promise<void> => startCommittedTurn(options, message);
+  // The host published the run's rows before it answered: the view shows the
+  // run before the send settles, so the composer never offers a second send.
+  const startTurn = async (message: AppendMessage): Promise<void> => {
+    await startCommittedTurn(options, message);
+    source.deliverReceived();
+  };
   // The thread's catalog entry: its title, colour and icon, and the workspace
   // it is bound to, which the host moves when the thread enters a worktree.
   let entrySeq = -1;

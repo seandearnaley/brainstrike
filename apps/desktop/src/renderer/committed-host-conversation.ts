@@ -158,6 +158,7 @@ export function createCommittedHostConversation(
         threadId,
         userMessageId: parentId,
       });
+      source.deliverReceived();
     },
     onRespondToToolApproval: async (response) => {
       const pending = store

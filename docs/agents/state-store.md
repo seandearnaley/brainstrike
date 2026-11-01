@@ -22,7 +22,7 @@ Implementation: `packages/state-store` and `packages/agent-host`.
 ## Memory calculation
 
 - Mastra memory calculation never runs on the writer thread.
-  - `memory-calculator.ts` starts its worker (`memory-calculator-worker.mjs`) on the first request that needs it, so open never pays its 1-2 s module load. It stops at close, Clear and reset.
+  - The store starts the worker (`memory-calculator-worker.mjs`) when it opens and never awaits it, so neither open nor the first send waits for its 1-2 s module load. It stops at close, Clear and reset.
   - The worker only calculates: it opens no database and writes nothing.
 - StateStore reads the input, the worker returns a delta, and the delta commits on the writer's write chain only if the resource's revision is unchanged since the read.
 - One resource's memory mutations run one at a time; appends and other resources continue.
