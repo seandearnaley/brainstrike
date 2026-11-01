@@ -977,6 +977,12 @@ jobs:
       # same way the static job does, so the in-job builds and the browser
       # suites don't oversubscribe the runner.
       TURBO_CONCURRENCY: "4"
+      # The packages that define a test:browser script. Install and test both
+      # read this list. A package that gains a test:browser script runs no
+      # browser tests until it is added here.
+      BROWSER_TEST_PACKAGES: >-
+        @brainstrike/assistant-ui @brainstrike/canonical-ingestion
+        @brainstrike/mcp-app-host @brainstrike/storage @brainstrike/ui
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -1012,23 +1018,35 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-turbo-
 
       - name: Install dependencies
-        # This container has no C toolchain or sudo; the browser-test packages
-        # (db, ui, assistant-ui, storage, mcp-app-host) and
-        # their dependency closures are pure TS, so desktop and the three
-        # native addon projects are excluded from install. windows-job-native
-        # has compiled on Linux since M3 (#3543) and failed this install with
-        # `not found: make` once it was a shared dependency (BST-2080).
-        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native' --filter '!@brainstrike/windows-job-native'
+        # This container has no C toolchain or sudo, so it installs only what
+        # it runs: the browser-test packages and their dependency closures
+        # (`pkg...`), plus the workspace root's tools. An exclusion list broke
+        # each time a package outside that closure gained a native dependency:
+        # windows-job-native (BST-2080), then node-pty, which has no linux-x64
+        # prebuild, once host-capabilities owned it (BST-2431). The two native
+        # add-ons inside canonical-ingestion's closure stay excluded; its
+        # browser suite does not load them.
+        shell: bash
+        run: |
+          filters=()
+          for package in $BROWSER_TEST_PACKAGES; do
+            filters+=(--filter "$package...")
+          done
+          pnpm install --frozen-lockfile --prod=false "${filters[@]}" --filter '!@brainstrike/secure-fs-native' --filter '!@brainstrike/windows-job-native'
 
       - name: Run browser tests
         # Explicit --filter per browser-test package: an UNFILTERED root
         # `pnpm test:browser` puts all 47 workspace packages in turbo scope and
         # builds both desktop native addons, which this toolchain-less pwuser
         # container cannot compile (proven by this lane's first run). The
-        # filtered scope is the five packages + their pure-TS closure.
-        # KEEP IN SYNC with packages defining a test:browser script: a package
-        # that gains one runs no browser tests until it is added here.
-        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/canonical-ingestion --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui
+        # filtered scope is the browser-test packages + their pure-TS closure.
+        shell: bash
+        run: |
+          filters=()
+          for package in $BROWSER_TEST_PACKAGES; do
+            filters+=("--filter=$package")
+          done
+          pnpm test:browser "${filters[@]}"
 
       - name: Upload browser test artifacts
         if: failure()
