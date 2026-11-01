@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { RootLock } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import {
   createMessageConnection,
@@ -175,6 +176,30 @@ test('a host that exits without announcing its retirement leaves its unanswered 
   } finally {
     release.resolve();
     await host.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('a client whose transport closes while the host retires it does not hold the host open (BST-2442)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-closed-during-retirement-'));
+  const { entered, host, release } = await startHeldHost(root);
+  const { client, exit } = await attachPrivateClient(host);
+  try {
+    const admitted = client.catalog
+      .workspaceRoots({ operation: 'list' })
+      .catch((cause: unknown) => cause);
+    await entered.promise;
+    const closing = host.close();
+    // The client's window goes away before its admitted request settles.
+    exit();
+    await admitted;
+    release.resolve();
+    await expect(closing).resolves.toBeUndefined();
+    expect(RootLock.inspect(root)?.owner.released).toBe(true);
+  } finally {
+    release.resolve();
+    exit();
+    await host.close().catch(() => undefined);
     await rm(root, { force: true, recursive: true });
   }
 });
