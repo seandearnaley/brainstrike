@@ -139,6 +139,14 @@ Implementation: `packages/indexer`, `packages/canonical-ingestion`,
 - Whole-root deletion uses the original mounted root and its acknowledged
   bindings, joins its source/read/inference owners, then removes only that root's
   canonical data. It never retires the whole agent-host profile.
+  - Main stops its sources, then the host's `workspace/roots/delete-data` fences
+    the folder, deletes its records and disconnects it; Main resumes after.
+- Main's index reads only the folders the host mounted (`workspace/roots/mounted`)
+  through its own handles (`IndexSourceRoots`), refusing one whose canonical path
+  differs from the host's. The host removes a folder first (D1, 2026-11-01):
+  `followHost()` retires that folder's leases at once, and a scan refused at
+  `prepare` because its root is no longer live ends as cancelled, never as a
+  failure.
 
 ## Liveness
 
