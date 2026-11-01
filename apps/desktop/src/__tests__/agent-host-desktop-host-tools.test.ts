@@ -81,63 +81,54 @@ function selection(
       brainstrike_browserNavigate: {
         description: 'Open a page',
         identity: NATIVE_TOOL_ID.browserNavigate,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.browserNavigate,
         risk: 'read',
       },
       brainstrike_browserReadPage: {
         description: 'Read the page tree',
         identity: NATIVE_TOOL_ID.browserReadPage,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.browserReadPage,
         risk: 'read',
       },
       brainstrike_executeCommand: {
         description: 'Shell command',
         identity: NATIVE_TOOL_ID.executeCommand,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.executeCommand,
         risk: 'execute',
       },
       brainstrike_grepSearch: {
         description: 'Content search',
         identity: NATIVE_TOOL_ID.grepSearch,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.grepSearch,
         risk: 'read',
       },
       brainstrike_listWorktrees: {
         description: 'List worktrees',
         identity: NATIVE_TOOL_ID.listWorktrees,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.listWorktrees,
         risk: 'read',
       },
       brainstrike_lspInspect: {
         description: 'Language-server inspection',
         identity: NATIVE_TOOL_ID.lspInspect,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.lspInspect,
         risk: 'read',
       },
       brainstrike_manageWorktree: {
         description: 'Manage worktrees',
         identity: NATIVE_TOOL_ID.manageWorktree,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.manageWorktree,
         risk: 'execute',
       },
       brainstrike_queryDiagnostics: {
         description: 'Diagnostics',
         identity: NATIVE_TOOL_ID.queryDiagnostics,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.queryDiagnostics,
         risk: 'read',
       },
       brainstrike_readWorkspaceContext: {
         description: 'Curated context read',
         identity: NATIVE_TOOL_ID.readWorkspaceContext,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.readWorkspaceContext,
         risk: 'read',
       },
@@ -594,7 +585,6 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
   selected.tools['brainstrike_runPython'] = {
     description: 'Run Python',
     identity: NATIVE_TOOL_ID.runPython,
-    inputSchema: { type: 'object' },
     permissionToolId: NATIVE_TOOL_ID.runPython,
     risk: 'execute',
   };
@@ -683,7 +673,6 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     selected.tools[id.replace('.', '_')] = {
       description: id,
       identity: id,
-      inputSchema: { type: 'object' },
       permissionToolId: id,
       risk,
     };
@@ -736,7 +725,6 @@ test('a run with Skills off is admitted without workspace skills', async () => {
   selected.tools['skill'] = {
     description: 'skill',
     identity: 'skill',
-    inputSchema: { type: 'object' },
     permissionToolId: 'skill',
     risk: 'read',
   };
@@ -766,7 +754,6 @@ test('the desktop host runs webExtract with its own Tavily key owner, refusing i
   selected.tools['brainstrike_webExtract'] = {
     description: 'Extract pages',
     identity: NATIVE_TOOL_ID.webExtract,
-    inputSchema: { type: 'object' },
     permissionToolId: NATIVE_TOOL_ID.webExtract,
     risk: 'read',
   };

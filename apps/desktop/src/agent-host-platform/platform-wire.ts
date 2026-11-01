@@ -132,16 +132,8 @@ export const PlatformSelectionSchema = Schema.Struct({
     Schema.Struct({
       description: Schema.String,
       identity: Id,
-      inputSchema: Schema.Record(Schema.String, Schema.MutableJson),
-      interaction: Schema.optional(
-        Schema.Struct({
-          kind: Schema.Literals(['question', 'plan']),
-          resumeSchema: Schema.Record(Schema.String, Schema.MutableJson),
-        })
-      ),
       permissionToolId: Id,
       risk: Schema.Literals(TOOL_RISK_CATEGORIES),
-      strict: Schema.optional(Schema.Boolean),
     })
   ),
   toolTimeoutMs: Schema.Finite.check(Schema.isGreaterThan(0)),

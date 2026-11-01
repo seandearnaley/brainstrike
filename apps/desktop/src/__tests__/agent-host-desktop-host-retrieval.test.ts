@@ -227,7 +227,6 @@ function hostTools(
   const descriptor = (id: string) => ({
     description: id,
     identity: id,
-    inputSchema: { type: 'object' },
     permissionToolId: id,
     risk: 'read',
   });

@@ -316,7 +316,7 @@ async function readDesktopNativeAdmission(
     runtime,
     configurationRoots
   );
-  const descriptors = await desktopToolDescriptors({
+  const descriptors = desktopToolDescriptors({
     // Only a run that enables run_python asks: the check loads the sandbox runtime.
     codeFence:
       intent.enabledNativeToolIds.includes(NATIVE_TOOL_ID.runPython) && (await hostFencesCode()),
