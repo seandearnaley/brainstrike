@@ -10,6 +10,9 @@
  * Rules carried over from @mastra/core 1.80 `provider-history-compat.ts`:
  * anthropic-tool-id-format, anthropic-strip-foreign-reasoning-content,
  * anthropic-strip-foreign-signed-reasoning and tool-call-empty-input.
+ * Mastra keyed "own" reasoning on the `anthropic` options key for every
+ * Claude route, so OpenRouter Claude lost its own `openrouter`-keyed
+ * reasoning; here ownership follows the provider that serves the route.
  * Foreign provider-executed calls are dropped earlier, as whole pairs, by
  * `stripForeignExecutedToolPairs`.
  */
@@ -29,17 +32,31 @@ export interface ProviderHistoryTarget {
   readonly provider: SupportedProvider;
 }
 
-/** Anthropic's Messages rules apply to its own API and to OpenRouter's Claude routes. */
-function servesAnthropicHistory({ model, provider }: ProviderHistoryTarget): boolean {
-  return (
-    provider === 'anthropic' ||
-    (provider === 'openrouter' && model.modelId.startsWith('anthropic/'))
-  );
+/**
+ * Anthropic's Messages rules apply to its own API and to OpenRouter's Claude
+ * routes. Returns the provider-options key the serving provider writes its own
+ * reasoning under (OpenRouter keeps `reasoning_details` under `openrouter`),
+ * or `undefined` when the rules do not apply.
+ */
+function anthropicRouteNamespace({ model, provider }: ProviderHistoryTarget): string | undefined {
+  if (provider === 'anthropic') {
+    return 'anthropic';
+  }
+  return provider === 'openrouter' && model.modelId.startsWith('anthropic/')
+    ? 'openrouter'
+    : undefined;
+}
+
+function reasoningOptions(
+  part: LanguageModelV4ReasoningPart,
+  namespace: string
+): Record<string, unknown> | undefined {
+  const options = part.providerOptions?.[namespace];
+  return Predicate.isObject(options) ? options : undefined;
 }
 
 function anthropicOptions(part: LanguageModelV4ReasoningPart): Record<string, unknown> | undefined {
-  const options = part.providerOptions?.['anthropic'];
-  return Predicate.isObject(options) ? options : undefined;
+  return reasoningOptions(part, 'anthropic');
 }
 
 /** Drop matching reasoning parts from assistant turns, and any turn left empty. */
@@ -65,10 +82,10 @@ function dropReasoning(
 
 /**
  * The assistant turn the request continues (followed only by tool results),
- * when it holds Anthropic thinking: Anthropic requires that turn's thinking
- * to be replayed unchanged.
+ * when it holds the route's own thinking: Anthropic requires that turn's
+ * thinking to be replayed unchanged.
  */
-function continuedAnthropicTurn(prompt: LanguageModelV4Prompt): number {
+function continuedTurnWithOwnReasoning(prompt: LanguageModelV4Prompt, namespace: string): number {
   for (let index = prompt.length - 1; index >= 0; index -= 1) {
     const message = prompt[index];
     if (message?.role === 'tool') {
@@ -76,7 +93,7 @@ function continuedAnthropicTurn(prompt: LanguageModelV4Prompt): number {
     }
     const continued = message?.role === 'assistant' ? message : undefined;
     return continued?.content.some(
-      (part) => part.type === 'reasoning' && anthropicOptions(part) !== undefined
+      (part) => part.type === 'reasoning' && reasoningOptions(part, namespace) !== undefined
     )
       ? index
       : -1;
@@ -84,12 +101,15 @@ function continuedAnthropicTurn(prompt: LanguageModelV4Prompt): number {
   return -1;
 }
 
-/** Anthropic rejects reasoning another provider emitted. */
-function dropForeignReasoning(prompt: LanguageModelV4Prompt): LanguageModelV4Prompt {
+/** Anthropic rejects reasoning another provider emitted; the route's own reasoning stays. */
+function dropForeignReasoning(
+  prompt: LanguageModelV4Prompt,
+  namespace: string
+): LanguageModelV4Prompt {
   return dropReasoning(
     prompt,
-    (part) => anthropicOptions(part) === undefined,
-    continuedAnthropicTurn(prompt)
+    (part) => reasoningOptions(part, namespace) === undefined,
+    continuedTurnWithOwnReasoning(prompt, namespace)
   );
 }
 
@@ -190,8 +210,9 @@ export function applyProviderHistoryCompat(
   target: ProviderHistoryTarget
 ): LanguageModelV4Prompt {
   let prompt = input;
-  if (servesAnthropicHistory(target)) {
-    prompt = dropForeignReasoning(sanitizeToolCallIds(prompt));
+  const namespace = anthropicRouteNamespace(target);
+  if (namespace) {
+    prompt = dropForeignReasoning(sanitizeToolCallIds(prompt), namespace);
   }
   if (target.history) {
     prompt = dropForeignSignedReasoning(prompt, target.history, target.model.provider);

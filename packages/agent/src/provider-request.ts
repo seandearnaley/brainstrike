@@ -314,12 +314,14 @@ function measuredTokens(prompt: LanguageModelV4Prompt, measurement: PreparedToke
 }
 
 /**
- * The most recent part of the conversation that fits the budget, with every
+ * The most recent part of an over-budget conversation that fits, with every
  * system message. It starts at a user turn: providers require one first, and
- * a user turn never splits a tool call from its results. Each candidate is
- * measured exactly as the request is accounted, and a longer suffix never
- * counts fewer tokens, so a binary search over user turns finds the cut; a
- * request that already fits is measured once.
+ * a user turn never splits a tool call from its results. The request already
+ * starts at its first user turn (its boundaries are asserted) and its
+ * accounting found it over budget, so that whole prompt is not measured
+ * again. Each shorter candidate is measured exactly as the request is
+ * accounted, and a longer suffix never counts fewer tokens, so a binary search
+ * over the later user turns finds the cut.
  */
 function recentPromptWithin(
   prompt: LanguageModelV4Prompt,
@@ -327,16 +329,10 @@ function recentPromptWithin(
   measurement: PreparedTokenMeasurement
 ): LanguageModelV4Prompt | undefined {
   const starts = prompt.flatMap((message, index) => (message.role === 'user' ? [index] : []));
-  if (starts.length === 0) {
-    return measuredTokens(prompt, measurement) <= budget ? prompt : undefined;
-  }
   const from = (start: number) =>
     prompt.filter((message, index) => message.role === 'system' || index >= start);
   const fits = (candidate: number) =>
     measuredTokens(from(starts[candidate] ?? 0), measurement) <= budget;
-  if (fits(0)) {
-    return from(starts[0] ?? 0);
-  }
   let low = 1;
   let high = starts.length;
   while (low < high) {
@@ -429,7 +425,8 @@ export async function prepareProviderRequest(
   if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
     throw new RangeError('inputTokenLimit must be a positive integer');
   }
-  if (limit !== undefined) {
+  // A request that fits is measured once, by its accounting above.
+  if (limit !== undefined && accounting.totalTokens > limit) {
     prompt = limitProviderPrompt(
       prepared.prompt,
       model,

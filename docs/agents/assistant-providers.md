@@ -13,8 +13,8 @@ The host admits concrete models and executable tools; clients submit non-secret 
   - Native OpenAI tool-search history needs its declared `openai.tool_search` provider tool at the SDK edge; a function named `tool_search` is a different tool ([vendor identity contract](https://github.com/vercel/ai/pull/19754)). The host keeps its own discovery catalog.
   - Drop orphaned reasoning, aborted-step items and foreign-provider executed parts from requests without rewriting canonical history.
   - Provider history rules and the context limit are plain functions over the AI SDK V4 prompt in `transformParams`. The AI SDK has neither primitive, and no Mastra processor or V2 prompt is involved.
-  - Anthropic routes (its own API and OpenRouter's `anthropic/*`) get valid tool-call IDs and only their own thinking. Signed thinking another SDK provider stamped is dropped for every target.
-  - Over the input limit, the request keeps every system message and the most recent conversation that fits, starting at a user turn so no tool call loses its result, measured exactly as it is accounted. When even the latest turn can't fit, the run refuses with `provider.context-overflow`.
+  - Anthropic routes (its own API and OpenRouter's `anthropic/*`) get valid tool-call IDs and only their own thinking, judged by the serving provider's options key (`anthropic`, or `openrouter` for OpenRouter's `reasoning_details`). Signed thinking another SDK provider stamped is dropped for every target.
+  - Over the input limit, the request keeps every system message and the most recent conversation that fits, starting at a user turn so no tool call loses its result, measured exactly as it is accounted; a request that fits is measured once. When even the latest turn can't fit, the run refuses with `provider.context-overflow`.
 - OpenAI uses stored responses. Expired stored items are typed, non-retryable failures; replaying without them needs the user's decision.
 
 ## Credentials and privacy
