@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostRoot, readOpenWorkspaceFolders } from './utils/agent-host-log';
+import { readHostRoot, readOpenWorkspaceFolders, waitForAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -283,9 +283,12 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         });
       const { waitForAppReady } = await loadElectronHelpers();
       await waitForAppReady(window);
+      // The replacement window loaded while the profile was closed; it attaches to the
+      // reopened profile's fresh host without a restart.
+      await waitForAppHost(window);
       // No durable store's saved value survives: the fresh document starts on defaults.
       expect(await markedDurableKeys(window)).toEqual([]);
-      await expect.poll(() => readFolders(userDataDir)).toEqual([[], []]);
+      expect(await readFolders(userDataDir)).toEqual([[], []]);
       await homePage.leaveSettings();
       for (const index of roots.keys()) {
         await expect(window.getByText(`reset-folder-${index}.txt`, { exact: true })).toHaveCount(0);
@@ -294,6 +297,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       const restartedHomePage = new HomePage(restarted);
       const restartedSettingsPage = new SettingsPage(restarted);
       await waitForAppReady(restarted);
+      await waitForAppHost(restarted);
       expect(await readFolders(userDataDir)).toEqual([[], []]);
       expect(await storedCredentials(restarted)).toEqual([]);
       await restartedHomePage.leaveSettings();
