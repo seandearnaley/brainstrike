@@ -11,10 +11,10 @@ import { useMemo } from 'react';
 import { lastPathSegment } from './ui/changed-files-tree-columns';
 
 export function useRootLabelById(): ReadonlyMap<string, string> {
-  const { rootDirectoryHandles, rootIdByPath } = useFileSystem();
+  const { mountedRootHandles, rootIdByPath } = useFileSystem();
   return useMemo(() => {
     const map = new Map<string, string>();
-    for (const handle of rootDirectoryHandles) {
+    for (const handle of mountedRootHandles) {
       const rootId = handle.rootId ?? rootIdByPath?.get(handle.path) ?? null;
       if (rootId === null) {
         continue;
@@ -25,5 +25,5 @@ export function useRootLabelById(): ReadonlyMap<string, string> {
       }
     }
     return map;
-  }, [rootDirectoryHandles, rootIdByPath]);
+  }, [mountedRootHandles, rootIdByPath]);
 }
