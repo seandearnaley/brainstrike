@@ -575,10 +575,8 @@ jobs:
           TURBO_TEST_MODE: unit
         # Every partition runs under the host's X server. Integration passes
         # outside desktop launch Electron too, and Electron fails without one
-        # ("Missing X server or $DISPLAY"; sqlite-query's utility pass in rest,
-        # Test run 39079872105; indexer's scoped-electron proof launches it the
-        # same way). Like the host step, this is unconditional: membership is
-        # a filter list.
+        # ("Missing X server or $DISPLAY", Test run 39079872105). Like the host
+        # step, this is unconditional: membership is a filter list.
         run: xvfb-run --auto-servernum pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
 
       # Every run but a merge-queue batch (nightly and manual; the names predate
@@ -903,7 +901,7 @@ jobs:
           test -n "${ELECTRON_DIST:-}"
           pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST" 2>&1 | tee "$RUNNER_TEMP/electron-builder.log"
           # BST-1920: `npmRebuild: false` makes the shipped prebuilds the only
-          # native binaries better-sqlite3 and sqlite-vec ever have. If
+          # native binaries better-sqlite3 ever has. If
           # electron-builder stops saying it skipped the rebuild, it recompiled.
           grep -q 'skipped dependencies rebuild' "$RUNNER_TEMP/electron-builder.log"
 
@@ -918,12 +916,6 @@ jobs:
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
-
-      - name: Load the native SQLite prebuilds in Electron
-        run: pnpm --filter @brainstrike/sqlite-native test:electron
-
-      - name: Load the packaged native SQLite prebuilds
-        run: pnpm --filter @brainstrike/sqlite-native test:packaged
 
       - name: Verify packaged MCP core lifecycle
         run: |
@@ -981,8 +973,7 @@ jobs:
       # read this list. A package that gains a test:browser script runs no
       # browser tests until it is added here.
       BROWSER_TEST_PACKAGES: >-
-        @brainstrike/assistant-ui @brainstrike/canonical-ingestion
-        @brainstrike/mcp-app-host @brainstrike/storage @brainstrike/ui
+        @brainstrike/assistant-ui @brainstrike/mcp-app-host @brainstrike/storage @brainstrike/ui
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -1024,8 +1015,7 @@ jobs:
         # each time a package outside that closure gained a native dependency:
         # windows-job-native (BST-2080), then node-pty, which has no linux-x64
         # prebuild, once host-capabilities owned it (BST-2431). The two native
-        # add-ons inside canonical-ingestion's closure stay excluded; its
-        # browser suite does not load them.
+        # add-ons stay excluded; no browser suite loads them.
         shell: bash
         run: |
           filters=()
@@ -1059,12 +1049,10 @@ jobs:
             packages/ui/test-results/
             packages/storage/test-results/
             packages/mcp-app-host/test-results/
-            packages/canonical-ingestion/test-results/
             packages/assistant-ui/.vitest/attachments/failure-screenshots/
             packages/ui/.vitest/attachments/failure-screenshots/
             packages/storage/.vitest/attachments/failure-screenshots/
             packages/mcp-app-host/.vitest/attachments/failure-screenshots/
-            packages/canonical-ingestion/.vitest/attachments/failure-screenshots/
           retention-days: 1
           if-no-files-found: ignore
 
