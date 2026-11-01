@@ -196,6 +196,21 @@ describe('MarkdownSurface', () => {
     expect(onScrollTopChange).toHaveBeenCalledWith(120);
   });
 
+  it('reports a scroll that has not settled when it unmounts, and nothing without one', () => {
+    const scrolled = vi.fn();
+    const scrolledView = renderSurface('# a\n', {
+      onScrollTopChange: scrolled,
+      testId: 'md-scrolled',
+    });
+    fireEvent.scroll(screen.getByTestId('md-scrolled'), { target: { scrollTop: 90 } });
+    scrolledView.unmount();
+    expect(scrolled).toHaveBeenCalledExactlyOnceWith(90);
+
+    const untouched = vi.fn();
+    renderSurface('# a\n', { onScrollTopChange: untouched, testId: 'md-untouched' }).unmount();
+    expect(untouched).not.toHaveBeenCalled();
+  });
+
   it('shows a truncation notice when truncated', () => {
     renderSurface('# a\n', { truncated: true });
     expect(screen.getByText(/truncated/iu)).toBeInTheDocument();

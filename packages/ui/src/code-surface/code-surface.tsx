@@ -58,7 +58,10 @@ export interface CodeSurfaceProps {
   readonly onContextMenuSelection?:
     | ((selection: CodeSurfaceContextMenuSelection) => void)
     | undefined;
-  /** The scroll position once scrolling settles (`scrollend`), not on every scroll frame. */
+  /**
+   * The scroll position once scrolling settles (`scrollend`), not on every scroll frame,
+   * and once more on unmount if a scroll had not settled yet.
+   */
   readonly onScrollTopChange?: ((scrollTop: number) => void) | undefined;
   readonly onSelectionChange?: ((selection: CodeSurfaceSelection) => void) | undefined;
   readonly path?: string | undefined;
@@ -258,10 +261,18 @@ export function CodeSurface({
       }),
     });
 
+    // The position of a scroll not yet reported. Recorded on `scroll` because the
+    // cleanup below runs after React detaches the editor, when `scrollTop` reads 0.
+    let unreportedScrollTop: number | null = null;
+    const handleScroll = () => {
+      unreportedScrollTop = view.scrollDOM.scrollTop;
+    };
     const handleScrollEnd = () => {
+      unreportedScrollTop = null;
       callbacksRef.current.onScrollTopChange?.(view.scrollDOM.scrollTop);
     };
 
+    view.scrollDOM.addEventListener('scroll', handleScroll, { passive: true });
     view.scrollDOM.addEventListener('scrollend', handleScrollEnd, { passive: true });
     viewRef.current = view;
     const restoreScrollFrame = window.requestAnimationFrame(() => {
@@ -305,6 +316,13 @@ export function CodeSurface({
 
     return () => {
       window.cancelAnimationFrame(restoreScrollFrame);
+      // Unmounting mid-scroll (a tab switch, preview/source toggle) still saves where
+      // the user was. Without a scroll there is nothing to report: the restore frame
+      // may not have run, and reporting 0 would overwrite the saved position.
+      if (unreportedScrollTop !== null) {
+        callbacksRef.current.onScrollTopChange?.(unreportedScrollTop);
+      }
+      view.scrollDOM.removeEventListener('scroll', handleScroll);
       view.scrollDOM.removeEventListener('scrollend', handleScrollEnd);
       view.destroy();
       if (viewRef.current === view) {
