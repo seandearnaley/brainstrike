@@ -53,6 +53,7 @@
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
     "./provider-request": "./src/provider-request.ts",
+    "./token-counter": "./src/token-counter.ts",
     "./provider-runtime": "./src/provider-runtime.ts",
     "./code-execution": "./src/code-execution.ts",
     "./fence-executor": "./src/fence-executor.ts",
