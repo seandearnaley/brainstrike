@@ -201,6 +201,11 @@ export interface FileExplorerState extends FileExplorerData {
    * of a surviving directory retain their selection until that directory is
    * itself enumerated.
    */
+  /**
+   * Open a folder as the project (ADR-0034): the only open folder; every other open folder is
+   * purged as removeActiveRoot would, in one setState. Worktree descriptors stay.
+   */
+  openActiveRoot: (root: StoredRootDescriptor) => void;
   reconcileSelectionWithDirectorySnapshot: (
     folderId: string,
     directoryPath: string,

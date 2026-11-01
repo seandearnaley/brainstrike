@@ -24,6 +24,7 @@ import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
 import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
+import { FILE_SEARCH_METHOD_SCHEMAS, FILE_SEARCH_RESULT_SCHEMAS } from './protocol-file-search.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
   GIT_WORKSPACE_RESULT_SCHEMAS,
@@ -97,6 +98,7 @@ import {
 
 export * from './mcp-authority-wire.ts';
 export * from './protocol-canvas.ts';
+export * from './protocol-file-search.ts';
 export * from './protocol-git-workspace.ts';
 export * from './protocol-hook-trust.ts';
 export * from './protocol-mcp-content.ts';
@@ -477,6 +479,7 @@ export const HOST_METHOD_SCHEMAS = {
   ...WORKSPACE_DISCOVERY_METHOD_SCHEMAS,
   ...WORKSPACE_FILES_METHOD_SCHEMAS,
   ...WORKSPACE_ROOTS_METHOD_SCHEMAS,
+  ...FILE_SEARCH_METHOD_SCHEMAS,
   ...SELECTION_METHOD_SCHEMAS,
   'thread/start': Schema.Struct(Command),
   'thread/update': Schema.Struct({ ...Command, ...Thread, ...ThreadPresentation }).check(
@@ -1024,6 +1027,7 @@ export const HOST_RESULT_SCHEMAS = {
   ...WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
   ...WORKSPACE_FILES_RESULT_SCHEMAS,
   ...WORKSPACE_ROOTS_RESULT_SCHEMAS,
+  ...FILE_SEARCH_RESULT_SCHEMAS,
   ...SELECTION_RESULT_SCHEMAS,
   'thread/start': Schema.Struct(Thread),
   'thread/update': Schema.Struct({ accepted: Schema.Literal(true) }),

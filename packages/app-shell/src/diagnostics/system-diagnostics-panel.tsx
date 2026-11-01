@@ -170,7 +170,7 @@ function DatabaseStatusSection(): ReactElement {
 
   const getStatus = (): { variant: StatusVariant; label: string } => {
     if (loading) {
-      return { label: 'Connecting...', variant: 'loading' };
+      return { label: 'Connecting…', variant: 'loading' };
     }
     if (connected) {
       return { label: 'Connected', variant: 'success' };

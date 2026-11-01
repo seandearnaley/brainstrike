@@ -45,6 +45,7 @@ import { createProviderCredentialReader } from '@brainstrike/host-capabilities/p
 import { hostWorkspaceDiscovery } from '@brainstrike/host-capabilities/workspace-context';
 import {
   createHostFileReads,
+  createHostFileSearch,
   createHostFileWatches,
   createWorkspaceRootPins,
 } from '@brainstrike/host-capabilities/workspace-files';
@@ -332,8 +333,11 @@ export async function createDesktopHostConfiguration(
   await startup.register(() => terminals.close());
   // ADR-0029 stage 4: the Explorer's reads of, and root watches on, live workspace roots,
   // borrowing the root registry's one pinned handle per folder, which it closes after them.
+  // ADR-0035: its Search tab borrows the same handles for the length of one search, which
+  // the connection's retirement cancels.
   const rootPins = createWorkspaceRootPins({ mounts: rootRegistry.registry });
   const fileReads = createHostFileReads({ pins: rootPins });
+  const fileSearch = createHostFileSearch({ pins: rootPins });
   const fileWatches = createHostFileWatches({ pins: rootPins });
   const closeWorkspaceFiles = async (): Promise<void> => {
     const owners = await Promise.allSettled([fileReads.close(), fileWatches.close()]);
@@ -373,7 +377,10 @@ export async function createDesktopHostConfiguration(
   });
   await startup.register(() => mcpHost.close());
   return {
-    attachThreadReads: (reads) => gitWorkspace.attachThreadReads(reads),
+    attachThreadReads: (reads) => {
+      gitWorkspace.attachThreadReads(reads);
+      rootRegistry.attachThreadReads(reads);
+    },
     auth: host.auth,
     close: async () => {
       // Runs' workspace borrows end, then admitted folder changes finish while the store is open.
@@ -410,6 +417,7 @@ export async function createDesktopHostConfiguration(
       );
     },
     fileReads: fileReads.service,
+    fileSearch,
     fileWatches: fileWatches.service,
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     gitWorkspace: gitWorkspace.service,

@@ -15,10 +15,17 @@ import {
   HostedEmbeddingError,
   hostedRefusal,
 } from './hosted-embedding-error';
-import type { QueryEmbeddingRequest } from './ipc-domains/index-search.contract';
 import { readProviderApiKey } from './provider-api-key';
 
 const logger = createLogger('DesktopHostedEmbeddings');
+
+/** One search query's embedding: the index's hosted model, keyed `provider::modelId`, and the text. */
+export interface QueryEmbeddingRequest {
+  readonly dimensions: number;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly query: string;
+}
 
 function embeddingModel(
   provider: EmbeddingProviderType,

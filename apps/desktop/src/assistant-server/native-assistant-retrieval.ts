@@ -7,12 +7,6 @@ import type {
 } from '@brainstrike/indexing-contract/indexer-client';
 import { isWorkspaceSecretFile } from '@brainstrike/utils';
 import {
-  fuseNativeSearchPools,
-  getNativeSemanticAvailability,
-  NATIVE_SEARCH_CANDIDATE_LIMIT,
-  NATIVE_SEARCH_FINAL_LIMIT,
-} from '@brainstrike/workspace-search/core';
-import {
   type CheckoutReadThrough,
   cachedCheckoutReader,
   type ReadCheckoutFile,
@@ -20,6 +14,12 @@ import {
   relocateCheckoutHits,
   resolveCheckoutReadThrough,
 } from './checkout-read-through';
+import {
+  fuseNativeSearchPools,
+  getNativeSemanticAvailability,
+  NATIVE_SEARCH_CANDIDATE_LIMIT,
+  NATIVE_SEARCH_FINAL_LIMIT,
+} from './native-search-fusion';
 import type { QueryEmbedder } from './retrieval-core';
 import type { EmbeddingSetRow } from './retrieval-store';
 

@@ -126,6 +126,11 @@ catalog:
   "@vitejs/plugin-react": ^6.1.2
   "@vitest/browser-playwright": ^5.0.5
   "@vitest/coverage-v8": ^5.0.5
+  # BST-2434: the ripgrep binary every agent host searches with (Explorer
+  # search and grepSearch). One optional package per platform
+  # (@vscode/ripgrep-<os>-<arch>) and no install script; packaged desktop
+  # resolves it through app.asar.unpacked. Exact pin.
+  "@vscode/ripgrep": 1.18.0
   assistant-stream: 0.3.55
   # BST-1920: the SQLite state/index engine. Exact pin. It ships a PREBUILT
   # `prebuilds/<platform>-<arch>.node` for every release target and must never

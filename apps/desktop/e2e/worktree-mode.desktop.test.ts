@@ -2,7 +2,7 @@
  * Desktop E2E for the composer MODE chip (BST-1390 W3).
  *
  * Drives the built Electron app against real on-disk Git repositories and the
- * real PGlite-backed worktree ledger. Worktree create/archive/list operations
+ * real SQLite-backed worktree ledger. Worktree create/archive/list operations
  * cross the production preload, IPC, service, Git, mount, and thread-metadata
  * chain; only assistant model traffic is replaced at its external boundary.
  */

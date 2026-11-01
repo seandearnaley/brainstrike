@@ -1,43 +1,29 @@
 /**
  * Workspace Search (Explorer|Search) driving helpers for desktop E2E.
  *
- * Workspace Search is the surface where a semantic query's results render, so
- * the semantic index specs drive it.
- *
- * Two contracts from `docs/agents/explorer-search-context-map.md` shape these
- * helpers, and both are load-bearing for any fixture that wants to be visible
- * here:
- *
- * 1. **Explicit scope.** Workspace search is scoped to live workspace roots.
- * 2. **Line-attributed chunks.** The semantic executor drops any chunk missing
- *    `start_line`/`end_line` (it cannot build a navigable range) and reports it
- *    as `skippedMissingLineMetadata`.
- *
- * Observation is DOM-only: the panel renders every state these helpers assert
- * (searching status, error card, empty state, and level-1 file rows).
+ * The Search tab is a live text search of the open folders on disk, served by
+ * the agent host (ADR-0035): a query finds what the files hold now, with no
+ * index to wait for. Observation is DOM-only: the panel renders every state
+ * these helpers assert (searching status, error card, empty state, notices and
+ * level-1 file rows).
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from '../file-explorer-selection.shared';
 
 /** Observable state of the Workspace Search panel, read from the DOM. */
-export interface WorkspaceSemanticSearchSnapshot {
+export interface WorkspaceSearchSnapshot {
   /** The results tree rendered its "No matches found" empty state. */
   emptyState: boolean;
   /** Error-card text, or null when no error is shown. */
   error: null | string;
-  /** Text of the first rendered result row (a file row), or null. */
-  firstResultLabel: null | string;
-  /** The panel is showing its "Searching…" status. */
+  /** Text of every rendered file row, in order: its path and match count. */
+  fileLabels: string[];
+  /** The panel is showing a "Searching…" status. */
   isSearching: boolean;
-  /** Number of rendered FILE rows, read from the select-all header. */
-  resultFileCount: number;
 }
 
-/**
- * Reveal the Explorer|Search panel and return its root locator. Selectors match
- * `workspace-search.desktop.test.ts`, the suite that owns this surface.
- */
+/** Reveal the Explorer|Search panel and return its root locator. */
 export async function openWorkspaceSearchPanel(page: Page): Promise<Locator> {
   await ensureFileExplorerPanelVisible(page);
 
@@ -54,111 +40,50 @@ export async function openWorkspaceSearchPanel(page: Page): Promise<Locator> {
   return panel;
 }
 
-/**
- * Put the panel in semantic mode and submit `query`.
- *
- * The Semantic button is `aria-disabled` until its capability confirms
- * searchable coverage, so this asserts the gate is open rather than
- * clicking into a no-op — a gated click would leave the panel in text mode and
- * silently make the search assertions test the wrong engine.
- */
-export async function runWorkspaceSemanticSearch(panel: Locator, query: string): Promise<void> {
-  const semanticButton = panel.getByRole('button', { name: 'Semantic' });
-  await expect(semanticButton).toBeVisible({ timeout: 15_000 });
-  await expect(semanticButton).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60_000 });
-  await semanticButton.click({ timeout: 15_000 });
-  await expect(semanticButton).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
-
-  const queryInput = panel.getByPlaceholder('Search workspace');
-  await expect(queryInput).toBeVisible({ timeout: 15_000 });
-  await queryInput.fill(query);
-  await queryInput.press('Enter');
-}
-
 /** Read the panel's current state from the DOM. */
-export async function getWorkspaceSemanticSearchSnapshot(
-  panel: Locator
-): Promise<WorkspaceSemanticSearchSnapshot> {
-  // Scoped to the RESULTS-area alert. `panel.getByRole('alert')` also matched
-  // the input bar's invalid-regex message (`search-input-bar.tsx`), so a bad
-  // pattern would have read as a failed search.
+export async function getWorkspaceSearchSnapshot(panel: Locator): Promise<WorkspaceSearchSnapshot> {
+  // Scoped to the RESULTS-area alert: the input bar's invalid-regex message is
+  // an alert too, and a bad pattern is not a failed search.
   const errorLocator = panel.getByTestId('workspace-search-results-error');
   const searchingLocator = panel.getByText('Searching…', { exact: true });
   const emptyLocator = panel.getByText('No matches found', { exact: true });
-  const resultRows = panel.getByRole('row').and(panel.locator('[aria-level="1"]'));
+  const fileRows = panel.getByRole('row').and(panel.locator('[aria-level="1"]'));
 
-  const [errorCount, searchingCount, emptyCount, rowCount] = await Promise.all([
+  const [errorCount, searchingCount, emptyCount, fileLabels] = await Promise.all([
     errorLocator.count(),
     searchingLocator.count(),
     emptyLocator.count(),
-    resultRows.count(),
+    fileRows.allTextContents(),
   ]);
 
   return {
     emptyState: emptyCount > 0,
     error: errorCount > 0 ? ((await errorLocator.first().textContent()) ?? '').trim() : null,
-    firstResultLabel:
-      rowCount > 0 ? ((await resultRows.first().textContent()) ?? '').trim() || null : null,
+    fileLabels: fileLabels.map((label) => label.trim()),
     isSearching: searchingCount > 0,
-    resultFileCount: rowCount,
   };
 }
 
 /**
- * Failure diagnostics for {@link waitForWorkspaceSemanticSearchResults}.
- *
- * Prefer the thunk form for anything READ FROM THE APP (renderer logs, visible
- * alerts): a plain string is evaluated at call time and would be printed up to
- * a minute later, describing a moment that has nothing to do with the failure.
+ * Types `query` (search-as-you-type runs it) and waits for the finished search,
+ * then hands its file rows to `expected`. An error card fails with its text.
  */
-type WorkspaceSearchFailureContext = (() => Promise<string> | string) | string;
-
-async function resolveFailureContext(
-  context: WorkspaceSearchFailureContext | undefined
-): Promise<string> {
-  if (context === undefined) {
-    return '';
-  }
-  const resolved = typeof context === 'function' ? await context() : context;
-  return resolved ? `\ncontext=${resolved}` : '';
-}
-
-/**
- * Poll until the panel reaches a successful terminal results state, throwing a
- * diagnostic error otherwise. Returns the winning snapshot.
- *
- * A rendered error card fails immediately: it is a definitive terminal state,
- * and waiting out the timeout would only hide the reason.
- */
-export async function waitForWorkspaceSemanticSearchResults(
+export async function expectSearchResults(
   panel: Locator,
-  options?: { context?: WorkspaceSearchFailureContext; timeoutMs?: number }
-): Promise<WorkspaceSemanticSearchSnapshot> {
-  const timeoutMs = options?.timeoutMs ?? 60_000;
-  const startedAt = Date.now();
-  let lastSnapshot: WorkspaceSemanticSearchSnapshot | null = null;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const snapshot = await getWorkspaceSemanticSearchSnapshot(panel);
-    lastSnapshot = snapshot;
-
-    if (snapshot.error) {
-      throw new Error(
-        `Workspace semantic search failed: ${snapshot.error}${await resolveFailureContext(
-          options?.context
-        )}`
-      );
-    }
-
-    if (!(snapshot.isSearching || snapshot.emptyState) && snapshot.resultFileCount > 0) {
-      return snapshot;
-    }
-
-    await panel.page().waitForTimeout(250);
-  }
-
-  throw new Error(
-    `Workspace semantic search did not render results within ${timeoutMs}ms\n` +
-      `snapshot=${JSON.stringify(lastSnapshot)}${await resolveFailureContext(options?.context)}`
-  );
+  query: string,
+  expected: (fileLabels: string[]) => void,
+  timeout = 20_000
+): Promise<void> {
+  const queryInput = panel.getByPlaceholder('Search workspace');
+  await expect(queryInput).toBeVisible({ timeout: 15_000 });
+  // Emptying the box clears the last results, so they cannot pass for this query's.
+  await queryInput.fill('');
+  await queryInput.fill(query);
+  await expect(async () => {
+    const snapshot = await getWorkspaceSearchSnapshot(panel);
+    expect(snapshot.error).toBeNull();
+    expect(snapshot.isSearching).toBe(false);
+    expect(snapshot.emptyState || snapshot.fileLabels.length > 0).toBe(true);
+    expected(snapshot.fileLabels);
+  }).toPass({ timeout });
 }

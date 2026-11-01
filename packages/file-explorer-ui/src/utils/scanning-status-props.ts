@@ -77,7 +77,7 @@ export function computeScanningStatusProps(input: ScanningStatusPropsInput): Sca
     const loaded = expandAllProgress?.loaded ?? 0;
     const total = expandAllProgress?.total ?? 0;
     const currentPath =
-      total > 0 ? `Loading ${loaded}/${total} directories` : 'Preparing to expand directories...';
+      total > 0 ? `Loading ${loaded}/${total} directories` : 'Preparing to expand directories…';
 
     // Only surface counts once a total is known; before that we show an
     // indeterminate spinner rather than a misleading "0/0".

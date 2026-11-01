@@ -9,13 +9,9 @@ import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runLiveGrep } from '../src/native-tools/live-grep.js';
-import {
-  discoverRipgrepPathForTests,
-  resetRipgrepAvailabilityForTests,
-  runRipgrep,
-} from '../src/native-tools/live-grep-ripgrep.js';
+import { bundledRipgrepPath, runRipgrep } from '../src/native-tools/live-grep-ripgrep.js';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
@@ -26,7 +22,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 const createdRoots: string[] = [];
-const originalPath = process.env['PATH'];
 
 async function makeWorkspace(files: Record<string, string>): Promise<string> {
   const dir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-livegrep-agent-'));
@@ -47,37 +42,15 @@ function literalMatcher(pattern: string): ReturnType<typeof createGrepLineMatche
   return createGrepLineMatcher(pattern, false, false);
 }
 
-/** Run `fn` with ripgrep forced UNAVAILABLE, so the JS-walk engine is exercised. */
-async function withRipgrepHidden<T>(fn: () => Promise<T>): Promise<T> {
-  const emptyBin = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-nobin-'));
-  createdRoots.push(emptyBin);
-  const realStat = fsPromises.stat;
-  const statSpy = vi
-    .spyOn(fsPromises, 'stat')
-    .mockImplementation(async (target: Parameters<typeof realStat>[0]) => {
-      if (/[/\\]rg(\.exe)?$/u.test(String(target))) {
-        throw new Error('ENOENT');
-      }
-      return await realStat(target);
-    });
-  process.env['PATH'] = emptyBin;
-  resetRipgrepAvailabilityForTests();
-  try {
-    return await fn();
-  } finally {
-    statSpy.mockRestore();
-    process.env['PATH'] = originalPath;
-    resetRipgrepAvailabilityForTests();
-  }
+/**
+ * The regex form of `pattern` that has no literal ripgrep can prefilter on, so
+ * ripgrep lists every eligible file and the JS matcher reads each one.
+ */
+function noLiteralRegex(pattern: string): { isRegex: true; pattern: string } {
+  return { isRegex: true, pattern: `${pattern}|zz` };
 }
 
-beforeEach(() => {
-  resetRipgrepAvailabilityForTests();
-});
-
 afterEach(async () => {
-  resetRipgrepAvailabilityForTests();
-  process.env['PATH'] = originalPath;
   while (createdRoots.length > 0) {
     const dir = createdRoots.pop();
     if (dir) {
@@ -93,16 +66,10 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
    * happily returns its contents is not a boundary — it is a UI convenience
    * that reads as a security control, which is the worse of the two failures.
    *
-   * Asserted against BOTH engines because live grep has two independent
-   * candidate collectors (ripgrep and the JS walk fallback), and an exclusion
-   * enforced in only one of them holds or fails depending on whether `rg`
-   * happens to be installed on the machine.
-   *
-   * Note the asymmetry with `.gitignore` (BST-1429): rg implements gitignore
-   * natively, so pushing that layer down to rg risks the two engines
-   * disagreeing on edge cases. `.llmignore` is not an rg ignore file at all, so
-   * JS-side enforcement on both collectors is the ONLY implementation — there
-   * is no second implementation to diverge from.
+   * Asserted for both candidate sources: ripgrep's literal prefilter, and the
+   * plain file listing a regex with no literal takes. `.llmignore` is not an rg
+   * ignore file at all, so the JS-side guard both pass through is the ONLY
+   * implementation — there is no second implementation to diverge from.
    */
   const workspace = {
     '.llmignore': 'secrets/\n',
@@ -138,11 +105,7 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
     expect(result.matches).toEqual([]);
   });
 
-  it('does not read through an in-root SYMLINK on the JS-walk engine either', async () => {
-    // Asserted on this engine SPECIFICALLY: ripgrep does not follow symlinks
-    // without -L, so the rg case above passes whether or not the JS walk is
-    // fixed. Only the walk engine actually exercises the alias filter, which
-    // makes this the non-vacuous half of the pair.
+  it('does not read through an in-root SYMLINK when every file is listed either', async () => {
     const dir = await makeWorkspace({
       '.llmignore': 'secrets/\n',
       'docs/real.md': 'nothing here\n',
@@ -152,18 +115,11 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
       path.join(dir, 'secrets', 'creds.ts'),
       path.join(dir, 'docs', 'alias.ts')
     );
+    const regex = noLiteralRegex('SYMLINK_MARKER');
 
-    const result = await withRipgrepHidden(() =>
-      runLiveGrep(
-        {
-          caseSensitive: false,
-          contextLines: 0,
-          isRegex: false,
-          pattern: 'SYMLINK_MARKER',
-          roots: [root(dir)],
-        },
-        literalMatcher('SYMLINK_MARKER')
-      )
+    const result = await runLiveGrep(
+      { caseSensitive: false, contextLines: 0, ...regex, roots: [root(dir)] },
+      createGrepLineMatcher(regex.pattern, true, false)
     );
 
     expect(result.matches).toEqual([]);
@@ -216,14 +172,14 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
   });
 
   it('keeps credential files out of ripgrep itself, so they never read or spend its cap', async () => {
-    const ripgrepPath = await discoverRipgrepPathForTests();
-    expect(ripgrepPath).not.toBeNull();
+    const ripgrepPath = bundledRipgrepPath();
     const dir = await makeWorkspace(credentialed);
     const run = await runRipgrep({
       canonicalRootPath: dir,
       caseSensitive: false,
+      mode: 'matches',
       prefilterLiteral: 'enrichment',
-      ripgrepPath: ripgrepPath ?? '',
+      ripgrepPath,
     });
     expect([...run.candidatePaths].sort()).toEqual(['.env.example', 'src/enrich.ts']);
   });
@@ -232,8 +188,7 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
   // case, so rg must too; a differently cased credential name is the same file
   // kind (and on a case-insensitive volume, the same file).
   it('keeps differently cased credential files out of ripgrep too', async () => {
-    const ripgrepPath = await discoverRipgrepPathForTests();
-    expect(ripgrepPath).not.toBeNull();
+    const ripgrepPath = bundledRipgrepPath();
     const dir = await makeWorkspace({
       'certs/SERVER.PEM': 'enrichment PRIVATE-KEY-SECRET\n',
       'deploy/.ENV.Example': 'enrichment=\n',
@@ -244,15 +199,15 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
     const run = await runRipgrep({
       canonicalRootPath: dir,
       caseSensitive: false,
+      mode: 'matches',
       prefilterLiteral: 'enrichment',
-      ripgrepPath: ripgrepPath ?? '',
+      ripgrepPath,
     });
     expect([...run.candidatePaths].sort()).toEqual(['deploy/.ENV.Example', 'src/enrich.ts']);
   });
 
   it('still searches a directory that shares a credential name, holding back only its credential files', async () => {
-    const ripgrepPath = await discoverRipgrepPathForTests();
-    expect(ripgrepPath).not.toBeNull();
+    const ripgrepPath = bundledRipgrepPath();
     const dir = await makeWorkspace({
       '.env.d/.env.production': 'enrichment SECRET\n',
       '.env.d/app.ts': 'export const enrichment = 1;\n',
@@ -260,15 +215,20 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
     const run = await runRipgrep({
       canonicalRootPath: dir,
       caseSensitive: false,
+      mode: 'matches',
       prefilterLiteral: 'enrichment',
-      ripgrepPath: ripgrepPath ?? '',
+      ripgrepPath,
     });
     expect([...run.candidatePaths]).toEqual(['.env.d/app.ts']);
   });
 
-  it('never searches credential files on the JS-walk engine either', async () => {
+  it('never searches credential files when every file is listed either', async () => {
     const dir = await makeWorkspace(credentialed);
-    const result = await withRipgrepHidden(() => grepCredentialed(dir));
+    const regex = noLiteralRegex('enrichment');
+    const result = await runLiveGrep(
+      { caseSensitive: false, contextLines: 1, ...regex, roots: [root(dir)] },
+      createGrepLineMatcher(regex.pattern, true, false)
+    );
     expect(result.matches.map((match) => match.path).sort()).toEqual([
       '.env.example',
       'src/enrich.ts',
@@ -276,19 +236,12 @@ describe('runLiveGrep — agent ignore files (BST-1432)', () => {
     expect(JSON.stringify(result)).not.toMatch(/SECRET/u);
   });
 
-  it('excludes .llmignore paths on the JS-walk engine', async () => {
+  it('excludes .llmignore paths when every file is listed', async () => {
     const dir = await makeWorkspace(workspace);
-    const result = await withRipgrepHidden(() =>
-      runLiveGrep(
-        {
-          caseSensitive: false,
-          contextLines: 0,
-          isRegex: false,
-          pattern: 'LLMIGNORE_MARKER',
-          roots: [root(dir)],
-        },
-        literalMatcher('LLMIGNORE_MARKER')
-      )
+    const regex = noLiteralRegex('LLMIGNORE_MARKER');
+    const result = await runLiveGrep(
+      { caseSensitive: false, contextLines: 0, ...regex, roots: [root(dir)] },
+      createGrepLineMatcher(regex.pattern, true, false)
     );
     expect(result.matches.map((match) => match.path)).toEqual(['src/ok.ts']);
   });

@@ -15,6 +15,10 @@ export interface DesktopWindowState {
 }
 
 export interface DesktopSettingsStoreSchema {
+  /** ADR-0033: Settings › Startup's tray choice (default on) and the one closed-to-tray notice. */
+  appLifetime?: {
+    v1: { keepRunningInTray?: boolean; trayNoticeShown?: true };
+  };
   loggingPreferences?: {
     v1: LoggingPreferences;
   };

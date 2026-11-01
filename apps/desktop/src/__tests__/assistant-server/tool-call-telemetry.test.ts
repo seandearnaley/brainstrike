@@ -44,12 +44,12 @@ describe('search tool-call telemetry extraction', () => {
     });
   });
 
-  it('records a degraded-walk grep with unclipped output as engine js-walk, not truncated', () => {
+  it('records a no-literal grep that reached its file cap as scan-limited, not truncated', () => {
     const input: GrepSearchInput = { offset: 0, pattern: 'PRIVATE_PATTERN' };
     const result = {
-      candidatesTruncated: false,
+      candidatesTruncated: true,
       files: [],
-      liveEngine: 'js-walk',
+      liveEngine: 'ripgrep',
       offset: 0,
       outputMode: 'files',
       scanLimited: true,
@@ -59,8 +59,8 @@ describe('search tool-call telemetry extraction', () => {
     } satisfies GrepToolResult;
 
     expect(readToolCallTelemetryMetadata(attachGrepSearchTelemetry(input, result))).toEqual({
-      candidatesTruncated: false,
-      engine: 'js-walk',
+      candidatesTruncated: true,
+      engine: 'ripgrep',
       isPaginationFollowup: false,
       scanLimited: true,
       truncated: false,

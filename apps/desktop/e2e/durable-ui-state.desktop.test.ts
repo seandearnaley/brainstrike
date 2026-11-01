@@ -33,7 +33,8 @@ test.describe('durable UI state across document unload', () => {
     if (closed.quit) {
       expect(closed.exitCode).toBe(0);
     } else {
-      // macOS keeps the app and its host running windowless: no new document can rewrite them.
+      // The Dock or tray keeps the app and its host running windowless: no new document can
+      // rewrite them.
       expect
         .soft(await readCommittedThreadExpansion(userDataDir, fixture.threadId))
         .toContain(fixture.expandedPath);

@@ -129,6 +129,8 @@ export interface ProductionHostPlatformOptions {
   close(): Promise<void>;
   /** ADR-0029 stage 4: the desktop Explorer's reads. */
   readonly fileReads?: HostPlatform['fileReads'];
+  /** ADR-0035: the desktop Explorer's Search tab. */
+  readonly fileSearch?: HostPlatform['fileSearch'];
   /** ADR-0029 stage 4: the desktop Explorer's root watches. */
   readonly fileWatches?: HostPlatform['fileWatches'];
   /** Purge process-local caches of a deleted thread. */
@@ -319,6 +321,7 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
 type ProductionClientService =
   | 'auth'
   | 'fileReads'
+  | 'fileSearch'
   | 'rootRegistry'
   | 'fileWatches'
   | 'gitWorkspace'
@@ -335,6 +338,7 @@ function productionClientServices(
   return {
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.fileReads ? { fileReads: options.fileReads } : {}),
+    ...(options.fileSearch ? { fileSearch: options.fileSearch } : {}),
     ...(options.rootRegistry ? { rootRegistry: options.rootRegistry } : {}),
     ...(options.fileWatches ? { fileWatches: options.fileWatches } : {}),
     ...(options.gitWorkspace ? { gitWorkspace: options.gitWorkspace } : {}),

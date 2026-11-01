@@ -34,13 +34,12 @@
  * per-model `anthropicReasoning` ladder ruling in `docs/agents/assistant-providers.md`.
  * Its only job is to be the single place the values are written down.
  *
- * Declared as a value so the one place that needs them at RUNTIME — the Hosted
- * Web request-boundary `z.enum` in
- * `apps/web/src/server/web-assistant-runtime-schema.ts` — derives from the same
- * source as the type it validates. It was previously a fourth hand-copy: a
- * narrower copy rejects an effort the picker offers, a wider one lets a value
- * the provider rejects reach the wire, and both fail at runtime against a green
- * type-check.
+ * Declared as a value so the runtime schemas that validate an effort (the
+ * provider catalog and child execution configuration in
+ * `@brainstrike/assistant-contract`) derive from the same source as the type.
+ * A hand-copy drifts: a narrower copy rejects an effort the picker offers, a
+ * wider one lets a value the provider rejects reach the wire, and both fail at
+ * runtime against a green type-check.
  */
 export const OPENAI_REASONING_EFFORT_VALUES = [
   'none',

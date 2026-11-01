@@ -194,7 +194,7 @@ export interface CredentialInventoryProps {
  * The all-keys credential table (BST-1362): one always-visible row per
  * credential slot, inline row editing, read-only env rows, and the save-time
  * `…last4` fingerprint for stored keys. Capability-gated on the desktop
- * secrets bridge — the web build omits the whole category.
+ * secrets bridge — a renderer without it omits the whole category.
  *
  * @platform desktop
  */

@@ -32,11 +32,9 @@ vi.mock('../context-map/explorer-thread-status-provider', () => ({
 vi.mock('../use-workspace-search-controller', () => ({
   useWorkspaceSearchController: () => ({
     onOpenFile: vi.fn(),
-    resolveAdapterRootId: () => null,
-    runSemanticSearch: vi.fn(),
-    runTextSearch: vi.fn(),
-    semanticAvailability: { available: true, reason: null },
-    workspaceDbRootIds: [],
+    rootName: (rootId: string) => rootId,
+    runSearch: vi.fn(),
+    workspaceRootCount: 0,
   }),
 }));
 

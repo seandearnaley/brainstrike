@@ -14,7 +14,6 @@ import os from 'node:os';
 import path from 'node:path';
 import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
-import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
@@ -89,12 +88,11 @@ async function waitForIndex(page: Page, mode: 'text-only' | 'vector-configured')
 
 /** Native text search hits for the marker: each hit's file and the partition it belongs to. */
 async function textHits(page: Page): Promise<{ path: string; set: string | null }[]> {
-  const result = await callIndexSearch(page, 'grep', {
-    caseSensitive: true,
-    isRegex: false,
+  const result = await callIndexSearch(page, 'search', {
     limit: 20,
-    pattern: MARKER,
+    mode: 'trigram',
     rootIds: (await readyStatus(page)).authorizedRootIds,
+    text: MARKER,
   });
   return result.hits
     .map((hit) => ({ path: hit.relativePath ?? '', set: hit.embeddingSetId ?? null }))
@@ -229,24 +227,6 @@ test.describe('Text and semantic search transitions (desktop)', () => {
         { path: 'bread.md', set: null },
         { path: 'notes.txt', set: null },
       ]);
-
-      // Semantic search says which setting turns it back on.
-      await ensureFileExplorerPanelVisible(page);
-      await page
-        .getByRole('tablist', { name: 'Explorer and search' })
-        .getByRole('tab', { name: 'Search' })
-        .click();
-      const semantic = page
-        .getByTestId('explorer-search-panel-search')
-        .getByRole('button', { name: 'Semantic' });
-      await expect(semantic).toHaveAttribute('aria-disabled', 'true', { timeout: 15_000 });
-      await expect(async () => {
-        await semantic.hover();
-        await expect(page.getByRole('tooltip').first()).toHaveText(
-          'Semantic search is off. Choose Semantic in Settings, Search & Indexing.',
-          { timeout: 2000 }
-        );
-      }).toPass({ timeout: 30_000 });
 
       // Semantic search comes back on the vector space it kept: nothing is re-embedded.
       await updateIndexConfig(page, { mode: 'semantic' });

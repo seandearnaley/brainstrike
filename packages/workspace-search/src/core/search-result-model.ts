@@ -1,56 +1,40 @@
-export type WorkspaceSearchMode = 'text' | 'semantic';
-export type ResultProvenance = 'index'; // 'live' reserved for the dual-pass fast-follow
-
-export interface WorkspaceSearchTextMatch {
-  after: readonly string[];
-  before: readonly string[];
-  chunkEndLine: number;
-  chunkId: string;
-  /** Containing chunk bounds, 1-based INCLUSIVE (FileChunk convention). */
-  chunkStartLine: number;
-  kind: 'match';
+/** One matching line, 1-based. */
+export interface WorkspaceSearchMatch {
   line: number;
   lineText: string;
-  provenance: ResultProvenance;
 }
 
-export interface WorkspaceSearchChunkHit {
-  chunkId: string;
-  content: string;
-  endLine: number; // inclusive
-  headline: string | null;
-  kind: 'chunk';
-  provenance: ResultProvenance;
-  /** Normalized 0–1 relevance (RRF-normalized). */
-  score: number;
-  startLine: number; // inclusive
-  tokenCount: number;
+/** One matching line as the host streams it: its file's root and root-relative path. */
+export interface WorkspaceSearchHit extends WorkspaceSearchMatch {
+  path: string;
+  rootId: string;
 }
-
-export type WorkspaceSearchChild = WorkspaceSearchTextMatch | WorkspaceSearchChunkHit;
 
 export interface WorkspaceSearchFileResult {
-  children: readonly WorkspaceSearchChild[];
-  /** DB roots.id — translate to adapter rootId at the app-shell seam. */
-  dbRootId: string | null;
-  /** Present in semantic mode (from chunk.fileRecordId); absent in text mode. */
-  fileRecordId?: string;
+  matches: readonly WorkspaceSearchMatch[];
+  /** Root-relative POSIX path. */
   path: string;
-  rootDisplayName: string | null;
+  /** The live root the file is in: the Explorer's root id. */
+  rootId: string;
 }
 
-export interface WorkspaceSearchNotices {
+/** What a finished search could not cover; every cap it hit is named. */
+export interface WorkspaceSearchSummary {
+  /** The file cap or ripgrep's output cap stopped the search early. */
   candidatesTruncated: boolean;
+  /** The search stopped at its match cap. */
+  matchLimitReached: boolean;
+  /** A regex with no literal text stopped at the file cap. */
   scanLimited: boolean;
-  skippedMissingLineMetadata: number;
-  truncated: boolean;
-  /** Names of open folders left out because the index does not cover them. */
-  unindexedFolders?: readonly string[];
+  /** ripgrep reached its time limit. */
+  timedOut: boolean;
+  /** Open folders that could not be read, so they were not searched. */
+  unreadableRootIds: readonly string[];
 }
 
-export interface WorkspaceSearchResults {
-  files: readonly WorkspaceSearchFileResult[];
-  mode: WorkspaceSearchMode;
-  notices: WorkspaceSearchNotices;
-  totalMatches: number;
+export interface WorkspaceSearchRequest {
+  caseSensitive: boolean;
+  isRegex: boolean;
+  query: string;
+  wholeWord: boolean;
 }

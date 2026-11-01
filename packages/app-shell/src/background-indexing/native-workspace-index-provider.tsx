@@ -44,7 +44,9 @@ type NativeProgress =
     };
 
 /** This view's one read on mount; Main pushes the same pair after every change. */
-async function readNativeProgress(capability: IndexSearchCapability): Promise<NativeProgress> {
+async function readNativeProgress(
+  capability: Omit<IndexSearchCapability, 'grep'>
+): Promise<NativeProgress> {
   const status = await capability.status();
   return nativeProgress(
     status,
@@ -270,7 +272,7 @@ export function NativeWorkspaceIndexProvider({
   capability,
 }: {
   readonly children: ReactNode;
-  readonly capability: IndexSearchCapability &
+  readonly capability: Omit<IndexSearchCapability, 'grep'> &
     IndexConfigCapability &
     IndexLifecycleCapability &
     IndexRootRegistrationCapability;

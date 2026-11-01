@@ -324,6 +324,8 @@ export class CommittedThreadSession {
   private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>;
   private readonly threadId: string;
   private readonly deliveryThrottleMs: number | undefined;
+  /** The connected subscription's held deliveries, delivered now; undefined while disconnected. */
+  private flushHeld: (() => void) | undefined;
 
   constructor(
     client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
@@ -346,6 +348,15 @@ export class CommittedThreadSession {
     this.view.subscribe(() => this.update({ rows: this.view.getSnapshot() }));
   }
   readonly getSnapshot = (): HostThreadSnapshot => this.snapshot;
+  /**
+   * Deliver now the rows and telemetry this session has received and is
+   * holding for its delivery throttle. The host publishes a command's rows
+   * before it answers the command, so a caller that has the answer calls this
+   * and its view then holds what the command committed: a started run shows as
+   * running before its send settles, and the composer offers no second send
+   * the host would refuse (BST-2439).
+   */
+  readonly deliverReceived = (): void => this.flushHeld?.();
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -386,6 +397,7 @@ export class CommittedThreadSession {
     const queued: ({ row: HostLogRow } | { telemetry: HostRunTelemetry })[] = [];
     let timer: ReturnType<typeof setTimeout> | undefined;
     const flush = (): void => {
+      clearTimeout(timer);
       timer = undefined;
       const rows: HostLogRow[] = [];
       for (const item of queued.splice(0)) {
@@ -406,6 +418,7 @@ export class CommittedThreadSession {
         timer ??= setTimeout(flush, this.deliveryThrottleMs);
       }
     };
+    this.flushHeld = flush;
     const release = this.client.onEvent((row) => {
       if (active) {
         deliver({ row });
@@ -457,6 +470,9 @@ export class CommittedThreadSession {
     return () => {
       disposed ??= (async (): Promise<void> => {
         active = false;
+        if (this.flushHeld === flush) {
+          this.flushHeld = undefined;
+        }
         // Let a disposed session, and every row it read, be collected.
         closed.listener = undefined;
         clearTimeout(timer);

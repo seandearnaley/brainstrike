@@ -149,7 +149,7 @@ export function TaskLedgerPanelView({ analytics, ledger, perRunCapUsd }: TaskLed
         </CardHeader>
         <CardContent data-testid="task-ledger-panel">
           <p className="text-muted-foreground text-sm" data-testid="task-ledger-session-only">
-            The Task Ledger is available for desktop assistant runs.
+            The Task Ledger isn’t available here.
           </p>
         </CardContent>
       </Card>

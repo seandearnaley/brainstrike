@@ -22,9 +22,12 @@ export interface DocumentUnloadOwner<Window extends DocumentWindow> {
   readonly delays: Pick<LifecycleDelaySeam, 'delay'>;
   /** Quit has started: its `renderers` step prepares and closes every visible window. */
   readonly isQuitting: () => boolean;
-  /** Closing the last visible window quits the app (Windows and Linux; macOS stays running). */
-  readonly lastWindowQuits: boolean;
   readonly quit: () => void;
+  /**
+   * Closing the last visible window quits the app: no Dock or tray keeps it running, or the user
+   * turned the tray off (ADR-0033). Asked at each close, so a changed choice applies at once.
+   */
+  readonly quitsWithLastWindow: () => boolean;
   /** The app's live document windows. */
   readonly visibleWindows: () => readonly Window[];
 }
@@ -98,9 +101,9 @@ async function closeDocument(
 /**
  * Intercepts every close of a visible window that Main did not issue itself: the document
  * flushes first, then Main closes it again (normal close, so `beforeunload`/`pagehide` and
- * window-state persistence still run). On Windows and Linux the last visible window's close
- * is the app's quit instead, and quit prepares and closes it. A page never vetoes an unload
- * Main owns.
+ * window-state persistence still run). Where nothing keeps the app running without a window
+ * (no tray, or the tray turned off), the last visible window's close is the app's quit instead,
+ * and quit prepares and closes it. A page never vetoes an unload Main owns.
  */
 export function installDocumentUnload<Window extends DocumentWindow>(
   window: Window,
@@ -120,7 +123,7 @@ export function installDocumentUnload<Window extends DocumentWindow>(
     const othersOpen = owner
       .visibleWindows()
       .some((other) => other !== window && !other.isDestroyed() && !unloading.has(other));
-    if (owner.lastWindowQuits && !othersOpen) {
+    if (!othersOpen && owner.quitsWithLastWindow()) {
       owner.quit();
       return;
     }
