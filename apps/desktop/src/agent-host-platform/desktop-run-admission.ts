@@ -301,8 +301,8 @@ async function readDesktopNativeAdmission(
     runtime,
     configurationRoots
   );
-  const descriptors = await desktopToolDescriptors({
-    // Only a run that enables run_python asks: the check loads the sandbox runtime.
+  const descriptors = desktopToolDescriptors({
+    // Only a run that enables run_python asks; the executor loads when code runs.
     codeFence:
       intent.enabledNativeToolIds.includes(NATIVE_TOOL_ID.runPython) && (await hostFencesCode()),
     enabledNativeToolIds: intent.enabledNativeToolIds,
@@ -320,9 +320,9 @@ async function readDesktopNativeAdmission(
     ...(workspaceSkills ? { workspaceSkills } : {}),
   };
 }
-/** BST-2360: the fence run_python's executor itself requires, from the same check. */
+/** BST-2360: the fence run_python's executor itself requires, from the same check (BST-2438). */
 async function hostFencesCode(): Promise<boolean> {
-  const { isFenceSupported } = await import('@brainstrike/agent/fence-executor');
+  const { isFenceSupported } = await import('@brainstrike/agent/fence-support');
   return isFenceSupported();
 }
 /**

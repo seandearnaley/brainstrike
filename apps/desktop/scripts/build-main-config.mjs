@@ -69,8 +69,9 @@ const shared = {
 /**
  * Worker and module entries the bundled packages name by path, emitted where
  * that path resolves from a chunk in dist/. Each name is unique in dist/.
- * - agent-host's keyring worker and the indexer's writer pool name a sibling:
- *   `./keyring-native-entry.js`, `./writer-worker.js`.
+ * - agent-host's keyring worker, agent's token counter and the indexer's writer
+ *   pool name a sibling: `./keyring-native-entry.js`, `./token-counter-worker.js`,
+ *   `./writer-worker.js`.
  * - agent-host names its emitted modules in its package `dist/` from a module
  *   directly in src/ or dist/ (`../dist/<file>`, BST-1977). From a chunk in
  *   this app's dist/, that is this dist/.
@@ -86,6 +87,7 @@ export const PACKAGE_RUNTIME_ENTRY_POINTS = {
     'agent-host/src/adapters/keyring-native-entry.ts'
   ),
   'state-projection': path.join(packagesRoot, 'agent-host/src/state-projection.ts'),
+  'token-counter-worker': path.join(packagesRoot, 'agent/src/token-counter-worker.ts'),
   'writer-worker': path.join(packagesRoot, 'indexer/src/writer-worker.ts'),
 };
 
