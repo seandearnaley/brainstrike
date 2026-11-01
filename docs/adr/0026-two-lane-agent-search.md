@@ -82,9 +82,10 @@ Owner approval (Sean, 2026-11-01) of the retrieval decision (BST-2428), applied
 by BST-2435:
 
 - Lane 2 is gone. `hybridSearch`, `queryEmbeddingSpace` and
-  `listEmbeddingSpaces`, their `desktop-read/index/*` routes and the
-  `listWorkspaceContext` index hint are deleted. The agent searches with lane 1
-  only.
+  `listEmbeddingSpaces`, their `desktop-read/index/*` routes (except
+  `desktop-read/index/search`, which the host's `workspace/search` reads until
+  the index goes in BST-2436) and the `listWorkspaceContext` index hint are
+  deleted. The agent searches with lane 1 only.
 - Lane 3 is gone. Memory has no semantic recall, embedder or vector store, and
   the host state index keeps no message or observation vectors. Thread search
   (FTS5) stays.
