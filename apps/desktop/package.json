@@ -201,7 +201,7 @@
     "jsonc-parser": "catalog:",
     "lucide-react": "catalog:",
     "minimatch": "catalog:",
-    "node-pty": "^1.1.0",
+    "node-pty": "catalog:",
     "oxc-parser": "catalog:",
     "pino": "catalog:",
     "react": "^19.3.0",

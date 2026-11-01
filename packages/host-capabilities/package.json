@@ -15,6 +15,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./canvas-state": "./src/native-tools/canvas-state.ts",
+    "./command-sessions": "./src/command-sessions/index.ts",
     "./delegation": "./src/delegation.ts",
     "./credentials": "./src/credentials.ts",
     "./hooks": "./src/hooks/index.ts",
@@ -71,6 +72,7 @@
     "effect": "catalog:",
     "jsonc-parser": "catalog:",
     "minimatch": "catalog:",
+    "node-pty": "catalog:",
     "strip-ansi": "catalog:",
     "tree-kill": "catalog:",
     "typescript": "catalog:",

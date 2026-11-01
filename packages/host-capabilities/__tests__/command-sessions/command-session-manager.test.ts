@@ -2,12 +2,12 @@ import { Buffer } from 'node:buffer';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import * as workspaceLeases from '@brainstrike/host-capabilities/native-tools';
-import { acquireWorkspaceMutationLease } from '@brainstrike/host-capabilities/native-tools';
-import type { WorkspaceRootResolver } from '@brainstrike/host-capabilities/workspace-root-cwd';
 import type { IPty } from 'node-pty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createCommandSessionManager } from '../../assistant-server/command-session-manager';
+import { createCommandSessionManager } from '../../src/command-sessions/command-session-manager.ts';
+import * as workspaceLeases from '../../src/native-tools/workspace-mutation-lease.ts';
+import { acquireWorkspaceMutationLease } from '../../src/native-tools/workspace-mutation-lease.ts';
+import type { WorkspaceRootResolver } from '../../src/workspace-root-cwd.ts';
 
 class FakePty {
   readonly pid: number;

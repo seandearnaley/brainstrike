@@ -113,6 +113,17 @@ even if the requested symbol is in an allowed file; an edit still applies.
 Definition previews use the same bounded reader as direct workspace reads.
 Owner: [document session](../../packages/host-capabilities/src/native-tools/lsp-document-session.ts).
 
+## Command sessions and terminals
+
+Desktop and standalone hosts compose `inspectCommandSessions` and
+`manageCommandSession` over one process-lifetime session manager. A session
+starts only in its run's admitted roots, and the host's close ends every
+session with its language servers and shell commands. The desktop's Terminal
+panel ptys sit beside that manager and serve only the desktop's private client.
+`node-pty` is a host-capabilities dependency. Its N-API binary loads unchanged in
+Node and Electron, so the CLI and the desktop bundle resolve the same build.
+Owner: [command sessions](../../packages/host-capabilities/src/command-sessions/index.ts).
+
 ## Tracing
 
 The host traces its AI SDK calls as OpenTelemetry GenAI spans through the
