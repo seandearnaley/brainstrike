@@ -1,11 +1,9 @@
 import {
-  type EmbeddingModelDefinition,
   getProviderDefinition,
   getProviderDeprecatedEnvKeys,
   getProviderEnvKeys,
   getProviderOverrideEnvKey,
   getProviderVendorEnvKey,
-  listProviderEmbeddingModels,
   listProviderLlmModels,
   listProviderModels,
   listProviders,
@@ -17,9 +15,7 @@ import {
   type ProviderModelDefinition,
   type ProviderModelType,
   type ProviderRuntime,
-  providerSupportsStandardEmbeddingDimension,
   resolveDefaultModel,
-  STANDARD_EMBEDDING_DIMENSION,
 } from './provider-registry.ts';
 
 export type SupportedProvider = ProviderId;
@@ -32,7 +28,6 @@ export type {
   ProviderModelType,
   ProviderRuntime,
 };
-export { STANDARD_EMBEDDING_DIMENSION };
 
 const SUPPORTED_PROVIDERS: readonly SupportedProvider[] = listProviders().map(
   (provider) => provider.id
@@ -107,12 +102,6 @@ export function isValidModelForProvider(
   return getProviderModels(provider).includes(model);
 }
 
-export function listEmbeddingModels(
-  provider: SupportedProvider
-): readonly EmbeddingModelDefinition[] {
-  return listProviderEmbeddingModels(provider);
-}
-
 export function providerEnvKeys(provider: SupportedProvider): readonly string[] {
   return getProviderEnvKeys(provider);
 }
@@ -153,10 +142,6 @@ export {
 /** Registry-derived auth mode (BST-1349). */
 export function providerAuthType(provider: SupportedProvider): ProviderAuthType {
   return getProviderDefinition(provider).authType;
-}
-
-export function supportsStandardEmbeddingDimension(provider: SupportedProvider): boolean {
-  return providerSupportsStandardEmbeddingDimension(provider);
 }
 
 export function getProviderModelDefinitions(

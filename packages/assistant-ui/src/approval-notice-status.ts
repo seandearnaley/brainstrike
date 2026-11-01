@@ -59,7 +59,7 @@ export function describeDelegationChain(
  * to, named by its persona chain (`describeDelegationChain`, so a grandchild
  * reads "Explorer › Analyst") and by the prompt the root gave it (read from
  * the thread's answered-approvals index, keyed by the root delegation call).
- * Four identical `queryEmbeddingSpace` cards from four Explorer specialists
+ * Four identical `grepSearch` cards from four Explorer specialists
  * are otherwise indistinguishable (thread-1dab3290, 2026-09-14).
  */
 function describeDelegationOwner(

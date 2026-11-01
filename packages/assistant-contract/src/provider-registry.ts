@@ -2,8 +2,6 @@ import providerCatalog from './provider-catalog.json' with { type: 'json' };
 import { parseProviderCatalog } from './provider-catalog-schema.ts';
 import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.ts';
 
-export const STANDARD_EMBEDDING_DIMENSION = 768;
-
 /**
  * Where a provider's inference runs: `hosted` is a vendor API, `gateway` a
  * routing API in front of several vendors.
@@ -282,12 +280,6 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
    */
   dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
   /**
-   * A hosted embedder's list price per million input tokens, from the
-   * provider's own pricing page; embeddings bill no output (BST-2226). Absent
-   * where no official price was found: its usage then reads "cost unavailable".
-   */
-  pricing?: { inputPerMTok: number };
-  /**
    * Indicates whether the provider exposes a parameter to customise the dimension.
    */
   supportsCustomDimensions?: boolean;
@@ -490,13 +482,6 @@ export function getProviderOverrideEnvKey(provider: ProviderId): string | undefi
  */
 export function getProviderVendorEnvKey(provider: ProviderId): string | undefined {
   return getProviderEnvKeys(provider).find((name) => !name.startsWith(BRAINSTRIKE_ENV_KEY_PREFIX));
-}
-
-export function providerSupportsStandardEmbeddingDimension(provider: ProviderId): boolean {
-  if (!getProviderDefinition(provider).capabilities.embeddings) {
-    return false;
-  }
-  return listProviderEmbeddingModels(provider).some((model) => model.supportsStandardDimension);
 }
 
 export function resolveDefaultModel(

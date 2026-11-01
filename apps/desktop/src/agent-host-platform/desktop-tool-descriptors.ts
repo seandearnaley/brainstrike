@@ -12,7 +12,6 @@ import {
   SKILL_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
-import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import type { PlatformSelectionSchema } from './platform-wire';
 
 export type DesktopToolDescriptor = (typeof PlatformSelectionSchema)['Encoded']['tools'][string];
@@ -26,37 +25,8 @@ export interface DesktopToolAdmission {
    */
   readonly codeFence: boolean;
   readonly enabledNativeToolIds: readonly string[];
-  /** ADR 0026: Main's index can serve semantic retrieval over the thread's folders. */
-  readonly retrieval: boolean;
   /** The run's scanned workspace skills: the skill tools and runSkillScript exist only with them. */
   readonly skills: boolean;
-}
-
-/**
- * The retrieval lane (ADR 0026). listEmbeddingSpaces lists the collections
- * these two search, so it goes with them; readWorkspaceContext reads the disk.
- */
-const RETRIEVAL_TOOL_IDS: ReadonlySet<string> = new Set([
-  NATIVE_TOOL_ID.hybridSearch,
-  NATIVE_TOOL_ID.listEmbeddingSpaces,
-  NATIVE_TOOL_ID.queryEmbeddingSpace,
-]);
-
-/**
- * Whether the index status a run starts with can serve semantic retrieval:
- * ready, in VECTOR mode, with a saved collection, over one of the thread's
- * folders. The tools' own refusals still cover a change during the run.
- */
-export function indexServesRetrieval(
-  status: IndexerStatus,
-  threadRootIds: readonly string[]
-): boolean {
-  return (
-    status.kind === 'ready' &&
-    status.embedding.indexMode === 'vector-configured' &&
-    (status.authorizedCollectionIds?.length ?? 0) > 0 &&
-    threadRootIds.some((rootId) => status.authorizedRootIds.includes(rootId))
-  );
 }
 
 function admitted(id: string, admission: DesktopToolAdmission): boolean {
@@ -66,7 +36,7 @@ function admitted(id: string, admission: DesktopToolAdmission): boolean {
   if (id === NATIVE_TOOL_ID.runSkillScript) {
     return admission.skills;
   }
-  return !RETRIEVAL_TOOL_IDS.has(id) || admission.retrieval;
+  return true;
 }
 
 function describe(id: string): DesktopToolDescriptor {

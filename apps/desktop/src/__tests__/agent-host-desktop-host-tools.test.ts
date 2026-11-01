@@ -62,13 +62,6 @@ function selection(
           retrievalMode: 'off',
           scope: 'thread',
         },
-        semanticRecall: {
-          embeddingModelTarget: null,
-          enabled: false,
-          messageRange: 0,
-          scope: 'thread',
-          topK: 1,
-        },
       },
     },
     nativeRuntime: {

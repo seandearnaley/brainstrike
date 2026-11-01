@@ -84,10 +84,6 @@ test.each(['openai', 'anthropic', 'google', 'openrouter'] as const)(
             modelTarget: `${provider}/${modelId}`,
             retrievalMode: 'off',
           },
-          semanticRecall: {
-            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: false,
-          },
         },
       },
       nativeRuntime: { provider: 'anthropic', workspaceRoots: [] },

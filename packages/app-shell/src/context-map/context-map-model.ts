@@ -63,7 +63,6 @@ export const KIND_PRIORITY: Readonly<Record<ContextSpanKind, number>> = {
   grep: 1,
   pinned: 4,
   read: 3,
-  semantic: 2,
 };
 
 function fileKey(span: Pick<ContextSpan, 'path' | 'rootId' | 'rootName'>): string {
@@ -211,15 +210,11 @@ export interface ChunkCell {
   readonly gone: boolean;
   /** The highest-priority kind drawn; null when no span reached the chunk. */
   readonly kind: ContextSpanKind | null;
-  readonly partial: boolean;
   readonly spans: readonly ContextFileSpan[];
 }
 
 function overlaps(entry: ContextFileSpan, chunk: IndexerFileChunkBounds): boolean {
   const { span } = entry;
-  if (span.chunkId !== undefined && span.startLine === undefined) {
-    return span.chunkId === chunk.chunkId;
-  }
   if (span.wholeFile) {
     return true;
   }
@@ -256,12 +251,7 @@ export function chunkCells(
     const live = reached.filter((entry) => isLive(entry.at.state));
     const drawn = mode === 'window' && live.length > 0 ? live : reached;
     const length = chunk.endLine - chunk.startLine + 1;
-    const fullChunk = drawn.some(
-      (entry) =>
-        entry.span.wholeFile ||
-        (entry.span.chunkId === chunk.chunkId && entry.span.startLine === undefined)
-    );
-    const coverage = fullChunk
+    const coverage = drawn.some((entry) => entry.span.wholeFile)
       ? 1
       : coveredLines(
           drawn.map((entry) => entry.span),
@@ -273,7 +263,6 @@ export function chunkCells(
       coverage,
       gone: reached.length > 0 && live.length === 0,
       kind: topKind(drawn),
-      partial: drawn.some((entry) => entry.span.partial === true),
       spans: reached,
     };
   });

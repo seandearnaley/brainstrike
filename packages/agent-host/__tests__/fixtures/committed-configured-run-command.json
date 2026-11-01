@@ -27,9 +27,7 @@
           "brainstrike.findWorkspaceSymbol",
           "brainstrike.globWorkspace",
           "brainstrike.grepSearch",
-          "brainstrike.hybridSearch",
           "brainstrike.inspectCommandSessions",
-          "brainstrike.listEmbeddingSpaces",
           "brainstrike.listWorkspaceContext",
           "brainstrike.listWorktrees",
           "brainstrike.lspInspect",
@@ -38,7 +36,6 @@
           "brainstrike.manageTaskList",
           "brainstrike.manageWorktree",
           "brainstrike.queryDiagnostics",
-          "brainstrike.queryEmbeddingSpace",
           "brainstrike.querySelf",
           "brainstrike.readToolOutputArtifact",
           "brainstrike.readWorkspaceContext",
@@ -71,13 +68,6 @@
             "observationTokens": 40000,
             "retrievalMode": "off",
             "scope": "thread"
-          },
-          "semanticRecall": {
-            "embeddingModelTarget": "openai/text-embedding-3-small",
-            "enabled": false,
-            "messageRange": 2,
-            "scope": "resource",
-            "topK": 5
           }
         },
         "modelConfiguration": {

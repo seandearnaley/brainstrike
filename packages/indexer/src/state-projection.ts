@@ -5,11 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { StateProjectionOptions } from './contracts.ts';
 import { createStateProjection, type StateProjection } from './state-producer.ts';
 
-export type {
-  StateMessageEvent,
-  StateProducerDecoder,
-  StateProjection,
-} from './state-producer.ts';
+export type { StateProducerDecoder, StateProjection } from './state-producer.ts';
 
 export function validateStateModule(module: string): string {
   const url = new URL(module);

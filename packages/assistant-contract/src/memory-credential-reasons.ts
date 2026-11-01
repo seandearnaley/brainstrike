@@ -1,30 +1,10 @@
 import { getProviderDefinition, type ProviderId } from './provider-registry.ts';
 
-/** The memory feature a hosted provider's API key is required for. */
-export type MemoryCredentialNeed =
-  | 'observational-memory'
-  | 'semantic-recall'
-  | 'semantic-observation-recall';
-
 /**
- * Why a send that needs a hosted memory model is refused while its provider
- * has no API key: one wording, whichever owner finds the key missing.
+ * Why a send that needs the observer model is refused while its provider has
+ * no API key: one wording, whichever owner finds the key missing.
  */
-export function memoryCredentialRequiredReason(
-  need: MemoryCredentialNeed,
-  provider: ProviderId
-): string {
+export function memoryCredentialRequiredReason(provider: ProviderId): string {
   const providerName = getProviderDefinition(provider).displayName;
-  switch (need) {
-    case 'observational-memory':
-      return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.`;
-    case 'semantic-recall':
-      return `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn semantic recall off.`;
-    case 'semantic-observation-recall':
-      return `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn vector observation retrieval off.`;
-    default: {
-      const exhaustive: never = need;
-      return exhaustive;
-    }
-  }
+  return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.`;
 }

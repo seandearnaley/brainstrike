@@ -20,6 +20,11 @@ export interface NewThreadFirstSend {
   readonly runSettings: CommittedHostThreadOptions['runSettings'];
   /** ADR-0019: the composer's model pick, committed as the thread's selection. */
   readonly selection: HostRunSelection | null;
+  /**
+   * BST-2441: the run command sent to the created thread before its view
+   * opens. That view announces what follows it, even rows its replay holds.
+   */
+  readonly sentBeforeOpening: (threadId: string, commandId: string) => void;
   readonly settleLost?: (threadId: string) => (commandId: string) => Promise<void>;
 }
 
@@ -71,6 +76,8 @@ export async function sendNewThreadFirstMessage(
       });
     }
     dispatched = true;
+    const commandId = crypto.randomUUID();
+    send.sentBeforeOpening(thread.id, commandId);
     await startCommittedTurn(
       {
         client: send.client,
@@ -78,7 +85,8 @@ export async function sendNewThreadFirstMessage(
         ...(send.settleLost ? { settleLost: send.settleLost(thread.id) } : {}),
         threadId: thread.id,
       },
-      message
+      message,
+      commandId
     );
   } catch (cause) {
     if (!dispatched || isMessageNotSentError(cause)) {

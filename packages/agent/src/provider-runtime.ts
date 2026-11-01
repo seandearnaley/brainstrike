@@ -33,7 +33,6 @@ export {
 } from './providers/provider-auth-input.ts';
 export {
   type ConcreteLanguageModel,
-  createEmbeddingProvider,
   createLanguageModelProvider,
   createProvider,
   type ProviderModelConfiguration,

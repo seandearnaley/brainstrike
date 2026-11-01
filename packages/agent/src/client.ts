@@ -20,7 +20,6 @@ export {
   getProviderModels,
   isSupportedProvider,
   isValidModelForProvider,
-  listEmbeddingModels,
   listProviders,
   PROVIDER_DEFAULT_ENABLED_MODELS,
   PROVIDER_DEFAULT_MODELS,
@@ -32,7 +31,6 @@ export {
   type ProviderRuntime,
   providerEnvKeys,
   type SupportedProvider,
-  supportsStandardEmbeddingDimension,
 } from '@brainstrike/assistant-contract/provider-metadata';
 // Tool categories and tiers (browser-safe, no Mastra dependencies)
 export {

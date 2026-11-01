@@ -1,6 +1,6 @@
 export type RuntimeAssistantMemoryScope = 'resource' | 'thread';
 
-export type RuntimeAssistantMemoryRetrievalMode = 'off' | 'messages' | 'vector';
+export type RuntimeAssistantMemoryRetrievalMode = 'off' | 'messages';
 
 export interface RuntimeAssistantObservationalMemorySettings {
   enabled: boolean;
@@ -11,17 +11,8 @@ export interface RuntimeAssistantObservationalMemorySettings {
   scope: RuntimeAssistantMemoryScope;
 }
 
-export interface RuntimeAssistantSemanticRecallSettings {
-  embeddingModelTarget: string | null;
-  enabled: boolean;
-  messageRange: number;
-  scope: RuntimeAssistantMemoryScope;
-  topK: number;
-}
-
 export interface RuntimeAssistantMemorySettings {
   observationalMemory: RuntimeAssistantObservationalMemorySettings;
-  semanticRecall: RuntimeAssistantSemanticRecallSettings;
 }
 
 export const DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES = 40;
@@ -53,12 +44,10 @@ export const DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES = 40;
  * BE HONEST ABOUT THE TRADE: on a default profile this leaves NO automatic
  * cross-thread memory at all. {@link DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS}
  * ships observational memory with `retrievalMode: 'off'` and `scope: 'thread'`,
- * and semantic recall `enabled: false`, so neither picks up what resource-scoped
- * working memory used to carry. That is a deliberate reduction, not a handoff:
- * the thing being removed was an unbounded, unprompted transcript prepended to
- * every conversation, and the way back is a user turning on semantic recall
- * (which IS resource-scoped) or observational retrieval — mechanisms that fetch
- * on relevance instead of prepending unconditionally.
+ * so it does not pick up what resource-scoped working memory used to carry.
+ * That is a deliberate reduction, not a handoff: the thing being removed was an
+ * unbounded, unprompted transcript prepended to every conversation, and the way
+ * back is a user turning on observational retrieval or resource scope.
  *
  * EXISTING DATA IS ORPHANED, NOT MIGRATED. Anything already written under
  * resource scope lives in `mastra_resources."workingMemory"`; thread scope
@@ -174,13 +163,6 @@ export const CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS: RuntimeAssista
     retrievalMode: 'off',
     scope: 'thread',
   },
-  semanticRecall: {
-    embeddingModelTarget: 'openai/text-embedding-3-small',
-    enabled: false,
-    messageRange: 2,
-    scope: 'resource',
-    topK: 5,
-  },
 };
 
 export const DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS: RuntimeAssistantMemorySettings = {
@@ -197,12 +179,5 @@ export const DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS: RuntimeAssistantMemorySe
     observationTokens: 40_000,
     retrievalMode: 'off',
     scope: 'thread',
-  },
-  semanticRecall: {
-    embeddingModelTarget: 'openai/text-embedding-3-small',
-    enabled: false,
-    messageRange: 2,
-    scope: 'resource',
-    topK: 5,
   },
 };

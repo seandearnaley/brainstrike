@@ -53,7 +53,6 @@ export const DEFAULT_USER_PERSONA_MAX_STEPS = MAX_USER_PERSONA_MAX_STEPS;
  * child control. `manageTaskList` belongs to the parent.
  */
 export const DEFAULT_USER_PERSONA_TOOL_IDS: readonly string[] = [
-  NATIVE_TOOL_ID.queryEmbeddingSpace,
   NATIVE_TOOL_ID.grepSearch,
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.findWorkspaceSymbol,

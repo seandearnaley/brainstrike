@@ -15,7 +15,7 @@ function fence(lines: readonly string[]): string {
 /**
  * The selected turn's in-window file context as Markdown: each file's spans,
  * with the delivered text where the tool returned it. Spans without delivered
- * text (semantic excerpts, edits, attachments) are listed by their lines.
+ * text (edits, attachments) are listed by their lines.
  */
 export function contextBundleMarkdown(rows: readonly ContextFileRow[], turn: number): string {
   const sections = [`# Thread context at turn ${turn}`];

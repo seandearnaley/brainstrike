@@ -4,7 +4,6 @@ import {
   type HostPlatformLaunchOptions,
   type HostStartupContext,
 } from '@brainstrike/agent-host';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 
 /** Writer authority already exists; the same production owner joins both acquisitions. */
@@ -20,7 +19,6 @@ export async function createHostPlatform(
       );
       return createDesktopHostConfiguration(context, platformOptions);
     },
-    memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
     startup,
   });
   // Main binding, then the caller's purge replay/Core recovery, still precede publication.

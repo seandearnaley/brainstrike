@@ -112,7 +112,6 @@ export interface ProviderOptionConfig {
     llm: boolean;
     embeddings: boolean;
     streaming: boolean;
-    supportsStandardEmbeddingDimension: boolean;
   };
   id: string;
   models: ProviderModelOptionConfig[];

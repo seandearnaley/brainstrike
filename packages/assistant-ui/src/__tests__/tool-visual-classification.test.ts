@@ -12,7 +12,7 @@ describe('isInternalToolName', () => {
   it('matches brainstrike. and brainstrike_ prefixes, case-insensitively', () => {
     expect(isInternalToolName('brainstrike.readWorkspaceFile')).toBe(true);
     expect(isInternalToolName('brainstrike_readWorkspaceFile')).toBe(true);
-    expect(isInternalToolName('Brainstrike.queryEmbeddingSpace')).toBe(true);
+    expect(isInternalToolName('Brainstrike.lspInspect')).toBe(true);
   });
   it('does not match external/mcp tool names', () => {
     expect(isInternalToolName('searchDocs')).toBe(false);
@@ -22,7 +22,7 @@ describe('isInternalToolName', () => {
 
 describe('classifyToolName', () => {
   it('returns internal for brainstrike tools and mcp otherwise', () => {
-    expect(classifyToolName('brainstrike.queryEmbeddingSpace')).toBe('internal');
+    expect(classifyToolName('brainstrike.lspInspect')).toBe('internal');
     expect(classifyToolName('some_mcp_tool')).toBe('mcp');
   });
 });

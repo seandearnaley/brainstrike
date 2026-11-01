@@ -4,17 +4,8 @@
  * desktop loads its producer by file URL (`state-projection.ts`).
  */
 import { decodeEvent, type EventSchema } from '@brainstrike/state-store/event-schema';
-import type { MemoryObservationRecord } from '@brainstrike/state-store/state-truth-reader';
 import { Predicate, Schema } from 'effect';
-import {
-  decoder,
-  type StateMessageSource,
-  type StateObservationGroup,
-  type StateSearchRow,
-  stateMessageSourceSchema,
-  stateObservationGroupSchema,
-  stateSearchRowSchema,
-} from './contracts.ts';
+import { decoder, type StateSearchRow, stateSearchRowSchema } from './contracts.ts';
 
 const callable = Schema.declare<(...args: readonly unknown[]) => unknown>(
   (input): input is (...args: readonly unknown[]) => unknown => Predicate.isFunction(input)
@@ -22,9 +13,6 @@ const callable = Schema.declare<(...args: readonly unknown[]) => unknown>(
 const record = Schema.Record(Schema.String, Schema.Unknown);
 const moduleSchema = Schema.Struct({
   decode: Schema.optional(callable),
-  messages: Schema.optional(callable),
-  observationChunks: Schema.optional(callable),
-  observations: Schema.optional(callable),
   schema: Schema.optional(
     Schema.Struct({
       currentVersion: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -48,11 +36,6 @@ interface StateProjectionRow {
   readonly seq: number;
   readonly text: string | null;
 }
-export interface StateMessageEvent {
-  readonly event: unknown;
-  readonly seq: number;
-  readonly threadId: string;
-}
 export type StateProducerDecoder = (
   raw: string,
   mode: 'dev' | 'prod',
@@ -60,11 +43,7 @@ export type StateProducerDecoder = (
 ) => unknown;
 export interface StateProjection {
   decode(raw: string): StateProjectionRow;
-  event(raw: string): unknown;
   readonly identity: string;
-  messages?(rows: readonly StateMessageEvent[]): readonly StateMessageSource[];
-  observationChunks?(text: string): readonly string[];
-  observations?(record: MemoryObservationRecord): readonly StateObservationGroup[];
 }
 
 /**
@@ -80,11 +59,6 @@ export function createStateProjection(
 ): StateProjection {
   const options = { mode };
   const loaded = decoder(moduleSchema)(producer);
-  if ((loaded.observations === undefined) !== (loaded.observationChunks === undefined)) {
-    throw new TypeError(
-      'State observation projection and native chunk primitive must be acquired together.'
-    );
-  }
   if ((loaded.schema === undefined) === (loaded.decode === undefined)) {
     throw new TypeError(
       'State producer must export exactly one versioned schema or canonical decode function.'
@@ -118,20 +92,6 @@ export function createStateProjection(
     return event;
   };
   return {
-    ...(loaded.observations && loaded.observationChunks
-      ? {
-          observationChunks: (text: string) =>
-            decoder(Schema.Array(Schema.NonEmptyString))(loaded.observationChunks?.(text)),
-          observations: (record: MemoryObservationRecord) =>
-            decoder(Schema.Array(stateObservationGroupSchema))(loaded.observations?.(record)),
-        }
-      : {}),
-    ...(loaded.messages
-      ? {
-          messages: (rows: readonly StateMessageEvent[]) =>
-            decoder(Schema.Array(stateMessageSourceSchema))(loaded.messages?.(rows)),
-        }
-      : {}),
     decode: (raw) => {
       const event = decode(raw);
       const { seq, type } = decoder(eventIdentity)(event);
@@ -148,7 +108,6 @@ export function createStateProjection(
         text: decoder(Schema.NullOr(Schema.String))(loaded.text(event)),
       };
     },
-    event: decode,
     identity,
   };
 }

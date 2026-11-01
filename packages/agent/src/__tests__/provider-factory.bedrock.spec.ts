@@ -24,11 +24,7 @@ import {
   type ProviderAuthInput,
   providerFetchOptions,
 } from '../providers/provider-auth-input';
-import {
-  createEmbeddingProvider,
-  createLanguageModelProvider,
-  createProvider,
-} from '../providers/provider-factory';
+import { createLanguageModelProvider, createProvider } from '../providers/provider-factory';
 
 const AWS_AUTH: ProviderAuthInput = {
   apiKey: 'test-bedrock-bearer',
@@ -423,17 +419,6 @@ describe('createProvider bedrock case (BST-1350)', () => {
     let thrown: unknown;
     try {
       createLanguageModelProvider('bedrock', 'some-key', 'anthropic.claude-sonnet-5');
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(MastraAgentError);
-    expect((thrown as MastraAgentError).code).toBe('mastra_agent_unsupported_provider');
-  });
-
-  it('throws explicitly for embeddings (no Bedrock embedder in phase 1)', () => {
-    let thrown: unknown;
-    try {
-      createEmbeddingProvider('bedrock', 'some-key', 'amazon.titan-embed-text-v2:0');
     } catch (error) {
       thrown = error;
     }
