@@ -6,8 +6,6 @@ import { configureDesktopRendererTarget } from '../desktop-renderer-target';
 import type { VisibleDesktopElectronApi } from '../types/desktop-electron-api';
 import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame-test-allowlist';
 
-type WatchHealthCallback = Parameters<VisibleDesktopElectronApi['fileSystem']['onWatchHealth']>[0];
-
 // Install the renderer target the loaders and the sender-frame allowlist
 // (the IPC dispatcher's second factor, BST-1641) resolve. Production
 // configures it from `main.ts` once the launch mode is known; the unit lane
@@ -73,22 +71,7 @@ const mockElectronAPI = {
     }),
     deleteRootData: vi.fn(),
     exists: vi.fn().mockResolvedValue({ ok: true, value: true }),
-    getWatcherTelemetry: vi.fn().mockResolvedValue({
-      activeWatchers: 0,
-      batches: 0,
-      cleanups: 0,
-      degradedTransitions: 0,
-      duplicateRegistrations: 0,
-      events: 0,
-      failures: 0,
-      healthPushes: 0,
-      lastSetupLatencyMs: 0,
-      retries: 0,
-      setupLatencySamples: 0,
-    }),
     listRecentRoots: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    onWatchEvent: vi.fn(() => () => {}),
-    onWatchHealth: vi.fn((_callback: WatchHealthCallback) => () => {}),
     readDirectory: vi.fn().mockResolvedValue({ ok: true, value: [] }),
     readFile: vi.fn().mockResolvedValue({ ok: true, value: 'mock file content' }),
     readFileByAbsolutePath: vi
@@ -107,10 +90,7 @@ const mockElectronAPI = {
     }),
     restoreLastFolder: vi.fn().mockResolvedValue({ ok: true, value: null }),
     restoreRoots: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    retryWatch: vi.fn().mockResolvedValue({ retried: true }),
     saveLastFolder: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
-    unwatchDirectory: vi.fn().mockResolvedValue(undefined),
-    watchDirectory: vi.fn().mockResolvedValue({ watchId: 'mock-watch-id' }),
   },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
 } satisfies Pick<VisibleDesktopElectronApi, 'fileSystem' | 'getUserDataPath'>;

@@ -81,7 +81,12 @@ its Main side and quit step:
    preload bridges, the `child-processes` step and the matching reset stops go, and
    a disconnected root's language servers are evicted in the host.
 4. File watching and Explorer reads. `@parcel/watcher` leaves Main; the `file-system`
-   step and ADR-0027's native-thread join go.
+   step and ADR-0027's native-thread join go. Every watch already runs on Node's
+   `fs.watch`, which closes on the event loop. The Explorer's watches are host
+   methods gated to the desktop's private client, with a per-connection
+   `workspace/files/event` stream; a connection's watches end when it closes, and
+   the `fs:watch*` IPC domain goes. Explorer reads, then the root registry, follow;
+   the `file-system` step goes once those and the native index's watches have left.
 5. MCP control, then index activation if the retrieval decision keeps it.
 
 Quit then ends as: factory reset, renderers, `host/stop`, join utility and hidden
