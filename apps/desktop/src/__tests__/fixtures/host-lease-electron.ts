@@ -2,7 +2,7 @@ import { configureLogger } from '@brainstrike/logging';
 import { app, MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
 import { createDesktopHostLease } from '../../host-lease-manager';
-import { createNativeIndexRuntime } from '../../native-index-runtime';
+import { createHostProfileAdmission } from '../../host-profile-admission';
 
 // Stdout carries only this fixture's reports, as the agent host keeps it for its framing: Main's
 // own log lines (a startup stall warning among them) go to stderr.
@@ -51,20 +51,11 @@ const owner = createDesktopHostLease({
   root,
   ...(startupTimeoutArg === undefined ? {} : { startupTimeoutMs: Number(startupTimeoutArg) }),
 });
-const unused = (): Promise<never> => Promise.reject(new Error('No index requested by this client'));
 const profile = createDesktopProfileRuntime(() => owner);
-const runtime = createNativeIndexRuntime({
-  admitProfile: (signal) => profile.acquire(signal),
-  closeQueries: async () => {},
-  createIndexOwner: unused,
-  getAuthority: unused,
-  getFileInvalidator: () => undefined,
-  installQueryTarget: () => {},
-  profile,
-});
+const admission = createHostProfileAdmission(profile);
 let closing: Promise<void> | undefined;
 function close(): void {
-  closing ??= runtime.retireProfile().then(() => {
+  closing ??= admission.retire().then(() => {
     report({ event: 'closed' });
     // Quit as the product does: app.exit tears Electron down without joining its
     // utility children, and a refused host still exiting then crashed it (0xC0000005).
@@ -93,10 +84,7 @@ app.on('window-all-closed', () => undefined);
 app
   .whenReady()
   .then(async () => {
-    const [attachment, concurrent] = await Promise.all([
-      runtime.acquireProfile(),
-      runtime.acquireProfile(),
-    ]);
+    const [attachment, concurrent] = await Promise.all([admission.acquire(), admission.acquire()]);
     if (attachment !== concurrent) {
       throw new Error('Profile clients acquired different host attachments');
     }

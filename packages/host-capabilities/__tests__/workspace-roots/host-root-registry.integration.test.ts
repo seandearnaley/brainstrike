@@ -151,9 +151,7 @@ describe('host root registry', () => {
     expect((await owner.roots.listRoots()).map((root) => root.rootId).sort()).toEqual(
       [alphaId, betaId].sort()
     );
-    expect(
-      (await owner.service['workspace/roots/mounted']({})).roots.map((root) => root.rootId)
-    ).toContain(betaId);
+    expect(owner.registry.mountedRoots().map((root) => root.rootId)).toContain(betaId);
 
     // A new folder through the picker replaces alpha; a cancelled pick changes nothing.
     const { root: opened } = await owner.service['workspace/roots/open']({});
@@ -204,13 +202,10 @@ describe('host root registry', () => {
     const rootId = root?.rootId ?? '';
     expect((await owner.roots.listRoots()).map((entry) => entry.rootId)).toEqual([rootId]);
 
-    const { reservationId } = await owner.service['workspace/roots/reserve-data-deletion']({
-      rootId,
-    });
-    const deletion = owner.service['workspace/roots/delete-data']({ reservationId });
+    const deletion = owner.service['workspace/roots/delete-data']({ rootId });
     await deleting.promise;
     expect(await owner.roots.listRoots()).toEqual([]);
-    await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({ roots: [] });
+    expect(owner.registry.mountedRoots()).toEqual([]);
     await expect(owner.registry.useMountedRoot(rootId, async () => 'read')).rejects.toThrow(
       'not mounted'
     );
@@ -237,7 +232,7 @@ describe('host root registry', () => {
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
       roots: [{ available: false, path: workspace, rootId: root?.rootId, worktree: false }],
     });
-    await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({ roots: [] });
+    expect(owner.registry.mountedRoots()).toEqual([]);
   });
 
   it('serves a folder picked again at its own path after the alias it was granted through is gone', async () => {
@@ -320,7 +315,7 @@ describe('host root registry', () => {
       service.service['workspace/roots/pick']({}),
       owner.service['workspace/roots/add']({ path: other }),
       owner.service['workspace/roots/remove']({ rootId }),
-      owner.service['workspace/roots/reserve-data-deletion']({ rootId }),
+      owner.service['workspace/roots/delete-data']({ rootId }),
       service.service['workspace/roots/seed-for-e2e']({
         recentPaths: [],
         roots: [{ path: other, rootId: crypto.randomUUID() }],
@@ -330,9 +325,9 @@ describe('host root registry', () => {
     }
     expect(picked).not.toHaveBeenCalled();
     expect(writes).toEqual([]);
-    await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({
-      roots: [{ canonicalPath: workspace, path: workspace, rootId }],
-    });
+    expect(owner.registry.mountedRoots()).toEqual([
+      { canonicalPath: workspace, path: workspace, rootId },
+    ]);
   });
 
   it('seeds folders only in a desktop E2E session', async () => {
@@ -344,8 +339,8 @@ describe('host root registry', () => {
     ).rejects.toMatchObject({ failure: { code: 'workspace.e2e-only' } });
     const { owner } = registry({ e2e: true });
     await owner.service['workspace/roots/seed-for-e2e'](seed);
-    await expect(owner.service['workspace/roots/mounted']({})).resolves.toEqual({
-      roots: [{ canonicalPath: workspace, path: workspace, rootId: seed.roots[0]?.rootId }],
-    });
+    expect(owner.registry.mountedRoots()).toEqual([
+      { canonicalPath: workspace, path: workspace, rootId: seed.roots[0]?.rootId },
+    ]);
   });
 });

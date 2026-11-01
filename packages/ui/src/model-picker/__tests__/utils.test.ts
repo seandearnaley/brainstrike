@@ -19,16 +19,12 @@ describe('filterModels', () => {
   const models: ModelPickerModel[] = [
     { capabilities: { type: 'llm' }, id: '1', name: 'GPT-4', providerId: 'openai' },
     { capabilities: { type: 'llm' }, id: '2', name: 'Claude', providerId: 'anthropic' },
-    { capabilities: { type: 'embedding' }, id: '3', name: 'Embed', providerId: 'openai' },
+    { capabilities: { type: 'llm' }, id: '3', name: 'Gemini', providerId: 'google' },
   ];
 
-  it('filters by type', () => {
-    expect(filterModels(models, '', 'llm')).toHaveLength(2);
-    expect(filterModels(models, '', 'embedding')).toHaveLength(1);
-  });
-
   it('filters by search query', () => {
-    expect(filterModels(models, 'gpt', 'all')).toHaveLength(1);
-    expect(filterModels(models, 'openai', 'all')).toHaveLength(2);
+    expect(filterModels(models, 'gpt')).toHaveLength(1);
+    expect(filterModels(models, 'openai')).toHaveLength(1);
+    expect(filterModels(models, '')).toHaveLength(3);
   });
 });

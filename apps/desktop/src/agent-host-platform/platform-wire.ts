@@ -141,15 +141,13 @@ export const PlatformPickFolderResultSchema = Schema.Union(
   { mode: 'oneOf' }
 );
 /**
- * The host's open folders changed: Main's native index re-reads the live roots, and the OS
- * recent documents and File > Open Recent follow the recent-folders ledger.
+ * The host's open folders changed: the OS recent documents and File > Open Recent follow the
+ * recent-folders ledger.
  */
 export const PlatformRootsChangedSchema = Schema.Struct({
   grantedPath: Schema.optionalKey(Id),
   recentPaths: Schema.Array(Id),
 });
-/** A root a rewind restored, for Main's native index to rescan. */
-export const PlatformIndexRefreshSchema = Schema.Struct({ rootId: Id });
 export type PlatformSelection = (typeof PlatformSelectionSchema)['Type'];
 /**
  * thread/memory/read: the admission's pure preconditions, with nothing
@@ -169,7 +167,7 @@ export const PlatformMemoryReadinessSchema = Schema.Union([
 /** BST-1930 stage e: the reads Main serves the host's run admission. */
 export const PlatformCatalogModelSchema = Schema.Struct({ model: Id, provider: Id });
 export const PlatformCatalogModelResultSchema = Schema.NullOr(
-  Schema.Struct({ isEnabled: Schema.Boolean, providerId: Id, type: Schema.NullOr(Schema.String) })
+  Schema.Struct({ isEnabled: Schema.Boolean, providerId: Id })
 );
 export const PlatformObserverCandidatesSchema = Schema.Struct({
   candidates: Schema.mutable(Schema.Array(Id)),

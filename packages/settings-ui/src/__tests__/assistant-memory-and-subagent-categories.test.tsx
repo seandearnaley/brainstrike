@@ -108,7 +108,7 @@ describe('settings search for the relocated sections', () => {
             content: <div data-testid="model-catalog-mock" />,
             description: 'Browse every catalogued model and enable the ones you want.',
             id: 'models',
-            keywords: ['models', 'catalog', 'llm', 'embedding', 'vector'],
+            keywords: ['models', 'catalog', 'llm'],
             title: 'Model Catalog',
           },
           createAssistantMemorySettingsCategory({ assistantMemoryBackendAvailable: true }),

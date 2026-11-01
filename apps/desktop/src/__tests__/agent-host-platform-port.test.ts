@@ -6,11 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import type { CredentialCipher } from '@brainstrike/agent-host/credential-contract';
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
-import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { expect, it, vi } from 'vitest';
-import { CancellationTokenSource, ResponseError } from 'vscode-jsonrpc/node';
+import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
@@ -21,8 +19,6 @@ import {
   type DesktopPlatformCapabilities,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
-import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
-import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { mainReads } from './fixtures/desktop-admission-reads';
@@ -49,7 +45,6 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
 }
 function harness(
   admission: DesktopAdmissionReads,
-  closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities'],
   hostTools?: DesktopPlatformCapabilities['hostTools'],
   credentialCipher?: CredentialCipher
 ) {
@@ -61,7 +56,6 @@ function harness(
   const owner = serveDesktopPlatform(server, {
     admission,
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     ...(credentialCipher ? { credentialCipher } : {}),
     ...(hostTools ? { hostTools } : {}),
   });
@@ -108,7 +102,7 @@ it('the host seals its credential file with the cipher Main lends, and Main read
     },
     seal: async (plaintext) => Buffer.from(`main:${plaintext}`).toString('base64'),
   };
-  const f = harness(mainReads(), undefined, undefined, mainCipher);
+  const f = harness(mainReads(), undefined, mainCipher);
   const host = createHostCredentials({
     cipher: lentCredentialCipher((method, input) => f.client.sendRequest(method, input)),
     selection,
@@ -123,113 +117,6 @@ it('the host seals its credential file with the cipher Main lends, and Main read
     await Promise.all([host.close(), main.close()]);
     f.destroy();
     await rm(directory, { force: true, recursive: true });
-  }
-});
-
-it.each([false, true])(
-  'private close joins Main Root borrowers and retains their failure (failure=%s)',
-  async (failed) => {
-    const entered = Promise.withResolvers<void>();
-    const retired = Promise.withResolvers<void>();
-    const failure = new Error('Main native owner retirement failed');
-    const closeRoot = vi.fn(async (): Promise<void> => {
-      entered.resolve();
-      await retired.promise;
-      if (failed) {
-        throw failure;
-      }
-    });
-    const f = harness(mainReads(), closeRoot);
-    try {
-      let acknowledged = false;
-      const closing = f.client.sendRequest('platform/close', {}).then(() => {
-        acknowledged = true;
-      });
-      const outcome = Promise.allSettled([closing]);
-      await entered.promise;
-      expect(acknowledged).toBe(false);
-      retired.resolve();
-      const [result] = await outcome;
-      if (failed) {
-        expect(result?.status).toBe('rejected');
-        await expect(f.owner.close()).rejects.toMatchObject({ errors: [failure] });
-      } else {
-        expect(result?.status).toBe('fulfilled');
-        await f.owner.close();
-      }
-      expect(closeRoot).toHaveBeenCalledExactlyOnceWith('closing');
-    } finally {
-      retired.resolve();
-      f.destroy();
-    }
-  }
-);
-
-it('a host whose connection closes without asking closes Main Root borrowers as gone (BST-2004)', async () => {
-  const closeRoot = vi.fn(async (): Promise<void> => undefined);
-  const f = harness(mainReads(), closeRoot);
-  try {
-    f.crash();
-    await vi.waitFor(() => expect(closeRoot).toHaveBeenCalledExactlyOnceWith('gone'));
-    await f.owner.close();
-    expect(closeRoot).toHaveBeenCalledOnce();
-  } finally {
-    f.destroy();
-  }
-});
-
-/** An error as the logger keeps it: each nested failure with its own message. */
-interface LoggedError {
-  readonly errors?: readonly LoggedError[];
-  readonly message: string;
-}
-
-it('a failed private close logs every inner failure in Main and sends the host the typed internal fault (BST-2192)', async () => {
-  // Hosted run 39164110759: the host's close got only "Desktop platform capability
-  // cleanup failed", kept its Root, and never exited. Nothing said which retirement failed.
-  const workspace = new Error('Workspace close failed');
-  const native = new Error('Native Root retirement failed');
-  const closeRoot = vi.fn(async (): Promise<void> => {
-    throw new AggregateError(
-      [workspace, native],
-      'Desktop workspace and native Root retirement failed'
-    );
-  });
-  const records: LogRecord[] = [];
-  const unsubscribe = addLogListener((record) => records.push(record));
-  const f = harness(mainReads(), closeRoot);
-  try {
-    const failure = await f.client
-      .sendRequest('platform/close', {})
-      .catch((cause: unknown) => cause);
-    expect(failure).toBeInstanceOf(ResponseError);
-    const response = failure as ResponseError<unknown>;
-    expect(response.data).toEqual({ ...INTERNAL_FAULT, correlationId: expect.any(String) });
-    const correlationId = (response.data as { correlationId: string }).correlationId;
-    const logged = records.find(
-      (record) =>
-        record.level === 'error' &&
-        record.args.some(
-          (arg) =>
-            typeof arg === 'object' &&
-            arg !== null &&
-            'correlationId' in arg &&
-            arg.correlationId === correlationId
-        )
-    );
-    expect(logged?.scope).toBe('DesktopMainPlatform');
-    const fields = logged?.args.find(
-      (arg) => typeof arg === 'object' && arg !== null && 'error' in arg
-    ) as { error: LoggedError };
-    expect(fields.error.message).toBe('Desktop platform capability cleanup failed');
-    expect(fields.error.errors?.[0]?.errors?.map((error) => error.message)).toEqual([
-      workspace.message,
-      native.message,
-    ]);
-    await expect(f.owner.close()).rejects.toThrow('Desktop platform capability cleanup failed');
-  } finally {
-    unsubscribe();
-    f.destroy();
   }
 });
 
@@ -249,12 +136,11 @@ function heldRead(tail: Promise<void>) {
   return { diagnostics, entered: entered.promise };
 }
 
-it('utility loss joins an in-flight Main read’s physical tail before closing borrowed capabilities', async () => {
+it('utility loss joins an in-flight Main read’s physical tail before the platform closes', async () => {
   const physicalTail = Promise.withResolvers<void>();
   const serverClosed = Promise.withResolvers<void>();
-  const release = vi.fn(async () => undefined);
   const read = heldRead(physicalTail.promise);
-  const h = harness(mainReads(), release, { diagnostics: read.diagnostics });
+  const h = harness(mainReads(), { diagnostics: read.diagnostics });
   h.server.onClose(() => serverClosed.resolve());
   try {
     const reading = h.client.sendRequest('desktop-read/diagnostics/events', DIAGNOSTIC_EVENTS);
@@ -268,11 +154,10 @@ it('utility loss joins an in-flight Main read’s physical tail before closing b
     });
     await Promise.resolve();
     expect(closed).toBe(false);
-    expect(release).not.toHaveBeenCalled();
     physicalTail.resolve();
     await closing;
     await expect(reading).rejects.toThrow();
-    expect(release).toHaveBeenCalledTimes(1);
+    expect(closed).toBe(true);
   } finally {
     physicalTail.resolve();
     h.destroy();
@@ -280,11 +165,10 @@ it('utility loss joins an in-flight Main read’s physical tail before closing b
   }
 });
 
-it('cancellation and close wait for an in-flight Main read’s physical tail before releasing borrowed capabilities', async () => {
+it('cancellation and close wait for an in-flight Main read’s physical tail before the platform closes', async () => {
   const joined = Promise.withResolvers<void>();
-  const close = vi.fn(async () => undefined);
   const read = heldRead(joined.promise);
-  const h = harness(mainReads(), close, { diagnostics: read.diagnostics });
+  const h = harness(mainReads(), { diagnostics: read.diagnostics });
   const cancellation = new CancellationTokenSource();
   let settled = false;
   try {
@@ -301,45 +185,14 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
     });
     await Promise.resolve();
     expect(settled).toBe(false);
-    expect(close).not.toHaveBeenCalled();
     joined.resolve();
     // This read does not observe its signal, so it settles with its result.
     await expect(reading).resolves.toEqual([]);
     await closing;
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(true);
   } finally {
     joined.resolve();
     cancellation.dispose();
-    h.destroy();
-  }
-});
-
-it('serves the workspace text index search to the host', async () => {
-  const result = {
-    candidateCount: 1,
-    candidatesTruncated: false,
-    embedding: { indexMode: 'text-only' as const },
-    hits: [],
-    scanLimited: false,
-    storeId: 'store',
-    truncated: false,
-  };
-  const indexSearch = {
-    coverage: vi.fn(),
-    coverageBatch: vi.fn(),
-    grep: vi.fn(),
-    rebuild: vi.fn(),
-    search: vi.fn(async () => result),
-    status: vi.fn(),
-  };
-  const h = harness(mainReads(), undefined, { indexSearch });
-  const request = { limit: 5, mode: 'bm25' as const, rootIds: ['root'], text: 'marker' };
-  try {
-    await expect(
-      h.client.sendRequest('desktop-read/index/search', { request, threadId: 'thread' })
-    ).resolves.toEqual(result);
-    expect(indexSearch.search).toHaveBeenCalledWith(request);
-  } finally {
     h.destroy();
   }
 });
@@ -357,7 +210,7 @@ it('drives the browser pane, re-parsing the tool input', async () => {
     selectOption: vi.fn(),
     type: vi.fn(),
   };
-  const h = harness(mainReads(), undefined, { browser });
+  const h = harness(mainReads(), { browser });
   const navigate = {
     input: { url: 'https://example.com' },
     threadId: 'thread',
@@ -385,7 +238,7 @@ it('drives the browser pane, re-parsing the tool input', async () => {
 
 it('serves the diagnostics store to the host', async () => {
   const diagnostics = { events: vi.fn(async () => []), fingerprints: vi.fn() };
-  const h = harness(mainReads(), undefined, { diagnostics });
+  const h = harness(mainReads(), { diagnostics });
   try {
     await expect(
       h.client.sendRequest('desktop-read/diagnostics/events', {
@@ -394,53 +247,6 @@ it('serves the diagnostics store to the host', async () => {
       })
     ).resolves.toEqual([]);
     expect(diagnostics.events).toHaveBeenCalledWith({ limit: 5 });
-  } finally {
-    h.destroy();
-  }
-});
-
-it.each([
-  ['missing-key', 'configuration'],
-  ['input-too-long', 'input'],
-  ['rate-limit', 'availability'],
-] as const)('retains typed %s through the real index search boundary', async (kind, category) => {
-  const original = new HostedEmbeddingError(
-    kind,
-    'No API key configured for the embedding provider.',
-    { cause: new Error('private missing-key fixture') }
-  );
-  const aggregate = canonicalError(
-    canonicalFault(
-      new AggregateError([original, original], 'Canonical inference and retirement failed.')
-    )
-  );
-  const indexSearch = {
-    coverage: vi.fn(),
-    coverageBatch: vi.fn(),
-    grep: vi.fn(),
-    rebuild: vi.fn(),
-    search: vi.fn(async () => {
-      throw aggregate;
-    }),
-    status: vi.fn(),
-  };
-  const h = harness(mainReads(), undefined, { indexSearch });
-  const request = { limit: 5, mode: 'bm25' as const, rootIds: ['root'], text: 'marker' };
-  try {
-    const received: unknown = await h.client
-      .sendRequest('desktop-read/index/search', { request, threadId: 'thread' })
-      .catch((error: unknown) => error);
-    expect(received).toMatchObject({
-      code: -32_001,
-      data: {
-        category,
-        code: `embedding.${kind}`,
-        correlationId: expect.any(String),
-        kind: 'refusal',
-        remedy: expect.any(String),
-      },
-    });
-    expect(JSON.stringify(received)).not.toContain('private missing-key fixture');
   } finally {
     h.destroy();
   }

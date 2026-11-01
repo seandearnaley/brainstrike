@@ -1,6 +1,8 @@
 // Every request on the state index stays bounded: a read that would catch its
 // threads up first sends that catch-up as bounded steps, so the read request
 // itself never carries the whole backlog.
+import os from 'node:os';
+import { canonicalRoot } from '@brainstrike/state-store';
 import { expect, it } from 'vitest';
 import { STATE_CATCH_UP_STEP_EVENTS } from '../src/contracts.js';
 import { createIndexerConnection, type IndexerTransport } from '../src/transport.js';
@@ -48,9 +50,7 @@ function worker(steps: number, behind = 0) {
             dbPath,
             journalMode: 'wal',
             pid: 1,
-            readerQueryOnly: 1,
             storeId: 'a'.repeat(64),
-            vecVersion: 'v0.1.9',
             writerThreadId: 1,
           },
         });
@@ -80,7 +80,14 @@ function worker(steps: number, behind = 0) {
     },
   };
   const port = createIndexerConnection(
-    { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] },
+    {
+      dbPath,
+      stateProjection: {
+        mode: 'dev',
+        module: new URL('./fixtures/state-schema.mjs', import.meta.url).href,
+      },
+      stateRoot: canonicalRoot(os.tmpdir()),
+    },
     { closeMs: 50 },
     transport
   ).ready;

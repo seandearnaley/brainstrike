@@ -5,13 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
-import { openConnection } from '@brainstrike/sqlite-native';
 import {
   canonicalRoot,
   largeText,
   StateStore,
   type StateStoreHooks,
 } from '@brainstrike/state-store';
+import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 
 const deadlines = { closeMs: 5000 };
@@ -73,8 +73,6 @@ async function fixture(hooks: StateStoreHooks = {}) {
   const root = canonicalRoot(await mkdtemp(path.join(os.tmpdir(), 'brainstrike-state-purge-')));
   const options = {
     dbPath: path.join(root, 'index.sqlite'),
-    embedding: { indexMode: 'text-only' },
-    rootIds: [],
     stateProjection: {
       mode: 'dev',
       module: new URL('./fixtures/state-schema.mjs', import.meta.url).href,
@@ -111,7 +109,7 @@ async function fixture(hooks: StateStoreHooks = {}) {
 }
 
 function indexed(root: string, text: string): unknown[] {
-  const db = openConnection(path.join(root, 'index.sqlite'), { readonly: true });
+  const db = new Database(path.join(root, 'index.sqlite'), { readonly: true });
   try {
     return db
       .prepare('SELECT rowid FROM state_events_fts WHERE state_events_fts MATCH ?')
@@ -122,7 +120,7 @@ function indexed(root: string, text: string): unknown[] {
 }
 
 function vocabulary(root: string, text: string): unknown {
-  const db = openConnection(path.join(root, 'index.sqlite'), { readonly: true });
+  const db = new Database(path.join(root, 'index.sqlite'), { readonly: true });
   try {
     db.exec('CREATE VIRTUAL TABLE temp.state_vocab USING fts5vocab(main, state_events_fts, row)');
     return db.prepare('SELECT count(*) FROM temp.state_vocab WHERE term=?').pluck().get(text);
@@ -182,7 +180,7 @@ it('a failure after durable truth deletion leaves old FTS until reopen replays t
     await expect(f.store.purge('one', 2)).rejects.toBe(failure);
     expect(indexed(f.root, secret)).toHaveLength(1);
     expect((await f.store.read('one', 2))[0]?.event.type).toBe('purged');
-    const truth = openConnection(path.join(f.root, 'state.db'), { readonly: true });
+    const truth = new Database(path.join(f.root, 'state.db'), { readonly: true });
     try {
       expect(truth.prepare('SELECT count(*) FROM purge_intent').pluck().get()).toBe(1);
     } finally {
@@ -192,7 +190,7 @@ it('a failure after durable truth deletion leaves old FTS until reopen replays t
     await f.reopen();
     expect(existsSync(path.join(f.root, 'blobs', hash))).toBe(false);
     expect(indexed(f.root, 'retained')).toHaveLength(1);
-    const reopenedTruth = openConnection(path.join(f.root, 'state.db'), { readonly: true });
+    const reopenedTruth = new Database(path.join(f.root, 'state.db'), { readonly: true });
     try {
       expect(reopenedTruth.prepare('SELECT count(*) FROM purge_intent').pluck().get()).toBe(0);
     } finally {
@@ -263,7 +261,7 @@ async function unprojectedPurgeRows(f: Awaited<ReturnType<typeof fixture>>): Pro
     },
     { event: { content: 'retained after', type: 'text', v: 2 }, threadId: 'one' },
   ]);
-  const db = openConnection(f.options.dbPath, { readonly: true });
+  const db = new Database(f.options.dbPath, { readonly: true });
   try {
     expect(db.prepare('SELECT count(*) FROM state_event_rows').pluck().get()).toBe(0);
     expect(db.prepare('SELECT count(*) FROM state_thread_cursors').pluck().get()).toBe(0);
@@ -285,7 +283,7 @@ async function assertOrderedPurge(
   expect(await byteFiles(f.root, secret)).toEqual([]);
   expect(existsSync(path.join(f.root, 'blobs', hash))).toBe(false);
   expect(indexed(f.root, 'retained')).toHaveLength(2);
-  const db = openConnection(f.options.dbPath, { readonly: true });
+  const db = new Database(f.options.dbPath, { readonly: true });
   try {
     expect(db.prepare('SELECT seq FROM state_event_rows ORDER BY seq').pluck().all()).toEqual([
       1, 2, 3,
@@ -358,14 +356,14 @@ it('meaningful catch-up admitted after truth purge preserves neighbors without r
 
 it('a pinned derived reader rejects purge and retains its intent until real checkpoint retry succeeds', async () => {
   const f = await fixture();
-  let reader: ReturnType<typeof openConnection> | undefined;
+  let reader: Database.Database | undefined;
   try {
     await seed(f);
-    reader = openConnection(f.options.dbPath, { readonly: true });
+    reader = new Database(f.options.dbPath, { readonly: true });
     reader.exec('BEGIN');
     reader.prepare('SELECT count(*) FROM state_event_rows').get();
     await expect(f.store.purge('one', 2)).rejects.toThrow(/checkpoint|pinned|busy/iu);
-    const truth = openConnection(path.join(f.root, 'state.db'), { readonly: true });
+    const truth = new Database(path.join(f.root, 'state.db'), { readonly: true });
     try {
       expect(truth.prepare('SELECT count(*) FROM purge_intent').pluck().get()).toBe(1);
     } finally {

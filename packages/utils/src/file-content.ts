@@ -37,9 +37,8 @@ export const fileContent = {
    * for null bytes or control characters
    */
   isTextContent(content: string): boolean {
-    // A NUL byte marks binary content, and SQLite's text functions stop at the
-    // first NUL. Check the full string so a late NUL in an otherwise-text file
-    // cannot poison the workspace index.
+    // A NUL byte marks binary content. Check the full string so a late NUL in
+    // an otherwise-text file is not treated as text.
     if (content.includes('\0')) {
       return false;
     }

@@ -5,10 +5,7 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * it depends on is still alive: a factory reset in flight finishes first (it
  * needs its replacement renderer and reopens the agent host), renderers before
  * the hosts they call, the agent host's admission fenced before Main's
- * MCP control closes (a host starting after it would be refused), each
- * `fs.watch` root watcher owner (`root-watchers.ts`, the roots the native
- * index borrows) retiring its watches before Electron frees Main's Node
- * environment, and
+ * MCP control closes (a host starting after it would be refused), and
  * `database-drain` last: it stops everything that issues database work. The
  * git cluster, its snapshot maintenance, terminals, the Explorer's root
  * watches, command sessions, language servers and shell commands are the agent host's, which retires them with its
@@ -22,7 +19,7 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'factory-reset',
   'renderers',
   'main-catalog',
-  'native-index',
+  'host-profile',
   'mcp-runtime',
   'file-system',
   'database-drain',

@@ -1,8 +1,7 @@
 /**
  * Reciprocal Rank Fusion (RRF) Algorithm Tests
  *
- * Tests the RRF implementation for hybrid search combining
- * vector similarity and full-text search results.
+ * Tests the RRF implementation that fuses ranked result lists.
  */
 
 import { describe, expect, it } from 'vitest';

@@ -10,7 +10,7 @@ import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import { seedRoot } from './utils/seed-root';
 
-// Regression: the renderer's Send schema imported the native indexer through
+// Regression: the renderer's Send schema once imported a Node-only module through
 // platform-wire. Production tree shaking hid its node:v8 import; dev evaluated it.
 test('dev renderer sends Luna cache usage and reloads without losing the thread', async () => {
   const profile = await mkdtemp(path.join(tmpdir(), 'bs-dev-launch-'));
@@ -69,7 +69,6 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
       await expect(context.window.getByTestId('new-agent-button')).toBeVisible();
       const page = context.window;
       await seedRoot(page, workspace, {
-        disableBackgroundIndexing: true,
         reloadReason: 'luna-cache-usage',
         rootId: randomUUID(),
       });

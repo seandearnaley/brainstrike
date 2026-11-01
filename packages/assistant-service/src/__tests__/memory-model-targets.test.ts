@@ -34,7 +34,7 @@ describe('parseObservationalMemoryModelTarget', () => {
     expect(() => parseObservationalMemoryModelTarget('unknown/model')).toThrow(
       'Unsupported observational memory provider "unknown"'
     );
-    expect(() => parseObservationalMemoryModelTarget('cohere/command-r')).toThrow(
+    expect(() => parseObservationalMemoryModelTarget('bedrock/claude-sonnet-4-6')).toThrow(
       'requires a hosted model provider;'
     );
   });

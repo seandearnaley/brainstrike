@@ -37,7 +37,6 @@ test('a canvas a host run commits opens in its own tab and is saved to Artifacts
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-m3-canvas-live-')));
   electron.removeAfterClose(root);
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'm3-canvas-live-root',
     rootId: randomUUID(),
   });

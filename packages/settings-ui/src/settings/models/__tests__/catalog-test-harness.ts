@@ -28,7 +28,6 @@ export function makeCatalogRow(
     bestFor: [],
     contextWindow: 200_000,
     description: null,
-    dimension: null,
     enabled: false,
     maxOutputTokens: 64_000,
     name: overrides.id,
@@ -45,7 +44,6 @@ export function makeCatalogRow(
     recommended: false,
     registered: true,
     tagline: null,
-    type: 'chat',
     vision: 'supported',
     ...overrides,
   };

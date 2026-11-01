@@ -47,7 +47,6 @@ test('a host run’s approved file write is undone from its tool card, says so, 
   let target = 'notes.txt';
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'm3-checkpoint-undo-root',
       rootId: randomUUID(),
     });

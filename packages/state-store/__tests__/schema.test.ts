@@ -14,12 +14,9 @@ const C_SMALL = [
   'brainstrike_worktrees',
 ];
 const DESKTOP_CATALOG = [
-  'embedding_sets',
-  'file_records',
   'model_choices',
   'provider_choices',
   'roots',
-  'source_blob_gc',
   'thread_groups',
   'thread_pins',
   'thread_placements',

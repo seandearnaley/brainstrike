@@ -904,11 +904,6 @@ export interface HostPlatform {
   readonly rootRegistry?: HostRootRegistry;
   /** Gap 10: the host's derived state index search, for `thread/search`. */
   readonly searchState?: HostStateSearch;
-  /** Read scoped source text from the composing platform's existing native index. */
-  searchWorkspace?(
-    request: HostParams<'workspace/search'>,
-    signal: AbortSignal
-  ): Promise<HostResults['workspace/search']>;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest

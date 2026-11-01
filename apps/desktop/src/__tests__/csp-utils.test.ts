@@ -53,17 +53,14 @@ describe('Desktop CSP Utils', () => {
       expect(prodCSP).not.toContain('wss://localhost:*');
     });
 
-    it('includes the hosted embedding providers in connect-src', () => {
+    it('lets the renderer reach no remote origin in connect-src', () => {
       const connectSrcOf = (csp: string) =>
         csp.split(';').find((directive: string) => directive.trim().startsWith('connect-src')) ??
         '';
 
-      // The desktop calls hosted embedding providers directly.
+      // Model providers are reached by the agent host, never by the page.
       for (const csp of [getCSP('development'), getCSP('production')]) {
-        expect(connectSrcOf(csp)).toContain('https://api.openai.com');
-        expect(connectSrcOf(csp)).toContain('https://generativelanguage.googleapis.com');
-        expect(connectSrcOf(csp)).toContain('https://api.cohere.com');
-        expect(connectSrcOf(csp)).toContain('https://api.voyageai.com');
+        expect(connectSrcOf(csp)).not.toContain('https://');
       }
     });
 

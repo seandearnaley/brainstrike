@@ -190,16 +190,6 @@ describe('native tool discovery contract', () => {
     ]);
   });
 
-  it('refuses an embeddings-only provider rather than resolving a chat adapter', () => {
-    // Voyage declares `capabilities.llm: false`, so discovery names that as
-    // the reason instead of handing back an adapter nothing can run.
-    expect(resolveToolDiscoveryAdapter({ modelId: 'any-model', provider: 'voyage' })).toEqual({
-      adapter: 'unsupported',
-      reason: 'provider-has-no-llm',
-      status: 'unsupported',
-    });
-  });
-
   it('treats enabled as eligible, never as automatically active', () => {
     expect(
       resolveToolDiscoveryPhaseAccess({

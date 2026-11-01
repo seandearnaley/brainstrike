@@ -9,9 +9,7 @@ vi.mock('@brainstrike/logging', () => ({
 }));
 
 const initial = projectModelCatalog({ models: [], providers: [] });
-const model = initial.models.find(
-  (row) => row.providerId === 'openai' && row.capabilities.type === 'llm'
-);
+const model = initial.models.find((row) => row.providerId === 'openai');
 if (!model) {
   throw new Error('The current catalog must offer an OpenAI LLM.');
 }

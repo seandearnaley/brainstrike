@@ -10,7 +10,6 @@ export function ModelPicker({
   models,
   providers,
   mode = 'single',
-  modelType = 'all',
   value,
   onChange,
   placeholder,
@@ -23,7 +22,7 @@ export function ModelPicker({
   const [searchQuery, setSearchQuery] = React.useState('');
   const resolvedTheme = useResolvedTheme();
 
-  const filteredModels = filterModels(models, searchQuery, modelType);
+  const filteredModels = filterModels(models, searchQuery);
 
   const handleSelect = (modelId: string) => {
     if (mode === 'single') {

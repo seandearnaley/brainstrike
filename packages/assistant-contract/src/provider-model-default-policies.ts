@@ -23,28 +23,22 @@ export type ProviderModelDefaultPolicy =
   | { readonly kind: 'seed'; readonly modelIds: readonly string[] };
 
 /**
- * Exhaustive over `SupportedProvider`. `null` means the provider has no catalog
- * defaults at all, which is true exactly when it serves no LLMs.
+ * Exhaustive over `SupportedProvider`.
  *
  * The `satisfies` is load-bearing: a new provider cannot compile without
- * stating a policy or an explicit `null`. Omitting that decision is what left
- * seven models unreachable in the first place. The `null`-iff rule is pinned by
- * provider-model-default-policies.test.ts against the live catalog rather than
- * restated here as a hand-maintained list.
+ * stating a policy. Omitting that decision is what left seven models
+ * unreachable in the first place.
  */
 export const PROVIDER_MODEL_DEFAULT_POLICIES = {
   anthropic: { kind: 'all' },
   bedrock: { kind: 'seed', modelIds: BEDROCK_RECOMMENDED_MODEL_IDS },
-  cohere: null,
   google: { kind: 'all' },
   openai: { kind: 'all' },
   openrouter: { kind: 'seed', modelIds: OPENROUTER_RECOMMENDED_CODING_MODEL_IDS },
-  voyage: null,
-} as const satisfies Record<SupportedProvider, ProviderModelDefaultPolicy | null>;
+} as const satisfies Record<SupportedProvider, ProviderModelDefaultPolicy>;
 
-/** Non-throwing accessor; `null` for a provider with no catalog defaults. */
 export function getProviderModelDefaultPolicy(
   provider: SupportedProvider
-): ProviderModelDefaultPolicy | null {
+): ProviderModelDefaultPolicy {
   return PROVIDER_MODEL_DEFAULT_POLICIES[provider];
 }

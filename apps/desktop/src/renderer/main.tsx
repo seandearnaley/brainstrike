@@ -13,7 +13,6 @@ import {
 } from '@brainstrike/assistant-contract/boundary-result';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   applyLoggingPreferences,
   createLogger,
@@ -26,7 +25,6 @@ import {
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
-import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { ElectronRendererFileSystemAdapter } from './adapters';
 import { connectDesktopAgentHost } from './agent-host-client';
 import {
@@ -36,7 +34,6 @@ import {
 } from './desktop-bridge-contract';
 import { windowHostConnection } from './desktop-host-connection';
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
-import { createIpcCapability } from './ipc-capability';
 import './log-buffer';
 import { useAppUpdateReadyToast } from './use-app-update-ready-toast';
 import './styles.css';
@@ -127,7 +124,6 @@ declare global {
     __BRAINSTRIKE_READY__?: boolean;
     __brainstrikeTestHooks__?: {
       enableCatalogModels: (modelIds: readonly string[]) => Promise<void>;
-      indexSearch?: Omit<IndexSearchCapability, 'grep'>;
       notifySecretsChanged: () => void;
       /** Test mode: one request on this window's agent host connection, as its views send it. */
       requestAgentHost: (method: string, params: unknown) => Promise<unknown>;
@@ -175,10 +171,6 @@ function App() {
         await useModelRegistryStore.getState().ensureRegistry(catalog);
         await useModelRegistryStore.getState().setModelsEnabled(catalog, modelIds, true);
       },
-      // Functional fixtures use the production consumer adapter; window.indexSearch remains the raw transport.
-      ...(window.indexSearch
-        ? { indexSearch: createIpcCapability(window.indexSearch, indexSearchContract) }
-        : {}),
       notifySecretsChanged: () => {
         useSecretsStore.getState().notifySecretsChanged();
       },

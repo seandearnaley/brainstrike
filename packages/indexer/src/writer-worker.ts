@@ -19,10 +19,8 @@ if (!port) {
 let writer: IndexWriter;
 try {
   const options = validateIndexerOptions(workerData);
-  const projection = options.stateProjection
-    ? await loadStateProjection(options.stateProjection, options.stateRoot)
-    : undefined;
-  writer = new IndexWriter(options, openDesktopIndex(options, projection), projection);
+  const projection = await loadStateProjection(options.stateProjection, options.stateRoot);
+  writer = new IndexWriter(options, openDesktopIndex(options), projection);
   port.postMessage({ kind: 'ready', value: writer.info });
   port.on('message', (input: unknown) => {
     let id: number | undefined;
@@ -36,55 +34,31 @@ try {
       switch (request.op) {
         case 'state-health':
           decoder(Schema.Null)(request.payload);
-          value = writer.requireState().health();
+          value = writer.state.health();
           break;
         case 'state-stats':
-          value = writer.requireState().stats(request.payload);
+          value = writer.state.stats(request.payload);
           break;
         case 'state-match':
-          value = writer.requireState().match(request.payload);
+          value = writer.state.match(request.payload);
           break;
         case 'state-search':
-          value = writer.requireState().search(request.payload, STATE_CATCH_UP_STEP_EVENTS);
+          value = writer.state.search(request.payload, STATE_CATCH_UP_STEP_EVENTS);
           break;
         case 'state-rebuild':
-          value = writer.requireState().rebuild(request.payload);
+          value = writer.state.rebuild(request.payload);
           break;
         case 'state-catch-up-step':
-          value = writer.requireState().catchUpStep(request.payload);
+          value = writer.state.catchUpStep(request.payload);
           break;
         case 'state-reindex':
-          value = writer.requireState().reindex(request.payload);
+          value = writer.state.reindex(request.payload);
           break;
         case 'state-gc-check':
-          value = writer.requireState().gcCheck(request.payload, STATE_CATCH_UP_STEP_EVENTS);
+          value = writer.state.gcCheck(request.payload, STATE_CATCH_UP_STEP_EVENTS);
           break;
         case 'state-drop-thread':
-          value = writer.requireState().dropThread(request.payload);
-          break;
-        case 'replace-file-bindings':
-          value = writer.scoped.replaceBindings(request.payload);
-          break;
-        case 'commit-scoped-text-files':
-          value = writer.scoped.commitTexts(request.payload);
-          break;
-        case 'commit-scoped-file':
-          value = writer.scoped.commitVector(request.payload);
-          break;
-        case 'remove-scoped-file':
-          value = writer.scoped.remove(request.payload);
-          break;
-        case 'remove-scoped-files':
-          value = writer.scoped.removeBatch(request.payload);
-          break;
-        case 'commit-text-file':
-          value = writer.commitText(request.payload);
-          break;
-        case 'purge-file':
-          value = writer.purge(request.payload);
-          break;
-        case 'remove-file':
-          value = writer.remove(request.payload);
+          value = writer.state.dropThread(request.payload);
           break;
         case 'close':
           decoder(Schema.Null)(request.payload);
@@ -99,7 +73,7 @@ try {
     } catch (error) {
       // A read refused as behind is the transport's cue to step again, not a failure.
       if (stateOperation && !(error instanceof IndexerError && error.code === 'state-behind')) {
-        writer.recordStateFailure(error);
+        writer.state.recordFailure(error);
       }
       if (id === undefined) {
         port.postMessage({ error: fault(error), kind: 'startup-error' });

@@ -13,8 +13,7 @@ import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
  * BST-1990: on desktop, Main's root registry records every folder in `roots`
  * under its one id, so a folder removed and re-added comes back with the same
  * id. The hook must forget a folder that is no longer mounted, or the re-add
- * would be skipped as a repeat registration and never wake its waiters or the
- * native index.
+ * would be skipped as a repeat registration and never wake its waiters.
  */
 
 function desktopRoot(rootId: string, name: string, path: string): RootDescriptor {
@@ -39,9 +38,7 @@ it('registers a folder re-added under its one id again after it was removed', as
     platform: 'electron',
     restoreRoots: vi.fn(async (): Promise<RootDescriptor[]> => [descriptor]),
   } as unknown as FileSystemAdapter;
-  const { result } = renderHook(() =>
-    useRootsReconciliation({ adapter, registration: { rootsRegistered: vi.fn(async () => {}) } })
-  );
+  const { result } = renderHook(() => useRootsReconciliation({ adapter }));
   await waitFor(() => expect(result.current.rootsReconciliationSettled).toBe(true));
 
   expect([...result.current.dbRootIdByAdapterRootId]).toEqual([['one-id', 'one-id']]);

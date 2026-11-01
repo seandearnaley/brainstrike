@@ -16,7 +16,6 @@ import { useModelMigrationNotices } from './hooks/use-model-migration-notices';
 import { StateStoreDamageNotice } from './state-health/state-store-damage-notice';
 import { DatabaseStatusItem } from './status-items/database-status-item';
 import { DiagnosticsStatusItem } from './status-items/diagnostics-status-item';
-import { IndexingStatusItem } from './status-items/indexing-status-item';
 import { WorkspaceRootStatusItem } from './status-items/workspace-root-status-item';
 import { ThreadCheckoutBridge } from './thread-checkout-bridge';
 import type { AppLayoutProps } from './types';
@@ -27,7 +26,6 @@ export function AppLayout({
   currentPath,
   onNavigationClick,
   onOpenSettings,
-  nativeIndexSearch,
   stateHealth,
 }: AppLayoutProps) {
   useDatabaseStatusSync();
@@ -92,12 +90,7 @@ export function AppLayout({
                       <WorkspaceRootStatusItem />
                     </>
                   }
-                  rightContent={
-                    <>
-                      <DiagnosticsStatusItem />
-                      <IndexingStatusItem nativeIndexSearch={nativeIndexSearch ?? null} />
-                    </>
-                  }
+                  rightContent={<DiagnosticsStatusItem />}
                 />
               </div>
               <Toaster />

@@ -34,7 +34,6 @@ describe('projectCatalogRow', () => {
       recommended: true,
       registered: true,
       tagline: 'Balanced GPT-6.1 tier',
-      type: 'chat',
       vision: 'supported',
     });
     expect(row.reasoning?.state).toBe('supported');
@@ -54,40 +53,17 @@ describe('projectCatalogRow', () => {
     expect(row.reasoningEfforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
   });
 
-  it('keeps an unpriced model null, never 0', () => {
-    // A model the registry publishes no chat price for must project as "no
-    // pricing" rather than a zero price the cost panels would then sum.
-    const row = projectCatalogRow(
-      makeDbModel({
-        capabilities: { defaultDimension: 1024, type: 'embedding' },
-        id: 'embed-english-v3.0',
-        providerId: 'cohere',
-      }),
-      'Cohere'
-    );
-    expect(row.pricing).toBeNull();
-    expect(row.registered).toBe(true);
-  });
-
   it('gives a DB-only row no registry facts at all', () => {
     const row = projectCatalogRow(
-      makeDbModel({
-        capabilities: { defaultDimension: 384, type: 'embedding' },
-        id: 'retired-embedder',
-        providerId: 'openai',
-      }),
+      makeDbModel({ id: 'retired-model', providerId: 'openai' }),
       'OpenAI'
     );
     expect(row).toMatchObject({
       contextWindow: null,
-      dimension: 384,
       maxOutputTokens: null,
       pricing: null,
-      reasoning: null,
-      reasoningEfforts: null,
       recommended: false,
       registered: false,
-      type: 'embedding',
       vision: null,
     });
   });
@@ -103,7 +79,6 @@ describe('projectCatalogRow', () => {
       reasoning: null,
       reasoningEfforts: null,
       registered: false,
-      type: 'chat',
       vision: null,
     });
   });
@@ -115,25 +90,6 @@ describe('projectCatalogRow', () => {
     );
     expect(row.reasoning).toEqual({ reason: 'openrouter-undeclared', state: 'unknown' });
     expect(row.reasoningEfforts).toBeNull();
-  });
-
-  it('reads embedding dimensions and the registry default flag', () => {
-    const row = projectCatalogRow(
-      makeDbModel({
-        capabilities: { defaultDimension: 1536, type: 'embedding' },
-        id: 'text-embedding-3-small',
-        providerId: 'openai',
-      }),
-      'OpenAI'
-    );
-    expect(row).toMatchObject({
-      contextWindow: null,
-      dimension: 1536,
-      reasoning: null,
-      recommended: true,
-      type: 'embedding',
-      vision: null,
-    });
   });
 
   it('reads the best-for tags from the DB row', () => {

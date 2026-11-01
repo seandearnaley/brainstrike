@@ -14,7 +14,6 @@ test('the ordinary app host validates a committed root through its actual catalo
   const rootId = randomUUID();
   writeFileSync(path.join(root, 'bound-evidence.ts'), 'export const bound = true;\n');
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'm3-main-binding-owner',
     rootId,
   });

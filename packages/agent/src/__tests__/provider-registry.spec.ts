@@ -1,8 +1,4 @@
-import {
-  getProviderDefinition,
-  listProviders,
-  providerEnvKeys,
-} from '@brainstrike/assistant-contract/provider-metadata';
+import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import { describe, expect, it } from 'vitest';
 
 describe('provider registry metadata', () => {
@@ -14,11 +10,6 @@ describe('provider registry metadata', () => {
       expect(typeof provider.displayName).toBe('string');
       expect(provider.displayName.length).toBeGreaterThan(0);
     }
-  });
-
-  it('openrouter is flagged as not supporting embeddings', () => {
-    const definition = getProviderDefinition('openrouter');
-    expect(definition.capabilities.embeddings).toBe(false);
   });
 
   it('surface provider environment key precedence', () => {

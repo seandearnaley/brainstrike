@@ -1,11 +1,4 @@
 export type { ThreadGroupsPort, ThreadGroupsReply, ThreadGroupsRequest } from '@brainstrike/types';
-export type {
-  CollectionMetadata,
-  CollectionPort,
-  CollectionRecord,
-  CollectionReply,
-  CollectionRequest,
-} from './collection-types.ts';
 export {
   IndexerRequiredError,
   StateStoreReadOnlyError,
@@ -78,13 +71,6 @@ export { canonicalRoot } from './root-identity.ts';
 export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
 export { SCHEMA_VERSION } from './schema.mjs';
-export type {
-  SourceCatalogInput,
-  SourceCatalogPort,
-  SourceCatalogRecord,
-  SourceCatalogReply,
-  SourceCatalogRequest,
-} from './source-catalog-types.ts';
 export { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 export {
   type MemoryObservationRecord,
@@ -93,7 +79,6 @@ export {
   readAll,
   SqliteReader,
 } from './sqlite-reader.ts';
-export type { ClearContentResult } from './state-store.ts';
 export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,

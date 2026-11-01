@@ -18,7 +18,6 @@ import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
 import { fileSystemContract } from './ipc-domains/file-system.contract';
-import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
 import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
@@ -161,10 +160,6 @@ contextBridge.exposeInMainWorld('secrets', {
 contextBridge.exposeInMainWorld('envBootstrap', {
   read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.secrets.envBootstrap),
 });
-
-if (shouldExposeBridge('indexSearch')) {
-  exposeBridge('indexSearch', indexSearchContract);
-}
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,

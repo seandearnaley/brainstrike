@@ -8,11 +8,7 @@ import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.ts';
  */
 export type ProviderRuntime = 'hosted' | 'gateway';
 
-export type ProviderModelType = 'llm' | 'embedding';
-
 export interface ProviderCapabilities {
-  embeddings: boolean;
-  llm: boolean;
   streaming: boolean;
 }
 
@@ -245,8 +241,8 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   /**
    * Curated one-line marketing copy for the composer model menu (e.g. "Best
    * mix of smarts and speed"). REGISTRY-ONLY composer copy source — the DB
-   * model-catalog tagline column feeds embedding-model descriptions
-   * (app-shell `embedding-models.ts`), not this menu. Omit rather than invent
+   * model-catalog tagline column feeds the Model Catalog's descriptions, not
+   * this menu. Omit rather than invent
    * copy: a model without a tagline renders name-only.
    */
   tagline?: string;
@@ -266,32 +262,7 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   vision: ModelVisionSupport;
 }
 
-export interface EmbeddingModelDefinition extends BaseModelDefinition {
-  /**
-   * Known discrete dimensions offered by this model (if fixed).
-   */
-  availableDimensions?: readonly number[];
-  /**
-   * Canonical output dimensionality when no overrides are supplied.
-   */
-  defaultDimension: number;
-  /**
-   * Name of the parameter used to tune embedding dimension. Used by workers.
-   */
-  dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
-  /**
-   * Indicates whether the provider exposes a parameter to customise the dimension.
-   */
-  supportsCustomDimensions?: boolean;
-  /**
-   * Whether the model can natively (or via parameterisation) produce the project
-   * standard 768 dimensional vectors.
-   */
-  supportsStandardDimension: boolean;
-  type: 'embedding';
-}
-
-export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinition;
+export type ProviderModelDefinition = LlmModelDefinition;
 
 /**
  * How a provider authenticates. `'aws'` is carried by `bedrock` (BST-1350).
@@ -337,20 +308,13 @@ export interface ProviderDefinition {
    */
   keyNotes?: string;
   /**
-   * Ordered list of models covering both chat and embeddings.
+   * Ordered list of the provider's chat models.
    */
   models: readonly ProviderModelDefinition[];
   runtime: ProviderRuntime;
 }
 
-export type ProviderId =
-  | 'openai'
-  | 'anthropic'
-  | 'google'
-  | 'openrouter'
-  | 'cohere'
-  | 'voyage'
-  | 'bedrock';
+export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'bedrock';
 
 /**
  * The provider/model catalog, parsed from `provider-catalog.json` at module
@@ -408,10 +372,8 @@ export function resolveTokenMeasurementCapability(
   }
 
   const provider = PROVIDER_DEFINITIONS.find((definition) => definition.id === providerId);
-  const model = provider?.models.find(
-    (definition) => definition.type === 'llm' && definition.id === modelId
-  );
-  if (model?.type === 'llm' && model.tokenMeasurement) {
+  const model = provider?.models.find((definition) => definition.id === modelId);
+  if (model?.tokenMeasurement) {
     return model.tokenMeasurement;
   }
   return DETERMINISTIC_TOKEN_MEASUREMENT_BACKSTOP;
@@ -434,22 +396,8 @@ export function findProviderDefinition(providerId: string): ProviderDefinition |
   return (PROVIDER_BY_ID as Record<string, ProviderDefinition | undefined>)[providerId];
 }
 
-export function listProviderModels(provider: ProviderId, type?: ProviderModelType) {
-  const definition = getProviderDefinition(provider);
-  if (!type) {
-    return definition.models;
-  }
-  return definition.models.filter((model) => model.type === type);
-}
-
 export function listProviderLlmModels(provider: ProviderId): readonly LlmModelDefinition[] {
-  return listProviderModels(provider, 'llm') as readonly LlmModelDefinition[];
-}
-
-export function listProviderEmbeddingModels(
-  provider: ProviderId
-): readonly EmbeddingModelDefinition[] {
-  return listProviderModels(provider, 'embedding') as readonly EmbeddingModelDefinition[];
+  return getProviderDefinition(provider).models;
 }
 
 export function getProviderEnvKeys(provider: ProviderId): readonly string[] {
@@ -484,11 +432,8 @@ export function getProviderVendorEnvKey(provider: ProviderId): string | undefine
   return getProviderEnvKeys(provider).find((name) => !name.startsWith(BRAINSTRIKE_ENV_KEY_PREFIX));
 }
 
-export function resolveDefaultModel(
-  provider: ProviderId,
-  type: ProviderModelType = 'llm'
-): string | undefined {
-  const models = listProviderModels(provider, type);
+export function resolveDefaultModel(provider: ProviderId): string | undefined {
+  const models = listProviderLlmModels(provider);
   const explicitlyFlagged = models.find((model) => model.default);
   if (explicitlyFlagged) {
     return explicitlyFlagged.id;
@@ -517,13 +462,10 @@ export function findLlmModelDefinition(
   if (!provider) {
     return;
   }
-  const model = provider.models.find(
-    (definition) => definition.type === 'llm' && definition.id === modelId
-  );
-  return model?.type === 'llm' ? model : undefined;
+  return provider.models.find((definition) => definition.id === modelId);
 }
 
-/** A catalogued model's label (chat or embedding), else its raw id. */
+/** A catalogued model's label, else its raw id. */
 export function resolveModelLabel(providerId: string, modelId: string): string {
   const model = findProviderDefinition(providerId)?.models.find(
     (definition) => definition.id === modelId

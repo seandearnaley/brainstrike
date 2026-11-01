@@ -13,7 +13,6 @@ export const STARTUP_MILESTONES = [
   'windowShown',
   'firstContentfulPaint',
   'agentHostReady',
-  'indexReady',
 ] as const;
 export type StartupMilestone = (typeof STARTUP_MILESTONES)[number];
 

@@ -36,7 +36,6 @@ test('a host run’s content search runs in the agent host over the folder on di
   writeFileSync(path.join(root, 'notes.txt'), `first line\n${MARKER} on disk\n`);
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'm3-host-search-root',
       rootId: randomUUID(),
     });

@@ -1,6 +1,5 @@
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
@@ -12,7 +11,6 @@ export type DesktopCliOwnerIntentReader = NonNullable<DesktopAdmissionReads['cli
 /** Main's tool services for host threads. */
 export interface DesktopHostToolServices {
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
-  readonly nativeIndexSearch?: IndexSearchCapability | undefined;
   readonly workspaceRoots: WorkspaceRootPort;
 }
 
@@ -30,14 +28,12 @@ function desktopAdmissionReads(
       const row = (await dependencies.modelCatalog.read()).models.find(
         (candidate) => candidate.id === model && candidate.providerId === provider
       );
-      return row
-        ? { isEnabled: row.isEnabled, providerId: row.providerId, type: row.capabilities.type }
-        : null;
+      return row ? { isEnabled: row.isEnabled, providerId: row.providerId } : null;
     },
     ...(readCliOwnerIntent ? { cliOwnerIntent: readCliOwnerIntent } : {}),
     /**
      * The auto-observer candidates the model catalog has enabled: provider and
-     * model rows enabled and the model an LLM, the gate the memory settings
+     * model rows enabled, the gate the memory settings
      * dropdown applies (main's resolveEffectiveObservationalMemorySettings).
      */
     enabledObservers: async (candidates) => {
@@ -49,7 +45,6 @@ function desktopAdmissionReads(
         .filter(
           (model) =>
             model.isEnabled &&
-            model.capabilities.type === 'llm' &&
             enabledProviders.has(model.providerId) &&
             candidates.includes(`${model.providerId}/${model.id}`)
         )
@@ -60,14 +55,14 @@ function desktopAdmissionReads(
   };
 }
 
-/** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
+/** Lazy borrows: Root/New Thread never waits for credential initialization. */
 export function productionDesktopCapabilities(
   dependencies: DesktopHostToolServices,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   return {
     admission: desktopAdmissionReads(dependencies, readCliOwnerIntent),
-    hostTools: desktopHostToolServices(dependencies),
+    hostTools: desktopHostToolServices,
     resolveWorkspaceRoot: async (rootId) => {
       const root = (await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots)).find(
         (candidate) => candidate.rootId === rootId

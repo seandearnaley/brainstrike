@@ -45,8 +45,6 @@ async function seeded(threads: readonly string[], events: number) {
   }
   return {
     dbPath: path.join(root, 'index.sqlite'),
-    embedding: { indexMode: 'text-only' },
-    rootIds: ['canonical'],
     stateProjection: { mode: 'dev', module: producer },
     stateRoot: root,
   } as const;
@@ -57,9 +55,9 @@ async function writer(threads: readonly string[], events: number) {
   const options = await seeded(threads, events);
   const root = options.stateRoot;
   const projection = await loadStateProjection(options.stateProjection, root);
-  const index = new IndexWriter(options, openDesktopIndex(options, projection), projection);
+  const index = new IndexWriter(options, openDesktopIndex(options), projection);
   owned.push(() => index.close());
-  return index.requireState();
+  return index.state;
 }
 
 const reads = {

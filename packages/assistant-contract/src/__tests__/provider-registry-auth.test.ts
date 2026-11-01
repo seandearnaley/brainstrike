@@ -17,14 +17,7 @@ describe('provider auth metadata', () => {
       .filter((provider) => provider.authType === 'api_key')
       .map((provider) => provider.id)
       .sort();
-    expect(apiKeyProviders).toEqual([
-      'anthropic',
-      'cohere',
-      'google',
-      'openai',
-      'openrouter',
-      'voyage',
-    ]);
+    expect(apiKeyProviders).toEqual(['anthropic', 'google', 'openai', 'openrouter']);
   });
 
   it('every api_key provider carries an https docsUrl to its key page', () => {
@@ -41,9 +34,7 @@ describe('provider auth metadata', () => {
     expect(getProviderDefinition('openai').keyFormatHint).toBe('sk-...');
     expect(getProviderDefinition('anthropic').keyFormatHint).toBe('sk-ant-...');
     expect(getProviderDefinition('openrouter').keyFormatHint).toBe('sk-or-v1-...');
-    for (const id of ['google', 'cohere', 'voyage'] as const) {
-      expect(getProviderDefinition(id).keyFormatHint, `${id} keyFormatHint`).toBeUndefined();
-    }
+    expect(getProviderDefinition('google').keyFormatHint).toBeUndefined();
   });
 
   it('keeps the google Gemini-vs-Vertex guidance as registry keyNotes', () => {

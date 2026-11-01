@@ -77,7 +77,7 @@ const peerReset = (): Error => Object.assign(new Error('write EPIPE'), { code: '
 test.each([
   [
     'a catalog request',
-    (client: HostClient) => client.catalog.sourceCatalog({ operation: 'list' }),
+    (client: HostClient) => client.catalog.workspaceRoots({ operation: 'list' }),
   ],
   ['a host request', (client: HostClient) => client.request('thread/list', {})],
 ])('%s written after the host closed the transport reads as a lost connection', async (_, send) => {
@@ -97,7 +97,7 @@ test('a write failure the peer did not cause stays the internal fault', async ()
   try {
     endTransport(Object.assign(new Error('write EBADF'), { code: 'EBADF' }));
     const failure = await client.catalog
-      .sourceCatalog({ operation: 'list' })
+      .workspaceRoots({ operation: 'list' })
       .catch((cause: unknown) => cause);
     expect(isConnectionLoss(failure)).toBe(false);
     expect(failure).toBeInstanceOf(BoundaryFailureError);

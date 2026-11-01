@@ -14,7 +14,6 @@
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
-    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/settings-ui": "workspace:*",
     "@brainstrike/storage": "workspace:*",

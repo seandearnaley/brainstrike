@@ -17,7 +17,6 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
   },
   bedrock: {},
-  cohere: {},
   google: {
     'gemini-1.5-pro': 'gemini-2.5-pro',
     // gemini-2.5-flash / gemini-2.5-pro are now first-class models — do not
@@ -77,7 +76,6 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     // context, 131,072 output unchanged, vision preserved.
     'stealth/ox-alpha': 'qwen/qwen3.8-flash',
   },
-  voyage: {},
 };
 
 export function getModelIdMigrationTarget(

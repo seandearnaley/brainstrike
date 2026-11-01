@@ -1,15 +1,10 @@
 import path from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
-import type {
-  CanonicalSourceSubscription,
-  CanonicalWorkspaceLease,
-} from '@brainstrike/canonical-ingestion';
 import { type DirectoryHandle, isDurableRootId } from '@brainstrike/file-system';
 import { descriptorFor } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
-import { NativeAuthorityTransitionError } from '../node-native-index/errors.ts';
 import {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
@@ -40,7 +35,11 @@ import {
 } from './workspace-root-read.ts';
 import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.ts';
 import { createNativeSecureRoot, resolveValidatedReadPath } from './workspace-root-seams.ts';
-import { createWorkspaceRootSourceLease } from './workspace-root-source-lease.ts';
+import {
+  createWorkspaceRootSourceLease,
+  mountedRootRevoked,
+  type WorkspaceRootLease,
+} from './workspace-root-source-lease.ts';
 import type {
   MountedWorkspaceRoot,
   RecordedWorkspaceRoot,
@@ -56,11 +55,6 @@ export type {
   StoredWorkspaceRoot,
   WorkspaceRootRegistryOptions,
 } from './workspace-root-types.ts';
-
-export type SubscribeMountedWorkspaceRoot = (
-  mounted: MountedWorkspaceRoot,
-  ...args: Parameters<CanonicalWorkspaceLease['subscribe']>
-) => Promise<CanonicalSourceSubscription>;
 
 const logger = createLogger('WorkspaceRootRegistry');
 
@@ -105,7 +99,7 @@ export class WorkspaceRootRegistry {
   private rootDataDeletion: RootDataDeletionReservation | undefined;
   private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
   private readonly sourceLeases = new Set<{
-    readonly lease: CanonicalWorkspaceLease;
+    readonly lease: WorkspaceRootLease;
     readonly mounted: MountedWorkspaceRoot;
   }>();
   /** Work running on a mounted handle; the mount's retirement waits for it before closing. */
@@ -330,11 +324,9 @@ export class WorkspaceRootRegistry {
     return this.disposal;
   }
 
-  async borrowSourceRootForPath(
-    requestedPath: string,
-    subscribe: SubscribeMountedWorkspaceRoot
-  ): Promise<CanonicalWorkspaceLease> {
-    assertNativeAbsoluteReadPath(requestedPath, 'Watched root path');
+  /** A run's borrow of the folder mounted at exactly `requestedPath`; removing the folder ends it. */
+  async borrowSourceRootForPath(requestedPath: string): Promise<WorkspaceRootLease> {
+    assertNativeAbsoluteReadPath(requestedPath, 'Borrowed root path');
     if (this.rootDataDeletion) {
       throw new Error('Root data deletion owns workspace read admission.');
     }
@@ -342,7 +334,7 @@ export class WorkspaceRootRegistry {
     this.assertActive();
     const mounted = this.mounts.findByEitherPath(requestedPath);
     if (!mounted) {
-      throw new Error('A root watch requires an exact mounted root.');
+      throw new Error('A root borrow requires an exact mounted root.');
     }
     const resolved = await resolveReadAgainstMountedRoot(
       requestedPath,
@@ -350,15 +342,12 @@ export class WorkspaceRootRegistry {
       this.resolveReadPath
     );
     if (resolved.relativePath !== '.' || resolved.traversedSymlink) {
-      throw new Error('A root watch requires the same canonical mounted root.');
+      throw new Error('A root borrow requires the same canonical mounted root.');
     }
-    return this.borrowMountedSourceRoot(mounted, subscribe);
+    return this.borrowMountedSourceRoot(mounted);
   }
 
-  private borrowMountedSourceRoot(
-    mounted: MountedWorkspaceRoot,
-    subscribe: SubscribeMountedWorkspaceRoot
-  ): CanonicalWorkspaceLease {
+  private borrowMountedSourceRoot(mounted: MountedWorkspaceRoot): WorkspaceRootLease {
     const rootId = mounted.rootId;
     this.assertActive();
     if (
@@ -378,28 +367,23 @@ export class WorkspaceRootRegistry {
         ) {
           // The owner took the mount back (removal, replacement, root data deletion): the
           // borrower's work is superseded, typed so, like the lease's own retirement.
-          throw new NativeAuthorityTransitionError('Mounted source lease was revoked or replaced.');
+          throw mountedRootRevoked('Mounted source lease was revoked or replaced.');
         }
       },
       mounted,
       resolveReadPath: this.resolveReadPath,
-      subscribe: (...args) => subscribe(mounted, ...args),
     });
     const entry = { lease, mounted };
-    const owned: CanonicalWorkspaceLease = {
+    const owned: WorkspaceRootLease = {
       canonicalPath: lease.canonicalPath,
-      generation: lease.generation,
       listDir: (relativePath, maxEntries, context) =>
         lease.listDir(relativePath, maxEntries, context),
-      readFile: (relativePath, maxBytes, context) =>
-        lease.readFile(relativePath, maxBytes, context),
       retire: async () => {
         await lease.retire();
         this.sourceLeases.delete(entry);
       },
       rootId: lease.rootId,
       signal: lease.signal,
-      subscribe: (...args) => lease.subscribe(...args),
     };
     this.sourceLeases.add(entry);
     return owned;
@@ -421,7 +405,7 @@ export class WorkspaceRootRegistry {
       this.retiringSourceRoots.has(mounted) ||
       this.rootDataDeletion?.mounted === mounted
     ) {
-      throw new NativeAuthorityTransitionError('The folder is not mounted in the workspace.');
+      throw mountedRootRevoked('The folder is not mounted in the workspace.');
     }
     const done = use(mounted);
     const entry = { done, mounted };

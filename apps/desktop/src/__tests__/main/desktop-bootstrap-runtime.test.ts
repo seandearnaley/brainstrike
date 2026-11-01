@@ -5,7 +5,7 @@ import type { DesktopHostLeaseOptions } from '../../host-lease-manager';
 
 const fixture = vi.hoisted(() => ({
   acquisition: Promise.withResolvers<{ kind: 'owned' }>(),
-  contentClear: Promise.withResolvers<{ deletedChunks: number | null; deletedFiles: number }>(),
+  contentClear: Promise.withResolvers<void>(),
   events: [] as string[],
   exited: Promise.withResolvers<void>(),
   lifecycleDelays: { childEnv: () => ({}), delay: async () => undefined },
@@ -403,9 +403,8 @@ it('forwards terminal content clear through the actual bootstrap facade and join
   const replacement = runtime.profile.acquire();
   expect(runtime.profile.isRetiring()).toBe(true);
   expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(1);
-  const receipt = { deletedChunks: 3, deletedFiles: 2 };
-  fixture.contentClear.resolve(receipt);
-  expect(await outcome).toEqual({ value: receipt });
+  fixture.contentClear.resolve();
+  expect(await outcome).toEqual({ value: undefined });
   await replacement;
   expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(2);
   expect(fixture.events).not.toContain('close');

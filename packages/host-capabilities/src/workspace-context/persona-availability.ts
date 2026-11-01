@@ -11,11 +11,11 @@ import { createLogger } from '@brainstrike/logging';
 const logger = createLogger('PersonaAvailability');
 
 export interface PersonaAvailabilityInputs {
-  /** The host model catalog's row for a pin (its capability type), or null when unlisted. */
+  /** The host model catalog's row for a pin, or null when unlisted. */
   readonly catalogModel: (target: {
     readonly model: string;
     readonly provider: string;
-  }) => Promise<{ readonly type: string | null } | null>;
+  }) => Promise<{ readonly providerId: string } | null>;
   readonly mcpTools: ReadonlyMap<string, boolean>;
   readonly readCredential: (provider: string) => Promise<ProviderCredential | undefined>;
 }
@@ -31,11 +31,11 @@ export async function inspectPersonaAvailability(
   if (pin) {
     const definition = findProviderDefinition(pin.provider);
     const model = await inputs.catalogModel({ model: pin.modelId, provider: pin.provider });
-    if (!definition?.capabilities.llm || model?.type === 'embedding') {
+    if (!definition) {
       blocked = true;
       issues.push({
         code: 'model-unsupported',
-        message: `Model ${pin.provider}::${pin.modelId} cannot run an assistant. Select a language model from an LLM-capable provider in Models.`,
+        message: `Model ${pin.provider}::${pin.modelId} cannot run an assistant. Select a language model from a supported provider in Models.`,
       });
     }
     if (!model) {
@@ -44,7 +44,7 @@ export async function inspectPersonaAvailability(
         message: `Model ${pin.provider}::${pin.modelId} is not in the host model catalog. Check its exact ID in Models or correct the profile.`,
       });
     }
-    if (definition?.capabilities.llm) {
+    if (definition) {
       const issue = await inspectCredential(pin.provider, inputs.readCredential);
       if (issue) {
         blocked = true;

@@ -63,7 +63,7 @@ export function useProviderModelDefaults(
 
     for (const provider of configuredProviders) {
       const policy = getProviderModelDefaultPolicy(provider);
-      if (!policy || providerReadErrors?.[provider]) {
+      if (providerReadErrors?.[provider]) {
         continue;
       }
 

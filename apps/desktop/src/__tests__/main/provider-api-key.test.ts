@@ -3,11 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   inspectProviderKeys,
   listConfiguredProviders,
-  readProviderApiKey,
   readProviderCredential,
-  readProviderSecretKey,
   resolveProviderEnvCredential,
-  resolveProviderEnvKey,
 } from '../../provider-api-key';
 
 const logger = vi.hoisted(() => ({
@@ -67,38 +64,10 @@ describe('provider-api-key', () => {
     mockProviderEnvKeys.mockReturnValue(['KEY_ONE', 'KEY_TWO']);
     process.env['KEY_TWO'] = '  token  ';
 
-    expect(resolveProviderEnvKey('openai')).toBe('token');
     expect(resolveProviderEnvCredential('openai')).toEqual({
       envVar: 'KEY_TWO',
       value: 'token',
     });
-  });
-
-  it('reads provider secret key and preserves read failures', async () => {
-    const secrets = {
-      getKey: vi.fn().mockResolvedValue('  secret  '),
-    };
-    mockGetSecretsService.mockReturnValue(secrets);
-
-    await expect(readProviderSecretKey('openai')).resolves.toBe('secret');
-
-    const readError = new Error('boom');
-    secrets.getKey.mockRejectedValueOnce(readError);
-    await expect(readProviderSecretKey('openai')).rejects.toBe(readError);
-    expect(logger.error).toHaveBeenCalled();
-  });
-
-  it('prefers env key over secrets', async () => {
-    mockProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
-    process.env['OPENAI_KEY'] = 'env-key';
-
-    const secrets = {
-      getKey: vi.fn().mockResolvedValue('secret-key'),
-    };
-    mockGetSecretsService.mockReturnValue(secrets);
-
-    await expect(readProviderApiKey('openai')).resolves.toBe('env-key');
-    expect(secrets.getKey).not.toHaveBeenCalled();
   });
 
   it('lists configured providers from env and secrets', async () => {

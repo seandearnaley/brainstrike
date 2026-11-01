@@ -20,26 +20,12 @@ import {
   type GrepFileSummary,
   type GrepFilesToolResult,
   type GrepToolResult,
-  type ModelFacingGrepMatch,
   parseGrepToolResult,
 } from './grep-search-result-contract.ts';
 import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero-match-probes.ts';
 import { type LiveGrepResult, probeExcludedPathMatches, runLiveGrep } from './live-grep.ts';
 
 const logger = createLogger('AssistantGrepSearchTool');
-
-/** Drop the internal chunk-locator fields, keeping only model-facing data. */
-function toModelFacingMatch(match: GrepMatch): ModelFacingGrepMatch {
-  return {
-    after: match.after,
-    before: match.before,
-    line: match.line,
-    lineText: match.lineText,
-    path: match.path,
-    ...(match.rootId === undefined ? {} : { rootId: match.rootId }),
-    ...(match.rootName === undefined ? {} : { rootName: match.rootName }),
-  };
-}
 
 const DEFAULT_CONTENT_MATCHES = 50;
 const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
@@ -261,12 +247,7 @@ function buildContentResult(args: {
   contextLines: number;
 }): GrepContentToolResult {
   const { found, offset, requestedMatches, topology, contextLines } = args;
-  // Strip the internal chunk-locator fields BEFORE budget-fitting so the token
-  // budget reflects the trimmed model-facing shape (and never spends budget on
-  // fields the model never reads).
-  const pagedMatches = found.matches
-    .slice(offset, offset + requestedMatches)
-    .map(toModelFacingMatch);
+  const pagedMatches = found.matches.slice(offset, offset + requestedMatches);
 
   const { result } = fitItemsToCharBudget(pagedMatches, (matches): GrepContentToolResult => {
     // Truncated when matches were dropped by paging or budget fitting — same

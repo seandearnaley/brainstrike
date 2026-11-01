@@ -37,7 +37,6 @@ test("the Context tab shows a subagent's own reads as its lane, and opens its co
 }, testInfo) => {
   test.setTimeout(240_000);
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'context-lanes-root',
     rootId: randomUUID(),
   });

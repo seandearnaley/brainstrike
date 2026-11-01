@@ -337,7 +337,7 @@ describe('desktop host lease ownership', () => {
     });
     await owner.acquire();
     const clearing = owner.clearAndRetireContent();
-    asked.emit('message', { deletedChunks: null, deletedFiles: 0, event: 'content-cleared' });
+    asked.emit('message', { event: 'content-cleared' });
     asked.exit(0);
     await expect(clearing).rejects.toThrow('ECONNRESET');
   });
@@ -746,7 +746,7 @@ describe('agent host startup reporting', () => {
     async (shuttingDown) => {
       const { createDesktopHostLease } = await import('../../host-lease-manager');
       const { isHostLeaseClosed } = await import('../../desktop-shutdown-state');
-      const { reportAgentHostStartupFailure } = await import('../../native-index-activation-error');
+      const { reportAgentHostStartupFailure } = await import('../../host-profile-admission');
       const child = new Child();
       const owner = createDesktopHostLease({ fork: () => child, root });
       const outcome = owner.acquire().then(
@@ -770,7 +770,7 @@ describe('agent host startup reporting', () => {
     'still reports a startup that failed without a close as an error (shutdown=%s)',
     async (shuttingDown) => {
       const { createDesktopHostLease } = await import('../../host-lease-manager');
-      const { reportAgentHostStartupFailure } = await import('../../native-index-activation-error');
+      const { reportAgentHostStartupFailure } = await import('../../host-profile-admission');
       const child = new Child();
       const owner = createDesktopHostLease({
         fork: () => {
@@ -835,7 +835,7 @@ describe('agent host startup reporting', () => {
 });
 
 describe('parent-only content clear', () => {
-  it('waits for both the committed receipt and physical exit without posting ordinary close first', async () => {
+  it('waits for both the committed clear report and physical exit without posting ordinary close first', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const child = new Child();
     child.exitOnClose = false;
@@ -849,17 +849,17 @@ describe('parent-only content clear', () => {
     });
     await owner.acquire();
     let settled = false;
-    const clearing = owner.clearAndRetireContent().then((receipt) => {
+    const clearing = owner.clearAndRetireContent().then(() => {
       settled = true;
-      return receipt;
     });
     await vi.waitFor(() => expect(child.posts).toContainEqual({ method: 'clear-content' }));
     expect(child.posts).not.toContainEqual({ method: 'close' });
-    child.emit('message', { deletedChunks: null, deletedFiles: 3, event: 'content-cleared' });
+    child.emit('message', { event: 'content-cleared' });
     await Promise.resolve();
     expect(settled).toBe(false);
     child.exit(0);
-    expect(await clearing).toEqual({ deletedChunks: null, deletedFiles: 3 });
+    await clearing;
+    expect(settled).toBe(true);
     expect(attachment.close).toHaveBeenCalledOnce();
     await expect(owner.acquire()).rejects.toThrow();
     expect(child.kill).not.toHaveBeenCalled();
@@ -883,14 +883,14 @@ describe('parent-only content clear', () => {
       const clearing = owner.clearAndRetireContent();
       await vi.advanceTimersByTimeAsync(60_000);
       expect(child.kill).not.toHaveBeenCalled();
-      child.emit('message', { deletedChunks: null, deletedFiles: 1, event: 'content-cleared' });
+      child.emit('message', { event: 'content-cleared' });
       child.exit(0);
-      await expect(clearing).resolves.toEqual({ deletedChunks: null, deletedFiles: 1 });
+      await expect(clearing).resolves.toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
   });
-  it('refuses to clear a foreign attached host and never fabricates a receipt from exit alone', async () => {
+  it('refuses to clear a foreign attached host and never fabricates a clear report from exit alone', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     launch.mockResolvedValue(attachment);
     const owner = createDesktopHostLease({ root });

@@ -82,12 +82,10 @@ export interface DesktopAdmissionReads {
   ): Promise<{
     readonly isEnabled: boolean;
     readonly providerId: string;
-    /** The model's capability type (`llm`, `embedding`, …), as the catalog lists it. */
-    readonly type: string | null;
   } | null>;
   /** The full intent a CLI workspace selection reduces; absent where no owner supplies one. */
   cliOwnerIntent?(request: HostRunIntentRequest): Promise<unknown>;
-  /** The candidates whose provider and model rows are enabled and whose model is an LLM. */
+  /** The candidates whose provider and model rows are enabled. */
   enabledObservers(candidates: readonly string[], signal: AbortSignal): Promise<readonly string[]>;
   /** The profile's mounted workspace roots. */
   liveWorkspaceRoots(signal: AbortSignal): Promise<RuntimeWorkspaceRoots>;

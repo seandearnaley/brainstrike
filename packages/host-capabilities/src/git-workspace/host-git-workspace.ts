@@ -168,8 +168,6 @@ export interface GitWorkspaceOptions
   readonly openWorktreeFolder: (
     path: string
   ) => Promise<{ displayName: string; path: string; rootId: string }>;
-  /** Main's native index rescans a root a rewind restored. */
-  readonly refreshWorkspaceIndex: (rootId: string) => Promise<void>;
   /** The shadow-git repositories' directory; the composing host's reset must cover it. */
   readonly snapshotsBaseDir: string;
 }
@@ -364,7 +362,6 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
         }
       })()),
     rewindFiles: createHostRewindFiles({
-      refreshWorkspaceIndex: options.refreshWorkspaceIndex,
       resolveWorkspaceRoot: async (rootId) => {
         const root = (await loadRoots()).find((candidate) => candidate.id === rootId);
         if (!root) {

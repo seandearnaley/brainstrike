@@ -12,8 +12,7 @@
  *   OpenRouter model-metadata lookup (`GET /model/<provider>/<model>`) is served
  *   only for a recorded fixture's exact model identity.
  * - `OPENAI_BASE_URL`: `@ai-sdk/openai`'s `createOpenAI`. Served wire: the
- *   OpenAI Responses API (`POST /responses`), and embeddings
- *   (`POST /embeddings`) once a spec calls `serveEmbeddings`.
+ *   OpenAI Responses API (`POST /responses`).
  * - `ANTHROPIC_BASE_URL`: `@ai-sdk/anthropic`'s `createAnthropic`. No Anthropic
  *   wire is scripted, so every request through it is refused.
  *
@@ -48,10 +47,6 @@ import {
   isCassetteRouteScript,
   serveCassetteRoute,
 } from './model-provider-cassette-route';
-import {
-  type ModelProviderEmbeddingRequest,
-  serveEmbeddingsRoute,
-} from './model-provider-embeddings';
 import { recordedOpenRouterMetadata } from './model-provider-metadata';
 import { writeContextOverflow, writeRefusal } from './model-provider-refusal';
 
@@ -189,8 +184,6 @@ export interface ModelProviderShim {
   /** The base URL the launch fixture assigns to one knob; refusals name the knob. */
   readonly baseUrlFor: (knob: ProviderBaseUrlKnob) => string;
   readonly close: () => Promise<void>;
-  /** Every served embeddings request, oldest first. */
-  readonly embeddingRequests: () => readonly ModelProviderEmbeddingRequest[];
   /** Client-aborted cassette exchanges fully served and held open (a Stop scenario waits on one). */
   readonly heldExchanges: () => number;
   /** Every refused request, oldest first by arrival (`requestIndex`). */
@@ -200,8 +193,6 @@ export interface ModelProviderShim {
   readonly requests: () => readonly ModelProviderRequest[];
   /** Model identities whose recorded OpenRouter metadata was served, oldest first. */
   readonly servedMetadata: () => readonly string[];
-  /** Serve OpenAI embeddings of this many dimensions; without it they are refused. */
-  readonly serveEmbeddings: (dimensions: number) => void;
   /** Configure what the next tool-call/follow-up cycle returns, or the cassette to replay. */
   readonly setScript: (script: ShimScript) => void;
   /** Every decided request, oldest first — failure diagnostics only. */
@@ -894,8 +885,6 @@ export async function startModelProviderShim(
   const refusals: ModelProviderRefusal[] = [];
   const requests: ModelProviderRequest[] = [];
   const servedMetadata: string[] = [];
-  const embeddings: ModelProviderEmbeddingRequest[] = [];
-  let embeddingDimensions: number | undefined;
 
   const server: Server = createServer((request, response) => {
     requestCount += 1;
@@ -962,9 +951,6 @@ export async function startModelProviderShim(
           data: { ['is_free_tier']: false, label: 'sk-or-v1-abc', limit: 10, usage: 1.25 },
         })
       );
-      return;
-    }
-    if (serveEmbeddingsRoute(request, response, { knob, route }, embeddingDimensions, embeddings)) {
       return;
     }
     const metadata = recordedOpenRouterMetadata(request.method, knob, route);
@@ -1074,15 +1060,11 @@ export async function startModelProviderShim(
         server.close((error) => (error ? reject(error) : resolve()));
       });
     },
-    embeddingRequests: () => [...embeddings],
     heldExchanges: () => replay?.holding() ?? 0,
     refusals: () => [...refusals].sort((a, b) => a.requestIndex - b.requestIndex),
     requestCount: () => requestCount,
     requests: () => [...requests],
     servedMetadata: () => [...servedMetadata],
-    serveEmbeddings: (dimensions) => {
-      embeddingDimensions = dimensions;
-    },
     setScript: (nextScript) => {
       script = nextScript;
       replay = cassetteReplayFor(nextScript);

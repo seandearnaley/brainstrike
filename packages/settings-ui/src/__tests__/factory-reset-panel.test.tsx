@@ -174,7 +174,7 @@ describe('FactoryResetPanel', () => {
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       expect(mockConfirm).toHaveBeenCalledWith(
-        'Factory Reset will irreversibly delete local files, chunks, embeddings, queues, stored folders, API keys, tool settings, runtime caches, and UI state from this device. Diagnostic logs may be preserved. Continue?'
+        'Factory Reset will irreversibly delete local threads, stored folders, API keys, tool settings, runtime caches, and UI state from this device. Diagnostic logs may be preserved. Continue?'
       );
     });
 

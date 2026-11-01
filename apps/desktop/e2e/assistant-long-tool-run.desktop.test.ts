@@ -77,7 +77,6 @@ test('a long Luna run reads as one activity group: folded reads, its failure fir
   const { promise: held, resolve: release } = Promise.withResolvers<void>();
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'long-tool-run-root',
       rootId: randomUUID(),
     });

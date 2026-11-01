@@ -10,7 +10,7 @@ it('reports milestones in ms from process start and names the ones that never ha
       { name: 'startup:agentHostReady', startTime: 1903.5 },
     ])
   ).toEqual({
-    absent: ['shellEnvironment', 'firstContentfulPaint', 'indexReady'],
+    absent: ['shellEnvironment', 'firstContentfulPaint'],
     ms: { agentHostReady: 1904, bootstrap: 42, windowShown: 812 },
   });
 });

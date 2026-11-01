@@ -5,16 +5,20 @@ import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createAgentHostMainClient } from '../agent-host-main-client';
 import { createDesktopWorkspaceRootCatalog } from '../agent-host-platform/workspace-root-client';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 // BST-2247: quitting while the agent host is still starting. Main's real shutdown runner and
-// the owners its steps call (native index activation, its profile runtime, the desktop
+// the owners its steps call (host profile admission, its profile runtime, the desktop
 // catalog client and Main's own host client), over a host start-up that never completes on
 // its own. The step order mirrors main.ts.
 import {
   HOST_LEASE_CLOSED,
+  isQuitTerminalRefusal,
   isRetirementRefusal,
   markDesktopShuttingDown,
   resetDesktopShutdownStateForTests,
 } from '../desktop-shutdown-state';
+import { createDesktopHostLease } from '../host-lease-manager';
+import { createHostProfileAdmission, type HostProfileAdmission } from '../host-profile-admission';
 import {
   createDesktopGracefulShutdown,
   DESKTOP_SHUTDOWN_STEP_ORDER,
@@ -22,20 +26,40 @@ import {
   type DesktopShutdownStepRun,
 } from '../main/desktop-graceful-shutdown';
 import { prepareMainCatalogClose } from '../main/main-catalog-close';
-import { fixture, mocks, resetActivationFixture } from './native-index-activation-fixture';
 
-beforeEach(resetActivationFixture);
+const mocks = vi.hoisted(() => ({
+  acquireProfile: vi.fn(),
+  closeProfile: vi.fn(),
+  createProfileOwner: vi.fn(),
+}));
+vi.mock('../host-lease-manager', () => ({
+  createDesktopHostLease: () => {
+    mocks.createProfileOwner();
+    return { acquire: () => mocks.acquireProfile(), close: mocks.closeProfile };
+  },
+}));
+
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 afterEach(resetDesktopShutdownStateForTests);
 
-type Activation = ReturnType<typeof fixture>['activation'];
+function admission(): HostProfileAdmission {
+  return createHostProfileAdmission(
+    createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' }))
+  );
+}
 
 /** Main's borrowers wait on the start-up, then the app quits; `fenced` runs right after the fence. */
-async function quitWhileStarting(activation: Activation, fenced: () => void = () => undefined) {
+async function quitWhileStarting(
+  profile: HostProfileAdmission,
+  fenced: () => void = () => undefined
+) {
   const mainClient = createAgentHostMainClient(
-    () => activation.acquireProfile(),
+    () => profile.acquire(),
     () => undefined
   );
-  const workspaceRoots = createDesktopWorkspaceRootCatalog(() => activation.acquireProfile());
+  const workspaceRoots = createDesktopWorkspaceRootCatalog(() => profile.acquire());
   const catalogWrite = workspaceRoots.workspaceRoots({
     operation: 'register',
     root: {
@@ -57,9 +81,9 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
   ) as Record<DesktopShutdownStepName, DesktopShutdownStepRun>;
   steps['main-catalog'] = () =>
     prepareMainCatalogClose({ prepareClose: async () => undefined }, workspaceRoots);
-  steps['native-index'] = async () => {
+  steps['host-profile'] = async () => {
     await mainClient.close();
-    await activation.close();
+    await profile.retire();
   };
   const exitProcess = vi.fn();
   const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
@@ -68,18 +92,18 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
     logger,
     markShuttingDown: markDesktopShuttingDown,
     planRun: () => ({
-      closeDatabase: () => activation.close(),
+      closeDatabase: () => profile.retire(),
       closeErrorLogSink: () => undefined,
       steps,
     }),
     retireBackgroundAdmission: () => {
-      activation.fenceTerminal();
+      profile.fenceTerminal();
       fenced();
     },
     // No deadline (ADR-0026): a quit that waited on the start-up would hang this test.
   }).run('before-quit');
 
-  await expect(catalogWrite).rejects.toMatchObject({ refusal: { kind: 'closed' } });
+  await expect(catalogWrite).rejects.toSatisfy(isQuitTerminalRefusal);
   expect(exitProcess).not.toHaveBeenCalled();
   expect(logger.error).not.toHaveBeenCalled();
   expect(logger.warn).not.toHaveBeenCalled();
@@ -92,12 +116,11 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
     () => undefined,
     (error: unknown) => error
   );
-  expect(isRetirementRefusal(refused)).toBe(true);
-  expect(refused).toMatchObject({ message: expect.stringContaining('terminal retirement') });
+  expect(isQuitTerminalRefusal(refused)).toBe(true);
 }
 
 it('a quit while the host is still starting stops its borrowers at the fence, cancels the start-up through its owner, and completes without waiting for it', async () => {
-  const { activation } = fixture();
+  const profile = admission();
   // The host start-up never completes; only its owner's close ends it, with the lease's own
   // closing refusal (BST-2118), as the real lease's close aborts a start in flight.
   const startup = Promise.withResolvers<undefined>();
@@ -106,17 +129,17 @@ it('a quit while the host is still starting stops its borrowers at the fence, ca
     startup.reject(reason ?? new BoundaryFailureError(HOST_LEASE_CLOSED));
   });
 
-  await quitWhileStarting(activation);
+  await quitWhileStarting(profile);
 
   // The start-up was cancelled through its owner once, and nothing started another.
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
   await expect(startup.promise).rejects.toSatisfy(isRetirementRefusal);
   expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
-  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+  await expect(profile.acquire()).rejects.toSatisfy(isQuitTerminalRefusal);
 });
 
 it('a start-up that completes after the fence leaves its attachment to the lease, which closes it exactly once', async () => {
-  const { activation, onError } = fixture();
+  const profile = admission();
   const late: HostAttachment = {
     close: vi.fn(async () => undefined),
     closed: new Promise<void>(() => undefined),
@@ -132,10 +155,9 @@ it('a start-up that completes after the fence leaves its attachment to the lease
   });
 
   // The start completes once the fence has already refused its borrowers.
-  await quitWhileStarting(activation, () => startup.resolve(late));
+  await quitWhileStarting(profile, () => startup.resolve(late));
 
   expect(late.close).toHaveBeenCalledOnce();
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
-  expect(onError).not.toHaveBeenCalled();
   expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
 });

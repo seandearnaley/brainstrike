@@ -299,21 +299,4 @@ describe('AssistantChatPanel', () => {
       firstModels
     );
   });
-
-  it('surfaces an advertised provider without a registry default instead of crashing render', () => {
-    useAssistantAvailabilityMock.mockReturnValue({
-      model: 'gpt-5.6-terra',
-      provider: 'openai',
-      providers: ['openai', 'cohere'],
-      state: 'enabled',
-    });
-
-    render(<AssistantChatPanel />, { wrapper: PanelProviders });
-
-    expect(screen.getByText('Assistant unavailable')).toBeInTheDocument();
-    expect(
-      screen.getByText('Assistant status provider cohere has no registry default model')
-    ).toBeInTheDocument();
-    expect(assistantUiPanelWrapperLazyMock).not.toHaveBeenCalled();
-  });
 });

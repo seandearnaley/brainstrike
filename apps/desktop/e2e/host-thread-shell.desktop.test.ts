@@ -39,7 +39,6 @@ test('a host run’s approved shell command runs in the agent host over the work
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-m3-host-shell-')));
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'm3-host-shell-root',
       rootId: randomUUID(),
     });
@@ -88,7 +87,6 @@ test('a write the sandbox refused runs once the person approves the escape', asy
   );
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'host-shell-sandbox-root',
       rootId: randomUUID(),
     });

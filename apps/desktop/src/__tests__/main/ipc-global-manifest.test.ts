@@ -22,17 +22,17 @@ const profileStartup = vi.hoisted(() => ({
   events: [] as string[],
 }));
 
-vi.mock('../../native-index-activation', async () => {
-  const actual = await vi.importActual<typeof import('../../native-index-activation')>(
-    '../../native-index-activation'
+vi.mock('../../host-profile-admission', async () => {
+  const actual = await vi.importActual<typeof import('../../host-profile-admission')>(
+    '../../host-profile-admission'
   );
   return {
     ...actual,
-    createNativeIndexActivation: (
-      ...args: Parameters<typeof actual.createNativeIndexActivation>
+    createHostProfileAdmission: (
+      ...args: Parameters<typeof actual.createHostProfileAdmission>
     ) => ({
-      ...actual.createNativeIndexActivation(...args),
-      acquireProfile: profileStartup.acquire,
+      ...actual.createHostProfileAdmission(...args),
+      acquire: profileStartup.acquire,
     }),
   };
 });
@@ -254,7 +254,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   });
 
   it('boots the full per-domain registry set (module scope + app.whenReady())', () => {
-    expect(registryCapture.instances).toHaveLength(24);
+    expect(registryCapture.instances).toHaveLength(23);
     expect(union.map((entry) => entry.channel)).toEqual(
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.appUpdates.setBetaUpdates,

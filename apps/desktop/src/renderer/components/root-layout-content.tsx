@@ -21,7 +21,6 @@ import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/setti
 import { WorkspaceFileSearchContext } from '@brainstrike/workspace-search/core';
 import { Shapes } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useRef } from 'react';
-import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import { createDesktopStateHealth } from '../desktop-state-health';
@@ -35,7 +34,6 @@ import {
   resolveDesktopMcpToolsCapability,
 } from '../host-mcp-settings';
 import { resolveDesktopWorkspaceTerminalServices } from '../host-terminals';
-import { createIpcCapability } from '../ipc-capability';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 import { ChangesPageContent } from './changes-page-content';
 import { LogsPageContent } from './logs-page-content';
@@ -82,9 +80,6 @@ const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 export default function RootLayoutContent() {
   // The one writer of the window title, keyed on the route on screen.
   useDocumentTitle(DESKTOP_DOCUMENT_META);
-  const nativeSearch = window.indexSearch
-    ? createIpcCapability(window.indexSearch, indexSearchContract)
-    : null;
   const activeToolsTabRef = useRef('host-owned');
   // The Explorer's Search tab runs on the agent host's live ripgrep (ADR-0035).
   const fileSearch = resolveDesktopFileSearch();
@@ -132,13 +127,12 @@ export default function RootLayoutContent() {
     },
     // Every desktop window has its own log buffer and Electron main's (BST-1791).
     logsPageContent: <LogsPageContent />,
-    nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
     stateHealth,
     // Every desktop thread is a committed host conversation, so the context map
-    // always has a fold; without the index bridge it draws files by line bands.
-    threadContextPageContent: <ThreadContextPageContent chunkBounds={nativeSearch} />,
+    // always has a fold.
+    threadContextPageContent: <ThreadContextPageContent />,
     ...(changesAvailable ? { changesPageContent: <ChangesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     ...(worktreesAvailable ? { worktreeMapPageContent: <WorktreeMapPageContent /> } : {}),

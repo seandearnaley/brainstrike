@@ -50,14 +50,14 @@ describe('Main process sampler owner composition', () => {
         'database-drain': () => {},
         'factory-reset': () => {},
         'file-system': () => {},
+        'host-profile': () => {},
         'main-catalog': () => {},
         'mcp-runtime': () => {},
-        'native-index': () => {},
         renderers: () => {},
       };
-      steps['native-index'] = () => {
+      steps['host-profile'] = () => {
         if (failEarlierOwner) {
-          throw new Error('Recorded native owner retirement failure');
+          throw new Error('Recorded host profile retirement failure');
         }
       };
       steps['database-drain'] = () => sampler.stop();

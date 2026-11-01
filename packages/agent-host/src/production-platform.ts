@@ -154,7 +154,6 @@ export interface ProductionHostPlatformOptions {
   readonly rewindFiles?: HostPlatform['rewindFiles'];
   /** ADR-0029 stage 4: the desktop workspace's open folders. */
   readonly rootRegistry?: HostPlatform['rootRegistry'];
-  readonly searchWorkspace?: HostPlatform['searchWorkspace'];
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
@@ -681,7 +680,6 @@ export async function createProductionHostPlatform<Configuration extends Product
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.mcp ? { mcp: options.mcp } : {}),
-    ...(options.searchWorkspace ? { searchWorkspace: options.searchWorkspace } : {}),
     searchState: (request) => index.search(request),
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),

@@ -15,13 +15,11 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type {
-  ContentClearResult as ClearContentResult,
   ThreadGroupsReply,
   ThreadGroupsRequest,
   ViewFilterPresetReply,
   ViewFilterPresetRequest,
 } from '@brainstrike/types';
-import type { CollectionReply, CollectionRequest } from './collection-types.ts';
 import { ThreadDamagedError, ThreadReadOnlyError } from './errors.ts';
 import {
   type Decoded,
@@ -48,7 +46,6 @@ import type {
 } from './model-choice-types.ts';
 import { withSeq } from './run-log-format.mjs';
 import type { AppendItem, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
-import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.ts';
 import { type DeletionWriter, StateDeletion } from './state-deletion.ts';
 import type {
   HydrationThread,
@@ -75,8 +72,6 @@ export const STORE_ENTRIES: readonly string[] = [
   `${STATE_DB}-shm`,
   BLOBS_DIR,
 ];
-
-export type { ContentClearResult as ClearContentResult } from '@brainstrike/types';
 
 export { BLOB_MIN_BYTES, largeText, PREVIEW_CHARS, type StoredText } from './large-text.ts';
 export type {
@@ -285,10 +280,6 @@ export class StateStore implements MemoryDomainPort {
     const p = this.chain.then(fn);
     this.chain = p.catch(() => undefined);
     return p;
-  }
-
-  private requireIndexer(operation: string): IndexerPort {
-    return this.deletion.requireIndexer(operation);
   }
 
   // ---- run log --------------------------------------------------------------------------------------------------------
@@ -630,16 +621,6 @@ export class StateStore implements MemoryDomainPort {
       : this.run(execute);
   }
 
-  collections(request: CollectionRequest): Promise<CollectionReply> {
-    const execute = async (): Promise<CollectionReply> => {
-      const reply = await this.call({ op: 'collections', request });
-      return { collections: reply['collections'] as CollectionReply['collections'] };
-    };
-    return request.operation === 'list' || request.operation === 'get'
-      ? execute()
-      : this.run(execute);
-  }
-
   threadGroups(request: ThreadGroupsRequest): Promise<ThreadGroupsReply> {
     const execute = async (): Promise<ThreadGroupsReply> => {
       const reply = await this.call({ op: 'thread-groups', request });
@@ -679,40 +660,10 @@ export class StateStore implements MemoryDomainPort {
   /** Root identity lives on the canonical writer; Main alone supplies granted paths. */
   workspaceRoots(request: WorkspaceRootRequest): Promise<WorkspaceRootReply> {
     const execute = async (): Promise<WorkspaceRootReply> => {
-      if (request.operation === 'delete') {
-        this.requireIndexer('root data deletion');
-      }
       const reply = await this.call({ op: 'workspace-roots', request });
-      if (request.operation === 'delete') {
-        await this.deletion.collectRetiredSources();
-      }
       return { roots: reply['roots'] as WorkspaceRootReply['roots'] };
     };
     return request.operation === 'list' ? execute() : this.run(execute);
-  }
-
-  /** Authoritative source bytes use this writer's existing content-addressed blobs. */
-  sourceCatalog(request: SourceCatalogRequest): Promise<SourceCatalogReply> {
-    const mutatesSource =
-      request.operation === 'prepare' ||
-      request.operation === 'replace' ||
-      request.operation === 'remove';
-    const execute = async (): Promise<SourceCatalogReply> => {
-      // Refuse before committing bytes if their existing physical retirement owner is absent.
-      if (mutatesSource) {
-        this.requireIndexer('canonical source mutation');
-      }
-      const reply = await this.call({ op: 'source-catalog', request });
-      if (mutatesSource) {
-        await this.deletion.collectRetiredSources();
-      }
-      return { files: reply['files'] as SourceCatalogReply['files'] };
-    };
-    return request.operation === 'list' ||
-      request.operation === 'inventory' ||
-      request.operation === 'read'
-      ? execute()
-      : this.run(execute);
   }
 
   health(): { stateDamage: string | null; visibleErrors: Unreadable[] } {
@@ -742,9 +693,6 @@ export class StateStore implements MemoryDomainPort {
     const hashes = async (op: string, fields: Record<string, unknown> = {}) =>
       (await this.call({ op, ...fields }))['hashes'] as string[];
     return {
-      acknowledgeSourceGc: async (acknowledged) => {
-        await this.call({ hashes: acknowledged, op: 'sourceGcAcknowledge' });
-      },
       damagedBlobRefs: () => hashes('damagedBlobRefs'),
       deleteIntent: async (threadId, seq) => {
         await this.call({ op: 'intentDelete', seq, threadId });
@@ -789,8 +737,6 @@ export class StateStore implements MemoryDomainPort {
             )['hashes']
           )
         ) as string[],
-      sourceBlobRefs: () => hashes('sourceBlobRefs'),
-      sourceGcCandidates: () => hashes('sourceGcCandidates'),
       storedBlobRefs: (threadId) => hashes('storedBlobRefs', { threadId }),
       unlinkBlobs: async (unlink) =>
         (await this.call({ hashes: unlink, op: 'unlinkBlobs' }))['deleted'] as string[],
@@ -817,25 +763,16 @@ export class StateStore implements MemoryDomainPort {
   }
 
   /** Terminal content deletion on the existing writer; configuration stays in place. */
-  clearContent(): Promise<ClearContentResult> {
+  clearContent(): Promise<void> {
     const clearing = this.run(async () => {
       await this.indexer?.reset();
-      const reply = await this.call({ op: 'clear-content' });
-      const deletedFiles = reply['deletedFiles'];
-      const deletedChunks = reply['deletedChunks'];
-      if (
-        typeof deletedFiles !== 'number' ||
-        (deletedChunks !== null && typeof deletedChunks !== 'number')
-      ) {
-        throw new Error('Invalid content-clear writer receipt');
-      }
+      await this.call({ op: 'clear-content' });
       await this.shutdownWriter();
       this.lock.release();
-      return { deletedChunks, deletedFiles };
     });
     // Fence later writers immediately, including while physical readers join.
     this.closed = true;
-    this.closeTask = clearing.then(() => undefined);
+    this.closeTask = clearing;
     this.closeTask.catch(() => undefined);
     return clearing;
   }

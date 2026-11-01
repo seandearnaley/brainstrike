@@ -49,8 +49,8 @@ async function main(): Promise<void> {
       try {
         const clearing = receiveAgentHostParentMessage(input, host, cancel);
         if (clearing) {
-          terminalControl = clearing.then((receipt) => {
-            parent.postMessage({ event: 'content-cleared', ...receipt });
+          terminalControl = clearing.then(() => {
+            parent.postMessage({ event: 'content-cleared' });
           });
           terminalControl.catch((cause: unknown) => {
             controlFailure ??= cause;

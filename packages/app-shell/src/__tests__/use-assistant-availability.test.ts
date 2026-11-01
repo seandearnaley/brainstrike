@@ -429,24 +429,6 @@ describe('fetchAssistantStatusState', () => {
     ).rejects.toThrowError('Invalid assistant provider list');
   });
 
-  it('rejects an available hosted provider without a registry default model', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
-      json: async () => ({
-        enabled: true,
-        providerKeySources: [{ provider: 'cohere', source: 'stored' }],
-        providers: ['cohere'],
-      }),
-      ok: true,
-    } as unknown as Response);
-
-    await expect(
-      fetchAssistantStatusState({
-        fetchImpl,
-        signal: new AbortController().signal,
-      })
-    ).rejects.toThrowError('Assistant status provider cohere has no registry default model');
-  });
-
   it('keeps a host with no keyed provider enabled, so the panel can ask for one', async () => {
     // The desktop host's status with no stored or env key.
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({

@@ -309,9 +309,7 @@ export function getProviderLlmModelDefinitions(
   provider: SupportedProvider,
   fixedModels: readonly string[] | undefined
 ): readonly LlmProviderModelDefinition[] {
-  const modelDefinitions = getProviderModelDefinitions(provider).filter(
-    (model): model is LlmProviderModelDefinition => model.type === 'llm'
-  );
+  const modelDefinitions = getProviderModelDefinitions(provider);
   if (!fixedModels) {
     return modelDefinitions;
   }

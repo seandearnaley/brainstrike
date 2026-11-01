@@ -26,8 +26,6 @@ const providerGroups: ProviderGroupConfig[] = [
     providers: [
       {
         capabilities: {
-          embeddings: false,
-          llm: true,
           streaming: true,
         },
         id: 'openai',

@@ -1,4 +1,3 @@
-import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -53,17 +52,6 @@ function refreshGitInventoryAfterRootRegistration(bridge: ChangesBridge | null):
     });
 }
 
-/** The committed roots writer notifies Main; the renderer never supplies authority. */
-function refreshNativeIndexAfterRootRegistration(
-  registration: IndexRootRegistrationCapability
-): void {
-  // Main retains and joins reconfiguration. Folder selection waits only for its
-  // canonical write, while the index status owns ingestion progress and failure.
-  void registration.rootsRegistered().catch((error: unknown) => {
-    logger.error('Native index refresh after root registration failed', { error });
-  });
-}
-
 // Module-level set of root identities already warned about, so each unmapped
 // root only logs once across the lifetime of the app (not per-call).
 const warnedUnmappedRoots = new Set<string>();
@@ -81,8 +69,6 @@ function retainMountedKeys(
 
 export interface UseRootsReconciliationArgs {
   adapter: FileSystemAdapter;
-  /** Main's native index, told after each mid-session registration commits. */
-  registration: IndexRootRegistrationCapability;
 }
 
 export interface UseRootsReconciliationResult {
@@ -137,8 +123,6 @@ interface PerformRootRegistrationArgs {
   publishCanonicalKind: (adapterRootId: string, kind: string) => void;
   /** Publishes the canonical adapter-rootId → DB-rootId pair to reactive state. */
   publishCanonicalMapping: (adapterRootId: string, dbRootId: string) => void;
-  /** Main's native index, told once a registered root's row is committed. */
-  registration: IndexRootRegistrationCapability;
 }
 
 interface ApplyBootReconciliationResultArgs {
@@ -198,7 +182,6 @@ async function performRootRegistration({
   dbRootIdMap,
   publishCanonicalMapping,
   publishCanonicalKind,
-  registration,
 }: PerformRootRegistrationArgs): Promise<void> {
   if (!adapter.restoreRoots) {
     // Mirrors the boot no-op: on adapters without restoreRoots the registered
@@ -245,7 +228,6 @@ async function performRootRegistration({
       notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
       // The root is now in the `roots` table the inventory's loadRoots() reads.
       refreshGitInventoryAfterRootRegistration(changes);
-      refreshNativeIndexAfterRootRegistration(registration);
     }
   } catch (err) {
     logger.error('Mid-session root registration failed', {
@@ -270,7 +252,6 @@ async function performRootRegistration({
  */
 export function useRootsReconciliation({
   adapter,
-  registration,
 }: UseRootsReconciliationArgs): UseRootsReconciliationResult {
   const hasRunRef = useRef(false);
 
@@ -313,18 +294,16 @@ export function useRootsReconciliation({
   // was enqueued before it was called.
   const pendingRegistrationsRef = useRef<Promise<void>>(Promise.resolve());
 
-  // Latest adapter, index registration and Changes bridge, read at call time
+  // Latest adapter and Changes bridge, read at call time
   // so registerRoot stays identity-stable without stale captures. They are
   // published at commit, never written during render.
   const adapterRef = useRef(adapter);
-  const registrationRef = useRef(registration);
   const changes = useChangesBridge();
   const changesRef = useRef(changes);
   useLayoutEffect(() => {
     adapterRef.current = adapter;
-    registrationRef.current = registration;
     changesRef.current = changes;
-  }, [adapter, registration, changes]);
+  }, [adapter, changes]);
 
   // Merges a canonical adapter→db pair into the reactive snapshot. No-ops when
   // the pair is already present so a re-resolved boot map never churns the Map
@@ -454,7 +433,6 @@ export function useRootsReconciliation({
         descriptor,
         publishCanonicalKind,
         publishCanonicalMapping,
-        registration: registrationRef.current,
       });
     };
     // Serialize registrations so two adds for the same path cannot interleave
@@ -467,9 +445,7 @@ export function useRootsReconciliation({
 
   // A folder re-added after removal comes back under its one id (BST-1990), so a
   // folder no longer mounted must leave the maps. Otherwise its re-registration,
-  // and the native-index and git-discovery nudges it sends, would be skipped as
-  // a repeat of the first, and Explorer search would keep scoping its query to a
-  // folder the native index no longer authorizes.
+  // and the git-discovery nudge it sends, would be skipped as a repeat of the first.
   const syncMountedRoots = async (current: readonly RootDescriptor[]): Promise<void> => {
     const forgetUnmounted = async (): Promise<void> => {
       await awaitBootSettle();

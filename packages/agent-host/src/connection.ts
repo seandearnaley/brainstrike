@@ -95,7 +95,6 @@ export interface HostConnectionOptions {
   readonly rootRegistry?: HostRootRegistry;
   /** Gap 10: the platform's state index search, where the host owns one. */
   readonly searchState?: HostPlatform['searchState'];
-  readonly searchWorkspace?: HostPlatform['searchWorkspace'];
   /** ADR-0029 stage 3: the desktop's Terminal panel, where the host opens terminals. */
   readonly terminals?: HostTerminals;
   /** ADR-0029 stage 2: skills and user slash commands, where the host scans roots. */
@@ -149,7 +148,6 @@ export function bindHostConnection(
     providers,
     retiring,
     searchState,
-    searchWorkspace,
     terminals,
     workspaceDiscovery,
   } = options;
@@ -343,35 +341,6 @@ export function bindHostConnection(
   handle('thread/read', async (params) => ({
     rows: await core.published.read(params.threadId, params.fromSeq),
   }));
-  handle('workspace/search', async (params, signal) => {
-    if (!searchWorkspace) {
-      throw refusalError(
-        'configuration',
-        'workspace.search-unavailable',
-        'Indexed workspace text search is unavailable on this host'
-      );
-    }
-    const { binding } = core.readWorkspaceBinding(params.threadId);
-    if (
-      binding &&
-      (binding.operatingRootId || binding.secondaryRootIds || binding.checkoutLocalRootId) &&
-      ![
-        binding.operatingRootId,
-        ...(binding.secondaryRootIds ?? []),
-        binding.checkoutLocalRootId,
-      ].includes(params.rootId)
-    ) {
-      throw refusalError(
-        'authorization',
-        'workspace.root-outside-binding',
-        'Search root is outside the thread workspace binding'
-      );
-    }
-    signal.throwIfAborted();
-    const result = await searchWorkspace(params, signal);
-    signal.throwIfAborted();
-    return result;
-  });
   bindHostWorkspaceDiscoveryMethods(handle, workspaceDiscovery, origin);
   handle('thread/search', (params) => searchHostThreads(core, searchState, params));
   handle('thread/selection/read', (params) => core.selections.read(params.threadId));

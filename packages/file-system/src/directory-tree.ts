@@ -33,8 +33,6 @@ export interface ReadFullTreeOptions {
   onEntrySkipped?: ParallelWalkerOptions['onEntrySkipped'];
   /** Callback for streaming tree snapshots */
   onTreeSnapshot?: ((tree: IFileNode[], meta: StreamMeta) => void) | undefined;
-  /** Throw when a non-root subdirectory cannot be read instead of omitting it from the result. */
-  propagateDirectoryReadErrors?: boolean | undefined;
   /** Snapshot interval in ms (default: 100) */
   snapshotIntervalMs?: number | undefined;
   /** Custom sort function for nodes */
@@ -97,7 +95,6 @@ export async function readFullTreeWithOptions(
     entryPolicy,
     onDirectoryTruncated,
     onEntrySkipped,
-    propagateDirectoryReadErrors,
     updateProgress,
     sortFileNodes,
     onTreeSnapshot,
@@ -112,7 +109,6 @@ export async function readFullTreeWithOptions(
     onEntrySkipped,
     onProgress: updateProgress,
     onTreeSnapshot,
-    propagateDirectoryReadErrors,
     snapshotIntervalMs,
     sortFileNodes,
   });

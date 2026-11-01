@@ -12,7 +12,7 @@ test('provider and exact provider/model choices survive reopen and bulk writes a
     await store.modelChoices({
       models: [
         { enabled: false, modelId: 'gpt-4o', providerId: 'openai' },
-        { enabled: true, modelId: 'voyage-3', providerId: 'voyage' },
+        { enabled: true, modelId: 'claude-sonnet-4-5', providerId: 'anthropic' },
       ],
       operation: 'models',
     });
@@ -21,7 +21,7 @@ test('provider and exact provider/model choices survive reopen and bulk writes a
       store.modelChoices({
         models: [
           { enabled: true, modelId: 'gpt-4o', providerId: 'openai' },
-          { enabled: true, modelId: '', providerId: 'voyage' },
+          { enabled: true, modelId: '', providerId: 'anthropic' },
         ],
         operation: 'models',
       })

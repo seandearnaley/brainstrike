@@ -1,19 +1,26 @@
+import os from 'node:os';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { createIndexerConnection, type IndexerTransport } from '@brainstrike/indexer/transport';
+import { canonicalRoot } from '@brainstrike/state-store';
 import { expect, it, vi } from 'vitest';
 import { HOST_STATE_INDEX_DEADLINES } from '../src/host-state-index.ts';
 import { createStateIndexOwner } from '../src/host-state-index-owner.ts';
 
 const dbPath = '/state/state-index.sqlite';
-const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] };
+const options = {
+  dbPath,
+  stateProjection: {
+    mode: 'prod',
+    module: new URL('../src/state-projection.ts', import.meta.url).href,
+  },
+  stateRoot: canonicalRoot(os.tmpdir()),
+};
 const deadlines = { closeMs: 50 };
 const info = {
   dbPath,
   journalMode: 'wal',
   pid: 1,
-  readerQueryOnly: 1,
   storeId: 'a'.repeat(64),
-  vecVersion: 'v0.1.9',
   writerThreadId: 1,
 };
 const healthy = { indexerErrors: [] };

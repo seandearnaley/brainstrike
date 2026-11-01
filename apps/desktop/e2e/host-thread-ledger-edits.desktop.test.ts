@@ -38,7 +38,6 @@ test("a host run's edit and its revert count in the Task Ledger, and its cost un
   writeFileSync(path.join(root, 'notes.txt'), 'original notes\n');
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'm3-ledger-edits-root',
       rootId: randomUUID(),
     });

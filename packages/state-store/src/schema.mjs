@@ -1,4 +1,3 @@
-import { COLLECTION_SCHEMA } from './collection-domain.mjs';
 import { MODEL_CHOICE_SCHEMA } from './model-choice-domain.mjs';
 import { THREAD_GROUPS_SCHEMA, THREAD_PINS_SCHEMA } from './thread-groups-domain.mjs';
 import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-preset-domain.mjs';
@@ -11,14 +10,14 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 //   settings      app settings (M0-A2 src/host.ts STATE_DDL)
 //   purge_intent  a purge in progress, replayed at open after a crash (M0-A2 src/host.ts)
 // Version 6 adds `run_events.hydrate`: 0 keeps a row (a streamed text delta) out of the hydration read, which walks the
-// partial index of the rows that keep it. Version 13's tables are retired: the step creates nothing, so a DB that reached
-// it still opens. Version 14 adds `thread_pins`, the Threads panel's pinned threads. Version 1's `run_events.raw_count`
-// (the deleted Coalescer's chunk count) is retired the same way: a DB that has the column keeps it unread and unwritten.
+// partial index of the rows that keep it. The tables of versions 8 (the source catalog), 10 (embedding collections) and
+// 13 are retired (BST-2436 deleted the workspace index): each step creates nothing, so a DB that reached it still opens.
+// Version 14 adds `thread_pins`, the Threads panel's pinned threads. Version 1's `run_events.raw_count` (the deleted
+// Coalescer's chunk count) is retired the same way: a DB that has the column keeps it unread and unwritten.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
 import { MEMORY_SCHEMA } from './memory-domain.mjs';
-import { SOURCE_CATALOG_SCHEMA } from './source-catalog-schema.mjs';
 import { WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
 
 export const SCHEMA_VERSION = 14;
@@ -63,9 +62,9 @@ export const UPGRADES = [
   CREATE INDEX run_events_hydrate ON run_events (thread_id, seq) WHERE hydrate = 1;
 `,
   WORKSPACE_ROOT_SCHEMA,
-  SOURCE_CATALOG_SCHEMA,
+  '',
   MODEL_CHOICE_SCHEMA,
-  COLLECTION_SCHEMA,
+  '',
   VIEW_FILTER_PRESET_SCHEMA,
   THREAD_GROUPS_SCHEMA,
   '',

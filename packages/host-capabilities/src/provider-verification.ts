@@ -127,11 +127,10 @@ interface ProviderVerificationServiceOptions {
 }
 
 interface ProbeRequest {
-  readonly body?: string;
   readonly classifyHttp?: (response: Response, bodyText: string) => ProviderVerificationStatus;
   readonly describeSuccess?: (bodyText: string) => string | undefined;
   readonly headers: Record<string, string>;
-  readonly method: 'GET' | 'POST';
+  readonly method: 'GET';
   readonly url: string;
 }
 
@@ -211,19 +210,12 @@ function bearerProbe(url: string, key: string): ProbeRequest {
  */
 type ApiKeyProbeProviderId =
   | 'anthropic'
-  | 'cohere'
   | 'google'
   | 'openai'
   | 'openrouter'
-  | typeof TAVILY_SECRET_PROVIDER
-  | 'voyage';
+  | typeof TAVILY_SECRET_PROVIDER;
 
-/**
- * Cheapest authenticated call per api_key provider. Endpoints verified against
- * vendor docs 2026-08-18; voyage publishes NO model-list GET, so its probe is
- * a minimal one-token embeddings POST (the documented minimal call — note it
- * is METERED, unlike the GET probes).
- */
+/** Cheapest authenticated call per api_key provider. Endpoints verified against vendor docs 2026-08-18. */
 type ProbeEnv = Readonly<Record<string, string | undefined>>;
 
 const API_KEY_PROBES: Record<ApiKeyProbeProviderId, (key: string, env: ProbeEnv) => ProbeRequest> =
@@ -237,7 +229,6 @@ const API_KEY_PROBES: Record<ApiKeyProbeProviderId, (key: string, env: ProbeEnv)
       method: 'GET',
       url: `${resolveProviderBaseUrl('anthropic', env)}/models`,
     }),
-    cohere: (key) => bearerProbe('https://api.cohere.com/v1/models', key),
     google: (key) => ({
       classifyHttp: classifyGoogleHttp,
       // Header auth on purpose: the documented `?key=` query param would put the
@@ -252,16 +243,6 @@ const API_KEY_PROBES: Record<ApiKeyProbeProviderId, (key: string, env: ProbeEnv)
       describeSuccess: describeOpenRouterKeyUsage,
     }),
     [TAVILY_SECRET_PROVIDER]: (key) => bearerProbe('https://api.tavily.com/usage', key),
-    voyage: (key) => ({
-      body: JSON.stringify({ input: ['ping'], model: 'voyage-3' }),
-      headers: {
-        accept: 'application/json',
-        authorization: `Bearer ${key}`,
-        'content-type': 'application/json',
-      },
-      method: 'POST',
-      url: 'https://api.voyageai.com/v1/embeddings',
-    }),
   };
 
 function buildAwsBearerProbe(bearerKey: string, region: string): ProbeRequest {
@@ -472,7 +453,6 @@ export function createProviderVerificationService(
       const { response, bodyText } = await runWithTimeout(
         async (signal: AbortSignal): Promise<{ response: Response; bodyText: string }> => {
           const response = await fetchImpl(probe.url, {
-            ...(probe.body === undefined ? {} : { body: probe.body }),
             headers: probe.headers,
             method: probe.method,
             signal,

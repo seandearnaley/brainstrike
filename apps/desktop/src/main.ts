@@ -6,7 +6,6 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
-import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
@@ -117,7 +116,10 @@ import {
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
-import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
+import {
+  createHostProfileAdmission,
+  reportAgentHostStartupFailure as reportHostStartupFailure,
+} from './host-profile-admission';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerAppLifetimeIpcHandlers } from './ipc-app-lifetime';
 import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
@@ -128,7 +130,6 @@ import { pickWorkspaceFolder } from './ipc-domains/file-system-ipc';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { createApplicationIpcDomain, registerIpcHandlers } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
-import { registerIndexSearchIpcHandlers } from './ipc-index-search';
 import {
   cleanupMcpRuntimeForShutdown,
   registerMcpIpcHandlers,
@@ -159,18 +160,6 @@ import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-
 import { createDesktopMcpPlatformCapabilities } from './mcp/desktop-host-platform';
 import { getMainMcpHostControl } from './mcp/main-host-control';
 import { createDesktopModelCatalog } from './model-catalog';
-import { createNativeIndexActivation } from './native-index-activation';
-import {
-  reportAgentHostStartupFailure as reportHostStartupFailure,
-  reportNativeIndexActivationError as reportNativeIndexFailure,
-} from './native-index-activation-error';
-import { observeNativeIndex } from './native-index-observations';
-import {
-  createNativeStartupFailureReporter,
-  observeNativeReaderStartup,
-} from './native-index-startup-window';
-import { createNativeRootDataDeletion } from './native-root-data-deletion';
-import { createNativeRootRegistration } from './native-root-registration';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
@@ -178,12 +167,7 @@ import { registerRendererProtocol } from './renderer-protocol';
 import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
-import { openIndexQuery } from './sqlite-query-host-manager';
-import {
-  markRendererFirstPaint,
-  markStartupMilestone,
-  readStartupTimeline,
-} from './startup-timeline';
+import { markRendererFirstPaint, readStartupTimeline } from './startup-timeline';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { resolveThirdPartyNoticesPath } from './third-party-notices-path';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
@@ -400,7 +384,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
     // `desktop-graceful-shutdown.ts` runs it after every ordered step settled.
     // `database-drain` has already stopped what issues database work, so this
     // is the host close alone.
-    closeDatabase: () => nativeIndexActivation.close(),
+    closeDatabase: () => hostProfile.retire(),
     // Runs last, after the aggregate failure warn (the shutdown module logs
     // it first): the durable NDJSON file is the last writer standing, so it
     // stays open to capture every earlier failure. The handle is nulled from
@@ -424,16 +408,16 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Finish accepted deletion; terminal quit cancels replacement startup.
       'factory-reset': () => handleResetLocal.close(),
       'file-system': () => applicationIpcDomain.close(),
+      'host-profile': async () => {
+        await agentHostMainClient.close();
+        // Retire the profile before joining the renderer's in-flight host connect:
+        // a host start that fails during shutdown is then never retried as a second host.
+        await hostProfile.retire();
+        await agentHostClientIpc.close();
+      },
       'main-catalog': () => workspaceRootCatalog.prepareClose(),
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
-      'native-index': async () => {
-        await agentHostMainClient.close();
-        // Fence profile admission before joining the renderer's in-flight host connect:
-        // a host start that fails during shutdown is then never retried as a second host.
-        await nativeIndexActivation.close();
-        await agentHostClientIpc.close();
-      },
       // before-quit postpones Electron's own window close. Join the renderer
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Every window is joined to `closed`: a renderer that cannot
@@ -441,7 +425,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       renderers: async () => {
         // The admitted reset has joined. Fence new profile work while an
         // initial load finishes, before closing the window it is creating.
-        nativeIndexActivation.fenceTerminal();
+        hostProfile.fenceTerminal();
         await initialWindowCreation;
         const windows = BrowserWindow.getAllWindows();
         const preparations = await Promise.allSettled(
@@ -479,10 +463,10 @@ const gracefulShutdown = createDesktopGracefulShutdown({
   logger,
   markShuttingDown: markDesktopShuttingDown,
   planRun: planDesktopShutdownRun,
-  // Fence the current native/profile owner before any renderer can request more work. The tray
-  // goes with it, so its Open item cannot start a window once quit has begun.
+  // Fence the profile owner before any renderer can request more work. The tray goes with it,
+  // so its Open item cannot start a window once quit has begun.
   retireBackgroundAdmission: () => {
-    nativeIndexActivation.fenceTerminal();
+    hostProfile.fenceTerminal();
     appLifetime?.close();
   },
 });
@@ -541,13 +525,12 @@ const profileReset = createDesktopProfileResetOwner({
     const location = resolveDesktopDatabaseLocation();
     return joinProfileDirectory(location.rootPath, location.profile);
   },
-  retireProfile: () => nativeIndexActivation.destroyAndRetireProfile(),
+  retireProfile: () => hostProfile.retire(),
 });
 
 const handleResetLocal = createDesktopFactoryResetHandler({
   clearRetainedContent: async () => {
-    await nativeIndexActivation.destroyNativeOwner();
-    const result = await desktopBootstrap.profile.clearAndRetireContent();
+    const result = await hostProfile.clearAndRetireContent();
     for (const filePath of listErrorLogFilePaths(
       path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)
     )) {
@@ -572,13 +555,10 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   prepareDatabaseProfileReset: () => profileReset.prepare(),
   resetLocalDatabase: (lease) => profileReset.clear(lease),
   resumeAfterReset: createDesktopResetResume({
-    publishIndexConfig: () => indexConfig.publishSaved(),
-    resumeIndex: (signal) => nativeIndexActivation.resume(signal),
     resumeMcp: (outcome) => resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome),
+    resumeProfile: (signal) => hostProfile.resume(signal),
   }),
-  runTransition: (work) => nativeRootDataDeletion.transition(work),
   runtimes: [
-    { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
     {
       name: 'mcp-runtime',
       stop: async () => {
@@ -674,30 +654,32 @@ ipcDisposers.add(
   })
 );
 
+const hostProfile = createHostProfileAdmission(desktopBootstrap.profile);
+/**
+ * A factory reset retires the profile until it reopens it, after its replacement renderer is
+ * ready: a window's reads and clients wait for that reopen, not into the fence.
+ */
+async function acquireProfileAfterReset() {
+  await handleResetLocal.idle();
+  return await hostProfile.acquire();
+}
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
-const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(() =>
-  nativeIndexActivation.acquireProfile()
-);
+const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(acquireProfileAfterReset);
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
 const applicationIpcDomain = createApplicationIpcDomain({
   getUserDataPath: () => app.getPath('userData'),
   onClearContent: async () => {
     const result = await handleResetLocal.clearContent();
-    if (
-      !result.success ||
-      result.deletedFiles === undefined ||
-      result.deletedChunks === undefined
-    ) {
-      throw new Error(result.message ?? 'Content clearing did not return its completion receipt.');
+    if (!result.success) {
+      throw new Error(result.message ?? 'Content clearing failed.');
     }
-    return { deletedChunks: result.deletedChunks, deletedFiles: result.deletedFiles };
   },
-  onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
+  onDeleteRootData: async (rootId) => {
+    await agentHostMainClient.request('workspace/roots/delete-data', { rootId });
+  },
   onResetLocal: () => handleResetLocal.reset(),
-  readMountedRoots: async () =>
-    (await agentHostMainClient.request('workspace/roots/mounted', {})).roots,
 });
-/** The host's open folders changed (ADR-0029 stage 4): the index re-reads them; the menu follows. */
+/** The host's open folders changed (ADR-0029 stage 4): File > Open Recent follows. */
 function onWorkspaceRootsChanged(change: {
   readonly grantedPath?: string;
   readonly recentPaths: readonly string[];
@@ -712,104 +694,25 @@ function onWorkspaceRootsChanged(change: {
     ...(change.grantedPath ? { grantedPath: change.grantedPath } : {}),
     recentChanged,
   });
-  // The index's handles follow first, so a scan of a removed folder ends before the re-read
-  // queues behind it. Not awaited, as a renderer's registration is not: the index status owns
-  // the outcome, and the registration reports its own failure.
-  applicationIpcDomain.roots
-    .followHost()
-    .catch((error: unknown) => {
-      logger.warn("The index's folder handles did not follow the host", { error });
-    })
-    .then(() => nativeRootRegistration.rootsRegistered())
-    .catch(() => undefined);
 }
-function activateSavedNativeIndexSettings(): Promise<void> {
-  if (isDesktopShuttingDown()) {
-    return Promise.resolve();
-  }
-  const resetting = handleResetLocal.inFlight();
-  if (resetting) {
-    return resetting.then((result) => {
-      // The reset owner retains its original failed outcome; this notification
-      // must not start activation after an unsuccessful reset.
-      return result.success ? activateSavedNativeIndexSettings() : undefined;
-    });
-  }
-  return nativeRootDataDeletion.prepareTransition(
-    () => nativeIndexActivation.prepareSavedPause(),
-    (prepared) => (prepared ? prepared.complete() : nativeIndexActivation.reconfigure())
-  );
-}
-
 export function reportAgentHostStartupFailure(error: unknown): void {
   reportHostStartupFailure(error, isDesktopShuttingDown(), logger);
 }
-function reportNativeIndexActivationError(message: string, error: unknown): void {
-  reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
-}
 const agentHostPrivateClients = desktopBootstrap.privateClients;
-const nativeIndexActivation = createNativeIndexActivation({
-  application: applicationIpcDomain,
-  catalog: workspaceRootCatalog,
-  lifecycleDelays: lifecycleDelaySeam,
-  onError: (operation, error) =>
-    reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),
-  onReceipt: (receipt) =>
-    logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
-  profile: desktopBootstrap.profile,
-  settings: () => indexConfig.nativeSettings(),
-});
-const indexConfig = createDesktopIndexConfig({
-  assertModel: assertRegisteredEmbeddingModel,
-  catalog: workspaceRootCatalog,
-  publish: (config) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
-        pushToRenderer(window.webContents, DESKTOP_IPC_CHANNELS.indexSearch.configChanged, config);
-      }
-    }
-  },
-  // A saved change joins the native owner's FIFO and `update` returns: the scan runs in the
-  // background, so a Pause saved meanwhile fences admission at once. During a factory reset a
-  // reconfigure waits for the reset while a rebuild or vector-space replacement joins the FIFO
-  // directly, so applies can run out of save order; each re-reads the saved config when it runs,
-  // so the index ends on the last save. Failures stay visible in the lifecycle observation and
-  // these reports.
-  rebuild: async () => {
-    nativeIndexSearch
-      .rebuild()
-      .catch((error: unknown) =>
-        reportNativeIndexActivationError('Search index rebuild for the new chunking failed', error)
-      );
-  },
-  reconfigure: async () => {
-    activateSavedNativeIndexSettings().catch((error: unknown) =>
-      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
-    );
-  },
-  replaceVectorSpace: (id) =>
-    nativeRootDataDeletion.transition(async () => {
-      await nativeIndexActivation.cleanupCollection(id);
-      await workspaceRootCatalog.collections({ id, operation: 'delete' });
-      await nativeIndexActivation.resume();
-    }),
-});
 // Main's own desktop-origin client: Settings credential writes reach the host,
 // their single owner, through it.
 const agentHostMainClient = createAgentHostMainClient(
-  nativeIndexActivation.acquireProfile,
+  hostProfile.acquire,
   agentHostPrivateClients.open
 );
 // The host owns hook trust.
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
   agentHostMainClient.request(method, params)
 );
-const agentHostClientIpc = registerAgentHostClientIpc(async () => {
-  // A factory reset retires the profile until it reopens it, after its replacement
-  // renderer is ready: that renderer's clients connect once it has, not into the fence.
-  await handleResetLocal.idle();
-  return await nativeIndexActivation.acquireProfile();
-}, agentHostPrivateClients.open);
+const agentHostClientIpc = registerAgentHostClientIpc(
+  acquireProfileAfterReset,
+  agentHostPrivateClients.open
+);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 // BST-1880: the damaged-store notice's actions. A restart stops the host this
 // app launched, which relaunches for the next client as after a crash, so its
@@ -819,7 +722,7 @@ ipcDisposers.add(
   registerAgentHostRecoveryIpcHandlers({
     restartHost: () =>
       restartLaunchedAgentHost({
-        acquireProfile: () => nativeIndexActivation.acquireProfile(),
+        acquireProfile: () => hostProfile.acquire(),
         logger,
         stopLaunchedHost: agentHostPrivateClients.stopForRelaunch,
       }),
@@ -830,75 +733,6 @@ ipcDisposers.add(
       }
     },
   })
-);
-const nativeRootDataDeletion = createNativeRootDataDeletion({
-  acquire: () => nativeIndexActivation.acquire(),
-  captureOwner: async () => {
-    await nativeIndexActivation.getSearchAuthority();
-    return nativeIndexActivation.captureAcknowledgedAuthority();
-  },
-  closeOwner: () => nativeIndexActivation.closeNativeOwner(),
-  reserveRootData: async (rootId) => {
-    const { reservationId } = await agentHostMainClient.request(
-      'workspace/roots/reserve-data-deletion',
-      { rootId }
-    );
-    return {
-      delete: async () => {
-        await agentHostMainClient.request('workspace/roots/delete-data', { reservationId });
-      },
-      release: async () => {
-        await agentHostMainClient.request('workspace/roots/release-data-deletion', {
-          reservationId,
-        });
-      },
-    };
-  },
-  resume: () => nativeIndexActivation.resume(),
-  stopSources: () => nativeIndexActivation.stopSources(),
-});
-
-const nativeIndexSearch = createNativeScopedSearchCapability({
-  openQuery: openIndexQuery,
-  rebuild: () => nativeRootDataDeletion.transition(() => nativeIndexActivation.rebuild()),
-  withRead: nativeIndexActivation.withRead,
-});
-const nativeRootRegistration = createNativeRootRegistration({
-  isShuttingDown: isDesktopShuttingDown,
-  reconfigureRoots: () => nativeIndexActivation.reconfigureRoots(),
-  reportError: reportNativeIndexActivationError,
-  transition: (operation) => nativeRootDataDeletion.transition(operation),
-});
-const nativeLifecycleObserver = new AbortController();
-// Windows follow this push for the index's lifecycle, status and coverage; none of them polls.
-observeNativeIndex({
-  coverageBatch: nativeIndexSearch.coverageBatch,
-  observeChanges: nativeIndexActivation.observeChanges,
-  observeLifecycle: nativeIndexActivation.observeLifecycle,
-  publish: (observation) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
-        pushToRenderer(
-          window.webContents,
-          DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged,
-          observation
-        );
-      }
-    }
-  },
-  signal: nativeLifecycleObserver.signal,
-  status: nativeIndexSearch.status,
-}).catch((error: unknown) => {
-  if (error !== nativeLifecycleObserver.signal.reason) {
-    reportNativeIndexActivationError('Native lifecycle observer failed', error);
-  }
-});
-ipcDisposers.add('native-index-lifecycle', () =>
-  nativeLifecycleObserver.abort(new Error('Native lifecycle observer disposed.'))
-);
-ipcDisposers.add(
-  'index-search',
-  registerIndexSearchIpcHandlers(nativeIndexSearch, nativeRootRegistration, indexConfig)
 );
 ipcDisposers.add('main', () => {
   // The graceful filesystem step joins physical retirement. This late ledger
@@ -1111,26 +945,8 @@ if (singleInstanceLockAcquired) {
       });
       configureDesktopRendererTarget(rendererTarget);
       registerRendererProtocol(rendererTarget);
-      const reportInitialNativeFailure = createNativeStartupFailureReporter((error) =>
-        reportNativeIndexActivationError('Native index activation unavailable', error)
-      );
-      // Threads use the profile even when search has no selected catalog. Start
-      // its existing owner before catalog discovery and renderer hydration.
-      const agentHostProfile = nativeIndexActivation
-        .acquireProfile()
-        .catch((error: unknown) =>
-          reportNativeIndexActivationError('Agent host profile unavailable', error)
-        );
-      void nativeIndexActivation.acquire().catch(reportInitialNativeFailure);
-      const indexStartup = observeNativeReaderStartup(
-        nativeIndexActivation.acquireRead(),
-        reportInitialNativeFailure
-      ).then((outcome) => {
-        if (outcome.kind === 'ready') {
-          markStartupMilestone('indexReady');
-        }
-        logger.info('Initial native reader startup settled', { kind: outcome.kind });
-      });
+      // Start the profile's host before catalog discovery and renderer hydration.
+      const agentHostProfile = hostProfile.acquire().catch(reportAgentHostStartupFailure);
       logger.debug('Configured desktop renderer target', { rendererTarget });
 
       // Register the root-validated `brainstrike-asset://` protocol now that the
@@ -1357,17 +1173,14 @@ if (singleInstanceLockAcquired) {
                 try {
                   // BST-1330: same drains as shutdown/factory reset — a bare
                   // resetLocalDatabase() could race in-flight live refreshes.
-                  // Join native producers, readers, and writer before resetting this profile.
-                  await nativeRootDataDeletion.transition(async () => {
-                    await nativeIndexActivation.stopSources();
-                    const lease = await profileReset.prepare();
-                    try {
-                      await profileReset.clear(lease);
-                    } finally {
-                      lease.release();
-                    }
-                    await nativeIndexActivation.resume();
-                  });
+                  // Retire the host's writer before resetting this profile.
+                  const lease = await profileReset.prepare();
+                  try {
+                    await profileReset.clear(lease);
+                  } finally {
+                    lease.release();
+                  }
+                  await hostProfile.resume();
                   replaced = BrowserWindow.getAllWindows();
                   await dialog.showMessageBox({
                     buttons: ['OK'],
@@ -1379,7 +1192,7 @@ if (singleInstanceLockAcquired) {
                   const message = error instanceof Error ? error.message : String(error);
                   dialog.showErrorBox(
                     'Reset Failed',
-                    `The local database was not reset: ${message}\n\nIf background indexing kept the database busy, retry after it settles (or use Factory Reset in Settings, which stops background work first).`
+                    `The local database was not reset: ${message}\n\nRetry, or use Factory Reset in Settings, which stops background work first.`
                   );
                 } finally {
                   developerDatabaseResetInFlight = false;
@@ -1788,8 +1601,8 @@ if (singleInstanceLockAcquired) {
             return;
           }
           logger.debug('Creating main window...');
-          // Owner decision 7.3(i): the first window waits for neither the host nor
-          // the index; the renderer shows both as state while they start.
+          // Owner decision 7.3(i): the first window does not wait for the host;
+          // the renderer shows it as state while it starts.
           return await createMainWindow();
         }
       );
@@ -1800,10 +1613,9 @@ if (singleInstanceLockAcquired) {
         return;
       }
       logger.debug('Main window created successfully', { hidden: mainWindow === undefined });
-      // One line per launch, once the host, the index and the first paint have settled.
+      // One line per launch, once the host and the first paint have settled.
       void Promise.allSettled([
         agentHostProfile,
-        indexStartup,
         mainWindow
           ? markRendererFirstPaint(mainWindow.webContents).catch((error: unknown) =>
               logger.warn('Could not read the renderer first paint for the startup timeline', {
@@ -1958,12 +1770,8 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
   return bindDesktopPlatformPort(platformPort, {
     ...productionDesktopCapabilities({
       modelCatalog,
-      nativeIndexSearch,
       workspaceRoots: workspaceRootCatalog,
     }),
-    // BST-1977: app-owned host/stop released Root with the native writer live.
-    // Retiring the profile here would wait on this same Core close request.
-    closeRootCapabilities: (host) => nativeIndexActivation.closeRootCapabilities(host),
     // ADR-0029: the host's sealed credential file borrows Main's safeStorage.
     credentialCipher: createSafeStorageCredentialCipher(),
     lifecycleDelays: lifecycleDelaySeam(),
@@ -1973,7 +1781,6 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     nativeChildren,
     // ADR-0029 stage 4: the host owns the open folders; Main keeps the picker and the windows.
     pickWorkspaceFolder: () => pickWorkspaceFolder(fileSystem),
-    refreshWorkspaceIndex: (rootId) => nativeIndexActivation.requestWorkspaceScan(rootId),
     // A worktree the host opened for an agent: the window shows it, as for any folder Main opens.
     showWorkspaceFolder: (path) => {
       desktopBootstrap.workspaceOpenQueue.enqueue({ origin: 'agent-worktree', path });

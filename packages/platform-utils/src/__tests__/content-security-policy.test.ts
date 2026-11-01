@@ -38,7 +38,7 @@ const WEB_PROD_CSP =
 
 const ELECTRON_DEV_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:* https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
+  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:*; " +
   "default-src 'self' http://localhost:* ws://localhost:*; " +
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
@@ -52,7 +52,7 @@ const ELECTRON_DEV_CSP =
 
 const ELECTRON_PROD_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' http://127.0.0.1:* http://localhost:* https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
+  "connect-src 'self' http://127.0.0.1:* http://localhost:*; " +
   "default-src 'self'; " +
   "font-src 'self' data:; " +
   "form-action 'self'; " +
@@ -161,18 +161,9 @@ describe('getContentSecurityPolicy', () => {
       expect(directiveOf(webProd, 'img-src')).not.toContain('brainstrike-asset:');
     });
 
-    it('only Electron whitelists direct embedding-provider origins in connect-src', () => {
-      const providerOrigins = [
-        'https://api.openai.com',
-        'https://generativelanguage.googleapis.com',
-        'https://api.cohere.com',
-        'https://api.voyageai.com',
-      ];
-      for (const origin of providerOrigins) {
-        expect(directiveOf(electronDev, 'connect-src')).toContain(origin);
-        expect(directiveOf(electronProd, 'connect-src')).toContain(origin);
-        expect(directiveOf(webDev, 'connect-src')).not.toContain(origin);
-        expect(directiveOf(webProd, 'connect-src')).not.toContain(origin);
+    it('no target lets the page reach a model provider directly', () => {
+      for (const csp of [electronDev, electronProd, webDev, webProd]) {
+        expect(directiveOf(csp, 'connect-src')).not.toContain('https://');
       }
     });
 

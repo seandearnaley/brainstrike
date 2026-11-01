@@ -4,38 +4,6 @@ export interface DatabaseTestResult {
   success: boolean;
 }
 
-export type DatabaseChunkType = 'text' | 'code' | 'sentence' | 'recursive';
-
-/** Serializable chunk payload shared by database transports. */
-export interface DatabaseChunkInsert {
-  chunkIndex: number;
-  chunkSize: number;
-  chunkType: DatabaseChunkType;
-  content: string;
-  contentHash: string;
-  createdAt: string;
-  embedding?: number[];
-  embeddingHash?: string;
-  embeddingSetId?: string;
-  embeddingUpdatedAt?: string;
-  endLine?: number;
-  endOffset?: number;
-  fileRecordId: string;
-  id: string;
-  startLine?: number;
-  startOffset?: number;
-  tokenCount: number;
-  updatedAt: string;
-}
-
-export interface InsertChunksAndEnqueueEmbeddingJobsOptions {
-  dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension' | null;
-  model?: string | null;
-  provider?: 'openai' | 'google' | 'cohere' | 'voyage' | null;
-  targetDimension?: number | null;
-  targetEmbeddingSetId?: string | null;
-}
-
 export type DatabaseInitFailureCategory =
   | 'missing-extension'
   | 'corruption'
@@ -184,8 +152,6 @@ export interface DatabaseCorruptionSignal {
  * snapshots; the rest name main-process owners.
  */
 export type DatabaseIntegrityContext =
-  | 'assistant:reindex'
-  | 'db:chunks:insert-and-enqueue-embedding-jobs'
   | 'db:clearAll'
   | 'db:exec'
   | 'db:live-query:refresh'
@@ -195,7 +161,6 @@ export type DatabaseIntegrityContext =
   | 'db:query'
   | 'db:test'
   | 'db:transaction'
-  | 'dimension-index-maintenance'
   | 'maintenance';
 
 /**

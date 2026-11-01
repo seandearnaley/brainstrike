@@ -17,7 +17,6 @@ export interface DeletionIntent {
 
 /** The writer's deletion ops, on its connection, in the order the orchestration calls them. */
 export interface DeletionWriter {
-  acknowledgeSourceGc(hashes: readonly string[]): Promise<void>;
   /** Blob references of damaged threads: outside the verified count, yet still named by rows. */
   damagedBlobRefs(): Promise<readonly string[]>;
   deleteIntent(threadId: string, seq: number): Promise<void>;
@@ -29,8 +28,6 @@ export interface DeletionWriter {
   purge(threadId: string, seq: number, tombstone: string): Promise<void>;
   /** Records `intent` unless one exists for its event; returns the hashes of the one recorded first. */
   recordIntent(intent: DeletionIntent): Promise<readonly string[]>;
-  sourceBlobRefs(): Promise<readonly string[]>;
-  sourceGcCandidates(): Promise<readonly string[]>;
   storedBlobRefs(threadId: string): Promise<readonly string[]>;
   /** Unlinks blobs; returns those that existed. */
   unlinkBlobs(hashes: readonly string[]): Promise<readonly string[]>;
@@ -89,14 +86,12 @@ export class StateDeletion {
       const indexer = this.requireIndexer('blob GC');
       await this.#options.run(async () => {
         await this.#gc(indexer, pending);
-        await this.collectRetiredSources();
       });
     }
   }
 
   /**
-   * In the write chain, when the writer opens healthy: completes every purge or thread delete a crash interrupted,
-   * then collects the sources the catalog retired.
+   * In the write chain, when the writer opens healthy: completes every purge or thread delete a crash interrupted.
    */
   async recover(): Promise<void> {
     const intents = await this.#writer.intents();
@@ -109,20 +104,6 @@ export class StateDeletion {
           await this.#completePurge(indexer, intent.threadId, intent.seq, intent.hashes);
         }
       }
-    }
-    await this.collectRetiredSources();
-  }
-
-  /** In the write chain: the writer commits retirement candidates with source changes; GC owns physical erasure. */
-  async collectRetiredSources(): Promise<void> {
-    const hashes = await this.#writer.sourceGcCandidates();
-    if (hashes.length === 0) {
-      return;
-    }
-    const indexer = this.requireIndexer('canonical source retirement');
-    await this.#gc(indexer, hashes);
-    if (this.#holds === 0) {
-      await this.#writer.acknowledgeSourceGc(hashes);
     }
   }
 
@@ -217,9 +198,6 @@ export class StateDeletion {
     const counts = await indexer.gcCheck(await this.#writer.okThreads(), hashes);
     // A damaged thread is outside the verified count, yet its rows still name blobs (RunLog.damagedBlobRefs).
     const held = new Set(await this.#writer.damagedBlobRefs());
-    for (const hash of await this.#writer.sourceBlobRefs()) {
-      held.add(hash);
-    }
     const unlink: string[] = [];
     for (const hash of hashes) {
       const count = counts[hash];

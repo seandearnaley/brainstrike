@@ -107,7 +107,6 @@ test('a host thread using the task list, a canvas, a file write and its undo wri
   const evidence = path.join(root, 'evidence.md');
   writeFileSync(evidence, ORIGINAL);
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'm3-no-legacy-rows',
     rootId: randomUUID(),
   });

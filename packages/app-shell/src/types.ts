@@ -1,4 +1,3 @@
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { ComponentType, ReactNode } from 'react';
 import type { StateHealthCapability } from './state-health/state-health-capability';
 
@@ -18,7 +17,6 @@ export interface AppLayoutProps {
   children: ReactNode;
   config: AppShellConfig;
   currentPath: string;
-  readonly nativeIndexSearch?: Omit<IndexSearchCapability, 'grep'> | null;
   onNavigationClick?: (path: string) => void;
   onOpenSettings?: () => void;
   sidebarContent?: ReactNode;

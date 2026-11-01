@@ -8,7 +8,6 @@ import type { NativeChildObserver } from '@brainstrike/state-store/native-childr
 import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import type { LifecycleDelaySeam } from '../lifecycle-delay-seam';
-import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
@@ -19,7 +18,6 @@ import {
   PlatformCredentialOpenSchema,
   PlatformCredentialSealSchema,
   PlatformDiagnosticRecordSchema,
-  PlatformIndexRefreshSchema,
   PlatformNativeChildSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformObserverCandidatesSchema,
@@ -41,12 +39,6 @@ export interface DesktopPlatformCapabilities {
    * from. Main serves the reads and holds no selection.
    */
   readonly admission: Omit<DesktopAdmissionReads, 'acquireWorkspace'>;
-  /**
-   * Main-owned Root borrowers close with the host's platform. `closing`: Core asked
-   * (`platform/close`) and releases its canonical writer once this resolves, so they are joined.
-   * `gone`: the host's connection closed without asking, so no writer waits to be released.
-   */
-  closeRootCapabilities?(host: 'closing' | 'gone'): Promise<void>;
   /** ADR-0029: Main's safeStorage, lent to the host's sealed credential file. */
   readonly credentialCipher?: CredentialCipher;
   /** Main-owned stores and services the agent host's own tools read (cap-tools). */
@@ -59,8 +51,6 @@ export interface DesktopPlatformCapabilities {
   readonly nativeChildren?: NativeChildObserver;
   /** ADR-0029 stage 4: Main's native folder picker; null when the person cancelled. */
   pickWorkspaceFolder?(): Promise<string | null>;
-  /** Main's native index rescans a root after a rewind restored it on disk. */
-  refreshWorkspaceIndex?(rootId: string): Promise<void>;
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   /**
@@ -69,8 +59,8 @@ export interface DesktopPlatformCapabilities {
    */
   showWorkspaceFolder?(path: string): void;
   /**
-   * The host's open folders changed: the native index re-reads them, and the OS recent
-   * documents and File > Open Recent follow the recent-folders ledger.
+   * The host's open folders changed: the OS recent documents and File > Open Recent follow
+   * the recent-folders ledger.
    */
   workspaceRootsChanged?(change: {
     readonly grantedPath?: string;
@@ -189,10 +179,7 @@ export function serveDesktopPlatform(
         // is logged here and travels as the fixed internal fault (BST-2010).
         const log = (message: string, fields: Readonly<Record<string, unknown>>): void =>
           logger.error(message, fields);
-        throw toBoundaryResponseError(
-          new BoundaryFailureError(nativeIndexBoundaryFailure(cause, log)),
-          log
-        );
+        throw toBoundaryResponseError(cause, log);
       });
     pending.add(task);
     const settled = (): void => {
@@ -305,21 +292,8 @@ export function serveDesktopPlatform(
         return null;
       })
   );
-  connection.onRequest('platform/index/refresh', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      const { rootId } = wireDecoder(PlatformIndexRefreshSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(input);
-      if (!capabilities.refreshWorkspaceIndex) {
-        throw new Error('Desktop has no native workspace index owner');
-      }
-      await capabilities.refreshWorkspaceIndex(rootId);
-      return null;
-    })
-  );
   serveHostToolServices(connection, execute, capabilities.hostTools);
-  const close = (host: 'closing' | 'gone'): Promise<void> => {
+  const close = (): Promise<void> => {
     closing ??= Promise.resolve().then(async () => {
       for (const controller of controllers) {
         controller.abort(new Error('Desktop platform is closing'));
@@ -328,20 +302,11 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
-      const root = await Promise.allSettled([
-        Promise.resolve().then(() => capabilities.closeRootCapabilities?.(host)),
-      ]);
-      const failures = root.flatMap((result) =>
-        result.status === 'rejected' ? [result.reason] : []
-      );
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'Desktop platform capability cleanup failed');
-      }
     });
     return closing;
   };
   const disconnect = (): Promise<void> => {
-    const joined = close('gone');
+    const joined = close();
     // vscode-jsonrpc close does not reject pending responses. Dispose before
     // joining executors so a lost progress acknowledgement cannot hold a tail.
     connection.dispose();
@@ -352,12 +317,12 @@ export function serveDesktopPlatform(
     void disconnect().catch(() => undefined);
   });
   connection.onDispose(() => {
-    void close('gone').catch(() => undefined);
+    void close().catch(() => undefined);
   });
   // The host keeps its Root when this fails, so the failure is logged here with
   // every inner cause, under the correlation id the host's fault carries (BST-2192).
   connection.onRequest('platform/close', () =>
-    close('closing').catch((cause: unknown) => {
+    close().catch((cause: unknown) => {
       throw toBoundaryResponseError(cause, (message, fields) => logger.error(message, fields));
     })
   );
