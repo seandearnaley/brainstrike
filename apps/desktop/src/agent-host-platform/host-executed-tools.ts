@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { FencedShell } from '@brainstrike/agent/fence-executor';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
@@ -22,6 +23,8 @@ import {
   admittedWorkspaceSkills,
   createSecureSkillsFs,
 } from '@brainstrike/host-capabilities/workspace-context';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
+import type { CheckoutAccess } from '../assistant-server/native-assistant-retrieval';
 import {
   type BrowserToolRunner,
   browserToolExecutors,
@@ -217,6 +220,38 @@ function hostSkillExecutors(
   };
 }
 
+/**
+ * How retrieval reads a worktree through its repository's index (ADR-0034):
+ * git identity from the host's worktree service, file text through the shared
+ * contained reader of the run's own folders.
+ */
+function hostCheckoutAccess(
+  worktrees: HostWorktreeServices,
+  roots: readonly { readonly path: string; readonly rootId: string }[]
+): CheckoutAccess {
+  return {
+    read: async (rootId, relativePath) => {
+      const root = roots.find((candidate) => candidate.rootId === rootId);
+      if (!root) {
+        throw new Error('The folder is not open in this run.');
+      }
+      return (await readWorkspaceTextFile({ requestedPath: relativePath, rootPath: root.path }))
+        .content;
+    },
+    resolve: async (rootId) => {
+      const context = await worktrees.resolveWorktreeService?.()?.repositoryContextForRoot(rootId);
+      if (!context?.ok) {
+        return null;
+      }
+      const cwd = await realpath(context.value.cwd).catch(() => context.value.cwd);
+      return {
+        commonDir: context.value.commonDir,
+        topLevel: cwd === context.value.repositoryRoot,
+      };
+    },
+  };
+}
+
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
@@ -242,6 +277,7 @@ export function desktopHostToolExecutors(
               ),
             }
           : {}),
+        checkout: hostCheckoutAccess(worktrees, runtimeData?.workspaceRoots ?? []),
         nativeIndexSearch,
         queryEmbedder,
       },

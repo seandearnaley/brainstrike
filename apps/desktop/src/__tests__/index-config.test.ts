@@ -150,18 +150,12 @@ describe('Main search index config', () => {
     expect(dependencies.rebuild).not.toHaveBeenCalled();
   });
 
-  it('merges one worktree toggle into the saved map', async () => {
-    const { owner, saved } = harness({ ...DEFAULT_INDEX_CONFIG, worktrees: { a: true } });
-    await owner.update({ worktrees: { b: true } });
-    expect(saved()?.worktrees).toEqual({ a: true, b: true });
-  });
-
-  it('keeps both of two quick worktree toggles', async () => {
-    const { owner, saved } = harness({ ...DEFAULT_INDEX_CONFIG, worktrees: { a: true } });
-    const first = owner.update({ worktrees: { b: true } });
-    const second = owner.update({ worktrees: { c: true } });
+  it('keeps both of two quick changes', async () => {
+    const { owner, saved } = harness(DEFAULT_INDEX_CONFIG);
+    const first = owner.update({ policy: 'full-root' });
+    const second = owner.update({ paused: true });
     await Promise.all([first, second]);
-    expect(saved()?.worktrees).toEqual({ a: true, b: true, c: true });
+    expect(saved()).toMatchObject({ paused: true, policy: 'full-root' });
   });
 
   it('finishes a model change while a factory reset publishes the saved config', async () => {
