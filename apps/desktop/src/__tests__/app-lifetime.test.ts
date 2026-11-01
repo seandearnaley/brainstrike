@@ -164,6 +164,21 @@ describe('closing the last window where a tray can show', () => {
     lifetime.close();
   });
 
+  it('after a factory reset clears the tray choice, the next close keeps the app running with its icon', async () => {
+    const tray = fakeTray();
+    const store = memoryStore();
+    const { lifetime } = lifetimeOf({ presence: Promise.resolve(tray.presence), store });
+    await lifetime.setKeepRunningInTray(false);
+    expect(tray.shown()).toHaveLength(0);
+
+    // Factory reset deletes the settings file under the running app.
+    store.saved.clear();
+
+    expect(lifetime.quitsWithLastWindow()).toBe(false);
+    expect(tray.shown()).toHaveLength(1);
+    lifetime.close();
+  });
+
   it('quitting removes the tray, and a tray that cannot show makes the last close quit', async () => {
     const tray = fakeTray();
     const { lifetime } = lifetimeOf({ presence: Promise.resolve(tray.presence) });

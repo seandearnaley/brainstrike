@@ -120,7 +120,6 @@ export function createAppLifetime(options: AppLifetimeOptions): AppLifetime {
   let icon: TrayIcon | undefined;
 
   const keepRunningInTray = (): boolean => readStored(store).keepRunningInTray ?? true;
-  const staysInTray = (): boolean => presence?.kind === 'tray' && keepRunningInTray();
 
   const menu: TrayMenu = {
     activate: options.openWindow,
@@ -145,6 +144,16 @@ export function createAppLifetime(options: AppLifetimeOptions): AppLifetime {
       icon.destroy();
       icon = undefined;
     }
+  };
+
+  /**
+   * Whether closing the last window leaves the app running: only with its icon showing. The icon
+   * is brought in line with the stored choice first, so a store that changed under this owner (a
+   * factory reset deletes it) never leaves the app running without a way back.
+   */
+  const staysInTray = (): boolean => {
+    syncTray();
+    return icon !== undefined;
   };
 
   const ready = options.presence.then(
