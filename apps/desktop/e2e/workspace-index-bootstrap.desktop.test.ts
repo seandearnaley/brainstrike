@@ -209,7 +209,6 @@ test.describe('Workspace Index first run (desktop)', () => {
       model: null,
       paused: false,
       policy: 'balanced',
-      worktrees: {},
     });
     await expect
       .poll(() => readNativeStatus(window), { timeout: 15_000 })

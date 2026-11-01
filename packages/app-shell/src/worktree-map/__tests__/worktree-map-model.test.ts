@@ -65,8 +65,6 @@ describe('buildWorktreeMap', () => {
         entry({ id: 'wt-1', managed: true, name: 'bright-fox', path: '/wt', primary: false }),
         entry(),
       ],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -82,8 +80,6 @@ describe('buildWorktreeMap', () => {
         entry({ repoCommonDir: '/z/.git', repositoryRoot: '/z' }),
         entry({ repoCommonDir: '/a/.git', repositoryRoot: '/a' }),
       ],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -95,8 +91,6 @@ describe('buildWorktreeMap', () => {
     const updatedAt = new Date('2026-08-26T10:00:00.000Z');
     const model = buildWorktreeMap({
       entries: [entry({ id: 'wt-1', managed: true, path: '/wt', primary: false })],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       now: NOW,
       runningThreadIds: new Set(['thread-1']),
       threads: [
@@ -130,8 +124,6 @@ describe('buildWorktreeMap', () => {
   it('ignores a thread whose metadata names the worktree but has left worktree mode', () => {
     const model = buildWorktreeMap({
       entries: [entry({ id: 'wt-1', managed: true, path: '/wt', primary: false })],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       now: NOW,
       runningThreadIds: new Set(),
       threads: [
@@ -163,8 +155,6 @@ describe('buildWorktreeMap', () => {
     const buildFor = (threads: readonly AssistantMemoryThread[]) =>
       buildWorktreeMap({
         entries: [entry({ id: 'wt-1', managed: true, path: '/wt', primary: false })],
-        indexedRootIds: null,
-        indexingOptInByRootId: {},
         now: NOW,
         runningThreadIds: new Set(),
         threads,
@@ -189,8 +179,6 @@ describe('buildWorktreeMap', () => {
     const buildFor = (threads: readonly AssistantMemoryThread[]) =>
       buildWorktreeMap({
         entries: [entry({ id: 'wt-1', managed: true, path: '/wt', primary: false })],
-        indexedRootIds: null,
-        indexingOptInByRootId: {},
         now: NOW,
         runningThreadIds: new Set(),
         threads,
@@ -221,8 +209,6 @@ describe('buildWorktreeMap', () => {
     const buildFor = (threads: readonly AssistantMemoryThread[]) =>
       buildWorktreeMap({
         entries: [entry({ id: 'wt-1', managed: true, path: '/wt', primary: false })],
-        indexedRootIds: null,
-        indexingOptInByRootId: {},
         now: NOW,
         runningThreadIds: new Set(),
         threads,
@@ -240,8 +226,6 @@ describe('buildWorktreeMap', () => {
         entry({ createdAt: '2026-08-20T00:00:00.000Z', id: 'a', path: '/a', primary: false }),
         entry({ createdAt: null, path: '/b', primary: false }),
       ],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       now: NOW,
       runningThreadIds: new Set(),
       threads: [],
@@ -254,8 +238,6 @@ describe('buildWorktreeMap', () => {
   it('states an unparseable ledger stamp instead of rendering "Invalid Date"', () => {
     const model = buildWorktreeMap({
       entries: [entry({ createdAt: 'not-a-date', id: 'a', path: '/a', primary: false })],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       now: NOW,
       runningThreadIds: new Set(),
       threads: [],
@@ -264,101 +246,9 @@ describe('buildWorktreeMap', () => {
     expect(model[0]?.cards[0]?.lastActivityLabel).toBe('Created at an unreadable time');
   });
 
-  it('reports indexing state only for an EXACT root mount, never a containing-only one, and never guessing for an unmounted worktree', () => {
-    // (bot review fix, PR #2664 finding 1) `rootId: 'root-d'` alone must NOT
-    // be enough to toggle indexing: `rootIdIsExactMount: false` means this
-    // root only CONTAINS the checkout (the primary inside a larger open
-    // folder, or a worktree nested inside another mounted root), never that
-    // it IS this checkout's own root. `indexingOptInByRootId` deliberately
-    // carries a `true` entry for 'root-d' too, so this only passes if the
-    // model actually gates on the flag — an absent opt-in would pass by
-    // accident.
-    const model = buildWorktreeMap({
-      entries: [
-        entry({ id: 'a', managed: true, path: '/a', primary: false, rootId: 'root-a' }),
-        entry({ id: 'b', managed: true, path: '/b', primary: false, rootId: 'root-b' }),
-        entry({ id: 'c', managed: true, path: '/c', primary: false, rootId: null }),
-        entry({
-          id: 'd',
-          managed: true,
-          path: '/d',
-          primary: false,
-          rootId: 'root-d',
-          rootIdIsExactMount: false,
-        }),
-      ],
-      indexedRootIds: [],
-      indexingOptInByRootId: { 'root-a': true, 'root-b': false, 'root-d': true },
-      runningThreadIds: new Set(),
-      threads: [],
-    });
-
-    expect(model[0]?.cards.map((card) => card.indexing)).toEqual([
-      'included',
-      'excluded',
-      'not-a-root',
-      'not-a-root',
-    ]);
-  });
-
-  it('reads a checkout open as an ordinary folder as indexed, whatever its worktree choice', () => {
-    // The index serves every open folder; only a folder opened as a managed
-    // worktree waits for its opt-in. `root-a` is served without an opt-in, so
-    // it is an ordinary open folder: its choice in this map controls nothing.
-    const model = buildWorktreeMap({
-      entries: [
-        entry({ id: 'a', managed: true, path: '/a', primary: false, rootId: 'root-a' }),
-        entry({ id: 'b', managed: true, path: '/b', primary: false, rootId: 'root-b' }),
-        entry({ id: 'c', managed: true, path: '/c', primary: false, rootId: 'root-c' }),
-      ],
-      indexedRootIds: ['root-a', 'root-b'],
-      indexingOptInByRootId: { 'root-b': true },
-      runningThreadIds: new Set(),
-      threads: [],
-    });
-
-    expect(model[0]?.cards.map((card) => card.indexing)).toEqual([
-      'open-folder',
-      'included',
-      'excluded',
-    ]);
-  });
-
-  it('makes no claim for a checkout without an opt-in while the index status is not ready', () => {
-    const model = buildWorktreeMap({
-      entries: [
-        entry({ id: 'a', managed: true, path: '/a', primary: false, rootId: 'root-a' }),
-        entry({ id: 'b', managed: true, path: '/b', primary: false, rootId: 'root-b' }),
-      ],
-      indexedRootIds: null,
-      indexingOptInByRootId: { 'root-b': true },
-      runningThreadIds: new Set(),
-      threads: [],
-    });
-
-    expect(model[0]?.cards.map((card) => card.indexing)).toEqual(['unknown', 'included']);
-  });
-
-  it('makes no indexing claim for a mounted checkout before Main’s config is read', () => {
-    const model = buildWorktreeMap({
-      entries: [
-        entry({ id: 'a', managed: true, path: '/a', primary: false, rootId: 'root-a' }),
-        entry({ id: 'c', managed: true, path: '/c', primary: false, rootId: null }),
-      ],
-      indexedRootIds: null,
-      indexingOptInByRootId: null,
-      runningThreadIds: new Set(),
-      threads: [],
-    });
-
-    expect(model[0]?.cards.map((card) => card.indexing)).toEqual(['unknown', 'not-a-root']);
-  });
-
   it('carries the disabled reason through untouched', () => {
     const model = buildWorktreeMap({
       entries: [entry({ disabledReason: 'Locked: rebase in progress', usable: false })],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -452,8 +342,6 @@ describe('worktree collection navigation', () => {
   const project = (entries: readonly WorktreeListEntry[]) =>
     buildWorktreeMap({
       entries,
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -523,8 +411,6 @@ describe('worktree collection navigation', () => {
           primary: false,
         }),
       ],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
       runningThreadIds: new Set(),
       threads: [
         thread({
