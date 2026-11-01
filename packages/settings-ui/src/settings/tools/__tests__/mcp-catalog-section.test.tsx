@@ -26,16 +26,18 @@ function card(id: string) {
 afterEach(cleanup);
 
 describe('MCP catalog section', () => {
-  it('lists the four vendors and offers read-only only on Linear and GitHub', async () => {
+  it('lists every vendor and offers read-only only on Linear and GitHub', async () => {
     render(<McpCatalogSection {...props()} />);
 
-    for (const id of ['linear', 'github', 'atlassian', 'gitlab']) {
+    for (const id of ['linear', 'github', 'atlassian', 'gitlab', 'suno']) {
       expect(await screen.findByTestId(`mcp-catalog-card-${id}`)).toBeInTheDocument();
     }
     expect(card('linear').getByRole('tab', { name: 'Read-only' })).toBeInTheDocument();
     expect(card('github').getByRole('tab', { name: 'Read-only' })).toBeInTheDocument();
     expect(card('atlassian').queryByRole('tab')).not.toBeInTheDocument();
     expect(card('gitlab').queryByRole('tab')).not.toBeInTheDocument();
+    expect(card('suno').queryByRole('tab')).not.toBeInTheDocument();
+    expect(card('suno').getByText('OAuth')).toBeInTheDocument();
     expect(card('github').getByText('Token')).toBeInTheDocument();
     expect(card('linear').getByText('OAuth')).toBeInTheDocument();
   });
