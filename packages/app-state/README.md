@@ -11,5 +11,5 @@ Client-side application state and persistence: Zustand stores, sync hooks, notif
   ```
 
 - Add new public state to `package.json` deliberately.
-- Persistent stores live in renderer `localStorage`. Main's factory reset wipes that storage after the renderer unloads, so no store clears itself; a writer that must stop first registers with `registerFactoryResetPreparation`.
+- Persistent stores use `persistDurable` from `@brainstrike/storage` and join factory reset by construction; a writer that must stop first registers with `registerFactoryResetPreparation`.
 - Presentation belongs in `@brainstrike/settings-ui`.
