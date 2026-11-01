@@ -1,5 +1,4 @@
 import * as fileExplorer from '@brainstrike/file-explorer';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -11,12 +10,9 @@ import {
   useOptionalFileExplorerStoreSelector,
 } from '../shell/file-explorer-provider';
 
-// Utility wrapper for provider
-function wrapper(storage: MemoryStorageAdapter) {
-  return ({ children }: { children: ReactNode }) => (
-    <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
-  );
-}
+const wrapper = ({ children }: { children: ReactNode }) => (
+  <FileExplorerProvider>{children}</FileExplorerProvider>
+);
 
 describe('FileExplorerProvider', () => {
   it('throws when useFileExplorerStoreContext is used outside the provider', () => {
@@ -25,33 +21,29 @@ describe('FileExplorerProvider', () => {
     }).toThrow('useFileExplorerStoreContext must be used within a FileExplorerProvider');
   });
 
-  it('provides store instance with the supplied storage adapter', () => {
-    const storage = new MemoryStorageAdapter();
-
+  it('provides the store it creates', () => {
     // Create a dummy store using the real factory so it matches expected type
-    const dummyStore = fileExplorer.createFileExplorerStore(new MemoryStorageAdapter());
+    const dummyStore = fileExplorer.createFileExplorerStore();
     const spy = vi.spyOn(fileExplorer, 'createFileExplorerStore').mockReturnValue(dummyStore);
 
     const { result } = renderHook(() => useFileExplorerStoreContext(), {
-      wrapper: wrapper(storage),
+      wrapper,
     });
 
-    expect(spy).toHaveBeenCalledWith(storage);
+    expect(spy).toHaveBeenCalledOnce();
     expect(result.current).toBe(dummyStore);
 
     spy.mockRestore();
   });
 
   it('selects live store state inside the provider', () => {
-    const storage = new MemoryStorageAdapter();
-
     const { result } = renderHook(
       () => {
         const store = useFileExplorerStoreContext();
         const currentFolderId = useFileExplorerStoreSelector((state) => state.currentFolderId);
         return { currentFolderId, store };
       },
-      { wrapper: wrapper(storage) }
+      { wrapper }
     );
 
     expect(result.current.currentFolderId).toBeNull();
@@ -81,8 +73,6 @@ describe('FileExplorerProvider', () => {
   });
 
   it('reuses the previous selection when the equality function reports no change', () => {
-    const storage = new MemoryStorageAdapter();
-
     const { result } = renderHook(
       () => {
         const store = useFileExplorerStoreContext();
@@ -93,7 +83,7 @@ describe('FileExplorerProvider', () => {
         );
         return { selection, store };
       },
-      { wrapper: wrapper(storage) }
+      { wrapper }
     );
 
     const initialSelection = result.current.selection;

@@ -67,13 +67,6 @@ describe('validateDesktopBridgeContract', () => {
           restoreLastFolder: async () => null,
           saveLastFolder: async () => undefined,
         },
-        storage: {
-          clear: async () => undefined,
-          getAllKeys: async () => [],
-          getItem: async () => null,
-          removeItem: async () => undefined,
-          setItem: async () => undefined,
-        },
       },
       logging: {
         getBufferedLogs: async () => [],

@@ -1,4 +1,3 @@
-import type { StorageAdapter } from '@brainstrike/storage';
 import { DEFAULT_STATE, type FileExplorerState, type SerializedState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,13 +14,6 @@ vi.mock('@brainstrike/logging', () => ({
 vi.mock('../test-environment', () => ({
   detectTestEnvironment: vi.fn(() => false),
 }));
-
-const storageAdapter: StorageAdapter = {
-  getAllKeys: vi.fn(async () => []),
-  getItem: vi.fn(async () => null),
-  removeItem: vi.fn(async () => {}),
-  setItem: vi.fn(async () => {}),
-};
 
 describe('file explorer persistence log redaction', () => {
   beforeEach(() => {
@@ -54,27 +46,9 @@ describe('file explorer persistence log redaction', () => {
 
     migrateState(serializedState, 5, true);
     const mergedState = mergeState(serializedState, currentState, true);
-    const persistOptions = createPersistOptions(storageAdapter);
+    const persistOptions = createPersistOptions();
     persistOptions.onRehydrateStorage?.(currentState)?.(mergedState, undefined);
 
     expect(JSON.stringify(mockLogger.debug.mock.calls)).not.toContain(sensitivePath);
-  });
-
-  it('does not expose invalid JSON through parser diagnostics', async () => {
-    const sensitiveMarker = 'secret-client-payload';
-    const sensitivePayload = `${sensitiveMarker} /Users/alice/source.ts`;
-    const invalidJsonStorage: StorageAdapter = {
-      ...storageAdapter,
-      getItem: vi.fn(async () => sensitivePayload),
-    };
-    const { createStorageWrapper } = await import('../storage-wrapper');
-
-    await createStorageWrapper(invalidJsonStorage, true).getItem('file-explorer-storage-v5');
-
-    expect(JSON.stringify(mockLogger.error.mock.calls)).not.toContain(sensitiveMarker);
-    expect(mockLogger.error).toHaveBeenCalledWith(
-      'Invalid JSON from storage adapter; clearing value',
-      { name: 'file-explorer-storage-v5' }
-    );
   });
 });

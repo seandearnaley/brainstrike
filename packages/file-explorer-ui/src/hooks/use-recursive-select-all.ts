@@ -4,7 +4,7 @@ import {
   getFocusedSelectionCount,
   getForeignSelectionCount,
 } from '@brainstrike/file-explorer';
-import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
@@ -20,7 +20,6 @@ import {
   useOptionalFileExplorerStoreContext,
   useOptionalFileExplorerStoreSelector,
 } from '../shell/file-explorer-provider';
-import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { querySelectableFiles } from '../utils/recursive-selection-query';
 import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import {
@@ -28,7 +27,6 @@ import {
   applyExplicitSelection,
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
-  hasPersistApi,
   isForestStore,
   yieldToBrowser,
 } from './recursive-selection-utils';
@@ -139,7 +137,6 @@ async function commitSelectAllResult(args: {
       ) => void)
     | undefined;
   showToast: ReturnType<typeof useToastManager>['showToast'];
-  storageAdapter: ReturnType<typeof useAdapters>['storageAdapter'];
   store: ReturnType<typeof useOptionalFileExplorerStoreContext>;
   useRegex: boolean;
 }): Promise<SelectAllResult> {
@@ -189,10 +186,6 @@ async function commitSelectAllResult(args: {
         : {}),
       signal: args.abortSignal,
     });
-  }
-
-  if (hasPersistApi(args.store)) {
-    await persistFileExplorerStateImmediately(args.store, args.storageAdapter);
   }
 
   // Keep the transition boundary for selection-driven row updates without
@@ -361,7 +354,6 @@ export function useRecursiveSelectAll(
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
-  const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
   // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
   // the same derivation the tree display uses, so scans select exactly what
@@ -488,7 +480,6 @@ export function useRecursiveSelectAll(
           selectionLimit: maxSelectionCount,
           setQuerySelection,
           showToast,
-          storageAdapter,
           store,
           useRegex,
         });
@@ -519,7 +510,6 @@ export function useRecursiveSelectAll(
       parentRootId,
       setQuerySelection,
       showToast,
-      storageAdapter,
       store,
       useRegex,
     ]

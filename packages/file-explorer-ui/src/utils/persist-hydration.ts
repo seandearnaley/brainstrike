@@ -3,11 +3,8 @@
  *
  * Boot-ordering call sites (the inline-fixture subscription, the file-system
  * restore in `use-file-system-context`) must run work only AFTER the store's
- * ASYNC persist hydration completes. They share this narrowing guard so the two
+ * persist hydration completes. They share this narrowing guard so the two
  * hydration checks cannot drift apart (AGENTS: avoid copy-paste divergence).
- *
- * Distinct from `hasPersistApi` in `hooks/recursive-selection-utils.ts`, which
- * narrows on `getOptions` for immediate-persist writes, not hydration ordering.
  */
 export interface PersistHydrationApi {
   hasHydrated: () => boolean;

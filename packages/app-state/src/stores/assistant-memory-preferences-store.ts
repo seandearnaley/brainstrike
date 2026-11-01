@@ -74,41 +74,6 @@ interface AssistantMemoryPreferencesData extends RuntimeAssistantMemorySettings 
 export type AssistantMemoryPreferencesStore = AssistantMemoryPreferencesData &
   AssistantMemoryPreferencesActions;
 
-interface ElectronStorageBridge {
-  readonly getItem: (key: string) => Promise<string | null>;
-  readonly removeItem: (key: string) => Promise<void>;
-  readonly setItem: (key: string, value: string) => Promise<void>;
-}
-
-function getElectronStorageBridge(): ElectronStorageBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  return (
-    (
-      window as Window & {
-        electronAPI?: {
-          storage?: ElectronStorageBridge;
-        };
-      }
-    ).electronAPI?.storage ?? null
-  );
-}
-
-function createAssistantMemoryPreferencesStorage() {
-  const electronStorage = getElectronStorageBridge();
-  if (electronStorage) {
-    return {
-      getItem: (key: string) => electronStorage.getItem(key),
-      removeItem: (key: string) => electronStorage.removeItem(key),
-      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
-    };
-  }
-
-  return createBrowserJsonStorage();
-}
-
 function clampInteger(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) {
     return min;
@@ -171,8 +136,6 @@ function normalizeMemorySettings(
 }
 
 const initialMemorySettings = normalizeMemorySettings(DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS);
-
-const storage = createJSONStorage(() => createAssistantMemoryPreferencesStorage());
 
 export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferencesStore>()(
   persist(
@@ -255,7 +218,7 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
        * BST-1645: the normalize + `hasHydrated` mark run HERE, not in
        * `onRehydrateStorage`.
        *
-       * `createBrowserJsonStorage().getItem` is synchronous, so zustand's
+       * `localStorage` is synchronous, so zustand's
        * persist middleware resolves hydration DURING `create(...)` — while the
        * module-level `useAssistantMemoryPreferencesStore` binding is still in
        * its temporal dead zone. The old rehydrate callback called
@@ -274,10 +237,7 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
        * `getRuntimeMemorySettings`.
        */
       merge: (persistedState, currentState) => {
-        // No snapshot (first run): keep whatever the user already changed while
-        // an async storage read was pending; only mark hydration complete.
-        // Spreading defaults here would silently revert those edits on desktop,
-        // where the Electron storage bridge is promise-based.
+        // No snapshot (first run): keep the current state; only mark hydration complete.
         if (persistedState === undefined || persistedState === null) {
           return { ...currentState, hasHydrated: true };
         }
@@ -302,7 +262,8 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         observationalMemory: state.observationalMemory,
         semanticRecall: state.semanticRecall,
       }),
-      storage,
+      // A saved value that is not JSON reads as nothing saved, so hydration completes.
+      storage: createJSONStorage(() => createBrowserJsonStorage()),
       version: STORE_VERSION,
     }
   )

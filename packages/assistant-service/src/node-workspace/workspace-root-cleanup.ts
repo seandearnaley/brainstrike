@@ -1,4 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
+import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import { markRootsDisconnectedExcept } from './workspace-root-catalog.ts';
 
 // Shared with the registry so its own warnings stay under one scope.
 const logger = createLogger('WorkspaceRootRegistry');
@@ -45,4 +47,36 @@ export async function cleanupWorkspaceRootResources(
       ]);
     })
   );
+}
+
+interface WorkspaceRootCatalogConvergence {
+  readonly cleanup: (rootIds: readonly string[]) => Promise<void>;
+  readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
+  readonly isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined;
+  readonly mountedPaths: readonly string[];
+  readonly whenCatalogOpen: (() => Promise<void>) | undefined;
+}
+
+/**
+ * Marks every catalog root outside the mounted set disconnected and ends its resources, once
+ * the catalog's profile is open. A refusal its owner expects is logged at info.
+ */
+export async function convergeWorkspaceRootCatalog({
+  cleanup,
+  getRootsCatalog,
+  isExpectedCatalogRefusal,
+  mountedPaths,
+  whenCatalogOpen,
+}: WorkspaceRootCatalogConvergence): Promise<void> {
+  try {
+    await whenCatalogOpen?.();
+    const disconnected = await markRootsDisconnectedExcept(await getRootsCatalog(), mountedPaths);
+    await cleanup(disconnected.map((row) => row.id));
+  } catch (error) {
+    if (isExpectedCatalogRefusal?.(error)) {
+      logger.info('Workspace root database convergence stopped', { error });
+      return;
+    }
+    logger.error('Workspace root database convergence failed', { error });
+  }
 }

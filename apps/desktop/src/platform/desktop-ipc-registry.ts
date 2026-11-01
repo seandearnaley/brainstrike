@@ -33,7 +33,6 @@ export type DesktopIpcDomain =
   | 'preferences'
   | 'runtime'
   | 'shell'
-  | 'storage'
   | 'tools'
   | 'windowFocus'
   | 'workspace';

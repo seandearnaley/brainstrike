@@ -3,7 +3,6 @@ import {
   FileExplorerProvider,
   useFileExplorerStoreContext,
 } from '@brainstrike/file-explorer-ui/shell';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -16,9 +15,8 @@ const PATH = 'src/a.ts';
 const KEY = encodeFileSelection(ROOT, PATH);
 
 function createWrapper() {
-  const storageAdapter = new MemoryStorageAdapter();
   return function Wrapper({ children }: { children: ReactNode }) {
-    return <FileExplorerProvider storageAdapter={storageAdapter}>{children}</FileExplorerProvider>;
+    return <FileExplorerProvider>{children}</FileExplorerProvider>;
   };
 }
 

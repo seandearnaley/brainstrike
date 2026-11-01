@@ -84,6 +84,8 @@ interface RegisterFileSystemIpcHandlersOptions {
    */
   readonly onWorkspaceRootsChanged?: (() => void) | undefined;
   readonly storage: ElectronStorageAdapter;
+  /** Resolves once the catalog's profile is open; a factory reset holds it until it reopens. */
+  readonly whenRootsCatalogOpen?: () => Promise<void>;
   /** Explicit constructor seams for unit tests of native-root composition. */
   readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
 }
@@ -439,6 +441,7 @@ export function createFileSystemIpcDomain({
   evictLspServersForRoot = evictHostLspServersForRoot,
   fileSystem,
   getRootsCatalog,
+  whenRootsCatalogOpen,
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
   onWorkspaceRootGranted,
@@ -555,6 +558,7 @@ export function createFileSystemIpcDomain({
     // expected. So is a damaged store, which opened read-only (BST-2144).
     isExpectedCatalogRefusal: (error) =>
       isExpectedShutdownRefusal(error) || isStateStoreReadOnly(error),
+    ...(whenRootsCatalogOpen ? { whenCatalogOpen: whenRootsCatalogOpen } : {}),
     onRestoredRootsChanged: onWorkspaceRootsChanged,
     onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),

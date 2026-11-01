@@ -2,7 +2,6 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell/file-system-provider';
 import { type DirectoryHandle, MockFileSystemAdapter } from '@brainstrike/file-system';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { PanelLayoutState } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
@@ -227,7 +226,6 @@ async function mountRoot(deleteRootData: (rootId: string) => Promise<void>) {
     });
   }
   const adapter = new RootAdapter();
-  const storage = new MemoryStorageAdapter();
   const handle: DirectoryHandle = {
     kind: 'directory',
     name: 'mock-root',
@@ -236,7 +234,7 @@ async function mountRoot(deleteRootData: (rootId: string) => Promise<void>) {
   } as DirectoryHandle;
   vi.spyOn(adapter, 'requestDirectoryAccess').mockResolvedValue(handle);
   render(
-    <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
+    <AdaptersProvider fileSystemAdapter={adapter}>
       <RootLayoutContent
         // Any workspace app body sits inside the root layout's deletion context.
         changesPageContent={

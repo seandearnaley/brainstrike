@@ -54,7 +54,8 @@
     "shiki": "catalog:",
     "tailwind-merge": "^3.7.0",
     "tw-animate-css": "catalog:",
-    "yaml": "catalog:"
+    "yaml": "catalog:",
+    "zustand": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/assistant-contract": "workspace:*",

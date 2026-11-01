@@ -232,7 +232,7 @@ function testFileSystemAdapter(): FileSystemAdapter {
 
 function renderDialog() {
   return render(
-    <AdaptersProvider fileSystemAdapter={testFileSystemAdapter()} storageAdapter={{} as never}>
+    <AdaptersProvider fileSystemAdapter={testFileSystemAdapter()}>
       <ActionRegistryProvider registry={testActionRegistry}>
         <RewindConfirmDialog />
         <Toaster />

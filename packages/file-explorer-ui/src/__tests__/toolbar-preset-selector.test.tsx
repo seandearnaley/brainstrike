@@ -120,16 +120,6 @@ const defaultMockStoreState = (): MockStoreState => ({
 
 let mockStoreState: MockStoreState = defaultMockStoreState();
 
-// Canonical-writer capture: persistFileExplorerStateImmediately writes the
-// whole store snapshot through the ADAPTERS storage adapter.
-const mockAdapterStorage = {
-  clear: vi.fn(async () => undefined),
-  getAllKeys: vi.fn(async () => []),
-  getItem: vi.fn(async () => null),
-  removeItem: vi.fn(async () => undefined),
-  setItem: vi.fn(async () => undefined),
-};
-
 // Hydration controls: false simulates the pre-rehydration boot window.
 let mockHasHydrated = true;
 const hydrationListeners: Array<() => void> = [];
@@ -139,10 +129,6 @@ function finishHydration(): void {
     listener();
   }
 }
-
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: () => ({ storageAdapter: mockAdapterStorage }),
-}));
 
 vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: vi.fn(() => {
@@ -330,35 +316,7 @@ describe('ToolbarPresetSelector', () => {
     expect(screen.queryByRole('button', { name: /Source Files/iu })).not.toBeInTheDocument();
   });
 
-  it('persists the CANONICAL store snapshot immediately on preset selection', async () => {
-    const user = userEvent.setup();
-    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
-
-    const triggerButton = screen.getByRole('button', { name: /Source Files/iu });
-    await user.click(triggerButton);
-    await waitFor(() => {
-      expect(screen.getByText('Documentation')).toBeInTheDocument();
-    });
-    await user.click(screen.getByText('Documentation'));
-
-    await waitFor(() => {
-      expect(mockAdapterStorage.setItem).toHaveBeenCalled();
-    });
-    const lastCall = mockAdapterStorage.setItem.mock.calls.at(-1) as unknown as [string, string];
-    expect(lastCall[0]).toBe('file-explorer-storage-v4');
-    const payload = JSON.parse(lastCall[1]) as {
-      state: { excludeFilters: string[]; includeFilters: string[]; viewFilterPresetId: string };
-      version: number;
-    };
-    // The snapshot is the LIVE store serialization (store actions applied
-    // before the write), never a hand-merged patch.
-    expect(payload.version).toBe(1);
-    expect(payload.state.viewFilterPresetId).toBe('preset-2');
-    expect(payload.state.includeFilters).toEqual(['*.md']);
-    expect(payload.state.excludeFilters).toEqual([]);
-  });
-
-  it('does not sync the preset id or write storage before the store rehydrates (boot-clobber guard)', async () => {
+  it('does not sync the preset id before the store rehydrates (boot-clobber guard)', async () => {
     // The store still holds DEFAULTS during this window — any write would
     // overwrite the user's persisted settings with them.
     mockHasHydrated = false;
@@ -374,7 +332,6 @@ describe('ToolbarPresetSelector', () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    expect(mockAdapterStorage.setItem).not.toHaveBeenCalled();
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
 
     // Hydration completes → the sync proceeds normally.
@@ -429,7 +386,6 @@ describe('ToolbarPresetSelector', () => {
       expect(screen.getByRole('button')).toBeInTheDocument();
     });
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
-    expect(mockAdapterStorage.setItem).not.toHaveBeenCalled();
   });
 
   it('handles null selected preset', async () => {
@@ -468,9 +424,6 @@ describe('ToolbarPresetSelector', () => {
 
     await waitFor(() => {
       expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('preset-1');
-    });
-    await waitFor(() => {
-      expect(mockAdapterStorage.setItem).toHaveBeenCalled();
     });
   });
 
@@ -512,6 +465,5 @@ describe('ToolbarPresetSelector', () => {
       expect(screen.getByRole('button', { name: /Custom filters/iu })).toBeInTheDocument();
     });
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
-    expect(mockAdapterStorage.setItem).not.toHaveBeenCalled();
   });
 });

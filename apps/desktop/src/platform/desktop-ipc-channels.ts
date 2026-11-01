@@ -84,6 +84,8 @@ export const DESKTOP_IPC_CHANNELS = {
   files: {
     addRoot: 'fs:addRoot',
     addRootByPath: 'fs:addRootByPath',
+    /** E2E only (`workspace-ledgers-e2e-ipc.ts`); production registers no handler. */
+    clearLedgersForE2e: 'fs:clearLedgersForE2e',
     deleteRootData: 'fs:deleteRootData',
     exists: 'fs:exists',
     listRecentRoots: 'fs:listRecentRoots',
@@ -96,6 +98,8 @@ export const DESKTOP_IPC_CHANNELS = {
     restoreLastFolder: 'fs:restoreLastFolder',
     restoreRoots: 'fs:restoreRoots',
     saveLastFolder: 'fs:saveLastFolder',
+    /** E2E only (`workspace-ledgers-e2e-ipc.ts`); production registers no handler. */
+    seedLedgerForE2e: 'fs:seedLedgerForE2e',
     unwatch: 'fs:unwatch',
     watch: 'fs:watch',
     watchEvent: 'fs:watch-event',
@@ -171,14 +175,6 @@ export const DESKTOP_IPC_CHANNELS = {
     openExternal: 'shell:open-external',
     openPath: 'shell:open-path',
     showItemInFolder: 'shell:show-item-in-folder',
-  },
-  storage: {
-    clearAllForE2e: 'storage:clearAllForE2e',
-    getAllKeys: 'storage:getAllKeys',
-    getItem: 'storage:getItem',
-    removeItem: 'storage:removeItem',
-    seedMainOwnedForE2e: 'storage:seedMainOwnedForE2e',
-    setItem: 'storage:setItem',
   },
   threadGroups: { readRoots: 'thread-groups:read-roots', request: 'thread-groups:request' },
   viewFilterPresets: { request: 'view-filter-presets:request' },

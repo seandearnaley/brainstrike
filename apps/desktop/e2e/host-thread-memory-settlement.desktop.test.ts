@@ -78,12 +78,8 @@ test('Stop clears when the answer finishes while its memory observation is still
       },
     };
     await page.evaluate(
-      async ({ key, value }) => {
-        const storage = window.electronAPI?.storage;
-        if (!storage) {
-          throw new Error('The app storage bridge is unavailable');
-        }
-        await storage.setItem(key, value);
+      ({ key, value }) => {
+        window.localStorage.setItem(key, value);
       },
       {
         key: MEMORY_SETTINGS_KEY,

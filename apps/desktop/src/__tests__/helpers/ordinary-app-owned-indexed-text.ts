@@ -275,8 +275,8 @@ export async function qualifyOrdinaryAppIndexedText(
     // enables an existing model, without seeding workspace/search/index rows.
     await page.evaluate(
       async ({ memory, version }) => {
-        if (!(window.modelCatalog && window.electronAPI && 'storage' in window.electronAPI)) {
-          throw new Error('The normal desktop model catalog/storage bridge is missing');
+        if (!window.modelCatalog) {
+          throw new Error('The normal desktop model catalog bridge is missing');
         }
         await window.modelCatalog.setModels(['anthropic/claude-sonnet-4.6'], true);
         localStorage.setItem(
@@ -299,7 +299,7 @@ export async function qualifyOrdinaryAppIndexedText(
             version,
           })
         );
-        await window.electronAPI.storage.setItem(
+        window.localStorage.setItem(
           'assistant-memory-preferences.v1',
           JSON.stringify({ state: memory, version: 2 })
         );

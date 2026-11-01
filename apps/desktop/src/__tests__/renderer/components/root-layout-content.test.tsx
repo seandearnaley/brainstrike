@@ -47,14 +47,7 @@ vi.mock('../../../renderer/desktop-host-thread-provider', () => ({
 
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: vi.fn(() => ({
-    storageAdapter: {
-      delete: vi.fn(),
-      // Mock storage adapter
-      get: vi.fn(),
-      set: vi.fn(),
-    },
-  })),
+  useAdapters: vi.fn(() => ({ fileSystemAdapter: {} })),
 }));
 
 // Mock the indexing barrel to prevent token worker startup in unit tests.

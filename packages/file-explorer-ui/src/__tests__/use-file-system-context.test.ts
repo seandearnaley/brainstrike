@@ -1,6 +1,5 @@
 import type { DirectoryHandle, FileSystemWatchBatchMetadata } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { FileSystemChange } from '@brainstrike/types';
 import { useToast } from '@brainstrike/ui';
@@ -467,12 +466,8 @@ describe('useFileSystem context hook', () => {
       restoredHandle
     );
 
-    const isolatedStorageAdapter = new MemoryStorageAdapter();
     const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(FileExplorerTestWrapper, {
-        children,
-        mockStorageAdapter: isolatedStorageAdapter,
-      });
+      createElement(FileExplorerTestWrapper, { children });
     const { result } = renderHook(() => useExposed(), { wrapper });
 
     const SELECTION_KEY = `${CONTROLLED_ROOT_ID}|@|file-0.ts`;
@@ -538,12 +533,10 @@ describe('useFileSystem context hook', () => {
     // Isolated storage: legacy single-root restore REUSES a persisted
     // currentFolderId as the rootId (storage v5). Without isolation, ids
     // persisted by earlier tests in this file leak into this fresh-boot case.
-    const isolatedStorageAdapter = new MemoryStorageAdapter();
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(FileExplorerTestWrapper, {
         children,
         mockFileSystemAdapter: adapterWithRestore,
-        mockStorageAdapter: isolatedStorageAdapter,
       });
 
     const { result } = renderHook(() => useExposed(), { wrapper });
@@ -1429,17 +1422,13 @@ describe('useFileSystem — cascade delete (Phase 6)', () => {
     vi.restoreAllMocks();
   });
 
-  // Isolated storage: the shared wrapper hydrates persisted state leaked by
-  // earlier tests in this file (see the restored-root note above).
   function makeDeletionWrapper(deleteRootData?: (rootId: string) => Promise<void>) {
-    const storage = new MemoryStorageAdapter();
     return ({ children }: { children: ReactNode }) =>
       createElement(FileExplorerTestWrapper, {
         // biome-ignore lint/correctness/noChildrenProp: createElement's TS overload requires children inside props when the component declares them required (.ts file, no JSX)
         children: deleteRootData
           ? createElement(RootDataDeletionProvider, { children, deleteRootData })
           : children,
-        mockStorageAdapter: storage,
       });
   }
 
@@ -1530,12 +1519,11 @@ describe('useFileSystem — cascade delete (Phase 6)', () => {
     // memo's deps, so swapping the RootDataDeletionProvider's callback alone
     // (nothing else the memo tracked changed) left `fs.removeRootDirectory`
     // pointing at the FIRST render's closure — the wrong deleteRootData ran.
-    const storage = new MemoryStorageAdapter();
     const deleteA = vi.fn().mockResolvedValue(undefined);
     const deleteB = vi.fn().mockResolvedValue(undefined);
     let activeDeleteRootData: typeof deleteA = deleteA;
 
-    const Wrapper = createDeletionTestWrapper(storage, () => activeDeleteRootData);
+    const Wrapper = createDeletionTestWrapper(() => activeDeleteRootData);
 
     const { result, rerender } = renderHook(() => useExposed(), { wrapper: Wrapper });
     const rootId = await addRoot(result);
@@ -1567,14 +1555,7 @@ describe('useFileSystem — removeRootDirectory adapter disconnect failures (Fix
     const removeRootFn = vi.fn().mockRejectedValue(new Error('registry disconnect failed'));
     const adapter = Object.assign(new MockFileSystemAdapter(), { removeRoot: removeRootFn });
     const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(
-        FileExplorerTestWrapper,
-        {
-          mockFileSystemAdapter: adapter,
-          mockStorageAdapter: new MemoryStorageAdapter(),
-        },
-        children
-      );
+      createElement(FileExplorerTestWrapper, { mockFileSystemAdapter: adapter }, children);
     const rendered = renderHook(() => ({ ...useExposed(), toastState: useToast() }), { wrapper });
 
     const mockHandle: DirectoryHandle = {

@@ -13,7 +13,7 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ContentClearResult } from '@brainstrike/types';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
-import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
+import { registerWorkspaceLedgersE2eHandlers } from './ipc-domains/workspace-ledgers-e2e-ipc';
 import type { WorkspaceRootRegistry } from './ipc-domains/workspace-root-registry';
 import {
   createWorkspaceRootWatchOwner,
@@ -37,6 +37,8 @@ interface RegisterIpcHandlerOptions {
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
   readonly onWorkspaceRootsChanged?: () => void;
+  /** Resolves once the roots catalog's profile is open (a factory reset holds it). */
+  readonly whenRootsCatalogOpen?: () => Promise<void>;
 }
 
 /**
@@ -74,13 +76,12 @@ export function createApplicationIpcDomain(
   const unregisterFactoryReset = options.onResetLocal
     ? registerFactoryResetIpcHandlers(options.onResetLocal)
     : undefined;
-  const unregisterStoragePreferencesIpcHandlers = registerStoragePreferencesIpcHandlers({
-    storage,
-  });
+  const unregisterWorkspaceLedgersE2eHandlers = registerWorkspaceLedgersE2eHandlers({ storage });
   const fileSystemDomain = createFileSystemIpcDomain({
     fileSystem,
     ...(options?.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
     getRootsCatalog: options.getRootsCatalog,
+    ...(options.whenRootsCatalogOpen ? { whenRootsCatalogOpen: options.whenRootsCatalogOpen } : {}),
     ...(options?.isSyntheticFileSystemPath
       ? { isSyntheticFileSystemPath: options.isSyntheticFileSystemPath }
       : {}),
@@ -157,7 +158,7 @@ export function createApplicationIpcDomain(
         ...(unregisterProfilePath ? [unregisterProfilePath] : []),
         ...(unregisterContentClear ? [unregisterContentClear] : []),
         ...(unregisterFactoryReset ? [unregisterFactoryReset] : []),
-        unregisterStoragePreferencesIpcHandlers,
+        unregisterWorkspaceLedgersE2eHandlers,
         unregisterFileSystemWatchIpcHandlers,
         () => watches.close(),
         () => fileSystemDomain.close(),

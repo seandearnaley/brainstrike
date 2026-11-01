@@ -19,6 +19,8 @@ export default mergeConfig(
         include: ['src/**/*.ts', 'src/**/*.tsx'],
         provider: 'v8',
       },
+      // The store persists through `localStorage`, which only a DOM environment provides.
+      environment: 'happy-dom',
       include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
       setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
     },

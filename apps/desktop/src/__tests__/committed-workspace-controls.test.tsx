@@ -11,7 +11,6 @@ import {
   FileExplorerProvider,
   useFileExplorerStoreContext,
 } from '@brainstrike/file-explorer-ui/shell';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, render } from '@testing-library/react';
 import type { ComponentProps, ReactElement } from 'react';
@@ -61,7 +60,7 @@ function mount(
 ): ReturnType<typeof useFileExplorerStoreContext> {
   render(
     <AssistantThreadHostContext.Provider value={host}>
-      <FileExplorerProvider storageAdapter={new MemoryStorageAdapter()}>
+      <FileExplorerProvider>
         <CaptureExplorer />
         <CommittedWorkspaceControls threadId={HOST_THREAD} />
       </FileExplorerProvider>

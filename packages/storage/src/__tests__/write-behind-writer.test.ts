@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemoryStorageAdapter } from '../adapters/memory-storage-adapter.ts';
-import {
-  createWriteBehindStorageAdapter,
-  createWriteBehindWriter,
-} from '../write-behind-writer.ts';
+import { createWriteBehindWriter } from '../write-behind-writer.ts';
 
 function createSyncOwner() {
   const values = new Map<string, string>();
@@ -244,18 +240,5 @@ describe('createWriteBehindWriter', () => {
 
   it('rejects a delay that is not a finite, non-negative number', () => {
     expect(() => createWriteBehindWriter(createSyncOwner(), { delayMs: -1 })).toThrow(RangeError);
-  });
-});
-
-describe('createWriteBehindStorageAdapter', () => {
-  it('keeps the asynchronous StorageAdapter shape and joins buffered writes before listing', async () => {
-    const owner = new MemoryStorageAdapter();
-    const adapter = createWriteBehindStorageAdapter(owner, { delayMs: 10_000 });
-    void adapter.setItem('one', 'value');
-
-    await expect(adapter.getItem('one')).resolves.toBe('value');
-    await expect(owner.getItem('one')).resolves.toBeNull();
-    await expect(adapter.getAllKeys()).resolves.toEqual(['one']);
-    await expect(owner.getItem('one')).resolves.toBe('value');
   });
 });

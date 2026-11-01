@@ -3,6 +3,7 @@ import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer/testin
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
+import { seedMainLedgers } from './utils/seed-root';
 
 interface BufferedLogRecord {
   readonly args: readonly unknown[];
@@ -113,110 +114,23 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
   const tabState = createPersistedTabState();
 
   await page.evaluate(
-    async ({
-      nextFileExplorerState,
-      nextTabState,
-      restoredFolderName,
-      restoredFolderPath,
-      restoredRootAddedAt,
-      restoredRootId,
-    }) => {
+    ({ nextFileExplorerState, nextTabState }) => {
       localStorage.setItem('tab-manager.v1', JSON.stringify(nextTabState));
 
-      const fileExplorerStore = (
-        window as Window & {
-          __brainstrike_file_explorer_store__?: {
-            setState?: (state: Record<string, unknown>) => void;
-          };
-        }
-      ).__brainstrike_file_explorer_store__;
-      const api = (
-        window as Window & {
-          electronAPI?: {
-            storage?: { setItem?: (key: string, value: string) => Promise<void> };
-          };
-        }
-      ).electronAPI;
-
-      if (!api?.storage?.setItem) {
-        throw new Error('Electron storage.setItem bridge is not available');
-      }
-      if (!fileExplorerStore?.setState) {
-        throw new Error('File explorer store is not available on window');
-      }
-
-      const runtimeFolderState = {
-        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
-        expandedDirectoryPaths: new Set<string>(),
-        folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
-        includeFilters: [...nextFileExplorerState.state.includeFilters],
-        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
-        lastAccessed: Date.now(),
-        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
-        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
-        selectedFilePaths: new Set<string>(),
-        useRegex: nextFileExplorerState.state.useRegex,
-        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
-      };
-
-      fileExplorerStore.setState({
-        currentFolderId: restoredRootId,
-        devInlineFixtureEnabled: nextFileExplorerState.state.devInlineFixtureEnabled,
-        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
-        expandedDirectoryPaths: new Set<string>(),
-        folderAccessOrder: [restoredRootId],
-        folderStates: {
-          [restoredRootId]: runtimeFolderState,
-        },
-        folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
-        includeFilters: [...nextFileExplorerState.state.includeFilters],
-        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
-        isFiltersExpanded: nextFileExplorerState.state.isFiltersExpanded ?? true,
-        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
-        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
-        quickFilter: nextFileExplorerState.state.quickFilter,
-        rootDirectoryHandle: {
-          kind: 'directory',
-          name: restoredFolderName,
-          path: restoredFolderPath,
-          platform: 'electron',
-        },
-        selectedFilePaths: new Set<string>(),
-        selectionModel: {
-          explicitPaths: new Set<string>(),
-          materializedAt: nextFileExplorerState.state.selectionModel?.materializedAt ?? null,
-          materializedPaths: null,
-          mode: nextFileExplorerState.state.selectionModel?.mode ?? 'explicit',
-        },
-        useRegex: nextFileExplorerState.state.useRegex,
-        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
-      });
-
-      await api.storage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
-      // Storage v5: write the rootsList entry with the fixed RootId so main's
-      // restoreRoots() resolves restoredFolderPath to this exact id on boot.
-      await api.storage.setItem(
-        'rootsList',
-        JSON.stringify([
-          { addedAt: restoredRootAddedAt, path: restoredFolderPath, rootId: restoredRootId },
-        ])
-      );
-      // Seed the lastFolderPath preference directly: this block seeds
-      // persisted startup state for a restore regression test, it does not
-      // exercise the setLastFolder IPC — and setLastFolder now throws unless
-      // its path already references a persisted, mounted root, which is not
-      // yet true at this pre-boot seeding step.
-      await api.storage.setItem('lastFolderPath', restoredFolderPath);
+      localStorage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
     },
-    {
-      nextFileExplorerState: fileExplorerState,
-      nextTabState: tabState,
-      restoredFolderName: RESTORED_FOLDER_NAME,
-      restoredFolderPath: RESTORED_FOLDER_PATH,
-      restoredRootAddedAt: RESTORED_ROOT_ADDED_AT,
-      restoredRootId: RESTORED_ROOT_ID,
-    }
+    { nextFileExplorerState: fileExplorerState, nextTabState: tabState }
   );
+  // Main's ledgers: the rootsList entry carries the fixed RootId so main's restoreRoots()
+  // resolves the restored folder to this exact id on boot. lastFolderPath is seeded directly:
+  // setLastFolder throws unless its path already references a mounted root, which is not yet
+  // true at this pre-boot step.
+  await seedMainLedgers(page, {
+    lastFolderPath: RESTORED_FOLDER_PATH,
+    rootsList: JSON.stringify([
+      { addedAt: RESTORED_ROOT_ADDED_AT, path: RESTORED_FOLDER_PATH, rootId: RESTORED_ROOT_ID },
+    ]),
+  });
 }
 
 async function getRendererLogRecords(page: Page): Promise<BufferedLogRecord[]> {

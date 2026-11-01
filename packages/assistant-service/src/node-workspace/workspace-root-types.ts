@@ -81,4 +81,10 @@ export interface WorkspaceRootRegistryOptions {
   readonly resolveCanonicalRoot?: (rootPath: string) => Promise<string>;
   readonly resolveReadPath?: (requestedPath: string, canonicalRoot: string) => Promise<string>;
   readonly storage: WorkspaceRootStorage;
+  /**
+   * Resolves once the roots catalog's profile is open. The desktop factory reset holds it from
+   * data deletion until its resume reopens the profile, and rejects it if the reset never
+   * reopens. Convergence waits for it before reading the catalog.
+   */
+  readonly whenCatalogOpen?: () => Promise<void>;
 }

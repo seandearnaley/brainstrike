@@ -1,5 +1,4 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { PanelLayoutState } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
@@ -18,7 +17,6 @@ vi.mock('@brainstrike/file-explorer-hooks', async () => {
     AdaptersContext: createContext(null),
     useAdapters: () => ({
       fileSystemAdapter: null,
-      storageAdapter: new MemoryStorageAdapter(),
     }),
   };
 });

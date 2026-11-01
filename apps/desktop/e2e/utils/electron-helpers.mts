@@ -894,19 +894,19 @@ export async function resetAppState(window: Page): Promise<void> {
     localStorage.clear();
     sessionStorage.clear();
 
-    // Clear persistent backend storage (electron-store/adapter), root ledgers included.
-    // This ensures no "last folder" state persists between tests
-    const electronAPI = (
-      window as unknown as {
-        electronAPI?: { storage?: { clearAllForE2e?: () => Promise<void> } };
+    // Clear Main's root ledgers so no "last folder" state persists between tests.
+    const fileSystem = (
+      globalThis as typeof globalThis & {
+        electronAPI?: { fileSystem?: { clearLedgersForE2e?: () => Promise<void> } };
       }
-    ).electronAPI;
-
-    if (!electronAPI?.storage?.clearAllForE2e) {
-      throw new Error('electronAPI.storage.clearAllForE2e is unavailable during desktop E2E reset');
+    ).electronAPI?.fileSystem;
+    if (!fileSystem?.clearLedgersForE2e) {
+      throw new Error(
+        'electronAPI.fileSystem.clearLedgersForE2e is unavailable during desktop E2E reset'
+      );
     }
 
-    await electronAPI.storage.clearAllForE2e();
+    await fileSystem.clearLedgersForE2e();
   });
 }
 
