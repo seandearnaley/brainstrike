@@ -66,6 +66,7 @@ export function bindHostRootRegistryMethods(
   serve('workspace/roots/add');
   serve('workspace/roots/delete-data');
   serve('workspace/roots/mounted');
+  serve('workspace/roots/open');
   serve('workspace/roots/pick');
   serve('workspace/roots/recent');
   serve('workspace/roots/release-data-deletion');

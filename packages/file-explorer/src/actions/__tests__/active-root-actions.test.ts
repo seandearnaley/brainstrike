@@ -229,3 +229,40 @@ describe('a managed worktree (ADR-0034)', () => {
     ]);
   });
 });
+
+describe('openActiveRoot (ADR-0034: the opened folder is the project)', () => {
+  const WORKTREE: StoredRootDescriptor = {
+    displayName: 'ProjectA-bright-fox',
+    path: '/worktrees/ProjectA-bright-fox',
+    rootId: 'root-worktree',
+    worktree: true,
+  };
+  const folderState = {} as FileExplorerState['folderStates'][string];
+
+  it('closes every other open folder and its saved state, keeping worktree descriptors', () => {
+    const { actions, getState } = makeHarness({
+      folderAccessOrder: [ROOT_A.rootId, ROOT_B.rootId],
+      folderStates: { [ROOT_A.rootId]: folderState, [ROOT_B.rootId]: folderState },
+    });
+    actions.setActiveRoots([ROOT_A, WORKTREE, ROOT_B]);
+
+    actions.openActiveRoot(ROOT_C);
+
+    expect(getState().activeRootIds).toEqual([ROOT_C.rootId]);
+    expect(getState().folderAccessOrder).toEqual([]);
+    expect(getState().folderStates).toEqual({});
+    expect(getState().rootDescriptors).toEqual({
+      [WORKTREE.rootId]: WORKTREE,
+      [ROOT_C.rootId]: ROOT_C,
+    });
+  });
+
+  it('converges on the last of two overlapping opens', () => {
+    const { actions, getState } = makeHarness({});
+    actions.setActiveRoots([ROOT_A]);
+    actions.openActiveRoot(ROOT_B);
+    actions.openActiveRoot(ROOT_C);
+    expect(getState().activeRootIds).toEqual([ROOT_C.rootId]);
+    expect(Object.keys(getState().rootDescriptors)).toEqual([ROOT_C.rootId]);
+  });
+});

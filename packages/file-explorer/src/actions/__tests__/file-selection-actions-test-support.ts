@@ -58,6 +58,7 @@ export const createMockState = (overrides: Partial<FileExplorerState> = {}): Fil
   isFiltersExpanded: true,
   lastActiveTab: 'files',
   maxSelectionCount: 100,
+  openActiveRoot: vi.fn(),
   persistenceRecoveryNotice: null,
   querySelectionManifest: null,
   quickFilter: '',
