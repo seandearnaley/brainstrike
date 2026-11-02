@@ -128,6 +128,22 @@ describe('a removed thread folder in the folder chip', () => {
     expect(within(retry).getByText('Try again')).toBeInTheDocument();
   });
 
+  it("keeps the host's reason as written in the chip's name", () => {
+    render(
+      <WorkspaceBar
+        {...props({
+          primaryRoot: {
+            ...bravo,
+            reopenFailure: 'The folder is no longer at /Users/Sean/Beaker.',
+          },
+        })}
+      />
+    );
+    expect(screen.getByTestId('workspace-bar-folder-chip')).toHaveAccessibleName(
+      "Folder: bravo (can't be opened: The folder is no longer at /Users/Sean/Beaker.)"
+    );
+  });
+
   it('shows a reopen in flight as opening', () => {
     render(<WorkspaceBar {...props({ primaryRoot: { ...bravo, reopening: true } })} />);
     expect(screen.getByTestId('workspace-bar-folder-chip')).toHaveAccessibleName(

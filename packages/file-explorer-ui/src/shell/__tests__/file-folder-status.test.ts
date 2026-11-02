@@ -3,8 +3,10 @@
  * in flight (or start-up restore has not answered), and otherwise closed, with the folder to
  * reopen and the reason its last reopen failed.
  */
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { unopenedFileFolderStatus } from '../file-folder-status.ts';
+import { unopenedFileFolderStatus, useFileFolderStatus } from '../file-folder-status.ts';
 
 const recents = [
   { displayName: 'beaker', lastGrantedAt: 1, path: '/Users/sean/code/beaker' },
@@ -105,5 +107,38 @@ describe('a file whose folder is not open', () => {
         restorePending: false,
       })
     ).toEqual({ failure: null, kind: 'closed', name: 'code', path: '/Users/sean/code' });
+  });
+});
+
+describe('useFileFolderStatus on the web', () => {
+  const web = {
+    addRootDirectoryByPath: undefined,
+    canLoadWithoutTree: false,
+    folderRequests: idle,
+    listRecentRoots: undefined,
+    recentRootsRevision: 0,
+    restorePending: false,
+  };
+  const key = encodeFileSelection('root-a', '/a/file.ts');
+
+  it('is closed, with nothing to reopen, once the tab folder is no longer open', () => {
+    const { result } = renderHook(() => useFileFolderStatus({ ...web, rootDescriptors: {} }));
+    expect(result.current.fileFolderStatus(key)).toEqual({
+      failure: null,
+      kind: 'closed',
+      name: null,
+      path: null,
+    });
+    expect(result.current.reopenFolder).toBeUndefined();
+  });
+
+  it('is open while its folder is open', () => {
+    const { result } = renderHook(() =>
+      useFileFolderStatus({
+        ...web,
+        rootDescriptors: { 'root-a': { displayName: 'a', path: '/a', rootId: 'root-a' } },
+      })
+    );
+    expect(result.current.fileFolderStatus(key)).toEqual({ kind: 'open' });
   });
 });

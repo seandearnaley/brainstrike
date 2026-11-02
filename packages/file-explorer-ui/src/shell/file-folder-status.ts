@@ -28,6 +28,13 @@ export type FileFolderStatus =
 
 export const OPEN_FOLDER: FileFolderStatus = { kind: 'open' };
 
+const UNKNOWN_CLOSED_FOLDER: FileFolderStatus = {
+  failure: null,
+  kind: 'closed',
+  name: null,
+  path: null,
+};
+
 const NO_RECENTS: readonly RecentRootEntry[] = [];
 
 function contains(folder: string, file: string): boolean {
@@ -131,8 +138,8 @@ export interface FileFolderSources {
 }
 
 /**
- * The folder status of a file tab, by its composite key, and Reopen for a closed one. A platform
- * that reads files through the tree (web) always answers `open`: its tabs never wait on a mount.
+ * The folder status of a file tab, by its composite key, and Reopen for a closed one. On a
+ * platform that reads files through the tree (web), a folder that is not open is closed, unnamed.
  * Reopen mounts the folder by its path, as Re-add does: the host mounts only a folder granted
  * before or a managed worktree, and a refusal lands in the status with its reason. It is
  * `undefined` where the platform cannot mount by path (web).
@@ -156,17 +163,19 @@ export function useFileFolderStatus({
   );
   const fileFolderStatus = useCallback(
     (compositeKey: string): FileFolderStatus => {
-      if (!canLoadWithoutTree) {
-        return OPEN_FOLDER;
-      }
       let selection: { folderId: string; path: string };
       try {
         selection = decodeFileSelection(compositeKey);
       } catch {
-        return { failure: null, kind: 'closed', name: null, path: null };
+        return UNKNOWN_CLOSED_FOLDER;
       }
       if (rootDescriptors[selection.folderId] !== undefined) {
         return OPEN_FOLDER;
+      }
+      if (!canLoadWithoutTree) {
+        // The web cannot mount a folder by its path: a folder that left is closed until the
+        // person opens it again.
+        return restorePending ? { kind: 'opening', name: null } : UNKNOWN_CLOSED_FOLDER;
       }
       return unopenedFileFolderStatus({
         filePath: selection.path,

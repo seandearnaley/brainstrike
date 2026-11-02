@@ -54,14 +54,25 @@ const REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER = 'Choose another folder for this thr
  * What a folder the workspace no longer serves is doing, in the words the file tabs use: opening
  * again, closed, or unable to open (with the host's reason). A folder with no path left no row.
  */
-function removedFolderLabel(root: WorkspaceBarRoot): string {
+function removedFolderState(root: WorkspaceBarRoot): string {
   if (root.reopening) {
     return 'Opening…';
   }
   if (!root.path) {
     return 'No longer exists';
   }
-  return root.reopenFailure ? `Can't be opened: ${root.reopenFailure}` : 'Closed';
+  return root.reopenFailure ? "Can't be opened" : 'Closed';
+}
+
+/**
+ * Where a removed folder stands. The fixed wording opens a sentence in the menu and sits
+ * lowercase inside the chip's accessible name; the host's reason is never recased.
+ */
+function removedFolderLabel(root: WorkspaceBarRoot, inline = false): string {
+  const state = removedFolderState(root);
+  const words = inline ? state.toLowerCase() : state;
+  const reason = root.path && !root.reopening ? root.reopenFailure : undefined;
+  return reason ? `${words}: ${reason}` : words;
 }
 
 /**
@@ -371,7 +382,7 @@ function folderChipName(primaryRoot: WorkspaceBarRoot | undefined, secondaryCoun
   if (!primaryRoot) {
     return 'Choose a folder';
   }
-  const removed = primaryRoot.removed ? ` (${removedFolderLabel(primaryRoot).toLowerCase()})` : '';
+  const removed = primaryRoot.removed ? ` (${removedFolderLabel(primaryRoot, true)})` : '';
   const more = secondaryCount > 0 ? `, ${secondaryCount} more` : '';
   return `Folder: ${primaryRoot.displayName}${removed}${more}`;
 }

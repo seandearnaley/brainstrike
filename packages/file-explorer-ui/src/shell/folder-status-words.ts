@@ -21,7 +21,7 @@ export function closedFolderWords(
   return {
     detail: canReopen
       ? 'Reopen the folder to see this file.'
-      : 'It opens again with the thread that works in it.',
+      : 'Open its folder again to see this file.',
     reopen: 'Reopen folder',
     title: `${folder} is closed`,
   };

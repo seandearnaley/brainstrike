@@ -180,15 +180,6 @@ export function WorkspaceTabsProvider({
     [reloadFileContents]
   );
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
-  const { fileFolderStatus, reopenFolder } = useFileFolderStatus({
-    addRootDirectoryByPath: explorer.addRootDirectoryByPath,
-    canLoadWithoutTree,
-    folderRequests: explorer.folderRequests,
-    listRecentRoots: explorer.listRecentRoots,
-    recentRootsRevision: explorer.recentRootsRevision,
-    restorePending: explorer.restorePending,
-    rootDescriptors,
-  });
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
   const openAppIds = useWorkspaceTabSelectionStore((s) => s.openAppIds);
@@ -234,6 +225,16 @@ export function WorkspaceTabsProvider({
   // silently vanished tab.
   const { tabStatuses, requestTabPermission, getStatusMessage, isRestoring } =
     useTabFileRestoration(tabs);
+  // A folder is still opening while either the folders or the persisted tabs are restoring.
+  const { fileFolderStatus, reopenFolder } = useFileFolderStatus({
+    addRootDirectoryByPath: explorer.addRootDirectoryByPath,
+    canLoadWithoutTree,
+    folderRequests: explorer.folderRequests,
+    listRecentRoots: explorer.listRecentRoots,
+    recentRootsRevision: explorer.recentRootsRevision,
+    restorePending: explorer.restorePending || isRestoring,
+    rootDescriptors,
+  });
 
   useWorkspaceOpenFileRefresh({ reloadFileContents, tabs });
 

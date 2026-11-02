@@ -58,6 +58,17 @@ export function FileNotFoundScreen({
   );
 }
 
+/** A named folder opening says so; otherwise a restore in flight says that, before a bare wait. */
+function pendingLabel(isPending: boolean, openingFolderName: string | null | undefined): string {
+  if (openingFolderName) {
+    return openingFolderLabel(openingFolderName);
+  }
+  if (isPending) {
+    return 'Restoring…';
+  }
+  return openingFolderName === null ? openingFolderLabel(null) : 'Loading…';
+}
+
 export function FileContentPendingScreen({
   isPending,
   openingFolder,
@@ -66,11 +77,7 @@ export function FileContentPendingScreen({
   /** The file's folder is opening; `name` is null when it is not known. */
   readonly openingFolder?: { readonly name: string | null } | undefined;
 }): ReactElement {
-  const label = openingFolder
-    ? openingFolderLabel(openingFolder.name)
-    : isPending
-      ? 'Restoring…'
-      : 'Loading…';
+  const label = pendingLabel(isPending, openingFolder?.name);
   return (
     <div
       aria-live="polite"

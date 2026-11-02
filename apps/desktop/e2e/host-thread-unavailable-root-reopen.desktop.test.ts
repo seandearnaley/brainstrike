@@ -8,7 +8,7 @@ import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/la
 
 const API_KEY = 'test-key-root-restore';
 /** Opening the thread tried its folder: the chip says where the folder was. */
-const MISSING = /\(can't be opened: the folder is no longer at /u;
+const MISSING = /\(can't be opened: The folder is no longer at /u;
 const MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
