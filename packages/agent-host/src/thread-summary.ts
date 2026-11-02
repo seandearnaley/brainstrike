@@ -40,7 +40,9 @@ class ThreadSummaryFold {
   /** The latest run's root turn, read as a root thread's run (`hostRootRunTurnId`). */
   private latestTurn = '';
   private outcome: Outcome | undefined;
-  /** Whether the latest run's last assistant message so far has text. */
+  /** The latest run's model messages, step by step, read for its answer once it completes. */
+  private steps: (readonly unknown[])[] = [];
+  /** Whether the latest run completed with an answer. */
   private answeredText = false;
   /** Interactions the latest run asked and nobody has answered yet. */
   private readonly waiting = new Set<string>();
@@ -92,15 +94,13 @@ class ThreadSummaryFold {
         this.latestTurn = hostRootRunTurnId(event);
         this.outcome = undefined;
         this.answeredText = false;
+        this.steps = [];
         this.waiting.clear();
         return false;
       case 'model.step':
       case 'model.messages':
         if (event.runId === this.latest) {
-          const text = hostAnswerText(event.messages);
-          if (text !== undefined) {
-            this.answeredText = text !== '';
-          }
+          this.steps.push(event.messages);
         }
         return false;
       case 'interaction.requested':
@@ -137,6 +137,8 @@ class ThreadSummaryFold {
   private finished(runId: string, outcome: Outcome): boolean {
     if (runId === this.latest) {
       this.outcome = outcome;
+      this.answeredText = outcome === 'completed' && this.answeredInLatestRun();
+      this.steps = [];
       this.waiting.clear();
     }
     let changed = false;
@@ -147,6 +149,21 @@ class ThreadSummaryFold {
       }
     }
     return changed;
+  }
+
+  /**
+   * Whether the latest run's last assistant message has text. Read once, when
+   * the run completes, never at every step: a host opening thousands of
+   * threads decodes each run's answer once.
+   */
+  private answeredInLatestRun(): boolean {
+    for (let step = this.steps.length - 1; step >= 0; step -= 1) {
+      const text = hostAnswerText(this.steps[step] ?? []);
+      if (text !== undefined) {
+        return text !== '';
+      }
+    }
+    return false;
   }
 
   private run(): HostSummaryRun | null {
