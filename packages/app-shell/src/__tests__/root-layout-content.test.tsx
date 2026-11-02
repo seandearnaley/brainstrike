@@ -34,7 +34,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   ExplorerContextExportAction: () => null,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
-  RootDataDeletionProvider: ({ children }: { children: React.ReactNode }) => children,
   TERMINAL_APP_ID: 'terminal',
   useFileSystem: () => ({
     rootDirectoryHandle: null,
@@ -226,7 +225,6 @@ describe('RootLayoutContent', () => {
   ) =>
     render(
       <RootLayoutContent
-        deleteRootData={async () => undefined}
         navigationItems={navigationItems}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}
         {...overrides}
@@ -284,7 +282,6 @@ describe('RootLayoutContent', () => {
     view.rerender(
       <RootLayoutContent
         artifactsPageContent={<div data-testid="artifacts-page">Artifacts</div>}
-        deleteRootData={async () => undefined}
         diagnosticFeatureFlags={['diagnostics-v2']}
         navigationItems={navigationItems}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}

@@ -146,7 +146,7 @@ function renderRootSections(
  */
 function renderSingleRoot(
   options: {
-    onRemoveRoot?: ((rootId: string, opts?: { deleteData?: boolean }) => Promise<void>) | null;
+    onRemoveRoot?: ((rootId: string) => Promise<void>) | null;
     rootActions?: readonly AnyContextAction[];
   } = {}
 ) {
@@ -262,7 +262,7 @@ describe('root section context menu', () => {
     fireEvent.click(await screen.findByText('Disconnect…'));
     fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
     await waitFor(() => {
-      expect(removeRootMock).toHaveBeenCalledExactlyOnceWith(ROOT_ID_A, expect.anything());
+      expect(removeRootMock).toHaveBeenCalledExactlyOnceWith(ROOT_ID_A);
     });
   });
 

@@ -1,9 +1,5 @@
 import path from 'node:path';
-import {
-  BoundaryFailureError,
-  fault,
-  refusalError,
-} from '@brainstrike/assistant-contract/boundary-failure';
+import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   AccessError,
   DialogError,
@@ -12,14 +8,6 @@ import {
 } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
-import { ipcMain } from 'electron';
-import {
-  createDesktopIpcRegistry,
-  registerDomain,
-  settleIpcResult,
-} from '../platform/desktop-ipc-registry';
-import { fileSystemContract } from './file-system.contract';
-import { fileSystemArgs } from './file-system-args';
 
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 
@@ -117,33 +105,4 @@ export async function pickWorkspaceFolder(
     }
     throw cause;
   }
-}
-
-interface RegisterFileSystemIpcHandlersOptions {
-  /** Forwards the deletion of the folder's data to the agent host. */
-  readonly onDeleteRootData?: (rootId: string) => Promise<void>;
-}
-
-/**
- * `fs:deleteRootData`: the window asks Main, which forwards it to the agent host's
- * `workspace/roots/delete-data`. Every folder change is the agent host's.
- */
-export function registerFileSystemIpcHandlers({
-  onDeleteRootData,
-}: RegisterFileSystemIpcHandlersOptions): () => void {
-  const registry = createDesktopIpcRegistry({ ipcMain });
-  registerDomain(registry, 'files', fileSystemContract, fileSystemArgs, {
-    deleteRootData: async (rootId: string) =>
-      settleIpcResult({ category: 'files', code: 'files.delete-root-data-failed' }, async () => {
-        if (!onDeleteRootData) {
-          throw refusalError(
-            'configuration',
-            'files.delete-root-data-unavailable',
-            'The main-owned root data deletion capability is unavailable.'
-          );
-        }
-        await onDeleteRootData(rootId);
-      }),
-  });
-  return () => registry.unregisterAll();
 }

@@ -674,9 +674,6 @@ const applicationIpcDomain = createApplicationIpcDomain({
       throw new Error(result.message ?? 'Content clearing failed.');
     }
   },
-  onDeleteRootData: async (rootId) => {
-    await agentHostMainClient.request('workspace/roots/delete-data', { rootId });
-  },
   onResetLocal: () => handleResetLocal.reset(),
 });
 /** The host's open folders changed (ADR-0029 stage 4): File > Open Recent follows. */

@@ -105,7 +105,6 @@ describe('renderer main entry', () => {
     window.electronAPI = {
       content: { clear: vi.fn() },
       factoryReset: { resetLocal: vi.fn() },
-      fileSystem: { deleteRootData: vi.fn() },
       getUserDataPath: vi.fn(),
     } as never;
     window.modelCatalog = { read: vi.fn() } as never;

@@ -1,10 +1,4 @@
 import type { ContentClearCapability } from '@brainstrike/types';
-import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
-
-/** The agent host owns the workspace's folders (ADR-0029 stage 4); Main keeps the index's deletion. */
-export interface DesktopFileSystemBridge {
-  deleteRootData: (rootId: string) => Promise<void>;
-}
 
 interface DesktopFactoryResetBridge {
   resetLocal: () => Promise<{ message?: string; success: boolean }>;
@@ -14,7 +8,6 @@ interface DesktopFactoryResetBridge {
 export interface VisibleDesktopElectronApi {
   content: ContentClearCapability;
   factoryReset: DesktopFactoryResetBridge;
-  fileSystem: DesktopFileSystemTransport;
   getUserDataPath: () => Promise<string>;
 }
 
@@ -28,7 +21,6 @@ function defineExactKeys<Shape>() {
 const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
   'content',
   'factoryReset',
-  'fileSystem',
   'getUserDataPath',
 ]);
 const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
