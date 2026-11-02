@@ -36,7 +36,10 @@ type Live = Extract<WorkerState, { readonly kind: 'live' }>;
 
 export interface StateIndexOwner {
   close(): Promise<void>;
-  /** Start the first worker. Register `close` first: it also stops a worker still starting. */
+  /**
+   * Start the first worker. Register `close` first: it also stops a worker still starting, and a
+   * start that a close ended resolves.
+   */
   open(): Promise<void>;
   readonly port: HostStateIndexPort;
 }
@@ -186,7 +189,8 @@ export function createStateIndexOwner(options: {
       throw closed ? cause : retiredFailure(cause);
     }
   };
-  // The one path out of `idle`, `retired` and `stopped`. A first start's failure is the host startup's to report.
+  // The one path out of `idle`, `retired` and `stopped`. A first start that fails is retired, and
+  // the next request replaces it.
   const advance = (): Promise<Live> =>
     state.kind === 'retired' || state.kind === 'stopped' ? replace(state) : start();
   const acquire = (): Promise<Live> => {
@@ -256,5 +260,15 @@ export function createStateIndexOwner(options: {
     stateHealth: () => use((live) => live.stateHealth()),
     stateStats: (threadId) => use((live) => live.stateStats(threadId)),
   };
-  return { close, open: async () => void (await acquire()), port };
+  // A start that a close ended is the close's outcome, not a failed start.
+  const open = (): Promise<void> =>
+    acquire().then(
+      () => undefined,
+      (cause: unknown) => {
+        if (!closed) {
+          throw cause;
+        }
+      }
+    );
+  return { close, open, port };
 }
