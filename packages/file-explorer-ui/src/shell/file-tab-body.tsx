@@ -328,9 +328,8 @@ export function FileTabBody({
     // dedicated screen instead of dumping the sentinel into a code surface.
     body = <BinaryFilePreview rootPath={rootPath} tab={tab} />;
   } else if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
-    // Short-circuit before truncation: the inaccessible branch renders the full `content`
-    // verbatim, so running getDisplayContent first would do throwaway work and (for a very
-    // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
+    // Short-circuit before truncation: the inaccessible branch shows the read's reason, not the
+    // content, so running getDisplayContent first would only do throwaway work.
     body = <InaccessibleFileScreen content={content} onRetry={onRetryContent} path={path} />;
   } else {
     const { text, truncated } = getDisplayContent(content);

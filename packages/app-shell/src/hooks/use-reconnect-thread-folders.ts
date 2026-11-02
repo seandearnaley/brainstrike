@@ -25,7 +25,6 @@ interface UseReconnectThreadFoldersArgs {
   readonly ready: boolean;
   readonly secondaryRoots: readonly WorkspaceBarRoot[];
   /** The thread whose tab is in front; undefined while this thread's tab is behind another. */
-  /** The thread whose tab is in front; undefined while this thread's tab is behind another. */
   readonly threadId: string | undefined;
 }
 
