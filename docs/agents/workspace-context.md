@@ -16,11 +16,8 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
 - A restore or picker-less reopen whose path resolves to another folder than the one granted is refused and shown as needing reconnect, never adopted. Only a fresh picker grant re-pins the record.
 - A store that opened damaged is read-only (BST-2144).
   - The registry mounts and serves the open folders but records and converges nothing.
-  - Every change (pick, add, remove, delete-data, seed) is refused with the store's read-only refusal before it touches a folder or opens the picker.
-- A data deletion (`workspace/roots/delete-data`, by `rootId`) is reserved inside the host's registry first.
-  - A deletion the host would refuse (read-only store, folder not mounted, another change in flight) removes nothing.
-  - From the reservation to its end the folder is absent from `roots`, `mountedRoots()` and `useMountedRoot`, and run borrows are refused.
-  - It retires the folder's sources, deletes its root record and disconnects it; Main only forwards the request.
+  - Every change (pick, add, remove, seed) is refused with the store's read-only refusal before it touches a folder or opens the picker.
+- Disconnecting a folder keeps its root record, so re-adding the folder keeps its identity. There is no per-folder data deletion; a factory reset clears every record.
 - Main root is the assistant's operating root; focused root is incidental UI selection.
   - Keep Main ordering across restore and re-add.
   - A terminal cwd pin is shell-only and never changes assistant authority.

@@ -1,5 +1,5 @@
 {
-  "version": 18,
+  "version": 19,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
@@ -109,7 +109,6 @@
     "workspace/git/subscribe",
     "workspace/personas",
     "workspace/roots/add",
-    "workspace/roots/delete-data",
     "workspace/roots/open",
     "workspace/roots/pick",
     "workspace/roots/recent",

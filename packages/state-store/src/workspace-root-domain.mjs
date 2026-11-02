@@ -130,18 +130,6 @@ function register(db, request, paths) {
  * @returns {import('./workspace-root-types.ts').WorkspaceRootReply} */
 export function executeWorkspaceRootRequest(db, request, paths) {
   switch (request.operation) {
-    case 'delete':
-      return db.transaction(() => {
-        const root =
-          /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord | undefined} */ (
-            db.prepare(`SELECT ${projection} FROM roots WHERE id=?`).get(request.rootId)
-          );
-        if (!(root && request.paths.includes(root.path))) {
-          throw new Error('Root deletion matched no captured path and identity');
-        }
-        db.prepare('DELETE FROM roots WHERE id=?').run(root.id);
-        return { roots: [root] };
-      })();
     case 'register':
       return register(db, request, paths);
     case 'list':

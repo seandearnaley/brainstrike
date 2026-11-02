@@ -254,7 +254,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   });
 
   it('boots the full per-domain registry set (module scope + app.whenReady())', () => {
-    expect(registryCapture.instances).toHaveLength(23);
+    expect(registryCapture.instances).toHaveLength(22);
     expect(union.map((entry) => entry.channel)).toEqual(
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.appUpdates.setBetaUpdates,

@@ -29,7 +29,6 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { createFileExplorerRefreshEvent } from './file-explorer-refresh-event';
-import { useOptionalRootDataDeletion } from './root-data-deletion-context';
 import { threadCheckoutView, useThreadCheckout } from './thread-checkout-context';
 import { useFactoryResetWatchFence } from './use-factory-reset-watch-fence';
 
@@ -135,10 +134,6 @@ export function useFileSystemInstance() {
   // is stable per TokenCacheProvider instance (only changes when `db` does).
   const tokenCacheContext = useOptionalTokenCacheContext();
   const tokenCacheStore = tokenCacheContext?.store ?? null;
-  // Cascade-delete seam (Phase 6): app-shell injects the DB deletion; the
-  // disconnect wrapper aborts (with a toast) when deletion is requested but
-  // fails or no provider is mounted — never a silent no-op.
-  const deleteRootData = useOptionalRootDataDeletion();
   const { showToast: showToastRaw } = useToastManager();
   const showToast = useCallback(
     (description: string) => {
@@ -260,38 +255,17 @@ export function useFileSystemInstance() {
    * store purge) to the core hook, then syncs the store's handle copy and
    * clears the root's cached token counts. Disconnect ≠ delete: the root's
    * saved record is deliberately KEPT so re-adding the folder keeps its identity.
-   *
-   * Phase 6 opt-in (`options.deleteData`): the root's saved record is
-   * deleted FIRST via the app-shell-injected seam — if the delete fails the
-   * disconnect is ABORTED (toast + root stays connected, so the user can
-   * retry). The reverse order would orphan rows with no UI left to retry.
    */
   const removeRootDirectory = useCallback(
-    async (rootId: string, options?: { deleteData?: boolean }): Promise<void> => {
-      if (options?.deleteData) {
-        try {
-          await (deleteRootData
-            ? deleteRootData(rootId)
-            : Promise.reject(
-                new Error('Root data deletion is not available in this environment.')
-              ));
-        } catch (error) {
-          logger.error('removeRootDirectory: data deletion failed — disconnect aborted', {
-            error,
-            rootId,
-          });
-          showToast('Could not delete the folder’s data. The folder stays connected.');
-          return;
-        }
-      }
+    async (rootId: string): Promise<void> => {
       // The core hook performs the snapshot → focus-shift → store-purge sequence
       // internally; the reducer is the sole handle owner, so there is no store
       // handle to sync here (B3: the redundant second focus-write is dropped).
       // The platform-authority adapter call (forgetRootInAdapter) runs BEFORE
       // any renderer state change, so a rejection here means the root is still
-      // connected — mirror the deleteRootData pattern above: log + toast + a
-      // silent return, never letting the failure vanish uncaught (NO SILENT
-      // FALLBACKS — this makes the failure visible instead of losing it).
+      // connected: log + toast + a silent return, never letting the failure
+      // vanish uncaught (NO SILENT FALLBACKS — this makes the failure visible
+      // instead of losing it).
       try {
         await removeCoreRootDirectory(rootId);
       } catch (error) {
@@ -311,7 +285,7 @@ export function useFileSystemInstance() {
         }
       }
     },
-    [deleteRootData, showToast, removeCoreRootDirectory, tokenCacheStore]
+    [showToast, removeCoreRootDirectory, tokenCacheStore]
   );
 
   /**
