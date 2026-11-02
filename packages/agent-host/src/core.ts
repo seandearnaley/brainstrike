@@ -87,6 +87,7 @@ import {
 import { userRunVerdict } from './run-verdicts.ts';
 import { HostTelemetryReplay } from './telemetry-replay.ts';
 import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
+import { HostThreadListing } from './thread-listing.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
 import { HostThreadRewinds } from './thread-rewind.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
@@ -210,6 +211,7 @@ export class HostCore {
   });
   private closing = false;
   private closeTask?: Promise<void>;
+  readonly listing = new HostThreadListing();
   /** Settles once Core has folded its log and recovered its runs; its owners see a failure. */
   readonly hydrated: Promise<void>;
 
@@ -221,13 +223,13 @@ export class HostCore {
     this.store = store;
     this.platform = platform;
     this.retainRun = retainRun;
-    this.hydrated = this.hydrate();
-    this.hydrated.catch(() => undefined);
+    this.hydrated = this.listing.start(store, () => this.hydrate());
   }
 
   /**
-   * Core before its log is folded: the workspace services serve at once, while thread reads and
-   * commands wait on `hydrated`. The owner joins or observes `hydrated`; `close` waits for it.
+   * Core before its log is folded: the workspace services and the thread list serve at once,
+   * while thread reads and commands wait on `hydrated`. The owner joins or observes `hydrated`;
+   * `close` waits for it.
    */
   static start(...owners: HostCoreOwners): HostCore {
     const core = new HostCore(...owners);
@@ -366,8 +368,7 @@ export class HostCore {
 
   /** BST-1939: a thread's first and latest stored append, child threads included. */
   threadTimes(threadId: string): { readonly createdAt: number; readonly updatedAt: number } {
-    const { createdAt, updatedAt } = this.catalog.entry(threadId);
-    return { createdAt, updatedAt };
+    return this.catalog.entry(threadId);
   }
 
   updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {

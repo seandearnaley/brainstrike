@@ -43,6 +43,14 @@ function normalizeTitle(text: string): string | undefined {
   return title || undefined;
 }
 
+/** A committed `thread.updated` over the thread's presentation so far: each field it carries replaces the last. */
+export function foldHostThreadPresentation(
+  current: HostThreadPresentation | undefined,
+  { type: _type, ...changed }: Updated
+): HostThreadPresentation {
+  return { ...current, ...changed };
+}
+
 /** One run's outstanding title request. */
 interface PendingTitle {
   /** Settles once the request answers, fails, or its signal aborts; never rejects. */
@@ -74,8 +82,10 @@ export class HostThreadPresentationState {
 
   fold(row: HostLogRow): void {
     if (row.event.type === 'thread.updated') {
-      const { type: _type, ...changed } = row.event;
-      this.presentations.set(row.threadId, { ...this.presentations.get(row.threadId), ...changed });
+      this.presentations.set(
+        row.threadId,
+        foldHostThreadPresentation(this.presentations.get(row.threadId), row.event)
+      );
     }
   }
 

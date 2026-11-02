@@ -6,7 +6,7 @@ import type { HostLogRow, HostResults } from './protocol.ts';
 
 const logger = createLogger('HostThreadCatalog');
 
-type ListedThread = HostResults['thread/list']['threads'][number];
+export type ListedThread = HostResults['thread/list']['threads'][number];
 
 /**
  * How a host reads its stored rows as host rows: desktop resolves their blobs
@@ -75,7 +75,10 @@ async function damaged(
  * A thread's hydration rows, decoded. Damage the store reports (a crc or seq failure) and a row the host cannot decode
  * (a missing or altered blob, an event its schema rejects) make the thread unreadable.
  */
-async function decodeThread(rows: HostRowReader, stored: HydrationThread): Promise<DecodedThread> {
+export async function decodeThread(
+  rows: HostRowReader,
+  stored: HydrationThread
+): Promise<DecodedThread> {
   if (stored.damage) {
     return damaged(rows, stored.damage.message, stored.rows[0]);
   }
@@ -106,7 +109,7 @@ export class HostThreadCatalog {
     threads: Set<string>,
     fold: (row: HostLogRow) => void
   ): Promise<void> {
-    // Every Core method waits on this, so its time is the time to the thread list.
+    // Every Core method but `thread/list` waits on this (thread-listing.ts lists before it).
     const started = performance.now();
     let rowCount = 0;
     let foldMs = 0;
