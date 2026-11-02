@@ -21,13 +21,11 @@ export const RECOVERABLE_WORKER_RESTART_BACKOFF_MS = 250;
 export const RECOVERABLE_WORKER_RESTART_WINDOW_MS = 60_000;
 
 type RecoverableWorkerContext =
-  | 'ready-timeout'
   | 'worker.onerror'
   | 'worker.addEventListener(error)'
   | 'worker.onmessageerror';
 
 const RECOVERABLE_WORKER_CONTEXTS: ReadonlySet<RecoverableWorkerContext> = new Set([
-  'ready-timeout',
   'worker.onerror',
   'worker.addEventListener(error)',
   'worker.onmessageerror',

@@ -208,6 +208,9 @@ function buildIndexRequests(
   });
 }
 
+/** How long a worker may start before the indexer says once that it is still waiting. */
+const SLOW_WORKER_START_MS = 5000;
+
 /**
  * Factory function to create a new worker instance.
  * Uses the URL resolver pattern which is compatible with both Vite and tsup builds.
@@ -243,8 +246,8 @@ export function useBackgroundTokenIndexer({
   const workerInitPromiseRef = useRef<Promise<Worker> | null>(null);
   const ensureWorkerReadyRef = useRef<(() => Promise<Worker>) | null>(null);
   const workerMessageCleanupRef = useRef<(() => void) | null>(null);
-  const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const slowStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workerRuntimeRef = useRef<WorkerRuntimeClient | null>(null);
   const terminalWorkerFailureRef = useRef<Error | null>(null);
   // Sliding window of restart timestamps; replaces a single count + stability
@@ -359,7 +362,7 @@ export function useBackgroundTokenIndexer({
     runtime?.clearFailure();
     runtime?.dispose();
     clearTimerRef(restartTimerRef);
-    clearTimerRef(readinessTimerRef);
+    clearTimerRef(slowStartTimerRef);
     if (worker) {
       worker.terminate();
     }
@@ -608,7 +611,7 @@ export function useBackgroundTokenIndexer({
             // window elapses; a flapping worker hits the cap and escalates.
             clearWorkerFailureHandled();
             setIsReady(true);
-            clearTimerRef(readinessTimerRef);
+            clearTimerRef(slowStartTimerRef);
             settleReady();
             return;
           }
@@ -667,11 +670,14 @@ export function useBackgroundTokenIndexer({
         worker.onmessageerror = (event) => handleWorkerError(event, 'worker.onmessageerror');
         worker.addEventListener('messageerror', handleMessageChannelError);
 
-        readinessTimerRef.current = setTimeout(() => {
+        // A slow start is not a failure (errors arrive as events): say once that indexing waits.
+        slowStartTimerRef.current = setTimeout(() => {
           if (!runtime.isReady()) {
-            settleFailure(new Error('Worker did not signal ready within 5s'), 'ready-timeout');
+            logger.warn('Background token indexer worker has not started after 5 s', {
+              workerGeneration,
+            });
           }
-        }, 5000);
+        }, SLOW_WORKER_START_MS);
       });
 
       return worker;
@@ -712,9 +718,12 @@ export function useBackgroundTokenIndexer({
       workerErrorLoggedRef.current = false;
       terminalWorkerFailureRef.current = null;
       recoverableRestartHistoryRef.current = [];
-      rejectAllPendingBatchTrackers(
-        new Error('Background token indexer worker terminated during cleanup')
-      );
+      // Unmounting is the owner ending this indexer: a cancellation, never a worker failure.
+      const unmounted = new Error('Background token indexer unmounted');
+      cancellationsRef.current.add(unmounted);
+      rejectAllPendingBatchTrackers(unmounted);
+      rejectReadinessRef.current?.(unmounted);
+      rejectReadinessRef.current = null;
       disposeCurrentWorker();
     };
   }, [
@@ -1012,9 +1021,8 @@ export function useBackgroundTokenIndexer({
       cancellationsRef.current.add(retirement);
       pendingFilesRef.current.clear();
       rejectAllPendingBatchTrackers(retirement);
-      // A startup still waiting for `ready` settles with the retirement too, and its
-      // readiness timeout is cancelled so it can never escalate into a worker failure.
-      clearTimerRef(readinessTimerRef);
+      // A startup still waiting for `ready` settles with the retirement too.
+      clearTimerRef(slowStartTimerRef);
       rejectReadinessRef.current?.(retirement);
       rejectReadinessRef.current = null;
       setIsIndexing(false);
