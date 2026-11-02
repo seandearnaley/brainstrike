@@ -87,3 +87,18 @@ test('a refused open closes the platform it was given', async () => {
   await expect(openAgentHost(root, refused)).rejects.toBeInstanceOf(RootLockedError);
   expect(closed).toBe(true);
 });
+
+test('a cancel while Core folds its log rejects the opening and releases the root', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-open-host-cancel-'));
+  roots.push(root);
+  const controller = new AbortController();
+  const cancelling: HostPlatform = {
+    ...platform(),
+    // Called during the fold, after the host was composed.
+    attachMcpTaskOwner: () => controller.abort(new Error('cancelled during the fold')),
+  };
+  await expect(openAgentHost(root, cancelling, controller.signal)).rejects.toThrow(
+    'cancelled during the fold'
+  );
+  await open(root);
+});
