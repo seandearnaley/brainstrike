@@ -41,6 +41,7 @@ function emptyCatalogHost(): HostClient {
     onMcpSettings: vi.fn(() => () => undefined),
     onTelemetry: vi.fn(() => () => undefined),
     onTerminal: vi.fn(() => () => undefined),
+    onTreeChanged: vi.fn(() => () => undefined),
     onWorkspaceFiles: vi.fn(() => () => undefined),
     request: async <Method extends HostMethod>(
       method: Method,

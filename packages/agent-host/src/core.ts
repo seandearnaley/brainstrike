@@ -90,6 +90,7 @@ import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
 import { HostThreadRewinds } from './thread-rewind.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
+import { HostThreadTrees } from './thread-summary.ts';
 import { HostToolRecords } from './tool-records.ts';
 import { revertHostRunEdits } from './workspace-edits.ts';
 import { HostThreadWorkspaceState } from './workspace-state.ts';
@@ -160,6 +161,10 @@ export class HostCore {
   });
   private readonly runs = new HostRunMap();
   private readonly children = new HostChildRuns();
+  /** BST-1932: each thread's children, its summary and its delegated tree (`thread/tree`). */
+  readonly trees = new HostThreadTrees(this.projections, this.catalog, this.children, (id) =>
+    this.children.listed(id, this.threads, this.presentations, this.runs)
+  );
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   readonly published = new HostPublishedRows((threadId, fromSeq) => this.read(threadId, fromSeq));
@@ -362,11 +367,6 @@ export class HostCore {
   threadTimes(threadId: string): { readonly createdAt: number; readonly updatedAt: number } {
     const { createdAt, updatedAt } = this.catalog.entry(threadId);
     return { createdAt, updatedAt };
-  }
-
-  /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
-  listChildren(threadId: string): HostResults['thread/children']['children'] {
-    return this.children.listed(threadId, this.threads, this.presentations, this.runs);
   }
 
   updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {

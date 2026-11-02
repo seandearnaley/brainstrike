@@ -92,6 +92,7 @@
     "thread/selection/read",
     "thread/selection/set",
     "thread/start",
+    "thread/tree",
     "thread/update",
     "thread/workspace/binding/read",
     "thread/workspace/binding/update",
