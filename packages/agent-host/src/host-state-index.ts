@@ -73,23 +73,15 @@ export async function openHostStateIndex(
   // Register the owner's physical join before starting its worker.
   await startup?.register(owner.close);
   startup?.signal.throwIfAborted();
-  const cancel = (): void => {
-    // The startup owner observes the same retained rejection during rollback.
-    void owner.close().catch(() => undefined);
-  };
-  startup?.signal.addEventListener('abort', cancel, { once: true });
-  try {
-    if (startup?.signal.aborted) {
-      cancel();
-    }
-    await owner.open();
-    startup?.signal.throwIfAborted();
-  } catch (cause) {
-    await owner.close();
-    throw startup?.signal.aborted ? startup.signal.reason : cause;
-  } finally {
-    startup?.signal.removeEventListener('abort', cancel);
-  }
+  // The index is derived and rebuildable, and its port waits for the worker, so the host does not
+  // wait for it to start: a window reaches its folders while the worker opens. A first start that
+  // fails is retired like any other, and the next request replaces it.
+  owner.open().catch((cause: unknown) => {
+    logger.error('The host state index did not start; the next request starts it again', {
+      code: 'host_state_index_start_failed',
+      error: cause,
+    });
+  });
   return {
     close: owner.close,
     indexer: createStateStoreIndexer(owner.port),
