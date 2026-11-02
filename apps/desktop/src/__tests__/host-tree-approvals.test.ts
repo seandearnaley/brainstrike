@@ -32,15 +32,20 @@ function child(fields: Partial<Tree['descendants'][number]>): Tree['descendants'
 /** A client whose `thread/tree` answers come from `answer`, told of tree changes by `change`. */
 function treeClient(answer: () => Promise<Tree>) {
   let changed: ((threadIds: readonly string[]) => void) | undefined;
+  const closed = Promise.withResolvers<void>();
   const client = {
-    closed: new Promise<void>(() => undefined),
+    closed: closed.promise,
     onTreeChanged: (listener: (threadIds: readonly string[]) => void) => {
       changed = listener;
       return () => undefined;
     },
     request: vi.fn(async () => answer()),
   } as unknown as HostClient;
-  return { change: (threadIds: readonly string[]) => changed?.(threadIds), client };
+  return {
+    change: (threadIds: readonly string[]) => changed?.(threadIds),
+    client,
+    lose: () => closed.resolve(),
+  };
 }
 
 const tree = (descendants: Tree['descendants']): Tree => ({
@@ -84,5 +89,25 @@ test('a tree the host cannot serve makes every card unavailable, with the reason
     ]);
   change(['child', 'root']);
   await expect.poll(() => approvals.read('child')).toEqual({ status: 'completed', toolCalls: 3 });
+  approvals.close();
+});
+
+test('a lost host leaves no subagent shown as working, and no turn to stop', async () => {
+  const { client, lose } = treeClient(async () => ({
+    ...tree([child({ origin: { ...origin, background: true } })]),
+    thread: {
+      answered: [],
+      pending: [],
+      run: { delegatedInvocation: true, status: 'running', toolCalls: 0, turnId: 'root-run' },
+      threadId: 'root',
+    },
+  }));
+  const approvals = new HostTreeApprovals(client, 'root');
+  await expect.poll(() => approvals.getRunning().children.length).toBe(1);
+  expect(approvals.getRunning().activeTurnId).toBe('root-run');
+
+  lose();
+  await expect.poll(() => approvals.read('child')?.status).toBe('unavailable');
+  expect(approvals.getRunning()).toEqual({ children: [] });
   approvals.close();
 });

@@ -363,6 +363,10 @@ export class HostTreeApprovals implements SubagentChildRunSource {
    * the child, so the parent's turn Stop never claims it.
    */
   private projectRunning(tree: HostTree): HostTreeRunning {
+    // A lost host runs nothing this view can see or stop.
+    if (this.lost !== undefined) {
+      return NOT_RUNNING;
+    }
     const children = tree.descendants.flatMap(({ callSign, origin, run, threadId }) =>
       origin.background &&
       origin.parentThreadId === this.threadId &&

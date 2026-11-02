@@ -1,3 +1,4 @@
+import { refusalError } from '@brainstrike/assistant-contract';
 import { hostAnswerText } from './child-answer.ts';
 import { hostRootRunTurnId } from './committed-identities.ts';
 import type { HostChildRuns } from './core-child-runs.ts';
@@ -232,19 +233,25 @@ export class HostThreadTrees {
   private readonly summaries: HostThreadSummaries;
   /** Why a thread's history cannot be read, when it cannot. */
   private readonly catalog: Pick<HostThreadCatalog, 'entry'>;
-  private readonly registry: Pick<HostChildRuns, 'parentOf'>;
+  private readonly registry: Pick<HostChildRuns, 'descendants' | 'parentOf'>;
+  /** Every committed thread: a delegation reserves its origin before its thread commits. */
+  private readonly threads: ReadonlySet<string>;
   private readonly listed: (threadId: string) => Children;
 
   constructor(
     projections: { readonly summaries: HostThreadSummaries },
     catalog: Pick<HostThreadCatalog, 'entry'>,
-    registry: Pick<HostChildRuns, 'parentOf'>,
-    listed: (threadId: string) => Children
+    registry: Pick<HostChildRuns, 'descendants' | 'parentOf'>,
+    sources: {
+      readonly listed: (threadId: string) => Children;
+      readonly threads: ReadonlySet<string>;
+    }
   ) {
     this.summaries = projections.summaries;
     this.catalog = catalog;
     this.registry = registry;
-    this.listed = listed;
+    this.threads = sources.threads;
+    this.listed = sources.listed;
   }
 
   /** A thread's direct child threads, in delegation order, with their origins. */
@@ -254,14 +261,16 @@ export class HostThreadTrees {
 
   /** A thread's summary and each thread delegated beneath it, parents before their children. */
   read(threadId: string): HostTree {
-    const descendants: HostTree['descendants'] = [];
-    const parents = [threadId];
-    for (let parent = parents.shift(); parent !== undefined; parent = parents.shift()) {
-      for (const { callSign, origin, threadId: child } of this.children(parent)) {
-        descendants.push({ ...this.summary(child), callSign, origin });
-        parents.push(child);
-      }
+    if (!this.threads.has(threadId)) {
+      throw refusalError('input', 'thread.unknown', 'Unknown thread');
     }
+    const descendants = this.registry
+      .descendants(threadId, this.threads)
+      .map(({ callSign, origin, threadId: child }) => ({
+        ...this.summary(child),
+        callSign,
+        origin,
+      }));
     return { descendants, thread: this.summary(threadId) };
   }
 

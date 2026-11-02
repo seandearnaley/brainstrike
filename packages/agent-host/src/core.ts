@@ -162,9 +162,10 @@ export class HostCore {
   private readonly runs = new HostRunMap();
   private readonly children = new HostChildRuns();
   /** BST-1932: each thread's children, its summary and its delegated tree (`thread/tree`). */
-  readonly trees = new HostThreadTrees(this.projections, this.catalog, this.children, (id) =>
-    this.children.listed(id, this.threads, this.presentations, this.runs)
-  );
+  readonly trees = new HostThreadTrees(this.projections, this.catalog, this.children, {
+    listed: (id) => this.children.listed(id, this.threads, this.presentations, this.runs),
+    threads: this.threads,
+  });
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   readonly published = new HostPublishedRows((threadId, fromSeq) => this.read(threadId, fromSeq));

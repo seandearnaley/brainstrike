@@ -446,6 +446,36 @@ export class HostChildRuns {
   parentOf(threadId: string): string | undefined {
     return this.origins.get(threadId)?.parentThreadId;
   }
+  /**
+   * Every committed thread delegated beneath `threadId`, parents before their
+   * children, in commit order. One pass over the registry, without the
+   * listing's colours and statuses: `thread/tree` reads it at each change.
+   */
+  descendants(
+    threadId: string,
+    threads: ReadonlySet<string>
+  ): { readonly callSign: string; readonly origin: HostChildOrigin; readonly threadId: string }[] {
+    const byParent = new Map<string, [string, HostChildOrigin][]>();
+    for (const entry of this.origins) {
+      if (threads.has(entry[0])) {
+        const siblings = byParent.get(entry[1].parentThreadId);
+        if (siblings) {
+          siblings.push(entry);
+        } else {
+          byParent.set(entry[1].parentThreadId, [entry]);
+        }
+      }
+    }
+    const found: { callSign: string; origin: HostChildOrigin; threadId: string }[] = [];
+    const parents = [threadId];
+    for (let parent = parents.shift(); parent !== undefined; parent = parents.shift()) {
+      for (const [child, origin] of byParent.get(parent) ?? []) {
+        found.push({ callSign: hostChildCallSign(child), origin, threadId: child });
+        parents.push(child);
+      }
+    }
+    return found;
+  }
   /** A thread's direct children, in the order their origins were committed. */
   /** Child threads are reached through their parent, never listed as top-level threads. */
   topLevel(threads: ReadonlySet<string>): string[] {
