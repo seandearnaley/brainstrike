@@ -157,6 +157,14 @@ interface MainRootRow {
 }
 
 /**
+ * The primary's id while the host has it open. Git reads only an open folder, so a removed
+ * primary shows its Removed state instead of a git status refused on every refresh.
+ */
+function openPrimaryRootId(primaryRoot: WorkspaceBarRoot | undefined): string | undefined {
+  return primaryRoot?.removed ? undefined : primaryRoot?.rootId;
+}
+
+/**
  * The primary's durable id, and whether the thread's folder set is still
  * resolving: its binding metadata, or (unbound) the MAIN-root row lookup for
  * the current MAIN path. Pure, so the hook stays under the complexity cap.
@@ -1022,15 +1030,16 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const primaryRootPath = primaryRoot?.path;
   const primaryAdapterRootId = usePrimaryAdapterRootId(rootDescriptors, primaryRootPath);
+  const gitRootId = openPrimaryRootId(primaryRoot);
   const {
     checkout,
     failure: checkoutFailure,
     settled: checkoutSettled,
   } = useThreadCheckoutStatus(
-    primaryRootId && primaryRootPath
+    gitRootId && primaryRootPath
       ? {
           adapterRootId: primaryAdapterRootId,
-          dbRootId: primaryRootId,
+          dbRootId: gitRootId,
           path: primaryRootPath,
         }
       : null
@@ -1052,7 +1061,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     foldersPending,
     onHandOffToLocal,
     onSelectWorktree,
-    primaryRootId,
+    primaryRootId: gitRootId,
     primaryRootPath,
     selectedMemoryThreadId,
     selectedThread,

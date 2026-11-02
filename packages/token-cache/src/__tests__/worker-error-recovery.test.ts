@@ -22,16 +22,14 @@ describe('worker-error-recovery', () => {
   });
 
   describe('isRecoverableWorkerFailure', () => {
-    it.each([
-      'ready-timeout',
-      'worker.onerror',
-      'worker.addEventListener(error)',
-      'worker.onmessageerror',
-    ])('classifies %s as recoverable', (context) => {
-      expect(isRecoverableWorkerFailure(new Error('worker connection interrupted'), context)).toBe(
-        true
-      );
-    });
+    it.each(['worker.onerror', 'worker.addEventListener(error)', 'worker.onmessageerror'])(
+      'classifies %s as recoverable',
+      (context) => {
+        expect(
+          isRecoverableWorkerFailure(new Error('worker connection interrupted'), context)
+        ).toBe(true);
+      }
+    );
 
     it('keeps deterministic construction failures terminal', () => {
       expect(

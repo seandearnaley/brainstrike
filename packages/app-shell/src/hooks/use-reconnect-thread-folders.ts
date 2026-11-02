@@ -65,9 +65,16 @@ export function useReconnectThreadFolders({
         try {
           await addRootByPath(root.path);
         } catch (error) {
-          logger.warn('A thread folder could not be reconnected', { error, rootId: root.rootId });
+          const reason = describeFailure(error);
+          // The reason travels as text: the log buffer keeps only a summary of a large error.
+          logger.warn('A thread folder could not be reconnected', {
+            error,
+            path: root.path,
+            reason,
+            rootId: root.rootId,
+          });
           toast({
-            description: describeFailure(error),
+            description: reason,
             title: `Couldn't reconnect ${root.displayName}`,
             variant: 'destructive',
           });

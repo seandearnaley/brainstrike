@@ -24,16 +24,18 @@ interface CancellableIndexer {
  * A user cancel (the whole selection cleared) settles the batch in flight with
  * one cancellation object of its own and keeps the worker (BST-2118).
  *
- * Each object is this owner's token. A dispatch that settles with one ended as
- * that cancellation; any other error, including the same worker termination
- * without a reset, is a failure.
+ * Unmounting ends this owner, and the indexer settles its batches as that
+ * unmount: a dispatch that settles after it ended with the owner.
+ *
+ * Each object is this owner's token. A dispatch that settles with one, or after
+ * the owner unmounted, ended as that cancellation; any other error is a failure.
  */
 export interface IndexingCancellation {
   /** Cancels the batch in flight with a new cancellation object this owner keeps. */
   readonly cancel: () => void;
   /** Whether the reset retired this owner; no dispatch starts after that. */
   readonly isRetired: () => boolean;
-  /** True, logged at debug, only when `error` is one of this owner's cancellations itself. */
+  /** True, logged at debug, when `error` is one of this owner's cancellations or the owner unmounted. */
   readonly settledByOwner: (error: unknown, dispatch: string) => boolean;
   /** Tracks a dispatch run so reset preparation can join it. */
   readonly track: (run: Promise<void>) => Promise<void>;
@@ -45,6 +47,14 @@ export function useIndexingCancellation(
   const retirementRef = useRef<Error | null>(null);
   const cancellationsRef = useRef(new WeakSet<Error>());
   const runsRef = useRef(new Set<Promise<void>>());
+  const unmountedRef = useRef(false);
+
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
 
   useEffect(() => {
     const retire = (): void => {
@@ -80,6 +90,10 @@ export function useIndexingCancellation(
       }
       if (error instanceof Error && cancellationsRef.current.has(error)) {
         logger.debug('triggerIndexing settled by user cancellation', { dispatch });
+        return true;
+      }
+      if (unmountedRef.current) {
+        logger.debug('triggerIndexing settled by its owner unmounting', { dispatch });
         return true;
       }
       return false;

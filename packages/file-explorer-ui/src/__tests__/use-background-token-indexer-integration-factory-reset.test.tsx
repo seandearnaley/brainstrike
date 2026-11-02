@@ -5,7 +5,8 @@
  * remount terminates the indexer's worker. A batch still in flight used to settle
  * as three error-level failures. Reset preparation now quiesces the indexer
  * through its owner first, so the reset's own termination settles as the reset's
- * cancellation. The same termination without a reset still fails loudly.
+ * cancellation. Any other unmount settles the same way: it is the owner ending the
+ * indexer, not a worker failure. A worker slow to start is waited for, and said once.
  *
  * These run the real `useBackgroundTokenIndexer` against a fake Worker, so the
  * whole chain from the worker's cleanup to the integration's logs is exercised.
@@ -202,7 +203,7 @@ describe('background token indexing under a factory reset', () => {
     expect(atPreparation).toEqual({ settled: true, terminated: false });
   });
 
-  it('still logs the same termination as a failure when no reset owns it', async () => {
+  it('settles the same termination as a cancellation when no reset owns it', async () => {
     const { errors, stop } = recordErrors();
     try {
       const { dispatch, view, worker } = await renderWithBatchInFlight();
@@ -215,11 +216,7 @@ describe('background token indexing under a factory reset', () => {
     } finally {
       stop();
     }
-    expect(errors).toEqual([
-      '[BackgroundTokenIndexer] indexFiles failed before dispatch',
-      '[BackgroundTokenIndexerIntegration] Background indexer terminal worker error',
-      '[BackgroundTokenIndexerIntegration] triggerIndexing electron batch dispatch failed',
-    ]);
+    expect(errors).toEqual([]);
   });
 
   it('reset preparation joins a file read already in flight, then dispatches nothing', async () => {
@@ -257,7 +254,7 @@ describe('background token indexing under a factory reset', () => {
     expect(errors).toEqual([]);
   });
 
-  it('settles a dispatch still waiting for worker readiness long before the readiness timeout', async () => {
+  it('settles a dispatch still waiting for worker readiness when reset preparation begins', async () => {
     vi.useFakeTimers();
     const { errors, stop } = recordErrors();
     let preparedPromptly = false;
@@ -295,32 +292,51 @@ describe('background token indexing under a factory reset', () => {
     }
     expect(errors).toEqual([]);
     expect(preparedPromptly).toBe(true);
-    // The cancelled readiness timeout never escalates into a restart or failure.
+    // The waiting startup never escalates into a restart or failure.
     expect(terminatedByTimeout).toBe(false);
   });
 
-  it('still fails loudly when that readiness wait times out without a reset', async () => {
+  it('says once that a worker has not started, then dispatches when it does', async () => {
     vi.useFakeTimers();
     const { errors, stop } = recordErrors();
+    const warnings: string[] = [];
+    const stopWarnings = logging.addLogListener((record) => {
+      if (record.level === logging.LogLevel.WARN) {
+        warnings.push(`[${record.scope}] ${record.message}`);
+      }
+    });
     try {
       const view = renderIntegration(async () => 'export const value = 1;');
-      let dispatch!: Promise<void>;
       act(() => {
-        dispatch = view.result.current.triggerIndexing([fileKey]);
+        void view.result.current.triggerIndexing([fileKey]);
       });
-      await vi.waitFor(() => expect(mockWorkers).toHaveLength(1));
+      const worker = await vi.waitFor(() => {
+        expect(mockWorkers).toHaveLength(1);
+        return mockWorkers[0] as MockWorker;
+      });
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000);
-        await dispatch;
+        await vi.advanceTimersByTimeAsync(30_000);
       });
+      expect(warnings).toEqual([
+        '[BackgroundTokenIndexer] Background token indexer worker has not started after 5 s',
+      ]);
+      expect(worker.terminate).not.toHaveBeenCalled();
+
+      act(() => {
+        worker.emitMessage({ type: 'ready' });
+      });
+      await vi.waitFor(() =>
+        expect(worker.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'index-batch' })
+        )
+      );
       view.unmount();
     } finally {
       stop();
+      stopWarnings();
       vi.useRealTimers();
     }
-    expect(errors).toEqual([
-      '[BackgroundTokenIndexerIntegration] triggerIndexing electron batch dispatch failed',
-    ]);
+    expect(errors).toEqual([]);
   });
 
   it('a replacement indexer mounted after preparation began reads and dispatches nothing', async () => {
