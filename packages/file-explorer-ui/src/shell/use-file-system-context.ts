@@ -372,7 +372,9 @@ export function useFileSystemInstance() {
   // isAccessLoading value. On startup, restoreRoots sets the core hook's local
   // isAccessLoading but not the store's. Without this sync, the stale clearing effect
   // sees store.isAccessLoading=false and incorrectly clears selections/expansions.
-  useEffect(() => {
+  // A layout effect, so the store agrees before the first paint: a file tab reads it to tell a
+  // folder still connecting from one that is not.
+  useLayoutEffect(() => {
     setStoreIsAccessLoading(coreApi.isAccessLoading);
   }, [coreApi.isAccessLoading, setStoreIsAccessLoading]);
 

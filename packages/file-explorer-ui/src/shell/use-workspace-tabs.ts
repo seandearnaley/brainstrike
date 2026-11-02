@@ -15,11 +15,19 @@ export interface WorkspaceTabRef {
   readonly label: string;
 }
 
+/** Whether a file tab's folder is open. A platform that reads through the tree is always `connected`. */
+export type FileRootState = 'connected' | 'connecting' | 'disconnected';
+
 export interface WorkspaceTabsValue {
   /** Full app registry, in canonical display order. */
   readonly apps: readonly WorkspaceApp[];
   readonly fileContentErrors: ReadonlyMap<string, Error>;
   readonly fileContents: { readonly [key: string]: string };
+  /**
+   * Whether a file tab's folder is open, so its content can load. `connecting` while the
+   * workspace is still restoring or adding folders; `disconnected` once it is not.
+   */
+  readonly fileRootState: (compositeKey: string) => FileRootState;
   readonly getTabStatusMessage: (compositeKey: string) => string | null;
   /** The registered open-file seam — `WorkspaceOpenFileBridge` registers it. */
   readonly handleOpenFileInTab: OpenFileInTab;

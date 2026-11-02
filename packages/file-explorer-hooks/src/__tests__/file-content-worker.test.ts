@@ -185,7 +185,7 @@ describe('file-content-worker', () => {
       const results = await worker([request]);
 
       expect(results[request.compositeKey]).toEqual({
-        message: 'Error accessing file',
+        message: 'The file could not be read.',
         status: 'inaccessible',
       });
       expect(readFileByAbsolutePath).not.toHaveBeenCalled();
@@ -214,7 +214,7 @@ describe('file-content-worker', () => {
     const results = await worker([request]);
 
     expect(results[request.compositeKey]).toEqual({
-      message: 'Error accessing file',
+      message: 'The file could not be read.',
       status: 'inaccessible',
     });
     expect(readFileByAbsolutePath).not.toHaveBeenCalled();
@@ -241,7 +241,7 @@ describe('file-content-worker', () => {
     const results = await worker([request]);
 
     expect(results[request.compositeKey]).toEqual({
-      message: 'Error accessing file',
+      message: 'The file could not be read.',
       status: 'inaccessible',
     });
     expect(readFileByPath).not.toHaveBeenCalled();
@@ -397,7 +397,35 @@ describe('file-content-worker', () => {
     const results = await worker([req]);
 
     expect(results[req.compositeKey]).toEqual({
-      message: 'Error accessing file',
+      message: 'The file could not be read.',
+      status: 'inaccessible',
+    });
+  });
+
+  it('says a missing file is gone and keeps a platform refusal as written', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const missing = createRequest('/missing.txt');
+    const refused = createRequest('/refused.txt');
+    MockFileSystemAdapter.setMockReadFileError(
+      '/missing.txt',
+      Object.assign(new Error('ENOENT: /missing.txt'), { code: 'NOT_FOUND' })
+    );
+    MockFileSystemAdapter.setMockReadFileError(
+      '/refused.txt',
+      Object.assign(new Error('refused'), {
+        failure: { message: 'The workspace folder is no longer connected.' },
+      })
+    );
+
+    const results = await worker([missing, refused]);
+
+    expect(results[missing.compositeKey]).toEqual({
+      message: 'This file no longer exists. It may have been moved, renamed or deleted.',
+      status: 'inaccessible',
+    });
+    expect(results[refused.compositeKey]).toEqual({
+      message: 'The workspace folder is no longer connected.',
       status: 'inaccessible',
     });
   });
@@ -449,7 +477,7 @@ describe('file-content-worker', () => {
 
     expect(progress).toEqual([1, 2]);
     expect(displayResult(results[successReq.compositeKey])).toBe('ok');
-    expect(displayResult(results[failReq.compositeKey])).toMatch('Error accessing file');
+    expect(displayResult(results[failReq.compositeKey])).toMatch('The file could not be read.');
   });
 
   it('rejects when the progress finalizer throws instead of leaving the queue promise pending', async () => {
@@ -541,7 +569,7 @@ describe('file-content-worker', () => {
     const results = await worker([req]);
 
     // The error should be the generic message, not the original error message
-    expect(displayResult(results[req.compositeKey])).toBe('Error accessing file');
+    expect(displayResult(results[req.compositeKey])).toBe('The file could not be read.');
     expect(displayResult(results[req.compositeKey])).not.toContain('disk failure');
   });
 
@@ -623,7 +651,7 @@ describe('file-content-worker', () => {
     // Verify all three files were processed
     expect(Object.keys(results)).toHaveLength(3);
     expect(displayResult(results[req1.compositeKey])).toBe('content1');
-    expect(displayResult(results[req2.compositeKey])).toMatch('Error accessing file');
+    expect(displayResult(results[req2.compositeKey])).toMatch('The file could not be read.');
     expect(displayResult(results[req3.compositeKey])).toBe('content3');
     // Verify progress tracked all completions
     expect(progress).toHaveLength(3);

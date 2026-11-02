@@ -426,7 +426,10 @@ export function useFileSystem({
     },
     dispatch,
   ] = useReducer(reducer, {
-    isAccessLoading: false,
+    // An adapter that restores folders is loading access from the first render until its restore
+    // settles, so nothing reads "no folder" before the restore has answered.
+    isAccessLoading:
+      typeof (fileSystemAdapter as { restoreRoots?: unknown }).restoreRoots === 'function',
     recentRootsRevision: 0,
     rootDirectoryHandle: null,
     rootDirectoryHandles: [],
