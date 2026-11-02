@@ -40,9 +40,9 @@ describe('App Initialization Integration', () => {
     // Test that the electron API mock is available
     expect(window.electronAPI).toBeDefined();
     const electronApi = window.electronAPI;
-    if (!(electronApi && 'fileSystem' in electronApi)) {
+    if (!(electronApi && 'getUserDataPath' in electronApi)) {
       throw new Error('Expected the Electron API mock to be available.');
     }
-    expect(electronApi.fileSystem).toBeDefined();
+    expect(electronApi.getUserDataPath).toBeDefined();
   });
 });

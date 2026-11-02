@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
-import { type DirectoryHandle, isDurableRootId } from '@brainstrike/file-system';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { descriptorFor } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
@@ -43,7 +43,6 @@ import {
 import type {
   MountedWorkspaceRoot,
   RecordedWorkspaceRoot,
-  RootDataDeletionReservation,
   SecureWorkspaceRoot,
   StoredWorkspaceRoot,
   WorkspaceRootRegistryOptions,
@@ -96,7 +95,6 @@ export class WorkspaceRootRegistry {
   private readonly closedForRuns = new Set<string>();
   private readonly availability = new WorkspaceRootAvailability();
   private readonly mutations = new WorkspaceRootMutationLifetime();
-  private rootDataDeletion: RootDataDeletionReservation | undefined;
   private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
   private readonly sourceLeases = new Set<{
     readonly lease: WorkspaceRootLease;
@@ -327,9 +325,6 @@ export class WorkspaceRootRegistry {
   /** A run's borrow of the folder mounted at exactly `requestedPath`; removing the folder ends it. */
   async borrowSourceRootForPath(requestedPath: string): Promise<WorkspaceRootLease> {
     assertNativeAbsoluteReadPath(requestedPath, 'Borrowed root path');
-    if (this.rootDataDeletion) {
-      throw new Error('Root data deletion owns workspace read admission.');
-    }
     await this.mutations.settled;
     this.assertActive();
     const mounted = this.mounts.findByEitherPath(requestedPath);
@@ -350,23 +345,15 @@ export class WorkspaceRootRegistry {
   private borrowMountedSourceRoot(mounted: MountedWorkspaceRoot): WorkspaceRootLease {
     const rootId = mounted.rootId;
     this.assertActive();
-    if (
-      this.mounts.get(rootId) !== mounted ||
-      this.retiringSourceRoots.has(mounted) ||
-      this.rootDataDeletion?.mounted === mounted
-    ) {
+    if (this.mounts.get(rootId) !== mounted || this.retiringSourceRoots.has(mounted)) {
       throw new Error('Mounted source root changed during acquisition.');
     }
     const lease = createWorkspaceRootSourceLease({
       assertCurrent: () => {
         this.assertActive();
-        if (
-          this.mounts.get(rootId) !== mounted ||
-          this.retiringSourceRoots.has(mounted) ||
-          this.rootDataDeletion?.mounted === mounted
-        ) {
-          // The owner took the mount back (removal, replacement, root data deletion): the
-          // borrower's work is superseded, typed so, like the lease's own retirement.
+        if (this.mounts.get(rootId) !== mounted || this.retiringSourceRoots.has(mounted)) {
+          // The owner took the mount back (removal, replacement): the borrower's work is
+          // superseded, typed so, like the lease's own retirement.
           throw mountedRootRevoked('Mounted source lease was revoked or replaced.');
         }
       },
@@ -391,8 +378,8 @@ export class WorkspaceRootRegistry {
 
   /**
    * Runs `use` on the folder's mounted handle, the one this registry opened at grant. Refused
-   * once the folder is not mounted, is being retired, or holds a root data deletion; the mount
-   * closes only after `use` settles.
+   * once the folder is not mounted or is being retired; the mount closes only after `use`
+   * settles.
    */
   async useMountedRoot<T>(
     rootId: string,
@@ -400,11 +387,7 @@ export class WorkspaceRootRegistry {
   ): Promise<T> {
     this.assertActive();
     const mounted = this.mounts.get(rootId);
-    if (
-      !mounted ||
-      this.retiringSourceRoots.has(mounted) ||
-      this.rootDataDeletion?.mounted === mounted
-    ) {
+    if (!mounted || this.retiringSourceRoots.has(mounted)) {
       throw mountedRootRevoked('The folder is not mounted in the workspace.');
     }
     const done = use(mounted);
@@ -471,72 +454,12 @@ export class WorkspaceRootRegistry {
     const persisted = this.mounts.persistedIds();
     return this.mounts
       .snapshot()
-      .filter(
-        (mounted) => persisted.has(mounted.rootId) && !this.isDeletingRootData(mounted.rootId)
-      )
+      .filter((mounted) => persisted.has(mounted.rootId))
       .map((mounted) => ({
         canonicalPath: mounted.canonicalPath,
         path: mounted.presentationPath,
         rootId: mounted.rootId,
       }));
-  }
-
-  /** Whether a root data deletion holds this folder: from its reservation until its release. */
-  isDeletingRootData(rootId: string): boolean {
-    return this.rootDataDeletion?.mounted.rootId === rootId;
-  }
-
-  reserveRootDataDeletion(rootId: string): RootDataDeletionReservation {
-    this.assertActive();
-    this.assertWritable();
-    this.mutations.assertAdmission();
-    if (!isDurableRootId(rootId)) {
-      throw new Error('Root data deletion requires a durable root ID.');
-    }
-    if (this.rootDataDeletion) {
-      throw new Error('A root data deletion already owns the mounted registry.');
-    }
-    const mounted = this.mounts.get(rootId);
-    if (!mounted) {
-      throw new Error('Root data deletion requires an actually mounted root.');
-    }
-    const assertCurrent = (): void => {
-      this.assertActive();
-      if (this.rootDataDeletion !== reservation || this.mounts.get(rootId) !== mounted) {
-        throw new Error('The captured root data deletion grant was replaced or retired.');
-      }
-    };
-    const lifetime = this.mutations.reserve();
-    const reservation: RootDataDeletionReservation = {
-      assertCurrent,
-      disconnect: async () => {
-        assertCurrent();
-        await this.closeRootsOwned([rootId], { resourcesRetired: true });
-      },
-      mounted,
-      release: () => {
-        if (this.rootDataDeletion !== reservation) {
-          throw new Error('Root deletion cannot release a different reservation.');
-        }
-        this.rootDataDeletion = undefined;
-        lifetime.release();
-      },
-      retireSources: async () => {
-        assertCurrent();
-        await this.retireSourceLeases(mounted);
-        await this.cleanupRootResources([rootId], true);
-        assertCurrent();
-      },
-      run: (operation) =>
-        lifetime.track(
-          this.serializeMutation(async () => {
-            assertCurrent();
-            await operation();
-          }, reservation)
-        ),
-    };
-    this.rootDataDeletion = reservation;
-    return reservation;
   }
 
   /** Resolves whether the removal retired a mounted folder. */
@@ -551,10 +474,7 @@ export class WorkspaceRootRegistry {
    */
   private async closeRootsOwned(
     rootIds: readonly string[],
-    {
-      keepMounted = new Set<string>(),
-      resourcesRetired = false,
-    }: { readonly keepMounted?: ReadonlySet<string>; readonly resourcesRetired?: boolean } = {}
+    { keepMounted = new Set<string>() }: { readonly keepMounted?: ReadonlySet<string> } = {}
   ): Promise<number> {
     const unmounting = rootIds.filter((rootId) => !keepMounted.has(rootId));
     for (const rootId of rootIds) {
@@ -579,11 +499,9 @@ export class WorkspaceRootRegistry {
       this.mounts.clearSessionMount(rootId);
       await this.unmountSourceRoot(rootId);
     }
-    if (!resourcesRetired) {
-      await this.cleanupRootResources([
-        ...new Set([...unmounting, ...disconnected.map((row) => row.id)]),
-      ]);
-    }
+    await this.cleanupRootResources([
+      ...new Set([...unmounting, ...disconnected.map((row) => row.id)]),
+    ]);
     for (const rootId of unmounting) {
       this.availability.forget(rootId);
     }
@@ -672,8 +590,8 @@ export class WorkspaceRootRegistry {
     this.managedWorktreeAuthorizer = authorizer;
   }
 
-  private cleanupRootResources(rootIds: readonly string[], strict = false): Promise<void> {
-    return cleanupWorkspaceRootResources(this.resources, rootIds, strict);
+  private cleanupRootResources(rootIds: readonly string[]): Promise<void> {
+    return cleanupWorkspaceRootResources(this.resources, rootIds);
   }
 
   /** The folders the person has open, in their order, as the catalog records them. */
@@ -824,20 +742,8 @@ export class WorkspaceRootRegistry {
     }
   }
 
-  private serializeMutation<T>(
-    operation: () => Promise<T>,
-    deletion?: RootDataDeletionReservation
-  ): Promise<T> {
-    return this.mutations.run(
-      operation,
-      () => {
-        this.assertActive();
-        if (this.rootDataDeletion && this.rootDataDeletion !== deletion) {
-          throw new Error('Root data deletion owns workspace mutation admission.');
-        }
-      },
-      deletion !== undefined && deletion === this.rootDataDeletion
-    );
+  private serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+    return this.mutations.run(operation, () => this.assertActive());
   }
 
   private assertActive(): void {

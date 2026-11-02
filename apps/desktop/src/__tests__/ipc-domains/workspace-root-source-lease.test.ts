@@ -159,21 +159,6 @@ describe('WorkspaceRootRegistry root borrows', () => {
     await expect(registry.borrowSourceRootForPath(WORKSPACE)).rejects.toThrow('exact mounted root');
   });
 
-  it('refuses a listing that its folder data deletion took over', async () => {
-    const held = heldListing();
-    const { registry, rootId } = await mounted(held.root);
-    const lease = await registry.borrowSourceRootForPath(WORKSPACE);
-    const outcome = lease.listDir('.', 7, context()).catch((error: unknown) => error);
-    await held.started;
-    // The deletion owns the mount before it retires the lease: the listing finishes in between.
-    const reservation = registry.reserveRootDataDeletion(rootId);
-    held.listing.resolve(EMPTY_LISTING);
-    expect(await outcome).toMatchObject({ failure: { code: 'workspace.root-unmounted' } });
-    await expect(registry.borrowSourceRootForPath(WORKSPACE)).rejects.toThrow('Root data deletion');
-    reservation.release();
-    await lease.retire();
-  });
-
   it('retains an unchanged incumbent, and retires it when a reopen resolves elsewhere', async () => {
     const original = secureRoot(WORKSPACE);
     const redundant = secureRoot(WORKSPACE);

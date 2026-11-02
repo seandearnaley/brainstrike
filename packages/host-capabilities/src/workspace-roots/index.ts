@@ -61,11 +61,7 @@ export interface HostRootRegistryOwner {
   /** Refuses new mutations and joins the admitted ones while the store is still open. */
   prepareClose(): Promise<void>;
   readonly registry: WorkspaceRootRegistry;
-  /**
-   * The live folders every host capability resolves against (reads, watches, terminals, git).
-   * A folder whose data is being deleted is absent for the whole deletion, not only once it
-   * disconnects, so nothing new reaches it while its records go.
-   */
+  /** The live folders every host capability resolves against (reads, watches, terminals, git). */
   readonly roots: WorkspaceRootResolver;
   readonly service: HostRootRegistry;
   /** Mounts the open folders, so the catalog's live roots are true before any client reads them. */
@@ -151,7 +147,7 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
     recents,
   });
   registry.setManagedWorktreeAuthorizer(options.managedWorktreeAuthorizer);
-  const catalogRoots = createWorkspaceRootResolver(store);
+  const roots = createWorkspaceRootResolver(store);
   let threadReads: HostThreadReads | undefined;
   /** The folders running runs were admitted with: an open closes them but keeps them mounted. */
   const runningRoots = (): Promise<Set<string>> => {
@@ -164,38 +160,12 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       readThread: (threadId) => reads.read(threadId, 0),
     });
   };
-  const roots: WorkspaceRootResolver = {
-    listRoots: async () =>
-      (await catalogRoots.listRoots()).filter((root) => !registry.isDeletingRootData(root.rootId)),
-  };
 
   const service: HostRootRegistry = {
     'workspace/roots/add': async ({ path: folder }) => {
       const added = await registry.addRootByPath(folder);
       await publish();
       return wireRoot(added);
-    },
-    // Refused before anything is removed (a read-only store, a folder not mounted, another
-    // change holding the folders). From the reservation to its end the folder is fenced: `roots`
-    // omits it (reads, watches, terminals, git), `mountedRoots()` and `useMountedRoot` refuse it,
-    // and run borrows are refused.
-    'workspace/roots/delete-data': async ({ rootId }) => {
-      const reservation = registry.reserveRootDataDeletion(rootId);
-      try {
-        await reservation.run(async () => {
-          await reservation.retireSources();
-          const { mounted } = reservation;
-          await store.workspaceRoots({
-            operation: 'delete',
-            paths: [mounted.canonicalPath, mounted.presentationPath],
-            rootId: mounted.rootId,
-          });
-          await reservation.disconnect();
-        });
-      } finally {
-        reservation.release();
-      }
-      return null;
     },
     'workspace/roots/open': async ({ path: folder }) => {
       let opened: RootDescriptor;

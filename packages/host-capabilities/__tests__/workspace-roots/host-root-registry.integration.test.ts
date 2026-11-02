@@ -180,43 +180,6 @@ describe('host root registry', () => {
     expect((await store.workspaceRoots({ operation: 'list-open' })).roots).toEqual([]);
   });
 
-  it('hides a folder from every reader for its whole data deletion, and restores it if that fails', async () => {
-    const workspace = folder('workspace');
-    const deleting = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    const rootsStore: HostRootRegistryStore = {
-      deleteSetting: (key) => store.deleteSetting(key),
-      getSetting: (key) => store.getSetting(key),
-      setSetting: (key, value) => store.setSetting(key, value),
-      stateDamage: null,
-      workspaceRoots: async (request: WorkspaceRootRequest) => {
-        if (request.operation === 'delete') {
-          deleting.resolve();
-          await release.promise;
-          throw new Error('folder data deletion failed');
-        }
-        return await store.workspaceRoots(request);
-      },
-    };
-    const { owner } = registry({ picked: workspace, rootsStore });
-    const { root } = await owner.service['workspace/roots/pick']({});
-    const rootId = root?.rootId ?? '';
-    expect((await owner.roots.listRoots()).map((entry) => entry.rootId)).toEqual([rootId]);
-
-    const deletion = owner.service['workspace/roots/delete-data']({ rootId });
-    await deleting.promise;
-    expect(await owner.roots.listRoots()).toEqual([]);
-    expect(owner.registry.mountedRoots()).toEqual([]);
-    await expect(owner.registry.useMountedRoot(rootId, async () => 'read')).rejects.toThrow(
-      'not mounted'
-    );
-
-    // The deletion fails, so the folder stays connected.
-    release.resolve();
-    await expect(deletion).rejects.toThrow('folder data deletion failed');
-    expect((await owner.roots.listRoots()).map((entry) => entry.rootId)).toEqual([rootId]);
-  });
-
   it('refuses to reopen a folder whose path now leads elsewhere, and shows it as needing reconnect', async () => {
     const workspace = folder('workspace');
     const outside = folder('outside');
@@ -316,7 +279,6 @@ describe('host root registry', () => {
       service.service['workspace/roots/pick']({}),
       owner.service['workspace/roots/add']({ path: other }),
       owner.service['workspace/roots/remove']({ rootId }),
-      owner.service['workspace/roots/delete-data']({ rootId }),
       service.service['workspace/roots/seed-for-e2e']({
         recentPaths: [],
         roots: [{ path: other, rootId: crypto.randomUUID() }],

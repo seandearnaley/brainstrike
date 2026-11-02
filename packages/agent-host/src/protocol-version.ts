@@ -67,4 +67,6 @@
 // `workspace/roots/mounted`, `workspace/roots/reserve-data-deletion` and
 // `workspace/roots/release-data-deletion` are removed, and `workspace/roots/delete-data` takes
 // the folder's `rootId` instead of a reservation.
-export const AGENT_HOST_PROTOCOL_VERSION = 18;
+// v19 (2026-11-02): `workspace/roots/delete-data` is removed with the Explorer's "Also delete
+// folder data" option; disconnecting a folder keeps its record for a later re-add.
+export const AGENT_HOST_PROTOCOL_VERSION = 19;

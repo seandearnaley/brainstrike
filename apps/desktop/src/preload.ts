@@ -17,7 +17,6 @@ import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
-import { fileSystemContract } from './ipc-domains/file-system.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
 import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
@@ -129,7 +128,6 @@ if (shouldExposeBridge('electronAPI')) {
       ...createIpcBridge(ipcRenderer, factoryResetContract),
       unavailableReason: getFactoryResetUnavailableReason(process.platform),
     },
-    fileSystem: createIpcBridge(ipcRenderer, fileSystemContract),
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
   } satisfies VisibleDesktopElectronApi;

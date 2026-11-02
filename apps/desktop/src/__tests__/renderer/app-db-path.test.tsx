@@ -76,7 +76,6 @@ beforeEach(() => {
     value: {
       content: { clear: vi.fn() },
       factoryReset: { resetLocal: vi.fn() },
-      fileSystem: { deleteRootData: vi.fn() },
     },
     writable: true,
   });

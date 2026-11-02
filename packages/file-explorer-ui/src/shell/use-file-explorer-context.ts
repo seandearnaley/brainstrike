@@ -142,13 +142,10 @@ interface UseFileExplorerReturn {
     intent: FileContentLoadIntent
   ) => Promise<void>;
   /**
-   * Disconnect a root by RootId (multi-root, Phase 5). Disconnect ≠ delete by
-   * default; `options.deleteData` (Phase 6) opts into a cascade delete of the
-   * root's indexed rows.
+   * Disconnect a root by RootId (multi-root, Phase 5). Disconnect ≠ delete: the
+   * root's record is kept for a later re-add.
    */
-  removeRootDirectory:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
+  removeRootDirectory: ((rootId: string) => Promise<void>) | undefined;
   /** Progress of expanded directory restoration */
   restorationProgress: RestorationProgress | null;
   rootDirectoryHandle: DirectoryHandle | null;
