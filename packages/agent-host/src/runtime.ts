@@ -380,9 +380,10 @@ export async function openAgentHost(
     throw cause;
   }
   const { core, store } = opened;
-  // An in-process host has no window to serve early: it opens with its log folded.
+  // An in-process host has no window to serve early: it opens with its log folded, unless cancelled.
   try {
     await core.hydrated;
+    signal.throwIfAborted();
   } catch (cause) {
     try {
       await closeHostStoreAfterCore(
