@@ -247,7 +247,6 @@ export class HostCore {
     // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
     this.platform.attachMcpTaskOwner?.(hostMcpTaskOwner(this.executionPorts()));
     await recoverHostRuns(this.runs.values(), {
-      closing: () => this.closing,
       continueRun: (run) => this.continueRun(run),
       finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, false),
       retainRun: this.retainRun,

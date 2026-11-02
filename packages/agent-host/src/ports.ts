@@ -725,8 +725,7 @@ export interface HostFileSearch {
   ): Promise<HostResults['workspace/files/search']>;
 }
 
-/** Core's reads of its threads, for a platform service that asks which runs are live. */
-/** Core's thread reads, which answer once Core has folded its log. */
+/** Core's thread reads for a platform service that asks which runs are live; each answers once Core has folded its log. */
 export interface HostThreadReads {
   listThreads(): Promise<HostResults['thread/list']['threads']>;
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]>;
@@ -845,7 +844,7 @@ export interface HostPlatform {
    * bound, when it opens and before any run can discover MCP tools (BST-1930 c3).
    */
   attachMcpTaskOwner?(owner: McpHostTaskOwner): void;
-  /** Core hands its thread reads to the platform once it has hydrated them. */
+  /** Core hands its thread reads to the platform at start; each read waits for the fold. */
   attachThreadReads?(reads: HostThreadReads): void;
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;

@@ -395,7 +395,8 @@ export function bindHostConnection(
       throw cause;
     }
   });
-  handle('log/unsubscribe', (params) => {
+  // Gated like its subscribe, so an unsubscribe sent during the fold runs after it.
+  handleCore('log/unsubscribe', (params) => {
     unsubscribe(params.threadId);
     return { unsubscribed: true };
   });

@@ -23,11 +23,10 @@ export type HostRunRecovery =
       readonly outcome: 'interrupted' | 'stopped';
     };
 
-/** Recovers the runs a start folded; a close during the fold leaves them to the next start. */
+/** Recovers the runs a start folded; Core's close joins it before retiring them, as it did when open waited. */
 export async function recoverHostRuns(
   runs: Iterable<HostRunState>,
   owner: {
-    readonly closing: () => boolean;
     readonly continueRun: (run: HostRunState) => Promise<void>;
     readonly finish: (
       run: HostRunState,
@@ -38,9 +37,6 @@ export async function recoverHostRuns(
   }
 ): Promise<void> {
   for (const run of runs) {
-    if (owner.closing()) {
-      return;
-    }
     const recovery = recoverHostRun(run);
     if (recovery?.kind === 'finish') {
       // Q-2: a restart wakes no parent; results reach the next user turn.
