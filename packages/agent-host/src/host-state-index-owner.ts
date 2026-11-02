@@ -186,7 +186,8 @@ export function createStateIndexOwner(options: {
       throw closed ? cause : retiredFailure(cause);
     }
   };
-  // The one path out of `idle`, `retired` and `stopped`. A first start's failure is the host startup's to report.
+  // The one path out of `idle`, `retired` and `stopped`. A first start that fails is retired, and
+  // the next request replaces it.
   const advance = (): Promise<Live> =>
     state.kind === 'retired' || state.kind === 'stopped' ? replace(state) : start();
   const acquire = (): Promise<Live> => {
