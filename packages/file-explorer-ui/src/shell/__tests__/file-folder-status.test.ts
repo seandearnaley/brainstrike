@@ -12,11 +12,18 @@ const recents = [
 ];
 const idle = { failures: new Map<string, string>(), opening: new Map<string, number>() };
 const file = '/Users/sean/code/beaker/playwright.live.config.ts';
+const none: ReadonlySet<string> = new Set();
 
 describe('a file whose folder is not open', () => {
   it('is closed, naming the innermost Recents folder to reopen', () => {
     expect(
-      unopenedFileFolderStatus({ filePath: file, recents, requests: idle, restorePending: false })
+      unopenedFileFolderStatus({
+        filePath: file,
+        openPaths: none,
+        recents,
+        requests: idle,
+        restorePending: false,
+      })
     ).toEqual({ failure: null, kind: 'closed', name: 'beaker', path: '/Users/sean/code/beaker' });
   });
 
@@ -25,6 +32,7 @@ describe('a file whose folder is not open', () => {
     expect(
       unopenedFileFolderStatus({
         filePath: file,
+        openPaths: none,
         recents,
         requests: otherOpening,
         restorePending: false,
@@ -34,6 +42,7 @@ describe('a file whose folder is not open', () => {
     expect(
       unopenedFileFolderStatus({
         filePath: file,
+        openPaths: none,
         recents,
         requests: ownOpening,
         restorePending: false,
@@ -43,7 +52,13 @@ describe('a file whose folder is not open', () => {
 
   it('is opening while start-up restore has not answered', () => {
     expect(
-      unopenedFileFolderStatus({ filePath: file, recents, requests: idle, restorePending: true })
+      unopenedFileFolderStatus({
+        filePath: file,
+        openPaths: none,
+        recents,
+        requests: idle,
+        restorePending: true,
+      })
     ).toEqual({ kind: 'opening', name: 'beaker' });
   });
 
@@ -56,6 +71,7 @@ describe('a file whose folder is not open', () => {
     expect(
       unopenedFileFolderStatus({
         filePath: worktreeFile,
+        openPaths: none,
         recents,
         requests: failed,
         restorePending: false,
@@ -72,10 +88,22 @@ describe('a file whose folder is not open', () => {
     expect(
       unopenedFileFolderStatus({
         filePath: '/elsewhere/a.ts',
+        openPaths: none,
         recents,
         requests: idle,
         restorePending: false,
       })
     ).toEqual({ failure: null, kind: 'closed', name: null, path: null });
+  });
+  it('offers the outer folder once the nested one is open under another folder', () => {
+    expect(
+      unopenedFileFolderStatus({
+        filePath: file,
+        openPaths: new Set(['/Users/sean/code/beaker']),
+        recents,
+        requests: idle,
+        restorePending: false,
+      })
+    ).toEqual({ failure: null, kind: 'closed', name: 'code', path: '/Users/sean/code' });
   });
 });

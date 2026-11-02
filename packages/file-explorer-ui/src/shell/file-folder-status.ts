@@ -40,15 +40,20 @@ function baseName(path: string): string {
 
 /**
  * The status of a file whose folder is not open. Its folder is the longest known folder path that
- * contains the file: a Recents entry, or a path with a mount in flight or failed.
+ * contains the file (a Recents entry, or a path with a mount in flight or failed) and is not
+ * already open under another folder: when Recents nest, opening the inner folder never satisfies
+ * a tab that belongs to the outer one, so the next status offers the outer folder instead.
  */
 export function unopenedFileFolderStatus({
   filePath,
+  openPaths,
   recents,
   requests,
   restorePending,
 }: {
   readonly filePath: string;
+  /** The paths of the folders open now, none of them this file's. */
+  readonly openPaths: ReadonlySet<string>;
   readonly recents: readonly RecentRootEntry[];
   readonly requests: FolderRequests;
   readonly restorePending: boolean;
@@ -62,7 +67,11 @@ export function unopenedFileFolderStatus({
   }
   let folder: string | null = null;
   for (const path of names.keys()) {
-    if (contains(path, filePath) && (folder === null || path.length > folder.length)) {
+    if (
+      !openPaths.has(path) &&
+      contains(path, filePath) &&
+      (folder === null || path.length > folder.length)
+    ) {
       folder = path;
     }
   }
@@ -141,6 +150,10 @@ export function useFileFolderStatus({
   readonly reopenFolder: ((path: string) => void) | undefined;
 } {
   const recents = useRecentFolders(listRecentRoots, recentRootsRevision);
+  const openPaths = useMemo(
+    () => new Set(Object.values(rootDescriptors).map((descriptor) => descriptor.path)),
+    [rootDescriptors]
+  );
   const fileFolderStatus = useCallback(
     (compositeKey: string): FileFolderStatus => {
       if (!canLoadWithoutTree) {
@@ -157,19 +170,23 @@ export function useFileFolderStatus({
       }
       return unopenedFileFolderStatus({
         filePath: selection.path,
+        openPaths,
         recents,
         requests: folderRequests,
         restorePending,
       });
     },
-    [canLoadWithoutTree, folderRequests, recents, restorePending, rootDescriptors]
+    [canLoadWithoutTree, folderRequests, openPaths, recents, restorePending, rootDescriptors]
   );
   const reopenFolder = useMemo(
     () =>
       addRootDirectoryByPath
         ? (path: string) => {
+            // The tab shows why; the log names no path, since a folder's path is private.
             addRootDirectoryByPath(path).catch((error: unknown) => {
-              logger.info('A closed folder could not be reopened', { error, path });
+              logger.info('A closed folder could not be reopened', {
+                errorName: error instanceof Error ? error.name : typeof error,
+              });
             });
           }
         : undefined,
