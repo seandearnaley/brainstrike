@@ -23,6 +23,38 @@ export type HostRunRecovery =
       readonly outcome: 'interrupted' | 'stopped';
     };
 
+/** Recovers the runs a start folded; a close during the fold leaves them to the next start. */
+export async function recoverHostRuns(
+  runs: Iterable<HostRunState>,
+  owner: {
+    readonly closing: () => boolean;
+    readonly continueRun: (run: HostRunState) => Promise<void>;
+    readonly finish: (
+      run: HostRunState,
+      outcome: 'interrupted' | 'stopped',
+      detail: string | undefined
+    ) => Promise<void>;
+    readonly retainRun: () => () => void;
+  }
+): Promise<void> {
+  for (const run of runs) {
+    if (owner.closing()) {
+      return;
+    }
+    const recovery = recoverHostRun(run);
+    if (recovery?.kind === 'finish') {
+      // Q-2: a restart wakes no parent; results reach the next user turn.
+      await owner.finish(run, recovery.outcome, recovery.detail);
+    } else if (recovery) {
+      run.release = owner.retainRun();
+      if (recovery.kind === 'continue') {
+        run.task = owner.continueRun(run);
+        run.task.catch(() => undefined);
+      }
+    }
+  }
+}
+
 /**
  * ADR-0010: top-level decisions survive a restart; a child's do not, so a
  * child run and any interaction it waits on are interrupted (BST-1932). Q-2:

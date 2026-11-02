@@ -301,12 +301,12 @@ function composeHostRoot(
       try {
         signal.throwIfAborted();
         bindAcquiredPlatform(ownedPlatform, currentPlatform());
-        core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
-          core = acquired;
-          if (signal.aborted) {
-            cancelled();
-          }
-        });
+        // Core folds its log while the host serves its folders: thread reads and commands wait
+        // for `core.hydrated`, and each launcher joins its failure.
+        core = HostCore.start(store, ownedPlatform, retainRun);
+        if (signal.aborted) {
+          cancelled();
+        }
         signal.throwIfAborted();
       } catch (cause) {
         try {
@@ -380,6 +380,20 @@ export async function openAgentHost(
     throw cause;
   }
   const { core, store } = opened;
+  // An in-process host has no window to serve early: it opens with its log folded.
+  try {
+    await core.hydrated;
+  } catch (cause) {
+    try {
+      await closeHostStoreAfterCore(
+        () => core.close(),
+        () => store.close()
+      );
+    } catch (cleanupCause) {
+      throw new AggregateError([cause, cleanupCause], 'Host startup and its cleanup failed');
+    }
+    throw cause;
+  }
   const identity: HostIdentity = {
     hostVersion: HOST_VERSION,
     pid: process.pid,
@@ -577,6 +591,17 @@ export async function startAgentHost(
   }
   const disconnected = (): void => signal.removeEventListener('abort', cancelled);
   runtime.closed.then(disconnected, disconnected);
+  const started = runtime;
+  // The host is ready before Core has folded its log; a fold that fails closes the host and is
+  // its failure.
+  const closed = Promise.all([
+    runtime.closed,
+    core.hydrated.catch((cause: unknown) => {
+      void started.close().catch(() => undefined);
+      throw cause;
+    }),
+  ]).then(() => undefined);
+  closed.catch(() => undefined);
   return {
     attachClient: () => runtime.attachClient(),
     bindClientConnection: (connection, origin) => {
@@ -631,7 +656,7 @@ export async function startAgentHost(
       return runtime.clientCount;
     },
     close: () => runtime.close(),
-    closed: runtime.closed,
+    closed,
     core,
     record: runtime.record,
     retainRun: () => runtime.retainRun(),

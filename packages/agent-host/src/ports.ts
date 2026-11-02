@@ -726,10 +726,11 @@ export interface HostFileSearch {
 }
 
 /** Core's reads of its threads, for a platform service that asks which runs are live. */
+/** Core's thread reads, which answer once Core has folded its log. */
 export interface HostThreadReads {
-  listThreads(): HostResults['thread/list']['threads'];
+  listThreads(): Promise<HostResults['thread/list']['threads']>;
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]>;
-  readLedger(): HostResults['ledger/read'];
+  readLedger(): Promise<HostResults['ledger/read']>;
 }
 
 /**

@@ -21,7 +21,7 @@ import {
   hostRunSettlementFailed,
   joinHostRunOwner,
   queueHostAdmission,
-  recoverHostRun,
+  recoverHostRuns,
   rejectHostRunAdmission,
   retainHostRunWork,
   steerHostRun,
@@ -35,6 +35,7 @@ import {
   recordHostConversationId,
 } from './core-state.ts';
 import { deleteHostThread } from './core-thread-deletion.ts';
+import { foldedThreadReads } from './core-thread-reads.ts';
 import { nodeHostRowReader, readHostRow, storedHostEvent } from './event-storage.ts';
 import { beginHostRun } from './hook-context.ts';
 import { type Json, jsonValue } from './json-value.ts';
@@ -96,6 +97,8 @@ import { hostWorktreeEntry } from './worktree-binding.ts';
 
 export type { HostEventStore } from './thread-catalog.ts';
 
+/** What Core is opened over: its store, platform and run retention. */
+type HostCoreOwners = [store: HostEventStore, platform: HostPlatform, retainRun: () => () => void];
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
   private readonly commands = new HostCommandLedger();
@@ -201,54 +204,54 @@ export class HostCore {
   });
   private closing = false;
   private closeTask?: Promise<void>;
+  /** Settles once Core has folded its log and recovered its runs; its owners see a failure. */
+  readonly hydrated: Promise<void>;
 
   readonly store: HostEventStore;
   private readonly platform: HostPlatform;
   private readonly retainRun: () => () => void;
 
-  private constructor(store: HostEventStore, platform: HostPlatform, retainRun: () => () => void) {
+  private constructor(...[store, platform, retainRun]: HostCoreOwners) {
     this.store = store;
     this.platform = platform;
     this.retainRun = retainRun;
+    this.hydrated = this.hydrate();
+    this.hydrated.catch(() => undefined);
   }
 
-  static async open(
-    store: HostEventStore,
-    platform: HostPlatform,
-    retainRun: () => () => void,
-    onAcquired?: (core: HostCore) => void
-  ): Promise<HostCore> {
-    const core = new HostCore(store, platform, retainRun);
-    // The root owner retains partially restored actors if hydration or cleanup fails.
-    onAcquired?.(core);
-    await core.catalog.hydrate(store, nodeHostRowReader(store), core.threads, (row) => {
-      core.projections.apply(row);
-      core.selections.fold(row);
-      core.fold(row);
-    });
-    await core.rewinds.recover();
-    // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
-    platform.attachMcpTaskOwner?.(hostMcpTaskOwner(core.executionPorts()));
-    // ADR-0029: the platform's workspace services ask Core which runs are live.
-    platform.attachThreadReads?.({
-      listThreads: () => core.listThreads(),
-      read: (threadId, fromSeq) => core.published.read(threadId, fromSeq),
-      readLedger: () => core.readLedger(),
-    });
-    for (const run of core.runs.values()) {
-      const recovery = recoverHostRun(run);
-      if (recovery?.kind === 'finish') {
-        // Q-2: a restart wakes no parent; results reach the next user turn.
-        await core.ends.finish(run, recovery.outcome, recovery.detail, false);
-      } else if (recovery) {
-        run.release = retainRun();
-        if (recovery.kind === 'continue') {
-          run.task = core.continueRun(run);
-          run.task.catch(() => undefined);
-        }
-      }
-    }
+  /**
+   * Core before its log is folded: the workspace services serve at once, while thread reads and
+   * commands wait on `hydrated`. The owner joins or observes `hydrated`; `close` waits for it.
+   */
+  static start(...owners: HostCoreOwners): HostCore {
+    const core = new HostCore(...owners);
+    // ADR-0029: the platform's workspace services ask Core which runs are live, once it knows.
+    owners[1].attachThreadReads?.(foldedThreadReads(core));
     return core;
+  }
+
+  /** Core with its log folded and its runs recovered. */
+  static async open(...owners: HostCoreOwners): Promise<HostCore> {
+    const core = HostCore.start(...owners);
+    await core.hydrated;
+    return core;
+  }
+
+  private async hydrate(): Promise<void> {
+    await this.catalog.hydrate(this.store, nodeHostRowReader(this.store), this.threads, (row) => {
+      this.projections.apply(row);
+      this.selections.fold(row);
+      this.fold(row);
+    });
+    await this.rewinds.recover();
+    // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
+    this.platform.attachMcpTaskOwner?.(hostMcpTaskOwner(this.executionPorts()));
+    await recoverHostRuns(this.runs.values(), {
+      closing: () => this.closing,
+      continueRun: (run) => this.continueRun(run),
+      finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, false),
+      retainRun: this.retainRun,
+    });
   }
 
   private fold(row: HostLogRow): void {
@@ -985,6 +988,8 @@ export class HostCore {
 
   private async closeOwned(): Promise<void> {
     this.closing = true;
+    // Retirement reads the runs the fold restores; a failed fold still closes what it opened.
+    await this.hydrated.catch(() => undefined);
     const outcomes = await retireHostCoreRuns({
       admission: () => this.admission,
       closeOwner: (owned) => this.closeRunOwner(owned),
