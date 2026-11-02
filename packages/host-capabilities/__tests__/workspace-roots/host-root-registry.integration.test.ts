@@ -127,12 +127,12 @@ describe('host root registry', () => {
       threadId: 'thread-beta',
     };
     owner.attachThreadReads({
-      listThreads: () => [],
+      listThreads: async () => [],
       read: async () => [runStarted],
-      readLedger: () =>
+      readLedger: async () =>
         ({
           threads: [{ runs: [{ runId: 'run-beta', status: 'running' }], threadId: 'thread-beta' }],
-        }) as unknown as ReturnType<HostThreadReads['readLedger']>,
+        }) as unknown as Awaited<ReturnType<HostThreadReads['readLedger']>>,
     });
     const openIds = async () =>
       (await store.workspaceRoots({ operation: 'list-open' })).roots.map((root) => root.id);
@@ -169,9 +169,10 @@ describe('host root registry', () => {
     const stranger = folder('stranger');
     const { owner } = registry();
     owner.attachThreadReads({
-      listThreads: () => [],
+      listThreads: async () => [],
       read: async () => [],
-      readLedger: () => ({ threads: [] }) as unknown as ReturnType<HostThreadReads['readLedger']>,
+      readLedger: async () =>
+        ({ threads: [] }) as unknown as Awaited<ReturnType<HostThreadReads['readLedger']>>,
     });
 
     await expect(owner.service['workspace/roots/open']({ path: stranger })).rejects.toMatchObject({
