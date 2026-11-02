@@ -243,7 +243,6 @@ export function useBackgroundTokenIndexer({
   const workerInitPromiseRef = useRef<Promise<Worker> | null>(null);
   const ensureWorkerReadyRef = useRef<(() => Promise<Worker>) | null>(null);
   const workerMessageCleanupRef = useRef<(() => void) | null>(null);
-  const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workerRuntimeRef = useRef<WorkerRuntimeClient | null>(null);
   const terminalWorkerFailureRef = useRef<Error | null>(null);
@@ -359,7 +358,6 @@ export function useBackgroundTokenIndexer({
     runtime?.clearFailure();
     runtime?.dispose();
     clearTimerRef(restartTimerRef);
-    clearTimerRef(readinessTimerRef);
     if (worker) {
       worker.terminate();
     }
@@ -608,7 +606,6 @@ export function useBackgroundTokenIndexer({
             // window elapses; a flapping worker hits the cap and escalates.
             clearWorkerFailureHandled();
             setIsReady(true);
-            clearTimerRef(readinessTimerRef);
             settleReady();
             return;
           }
@@ -666,12 +663,6 @@ export function useBackgroundTokenIndexer({
         worker.onerror = (event) => handleWorkerError(event, 'worker.onerror');
         worker.onmessageerror = (event) => handleWorkerError(event, 'worker.onmessageerror');
         worker.addEventListener('messageerror', handleMessageChannelError);
-
-        readinessTimerRef.current = setTimeout(() => {
-          if (!runtime.isReady()) {
-            settleFailure(new Error('Worker did not signal ready within 5s'), 'ready-timeout');
-          }
-        }, 5000);
       });
 
       return worker;
@@ -712,9 +703,11 @@ export function useBackgroundTokenIndexer({
       workerErrorLoggedRef.current = false;
       terminalWorkerFailureRef.current = null;
       recoverableRestartHistoryRef.current = [];
-      rejectAllPendingBatchTrackers(
-        new Error('Background token indexer worker terminated during cleanup')
-      );
+      // Unmounting is the owner ending this indexer: its batches settle as that cancellation,
+      // never as a worker failure.
+      const unmounted = new Error('Background token indexer unmounted');
+      cancellationsRef.current.add(unmounted);
+      rejectAllPendingBatchTrackers(unmounted);
       disposeCurrentWorker();
     };
   }, [
@@ -1012,9 +1005,7 @@ export function useBackgroundTokenIndexer({
       cancellationsRef.current.add(retirement);
       pendingFilesRef.current.clear();
       rejectAllPendingBatchTrackers(retirement);
-      // A startup still waiting for `ready` settles with the retirement too, and its
-      // readiness timeout is cancelled so it can never escalate into a worker failure.
-      clearTimerRef(readinessTimerRef);
+      // A startup still waiting for `ready` settles with the retirement too.
       rejectReadinessRef.current?.(retirement);
       rejectReadinessRef.current = null;
       setIsIndexing(false);

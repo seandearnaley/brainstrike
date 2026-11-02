@@ -1104,11 +1104,11 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
-  it('routes readiness timeout through the recoverable restart path', async () => {
+  it('waits for a worker that starts slowly instead of failing it', async () => {
     vi.useFakeTimers();
     const onFileError = vi.fn();
 
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
         mode: 'accurate',
         onFileError,
@@ -1117,18 +1117,16 @@ describe('useBackgroundTokenIndexer', () => {
     );
 
     await act(async () => {
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(60_000);
     });
 
-    expect(onFileError).not.toHaveBeenCalled();
+    expect(mockWorkers).toHaveLength(1);
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(mockLogger.error).not.toHaveBeenCalled();
     expect(mockEmitIndexingError).not.toHaveBeenCalled();
-    expect(mockLogger.warn.mock.calls).toContainEqual([
-      'Background token indexer restarting after recoverable worker failure',
-      expect.objectContaining({
-        context: 'ready-timeout',
-        error: 'Worker did not signal ready within 5s',
-      }),
-    ]);
+
+    await markSpecificWorkerReady(mockWorkers[0]!);
+    expect(result.current.isReady).toBe(true);
   });
 
   it('routes worker creation failure through the terminal fail path', async () => {
@@ -1848,6 +1846,32 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.isIndexing).toBe(false);
   });
 
+  it('settles a batch in flight at unmount as a cancellation, not a worker failure', async () => {
+    const onFileError = vi.fn();
+    const store = {
+      get: vi.fn(async () => null),
+      getBatch: vi.fn(async () => new Map<string, TokenCacheEntry>()),
+      set: vi.fn(async () => {}),
+    };
+    const { result, unmount } = renderHook(() =>
+      useBackgroundTokenIndexer({ mode: 'accurate', onFileError, store })
+    );
+    const worker = await markWorkerReady();
+    let indexing!: Promise<void>;
+    act(() => {
+      indexing = result.current.indexFiles([
+        { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+      ]);
+    });
+    await waitFor(() => expect(worker.postMessage).toHaveBeenCalledOnce());
+
+    unmount();
+    await expect(indexing).rejects.toThrow('Background token indexer unmounted');
+    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(onFileError).not.toHaveBeenCalled();
+  });
+
   it('settles a batch whose worker crashed during its cache read alone, never posting to the dead worker', async () => {
     vi.useFakeTimers();
     const staleRead = Promise.withResolvers<Map<string, TokenCacheEntry>>();
@@ -1916,7 +1940,7 @@ describe('useBackgroundTokenIndexer', () => {
     expect(mockLogger.error).not.toHaveBeenCalled();
   });
 
-  it('settles a startup still waiting for ready with the retirement and cancels its readiness timeout', async () => {
+  it('settles a startup still waiting for ready with the retirement', async () => {
     vi.useFakeTimers();
     const onFileError = vi.fn();
     const store = {
@@ -1950,7 +1974,7 @@ describe('useBackgroundTokenIndexer', () => {
     await flushPromises();
     expect(settledWith).toBe(retirement);
 
-    // The readiness timeout is cancelled: no restart, failure or log follows it.
+    // Nothing follows the retirement: no restart, failure or log.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
