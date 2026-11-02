@@ -36,7 +36,10 @@ type Live = Extract<WorkerState, { readonly kind: 'live' }>;
 
 export interface StateIndexOwner {
   close(): Promise<void>;
-  /** Start the first worker. Register `close` first: it also stops a worker still starting. */
+  /**
+   * Start the first worker. Register `close` first: it also stops a worker still starting, and a
+   * start that a close ended resolves.
+   */
   open(): Promise<void>;
   readonly port: HostStateIndexPort;
 }
@@ -257,5 +260,15 @@ export function createStateIndexOwner(options: {
     stateHealth: () => use((live) => live.stateHealth()),
     stateStats: (threadId) => use((live) => live.stateStats(threadId)),
   };
-  return { close, open: async () => void (await acquire()), port };
+  // A start that a close ended is the close's outcome, not a failed start.
+  const open = (): Promise<void> =>
+    acquire().then(
+      () => undefined,
+      (cause: unknown) => {
+        if (!closed) {
+          throw cause;
+        }
+      }
+    );
+  return { close, open, port };
 }

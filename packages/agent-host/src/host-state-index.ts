@@ -77,9 +77,6 @@ export async function openHostStateIndex(
   // wait for it to start: a window reaches its folders while the worker opens. A first start that
   // fails is retired like any other, and the next request replaces it.
   owner.open().catch((cause: unknown) => {
-    if (startup?.signal.aborted) {
-      return;
-    }
     logger.error('The host state index did not start; the next request starts it again', {
       code: 'host_state_index_start_failed',
       error: cause,

@@ -407,3 +407,23 @@ it('replacements that cannot be created stop at the bound like any other', async
   expect(starts()).toBe(4);
   await index.close();
 });
+
+it('a first start that fails is retired, and the next request replaces it', async () => {
+  const { index, starts } = owner([fake(['serve'], { starts: 'error' }), fake(['serve'])]);
+  await expect(index.open()).rejects.toBeDefined();
+
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(2);
+  await index.close();
+});
+
+it('a close during the first start ends it: open resolves, and nothing starts after it', async () => {
+  const { index, starts } = owner([fake(['serve'], { starts: 'never' })]);
+  const opening = index.open();
+  await vi.waitFor(() => expect(starts()).toBe(1));
+  await index.close();
+
+  await expect(opening).resolves.toBeUndefined();
+  await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
+  expect(starts()).toBe(1);
+});
