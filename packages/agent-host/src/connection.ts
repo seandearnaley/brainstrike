@@ -45,6 +45,7 @@ import {
   HOST_CHILDREN_CHANGED,
   HOST_RUN_NOT_ADMITTED_CODE,
   HOST_RUN_TELEMETRY,
+  HOST_TREE_CHANGED,
   type HostLogRow,
   type HostMethod,
   type HostParams,
@@ -179,6 +180,14 @@ export function bindHostConnection(
     if (parentThreadId && initialized && !disposed && hostChildStatusChanged(row)) {
       connection
         .sendNotification(HOST_CHILDREN_CHANGED, { threadId: parentThreadId })
+        .catch(() => connection.dispose());
+    }
+    // A summary change names its thread and every thread above it, so a client
+    // showing any of their trees re-reads it.
+    const threadIds = initialized && !disposed ? core.trees.changedBy(row) : undefined;
+    if (threadIds) {
+      connection
+        .sendNotification(HOST_TREE_CHANGED, { threadIds })
         .catch(() => connection.dispose());
     }
   });
@@ -343,7 +352,8 @@ export function bindHostConnection(
   handleCore('thread/list', () => ({ threads: core.listThreads() }));
   handleCore('ledger/read', () => core.readLedger());
   handleCore('state/health/read', () => core.readStateHealth());
-  handleCore('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
+  handleCore('thread/children', (params) => ({ children: core.trees.children(params.threadId) }));
+  handleCore('thread/tree', (params) => core.trees.read(params.threadId));
   handleCore('thread/delete', (params) => core.deleteThread(params));
   handleCore('thread/update', (params) => core.updateThread(params));
   handleCore('thread/memory/read', (params) => core.readThreadMemory(params, origin));

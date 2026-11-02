@@ -19,6 +19,7 @@ import {
   HOST_DRAINED_EVENT,
   HOST_RESULT_SCHEMAS,
   HOST_RUN_TELEMETRY,
+  HOST_TREE_CHANGED,
   HostChildrenChangedSchema,
   type HostLogRow,
   HostLogRowSchema,
@@ -27,6 +28,7 @@ import {
   type HostResults,
   type HostRunTelemetry,
   HostRunTelemetrySchema,
+  HostTreeChangedSchema,
   MCP_PRESENTATION_EVENT,
   MCP_SETTINGS_EVENT,
   type McpPresentationEvent,
@@ -72,6 +74,11 @@ export interface HostClient {
   onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void;
   /** Output and exits of the terminals this client created. */
   onTerminal(listener: (event: TerminalEvent) => void): () => void;
+  /**
+   * A thread's `thread/tree` summary changed: the threads named are it and every
+   * thread above it.
+   */
+  onTreeChanged(listener: (threadIds: readonly string[]) => void): () => void;
   /** Change batches and health of the root watches this client holds. */
   onWorkspaceFiles(listener: (event: WorkspaceFilesEvent) => void): () => void;
   /** An abort sends the request's JSON-RPC cancellation; the host settles it. */
@@ -123,6 +130,7 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
   const workspaceFilesListeners = new Set<(event: WorkspaceFilesEvent) => void>();
   const fileSearchListeners = new Set<(batch: FileSearchBatch) => void>();
   const childListeners = new Set<(threadId: string) => void>();
+  const treeListeners = new Set<(threadIds: readonly string[]) => void>();
   const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   const closeConnection = async (): Promise<void> => {
     const failures: unknown[] = [];
@@ -139,6 +147,7 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     workspaceFilesListeners.clear();
     fileSearchListeners.clear();
     childListeners.clear();
+    treeListeners.clear();
     telemetryListeners.clear();
     try {
       await closeTransport();
@@ -172,6 +181,15 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     })(input);
     for (const listener of childListeners) {
       listener(threadId);
+    }
+  });
+  connection.onNotification(HOST_TREE_CHANGED, (input: unknown) => {
+    const { threadIds } = Schema.decodeUnknownSync(HostTreeChangedSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
+    for (const listener of treeListeners) {
+      listener(threadIds);
     }
   });
   connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
@@ -300,6 +318,10 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     onTerminal: (listener) => {
       terminalListeners.add(listener);
       return () => terminalListeners.delete(listener);
+    },
+    onTreeChanged: (listener) => {
+      treeListeners.add(listener);
+      return () => treeListeners.delete(listener);
     },
     onWorkspaceFiles: (listener) => {
       workspaceFilesListeners.add(listener);

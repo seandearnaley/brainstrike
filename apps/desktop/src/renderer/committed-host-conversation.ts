@@ -15,7 +15,6 @@ import type {
   CommittedAssistantCommands,
   CommittedAssistantLogStore,
 } from '@brainstrike/assistant-ui';
-import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
@@ -24,7 +23,6 @@ import { CommittedHostVerdicts } from './committed-host-verdicts';
 import { respondToHostApproval, resumeHostInteraction } from './host-approval-response';
 import { HostTreeApprovals } from './host-tree-approvals';
 
-const logger = createLogger('CommittedHostConversation');
 /** BST-2004: the lost host's replacement has no record of the send. */
 export const HOST_RESTARTED_NOT_SENT = 'Not sent: the agent host restarted.';
 
@@ -178,16 +176,14 @@ export function createCommittedHostConversation(
       await respondToHostApproval(client, interaction, response);
     },
   };
-  const approvals = new HostTreeApprovals(client, threadId, source);
+  const approvals = new HostTreeApprovals(client, threadId);
   // Every part of the view subscribes before the session's replay.
   thread.connect();
   return {
     approvals,
     checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
-      approvals.close().catch((error: unknown) => {
-        logger.error('Delegated approvals unsubscribe failed', { error, threadId });
-      });
+      approvals.close();
       mcpInput.close();
       thread.close();
     },
