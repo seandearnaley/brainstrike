@@ -1104,7 +1104,7 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
-  it('waits for a worker that starts slowly instead of failing it', async () => {
+  it('waits for a worker that starts slowly, saying so once instead of failing it', async () => {
     vi.useFakeTimers();
     const onFileError = vi.fn();
 
@@ -1121,7 +1121,12 @@ describe('useBackgroundTokenIndexer', () => {
     });
 
     expect(mockWorkers).toHaveLength(1);
-    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(mockLogger.warn.mock.calls).toEqual([
+      [
+        'Background token indexer worker has not started after 5 s',
+        expect.objectContaining({ workerGeneration: 1 }),
+      ],
+    ]);
     expect(mockLogger.error).not.toHaveBeenCalled();
     expect(mockEmitIndexingError).not.toHaveBeenCalled();
 
@@ -1864,6 +1869,26 @@ describe('useBackgroundTokenIndexer', () => {
       ]);
     });
     await waitFor(() => expect(worker.postMessage).toHaveBeenCalledOnce());
+
+    unmount();
+    await expect(indexing).rejects.toThrow('Background token indexer unmounted');
+    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(mockEmitIndexingError).not.toHaveBeenCalled();
+    expect(onFileError).not.toHaveBeenCalled();
+  });
+
+  it('settles a call still waiting for ready at unmount as a cancellation', async () => {
+    const onFileError = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useBackgroundTokenIndexer({ autoStart: false, mode: 'accurate', onFileError, store: null })
+    );
+    let indexing!: Promise<void>;
+    act(() => {
+      indexing = result.current.indexFiles([
+        { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+      ]);
+    });
+    expect(mockWorkers).toHaveLength(1);
 
     unmount();
     await expect(indexing).rejects.toThrow('Background token indexer unmounted');
