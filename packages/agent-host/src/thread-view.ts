@@ -8,8 +8,11 @@ import {
   readProviderCallWarning,
   readToolTelemetryOmission,
 } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { HostClient } from './client-connection.ts';
 import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
+
+const logger = createLogger('CommittedThreadSession');
 
 export type PendingHostApproval = Extract<HostEvent, { type: 'interaction.requested' }>;
 export interface HostRunView {
@@ -429,9 +432,11 @@ export class CommittedThreadSession {
         deliver({ telemetry: received });
       }
     });
+    const requested = performance.now();
     this.client.request('log/subscribe', { fromSeq: 0, threadId: this.threadId }).then(
       (result) => {
         if (active) {
+          const received = performance.now();
           // The boundary is set before the replay publishes, so no listener sees
           // replayed rows without it. An empty replay publishes no rows, so it
           // announces the end of loading itself.
@@ -446,6 +451,13 @@ export class CommittedThreadSession {
             this.update({});
           }
           telemetry.replayed(result.telemetry);
+          // How long a thread takes to open: the host's replay, then this view's fold of it.
+          logger.info('Replayed a thread', {
+            applyMs: Math.round(performance.now() - received),
+            replayMs: Math.round(received - requested),
+            rows: result.rows.length,
+            threadId: this.threadId,
+          });
         }
       },
       (cause: unknown) => {

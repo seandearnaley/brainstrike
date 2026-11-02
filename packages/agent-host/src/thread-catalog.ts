@@ -1,7 +1,10 @@
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
 import type { HostHookTrustStore } from './hook-trust.ts';
 import type { HostLogRow, HostResults } from './protocol.ts';
+
+const logger = createLogger('HostThreadCatalog');
 
 type ListedThread = HostResults['thread/list']['threads'][number];
 
@@ -103,7 +106,13 @@ export class HostThreadCatalog {
     threads: Set<string>,
     fold: (row: HostLogRow) => void
   ): Promise<void> {
-    for (const stored of await store.readHydration()) {
+    // Every Core method waits on this, so its time is the time to the thread list.
+    const started = performance.now();
+    let rowCount = 0;
+    let foldMs = 0;
+    const hydration = await store.readHydration();
+    const readMs = performance.now() - started;
+    for (const stored of hydration) {
       const { createdAt, threadId, updatedAt } = stored;
       threads.add(threadId);
       this.times.set(threadId, { createdAt, updatedAt });
@@ -115,10 +124,21 @@ export class HostThreadCatalog {
         }
         continue;
       }
+      const folding = performance.now();
       for (const row of decoded.rows) {
         fold(row);
       }
+      foldMs += performance.now() - folding;
+      rowCount += decoded.rows.length;
     }
+    logger.info('Hydrated the committed log', {
+      damaged: this.damaged.size,
+      foldMs: Math.round(foldMs),
+      readMs: Math.round(readMs),
+      rows: rowCount,
+      threads: threads.size,
+      totalMs: Math.round(performance.now() - started),
+    });
     if (this.damaged.size > 0) {
       this.releaseGc = store.holdBlobGc();
     }
