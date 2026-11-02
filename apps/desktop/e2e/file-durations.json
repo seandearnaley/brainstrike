@@ -81,7 +81,6 @@
     "host-thread-removed-folder.desktop.test.ts": 24.3,
     "host-thread-resilience.desktop.test.ts": 31.1,
     "host-thread-rewind.desktop.test.ts": 16.1,
-    "host-thread-root-data-delete.desktop.test.ts": 13.6,
     "host-thread-run-verdict.desktop.test.ts": 12.5,
     "host-thread-search.desktop.test.ts": 8.5,
     "host-thread-second-root-send.desktop.test.ts": 14.6,

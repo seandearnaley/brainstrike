@@ -123,23 +123,6 @@ describe('WorkspaceRootRegistry', () => {
     await registry.dispose();
   });
 
-  it('hides a folder whose data is being deleted for the whole deletion', async () => {
-    const registry = createRegistry();
-    const root = await registry.addRoot(rootHandle(path.resolve('/workspace')));
-    const reservation = registry.reserveRootDataDeletion(root.rootId);
-
-    expect(registry.mountedRoots()).toEqual([]);
-    await expect(registry.useMountedRoot(root.rootId, async () => 'read')).rejects.toThrow(
-      'not mounted'
-    );
-
-    reservation.release();
-    expect(registry.mountedRoots()).toEqual([
-      expect.objectContaining({ path: path.resolve('/workspace'), rootId: root.rootId }),
-    ]);
-    await registry.dispose();
-  });
-
   it('refuses to reopen a folder whose path now resolves elsewhere, and keeps it open for reconnect', async () => {
     const workspace = path.resolve('/workspace');
     const catalog = openRootsCatalog([{ addedAt: 1, path: workspace, rootId: 'root-a' }]);

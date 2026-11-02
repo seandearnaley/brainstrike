@@ -87,9 +87,6 @@ export const DESKTOP_IPC_CHANNELS = {
   fileExports: {
     saveToDownloads: 'file-exports:save-to-downloads',
   },
-  files: {
-    deleteRootData: 'fs:deleteRootData',
-  },
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
     trustProjectHooks: 'hooks:trust-project-hooks',

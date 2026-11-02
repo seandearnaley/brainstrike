@@ -17,7 +17,6 @@ import {
 } from '@brainstrike/assistant-ui';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import {
-  RootDataDeletionProvider,
   useFileSystem,
   type WorkspaceApp,
   WorkspaceBody,
@@ -129,7 +128,6 @@ export interface RootLayoutContentProps {
    * hidden (its provider binds to this same presence check).
    */
   readonly changesPageContent?: ReactNode;
-  readonly deleteRootData: (rootId: string) => Promise<void>;
   /**
    * Active flags from an authoritative app-owned feature-flag registry.
    * Omit when the app has no such registry; diagnostics surfaces that absence.
@@ -524,7 +522,6 @@ function ExplorerAppSurface({
 
 export function RootLayoutContent({
   stateHealth,
-  deleteRootData,
   artifactsPageContent,
   canvasShellSrc,
   changesPageContent,
@@ -598,96 +595,92 @@ export function RootLayoutContent({
     setState,
   });
 
-  // The deletion context must enclose AppLayout's sole FileSystemProvider:
-  // a provider inside the file tree cannot supply that ancestor's instance.
   return (
-    <RootDataDeletionProvider deleteRootData={deleteRootData}>
-      <AppLayout
-        config={appConfig}
-        currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
-        onNavigationClick={handleNavigationClick}
-        onOpenSettings={openSettings}
-        stateHealth={stateHealth ?? null}
-      >
-        {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
+    <AppLayout
+      config={appConfig}
+      currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
+      onNavigationClick={handleNavigationClick}
+      onOpenSettings={openSettings}
+      stateHealth={stateHealth ?? null}
+    >
+      {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
           Changes tab-switch + pending-changeset handoff. `null` value (no
           changesPageContent) makes the link render nothing — same capability
           gating as the Artifacts nav item. */}
-        <ChangesReviewProvider value={changesReviewValue}>
-          <ContextMapLinkContext value={contextMapLinkValue}>
-            {/* Binds the assistant panel's "Restore to before this message"
+      <ChangesReviewProvider value={changesReviewValue}>
+        <ContextMapLinkContext value={contextMapLinkValue}>
+          {/* Binds the assistant panel's "Restore to before this message"
             affordance (BST-1115). The modal it raises is mounted below, as a
             lexical SIBLING of every shell route rather than inside any
             surface, because both entry points (assistant panel, Changes
             header) must land in the same one. */}
-            <RewindProvider value={rewindValue}>
-              <ActionRegistryProvider registry={actionRegistry}>
-                {/* The ⌘K command palette mounts once at the visible-UI root. */}
-                <CommandPaletteHost />
-                {/* Tab chords (BST-1842): mounted once beside the palette. */}
-                <TabChordHost />
-                <WorkspaceConnectHost />
-                <div
-                  aria-hidden={shellTab !== 'explorer'}
-                  className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-                  data-testid="explorer-route"
+          <RewindProvider value={rewindValue}>
+            <ActionRegistryProvider registry={actionRegistry}>
+              {/* The ⌘K command palette mounts once at the visible-UI root. */}
+              <CommandPaletteHost />
+              {/* Tab chords (BST-1842): mounted once beside the palette. */}
+              <TabChordHost />
+              <WorkspaceConnectHost />
+              <div
+                aria-hidden={shellTab !== 'explorer'}
+                className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                data-testid="explorer-route"
+              >
+                <PanelLayoutProvider
+                  controlledState={panelState}
+                  onChange={handlePanelLayoutChange}
                 >
-                  <PanelLayoutProvider
-                    controlledState={panelState}
-                    onChange={handlePanelLayoutChange}
-                  >
-                    <ExplorerAppSurface
-                      canvasShellSrc={canvasShellSrc}
-                      changesPageContent={changesPageContent}
-                      logsPageContent={logsPageContent}
-                      terminalPageContent={terminalPageContent}
-                      threadContextPageContent={threadContextPageContent}
-                      worktreeMapPageContent={worktreeMapPageContent}
-                    />
-                  </PanelLayoutProvider>
-                </div>
-                {/* MCP elicitation consent is app-wide (BST-1584): desktop main
+                  <ExplorerAppSurface
+                    canvasShellSrc={canvasShellSrc}
+                    changesPageContent={changesPageContent}
+                    logsPageContent={logsPageContent}
+                    terminalPageContent={terminalPageContent}
+                    threadContextPageContent={threadContextPageContent}
+                    worktreeMapPageContent={worktreeMapPageContent}
+                  />
+                </PanelLayoutProvider>
+              </div>
+              {/* MCP elicitation consent is app-wide (BST-1584): desktop main
                     pushes server input requests here regardless of route, and the
                     host renders nothing when the preload bridge is absent. */}
-                <McpElicitationHost />
-                {/* Composer MCP prompt selection is app-wide (BST-1592): the
+              <McpElicitationHost />
+              {/* Composer MCP prompt selection is app-wide (BST-1592): the
                     "/" menu's execute hands the selection here from wherever the
                     composer is mounted, and the host renders nothing when the
                     preload bridge is absent. */}
-                <McpPromptComposerHost />
-                {/* Each keeps its content mounted-but-hidden once first opened — see
+              <McpPromptComposerHost />
+              {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
-                {/* The Artifacts gallery: every thread's canvases. */}
-                <KeepMountedRoute
-                  content={artifactsPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="artifacts"
-                />
-                {/* Settings is a full shell tab (BST-1668): same keep-mounted
+              {/* The Artifacts gallery: every thread's canvases. */}
+              <KeepMountedRoute
+                content={artifactsPageContent}
+                mountedTabs={mountedTabs}
+                shellTab={shellTab}
+                tab="artifacts"
+              />
+              {/* Settings is a full shell tab (BST-1668): same keep-mounted
                     contract as the routes above, so in-progress edits survive
                     a trip to another tab. */}
-                <KeepMountedRoute
-                  content={settingsPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="settings"
-                />
-                {/* Conversation Rewind confirm modal. Mounted only when the
+              <KeepMountedRoute
+                content={settingsPageContent}
+                mountedTabs={mountedTabs}
+                shellTab={shellTab}
+                tab="settings"
+              />
+              {/* Conversation Rewind confirm modal. Mounted only when the
                 changes capability is present (`rewindValue`), so web never
                 loads its chunk, and lazily so the Changes tree/diff panes stay
                 out of the shell's entry chunk. Renders nothing visible until
                 an entry point writes a request to `useRewindStore`. */}
-                {rewindValue ? (
-                  <Suspense fallback={null}>
-                    <RewindConfirmDialogLazy />
-                  </Suspense>
-                ) : null}
-              </ActionRegistryProvider>
-            </RewindProvider>
-          </ContextMapLinkContext>
-        </ChangesReviewProvider>
-      </AppLayout>
-    </RootDataDeletionProvider>
+              {rewindValue ? (
+                <Suspense fallback={null}>
+                  <RewindConfirmDialogLazy />
+                </Suspense>
+              ) : null}
+            </ActionRegistryProvider>
+          </RewindProvider>
+        </ContextMapLinkContext>
+      </ChangesReviewProvider>
+    </AppLayout>
   );
 }

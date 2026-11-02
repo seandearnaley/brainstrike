@@ -36,11 +36,8 @@ vi.mock('electron-store', () => {
 
 // Mock Electron APIs
 const mockElectronAPI = {
-  fileSystem: {
-    deleteRootData: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
-  },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
-} satisfies Pick<VisibleDesktopElectronApi, 'fileSystem' | 'getUserDataPath'>;
+} satisfies Pick<VisibleDesktopElectronApi, 'getUserDataPath'>;
 
 // Guard: this file's `Object.defineProperty(window, ...)` calls below are
 // jsdom-only bootstrapping. `window` is always defined under this package's

@@ -48,7 +48,6 @@
     "./shell": "./src/shell/index.ts",
     "./shell/file-explorer-provider": "./src/shell/file-explorer-provider.tsx",
     "./shell/file-system-provider": "./src/shell/file-system-provider.tsx",
-    "./shell/root-data-deletion-context": "./src/shell/root-data-deletion-context.tsx",
     "./styles.css": "./styles.css",
     "./tree": "./src/tree/index.ts",
     "./editor-view-state-store": "./src/editor-view-state-store.ts",

@@ -56,15 +56,6 @@ export interface MountedWorkspaceRoot {
   readonly rootId: string;
 }
 
-export interface RootDataDeletionReservation {
-  assertCurrent(): void;
-  disconnect(): Promise<void>;
-  readonly mounted: MountedWorkspaceRoot;
-  release(): void;
-  retireSources(): Promise<void>;
-  run(operation: () => Promise<void>): Promise<void>;
-}
-
 export interface WorkspaceRootRegistryOptions {
   readonly createSecureRoot?: (rootPath: string) => Promise<SecureWorkspaceRoot>;
   readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;

@@ -17,7 +17,6 @@ export type WorkspaceRootRequest =
   | { readonly operation: 'list-open' }
   /** The roots of the worktree ledger's unarchived worktrees: threads' checkouts (ADR-0034). */
   | { readonly operation: 'list-worktrees' }
-  | { readonly operation: 'delete'; readonly rootId: string; readonly paths: readonly string[] }
   /**
    * Registering a root opens it: it keeps its place, or joins the end; a managed worktree is
    * registered but never opened. A recorded root whose

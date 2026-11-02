@@ -35,12 +35,6 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
   /** Folder grant without the picker: the path must be a recent folder or a managed worktree. */
   'workspace/roots/add': Schema.Struct({ path: AbsolutePath }),
   /**
-   * Deletes one open folder's canonical data and closes it. Refused before anything is removed
-   * while the store is read-only, the folder is not mounted, or another change holds the
-   * folders; the folder is fenced from every host read, watch and run until the deletion ends.
-   */
-  'workspace/roots/delete-data': Schema.Struct({ rootId: Id }),
-  /**
    * Opens a folder as the window's project (ADR-0034): with `path`, a folder granted before
    * (Recents), else through the native picker. Every other open folder closes; one a running
    * thread works in stays mounted, closed, so the run keeps working. A managed worktree is
@@ -62,7 +56,6 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
 } as const;
 export const WORKSPACE_ROOTS_RESULT_SCHEMAS = {
   'workspace/roots/add': OpenRootSchema,
-  'workspace/roots/delete-data': Schema.Null,
   'workspace/roots/open': Schema.Struct({ root: Schema.NullOr(OpenRootSchema) }),
   'workspace/roots/pick': Schema.Struct({ root: Schema.NullOr(OpenRootSchema) }),
   'workspace/roots/recent': Schema.Struct({ roots: Schema.Array(RecentRootSchema) }),

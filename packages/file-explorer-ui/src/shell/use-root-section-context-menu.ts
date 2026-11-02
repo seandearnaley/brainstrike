@@ -153,9 +153,7 @@ export function useRootSectionContextMenu({
 export interface UseSingleRootHeaderMenuOptions {
   /** Client-declared main root (`activeRootIds[0]`) — badges the primary root. */
   readonly mainRootId: string | undefined;
-  readonly onRemoveRoot?:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
+  readonly onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
   readonly rootActions?: readonly AnyContextAction[] | undefined;
   readonly rootDirectoryHandle: DirectoryHandle | null;
   readonly rootIdByPath?: ReadonlyMap<string, string> | undefined;
@@ -167,7 +165,7 @@ export interface UseSingleRootHeaderMenuResult {
   readonly isDisconnectDialogOpen: boolean;
   readonly localActions: readonly AnyContextAction[];
   readonly onCloseAutoFocus: () => void;
-  readonly onDisconnectConfirm: (options: { deleteData: boolean }) => void;
+  readonly onDisconnectConfirm: () => void;
   readonly reset: () => void;
   readonly restoreFocusRef: RefObject<HTMLDivElement | null>;
   readonly rootIdentity: string;
@@ -208,13 +206,13 @@ export function useSingleRootHeaderMenu({
     setIsDisconnectDialogOpen(true);
   };
 
-  const onDisconnectConfirm = (options: { deleteData: boolean }) => {
+  const onDisconnectConfirm = () => {
     setIsDisconnectDialogOpen(false);
     // Fire-and-forget is safe here for the same reason RootSectionInner's
     // handleDisconnectConfirm is: removeRootDirectory catches every
     // failure path internally and surfaces a toast instead of rejecting.
     if (openFolderId !== null) {
-      void onRemoveRoot?.(openFolderId, options);
+      void onRemoveRoot?.(openFolderId);
     }
   };
 

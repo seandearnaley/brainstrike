@@ -1,4 +1,3 @@
-import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
 import {
   registerContentClearIpcHandlers,
   registerFactoryResetIpcHandlers,
@@ -8,7 +7,6 @@ import {
 interface RegisterIpcHandlerOptions {
   readonly getUserDataPath?: () => string;
   readonly onClearContent?: () => Promise<void>;
-  readonly onDeleteRootData?: (rootId: string) => Promise<void>;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
 }
 
@@ -39,9 +37,6 @@ export function createApplicationIpcDomain(
   const unregisterFactoryReset = options.onResetLocal
     ? registerFactoryResetIpcHandlers(options.onResetLocal)
     : undefined;
-  const unregisterFileSystem = registerFileSystemIpcHandlers({
-    ...(options.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
-  });
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async (): Promise<void> => {
@@ -49,7 +44,6 @@ export function createApplicationIpcDomain(
         ...(unregisterProfilePath ? [unregisterProfilePath] : []),
         ...(unregisterContentClear ? [unregisterContentClear] : []),
         ...(unregisterFactoryReset ? [unregisterFactoryReset] : []),
-        unregisterFileSystem,
       ];
       const results = await Promise.allSettled(retirements.map(async (retire) => retire()));
       const errors = results.flatMap((result) =>

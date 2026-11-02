@@ -90,8 +90,6 @@ export function createRegistryCatalogRequest(
         }
         return { roots: disconnected };
       }
-      case 'delete':
-        throw new Error('Unexpected catalog deletion in a registry fixture');
     }
   });
 }

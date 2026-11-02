@@ -11,7 +11,6 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
 import { WorkspaceGitServicesProvider } from '@brainstrike/app-shell/workspace-git-services';
 import { WorkspaceTerminalServicesProvider } from '@brainstrike/app-shell/workspace-terminal-services';
-import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
@@ -118,13 +117,6 @@ export default function RootLayoutContent() {
     // shell protocol, both unconditionally present on desktop: no bridge gate.
     artifactsPageContent: <ArtifactsPage shellSrc={CANVAS_SHELL_SRC} />,
     canvasShellSrc: CANVAS_SHELL_SRC,
-    deleteRootData: (rootId) => {
-      const bridge = window.electronAPI;
-      if (!(bridge && 'fileSystem' in bridge)) {
-        throw new Error('Desktop root data deletion bridge is unavailable.');
-      }
-      return callBoundary(() => bridge.fileSystem.deleteRootData(rootId));
-    },
     // Every desktop window has its own log buffer and Electron main's (BST-1791).
     logsPageContent: <LogsPageContent />,
     navigationItems: navigationConfig,

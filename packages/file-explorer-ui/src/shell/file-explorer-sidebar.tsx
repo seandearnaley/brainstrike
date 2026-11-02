@@ -91,11 +91,9 @@ interface FileExplorerSidebarProps {
   /**
    * Disconnect a root by RootId (multi-root, Phase 5). When provided, each
    * forest-mode section header shows a disconnect (X) button guarded by a
-   * confirmation dialog. Disconnect ≠ delete: indexed DB rows are kept.
+   * confirmation dialog. Disconnect ≠ delete: the folder's record is kept.
    */
-  onRemoveRoot?:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
+  onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
   /** Select all files in a folder recursively, loading if needed */
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
@@ -498,9 +496,7 @@ interface RootSectionProps extends PerRootTreePaneProps {
   isFirstSection?: boolean | undefined;
   /** Client-declared main root (activeRootIds[0]) — badges the primary root. */
   mainRootId?: string | undefined;
-  onRemoveRoot?:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
+  onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
   rootActions?: readonly AnyContextAction[] | undefined;
   rootIdByPath?: ReadonlyMap<string, string> | undefined;
   setFocusedRoot?: ((path: string) => void) | undefined;
@@ -713,16 +709,16 @@ const RootSectionInner = ({
     rootId: rootIdentity,
   });
 
-  const handleDisconnectConfirm = (options: { deleteData: boolean }) => {
+  const handleDisconnectConfirm = () => {
     setIsDisconnectDialogOpen(false);
     // Legacy roots without a RootId use their path AS the id (matches
     // removeRootDirectory's path-doubles-as-id resolution).
     // Fire-and-forget is safe here: removeRootDirectory (use-file-system-
-    // context.ts) catches every failure path internally (deletion AND
-    // adapter disconnect) and surfaces a toast instead of rejecting, so
+    // context.ts) catches every failure path internally (the adapter
+    // disconnect) and surfaces a toast instead of rejecting, so
     // there is no unhandled-rejection path to `.catch` here.
     if (openFolderId !== null) {
-      void onRemoveRoot?.(openFolderId, options);
+      void onRemoveRoot?.(openFolderId);
     }
   };
 
