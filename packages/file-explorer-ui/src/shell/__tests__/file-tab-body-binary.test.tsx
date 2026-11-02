@@ -131,7 +131,7 @@ describe('FileTabBody binary file preview', () => {
 
     renderBinaryBody({ content: inaccessibleContent });
 
-    expect(screen.getByText(inaccessibleContent)).toBeInTheDocument();
+    expect(screen.getByText('File disappeared during refresh')).toBeInTheDocument();
     expect(screen.queryByTestId('binary-file-preview')).not.toBeInTheDocument();
     expect(screen.queryByTestId('file-code-surface')).not.toBeInTheDocument();
   });

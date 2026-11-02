@@ -36,6 +36,8 @@ export interface ThreadRoots {
   readonly loadedSecondaryRoots: readonly ThreadCheckoutRoot[];
   /** True once the primary's row is read and is missing or not live. */
   readonly primaryRemoved: boolean;
+  /** True once the rows of the thread's folders are read for its current folder ids. */
+  readonly resolved: boolean;
   readonly secondaryRootsStatus: 'error' | 'pending' | 'ready';
 }
 
@@ -121,6 +123,7 @@ export function useThreadRoots(args: {
   return {
     loadedSecondaryRoots: current?.roots ?? NO_ROOTS,
     primaryRemoved: current?.primaryRemoved ?? false,
+    resolved: !catalog || (!primaryRootId && secondaryRootIds.length === 0) || current !== null,
     secondaryRootsStatus: secondaryRootsStatus(
       secondaryRootIds,
       key,

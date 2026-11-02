@@ -206,7 +206,14 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       await publish();
       return null;
     },
+    // The host restored the open folders at its start, so a window opening reads them: nothing is
+    // written and Main is not told. Only a folder that is not mounted (it was unavailable, or
+    // changed outside this host) restores them again.
     'workspace/roots/restore': async () => {
+      const current = await registry.currentRoots();
+      if (current) {
+        return { roots: current.map(wireRoot) };
+      }
       const restored = await registry.restoreRoots();
       await publish();
       return { roots: restored.map(wireRoot) };

@@ -1,6 +1,6 @@
-import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
+import { INACCESSIBLE_CONTENT_PREFIX, type TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { Button } from '@brainstrike/ui';
-import { AlertCircle, Loader2, LockKeyhole } from 'lucide-react';
+import { AlertCircle, FolderX, Loader2, LockKeyhole } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 /**
@@ -58,13 +58,45 @@ export function FileNotFoundScreen({
 
 export function FileContentPendingScreen({
   isPending,
+  rootConnecting = false,
 }: {
   readonly isPending: boolean;
+  /** The file's folder is still being opened. */
+  readonly rootConnecting?: boolean;
 }): ReactElement {
+  const label = rootConnecting ? 'Connecting folder…' : isPending ? 'Restoring…' : 'Loading…';
   return (
-    <div className="text-muted-foreground flex h-full items-center justify-center">
-      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-      <span>{isPending ? 'Restoring…' : 'Loading…'}</span>
+    <div
+      aria-live="polite"
+      className="text-muted-foreground flex h-full items-center justify-center"
+      role="status"
+    >
+      <Loader2 aria-hidden="true" className="mr-2 h-5 w-5 animate-spin" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * The file's folder is not open, so its content cannot load. Opening the thread that works in
+ * the folder reconnects it; otherwise the folder is added again from the folder chip or Recents.
+ */
+export function FolderNotConnectedScreen({ path }: { readonly path: string }): ReactElement {
+  return (
+    <div
+      aria-labelledby="file-folder-not-connected-title"
+      className="flex h-full flex-col items-center justify-center p-4 text-center"
+      role="alert"
+    >
+      <FolderX aria-hidden="true" className="text-muted-foreground mb-4 h-12 w-12" />
+      <p className="text-lg font-semibold" id="file-folder-not-connected-title">
+        Folder not connected
+      </p>
+      <p className="text-muted-foreground mt-2 max-w-md text-sm">
+        This file's folder is no longer open. Open a thread that works in it, or add the folder
+        again from Recents.
+      </p>
+      <p className="text-muted-foreground mt-1 max-w-md text-xs break-all">{path}</p>
     </div>
   );
 }
@@ -113,14 +145,34 @@ export function FileContentErrorScreen({
   );
 }
 
-export function InaccessibleFileScreen({ content }: { readonly content: string }): ReactElement {
+/** A read the host answered with a reason (not found, refused, unreadable): shown with Retry. */
+export function InaccessibleFileScreen({
+  content,
+  onRetry,
+  path,
+}: {
+  readonly content: string;
+  readonly onRetry: () => void;
+  readonly path: string;
+}): ReactElement {
+  const reason = content.startsWith(INACCESSIBLE_CONTENT_PREFIX)
+    ? content.slice(INACCESSIBLE_CONTENT_PREFIX.length).replace(/^\s*-\s*/u, '')
+    : content;
   return (
-    <div className="h-full overflow-auto p-4">
-      <p className="text-warning">{content}</p>
-      <p className="text-muted-foreground mt-2 text-sm">
-        To access this file, please open the folder again using the folder icon button. This is a
-        security measure of your browser.
+    <div
+      aria-labelledby="file-inaccessible-title"
+      className="flex h-full flex-col items-center justify-center p-4 text-center"
+      role="alert"
+    >
+      <AlertCircle aria-hidden="true" className="text-destructive mb-4 h-12 w-12" />
+      <p className="text-lg font-semibold" id="file-inaccessible-title">
+        Can't open this file
       </p>
+      <p className="text-muted-foreground mt-2 max-w-md text-sm">{reason || 'The read failed.'}</p>
+      <p className="text-muted-foreground mt-1 max-w-md text-xs break-all">{path}</p>
+      <Button className="mt-4" onClick={onRetry} type="button" variant="outline">
+        Retry
+      </Button>
     </div>
   );
 }

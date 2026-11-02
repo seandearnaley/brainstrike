@@ -912,7 +912,7 @@ describe('workspace tabs — file tab operations', () => {
     expect(loadFileContent).not.toHaveBeenCalled();
   });
 
-  it('renders inaccessible file content as a browser permission message', async () => {
+  it('renders inaccessible file content with its reason and a retry', async () => {
     const compositeKey = 'folderA|@|src/locked.ts';
     useWorkspaceTabSelectionStore.getState().selectFile(compositeKey);
 
@@ -952,7 +952,8 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByText(inaccessibleContent)).toBeInTheDocument();
-    expect(screen.getByText(/please open the folder again/iu)).toBeInTheDocument();
+    expect(await screen.findByText("Can't open this file")).toBeInTheDocument();
+    expect(screen.getByText('permission required')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });

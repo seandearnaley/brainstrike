@@ -109,6 +109,28 @@ function normalizeMaxFileSize(maxFileSize: unknown): number {
   return maxFileSize;
 }
 
+/**
+ * The reason a read failed, as the person can act on it: a missing file says so, and a
+ * platform refusal (folder not connected, outside the folder) keeps its own message.
+ */
+function describeReadFailure(error: unknown): string {
+  if (error && typeof error === 'object') {
+    if ('code' in error && (error.code === 'NOT_FOUND' || error.code === 'ENOENT')) {
+      return 'This file no longer exists. It may have been moved, renamed or deleted.';
+    }
+    const failure = 'failure' in error ? error.failure : undefined;
+    if (
+      failure &&
+      typeof failure === 'object' &&
+      'message' in failure &&
+      typeof failure.message === 'string'
+    ) {
+      return failure.message;
+    }
+  }
+  return 'The file could not be read.';
+}
+
 export function createFileContentWorker({
   fileSystemAdapter,
   concurrency = 3, // Reduced from 5 to prevent main thread saturation
@@ -275,7 +297,7 @@ export function createFileContentWorker({
         throw new FileContentError(tooLargeMessage, req.path, 'TOO_LARGE');
       }
       logger.warn('Failed to read file content via adapter', { error, path: req.path });
-      throw new FileContentError('Error accessing file', req.path, 'LOADING_ERROR');
+      throw new FileContentError(describeReadFailure(error), req.path, 'LOADING_ERROR');
     }
 
     const extension = getFileExtension(req.path);
