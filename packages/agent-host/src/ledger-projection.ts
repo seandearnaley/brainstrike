@@ -168,6 +168,16 @@ const AssistantPartsSchema = Schema.Struct({
   role: Schema.Literal('assistant'),
 });
 
+/** Whether `value` is an object whose `key` is `expected`: a test before a decode, never instead of one. */
+function hasField(value: unknown, key: string, expected: string): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    key in value &&
+    Reflect.get(value, key) === expected
+  );
+}
+
 /**
  * One call per (run, toolCallId), shared by ledger and child-card projections.
  * model.step contains the calls and commits together with its approvals;
@@ -190,6 +200,10 @@ export class HostToolCallCount {
       return;
     }
     for (const message of event.messages) {
+      // Only an assistant message carries calls; nothing else is decoded.
+      if (!hasField(message, 'role', 'assistant')) {
+        continue;
+      }
       const parsed = Schema.decodeUnknownResult(AssistantPartsSchema)(message);
       if (parsed._tag === 'Success') {
         for (const part of parsed.success.content) {
@@ -200,6 +214,10 @@ export class HostToolCallCount {
   }
 
   private record(runId: string, part: unknown): void {
+    // Every committed chunk passes here; only a tool call is decoded.
+    if (!hasField(part, 'type', 'tool-call')) {
+      return;
+    }
     const parsed = Schema.decodeUnknownResult(ToolCallSchema)(part);
     if (parsed._tag === 'Success') {
       this.calls.add(JSON.stringify([runId, parsed.success.toolCallId]));

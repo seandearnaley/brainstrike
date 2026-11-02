@@ -13,7 +13,7 @@ const TITLE_SOURCE_LIMIT = 20;
 const THREAD_LIMIT = 20;
 const PER_THREAD_MATCH_LIMIT = 3;
 
-type HostThreadSearchCore = Pick<HostCore, 'listChildren' | 'listThreads' | 'read' | 'threadTimes'>;
+type HostThreadSearchCore = Pick<HostCore, 'listThreads' | 'read' | 'threadTimes' | 'trees'>;
 
 /** One committed conversation row the derived state index matched (`searchState`). */
 interface HostStateSearchHit {
@@ -40,7 +40,7 @@ function ownedThreads(core: HostThreadSearchCore): Map<string, string> {
   const owned = new Map<string, string>();
   const visit = (threadId: string, rootThreadId: string): void => {
     owned.set(threadId, rootThreadId);
-    for (const child of core.listChildren(threadId)) {
+    for (const child of core.trees.children(threadId)) {
       visit(child.threadId, rootThreadId);
     }
   };

@@ -253,6 +253,15 @@ export const HOST_DRAINED_EVENT = 'host/drained';
 export const HOST_CHILDREN_CHANGED = 'thread/children/changed';
 export const HostChildrenChangedSchema = Schema.Struct(Thread);
 /**
+ * The host's notice that a thread's summary changed (`thread/tree`), naming that
+ * thread and each thread above it. A client re-reads the tree it shows only
+ * when the tree's thread is named.
+ */
+export const HOST_TREE_CHANGED = 'thread/tree/changed';
+export const HostTreeChangedSchema = Schema.Struct({
+  threadIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
+});
+/**
  * A run's live telemetry, sent to the thread's log subscribers and never
  * committed (ADR-0011 amendment): a tool's shell-output slice or MCP progress,
  * which names its `toolCallId`, or the model's text and reasoning stream,
@@ -474,6 +483,12 @@ export const HOST_METHOD_SCHEMAS = {
   ...FILE_SEARCH_METHOD_SCHEMAS,
   ...SELECTION_METHOD_SCHEMAS,
   'thread/start': Schema.Struct(Command),
+  /**
+   * BST-1932: a thread's summary and every thread delegated beneath it: each
+   * one's latest run, the interactions waiting on a person and its answered
+   * approvals, as Core folds them. A client re-reads it when told.
+   */
+  'thread/tree': Schema.Struct(Thread),
   'thread/update': Schema.Struct({ ...Command, ...Thread, ...ThreadPresentation }).check(
     Schema.makeFilter((params) =>
       Object.keys(params).length > 2
@@ -578,6 +593,23 @@ export const HostPromptToolCallWindowSchema = Schema.Struct({
  * shape. Two shapes that share a `type` are one member: the pipe's input
  * carries the `type` the union routes on, and its output union picks the shape.
  */
+/** How a run ended. */
+const HOST_RUN_OUTCOMES = ['completed', 'failed', 'stopped', 'interrupted'] as const;
+/** A run's request for a person: an approval, a question, a plan or network consent. */
+function interactionRequestedSchema(json: JsonSchemaFactory) {
+  return Schema.Struct({
+    type: Schema.Literal('interaction.requested'),
+    ...action(json),
+    executionContext: Schema.optional(json()),
+    interactionId: Id,
+    kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
+    origin: Schema.optional(HostBrowserOriginSchema),
+    /** Auto access mode's note on why this call still needs the user. */
+    reason: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
+    risk: Schema.optional(RiskCategory),
+    ...HOST_APPROVAL_FACT_FIELDS,
+  });
+}
 export function hostEventSchema(json: JsonSchemaFactory) {
   return Schema.Union(
     [
@@ -692,18 +724,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         provider: Id,
         toolCallWindow: Schema.optional(HostPromptToolCallWindowSchema),
       }),
-      Schema.Struct({
-        type: Schema.Literal('interaction.requested'),
-        ...action(json),
-        executionContext: Schema.optional(json()),
-        interactionId: Id,
-        kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
-        origin: Schema.optional(HostBrowserOriginSchema),
-        /** Auto access mode's note on why this call still needs the user. */
-        reason: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
-        risk: Schema.optional(RiskCategory),
-        ...HOST_APPROVAL_FACT_FIELDS,
-      }),
+      interactionRequestedSchema(json),
       Schema.StructWithRest(Schema.Struct({ type: Schema.Literal('interaction.responded') }), [
         Schema.Record(Schema.String, Schema.Unknown),
       ]).pipe(
@@ -738,7 +759,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         type: Schema.Literal('run.finished'),
         ...RunFields,
         detail: Schema.optional(Schema.String),
-        outcome: Schema.Literals(['completed', 'failed', 'stopped', 'interrupted']),
+        outcome: Schema.Literals(HOST_RUN_OUTCOMES),
       }),
       Schema.Struct({
         type: Schema.Literal('run.attempt'),
@@ -889,6 +910,39 @@ export function hostEventSchema(json: JsonSchemaFactory) {
 }
 export const HostEventSchema = hostEventSchema(() => Schema.MutableJson);
 export type HostEvent = (typeof HostEventSchema)['Type'];
+export const HostInteractionRequestedSchema = interactionRequestedSchema(() => Schema.MutableJson);
+export type HostInteractionRequested = (typeof HostInteractionRequestedSchema)['Type'];
+/** An approval asked in a thread, and how it was answered. */
+export const HostAnsweredApprovalSchema = Schema.Struct({
+  approval: HostInteractionRequestedSchema,
+  /** The root's live policy, not a person, answered it. */
+  byPolicy: Schema.Boolean,
+  decision: Schema.Literals(['approve', 'deny']),
+});
+export type HostAnsweredApproval = (typeof HostAnsweredApprovalSchema)['Type'];
+/**
+ * A thread's latest run, as its delegation card reads it: working, waiting on a
+ * person, or how it ended (a completed run without an answer is `no-answer`).
+ */
+export const HostSummaryRunSchema = Schema.Struct({
+  /** Whether the run is the thread's first: a child's delegated invocation, not a follow-up. */
+  delegatedInvocation: Schema.Boolean,
+  status: Schema.Literals(['running', 'needs-input', 'no-answer', ...HOST_RUN_OUTCOMES]),
+  /** The tool calls the thread's runs made, counted by the ledger's rule. */
+  toolCalls: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  /** The turn the run belongs to, which its root's Stop ends (`hostRootRunTurnId`). */
+  turnId: Id,
+});
+export type HostSummaryRun = (typeof HostSummaryRunSchema)['Type'];
+const ThreadSummaryFields = {
+  answered: Schema.mutable(Schema.Array(HostAnsweredApprovalSchema)),
+  /** Present when the thread's history cannot be read; its summary is then empty. */
+  damage: Schema.optional(Schema.String),
+  /** Interactions waiting on a person, in the order they were asked. */
+  pending: Schema.mutable(Schema.Array(HostInteractionRequestedSchema)),
+  run: Schema.NullOr(HostSummaryRunSchema),
+  threadId: Id,
+};
 export const HostLogRowSchema = Schema.Struct({
   event: HostEventSchema,
   seq: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -1006,6 +1060,19 @@ export const HOST_RESULT_SCHEMAS = {
     }),
   ]),
   'thread/read': Schema.Struct({ rows: Schema.mutable(Schema.Array(HostLogRowSchema)) }),
+  'thread/tree': Schema.Struct({
+    /** Every thread delegated beneath it, each parent before its children. */
+    descendants: Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          ...ThreadSummaryFields,
+          callSign: Schema.String.check(Schema.isMinCodePoints(1)),
+          origin: HostChildOriginSchema,
+        })
+      )
+    ),
+    thread: Schema.Struct(ThreadSummaryFields),
+  }),
   ...REWIND_RESULT_SCHEMAS,
   ...SEARCH_RESULT_SCHEMAS,
   ...WORKSPACE_DISCOVERY_RESULT_SCHEMAS,

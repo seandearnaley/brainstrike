@@ -1,14 +1,9 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import type { HostChildOrigin, HostLogRow } from '@brainstrike/agent-host/protocol';
-import {
-  CommittedThreadSession,
-  foldHostRuns,
-  type PendingHostApproval,
-} from '@brainstrike/agent-host/thread-view';
+import type { HostResults, HostSummaryRun } from '@brainstrike/agent-host/protocol';
+import type { PendingHostApproval } from '@brainstrike/agent-host/thread-view';
 import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import type { SubagentChildRun, SubagentChildRunSource } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import { HostChildListingFailures, HostChildRunFold } from './host-child-run';
 
 const logger = createLogger('HostTreeApprovals');
 
@@ -85,157 +80,124 @@ export interface HostTreeAnsweredApproval {
   readonly threadId: string;
 }
 
-/** Each answered approval of one delegated thread, from its committed log. */
-function answeredApprovals(
-  rows: readonly HostLogRow[],
-  owner: string,
-  threadId: string
-): HostTreeAnsweredApproval[] {
-  const requested = new Map<string, PendingHostApproval>();
-  const answered: HostTreeAnsweredApproval[] = [];
-  for (const { event } of rows) {
-    if (event.type === 'interaction.requested' && event.kind === 'approval') {
-      requested.set(event.interactionId, event);
-    } else if (event.type === 'interaction.responded' && 'decision' in event) {
-      const approval = requested.get(event.interactionId);
-      if (approval) {
-        answered.push({
-          approval,
-          byPolicy: event.by === 'policy',
-          decision: event.decision,
-          owner,
-          threadId,
-        });
-      }
-    }
-  }
-  return answered;
-}
-
-interface WatchedThread {
-  /** The effects last seen; a changed count may have started or settled a child. */
-  effects: number;
-  /** The thread's run state, folded from its committed log. */
-  readonly fold: HostChildRunFold;
-  /** A child's committed origin; absent for the viewed thread. */
-  readonly origin: HostChildOrigin | undefined;
-  readonly owner: string | undefined;
-  readonly persona: string | undefined;
-  /** Present for a child's subscription this store opened; the viewed thread's is its view's. */
-  readonly release: (() => Promise<void>) | undefined;
-  /** The watched log's refusal was already reported. */
-  reported: boolean;
-  readonly session: CommittedThreadSession;
-  readonly unsubscribe: () => void;
-}
+type HostTree = HostResults['thread/tree'];
+type TreeClient = Pick<HostClient, 'closed' | 'onTreeChanged' | 'request'>;
 
 const NO_APPROVALS: readonly HostTreeApproval[] = [];
 const NO_INTERACTIONS: readonly HostTreeInteraction[] = [];
 const NO_ANSWERED: readonly HostTreeAnsweredApproval[] = [];
 const NOT_RUNNING: HostTreeRunning = { children: [] };
+const NO_RUNS: ReadonlyMap<string, SubagentChildRun> = new Map();
+/** No tree has been read, or the last read failed. */
+const UNREAD: HostTree = {
+  descendants: [],
+  thread: { answered: [], pending: [], run: null, threadId: '' },
+};
 
 /** A run still working, whether or not it waits on a person. */
-function working(run: SubagentChildRun | undefined): boolean {
+function working(run: HostSummaryRun | null): boolean {
   return run?.status === 'running' || run?.status === 'needs-input';
 }
 
-function sameRuns(
-  a: ReadonlyMap<string, SubagentChildRun>,
-  b: ReadonlyMap<string, SubagentChildRun>
-): boolean {
-  return a.size === b.size && [...a].every(([threadId, run]) => b.get(threadId) === run);
+function unavailable(reason: string): SubagentChildRun {
+  return { reason, status: 'unavailable', toolCalls: 0 };
 }
 
-function sameRunning(a: HostTreeRunning, b: HostTreeRunning): boolean {
+/** A child's card state from its summary; undefined before its first run. */
+function childRun(
+  { damage, run }: HostTree['descendants'][number],
+  lost: string | undefined
+): SubagentChildRun | undefined {
+  if (damage !== undefined) {
+    return unavailable(`This thread's history cannot be read: ${damage}`);
+  }
+  if (lost !== undefined) {
+    return { reason: lost, status: 'unavailable', toolCalls: run?.toolCalls ?? 0 };
+  }
+  return run ? { status: run.status, toolCalls: run.toolCalls } : undefined;
+}
+
+function sameRun(a: SubagentChildRun | undefined, b: SubagentChildRun | undefined): boolean {
   return (
-    a.activeTurnId === b.activeTurnId &&
-    a.children.length === b.children.length &&
-    a.children.every(
-      (child, index) =>
-        child.threadId === b.children[index]?.threadId && child.turnId === b.children[index]?.turnId
-    )
+    a === b ||
+    (a !== undefined &&
+      b !== undefined &&
+      a.status === b.status &&
+      a.toolCalls === b.toolCalls &&
+      (a.status !== 'unavailable' || (b.status === 'unavailable' && a.reason === b.reason)))
   );
 }
 
-function effectCount(rows: readonly HostLogRow[]): number {
-  return rows.filter(
-    ({ event }) => event.type === 'effect.started' || event.type === 'effect.finished'
-  ).length;
+/** Lists of host values keep their identity while the same interactions, owned the same, remain. */
+function sameList<T>(a: readonly T[], b: readonly T[], key: (item: T) => string): boolean {
+  return a.length === b.length && a.every((item, index) => key(item) === key(b[index] as T));
 }
 
-function sameApprovals(a: readonly HostTreeApproval[], b: readonly HostTreeApproval[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every((item, index) => item.approval === b[index]?.approval && item.owner === b[index]?.owner)
-  );
-}
-
-function sameAnswered(
-  a: readonly HostTreeAnsweredApproval[],
-  b: readonly HostTreeAnsweredApproval[]
-): boolean {
-  return (
-    a.length === b.length &&
-    a.every(
-      (item, index) => item.approval === b[index]?.approval && item.decision === b[index]?.decision
-    )
-  );
-}
-
-function sameInteractions(
-  a: readonly HostTreeInteraction[],
-  b: readonly HostTreeInteraction[]
-): boolean {
-  return (
-    a.length === b.length && a.every((item, index) => item.interaction === b[index]?.interaction)
-  );
-}
+const approvalKey = ({ approval, owner }: HostTreeApproval): string =>
+  `${approval.interactionId} ${owner ?? ''}`;
+const interactionKey = ({ interaction }: HostTreeInteraction): string => interaction.interactionId;
+const answeredKey = ({ approval, decision }: HostTreeAnsweredApproval): string =>
+  `${approval.interactionId} ${decision}`;
+const runningKey = ({ threadId, turnId }: HostTreeRunningChild): string => `${threadId} ${turnId}`;
 
 /**
  * BST-1932: the approvals waiting in a host thread and in every thread
- * delegated beneath it, each folded from that thread's own committed log. The
- * tree is the host's committed children, listed again whenever a watched
- * thread commits an effect, where a delegation starts or settles a child. The
- * viewed thread comes first, then each child in the order it was listed.
- *
- * The same followed logs give each child's run state (its delegation card's
- * truth) and the viewed thread's still-working background children; this
- * renderer opens no second subscription to any child.
+ * delegated beneath it, with each child's run state (its delegation card's
+ * truth) and the viewed thread's still-working background children. The host
+ * folds them (`thread/tree`); this reads the tree again whenever the host says
+ * a thread in it changed, and reads no child's log.
  */
 export class HostTreeApprovals implements SubagentChildRunSource {
-  private readonly threads = new Map<string, WatchedThread>();
   private readonly listeners = new Set<() => void>();
   private snapshot = NO_APPROVALS;
   private interactions = NO_INTERACTIONS;
   private answered = NO_ANSWERED;
-  private runs: ReadonlyMap<string, SubagentChildRun> = new Map();
-  /** Parents whose child listing fails: what a child the tree does not follow reads. */
-  private readonly listingFailures = new HostChildListingFailures();
+  private runs = NO_RUNS;
   private running = NOT_RUNNING;
+  /** Why the tree cannot be read; every child then reads unavailable. */
+  private failure: SubagentChildRun | undefined;
+  /** The client's connection closed, so the last tree is no longer the children's truth. */
+  private lost: string | undefined;
+  private tree: HostTree | undefined;
+  /** A read is in flight; `stale` asks for one more once it settles. */
+  private reading = false;
+  private stale = false;
   private closed = false;
+  private readonly release: () => void;
+  /** The client's `closed` reaction holds only this slot, so a closed view is collected (BST-2323). */
+  private readonly whenLost: { listener: (() => void) | undefined };
 
-  private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>;
+  private readonly client: TreeClient;
   readonly threadId: string;
 
-  constructor(
-    client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
-    threadId: string,
-    source: CommittedThreadSession
-  ) {
+  constructor(client: TreeClient, threadId: string) {
     this.client = client;
     this.threadId = threadId;
-    this.watch(threadId, source, undefined, undefined, undefined);
+    this.release = client.onTreeChanged((threadIds) => {
+      if (threadIds.includes(threadId)) {
+        this.refresh();
+      }
+    });
+    this.whenLost = {
+      listener: () => {
+        this.lost = HOST_TREE_DISCONNECTED;
+        this.publish();
+      },
+    };
+    const slot = this.whenLost;
+    const notify = (): void => slot.listener?.();
+    client.closed.then(notify, notify);
+    this.refresh();
   }
 
   readonly getSnapshot = (): readonly HostTreeApproval[] => this.snapshot;
 
   /**
-   * A delegated child's run state; undefined until its committed log is read,
-   * and unavailable, with the reason, while the tree cannot list it.
+   * A delegated child's run state: undefined until the tree shows its first
+   * run, and unavailable, with the reason, while the tree cannot be read.
    */
   readonly read = (threadId: string): SubagentChildRun | undefined =>
-    this.runs.get(threadId) ??
-    (this.threads.has(threadId) ? undefined : this.listingFailures.unlisted());
+    this.failure ?? this.runs.get(threadId);
 
   /** The viewed thread's background children still working (Live QA 2026-10-16). */
   readonly getRunning = (): HostTreeRunning => this.running;
@@ -251,175 +213,172 @@ export class HostTreeApprovals implements SubagentChildRunSource {
     return () => this.listeners.delete(listener);
   };
 
-  /** Stop watching, and settle with every child subscription's unsubscribe. */
-  async close(): Promise<void> {
+  /** Stop following the tree. */
+  close(): void {
     this.closed = true;
-    const watched = [...this.threads.values()];
-    this.threads.clear();
-    for (const thread of watched) {
-      thread.unsubscribe();
-    }
-    await Promise.all(watched.map((thread) => thread.release?.()));
+    this.whenLost.listener = undefined;
+    this.release();
+    this.listeners.clear();
   }
 
-  private watch(
-    threadId: string,
-    session: CommittedThreadSession,
-    origin: HostChildOrigin | undefined,
-    owner: string | undefined,
-    connect: (() => () => Promise<void>) | undefined
-  ): void {
-    const unsubscribe = session.subscribe(() => this.changed(threadId));
-    this.threads.set(threadId, {
-      effects: 0,
-      fold: new HostChildRunFold(),
-      origin,
-      owner,
-      persona: origin?.persona,
-      release: connect?.(),
-      reported: false,
-      session,
-      unsubscribe,
-    });
-    this.changed(threadId);
-  }
-
-  private changed(threadId: string): void {
-    const watched = this.threads.get(threadId);
-    if (!watched || this.closed) {
+  /** Read the tree, or once more after the read in flight when one is. */
+  private refresh(): void {
+    if (this.closed) {
       return;
     }
-    const { error, isLoading, rows } = watched.session.getSnapshot();
-    if (error !== undefined && !watched.reported) {
-      watched.reported = true;
-      logger.error('A delegated thread’s approvals could not be read', { error, threadId });
+    if (this.reading) {
+      this.stale = true;
+      return;
     }
-    const effects = effectCount(rows);
-    if (!isLoading && effects !== watched.effects) {
-      watched.effects = effects;
-      this.listChildren(threadId);
-    }
-    this.publish();
-  }
-
-  private listChildren(threadId: string): void {
-    this.client.request('thread/children', { threadId }).then(
-      ({ children }) => {
-        this.listed(threadId, undefined);
-        for (const child of children) {
-          if (this.closed || this.threads.has(child.threadId)) {
-            continue;
-          }
-          const session = new CommittedThreadSession(this.client, child.threadId);
-          this.watch(child.threadId, session, child.origin, child.callSign, () =>
-            session.connect()
-          );
-        }
-      },
-      (error: unknown) => {
-        logger.error('Delegated threads could not be listed', { error, threadId });
-        this.listed(threadId, describeBoundaryError(error));
-      }
+    this.reading = true;
+    this.client.request('thread/tree', { threadId: this.threadId }).then(
+      (tree) => this.settled(tree, undefined),
+      (error: unknown) => this.settled(undefined, error)
     );
   }
 
-  /**
-   * A parent's listing settled: a failure gives each child the tree does not
-   * follow an unavailable read rather than "not started yet", until that
-   * parent lists again, when its next delegation commits.
-   */
-  private listed(parentThreadId: string, failure: string | undefined): void {
-    if (this.closed || !this.listingFailures.record(parentThreadId, failure)) {
+  private settled(tree: HostTree | undefined, error: unknown): void {
+    this.reading = false;
+    if (this.closed) {
       return;
     }
-    for (const listener of this.listeners) {
-      listener();
+    if (tree) {
+      this.tree = tree;
+      this.failure = undefined;
+    } else if (this.lost === undefined) {
+      const reason = describeBoundaryError(error);
+      if (this.failure?.status !== 'unavailable' || this.failure.reason !== reason) {
+        logger.error('Delegated threads could not be read', { error, threadId: this.threadId });
+        this.failure = unavailable(reason);
+      }
+      // What the tree last said waits is no longer known to wait.
+      this.tree = undefined;
+    }
+    this.publish();
+    if (this.stale) {
+      this.stale = false;
+      this.refresh();
     }
   }
 
   private publish(): void {
-    const next = [...this.threads].flatMap(([threadId, { owner, session }]) =>
-      foldHostRuns(session.getSnapshot().rows).flatMap(({ approvals }) =>
-        approvals
-          .filter((approval) => approval.kind === 'approval')
-          .map((approval) => ({ approval, ...(owner ? { owner } : {}), threadId }))
-      )
-    );
-    // BST-1932 (AT-08): a child's question or plan is answered in the child; the
-    // viewed thread's own are inline in its tool cards.
-    const interactions = [...this.threads].flatMap(([threadId, { owner, persona, session }]) =>
-      owner === undefined || persona === undefined
-        ? []
-        : foldHostRuns(session.getSnapshot().rows).flatMap(({ approvals }) =>
-            approvals
-              .filter((interaction) => interaction.kind !== 'approval')
-              .map((interaction) => ({ interaction, owner, persona, threadId }))
-          )
-    );
-    const answered = [...this.threads].flatMap(([threadId, { owner, session }]) =>
-      owner === undefined ? [] : answeredApprovals(session.getSnapshot().rows, owner, threadId)
-    );
-    const { runs, running } = this.projectRuns();
-    if (
-      sameApprovals(next, this.snapshot) &&
-      sameInteractions(interactions, this.interactions) &&
-      sameAnswered(answered, this.answered) &&
-      sameRuns(runs, this.runs) &&
-      sameRunning(running, this.running)
-    ) {
-      return;
-    }
-    this.snapshot = next.length > 0 ? next : NO_APPROVALS;
-    this.interactions = interactions.length > 0 ? interactions : NO_INTERACTIONS;
-    this.answered = answered.length > 0 ? answered : NO_ANSWERED;
-    this.runs = runs;
-    this.running = sameRunning(running, this.running) ? this.running : running;
-    for (const listener of this.listeners) {
-      listener();
+    const changed = this.project();
+    if (changed) {
+      for (const listener of this.listeners) {
+        listener();
+      }
     }
   }
 
-  /**
-   * Each child's run state, and the viewed thread's direct background children
-   * still working their delegated invocation. Only a root delegation runs in
-   * the background; a nested one runs inline under its parent's active run,
-   * whose own Stop ends it. A child's follow-up (input, Retry, Edit) is its own
-   * turn, stopped from the child, so the parent's turn Stop never claims it.
-   */
-  private projectRuns(): {
-    readonly runs: ReadonlyMap<string, SubagentChildRun>;
-    readonly running: HostTreeRunning;
-  } {
+  /** Project the last tree; whether anything a listener reads changed. */
+  private project(): boolean {
+    const tree = this.tree ?? UNREAD;
+    let changed = this.failure !== undefined || this.lost !== undefined;
+    const keep = <T>(
+      current: readonly T[],
+      next: T[],
+      empty: readonly T[],
+      key: (item: T) => string
+    ) => {
+      if (sameList(current, next, key)) {
+        return current;
+      }
+      changed = true;
+      return next.length > 0 ? next : empty;
+    };
+    const own = tree.thread.pending
+      .filter((approval) => approval.kind === 'approval')
+      .map((approval) => ({ approval, threadId: tree.thread.threadId }));
+    const delegated = tree.descendants;
+    this.snapshot = keep(
+      this.snapshot,
+      [
+        ...own,
+        ...delegated.flatMap(({ callSign, pending, threadId }) =>
+          pending
+            .filter((approval) => approval.kind === 'approval')
+            .map((approval) => ({ approval, owner: callSign, threadId }))
+        ),
+      ],
+      NO_APPROVALS,
+      approvalKey
+    );
+    // BST-1932 (AT-08): a child's question or plan is answered in the child; the
+    // viewed thread's own are inline in its tool cards.
+    this.interactions = keep(
+      this.interactions,
+      delegated.flatMap(({ callSign, origin, pending, threadId }) =>
+        pending
+          .filter((interaction) => interaction.kind !== 'approval')
+          .map((interaction) => ({
+            interaction,
+            owner: callSign,
+            persona: origin.persona,
+            threadId,
+          }))
+      ),
+      NO_INTERACTIONS,
+      interactionKey
+    );
+    this.answered = keep(
+      this.answered,
+      delegated.flatMap(({ answered, callSign, threadId }) =>
+        answered.map((entry) => ({ ...entry, owner: callSign, threadId }))
+      ),
+      NO_ANSWERED,
+      answeredKey
+    );
     const runs = new Map<string, SubagentChildRun>();
-    const children: HostTreeRunningChild[] = [];
-    let activeTurnId: string | undefined;
-    for (const [threadId, { fold, origin, owner, session }] of this.threads) {
-      // A closed connection never reopens for this client, so its last rows
-      // are no longer the child's truth.
-      const { connected, error, rows } = session.getSnapshot();
-      const run = fold.apply(rows, error ?? (connected ? undefined : HOST_TREE_DISCONNECTED));
-      if (origin === undefined || owner === undefined) {
-        activeTurnId = working(run) ? fold.rootTurnId() : undefined;
-        continue;
+    for (const child of delegated) {
+      const previous = this.runs.get(child.threadId);
+      const next = childRun(child, this.lost);
+      if (!sameRun(previous, next)) {
+        changed = true;
       }
+      const run = sameRun(previous, next) ? previous : next;
       if (run) {
-        runs.set(threadId, run);
-      }
-      if (
-        origin.background &&
-        origin.parentThreadId === this.threadId &&
-        working(run) &&
-        fold.runsDelegatedInvocation()
-      ) {
-        children.push({ owner, threadId, turnId: origin.turnId });
+        runs.set(child.threadId, run);
       }
     }
+    if (runs.size !== this.runs.size) {
+      changed = true;
+    }
+    this.runs = runs;
+    const running = this.projectRunning(tree);
+    if (
+      running.activeTurnId !== this.running.activeTurnId ||
+      !sameList(this.running.children, running.children, runningKey)
+    ) {
+      changed = true;
+      this.running = running;
+    }
+    return changed;
+  }
+
+  /**
+   * The viewed thread's direct background children still working their
+   * delegated invocation. Only a root delegation runs in the background; a
+   * nested one runs inline under its parent's active run, whose own Stop ends
+   * it. A child's follow-up (input, Retry, Edit) is its own turn, stopped from
+   * the child, so the parent's turn Stop never claims it.
+   */
+  private projectRunning(tree: HostTree): HostTreeRunning {
+    // A lost host runs nothing this view can see or stop.
+    if (this.lost !== undefined) {
+      return NOT_RUNNING;
+    }
+    const children = tree.descendants.flatMap(({ callSign, origin, run, threadId }) =>
+      origin.background &&
+      origin.parentThreadId === this.threadId &&
+      working(run) &&
+      run?.delegatedInvocation
+        ? [{ owner: callSign, threadId, turnId: origin.turnId }]
+        : []
+    );
+    const own = tree.thread.run;
     return {
-      running: {
-        ...(activeTurnId === undefined ? {} : { activeTurnId }),
-        children: children.length > 0 ? children : NOT_RUNNING.children,
-      },
-      runs,
+      ...(own && working(own) ? { activeTurnId: own.turnId } : {}),
+      children: children.length > 0 ? children : NOT_RUNNING.children,
     };
   }
 }

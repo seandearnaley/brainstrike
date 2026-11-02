@@ -48,6 +48,7 @@ async function connectDuringFold() {
     published: { read: async () => [] },
     releaseMcpInputClient: () => undefined,
     store: {},
+    trees: { changedBy: () => undefined },
   } as unknown as HostCore;
   const rootRegistry = {
     'workspace/roots/recent': async () => ({ roots: [] }),

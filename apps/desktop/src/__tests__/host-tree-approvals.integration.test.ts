@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * BST-1932: a host thread view counts the approvals of its delegated children
- * from their own committed logs, through the public client, and answers one in
+ * from the host's tree summary, through the public client, and answers one in
  * the child's own thread. Only the model is scripted.
  */
 import { randomUUID } from 'node:crypto';
@@ -16,7 +16,6 @@ import {
   startAgentHost,
 } from '@brainstrike/agent-host';
 import { scriptedDelegation } from '@brainstrike/agent-host/test-fixtures/scripted-model';
-import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
@@ -107,9 +106,7 @@ async function delegatingHost(
 test('the committed child approval already counts its call while the stream consumer is held', async () => {
   const client = await delegatingHost([]);
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-  const session = new CommittedThreadSession(client, threadId);
-  const tree = new HostTreeApprovals(client, threadId, session);
-  const leave = session.connect();
+  const tree = new HostTreeApprovals(client, threadId);
   const release = Promise.withResolvers<void>();
   const held = Promise.withResolvers<void>();
   const approval = Promise.withResolvers<void>();
@@ -176,8 +173,7 @@ test('the committed child approval already counts its call while the stream cons
     release.resolve();
     store.mockRestore();
     unsubscribe();
-    await tree.close();
-    await leave();
+    tree.close();
   }
 });
 
@@ -185,13 +181,8 @@ test('a host thread’s tree shows its child’s approval by call sign until the
   const writes: unknown[] = [];
   const client = await delegatingHost(writes);
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-  const session = new CommittedThreadSession(client, threadId);
-  const tree = new HostTreeApprovals(client, threadId, session);
-  const leave = session.connect();
-  cleanups.push(async () => {
-    await tree.close();
-    await leave();
-  });
+  const tree = new HostTreeApprovals(client, threadId);
+  cleanups.push(async () => tree.close());
   await client.request('run/start', {
     commandId: randomUUID(),
     modelId: 'scripted',
@@ -251,13 +242,8 @@ test('a host thread’s tree names its child’s pending question until the chil
     [{ input: { question: 'Which root?' }, toolId: 'ask_user' }]
   );
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-  const session = new CommittedThreadSession(client, threadId);
-  const tree = new HostTreeApprovals(client, threadId, session);
-  const leave = session.connect();
-  cleanups.push(async () => {
-    await tree.close();
-    await leave();
-  });
+  const tree = new HostTreeApprovals(client, threadId);
+  cleanups.push(async () => tree.close());
   await client.request('run/start', {
     commandId: randomUUID(),
     modelId: 'scripted',

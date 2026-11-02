@@ -61,6 +61,10 @@ function recordedClient(runStart: () => Promise<unknown>) {
       'log/unsubscribe': () => ({ unsubscribed: true }),
       'run/start': runStart,
       'thread/read': () => ({ rows: log }),
+      'thread/tree': () => ({
+        descendants: [],
+        thread: { answered: [], pending: [], run: null, threadId: thread },
+      }),
     };
     const answer = answers[method];
     if (!answer) {
@@ -76,6 +80,7 @@ function recordedClient(runStart: () => Promise<unknown>) {
     closed: closed.promise,
     onEvent: vi.fn(() => () => undefined),
     onTelemetry: vi.fn(() => () => undefined),
+    onTreeChanged: vi.fn(() => () => undefined),
     request: request as unknown as HostClient['request'],
   } as unknown as HostClient;
   return { client, lose: () => closed.resolve(), request };

@@ -45,7 +45,8 @@ A child is an ordinary host run in its own child thread, on its parent's host
     `HostChildResult.text` reaches the parent's model.
 - **Follow-ups (BST-2178):** a person can type into a child (`run/input` or `run/start`).
 - **Approvals:** committed in the child's log; surfaced as `needs-input` in the sidebar and in
-  the tree approvals list (`apps/desktop/src/renderer/host-tree-approvals.ts`). The root's
+  the tree approvals list (`apps/desktop/src/renderer/host-tree-approvals.ts`), which reads
+  Core's folded summary of the tree (`thread/tree`), never the children's logs. The root's
   policy governs the tree.
 - **Questions:** the built-in `worker` persona admits `*`, so a child can call `askUser`.
 - **Limits:** `maxInvocations`, `maxDepth`, a per-turn work queue, the persona step budget, the

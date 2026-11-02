@@ -2,6 +2,7 @@ import { HostCommittedRows } from './committed-rows.ts';
 import { HostLedgerProjection } from './ledger-projection.ts';
 import type { HostLogRow } from './protocol.ts';
 import type { HostThreadCatalog } from './thread-catalog.ts';
+import { HostThreadSummaries } from './thread-summary.ts';
 
 /** Core's projections of every committed row, applied at hydration and at commit. */
 export class HostLogProjections {
@@ -9,10 +10,13 @@ export class HostLogProjections {
   readonly committed = new HostCommittedRows();
   /** Every thread's runs and costed provider calls. */
   readonly ledger = new HostLedgerProjection();
+  /** Every thread's latest run and the interactions it waits on (`thread/tree`). */
+  readonly summaries = new HostThreadSummaries();
 
   apply(row: HostLogRow): void {
     this.ledger.apply(row);
     this.committed.apply(row);
+    this.summaries.apply(row);
   }
 
   /**
@@ -32,5 +36,6 @@ export class HostLogProjections {
   forget(threadId: string): void {
     this.ledger.forget(threadId);
     this.committed.forget(threadId);
+    this.summaries.forget(threadId);
   }
 }
