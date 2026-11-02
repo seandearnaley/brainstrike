@@ -32,10 +32,12 @@ import {
   FileContentErrorScreen,
   FileContentPendingScreen,
   FileNotFoundScreen,
+  FolderNotConnectedScreen,
   InaccessibleFileScreen,
   PermissionRequiredScreen,
 } from './file-tab-status-screens';
 import { MarkdownPreviewErrorBoundary } from './markdown-preview-error-boundary';
+import type { FileRootState } from './use-workspace-tabs';
 import { getFileName } from './workspace-tab-utils';
 
 const MarkdownSurfaceLazy = lazy(() =>
@@ -49,6 +51,8 @@ export interface FileTabBodyProps {
   readonly isRestoring: boolean;
   readonly onRetryContent: () => void;
   readonly rootPath?: string | null;
+  /** Whether the file's folder is open; only an open folder's files can load. */
+  readonly rootState?: FileRootState;
   readonly status: TabFileStatus | undefined;
   readonly tab: FileTab;
 }
@@ -61,6 +65,7 @@ export function FileTabBody({
   isRestoring,
   onRetryContent,
   rootPath = null,
+  rootState = 'connected',
   status,
 }: FileTabBodyProps) {
   const path = useMemo(() => {
@@ -303,6 +308,9 @@ export function FileTabBody({
     body = (
       <FileContentErrorScreen contentError={contentError} onRetry={onRetryContent} path={path} />
     );
+  } else if (typeof content !== 'string' && rootState === 'disconnected') {
+    // The content can only load once the file's folder is open again; waiting would never end.
+    body = <FolderNotConnectedScreen path={path} />;
   } else if (typeof content !== 'string') {
     // Three reasons content may be missing here, none of which is "the file is gone":
     //  1. Restoration is still in flight (status not yet emitted).
@@ -312,6 +320,7 @@ export function FileTabBody({
     body = (
       <FileContentPendingScreen
         isPending={isLoading || isRestoring || status?.status === 'pending'}
+        rootConnecting={rootState === 'connecting'}
       />
     );
   } else if (content === BINARY_CONTENT_MESSAGE) {
@@ -319,10 +328,9 @@ export function FileTabBody({
     // dedicated screen instead of dumping the sentinel into a code surface.
     body = <BinaryFilePreview rootPath={rootPath} tab={tab} />;
   } else if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
-    // Short-circuit before truncation: the inaccessible branch renders the full `content`
-    // verbatim, so running getDisplayContent first would do throwaway work and (for a very
-    // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
-    body = <InaccessibleFileScreen content={content} />;
+    // Short-circuit before truncation: the inaccessible branch shows the read's reason, not the
+    // content, so running getDisplayContent first would only do throwaway work.
+    body = <InaccessibleFileScreen content={content} onRetry={onRetryContent} path={path} />;
   } else {
     const { text, truncated } = getDisplayContent(content);
     const target = getTarget(tab.compositeKey);

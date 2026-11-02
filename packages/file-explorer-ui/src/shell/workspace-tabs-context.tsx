@@ -31,6 +31,7 @@ import { useFileExplorer } from './use-file-explorer-context';
 import { useTerminalHotkey } from './use-terminal-hotkey';
 import { useWorkspaceOpenFileRefresh } from './use-workspace-open-file-refresh';
 import {
+  type FileRootState,
   useWorkspaceTabs,
   type WorkspaceTabRef,
   WorkspaceTabsContext,
@@ -178,6 +179,25 @@ export function WorkspaceTabsProvider({
     [reloadFileContents]
   );
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
+  const isAccessLoading = useFileExplorerStoreSelector((state) => state.isAccessLoading);
+  const fileRootState = useCallback(
+    (compositeKey: string): FileRootState => {
+      if (!canLoadWithoutTree) {
+        return 'connected';
+      }
+      let folderId: string;
+      try {
+        ({ folderId } = decodeFileSelection(compositeKey));
+      } catch {
+        return 'disconnected';
+      }
+      if (rootDescriptors[folderId] !== undefined) {
+        return 'connected';
+      }
+      return isAccessLoading ? 'connecting' : 'disconnected';
+    },
+    [canLoadWithoutTree, isAccessLoading, rootDescriptors]
+  );
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
   const openAppIds = useWorkspaceTabSelectionStore((s) => s.openAppIds);
@@ -718,6 +738,7 @@ export function WorkspaceTabsProvider({
       apps,
       fileContentErrors,
       fileContents,
+      fileRootState,
       getTabStatusMessage: getStatusMessage,
       handleOpenFileInTab,
       hasClosedTabs,
@@ -753,6 +774,7 @@ export function WorkspaceTabsProvider({
       apps,
       fileContentErrors,
       fileContents,
+      fileRootState,
       getStatusMessage,
       handleOpenFileInTab,
       hasClosedTabs,

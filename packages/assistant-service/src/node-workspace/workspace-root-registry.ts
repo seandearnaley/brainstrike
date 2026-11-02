@@ -517,6 +517,38 @@ export class WorkspaceRootRegistry {
     return this.serializeMutation(() => this.restoreRootsOwned());
   }
 
+  /**
+   * The open folders and worktrees as they are mounted now, read without writing. `null` when
+   * one is not mounted, or a mount is neither open nor kept for a run or a session, so the
+   * caller restores. The host restores at its own start, so a window opening is a read.
+   */
+  currentRoots(): Promise<RootDescriptor[] | null> {
+    return this.serializeMutation(async () => {
+      const open = await this.readOpenRoots();
+      const openIds = new Set(open.map((entry) => entry.rootId));
+      const worktrees = (await this.readWorktreeRoots()).filter(
+        (entry) => !openIds.has(entry.rootId)
+      );
+      const entries = [...open, ...worktrees];
+      const kept = new Set([
+        ...this.mounts.sessionMountIds(),
+        ...this.closedForRuns,
+        ...entries.map((entry) => entry.rootId),
+      ]);
+      const allMounted = entries.every((entry) => {
+        const mounted = this.mounts.get(entry.rootId);
+        return mounted !== undefined && pathsEqual(mounted.presentationPath, entry.path);
+      });
+      if (!allMounted || this.mounts.ids().some((rootId) => !kept.has(rootId))) {
+        return null;
+      }
+      return [
+        ...open.map((entry) => descriptorFor(entry, 'granted')),
+        ...worktrees.map((entry) => asWorktree(descriptorFor(entry, 'granted'))),
+      ];
+    });
+  }
+
   private async restoreRootsOwned(): Promise<RootDescriptor[]> {
     const open = await this.readOpenRoots();
     const openIds = new Set(open.map((entry) => entry.rootId));

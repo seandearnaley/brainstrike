@@ -37,8 +37,10 @@ const RELATIVE_BINARY_KEY = encodeFileSelection('folder-1', 'assets/logo.png');
 interface RenderOptions {
   readonly capabilities?: readonly ('clipboard' | 'fs.reveal' | 'fs.openPath')[];
   readonly compositeKey?: string;
-  readonly content?: string;
+  /** `null` renders a tab whose content has not arrived. */
+  readonly content?: string | null;
   readonly rootPath?: string | null;
+  readonly rootState?: 'connected' | 'connecting' | 'disconnected';
   readonly services?: ActionServices;
 }
 
@@ -47,6 +49,7 @@ function renderBinaryBody({
   compositeKey = BINARY_KEY,
   content = BINARY_CONTENT_MESSAGE,
   rootPath = '/root',
+  rootState,
   services,
 }: RenderOptions = {}) {
   const { registry, writtenTexts } = createTestActionRegistry({
@@ -57,11 +60,12 @@ function renderBinaryBody({
   const rendered = render(
     <ActionRegistryProvider registry={registry}>
       <FileTabBody
-        content={content}
+        content={content ?? undefined}
         isLoading={false}
         isRestoring={false}
         onRetryContent={vi.fn()}
         rootPath={rootPath}
+        {...(rootState ? { rootState } : {})}
         status={undefined}
         tab={{
           compositeKey,
@@ -126,12 +130,22 @@ describe('FileTabBody binary file preview', () => {
     expect(screen.getByTestId('file-code-surface')).toBeInTheDocument();
   });
 
+  it('says the folder is connecting while it restores, then that it is not connected', () => {
+    renderBinaryBody({ content: null, rootState: 'connecting' });
+    expect(screen.getByRole('status')).toHaveTextContent('Connecting folder…');
+
+    cleanup();
+    renderBinaryBody({ content: null, rootState: 'disconnected' });
+    expect(screen.getByText('Folder not connected')).toBeInTheDocument();
+    expect(screen.queryByText('Connecting folder…')).not.toBeInTheDocument();
+  });
+
   it('renders a canonical inaccessible worker result outside the code surface', () => {
     const inaccessibleContent = buildInaccessibleContent('File disappeared during refresh');
 
     renderBinaryBody({ content: inaccessibleContent });
 
-    expect(screen.getByText(inaccessibleContent)).toBeInTheDocument();
+    expect(screen.getByText('File disappeared during refresh')).toBeInTheDocument();
     expect(screen.queryByTestId('binary-file-preview')).not.toBeInTheDocument();
     expect(screen.queryByTestId('file-code-surface')).not.toBeInTheDocument();
   });

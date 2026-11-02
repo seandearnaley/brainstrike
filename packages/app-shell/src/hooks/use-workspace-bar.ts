@@ -25,6 +25,7 @@ import { getThreadGroupsCapability } from '../thread-groups-capability';
 import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 import { stripIpcInvokeEnvelope } from '../workspace-connect/workspace-connect-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
+import { useReconnectThreadFolders } from './use-reconnect-thread-folders';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import { useThreadFolderScope } from './use-thread-folder-scope';
@@ -351,6 +352,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   // The new thread's composer reads its draft binding as an unsent thread's.
   const selectedThread = useResourceThread(memoryResourceId, selectedMemoryThreadId);
+  const frontThreadId = useAssistantThreadStore(
+    (state) => state.activeThreadIdByResourceId[memoryResourceId]
+  );
   const checkoutMode = selectedThread?.metadata?.checkoutMode ?? 'local';
   const checkoutLocalRootId = checkoutLocalRootIdFor(checkoutMode, selectedThread?.metadata);
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
@@ -839,6 +843,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const folderDropEntry = useFolderDrop({ onRootConnected: recordAddedAsSecondary });
 
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
+  useReconnectThreadFolders({
+    addRootByPath: addRootDirectoryByPath,
+    describeFailure,
+    primaryRoot,
+    ready: !foldersPending && threadRoots.resolved,
+    secondaryRoots: loadedSecondaryRoots,
+    // Each open tab keeps its bar mounted: only the tab in front opens its thread's folders.
+    threadId: frontThreadId === selectedMemoryThreadId ? selectedMemoryThreadId : undefined,
+  });
   // Always defined; the CAPABILITY decides whether the prop is supplied (see
   // the return). Gating the spread on `addRootDirectoryByPath` rather than on
   // this callback keeps the render-time condition free of the ref-derived
