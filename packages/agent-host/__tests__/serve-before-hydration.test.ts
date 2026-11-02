@@ -33,12 +33,6 @@ async function connectDuringFold() {
   let committed: ((row: HostLogRow) => void) | undefined;
   const core = {
     hydrated: hydrated.promise,
-    listThreads: () => {
-      if (!folds.done) {
-        throw new Error('Core read its threads before the fold');
-      }
-      return [];
-    },
     liveTelemetry: { replay: () => [] },
     onCommitted: (listener: (row: HostLogRow) => void) => {
       committed = listener;
@@ -46,6 +40,12 @@ async function connectDuringFold() {
     },
     onTelemetry: () => () => undefined,
     published: { read: async () => [] },
+    readLedger: () => {
+      if (!folds.done) {
+        throw new Error('Core read its ledger before the fold');
+      }
+      return { threads: [] };
+    },
     releaseMcpInputClient: () => undefined,
     store: {},
     trees: { changedBy: () => undefined },
@@ -88,15 +88,15 @@ async function connectDuringFold() {
 test('folders answer while Core folds its log, and thread reads wait for the fold', async () => {
   const { client, fold } = await connectDuringFold();
   let answered = false;
-  const threads = client.request('thread/list', {}).then((result) => {
+  const costs = client.request('ledger/read', {}).then((result) => {
     answered = true;
     return result;
   });
-  // Sent after the thread list, the folders answer first: the list waits for the fold.
+  // Sent after the cost views, the folders answer first: the cost views wait for the fold.
   await expect(client.request('workspace/roots/recent', {})).resolves.toEqual({ roots: [] });
   expect(answered).toBe(false);
   fold();
-  await expect(threads).resolves.toEqual({ threads: [] });
+  await expect(costs).resolves.toEqual({ threads: [] });
 });
 
 test('a view that subscribes and unsubscribes during the fold is not sent its rows', async () => {

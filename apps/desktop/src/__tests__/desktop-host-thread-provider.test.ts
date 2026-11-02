@@ -150,13 +150,40 @@ test('deleting a thread drops every thread Core deleted with it from the runs an
     .mockResolvedValueOnce({ threads: [catalogEntry(firstThread, richRows)] })
     .mockResolvedValueOnce({ deleted: true, threadIds: [child, firstThread] });
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
-  expect(new Set(capability.ledger.getSnapshot().runs.map(({ threadId }) => threadId))).toEqual(
-    new Set([firstThread, child])
-  );
+  // The cost views answer after the catalog, once Core has folded its log.
+  await expect
+    .poll(() => new Set(capability.ledger.getSnapshot().runs.map(({ threadId }) => threadId)))
+    .toEqual(new Set([firstThread, child]));
   expect(capability.runs.getSnapshot().get(firstThread)?.status).toBe('completed');
   // Core deletes the child with its parent, children first, and names both.
   expect(await capability.deleteThread(firstThread)).toEqual([child, firstThread]);
   expect(capability.ledger.getSnapshot()).toEqual({ rootUsage: [], runs: [], usage: [] });
   expect(capability.runs.getSnapshot().has(firstThread)).toBe(false);
   expect(capability.renderThread(firstThread, true)).toBeUndefined();
+});
+
+test('the thread list shows before Core has folded its log, and re-reads once Core has', async () => {
+  const { capability, request } = fixture();
+  const folded = Promise.withResolvers<unknown>();
+  request.mockImplementation((method) => {
+    if (method === 'thread/list') {
+      return Promise.resolve({ threads: [catalogEntry(firstThread, richRows)] });
+    }
+    if (method === 'ledger/read') {
+      return folded.promise;
+    }
+    throw new Error(`Unexpected ${method}`);
+  });
+  const changed = vi.fn();
+  capability.subscribeEntryChanges?.(changed);
+  const listed = await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
+  expect(listed.map(({ id }) => id)).toEqual([firstThread]);
+  expect(changed).not.toHaveBeenCalled();
+  folded.resolve({ threads: [] });
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+  // The re-read's own cost views answer from the folded Core: no further re-read.
+  await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
+  await new Promise((settled) => setTimeout(settled, 0));
+  expect(request).toHaveBeenCalledTimes(4);
+  expect(changed).toHaveBeenCalledTimes(1);
 });

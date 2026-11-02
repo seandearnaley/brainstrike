@@ -239,10 +239,12 @@ export class RunLog {
    * seq order, each one crc-verified. Contiguity is checked from the seq index (the row count and the highest seq
    * against the thread's last seq), so an unmarked row is never read; a gap sends the thread through the full
    * verification to find where it starts. Unmarked rows are not verified, so this read never marks a thread `ok`: a
-   * full read or the first append still verifies every row.
+   * full read or the first append still verifies every row. With `types`, only the marked rows of those event types are
+   * read: a reader that needs a few facts of every thread (its listing) reads them without the rest of its history.
+   * @param {readonly string[]} [types]
    * @returns {HydrationThread[]}
    */
-  readHydration() {
+  readHydration(types) {
     const threads =
       /** @type {Array<{ id: string; last: number; createdAt: number; updatedAt: number }>} */ (
         this.db
@@ -254,14 +256,15 @@ export class RunLog {
     const span = this.db.prepare(
       'SELECT count(*) AS n, max(seq) AS hi FROM run_events WHERE thread_id = ?'
     );
+    const typed = types ? ` AND type IN (${types.map(() => '?').join(', ')})` : '';
     const marked = this.db.prepare(
-      'SELECT seq, payload, crc, created_at AS ts FROM run_events WHERE thread_id = ? AND hydrate = 1 AND seq <= ? ORDER BY seq'
+      `SELECT seq, payload, crc, created_at AS ts FROM run_events WHERE thread_id = ? AND hydrate = 1 AND seq <= ?${typed} ORDER BY seq`
     );
     return threads.map(({ id, last, createdAt, updatedAt }) => ({
       createdAt,
       threadId: id,
       updatedAt,
-      ...this.hydrationRows(id, last, span, marked),
+      ...this.hydrationRows(id, last, span, marked, types ?? []),
     }));
   }
 
@@ -272,9 +275,10 @@ export class RunLog {
    * @param {number} last the thread's last seq, from `threads`
    * @param {import('better-sqlite3').Statement} span
    * @param {import('better-sqlite3').Statement} marked
+   * @param {readonly string[]} types the event types `marked` keeps, if it names any
    * @returns {{ rows: Row[]; damage: ThreadDamage | null }}
    */
-  hydrationRows(id, last, span, marked) {
+  hydrationRows(id, last, span, marked, types) {
     /** @type {Row[]} */
     const rows = [];
     let known = this.st.get(id);
@@ -286,7 +290,7 @@ export class RunLog {
         }
       }
       const end = known?.kind === 'damaged' ? known.atSeq - 1 : (known?.tail ?? last);
-      for (const r of /** @type {IterableIterator<Row>} */ (marked.iterate(id, end))) {
+      for (const r of /** @type {IterableIterator<Row>} */ (marked.iterate(id, end, ...types))) {
         if (!verified(r)) {
           /** @type {ThreadStatus} */
           const d = { atSeq: r.seq, error: 'row crc mismatch', kind: 'damaged' };

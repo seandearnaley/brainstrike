@@ -388,10 +388,13 @@ export class StateStore implements MemoryDomainPort {
   /**
    * Every thread with its catalog times and the rows a hydrating reader folds, in one writer round trip: the verified
    * rows not appended with `hydrate: false`, up to the thread's damage, which is returned rather than thrown so one
-   * damaged thread never fails the read.
+   * damaged thread never fails the read. With `types`, each thread's rows are only those of the named event types, and
+   * its damage is what those rows and the thread's row count show.
    */
-  async readHydration(): Promise<HydrationThread[]> {
-    const threads = (await this.call({ op: 'readHydration' }))['threads'] as Array<{
+  async readHydration(types?: readonly string[]): Promise<HydrationThread[]> {
+    const threads = (await this.call({ op: 'readHydration', ...(types ? { types } : {}) }))[
+      'threads'
+    ] as Array<{
       createdAt: number;
       damage: Readonly<Record<string, unknown>> | null;
       rows: WorkerRow[];

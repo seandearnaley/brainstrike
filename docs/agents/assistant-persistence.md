@@ -18,6 +18,9 @@ Owners: [log projections](../../packages/agent-host/src/log-projections.ts), [te
   - An unclean exit can lose uncommitted text; recovery records the interruption.
   - A replaced failed attempt contributes no partial reply.
 - Raw tool results and artifacts keep their execution identity. Model-output pruning, supersession and compaction are projections; they never rewrite the stored result.
+- At start-up `thread/list` answers before Core has folded every thread ([thread listing](../../packages/agent-host/src/thread-listing.ts)).
+  - It reads only the event types the list shows (origin, presentation, binding, latest run and its decisions) and folds them with Core's own folds.
+  - Every other Core method waits for the full fold. The window re-reads the list when Core's cost views answer, because recovery may have finished a run and the full read may have found damage.
 
 ## Memory and accounting
 
