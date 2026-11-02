@@ -6,6 +6,7 @@ import type {
 } from 'pino';
 import pino from 'pino';
 import { isErrorObject, logSerializers } from './log-serializers.ts';
+import { refusalAwareLevel } from './refusal-level.ts';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {
@@ -812,7 +813,12 @@ function writePinoLog(
   logMethod.call(target, first, ...rest);
 }
 
-function logInternal(level: LogLevel, scope: string | undefined, args: readonly unknown[]): void {
+function logInternal(
+  requestedLevel: LogLevel,
+  scope: string | undefined,
+  args: readonly unknown[]
+): void {
+  const level = refusalAwareLevel(requestedLevel, args);
   if (!isLevelEnabled(level)) {
     return;
   }

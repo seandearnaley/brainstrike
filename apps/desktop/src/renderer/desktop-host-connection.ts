@@ -1,9 +1,5 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import {
-  BoundaryFailureError,
-  isBoundaryRefusal,
-  refusal,
-} from '@brainstrike/assistant-contract/boundary-failure';
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
 
@@ -102,12 +98,8 @@ export function createDesktopHostConnection(
           attempt = undefined;
         }
         if (!closing) {
-          // Main refused (its profile is closed or preparing): unavailability, not a fault.
-          if (isBoundaryRefusal(cause)) {
-            logger.warn('The agent host connection was refused', { error: cause });
-          } else {
-            logger.error('The agent host connection failed', { error: cause });
-          }
+          // A refusal (Main's profile is closed or preparing) logs at warn.
+          logger.error('The agent host connection failed', { error: cause });
           failure = cause;
           publish({ error: messageOf(cause), kind: 'failed' });
         }

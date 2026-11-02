@@ -1,4 +1,3 @@
-import { isBoundaryRefusal } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('DesktopHostStream');
@@ -23,11 +22,7 @@ export function hostStream<E>(
     opening = attempt;
     attempt.catch((error: unknown) => {
       // Each surface reports its own read failures; the next listener retries the stream.
-      if (isBoundaryRefusal(error)) {
-        logger.warn(`${label} subscription refused`, { error });
-      } else {
-        logger.error(`${label} subscription failed`, { error });
-      }
+      logger.error(`${label} subscription failed`, { error });
       if (opening === attempt) {
         opening = undefined;
       }
