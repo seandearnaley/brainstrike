@@ -17,6 +17,7 @@ import {
   openRootsCatalog,
   registryRoot,
   rootHandle,
+  secureRoot,
 } from './workspace-root-registry-test-helpers';
 
 // Quarantine and write-failure paths log deliberately. Capturing the logger
@@ -129,6 +130,29 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     await expect(registry.addRootByPath(ws('never'))).rejects.toThrow(
       'Folder was never granted in this app; use Add Folder to grant it.'
     );
+  });
+
+  it('names where a granted folder was when it is no longer there', async () => {
+    let moved = false;
+    const registry = createRegistry({
+      createSecureRoot: async (rootPath) => {
+        if (moved) {
+          throw Object.assign(new Error('Failed to open secure filesystem root'), {
+            code: 'ENOENT',
+          });
+        }
+        return secureRoot(rootPath);
+      },
+      recents: storage,
+    });
+    const granted = await registry.addRoot(rootHandle(ws('alpha')));
+    await registry.removeRoot(granted.rootId);
+    moved = true;
+
+    await expect(registry.addRootByPath(ws('alpha'))).rejects.toMatchObject({
+      failure: { code: 'workspace.root-missing', kind: 'refusal' },
+      message: `The folder is no longer at ${ws('alpha')}.`,
+    });
   });
 
   it('notifies onRootGranted for a recents-ledger picker-less addRootByPath mount (BST-1393 review finding)', async () => {

@@ -77,6 +77,7 @@ function renderBody() {
         content={'const x = 1;'}
         isLoading={false}
         isRestoring={false}
+        onCloseTab={vi.fn()}
         onRetryContent={vi.fn()}
         rootPath="/root"
         status={undefined}
@@ -107,7 +108,7 @@ describe('FileTabBody explorer pane', () => {
     // Absent store state means open — no entry may be materialized by rendering.
     expect(useFileTabPaneStore.getState().panes[KEY]).toBeUndefined();
     // Mount-time reveal: nonce 0 with the FILE as the target.
-    expect(paneProps.current.at(-1)).toEqual({
+    expect(paneProps.current.at(-1)).toMatchObject({
       compositeKey: KEY,
       revealNonce: 0,
       revealPath: '/root/src/app.ts',
@@ -129,7 +130,7 @@ describe('FileTabBody explorer pane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Toggle explorer pane' }));
     expect(screen.getByTestId('file-tab-explorer-pane')).toBeInTheDocument();
     expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(true);
-    expect(paneProps.current.at(-1)).toEqual({
+    expect(paneProps.current.at(-1)).toMatchObject({
       compositeKey: KEY,
       revealNonce: 2,
       revealPath: '/root/src/app.ts',

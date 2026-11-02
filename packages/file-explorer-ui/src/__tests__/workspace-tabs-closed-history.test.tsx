@@ -21,9 +21,11 @@ vi.mock('../shell/use-file-explorer-context', () => ({
     fileContentErrors: new Map<string, Error>(),
     fileContents: {},
     fileTree: [],
+    folderRequests: { failures: new Map<string, string>(), opening: new Map<string, number>() },
     loadFileContent: vi.fn().mockResolvedValue(undefined),
     loadingFiles: new Set<string>(),
     reloadFileContents: vi.fn().mockResolvedValue(undefined),
+    restorePending: false,
   })),
 }));
 

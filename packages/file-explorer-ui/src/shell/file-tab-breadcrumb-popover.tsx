@@ -8,6 +8,8 @@ import {
   flattenMiniTreeEntries,
   resolveMiniTreeParentPath,
 } from './breadcrumb-mini-tree-entries';
+import type { FileFolderStatus } from './file-folder-status.ts';
+import { FolderStatusNotice } from './file-tab-status-screens.tsx';
 import { useTabRootHandle } from './use-tab-root-handle';
 
 /**
@@ -21,8 +23,11 @@ import { useTabRootHandle } from './use-tab-root-handle';
  */
 export interface FileTabBreadcrumbPopoverProps {
   readonly compositeKey: string;
+  /** Where the file's folder stands: the popover says the same as the tab while it is not open. */
+  readonly folderStatus: FileFolderStatus;
   /** Absolute/tree-form node path of the picked FILE. */
   readonly onPickFile: (path: string) => void;
+  readonly onReopenFolder: (() => void) | undefined;
   readonly rootPath: string | null;
   /** The clicked segment's cumulative path (original separator form). */
   readonly segmentPath: string;
@@ -32,7 +37,7 @@ function PopoverTree({
   onPickFile,
   rootPath,
   segmentPath,
-}: Omit<FileTabBreadcrumbPopoverProps, 'compositeKey'>): ReactElement {
+}: Pick<FileTabBreadcrumbPopoverProps, 'onPickFile' | 'rootPath' | 'segmentPath'>): ReactElement {
   const treeContext = useFileTreeContext();
   const parentPath = resolveMiniTreeParentPath(segmentPath, rootPath);
   const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(() => new Set());
@@ -177,22 +182,21 @@ function PopoverTree({
 
 export function FileTabBreadcrumbPopover({
   compositeKey,
+  folderStatus,
   onPickFile,
+  onReopenFolder,
   rootPath,
   segmentPath,
 }: FileTabBreadcrumbPopoverProps): ReactElement {
   const { folderId, handle } = useTabRootHandle(compositeKey);
 
   if (!(folderId && handle)) {
-    // Same explicit degradation as the explorer pane: the tab's root is not
-    // connected, and the popover says so instead of rendering an empty tree.
     return (
-      <div
-        className="text-muted-foreground p-4 text-center text-xs"
-        data-testid="breadcrumb-popover-unavailable"
-      >
-        This file's workspace root is not connected.
-      </div>
+      <FolderStatusNotice
+        onReopen={onReopenFolder}
+        status={folderStatus.kind === 'open' ? { kind: 'opening', name: null } : folderStatus}
+        testId="breadcrumb-popover-unavailable"
+      />
     );
   }
 

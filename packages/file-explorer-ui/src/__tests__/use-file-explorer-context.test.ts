@@ -74,6 +74,7 @@ describe('useFileExplorer (context)', () => {
       // Web-shaped adapter: the desktop-only capabilities are absent, not stubbed.
       addRootDirectoryByPath: undefined,
       clearRootDirectory: vi.fn(),
+      folderRequests: { failures: new Map(), opening: new Map() },
       isAccessLoading: false,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ reason: '', supported: true }),
       listRecentRoots: undefined,
@@ -82,6 +83,7 @@ describe('useFileExplorer (context)', () => {
       recentRootsRevision: 0,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       removeRootDirectory: vi.fn().mockResolvedValue(undefined),
+      restorePending: false,
       rootDirectoryHandle: rootHandle,
       rootDirectoryHandles: [],
       // Storage v5: empty map (no RootId registrations in these tests)

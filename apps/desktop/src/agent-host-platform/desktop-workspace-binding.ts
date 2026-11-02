@@ -27,15 +27,15 @@ function removedRootsMessage(roots: readonly RemovedThreadRoot[]): string {
   const unnamed = roots.length - named.length;
   if (named.length === 0) {
     return unnamed === 1
-      ? "A folder this thread uses was removed from the workspace. Remove it from this thread in the composer's folder menu."
-      : `${unnamed} folders this thread uses were removed from the workspace. Remove them from this thread in the composer's folder menu.`;
+      ? "A folder this thread uses no longer exists. Remove it from this thread in the composer's folder menu."
+      : `${unnamed} folders this thread uses no longer exist. Remove them from this thread in the composer's folder menu.`;
   }
   const others =
     unnamed === 0 ? [] : [unnamed === 1 ? '1 other folder' : `${unnamed} other folders`];
   const list = FOLDER_LIST.format([...named, ...others]);
   return roots.length === 1
-    ? `The folder ${list} was removed from the workspace. Re-add it, or remove it from this thread in the composer's folder menu.`
-    : `The folders ${list} were removed from the workspace. Re-add them, or remove them from this thread in the composer's folder menu.`;
+    ? `The folder ${list} is closed. Reopen it, or remove it from this thread in the composer's folder menu.`
+    : `The folders ${list} are closed. Reopen them, or remove them from this thread in the composer's folder menu.`;
 }
 /**
  * BST-1990: the thread's binding names folders the workspace no longer serves.

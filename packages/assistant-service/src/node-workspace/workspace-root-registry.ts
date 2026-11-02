@@ -5,6 +5,7 @@ import { descriptorFor } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
+import { isFileNotFoundError } from './file-not-found-error.ts';
 import {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
@@ -150,7 +151,16 @@ export class WorkspaceRootRegistry {
       ? await readRecentRootsOrQuarantine(this.recents)
       : null;
     // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store reads above have succeeded, so the try/finally owns it from the instant it exists.
-    const probe = await this.createSecureRoot(presentationPath);
+    const probe = await this.createSecureRoot(presentationPath).catch((error: unknown) => {
+      // A folder that was moved or deleted is the person's to fix, not a fault: say where.
+      throw isFileNotFoundError(error)
+        ? refusalError(
+            'availability',
+            'workspace.root-missing',
+            `The folder is no longer at ${presentationPath}.`
+          )
+        : error;
+    });
     let probeAdopted = false;
     try {
       // A dispose that lands while the probe was opening must fail this call the same way

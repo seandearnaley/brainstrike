@@ -15,6 +15,10 @@ export interface WorkspaceBarRoot {
   readonly removeDisabledReason?: string | undefined;
   /** The workspace no longer serves this folder (BST-1990): runs are refused until it is repaired. */
   readonly removed?: true | undefined;
+  /** Why the last reopen of this closed folder failed, as the host said. */
+  readonly reopenFailure?: string | undefined;
+  /** A reopen of this closed folder is in flight. */
+  readonly reopening?: true | undefined;
   readonly rootId: string;
 }
 

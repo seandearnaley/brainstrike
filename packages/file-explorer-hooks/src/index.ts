@@ -1,6 +1,7 @@
 export * from './adapters-context.js';
 export * from './file-content-processor.js';
 export * from './file-system-error-helpers.js';
+export type { FolderRequests } from './folder-requests.ts';
 export * from './inaccessible-content.js';
 export * from './progress-utils.js';
 export * from './report-generation-worker.js';
