@@ -109,20 +109,24 @@ export function createWindowThreadCapability(
   >();
   const client = (): Promise<HostClient> => connection.current();
   // Core's ledger answers once Core has folded its log. The first answer from
-  // a host re-lists the catalog, which answered before that fold: a run the
-  // restart recovered has finished since, and a row only the fold reads may
-  // have shown damage.
+  // a host, or its refusal (one uncostable row fails the whole read), re-lists
+  // the catalog, which answered before that fold: a run the restart recovered
+  // has finished since, and a row only the fold reads may have shown damage.
   const seedLedger = (host: HostClient): void => {
+    const folded = (): void => {
+      if (foldedBy !== host) {
+        foldedBy = host;
+        entryCommitted();
+      }
+    };
     host.request('ledger/read', {}).then(
       (costs) => {
         ledger.seed(costs.threads);
-        if (foldedBy !== host) {
-          foldedBy = host;
-          entryCommitted();
-        }
+        folded();
       },
       (error: unknown) => {
         logger.error('The agent host cost views could not be read', { error });
+        folded();
       }
     );
   };

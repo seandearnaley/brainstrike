@@ -187,3 +187,20 @@ test('the thread list shows before Core has folded its log, and re-reads once Co
   expect(request).toHaveBeenCalledTimes(4);
   expect(changed).toHaveBeenCalledTimes(1);
 });
+
+test('a cost read Core refuses still re-reads the list it answered before its fold', async () => {
+  const { capability, request } = fixture();
+  request.mockImplementation((method) => {
+    if (method === 'thread/list') {
+      return Promise.resolve({ threads: [catalogEntry(firstThread, richRows)] });
+    }
+    if (method === 'ledger/read') {
+      return Promise.reject(new Error('Thread row 7 cannot be costed'));
+    }
+    throw new Error(`Unexpected ${method}`);
+  });
+  const changed = vi.fn();
+  capability.subscribeEntryChanges?.(changed);
+  await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+});
