@@ -13,7 +13,7 @@ const TITLE_SOURCE_LIMIT = 20;
 const THREAD_LIMIT = 20;
 const PER_THREAD_MATCH_LIMIT = 3;
 
-type HostThreadSearchCore = Pick<HostCore, 'listThreads' | 'read' | 'threadTimes' | 'trees'>;
+type HostThreadSearchCore = Pick<HostCore, 'catalogEntry' | 'listThreads' | 'read' | 'trees'>;
 
 /** One committed conversation row the derived state index matched (`searchState`). */
 interface HostStateSearchHit {
@@ -138,7 +138,8 @@ interface SearchWindow {
 /**
  * The threads a request admits, each with its root: a child follows its root
  * thread's workspace binding (operating or secondary root), and each thread
- * must have stored an append inside the window.
+ * must have stored an append inside the window. A thread whose history cannot
+ * be read is left out: the list already marks it, and it has nothing to show.
  */
 function admittedThreads(
   core: HostThreadSearchCore,
@@ -153,8 +154,8 @@ function admittedThreads(
       rootId === undefined ||
       binding?.operatingRootId === rootId ||
       (binding?.secondaryRootIds ?? []).includes(rootId);
-    const { createdAt, updatedAt } = core.threadTimes(threadId);
-    if (!bound || updatedAt < window.since || createdAt > window.until) {
+    const { createdAt, damage, updatedAt } = core.catalogEntry(threadId);
+    if (damage !== undefined || !bound || updatedAt < window.since || createdAt > window.until) {
       owned.delete(threadId);
     }
   }
