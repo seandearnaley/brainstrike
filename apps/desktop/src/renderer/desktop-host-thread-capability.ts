@@ -96,6 +96,8 @@ export function createWindowThreadCapability(
   };
   let catalogLoaded = false;
   let seededBy: HostClient | undefined;
+  /** The host client whose cost views have answered, so whose catalog is Core's folded one. */
+  let foldedBy: HostClient | undefined;
   // Host-owned thread IDs; every request goes to the connection's current client.
   const threads = new Set<string>();
   const childViews = new Map<
@@ -106,13 +108,33 @@ export function createWindowThreadCapability(
     }
   >();
   const client = (): Promise<HostClient> => connection.current();
+  // Core's ledger answers once Core has folded its log. The first answer from
+  // a host, or its refusal (one uncostable row fails the whole read), re-lists
+  // the catalog, which answered before that fold: a run the restart recovered
+  // has finished since, and a row only the fold reads may have shown damage.
+  const seedLedger = (host: HostClient): void => {
+    const folded = (): void => {
+      if (foldedBy !== host) {
+        foldedBy = host;
+        entryCommitted();
+      }
+    };
+    host.request('ledger/read', {}).then(
+      (costs) => {
+        ledger.seed(costs.threads);
+        folded();
+      },
+      (error: unknown) => {
+        logger.error('The agent host cost views could not be read', { error });
+        folded();
+      }
+    );
+  };
   // The catalog and Core's ledger: two reads, whatever the threads' lengths.
+  // Only the catalog is waited on; it answers before Core folds history.
   const listThreads = async (resourceId: string): Promise<readonly AssistantMemoryThread[]> => {
     const host = await client();
-    const [catalog, costs] = await Promise.all([
-      host.request('thread/list', {}),
-      host.request('ledger/read', {}),
-    ]);
+    const catalog = await host.request('thread/list', {});
     for (const { threadId } of catalog.threads) {
       threads.add(threadId);
     }
@@ -122,7 +144,7 @@ export function createWindowThreadCapability(
         latestRun ? [[threadId, latestRun] as const] : []
       )
     );
-    ledger.seed(costs.threads);
+    seedLedger(host);
     catalogLoaded = true;
     return catalog.threads.map((entry) => projectHostThread(resourceId, entry));
   };

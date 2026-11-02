@@ -242,7 +242,7 @@ export function bindHostConnection(
       })
     );
   };
-  // Core's reads and commands wait for its log to be folded; the workspace services do not.
+  // Core's reads and commands wait for its log to be folded; the workspace services and the thread list do not.
   const handleCore = <M extends HostMethod>(
     method: M,
     request: (params: HostParams<M>, signal: AbortSignal) => unknown
@@ -349,7 +349,10 @@ export function bindHostConnection(
   bindHostPermissionPolicyMethods(handle, core.store, origin);
   bindHostBrowserOriginMethods(handle, core.store, origin);
   handleCore('thread/start', (params) => core.startThread(params));
-  handleCore('thread/list', () => ({ threads: core.listThreads() }));
+  // The thread list answers before Core has folded its log (thread-listing.ts).
+  handle('thread/list', async () => ({
+    threads: await core.listing.read(() => core.listThreads()),
+  }));
   handleCore('ledger/read', () => core.readLedger());
   handleCore('state/health/read', () => core.readStateHealth());
   handleCore('thread/children', (params) => ({ children: core.trees.children(params.threadId) }));

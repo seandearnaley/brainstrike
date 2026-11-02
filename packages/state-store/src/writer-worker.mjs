@@ -359,10 +359,12 @@ function handle(m) {
     }
     case 'readHydration':
       return {
-        threads: log.readHydration().map(({ damage, ...thread }) => ({
-          ...thread,
-          damage: damage ? errorReply(damage) : null,
-        })),
+        threads: log
+          .readHydration(/** @type {string[] | undefined} */ (m['types']))
+          .map(({ damage, ...thread }) => ({
+            ...thread,
+            damage: damage ? errorReply(damage) : null,
+          })),
       };
     case 'storedBlobRefs':
       return { hashes: log.storedBlobRefs(String(m['threadId'])) };
