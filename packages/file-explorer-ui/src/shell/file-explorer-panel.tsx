@@ -982,8 +982,10 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
           {/* Scrollable Middle Content - File Tree */}
           <div className="relative min-h-0 flex-1 overflow-hidden" ref={treeAreaRef}>
             {/* Restoration indicator - floats above the tree as an overlay so
-                mounting/unmounting never shifts the tree rows below it. */}
-            <div className="pointer-events-none absolute inset-x-2 top-2 z-10">
+                mounting/unmounting never shifts the tree rows below it. It
+                stacks above the grid's sticky column header (z-10), which
+                otherwise paints over it. */}
+            <div className="pointer-events-none absolute inset-x-2 top-2 z-20">
               <RestorationStatus
                 isRestoring={isRestoringExpandedPaths}
                 progress={restorationProgress}
