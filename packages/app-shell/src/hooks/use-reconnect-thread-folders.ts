@@ -5,13 +5,13 @@
  * managed worktree, so nothing new is granted here.
  *
  * Only the opening does this: the folders are read once, when the thread's folders are known. A
- * folder the person disconnects while the thread stays open stays disconnected, and one that
- * cannot come back keeps the folder chip's Removed state with its Re-add action, and a toast
- * says why.
+ * folder the person disconnects while the thread stays open stays disconnected. One that cannot
+ * come back (never granted here, or gone from disk) keeps the folder chip's Removed state with
+ * its Re-add action. That chip is where the person sees it, so no toast interrupts each opening
+ * of the thread with the same news.
  */
 import type { WorkspaceBarRoot } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import { toast } from '@brainstrike/ui';
 import { useEffect, useRef } from 'react';
 
 const logger = createLogger('WorkspaceBar');
@@ -65,18 +65,12 @@ export function useReconnectThreadFolders({
         try {
           await addRootByPath(root.path);
         } catch (error) {
-          const reason = describeFailure(error);
           // The reason travels as text: the log buffer keeps only a summary of a large error.
-          logger.warn('A thread folder could not be reconnected', {
+          logger.info('A thread folder stays disconnected', {
             error,
             path: root.path,
-            reason,
+            reason: describeFailure(error),
             rootId: root.rootId,
-          });
-          toast({
-            description: reason,
-            title: `Couldn't reconnect ${root.displayName}`,
-            variant: 'destructive',
           });
         }
       }
