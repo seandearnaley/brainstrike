@@ -366,8 +366,8 @@ export class HostCore {
     };
   }
 
-  /** BST-1939: a thread's first and latest stored append, child threads included. */
-  threadTimes(threadId: string): { readonly createdAt: number; readonly updatedAt: number } {
+  /** BST-1939: a thread's first and latest stored append and any damage, child threads included. */
+  catalogEntry(threadId: string): ReturnType<HostThreadCatalog['entry']> {
     return this.catalog.entry(threadId);
   }
 
