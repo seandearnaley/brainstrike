@@ -233,6 +233,15 @@ export function bindHostConnection(
       })
     );
   };
+  // Core's reads and commands wait for its log to be folded; the workspace services do not.
+  const handleCore = <M extends HostMethod>(
+    method: M,
+    request: (params: HostParams<M>, signal: AbortSignal) => unknown
+  ): void =>
+    handle(method, async (params, signal) => {
+      await core.hydrated;
+      return request(params, signal);
+    });
   handle('host/stop', async () => {
     if (!lifecycle) {
       throw refusalError(
@@ -330,45 +339,47 @@ export function bindHostConnection(
   bindHostWorkspaceTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
   bindHostBrowserOriginMethods(handle, core.store, origin);
-  handle('thread/start', (params) => core.startThread(params));
-  handle('thread/list', () => ({ threads: core.listThreads() }));
-  handle('ledger/read', () => core.readLedger());
-  handle('state/health/read', () => core.readStateHealth());
-  handle('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
-  handle('thread/delete', (params) => core.deleteThread(params));
-  handle('thread/update', (params) => core.updateThread(params));
-  handle('thread/memory/read', (params) => core.readThreadMemory(params, origin));
-  handle('thread/read', async (params) => ({
+  handleCore('thread/start', (params) => core.startThread(params));
+  handleCore('thread/list', () => ({ threads: core.listThreads() }));
+  handleCore('ledger/read', () => core.readLedger());
+  handleCore('state/health/read', () => core.readStateHealth());
+  handleCore('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
+  handleCore('thread/delete', (params) => core.deleteThread(params));
+  handleCore('thread/update', (params) => core.updateThread(params));
+  handleCore('thread/memory/read', (params) => core.readThreadMemory(params, origin));
+  handleCore('thread/read', async (params) => ({
     rows: await core.published.read(params.threadId, params.fromSeq),
   }));
   bindHostWorkspaceDiscoveryMethods(handle, workspaceDiscovery, origin);
-  handle('thread/search', (params) => searchHostThreads(core, searchState, params));
-  handle('thread/selection/read', (params) => core.selections.read(params.threadId));
-  handle('thread/selection/set', (params) => core.selections.set(params));
-  handle('canvas/list', () => core.canvases.list());
-  handle('canvas/read', (params) => core.canvases.read(params));
-  handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
-  handle('thread/workspace/set', (params) => core.setWorkspace(params));
-  handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
-  handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
-  handle('run/start', (params) => core.startRun(params, origin));
-  handle('run/regenerate', (params) => core.regenerateRun(params, origin));
-  handle('run/steer', (params) => core.steer(params));
-  handle('run/input', (params) => core.input(params));
-  handle('run/stop', (params) => core.stop(params));
-  handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
-  handle('thread/rewind/preview', (params) => core.rewinds.preview(params));
-  handle('thread/rewind', (params) => core.rewinds.rewind(params));
-  handle('thread/rewind/redo', (params) => core.rewinds.redo(params));
-  handle('run/verdict', (params) => core.recordVerdict(params));
-  handle('interaction/respond', (params) => core.respond(params));
-  handle('interaction/resume', (params) => core.resume(params));
-  handle('mcp/app/admit', (params) => core.mcpApps.admit(params));
-  handle('mcp/app/call', (params, signal) => core.mcpApps.call(params, signal));
-  handle('mcp/input/read', (params) => core.readMcpInput(params));
-  handle('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
-  handle('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
-  handle('log/subscribe', async (params) => {
+  handleCore('thread/search', (params) => searchHostThreads(core, searchState, params));
+  handleCore('thread/selection/read', (params) => core.selections.read(params.threadId));
+  handleCore('thread/selection/set', (params) => core.selections.set(params));
+  handleCore('canvas/list', () => core.canvases.list());
+  handleCore('canvas/read', (params) => core.canvases.read(params));
+  handleCore('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
+  handleCore('thread/workspace/set', (params) => core.setWorkspace(params));
+  handleCore('thread/workspace/binding/read', (params) =>
+    core.readWorkspaceBinding(params.threadId)
+  );
+  handleCore('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
+  handleCore('run/start', (params) => core.startRun(params, origin));
+  handleCore('run/regenerate', (params) => core.regenerateRun(params, origin));
+  handleCore('run/steer', (params) => core.steer(params));
+  handleCore('run/input', (params) => core.input(params));
+  handleCore('run/stop', (params) => core.stop(params));
+  handleCore('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handleCore('thread/rewind/preview', (params) => core.rewinds.preview(params));
+  handleCore('thread/rewind', (params) => core.rewinds.rewind(params));
+  handleCore('thread/rewind/redo', (params) => core.rewinds.redo(params));
+  handleCore('run/verdict', (params) => core.recordVerdict(params));
+  handleCore('interaction/respond', (params) => core.respond(params));
+  handleCore('interaction/resume', (params) => core.resume(params));
+  handleCore('mcp/app/admit', (params) => core.mcpApps.admit(params));
+  handleCore('mcp/app/call', (params, signal) => core.mcpApps.call(params, signal));
+  handleCore('mcp/input/read', (params) => core.readMcpInput(params));
+  handleCore('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
+  handleCore('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
+  handleCore('log/subscribe', async (params) => {
     const current = subscriptions.get(params.threadId);
     subscriptions.set(params.threadId, {
       fromSeq: Math.min(current?.fromSeq ?? params.fromSeq, params.fromSeq),
@@ -384,7 +395,8 @@ export function bindHostConnection(
       throw cause;
     }
   });
-  handle('log/unsubscribe', (params) => {
+  // Gated like its subscribe, so an unsubscribe sent during the fold runs after it.
+  handleCore('log/unsubscribe', (params) => {
     unsubscribe(params.threadId);
     return { unsubscribed: true };
   });

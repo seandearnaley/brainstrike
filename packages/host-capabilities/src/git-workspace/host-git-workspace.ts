@@ -119,7 +119,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
     hasRunningThread: (worktreeId) =>
       hasHostRunInWorktree(
         {
-          readLedger: async () => threadReads().readLedger(),
+          readLedger: () => threadReads().readLedger(),
           readThread: (threadId) => threadReads().read(threadId, 0),
         },
         worktreeId
@@ -248,7 +248,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     snapshotMaintenance = startSnapshotStartupMaintenance({
       logger,
       readHostThreadIds: async () =>
-        new Set(reads.readLedger().threads.map(({ threadId }) => threadId)),
+        new Set((await reads.readLedger()).threads.map(({ threadId }) => threadId)),
       readHostThreadRows: (threadId) => reads.read(threadId, 0),
       snapshotService,
       snapshotsBaseDir,
@@ -262,12 +262,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     // BST-1977: host threads' agent-run changesets resolve from Core's log.
     hostThreadTurns: createHostThreadTurns({
       listThreads: async () =>
-        new Set(
-          workspace
-            .threadReads()
-            .listThreads()
-            .map(({ threadId }) => threadId)
-        ),
+        new Set((await workspace.threadReads().listThreads()).map(({ threadId }) => threadId)),
       readRows: (threadId, fromSeq) => workspace.threadReads().read(threadId, fromSeq),
     }),
     resolveInventoryService: inventory,

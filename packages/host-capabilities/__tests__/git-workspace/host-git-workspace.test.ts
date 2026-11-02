@@ -64,9 +64,9 @@ describe('createGitWorkspace', () => {
   it('starts no watcher or snapshot GC before a window subscribes or reads the inventory', async () => {
     const { gitInventoryService, workspace } = createWorkspace({ subscribe: false });
     workspace.attachThreadReads({
-      listThreads: () => [],
+      listThreads: async () => [],
       read: async () => [],
-      readLedger: () => ({ threads: [] }),
+      readLedger: async () => ({ threads: [] }),
     });
     expect(gitInventoryService.start).not.toHaveBeenCalled();
 

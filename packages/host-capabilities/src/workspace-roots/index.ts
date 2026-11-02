@@ -156,7 +156,7 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       throw new Error('The agent host has not opened its threads yet');
     }
     return runningRunRootIds({
-      readLedger: async () => reads.readLedger(),
+      readLedger: () => reads.readLedger(),
       readThread: (threadId) => reads.read(threadId, 0),
     });
   };
