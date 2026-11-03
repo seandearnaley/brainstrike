@@ -12,6 +12,7 @@ import {
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
 } from '@brainstrike/app-shell/assistant-thread-host-context';
+import { useThreadFoldersReopening } from '@brainstrike/app-shell/roots/thread-folders-reopening';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import {
   BudgetGuardrailProvider,
@@ -66,6 +67,7 @@ import { useHostLastTurn } from './use-host-last-turn';
 import { useHostMemorySegment, withMemoryGate } from './use-host-memory-segment';
 import { useHostThreadSelection } from './use-host-thread-selection';
 import { useHostThreadUsage } from './use-host-thread-usage';
+import { withFoldersGate } from './with-folders-gate';
 
 /** The existing checkpoint undo controls, fed from the thread's committed edits. */
 function CommittedCheckpoints({
@@ -294,6 +296,7 @@ function HostThread({
     }),
     threadId,
   });
+  const reopening = useThreadFoldersReopening(threadId);
   const memory = useHostMemorySegment({
     blocked: presentation.isComposerDisabled === true,
     catalog: catalogKey,
@@ -356,7 +359,7 @@ function HostThread({
                     <SubagentChildRunContext value={conversation.approvals}>
                       <HostChildConversations revision={effects} threadId={threadId}>
                         <CommittedAssistantConversation
-                          {...withMemoryGate(presentation, memory)}
+                          {...withFoldersGate(withMemoryGate(presentation, memory), reopening)}
                           {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
                           agentColor={conversationColor}
                           approvalStrip={

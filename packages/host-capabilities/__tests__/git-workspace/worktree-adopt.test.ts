@@ -47,11 +47,13 @@ function inventory(
 }
 
 function makeDeps(overrides: {
+  readonly get?: (id: string) => Promise<ManagedWorktreeRow | null>;
   readonly getByPath?: (path: string) => Promise<ManagedWorktreeRow | null>;
   readonly inventoryValue?: GitInventory;
   readonly rootPaths?: readonly { readonly id: string; readonly path: string }[];
 }) {
   const insert = vi.fn(async (row: ManagedWorktreeRow) => row);
+  const get = vi.fn(overrides.get ?? (() => Promise.resolve(null)));
   const getByPath = vi.fn(overrides.getByPath ?? (() => Promise.resolve(null)));
   const run = vi.fn<WorktreeAdoptDeps['run']>(async () => ({
     exitCode: 0,
@@ -61,7 +63,7 @@ function makeDeps(overrides: {
   }));
   return {
     deps: {
-      ledger: { getByPath, insert } as never,
+      ledger: { get, getByPath, insert } as never,
       readSettings: () => Promise.resolve(SETTINGS),
       resolveInventory: () =>
         Promise.resolve(overrides.inventoryValue ?? inventory([{ path: '/repo/wt' }])),
@@ -95,6 +97,57 @@ describe('adoptWorktree', () => {
     expect(row?.repoCommonDir).toBe('/repo/.git');
     expect(row?.setupStatus).toBe('none');
     expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("records a thread's lost worktree under the id the thread names", async () => {
+    const { deps, insert } = makeDeps({});
+
+    const result = await adoptWorktree(deps, {
+      createdBy: 'user',
+      id: 'thread-worktree',
+      path: '/repo/wt',
+      threadId: 'thread-1',
+    });
+
+    expect(result).toMatchObject({ ok: true, value: { id: 'thread-worktree', path: '/repo/wt' } });
+    expect(insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an id the ledger already records, naming where', async () => {
+    const { deps, insert } = makeDeps({
+      get: (id) =>
+        Promise.resolve({
+          archivedAt: null,
+          archiveSnapshotRef: null,
+          baseRef: 'main',
+          branch: 'feature',
+          createdAt: '2026-08-26T00:00:00.000Z',
+          createdBy: 'user',
+          id,
+          path: '/repo/other',
+          repoCommonDir: '/repo/.git',
+          runId: null,
+          setupOutput: null,
+          setupReason: null,
+          setupStatus: 'none',
+          threadId: null,
+        }),
+    });
+
+    const result = await adoptWorktree(deps, {
+      createdBy: 'user',
+      id: 'thread-worktree',
+      path: '/repo/wt',
+    });
+
+    expect(result).toEqual({
+      error: expect.objectContaining({
+        code: 'worktree.already-managed',
+        message: 'Brainstrike already manages the worktree at "/repo/other".',
+      }),
+      ok: false,
+    });
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it('refuses a worktree the inventory does not know', async () => {

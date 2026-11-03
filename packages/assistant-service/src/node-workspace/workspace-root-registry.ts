@@ -245,6 +245,21 @@ export class WorkspaceRootRegistry {
   }
 
   private async addRootByPathOwned(requestedPath: string): Promise<RootDescriptor> {
+    // A folder this app has recorded was granted when it was recorded: a thread reopens its own
+    // folders by that record, without Recents (which forgets past its cap). A worktree's record
+    // is not its grant: the worktree ledger is, so a worktree goes through that check below.
+    const recorded = await this.findRecordedFolderByPath(requestedPath);
+    if (recorded) {
+      return await this.addRootOwned(
+        {
+          kind: 'directory',
+          name: path.basename(recorded) || recorded,
+          path: recorded,
+          platform: 'electron',
+        },
+        { grantedAfresh: false }
+      );
+    }
     const granted = await resolveGrantedRootHandle(
       this.recents,
       requestedPath,
@@ -767,6 +782,13 @@ export class WorkspaceRootRegistry {
         await this.retireMount(candidate.rootId);
       }
     }
+  }
+
+  /** The path of the folder (never a worktree) this app records at the path, if any. */
+  private async findRecordedFolderByPath(requestedPath: string): Promise<string | undefined> {
+    const normalized = path.normalize(requestedPath);
+    const { roots } = await (await this.getRootsCatalog()).workspaceRoots({ operation: 'list' });
+    return roots.find((root) => root.kind === 'path' && pathsEqual(root.path, normalized))?.path;
   }
 
   /** A change to the open folders: refused up front while the catalog is read-only. */

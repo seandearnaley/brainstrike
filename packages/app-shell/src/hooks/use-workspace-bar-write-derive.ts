@@ -420,3 +420,34 @@ export function deriveUseFolder(
     secondaryRoots: [],
   };
 }
+
+/**
+ * The thread's primary folder is open again under another record than the one the thread names:
+ * its old record is gone, and the folder at the same path is recorded afresh. The thread follows
+ * its folder to that record, so it opens as it was left. A folder whose record is gone with no
+ * path left to reopen it by leaves the thread in the same write: nothing can bring it back, and
+ * it would refuse every run.
+ */
+export function deriveRecordedPrimary(
+  current: ThreadCheckoutFolders,
+  root: ThreadCheckoutRoot & { readonly path: string }
+): ThreadCheckoutWrite {
+  if (current.primaryRoot?.path !== root.path) {
+    throw new Error('The thread moved to another folder while its folder reopened.');
+  }
+  const gone = new Set(
+    current.secondaryRoots.flatMap((folder) =>
+      folder.removed && !folder.path ? [folder.rootId] : []
+    )
+  );
+  const keep = (id: string): boolean => id !== root.rootId && !gone.has(id);
+  const localRootId = current.checkoutLocalRootId;
+  return {
+    binding: operatingRootBinding(root),
+    checkoutLocalRootId: localRootId && !gone.has(localRootId) ? localRootId : undefined,
+    ids: current.secondaryRootIds.filter(keep),
+    primaryRoot: root,
+    primaryRootId: root.rootId,
+    secondaryRoots: current.secondaryRoots.filter((folder) => keep(folder.rootId)),
+  };
+}

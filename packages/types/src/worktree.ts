@@ -204,6 +204,11 @@ export interface WorktreeCreateParams {
  */
 export interface WorktreeAdoptParams {
   readonly createdBy: ManagedWorktreeCreator;
+  /**
+   * The ledger id to record it under. A thread bound to a worktree whose record was lost passes
+   * the id its binding names, so the thread opens with its worktree as it was left.
+   */
+  readonly id?: string;
   /** Absolute path of the worktree, as the inventory reports it (realpath'd). */
   readonly path: string;
   /** Present ⇒ a durable timeline row is written for this operation. */

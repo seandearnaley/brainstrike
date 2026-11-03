@@ -67,6 +67,7 @@
     "./worktree-map": "./src/worktree-map/index.ts",
     "./worktrees/availability": "./src/worktrees/availability.ts",
     "./roots/root-registry": "./src/roots/root-registry.ts",
+    "./roots/thread-folders-reopening": "./src/roots/thread-folders-reopening.ts",
     "./terminal-panel": "./src/terminal-panel/index.ts",
     "./workspace-connect/workspace-connect-bridge": "./src/workspace-connect/workspace-connect-bridge.ts",
     "./artifacts/artifacts-page": "./src/artifacts/artifacts-page.tsx",
