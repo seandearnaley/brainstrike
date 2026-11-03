@@ -111,11 +111,13 @@ export function BrowserPageView({
     viewport
   );
 
-  // The address follows the page unless the person is editing it: `null`
-  // follows, any string is their edit. Cleared on submit and on blur.
+  // The address follows the page until the person types: `null` follows, any
+  // string is their edit. It stays when focus leaves (another window, the page's
+  // own view), as a browser's does, and clears when they navigate from here.
   const [draft, setDraft] = useState<string | null>(null);
   const address = draft ?? page?.url ?? '';
   const run = (action: Promise<unknown>, label: string): void => {
+    setDraft(null);
     void action.catch((error: unknown) => {
       logger.error('Browser page action failed', { error, label, tabId: tab.tabId });
     });
@@ -170,7 +172,6 @@ export function BrowserPageView({
             aria-label="Address"
             className="h-6 text-xs"
             data-testid="browser-url-input"
-            onBlur={() => setDraft(null)}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Search or enter address"
             value={address}
