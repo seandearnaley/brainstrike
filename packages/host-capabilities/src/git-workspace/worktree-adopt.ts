@@ -37,7 +37,7 @@ const logger = createLogger('WorktreeAdopt');
 const GIT_DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface WorktreeAdoptDeps {
-  readonly ledger: Pick<WorktreeLedger, 'getByPath' | 'insert' | 'listActive'>;
+  readonly ledger: Pick<WorktreeLedger, 'get' | 'getByPath' | 'insert' | 'listActive'>;
   readonly readSettings: () => Promise<WorktreeSettings>;
   /**
    * `forceFresh` maps to `GitInventoryService.getSnapshot({ maxAgeMs: 0 })`
@@ -192,7 +192,11 @@ export async function adoptWorktree(
   deps: WorktreeAdoptDeps,
   params: WorktreeAdoptParams
 ): Promise<BoundaryResult<ManagedWorktreeRow>> {
-  const inventory = await deps.resolveInventory();
+  // A thread re-recording its worktree has just mounted the repository, which a cached snapshot
+  // may not include yet; a click adopts what the person was shown.
+  const inventory = params.id
+    ? await deps.resolveInventory({ forceFresh: true })
+    : await deps.resolveInventory();
   const located = locate(inventory, params.path);
   if (!located) {
     return gitRefused(
@@ -240,14 +244,16 @@ export async function adoptWorktree(
   if (!reachable.ok) {
     return reachable;
   }
-  const existing = await deps.ledger.getByPath(descriptor.path);
+  const existing =
+    (await deps.ledger.getByPath(descriptor.path)) ??
+    (params.id ? await deps.ledger.get(params.id) : null);
   if (existing !== null) {
     return gitRefused(
       'conflict',
       'worktree.already-managed',
       existing.archivedAt === null
-        ? `Brainstrike already manages the worktree at "${descriptor.path}".`
-        : `Brainstrike archived a worktree at "${descriptor.path}" — restore that one instead of adopting a new checkout at the same path.`
+        ? `Brainstrike already manages the worktree at "${existing.path}".`
+        : `Brainstrike archived a worktree at "${existing.path}" — restore that one instead of adopting a new checkout at the same path.`
     );
   }
   const headRun = await invokeGitHookFree(
@@ -268,7 +274,7 @@ export async function adoptWorktree(
     branch: descriptor.branch,
     createdAt: new Date().toISOString(),
     createdBy: params.createdBy,
-    id: generateWorkspaceSnapshotId(),
+    id: params.id ?? generateWorkspaceSnapshotId(),
     path: descriptor.path,
     repoCommonDir,
     runId: params.runId ?? null,

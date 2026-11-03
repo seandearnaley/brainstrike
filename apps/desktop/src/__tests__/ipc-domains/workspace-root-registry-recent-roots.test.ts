@@ -132,6 +132,28 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     );
   });
 
+  it('reopens a folder by its record after Recents forgot it', async () => {
+    const registry = createRegistry({ recents: storage });
+    const granted = await registry.addRoot(rootHandle(ws('alpha')));
+    await registry.removeRoot(granted.rootId);
+    // Recents keeps only the newest grants; the folder's record is what granted it.
+    await storage.removeItem('recentRootsList');
+    await expect(registry.addRootByPath(ws('alpha'))).resolves.toMatchObject({
+      permissionState: 'granted',
+      rootId: granted.rootId,
+    });
+  });
+
+  it('reopens a recorded worktree by its record, never as an open folder', async () => {
+    const catalogRequest = createRegistryCatalogRequest([], [MANAGED]);
+    const registry = createRegistry({ recents: storage }, catalogRequest);
+    const mounted = await registry.addRootByPath(MANAGED).catch(() => null);
+    expect(mounted).toBeNull();
+    await registry.addRoot(rootHandle(MANAGED));
+    const reopened = await registry.addRootByPath(MANAGED);
+    expect(reopened.handle.worktree).toBe(true);
+  });
+
   it('names where a granted folder was when it is no longer there', async () => {
     let moved = false;
     const registry = createRegistry({

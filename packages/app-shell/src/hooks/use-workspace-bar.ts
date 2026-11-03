@@ -852,6 +852,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const folderDropEntry = useFolderDrop({ onRootConnected: recordAddedAsSecondary });
 
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
+  const checkoutWorktreeId = selectedThread?.metadata?.checkoutWorktreeId;
+  const checkoutWorktreePath = selectedThread?.metadata?.checkoutWorktreePath;
+  const threadWorktree = useMemo(
+    () =>
+      checkoutMode === 'worktree' && checkoutWorktreeId && checkoutWorktreePath
+        ? { id: checkoutWorktreeId, path: checkoutWorktreePath }
+        : undefined,
+    [checkoutMode, checkoutWorktreeId, checkoutWorktreePath]
+  );
   useReconnectThreadFolders({
     addRootByPath: addRootDirectoryByPath,
     describeFailure,
@@ -860,6 +869,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     secondaryRoots: loadedSecondaryRoots,
     // Each open tab keeps its bar mounted: only the tab in front opens its thread's folders.
     threadId: frontThreadId === selectedMemoryThreadId ? selectedMemoryThreadId : undefined,
+    worktree: threadWorktree,
   });
   // Always defined; the CAPABILITY decides whether the prop is supplied (see
   // the return). Gating the spread on `addRootDirectoryByPath` rather than on

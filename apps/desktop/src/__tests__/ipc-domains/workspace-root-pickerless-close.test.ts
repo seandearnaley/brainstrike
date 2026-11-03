@@ -202,7 +202,8 @@ test.each(['storage failure', 'authorizer exception', 'authorizer denial'] as co
       // The refusal is the caller's; quit joins it without failing.
       await expect(preparation).resolves.toBeUndefined();
       expect(open).not.toHaveBeenCalled();
-      expect(request).not.toHaveBeenCalled();
+      // The folder's record is read to find a recorded folder; nothing is written.
+      expect(request.mock.calls.filter(([input]) => input.operation !== 'list')).toEqual([]);
       expect(storage.setItem).not.toHaveBeenCalled();
       expect(granted).not.toHaveBeenCalled();
     } finally {
