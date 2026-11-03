@@ -180,14 +180,6 @@ vi.mock('../../window-state', async () => {
     registerWindowStatePersistence: vi.fn(),
   };
 });
-// Use function syntax for Vitest 4 constructor mocks
-vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn();
-  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
-  return { default: MockElectronStore };
-});
 
 describe('window setup', () => {
   beforeEach(() => {
