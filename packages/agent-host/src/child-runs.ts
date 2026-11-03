@@ -242,10 +242,13 @@ export function deriveHostChildAdmission(
           throw new Error('A child step requires a resolved model instance');
         }
         const synthesis = maxSteps >= 2 && (request.stepNumber ?? 0) >= maxSteps - 1;
+        // Off (null) leaves the step at the model's own output limit.
         const cap = synthesis ? settings.synthesisOutputTokens : settings.maxStepOutputTokens;
         return {
           ...prepared,
-          maxOutputTokens: Math.min(prepared.maxOutputTokens ?? cap, cap),
+          ...(cap === null
+            ? {}
+            : { maxOutputTokens: Math.min(prepared.maxOutputTokens ?? cap, cap) }),
           model: hostPermitModel(prepared.model, queue, request.signal),
           system,
           ...(synthesis
