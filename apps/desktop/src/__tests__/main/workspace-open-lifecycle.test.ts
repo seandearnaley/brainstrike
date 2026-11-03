@@ -273,7 +273,6 @@ vi.mock('../../window-state', async () => {
   };
 });
 
-// Use function syntax for Vitest 4 constructor mocks
 const { isDesktopShuttingDownMock } = vi.hoisted(() => ({
   isDesktopShuttingDownMock: vi.fn(() => false),
 }));
