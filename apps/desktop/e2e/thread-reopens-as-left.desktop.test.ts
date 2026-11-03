@@ -1,8 +1,9 @@
 /**
  * Desktop E2E: a thread opens as it was left. After another folder is opened in the window and
  * the app restarts, opening the thread mounts its folder again without a click and the thread
- * sends: a folder thread even when Recents no longer lists its folder, and a worktree thread even
- * when the app's record of the worktree was lost while its checkout stayed intact on disk.
+ * sends: a folder thread even when Recents no longer lists its folder or the folder's record was
+ * deleted, and a worktree thread even when the app's record of the worktree was lost while its
+ * checkout stayed intact on disk.
  */
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,11 +11,13 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import type { ElectronHarness } from './fixtures/electron-harness';
 import { readHostRoot } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import type { ModelProviderShim } from './utils/model-provider-shim';
 
 const API_KEY = 'test-key-thread-reopens-as-left';
 const MODEL = 'anthropic/claude-sonnet-4.6';
@@ -78,19 +81,44 @@ async function openOtherFolder(
   await expect(page.getByText('other-file.txt').first()).toBeVisible({ timeout: 30_000 });
 }
 
+/** The folder's record in the app's store: opening the thread opens it again. */
+function folderStatus(stateDb: string, folder: string): string | null {
+  const db = new DatabaseSync(stateDb, { readOnly: true });
+  try {
+    const row = db.prepare('SELECT status FROM roots WHERE path = ?').get(folder);
+    return row ? String(row['status']) : null;
+  } finally {
+    db.close();
+  }
+}
+
+/** Brings the thread's tab to the front and waits until its folder is open again. */
+async function openThread(page: Page, tabId: string, stateDb: string, folder: string) {
+  await page.locator(`#${tabId}`).click();
+  await expect.poll(() => folderStatus(stateDb, folder), { timeout: 30_000 }).toBe('live');
+}
+
 function selectedThreadTab(page: Page) {
   return page
     .getByRole('tablist', { name: 'Open assistant threads' })
     .getByRole('tab', { selected: true });
 }
 
-test('a folder thread opens with its folder after Recents forgot it and a restart', async ({
-  electron,
-  electronApp,
-  modelProvider,
-  window: page,
-}) => {
-  test.setTimeout(240_000);
+/** A folder thread, left while another folder is open, whose state is changed before the restart. */
+async function reopenFolderThread(
+  fixtures: {
+    readonly electron: ElectronHarness;
+    readonly electronApp: ElectronAppContext;
+    readonly modelProvider: ModelProviderShim;
+    readonly page: Page;
+  },
+  seed: (db: DatabaseSync, folder: string) => void
+): Promise<void> {
+  const { electron, electronApp, modelProvider, page } = fixtures;
+  const root = await electronApp.app.evaluate(
+    () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
+  );
+  expect(root).not.toBe('');
   const other = makeOtherFolder();
   modelProvider.setScript((request) => ({
     finalText: `ECHO ${[...JSON.stringify(request.messages).matchAll(/STEP_\d/gu)].at(-1)?.[0] ?? '?'}`,
@@ -103,23 +131,48 @@ test('a folder thread opens with its folder after Recents forgot it and a restar
     const tabId = (await selectedThreadTab(page).getAttribute('id')) ?? '';
     await openOtherFolder(page, electronApp, other);
 
-    // Recents keeps only the newest folders; this thread's folder is no longer among them.
     const stateDb = path.join(await readHostRoot(electron.getUserDataDir()), 'state.db');
     await electron.closeForStateSeeding();
     const db = new DatabaseSync(stateDb);
     try {
-      db.prepare("DELETE FROM settings WHERE key = 'workspace.recentRootsList'").run();
+      seed(db, root);
     } finally {
       db.close();
     }
     const restarted = (await electron.restart()).window;
     await ensureAssistantShellVisible(restarted);
-    await restarted.locator(`#${tabId}`).click();
+    await openThread(restarted, tabId, stateDb, root);
     await send(restarted, 'STEP_2');
   } finally {
     await electron.dispose();
     rmSync(other, { force: true, recursive: true });
   }
+}
+
+test('a folder thread opens with its folder after Recents forgot it and a restart', async ({
+  electron,
+  electronApp,
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(240_000);
+  // Recents keeps only the newest folders; this thread's folder is no longer among them.
+  await reopenFolderThread({ electron, electronApp, modelProvider, page }, (db) => {
+    db.prepare("DELETE FROM settings WHERE key = 'workspace.recentRootsList'").run();
+  });
+});
+
+test('a folder thread opens with its folder after the folder record was deleted', async ({
+  electron,
+  electronApp,
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(240_000);
+  // The record the thread names is gone (deleted with the folder's data); the folder is not.
+  await reopenFolderThread({ electron, electronApp, modelProvider, page }, (db, folder) => {
+    expect(db.prepare('DELETE FROM roots WHERE path = ?').run(folder).changes).toBe(1);
+  });
 });
 
 test('a worktree thread opens with its worktree after another folder and a restart', async ({
@@ -161,8 +214,11 @@ test('a worktree thread opens with its worktree after another folder and a resta
     await electron.closeForStateSeeding();
     const db = new DatabaseSync(stateDb);
     let worktreeId: unknown;
+    let worktreePath = '';
     try {
-      worktreeId = db.prepare('SELECT id FROM brainstrike_worktrees').get()?.['id'];
+      const recorded = db.prepare('SELECT id, path FROM brainstrike_worktrees').get();
+      worktreeId = recorded?.['id'];
+      worktreePath = String(recorded?.['path']);
       expect(db.prepare('DELETE FROM brainstrike_worktrees').run().changes).toBe(1);
     } finally {
       db.close();
@@ -170,7 +226,7 @@ test('a worktree thread opens with its worktree after another folder and a resta
     const restarted = (await electron.restart()).window;
     await ensureAssistantShellVisible(restarted);
     // Opening the thread brings its worktree back without a click, and the thread sends.
-    await restarted.locator(`#${tabId}`).click();
+    await openThread(restarted, tabId, stateDb, worktreePath);
     await send(restarted, 'STEP_2');
     const reopened = new DatabaseSync(stateDb, { readOnly: true });
     try {

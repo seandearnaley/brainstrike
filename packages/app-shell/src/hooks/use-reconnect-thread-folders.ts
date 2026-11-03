@@ -4,7 +4,9 @@
  * again by its path. The host allows that only for a folder it has recorded, granted before
  * (Recents) or a managed worktree, so nothing new is granted here.
  *
- * A thread working in a worktree also records which one. When the app has lost its record of
+ * A thread names its folders by their records. When a folder's record is gone (a record the
+ * app deleted with its data) and the folder at the thread's path is recorded afresh, the thread
+ * follows it to that record. A thread working in a worktree also records which one. When the app has lost its record of
  * that worktree while the checkout is intact, the record is written again under the same id
  * before the worktree mounts, so the thread opens as it was left and its runs are admitted.
  *
@@ -18,6 +20,7 @@ import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundar
 import type { WorkspaceBarRoot } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useRef } from 'react';
+import { markThreadFoldersReopening } from '../roots/thread-folders-reopening';
 import { useWorktreesBridge } from '../workspace-git-services';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
@@ -27,6 +30,13 @@ interface UseReconnectThreadFoldersArgs {
   /** Mounts a folder granted before, by path; absent where the platform cannot. */
   readonly addRootByPath: ((path: string) => Promise<unknown>) | undefined;
   readonly describeFailure: (error: unknown) => string;
+  /**
+   * Points the thread at the record its primary folder is open under now, when that is not the
+   * record the thread names (the old one is gone). A no-op when they agree.
+   */
+  readonly followPrimaryRecord: (
+    root: WorkspaceBarRoot & { readonly path: string }
+  ) => Promise<void>;
   readonly primaryRoot: WorkspaceBarRoot | undefined;
   /** False while the thread's folders are still being read: a missing folder is not yet known. */
   readonly ready: boolean;
@@ -75,6 +85,7 @@ async function recordThreadWorktree(
 export function useReconnectThreadFolders({
   addRootByPath,
   describeFailure,
+  followPrimaryRecord,
   primaryRoot,
   ready,
   secondaryRoots,
@@ -105,6 +116,7 @@ export function useReconnectThreadFolders({
     if (missing.length === 0) {
       return;
     }
+    const reopened = markThreadFoldersReopening(threadId);
     void (async () => {
       // One at a time: the host orders folder changes anyway, and the last one keeps focus. The
       // thread's other folders mount first, so its worktree's repository is open when it is read.
@@ -114,6 +126,9 @@ export function useReconnectThreadFolders({
             await recordThreadWorktree(worktrees, worktree, threadId);
           }
           await addRootByPath(root.path);
+          if (root === primaryRoot) {
+            await followPrimaryRecord(root);
+          }
         } catch (error) {
           // The reason travels as text: the log buffer keeps only a summary of a large error.
           logger.info('A thread folder stays disconnected', {
@@ -124,10 +139,11 @@ export function useReconnectThreadFolders({
           });
         }
       }
-    })();
+    })().finally(reopened);
   }, [
     addRootByPath,
     describeFailure,
+    followPrimaryRecord,
     primaryRoot,
     ready,
     secondaryRoots,
