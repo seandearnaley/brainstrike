@@ -23,7 +23,7 @@ import { grantedMounts } from './granted-mounts.ts';
 let workspace: string;
 
 beforeEach(() => {
-  workspace = realpathSync(mkdtempSync(path.join(tmpdir(), 'host-file-watches-')));
+  workspace = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'host-file-watches-')));
   mkdirSync(path.join(workspace, 'src'));
 });
 
@@ -116,7 +116,9 @@ describe('host file watches', () => {
       health: { state: 'healthy' },
     });
     const moved = `${workspace}-moved`;
-    const outside = realpathSync(mkdtempSync(path.join(tmpdir(), 'host-file-watches-outside-')));
+    const outside = realpathSync.native(
+      mkdtempSync(path.join(tmpdir(), 'host-file-watches-outside-'))
+    );
     try {
       renameSync(workspace, moved);
       symlinkSync(outside, workspace);

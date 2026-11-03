@@ -274,10 +274,18 @@ vi.mock('../../window-state', async () => {
 });
 
 // Use function syntax for Vitest 4 constructor mocks
+// Main keeps the app-lifetime choices in this store; where a tray shows (Windows), closing the
+// last window reads them.
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();
   MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
+    const values = new Map<string, unknown>();
+    Object.assign(this, {
+      get: (key: string) => values.get(key),
+      set: (key: string, value: unknown) => {
+        values.set(key, value);
+      },
+    });
   });
   return { default: MockElectronStore };
 });
