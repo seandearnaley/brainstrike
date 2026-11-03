@@ -4,20 +4,15 @@ import { Schema, SchemaIssue } from 'effect';
  * every request as `runtimeData.subagentSettings`; no constant stands in for
  * them. Two tiers:
  *
- * - TREE limits, one set per original root turn across resumes and every
- *   descendant: `maxDepth`, `maxInvocations`, `maxTreeOutputTokens` are copied
- *   into the host-owned turn budget at first admission;
- *   `maxConcurrentWork` sizes each leg's work queue.
- * - PER-CHILD allocations, each within the tree: steps, summary, child and
- *   step output (copied into the same budget), and the runtime limit.
+ * - TREE limits for one root turn and every descendant: `maxDepth`,
+ *   `maxInvocations`, and `maxConcurrentWork`, which sizes the turn's work queue.
+ * - PER-CHILD limits: steps, the runtime limit, and the output one working step
+ *   or the summary step may produce.
  *
- * Everything the budget stores is TURN-scoped (`TurnSubagentLimits`): a later
- * leg of the same turn reads it back from its owner (`applyTurnSubagentLimits`)
- * so it never enforces or tells the model different limits than the host
- * admitted under. `maxConcurrentWork` and `maxChildRuntimeMs` are PER-REQUEST.
+ * The output limits are `null` (Off) by default, like the runtime: a subagent's
+ * step may produce as much as its model allows, as the main agent's may.
  */
 export interface RuntimeSubagentSettings {
-  maxChildOutputTokens: number;
   /** Wall-clock limit on one child execution; `null` is Off (the default). */
   maxChildRuntimeMs: number | null;
   maxChildSteps: number;
@@ -27,10 +22,10 @@ export interface RuntimeSubagentSettings {
   maxDepth: number;
   /** Tree: delegations one original root turn admits, resumes and descendants included. */
   maxInvocations: number;
-  maxStepOutputTokens: number;
-  /** Tree: output tokens across every descendant of one original root turn. */
-  maxTreeOutputTokens: number;
-  synthesisOutputTokens: number;
+  /** Output one working step may produce; `null` is Off (the default): the model's own limit. */
+  maxStepOutputTokens: number | null;
+  /** Output the reserved summary step may produce; `null` is Off (the default). */
+  synthesisOutputTokens: number | null;
 }
 /**
  * The longest delay Node's `setTimeout` arms: anything above it (Infinity
@@ -42,7 +37,6 @@ export const NODE_TIMER_MAX_MS = 2_147_483_647;
  * docs/superpowers/research/2026-09-22-agent-timeout-and-budget-standards.md
  * (the "research doc" below).
  */
-const MAX_CHILD_OUTPUT_TOKENS = 131_072;
 /**
  * Up to 1,000 invocations, the same ceiling as `maxChildSteps`: Claude Code
  * sets no total subagent cap at all (research doc §1), so a long-horizon turn
@@ -50,7 +44,6 @@ const MAX_CHILD_OUTPUT_TOKENS = 131_072;
  */
 const MAX_INVOCATIONS = 1000;
 export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
-  maxChildOutputTokens: Object.freeze({ max: MAX_CHILD_OUTPUT_TOKENS, min: 1024 }),
   maxChildRuntimeMs: Object.freeze({ max: NODE_TIMER_MAX_MS, min: 1000 }),
   maxChildSteps: Object.freeze({ max: 1000, min: 1 }),
   /**
@@ -70,17 +63,8 @@ export const SUBAGENT_SETTINGS_LIMITS = Object.freeze({
   maxDepth: Object.freeze({ max: 8, min: 1 }),
   maxInvocations: Object.freeze({ max: MAX_INVOCATIONS, min: 1 }),
   maxStepOutputTokens: Object.freeze({ max: 65_536, min: 256 }),
-  /**
-   * Up to every admissible invocation spending the largest per-child
-   * allocation (131,072,000), which also fits the budget row's int4 columns.
-   */
-  maxTreeOutputTokens: Object.freeze({
-    max: MAX_INVOCATIONS * MAX_CHILD_OUTPUT_TOKENS,
-    min: 1024,
-  }),
   synthesisOutputTokens: Object.freeze({ max: 8192, min: 256 }),
 });
-const DEFAULT_MAX_CHILD_OUTPUT_TOKENS = 32_768;
 /**
  * 200 per turn: Claude Code's per-session subagent total before it removed
  * that cap outright (research doc §1). A turn is narrower than a session, so
@@ -89,7 +73,6 @@ const DEFAULT_MAX_CHILD_OUTPUT_TOKENS = 32_768;
  */
 const DEFAULT_MAX_INVOCATIONS = 200;
 export const DEFAULT_RUNTIME_SUBAGENT_SETTINGS: RuntimeSubagentSettings = Object.freeze({
-  maxChildOutputTokens: DEFAULT_MAX_CHILD_OUTPUT_TOKENS,
   maxChildRuntimeMs: null,
   maxChildSteps: 100,
   /**
@@ -100,15 +83,14 @@ export const DEFAULT_RUNTIME_SUBAGENT_SETTINGS: RuntimeSubagentSettings = Object
   /** 3: Claude Code's default subagent nesting depth (research doc §1). */
   maxDepth: 3,
   maxInvocations: DEFAULT_MAX_INVOCATIONS,
-  maxStepOutputTokens: 8192,
   /**
-   * Every default invocation spending its full default allocation, so the
-   * tree cap never binds before the per-child and invocation caps do: the
-   * surveyed agents leave run-ending token budgets opt-in (research doc,
-   * "Synthesis" point 5). A user lowers it to make it a cost ceiling.
+   * Off: a step capped below what the model wants to write ends the subagent
+   * as failed, and adaptive thinking spends much of a step's output before the
+   * answer. The surveyed agents leave run-ending token budgets opt-in
+   * (research doc, "Synthesis" point 5).
    */
-  maxTreeOutputTokens: DEFAULT_MAX_INVOCATIONS * DEFAULT_MAX_CHILD_OUTPUT_TOKENS,
-  synthesisOutputTokens: 2048,
+  maxStepOutputTokens: null,
+  synthesisOutputTokens: null,
 });
 function bounded(limit: { readonly max: number; readonly min: number }) {
   return Schema.Int.check(Schema.isGreaterThanOrEqualTo(limit.min)).check(
@@ -116,53 +98,14 @@ function bounded(limit: { readonly max: number; readonly min: number }) {
   );
 }
 export const runtimeSubagentSettingsSchema = Schema.Struct({
-  maxChildOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildOutputTokens),
   maxChildRuntimeMs: Schema.NullOr(bounded(SUBAGENT_SETTINGS_LIMITS.maxChildRuntimeMs)),
   maxChildSteps: bounded(SUBAGENT_SETTINGS_LIMITS.maxChildSteps),
   maxConcurrentWork: bounded(SUBAGENT_SETTINGS_LIMITS.maxConcurrentWork),
   maxDepth: bounded(SUBAGENT_SETTINGS_LIMITS.maxDepth),
   maxInvocations: bounded(SUBAGENT_SETTINGS_LIMITS.maxInvocations),
-  maxStepOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxStepOutputTokens),
-  maxTreeOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.maxTreeOutputTokens),
-  synthesisOutputTokens: bounded(SUBAGENT_SETTINGS_LIMITS.synthesisOutputTokens),
-}).check(
-  Schema.makeFilter((value) => {
-    const issues: {
-      issue: string;
-      path: readonly PropertyKey[];
-    }[] = [];
-    if (value.maxChildOutputTokens > value.maxTreeOutputTokens) {
-      issues.push({
-        issue: 'maxChildOutputTokens must not exceed maxTreeOutputTokens',
-        path: ['maxChildOutputTokens'],
-      });
-    }
-    if (value.synthesisOutputTokens > value.maxChildOutputTokens) {
-      issues.push({
-        issue: 'synthesisOutputTokens must not exceed maxChildOutputTokens',
-        path: ['synthesisOutputTokens'],
-      });
-    }
-    if (value.maxStepOutputTokens > value.maxChildOutputTokens) {
-      issues.push({
-        issue: 'maxStepOutputTokens must not exceed maxChildOutputTokens',
-        path: ['maxStepOutputTokens'],
-      });
-    }
-    return issues;
-  })
-);
-/** The limits one original root turn freezes into its budget row at first admission. */
-export type TurnSubagentLimits = Pick<
-  RuntimeSubagentSettings,
-  | 'maxChildOutputTokens'
-  | 'maxChildSteps'
-  | 'maxDepth'
-  | 'maxInvocations'
-  | 'maxStepOutputTokens'
-  | 'maxTreeOutputTokens'
-  | 'synthesisOutputTokens'
->;
+  maxStepOutputTokens: Schema.NullOr(bounded(SUBAGENT_SETTINGS_LIMITS.maxStepOutputTokens)),
+  synthesisOutputTokens: Schema.NullOr(bounded(SUBAGENT_SETTINGS_LIMITS.synthesisOutputTokens)),
+});
 export class RuntimeSubagentSettingsError extends Error {
   override readonly name = 'RuntimeSubagentSettingsError';
 }
@@ -189,21 +132,6 @@ export function parseRuntimeSubagentSettings(value: unknown): RuntimeSubagentSet
     throw new RuntimeSubagentSettingsError(`Subagent settings are malformed: ${issues}`);
   }
   return parsed.success;
-}
-/**
- * The settings one leg runs under: the turn's stored limits when its budget
- * row exists (`turn`), the request's per-request knobs always. `undefined`
- * (no row yet: the leg that first delegates opens it from this very request)
- * is the request itself. A stored row the contract rejects THROWS.
- */
-export function applyTurnSubagentLimits(
-  request: RuntimeSubagentSettings,
-  turn: TurnSubagentLimits | undefined
-): RuntimeSubagentSettings {
-  if (turn === undefined) {
-    return request;
-  }
-  return parseRuntimeSubagentSettings({ ...request, ...turn });
 }
 /**
  * The deadline the host hands Mastra for one background child execution.

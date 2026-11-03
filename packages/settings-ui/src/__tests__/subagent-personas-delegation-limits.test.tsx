@@ -29,12 +29,10 @@ beforeEach(() => {
   useAssistantSubagentPreferencesStore.setState({
     settings: {
       ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      maxChildOutputTokens: 4321,
       maxChildSteps: 7,
       maxConcurrentWork: 5,
       maxDepth: 7,
       maxInvocations: 11,
-      maxTreeOutputTokens: 98_765,
     },
   });
 });
@@ -53,8 +51,7 @@ describe('SubagentPersonasSettingsSection delegation limits', () => {
     expect(limits).toHaveTextContent(
       'No subagent may exceed 7 steps, whatever its persona declares (see Subagent limits below).'
     );
-    expect(limits).toHaveTextContent('4,321');
-    expect(limits).toHaveTextContent('98,765');
+    expect(limits).not.toHaveTextContent('output tokens');
   });
 
   it('states each persona step budget through the shared helper the host enforces with', () => {
