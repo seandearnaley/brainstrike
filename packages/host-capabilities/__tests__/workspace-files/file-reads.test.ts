@@ -25,7 +25,7 @@ let workspace: string;
 let outside: string;
 
 beforeEach(() => {
-  base = realpathSync(mkdtempSync(path.join(tmpdir(), 'host-file-reads-')));
+  base = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'host-file-reads-')));
   workspace = path.join(base, 'repo');
   outside = path.join(base, 'outside');
   mkdirSync(path.join(workspace, 'src', 'nested'), { recursive: true });

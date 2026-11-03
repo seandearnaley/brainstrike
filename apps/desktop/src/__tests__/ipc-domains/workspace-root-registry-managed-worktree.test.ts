@@ -69,10 +69,12 @@ describe('WorkspaceRootRegistry managed-worktree authorizer (BST-1390, spec §6.
       ['folder', false],
       ['checkout', true],
     ]);
+    // Recents are stored as JSON, which escapes a Windows path's backslashes: compare the paths.
     const written = vi
       .mocked(recents.setItem)
-      .mock.calls.map(([, value]) => value)
-      .join('\n');
+      .mock.calls.flatMap(([, value]) =>
+        (JSON.parse(value) as { path: string }[]).map((entry) => entry.path)
+      );
     expect(written).toContain(folder);
     expect(written).not.toContain(MANAGED);
   });

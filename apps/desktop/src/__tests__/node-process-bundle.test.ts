@@ -47,8 +47,9 @@ describe('Node process bundle', () => {
     // Not vacuous: every entry was bundled, and the entries share split chunks.
     expect(outputs.map((output) => output.entryPoint)).toEqual(
       expect.arrayContaining(
+        // esbuild's metafile names inputs with forward slashes on every platform.
         Object.values(NODE_PROCESS_ENTRY_POINTS).map((entry) =>
-          path.relative(desktopRoot, path.resolve(desktopRoot, entry))
+          path.relative(desktopRoot, path.resolve(desktopRoot, entry)).split(path.sep).join('/')
         )
       )
     );
