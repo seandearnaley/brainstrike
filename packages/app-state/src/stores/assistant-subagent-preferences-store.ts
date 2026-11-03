@@ -24,16 +24,16 @@ interface AssistantSubagentPreferencesData {
 
 interface AssistantSubagentPreferencesActions {
   resetToDefaults: () => void;
-  setMaxChildOutputTokens: (value: number) => void;
   /** `null` turns the limit Off. */
   setMaxChildRuntimeMs: (value: number | null) => void;
   setMaxChildSteps: (value: number) => void;
   setMaxConcurrentWork: (value: number) => void;
   setMaxDepth: (value: number) => void;
   setMaxInvocations: (value: number) => void;
-  setMaxStepOutputTokens: (value: number) => void;
-  setMaxTreeOutputTokens: (value: number) => void;
-  setSynthesisOutputTokens: (value: number) => void;
+  /** `null` turns the limit Off. */
+  setMaxStepOutputTokens: (value: number | null) => void;
+  /** `null` turns the limit Off. */
+  setSynthesisOutputTokens: (value: number | null) => void;
 }
 
 export type AssistantSubagentPreferencesStore = AssistantSubagentPreferencesData &
@@ -41,7 +41,7 @@ export type AssistantSubagentPreferencesStore = AssistantSubagentPreferencesData
 
 export const ASSISTANT_SUBAGENT_PREFERENCES_STORE_NAME =
   'brainstrike:assistant-subagent-preferences.v1' as const;
-const STORE_VERSION = 3 as const;
+const STORE_VERSION = 4 as const;
 
 function defaultData(): AssistantSubagentPreferencesData {
   return { settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS };
@@ -69,7 +69,11 @@ function sanitizePersistedData(persistedState: unknown): AssistantSubagentPrefer
  * saved budget to the defaults. Saved values always carry over.
  * - v1 predates `maxChildRuntimeMs`: it starts Off.
  * - v2 predates the tree limits (they were host constants): they start at the
- *   defaults, which every saved per-child budget already fits within.
+ *   defaults.
+ * - v3 carries the per-child and per-turn output budgets the host never
+ *   enforced; they are dropped. Its step and summary output caps still at the
+ *   old defaults (8,192 and 2,048) take the new default, Off; any other saved
+ *   value carries over.
  */
 function migratePersistedData(persistedState: unknown, version: number): unknown {
   if (version >= STORE_VERSION || !(persistedState && typeof persistedState === 'object')) {
@@ -80,6 +84,11 @@ function migratePersistedData(persistedState: unknown, version: number): unknown
     return persistedState;
   }
   const defaults = DEFAULT_RUNTIME_SUBAGENT_SETTINGS;
+  const {
+    maxChildOutputTokens: _child,
+    maxTreeOutputTokens: _tree,
+    ...saved
+  } = settings as Record<string, unknown>;
   return {
     ...persistedState,
     settings: {
@@ -87,8 +96,9 @@ function migratePersistedData(persistedState: unknown, version: number): unknown
       maxConcurrentWork: defaults.maxConcurrentWork,
       maxDepth: defaults.maxDepth,
       maxInvocations: defaults.maxInvocations,
-      maxTreeOutputTokens: defaults.maxTreeOutputTokens,
-      ...settings,
+      ...saved,
+      ...(saved['maxStepOutputTokens'] === 8192 ? { maxStepOutputTokens: null } : {}),
+      ...(saved['synthesisOutputTokens'] === 2048 ? { synthesisOutputTokens: null } : {}),
     },
   };
 }
@@ -108,14 +118,12 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
       return {
         ...defaultData(),
         resetToDefaults: () => set(defaultData()),
-        setMaxChildOutputTokens: (value) => patch('maxChildOutputTokens', value),
         setMaxChildRuntimeMs: (value) => patch('maxChildRuntimeMs', value),
         setMaxChildSteps: (value) => patch('maxChildSteps', value),
         setMaxConcurrentWork: (value) => patch('maxConcurrentWork', value),
         setMaxDepth: (value) => patch('maxDepth', value),
         setMaxInvocations: (value) => patch('maxInvocations', value),
         setMaxStepOutputTokens: (value) => patch('maxStepOutputTokens', value),
-        setMaxTreeOutputTokens: (value) => patch('maxTreeOutputTokens', value),
         setSynthesisOutputTokens: (value) => patch('synthesisOutputTokens', value),
       };
     },

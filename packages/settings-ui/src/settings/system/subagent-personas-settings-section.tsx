@@ -45,8 +45,6 @@ const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.ma
   status: 'ok',
 }));
 
-// The locale is pinned on purpose so limits use consistent grouping on every host.
-const LIMIT_NUMBER_FORMAT = new Intl.NumberFormat('en-US');
 const TOOL_ID_PREFIX = 'brainstrike.';
 const MAX_LISTED_TOOLS = 6;
 
@@ -103,10 +101,8 @@ function DelegationLimits() {
         Subagents can delegate to other subagents up to {settings.maxDepth} levels deep, with at
         most {settings.maxInvocations} delegations per turn and {settings.maxConcurrentWork}{' '}
         subagents working at once. No subagent may exceed {settings.maxChildSteps} steps, whatever
-        its persona declares (see Subagent limits below). Each subagent may produce up to{' '}
-        {LIMIT_NUMBER_FORMAT.format(settings.maxChildOutputTokens)} output tokens;{' '}
-        {LIMIT_NUMBER_FORMAT.format(settings.maxTreeOutputTokens)} output tokens is the ceiling for
-        all subagents in one turn. Personas cannot raise these limits; the host enforces them.
+        its persona declares (see Subagent limits below). Personas cannot raise these limits; the
+        host enforces them.
       </p>
     </div>
   );

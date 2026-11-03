@@ -104,8 +104,7 @@ export function delegationDescriptionForPersona(
     `${persona.description} ${capability} Runs at most ${steps} ${steps === 1 ? 'step' : 'steps'}${summary} — ` +
     'scope the task to that budget and split anything larger across several ' +
     `delegations. The root turn permits at most ${settings.maxDepth} descendant levels, ` +
-    `${settings.maxInvocations} invocations, ${settings.maxConcurrentWork} active work operations, ` +
-    `${settings.maxChildOutputTokens} output tokens per child and ${settings.maxTreeOutputTokens} across descendants.`
+    `${settings.maxInvocations} invocations and ${settings.maxConcurrentWork} active work operations.`
   );
 }
 

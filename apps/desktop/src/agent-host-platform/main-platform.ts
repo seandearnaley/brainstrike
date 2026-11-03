@@ -3,7 +3,12 @@ import type { CredentialCipher } from '@brainstrike/agent-host/credential-contra
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { createLogger, error as logError, fatal as logFatal } from '@brainstrike/logging';
+import {
+  createLogger,
+  error as logError,
+  fatal as logFatal,
+  warn as logWarn,
+} from '@brainstrike/logging';
 import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
@@ -27,7 +32,7 @@ import {
 
 const logger = createLogger('DesktopMainPlatform');
 /** An unscoped host record keeps no scope in Main's log either. */
-const ROOT_LOG = { error: logError, fatal: logFatal } as const;
+const ROOT_LOG = { error: logError, fatal: logFatal, warn: logWarn } as const;
 const PLATFORM_CLOSING = fault({
   category: 'availability',
   code: 'platform.closing',
