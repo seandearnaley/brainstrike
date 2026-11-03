@@ -451,8 +451,9 @@ export function deriveRecordedPrimary(
   if (followedLocal && previousLocalRootId) {
     gone.add(previousLocalRootId);
   }
+  // A hand-off folder still under its record stays where it is; one that moved is re-added below.
   const keep = (id: string): boolean =>
-    id !== root.rootId && id !== localRoot?.rootId && !gone.has(id);
+    id !== root.rootId && !gone.has(id) && !(followedLocal && id === localRoot.rootId);
   // The hand-off folder stays one of the thread's folders, under its current record.
   const localFolders = followedLocal ? [localRoot] : [];
   const localRootId = followedLocal ? localRoot.rootId : previousLocalRootId;

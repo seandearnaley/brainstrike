@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { ThreadCheckoutFolders, ThreadCheckoutRoot } from '../hooks/use-thread-folders-write';
 import {
   deriveMakePrimary,
+  deriveRecordedPrimary,
   deriveRemoveFromThread,
   deriveUseFolder,
 } from '../hooks/use-workspace-bar-write-derive';
@@ -131,5 +132,53 @@ describe('a removed thread folder', () => {
     expect(() => deriveUseFolder(folders(bravo, [delta]), alpha)).toThrow(
       'This thread still has a live folder; make it primary instead.'
     );
+  });
+});
+
+describe('a worktree thread following its folders to their current records', () => {
+  const worktree = { id: 'wt-1', path: '/ws/.worktrees/spry' };
+  const oldWorktreeRoot: ThreadCheckoutRoot = {
+    displayName: 'spry',
+    path: worktree.path,
+    removed: true,
+    rootId: 'r-spry-old',
+  };
+  const worktreeRoot = { displayName: 'spry', path: worktree.path, rootId: 'r-spry' } as const;
+  const worktreeMode = { checkoutLocalRootId: 'r-alpha', checkoutMode: 'worktree' } as const;
+
+  it('keeps its hand-off folder when only the worktree record changed', () => {
+    const write = deriveRecordedPrimary(
+      folders(oldWorktreeRoot, [alpha], worktreeMode),
+      worktreeRoot,
+      {
+        root: alpha,
+        worktree,
+      }
+    );
+    expect(write.ids).toEqual(['r-alpha']);
+    expect(write.checkoutLocalRootId).toBe('r-alpha');
+    expect(write.binding).not.toHaveProperty('checkoutLocalRootId');
+  });
+
+  it('moves its hand-off folder to the record it is open under now, with the whole checkout', () => {
+    const goneAlpha: ThreadCheckoutRoot = {
+      displayName: 'Unknown folder',
+      removed: true,
+      rootId: 'r-alpha',
+    };
+    const write = deriveRecordedPrimary(
+      folders(oldWorktreeRoot, [goneAlpha], worktreeMode),
+      worktreeRoot,
+      { root: { ...alpha, rootId: 'r-alpha-new' }, worktree }
+    );
+    expect(write.ids).toEqual(['r-alpha-new']);
+    expect(write.checkoutLocalRootId).toBe('r-alpha-new');
+    expect(write.binding).toMatchObject({
+      checkoutLocalRootId: 'r-alpha-new',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'wt-1',
+      checkoutWorktreePath: worktree.path,
+      operatingRootId: 'r-spry',
+    });
   });
 });

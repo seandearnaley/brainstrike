@@ -247,6 +247,12 @@ async function reopenWorktreeThread(
     const restarted = restartedApp.window;
     await ensureAssistantShellVisible(restarted);
     if (recordsDeleted) {
+      // Opened first, the thread cannot record its worktree again: its repository is not open.
+      await restarted.locator(`#${tabId}`).click();
+      await expect(restarted.getByRole('button', { name: "can't be opened" })).toBeVisible({
+        timeout: 30_000,
+      });
+      // Opening the repository through the picker is what the thread was waiting for.
       await openFolder(restarted, restartedApp, root, 'hello.ts');
     }
     // Opening the thread brings its worktree back without a click, and the thread sends.
