@@ -389,6 +389,11 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
     throw new RangeError('Host utility cooperative close must be positive and finite');
   }
   const scope = Scope.makeUnsafe();
+  // Forked first, so it closes last: Main's attachment outlives the host this lease
+  // launched. That host answers what it read, announces its drain and closes the
+  // socket itself, so a request Main still has in flight ends as its answer or its
+  // closing refusal, never as a lost connection (BST-2451).
+  const attachments = Scope.forkUnsafe(scope);
   const abort = new AbortController();
   let acquiring: Promise<HostAttachment> | undefined;
   let retired = false;
@@ -526,7 +531,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           ? {}
           : { startupTimeoutMs: options.startupTimeoutMs }),
       });
-      await addFinalizer(scope, () => attachment.close());
+      await addFinalizer(attachments, () => attachment.close());
       if (retired) {
         throw abort.signal.reason;
       }
