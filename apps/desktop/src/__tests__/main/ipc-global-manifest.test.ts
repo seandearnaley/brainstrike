@@ -208,14 +208,6 @@ vi.mock('../../window-state', async () => {
   };
 });
 
-vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn();
-  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
-  return { default: MockElectronStore };
-});
-
 const REAL_PROCESS_ARGV = process.argv;
 
 describe('global desktop IPC manifest (BST-1648 step 5)', () => {
