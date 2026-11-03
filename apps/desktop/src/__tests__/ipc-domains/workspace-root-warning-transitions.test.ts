@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { expect, it, vi } from 'vitest';
 import {
@@ -7,8 +8,11 @@ import {
   rootHandle,
 } from './workspace-root-registry-test-helpers';
 
+// A native absolute path: on Windows the registry stores folders as the OS names them.
+const WORKSPACE = path.resolve('/workspace');
+
 it('reports an unavailable saved root once per absence while preserving retries and descriptors', async () => {
-  const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
+  const entry = { addedAt: 1, path: WORKSPACE, rootId: 'root-a' };
   const catalog = openRootsCatalog([entry]);
   let exists = false;
   const pathExists = vi.fn(async () => exists);
@@ -44,7 +48,7 @@ it('reports an unavailable saved root once per absence while preserving retries 
 });
 
 it('reports a new absence after a user grants the formerly unavailable saved root', async () => {
-  const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
+  const entry = { addedAt: 1, path: WORKSPACE, rootId: 'root-a' };
   const catalog = openRootsCatalog([entry]);
   const registry = createRegistry({ pathExists: async () => false }, catalog);
   const warnings: LogRecord[] = [];
@@ -72,7 +76,7 @@ it('reports a new absence after a user grants the formerly unavailable saved roo
 });
 
 it('reports mount errors independently and rearms absence after the filesystem path returns', async () => {
-  const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
+  const entry = { addedAt: 1, path: WORKSPACE, rootId: 'root-a' };
   const catalog = openRootsCatalog([entry]);
   let exists = false;
   const registry = createRegistry(
@@ -112,7 +116,7 @@ it('reports mount errors independently and rearms absence after the filesystem p
 it.each(['remove', 'restore-prune'] as const)(
   'forgets a removed absence through %s before the same saved identity returns',
   async (removal) => {
-    const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
+    const entry = { addedAt: 1, path: WORKSPACE, rootId: 'root-a' };
     const catalog = openRootsCatalog([entry]);
     const registry = createRegistry({ pathExists: async () => false }, catalog);
     const warnings: LogRecord[] = [];
