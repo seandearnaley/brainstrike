@@ -252,6 +252,11 @@ async function reopenWorktreeThread(
     // Opening the thread brings its worktree back without a click, and the thread sends.
     await openThread(restarted, tabId, stateDb, worktreePath);
     await send(restarted, 'STEP_2');
+    // The checkout chip names the worktree again, with no warning that it is missing.
+    await expect(restarted.getByTestId('workspace-bar-mode-chip')).toHaveAttribute(
+      'aria-label',
+      `Worktree: ${name}`
+    );
     const reopened = new DatabaseSync(stateDb, { readOnly: true });
     try {
       // The record is written again under the id the thread names.
