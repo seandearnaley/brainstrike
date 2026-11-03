@@ -40,6 +40,7 @@ import { resolveRootIdAfterReconciliation } from './use-workspace-bar-root-row-l
 import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
 import {
   deriveMakePrimary,
+  deriveRecordedPrimary,
   deriveRemoveFromThread,
   deriveUseFolder,
   folderWriteIdentityOf,
@@ -852,14 +853,42 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const folderDropEntry = useFolderDrop({ onRootConnected: recordAddedAsSecondary });
 
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
+  const checkoutWorktreeId = selectedThread?.metadata?.checkoutWorktreeId;
+  const checkoutWorktreePath = selectedThread?.metadata?.checkoutWorktreePath;
+  const threadWorktree = useMemo(
+    () =>
+      checkoutMode === 'worktree' && checkoutWorktreeId && checkoutWorktreePath
+        ? { id: checkoutWorktreeId, path: checkoutWorktreePath }
+        : undefined,
+    [checkoutMode, checkoutWorktreeId, checkoutWorktreePath]
+  );
+  const followPrimaryRecord = useCallback(
+    async (root: WorkspaceBarRoot & { readonly path: string }): Promise<void> => {
+      const rootId = await resolveRootIdForPath(root.path, root.displayName);
+      if (rootId === root.rootId) {
+        return;
+      }
+      logger.warn('A thread follows its folder to the record it is open under now', {
+        path: root.path,
+        previousRootId: root.rootId,
+        rootId,
+      });
+      await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) =>
+        deriveRecordedPrimary(current, { displayName: root.displayName, path: root.path, rootId })
+      );
+    },
+    [enqueueThreadFoldersWrite, resolveRootIdForPath, selectedMemoryThreadId]
+  );
   useReconnectThreadFolders({
     addRootByPath: addRootDirectoryByPath,
     describeFailure,
+    followPrimaryRecord,
     primaryRoot,
     ready: !foldersPending && threadRoots.resolved,
     secondaryRoots: loadedSecondaryRoots,
     // Each open tab keeps its bar mounted: only the tab in front opens its thread's folders.
     threadId: frontThreadId === selectedMemoryThreadId ? selectedMemoryThreadId : undefined,
+    worktree: threadWorktree,
   });
   // Always defined; the CAPABILITY decides whether the prop is supplied (see
   // the return). Gating the spread on `addRootDirectoryByPath` rather than on

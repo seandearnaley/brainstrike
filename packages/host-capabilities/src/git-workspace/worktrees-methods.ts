@@ -75,6 +75,7 @@ function validateAdopt(payload: unknown): BoundaryResult<WorktreeAdoptParams> {
       'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.'
     );
   }
+  const id = payload['id'];
   const runId = payload['runId'];
   const threadId = payload['threadId'];
   // An unknown-typed client boundary: a PRESENT runId/threadId that is not a
@@ -82,6 +83,9 @@ function validateAdopt(payload: unknown): BoundaryResult<WorktreeAdoptParams> {
   // dropping a malformed runId would still adopt the worktree, just without
   // the run attribution the caller asked for — a different outcome than the
   // one requested, produced without saying so.
+  if (id !== undefined && !nonEmptyString(id)) {
+    return gitInvalid('worktrees:adopt id must be a non-empty string when present.');
+  }
   if (runId !== undefined && !nonEmptyString(runId)) {
     return gitInvalid('worktrees:adopt runId must be a non-empty string when present.');
   }
@@ -92,6 +96,7 @@ function validateAdopt(payload: unknown): BoundaryResult<WorktreeAdoptParams> {
     ok: true,
     value: {
       createdBy: payload['createdBy'],
+      ...(nonEmptyString(id) ? { id } : {}),
       path: payload['path'] as string,
       ...(nonEmptyString(runId) ? { runId } : {}),
       ...(nonEmptyString(threadId) ? { threadId } : {}),
