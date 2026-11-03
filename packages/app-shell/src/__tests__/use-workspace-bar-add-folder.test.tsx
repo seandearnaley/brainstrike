@@ -193,7 +193,17 @@ const realUpdateThreadMetadata = useAssistantThreadStore.getState().updateThread
 const assistantThreadRepository = {
   updateThreadMetadata,
 } as unknown as AssistantThreadRepository;
-const currentMainRoot = { displayName: 'brainstrike', path: '/ws/brainstrike' };
+// A thread's folder is its own persisted binding. Tests that do not name one are
+// bound to this folder; `{ operatingRootId: undefined }` seeds an unbound thread.
+const MAIN_BINDING = {
+  operatingRootDisplayName: 'brainstrike',
+  operatingRootId: 'r-main-db',
+  operatingRootPath: '/ws/brainstrike',
+};
+
+function withMainBinding(metadata: Record<string, unknown>): Record<string, unknown> {
+  return 'operatingRootId' in metadata ? metadata : { ...MAIN_BINDING, ...metadata };
+}
 // Keyed by the file-explorer ADAPTER rootId (the production store builds it as
 // `Object.fromEntries(roots.map((r) => [r.rootId, r]))`). It is deliberately
 // UNRELATED to the DB `roots.id` above: the durable id must never be borrowed
@@ -225,7 +235,7 @@ function seedThreads(threads: readonly SeededThread[], selectedId: string) {
 }
 
 function seedThread(metadata: Record<string, unknown>) {
-  seedThreads([{ id: THREAD_ID, metadata }], THREAD_ID);
+  seedThreads([{ id: THREAD_ID, metadata: withMainBinding(metadata) }], THREAD_ID);
 }
 
 interface BarProps {
@@ -241,7 +251,6 @@ async function setup(
     (props: BarProps) =>
       useWorkspaceBar({
         assistantThreadRepository,
-        currentMainRoot,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors: rootDescriptorsOverride,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
@@ -343,6 +352,25 @@ describe('useWorkspaceBar — Add folder', () => {
         secondaryRootIds: ['r-docs'],
       })
     );
+  });
+
+  it('Add folder on a thread with no folder makes the added folder its folder, not a secondary', async () => {
+    const { result } = await setup({ operatingRootId: undefined });
+    expect(result.current.primaryRoot).toBeUndefined();
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenCalledWith(
+        THREAD_ID,
+        expect.objectContaining({
+          operatingRootDisplayName: 'docs',
+          operatingRootId: 'r-docs',
+          operatingRootPath: '/ws/docs',
+        })
+      )
+    );
+    expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
   });
 
   it('shows a Workspace Bar grant after disconnect in the same session', async () => {

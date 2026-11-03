@@ -94,7 +94,6 @@ async function setup(metadata: Record<string, unknown>, rootDescriptors: Descrip
     (props: { rootDescriptors: Descriptors }) =>
       useWorkspaceBar({
         assistantThreadRepository,
-        currentMainRoot: { displayName: 'alpha', path: '/ws/alpha' },
         memoryResourceId: RESOURCE_ID,
         rootDescriptors: props.rootDescriptors,
         selectedMemoryThreadId: THREAD_ID,

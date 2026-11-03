@@ -199,33 +199,6 @@ describe('a send the lost host never answered (BST-2004)', () => {
       conversation.close();
     }
   });
-  it('settles a send whose folder binding lost the host, never starting the run', async () => {
-    const loss = Promise.withResolvers<void>();
-    const runStart = vi.fn(async () => ({ runId: 'never' }));
-    const lostHost = recordedClient(runStart);
-    const replacementHost = recordedClient(async () => ({ runId: 'never' }));
-    const conversation = createCommittedHostConversation({
-      // The bind's own host read was in flight when the host was lost.
-      bindThreadRoot: unansweredStart(loss.promise),
-      client: lostHost.client,
-      modelId: 'openrouter::anthropic/claude-sonnet-4.6',
-      replacement: async () => replacementHost.client,
-      threadId,
-    });
-    try {
-      const sent = conversation.commands.onNew?.(message('Bound to a stopped host'));
-      loss.resolve();
-      const refusal = await sent?.then(
-        () => undefined,
-        (cause: unknown) => cause
-      );
-      expect((refusal as Error).message).toBe(HOST_RESTARTED_NOT_SENT);
-      expect(runStart).not.toHaveBeenCalled();
-      expect(replacementHost.request.mock.calls.map(([method]) => method)).toEqual(['thread/read']);
-    } finally {
-      conversation.close();
-    }
-  });
   it('keeps a refusal from a live host as it is', async () => {
     const refusal = new Error('The model is not enabled');
     const liveHost = recordedClient(async () => {

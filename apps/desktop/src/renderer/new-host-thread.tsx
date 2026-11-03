@@ -27,7 +27,6 @@ import {
 } from 'react';
 import { hostRunSettings, settleLostSend } from './committed-host-conversation';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
-import { bindHostThreadToMainRoot } from './host-thread-root-binding';
 import type { HostThreadRuns } from './host-thread-runs';
 import { sendNewThreadFirstMessage } from './new-thread-first-send';
 import {
@@ -146,19 +145,12 @@ export function NewHostThread({
       throw new Error('The new-thread composer requires the attached agent host.');
     }
     const repository = createHostAssistantThreadRepository(host);
-    // The draft binding (a folder or worktree picked here), then the legacy
-    // default: an unbound thread binds to the Main root.
+    // The draft binding (a folder or worktree picked here); none leaves the thread folderless.
     const bind = async (created: string): Promise<void> => {
       const draft = useAssistantThreadStore.getState().newThreadMetadataByResourceId[resourceId];
       if (draft) {
         await repository.updateThreadMetadata(created, draft);
       }
-      const { activeRootIds, rootDescriptors } = explorer.getState();
-      await bindHostThreadToMainRoot({
-        client,
-        mainRoot: activeRootIds[0] ? rootDescriptors[activeRootIds[0]] : undefined,
-        threadId: created,
-      });
     };
     const sendFirst = async (message: AppendMessage): Promise<void> => {
       if (sending.current) {
