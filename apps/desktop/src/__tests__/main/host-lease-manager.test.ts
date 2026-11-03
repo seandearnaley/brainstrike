@@ -510,6 +510,28 @@ describe('desktop host lease ownership', () => {
     await closing;
     expect(order).toEqual(['host exited', 'lifetime released']);
   });
+  it('lets the host it launched answer what Main still has in flight before closing Main’s connection (BST-2451)', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const child = new Child();
+    // The host answers every request it read before it exits; Main closing its own
+    // end first rejects that request as a lost connection instead.
+    const reply = Promise.withResolvers<string>();
+    child.once('exit', () => reply.resolve('answered by the host'));
+    attachment.close = vi.fn(async () => {
+      reply.reject(new Error('Pending response rejected since connection got disposed'));
+    });
+    const owner = createDesktopHostLease({
+      fork: () => {
+        queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
+        return child;
+      },
+      root,
+    });
+    await owner.acquire();
+    await owner.close();
+    await expect(reply.promise).resolves.toBe('answered by the host');
+    expect(attachment.close).toHaveBeenCalledOnce();
+  });
   it('escalates a host that ignores close to kill after the cooperative rung, joins its exit and reports no failure', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const { addLogListener, LogLevel } = await import('@brainstrike/logging');
