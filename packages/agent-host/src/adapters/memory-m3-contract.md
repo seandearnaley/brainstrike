@@ -30,7 +30,8 @@ How Mastra Memory persists through the host StateStore. The host (StateStore wri
   - The strict purge owner picks full erasure or fails closed. Canonical FK deletion alone does not erase resource OM/WM.
 - `purge-resource` erases a whole resource.
 - Close order: close the storage adapter only after `HostMemory.close()` joins the native and provider lifetimes; closing earlier fences required native flag-clear writes.
-  - Failed storage work keeps its original cause and makes close fail; root/run ownership stays retained while close fails.
+  - The adapter drains its operations first. Their failures keep their causes and are the run's outcome (`memory.settlement.failed`); the run is released.
+  - Only a failed close of the storage itself makes close fail with ownership retained.
 
 ## Vendor patches
 

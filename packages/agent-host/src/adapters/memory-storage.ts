@@ -5,6 +5,7 @@ import type {
 } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { InMemoryStore, MemoryStorage } from '@mastra/core/storage';
+import { HostRunOwnerFailure } from '../run-admission.ts';
 import { decodeMemory, encodeMemory, memoryConfiguration } from './memory-storage-codec.ts';
 
 export interface CommittedMemoryTranscript {
@@ -415,13 +416,20 @@ export class StateStoreMemoryStorage extends MemoryStorage {
     });
   }
 
+  /**
+   * Drains every admitted operation, then reports the ones that failed. They
+   * are the run's outcome: with nothing left running, nothing is still owned.
+   */
   close(): Promise<void> {
     this.closing ??= (async () => {
       while (this.pending.size > 0) {
         await Promise.allSettled([...this.pending]);
       }
       if (this.failures.length > 0) {
-        throw new AggregateError([...new Set(this.failures)], 'Memory storage cleanup failed');
+        throw new HostRunOwnerFailure(
+          [...new Set(this.failures)],
+          'Memory storage operations failed'
+        );
       }
     })();
     return this.closing;

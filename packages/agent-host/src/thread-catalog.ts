@@ -211,6 +211,11 @@ export class HostThreadCatalog {
     return rows.readHistory(threads, threadId, fromSeq);
   }
 
+  /** Whether hydration could not read the thread's history. */
+  isDamaged(threadId: string): boolean {
+    return this.damaged.has(threadId);
+  }
+
   assertRunnable(threadId: string): void {
     const damage = this.damaged.get(threadId);
     if (damage !== undefined) {

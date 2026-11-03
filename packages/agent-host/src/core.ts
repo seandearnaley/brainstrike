@@ -953,7 +953,7 @@ export class HostCore {
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
     return openHostRunOwner(this.platform, run, {
       append: (threadId, events) => this.append(threadId, events, 'full'),
-      readCommittedRows: (threadIds) => this.projections.readRunnable(this.catalog, threadIds),
+      readCommittedRows: (ids) => this.projections.readRunnable(this.catalog, ids, run.threadId),
     });
   }
 
