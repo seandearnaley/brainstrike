@@ -211,6 +211,7 @@ catalog:
   strip-ansi: 7.2.0
   tree-kill: 1.2.2
   tsx: ^4.23.15
+  fast-check: ^4.10.2
 overrides:
   # Tailwind scans the direct Streamdown install; its adapter must use the same
   # catalog release on future resolutions too. Retarget on adapter upgrades;
