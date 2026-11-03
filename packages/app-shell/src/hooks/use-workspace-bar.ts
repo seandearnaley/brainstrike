@@ -25,6 +25,7 @@ import { getThreadGroupsCapability } from '../thread-groups-capability';
 import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 import { stripIpcInvokeEnvelope } from '../workspace-connect/workspace-connect-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
+import { useFollowPrimaryRecord } from './use-follow-primary-record';
 import { useReconnectThreadFolders } from './use-reconnect-thread-folders';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -40,7 +41,6 @@ import { resolveRootIdAfterReconciliation } from './use-workspace-bar-root-row-l
 import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
 import {
   deriveMakePrimary,
-  deriveRecordedPrimary,
   deriveRemoveFromThread,
   deriveUseFolder,
   folderWriteIdentityOf,
@@ -862,23 +862,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         : undefined,
     [checkoutMode, checkoutWorktreeId, checkoutWorktreePath]
   );
-  const followPrimaryRecord = useCallback(
-    async (root: WorkspaceBarRoot & { readonly path: string }): Promise<void> => {
-      const rootId = await resolveRootIdForPath(root.path, root.displayName);
-      if (rootId === root.rootId) {
-        return;
-      }
-      logger.warn('A thread follows its folder to the record it is open under now', {
-        path: root.path,
-        previousRootId: root.rootId,
-        rootId,
-      });
-      await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) =>
-        deriveRecordedPrimary(current, { displayName: root.displayName, path: root.path, rootId })
-      );
-    },
-    [enqueueThreadFoldersWrite, resolveRootIdForPath, selectedMemoryThreadId]
-  );
+  const followPrimaryRecord = useFollowPrimaryRecord({
+    checkoutLocalRootId,
+    enqueueThreadFoldersWrite,
+    resolveRootIdForPath,
+    selectedMemoryThreadId,
+    worktree: threadWorktree,
+  });
   useReconnectThreadFolders({
     addRootByPath: addRootDirectoryByPath,
     describeFailure,

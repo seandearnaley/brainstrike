@@ -35,7 +35,8 @@ interface UseReconnectThreadFoldersArgs {
    * record the thread names (the old one is gone). A no-op when they agree.
    */
   readonly followPrimaryRecord: (
-    root: WorkspaceBarRoot & { readonly path: string }
+    root: WorkspaceBarRoot & { readonly path: string },
+    localRootPath: string | undefined
   ) => Promise<void>;
   readonly primaryRoot: WorkspaceBarRoot | undefined;
   /** False while the thread's folders are still being read: a missing folder is not yet known. */
@@ -82,6 +83,78 @@ async function recordThreadWorktree(
   }
 }
 
+/**
+ * The folder of the repository the worktree belongs to: where a hand-off returns. The thread
+ * records it by id only, so when that record is gone the repository is found again from git.
+ */
+async function worktreeRepositoryRoot(
+  worktrees: WorktreesBridge,
+  worktree: ThreadWorktree
+): Promise<string | undefined> {
+  const listed = await worktrees.list();
+  if (!listed.ok) {
+    logger.warn("A thread worktree's repository could not be read", {
+      path: worktree.path,
+      reason: describeBoundaryFailure(listed.error),
+    });
+    return undefined;
+  }
+  return listed.value.find((entry) => entry.path === worktree.path)?.repositoryRoot;
+}
+
+/** Mounts the primary, recording its worktree first and following both to their records. */
+async function reopenPrimary(
+  args: ReopenThreadFoldersArgs,
+  root: WorkspaceBarRoot & { readonly path: string }
+): Promise<void> {
+  const own = args.worktree?.worktree.path === root.path ? args.worktree : undefined;
+  if (own) {
+    await recordThreadWorktree(own.worktrees, own.worktree, args.threadId);
+  }
+  await args.addRootByPath(root.path);
+  const localRootPath = own ? await worktreeRepositoryRoot(own.worktrees, own.worktree) : undefined;
+  if (localRootPath) {
+    await args.addRootByPath(localRootPath);
+  }
+  await args.followPrimaryRecord(root, localRootPath);
+}
+
+interface ReopenThreadFoldersArgs {
+  readonly addRootByPath: (path: string) => Promise<unknown>;
+  readonly describeFailure: (error: unknown) => string;
+  readonly followPrimaryRecord: UseReconnectThreadFoldersArgs['followPrimaryRecord'];
+  readonly missing: readonly (WorkspaceBarRoot & { readonly path: string })[];
+  readonly primaryRoot: WorkspaceBarRoot | undefined;
+  readonly threadId: string;
+  readonly worktree:
+    | { readonly worktree: ThreadWorktree; readonly worktrees: WorktreesBridge }
+    | undefined;
+}
+
+/**
+ * One at a time: the host orders folder changes anyway, and the last one keeps focus. The
+ * thread's other folders mount first, so its worktree's repository is open when it is read.
+ */
+async function reopenThreadFolders(args: ReopenThreadFoldersArgs): Promise<void> {
+  for (const root of args.missing) {
+    try {
+      if (root === args.primaryRoot) {
+        await reopenPrimary(args, root);
+      } else {
+        await args.addRootByPath(root.path);
+      }
+    } catch (error) {
+      // The reason travels as text: the log buffer keeps only a summary of a large error.
+      logger.warn('A thread folder stays disconnected', {
+        error,
+        path: root.path,
+        reason: args.describeFailure(error),
+        rootId: root.rootId,
+      });
+    }
+  }
+}
+
 export function useReconnectThreadFolders({
   addRootByPath,
   describeFailure,
@@ -117,29 +190,15 @@ export function useReconnectThreadFolders({
       return;
     }
     const reopened = markThreadFoldersReopening(threadId);
-    void (async () => {
-      // One at a time: the host orders folder changes anyway, and the last one keeps focus. The
-      // thread's other folders mount first, so its worktree's repository is open when it is read.
-      for (const root of missing) {
-        try {
-          if (worktrees && worktree && root === primaryRoot && root.path === worktree.path) {
-            await recordThreadWorktree(worktrees, worktree, threadId);
-          }
-          await addRootByPath(root.path);
-          if (root === primaryRoot) {
-            await followPrimaryRecord(root);
-          }
-        } catch (error) {
-          // The reason travels as text: the log buffer keeps only a summary of a large error.
-          logger.info('A thread folder stays disconnected', {
-            error,
-            path: root.path,
-            reason: describeFailure(error),
-            rootId: root.rootId,
-          });
-        }
-      }
-    })().finally(reopened);
+    void reopenThreadFolders({
+      addRootByPath,
+      describeFailure,
+      followPrimaryRecord,
+      missing,
+      primaryRoot,
+      threadId,
+      worktree: worktree && worktrees ? { worktree, worktrees } : undefined,
+    }).finally(reopened);
   }, [
     addRootByPath,
     describeFailure,

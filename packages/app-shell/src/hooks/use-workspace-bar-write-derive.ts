@@ -422,16 +422,21 @@ export function deriveUseFolder(
 }
 
 /**
- * The thread's primary folder is open again under another record than the one the thread names:
- * its old record is gone, and the folder at the same path is recorded afresh. The thread follows
- * its folder to that record, so it opens as it was left. A folder whose record is gone with no
- * path left to reopen it by leaves the thread in the same write: nothing can bring it back, and
- * it would refuse every run.
+ * The thread's folders are open again under other records than the ones the thread names: their
+ * old records are gone, and the folders at the same paths are recorded afresh. The thread follows
+ * its primary (and, in a worktree, the repository a hand-off returns to) to those records, so it
+ * opens as it was left. A folder whose record is gone with no path left to reopen it by leaves
+ * the thread in the same write: nothing can bring it back, and it would refuse every run.
  */
 export function deriveRecordedPrimary(
   current: ThreadCheckoutFolders,
-  root: ThreadCheckoutRoot & { readonly path: string }
+  root: ThreadCheckoutRoot & { readonly path: string },
+  local?: {
+    readonly root: ThreadCheckoutRoot & { readonly path: string };
+    readonly worktree: { readonly id: string; readonly path: string };
+  }
 ): ThreadCheckoutWrite {
+  const localRoot = local?.root;
   if (current.primaryRoot?.path !== root.path) {
     throw new Error('The thread moved to another folder while its folder reopened.');
   }
@@ -440,14 +445,37 @@ export function deriveRecordedPrimary(
       folder.removed && !folder.path ? [folder.rootId] : []
     )
   );
-  const keep = (id: string): boolean => id !== root.rootId && !gone.has(id);
-  const localRootId = current.checkoutLocalRootId;
+  const previousLocalRootId = current.checkoutLocalRootId;
+  const worktree = current.checkoutMode === 'worktree';
+  const followedLocal = worktree && localRoot && localRoot.rootId !== previousLocalRootId;
+  if (followedLocal && previousLocalRootId) {
+    gone.add(previousLocalRootId);
+  }
+  const keep = (id: string): boolean =>
+    id !== root.rootId && id !== localRoot?.rootId && !gone.has(id);
+  // The hand-off folder stays one of the thread's folders, under its current record.
+  const localFolders = followedLocal ? [localRoot] : [];
+  const localRootId = followedLocal ? localRoot.rootId : previousLocalRootId;
   return {
-    binding: operatingRootBinding(root),
+    binding: {
+      ...operatingRootBinding(root),
+      // The checkout's keys are written together, as the binding requires.
+      ...(followedLocal && local
+        ? {
+            checkoutLocalRootId: localRoot.rootId,
+            checkoutMode: 'worktree',
+            checkoutWorktreeId: local.worktree.id,
+            checkoutWorktreePath: local.worktree.path,
+          }
+        : {}),
+    },
     checkoutLocalRootId: localRootId && !gone.has(localRootId) ? localRootId : undefined,
-    ids: current.secondaryRootIds.filter(keep),
+    ids: [...current.secondaryRootIds.filter(keep), ...localFolders.map((folder) => folder.rootId)],
     primaryRoot: root,
     primaryRootId: root.rootId,
-    secondaryRoots: current.secondaryRoots.filter((folder) => keep(folder.rootId)),
+    secondaryRoots: [
+      ...current.secondaryRoots.filter((folder) => keep(folder.rootId)),
+      ...localFolders,
+    ],
   };
 }
