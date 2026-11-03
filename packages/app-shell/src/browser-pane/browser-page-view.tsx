@@ -113,8 +113,17 @@ export function BrowserPageView({
 
   // The address follows the page until the person types: `null` follows, any
   // string is their edit. It stays when focus leaves (another window, the page's
-  // own view), as a browser's does, and clears when they navigate from here.
+  // own view), as a browser's does, and clears when they navigate from here or
+  // the page goes somewhere else (a link, a redirect, the agent). A new tab's
+  // first address replaces nothing it was typed over.
   const [draft, setDraft] = useState<string | null>(null);
+  const [draftOver, setDraftOver] = useState(page?.url);
+  if (page?.url !== draftOver) {
+    setDraftOver(page?.url);
+    if (draftOver) {
+      setDraft(null);
+    }
+  }
   const address = draft ?? page?.url ?? '';
   const run = (action: Promise<unknown>, label: string): void => {
     setDraft(null);

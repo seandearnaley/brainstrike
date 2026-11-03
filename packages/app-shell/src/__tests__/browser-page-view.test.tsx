@@ -198,6 +198,24 @@ describe('browser page tab', () => {
     await user.click(screen.getByRole('button', { name: 'Reload' }));
     expect(bridge.reload).toHaveBeenCalledExactlyOnceWith('p1');
     expect(address).toHaveValue('https://docs.test/');
+
+    // Nor does a page that goes somewhere on its own: a link, a redirect, the agent.
+    await user.type(address, 'guide');
+    act(() => useBrowserTabsStore.getState().setTabs([{ ...PAGE, url: 'https://docs.test/next' }]));
+    expect(address).toHaveValue('https://docs.test/next');
+  });
+
+  it("keeps what is typed into a new tab when the tab's first address arrives (BST-2452)", async () => {
+    useBrowserTabsStore.getState().setTabs([{ ...PAGE, title: '', url: '' }]);
+    const user = userEvent.setup();
+    render(<PageTabs isMenuOpen={false} />);
+
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    await user.type(address, 'example.com');
+    act(() => useBrowserTabsStore.getState().setTabs([{ ...PAGE, url: 'about:blank' }]));
+    expect(address).toHaveValue('example.com');
+    await user.type(address, '{Enter}');
+    expect(bridge.navigate).toHaveBeenCalledExactlyOnceWith('p1', 'example.com');
   });
 
   it('names the tab after its page, marks it while it loads, and says when the page is closed', () => {
