@@ -21,16 +21,20 @@ export class HostLogProjections {
 
   /**
    * The threads' committed rows for a run's Memory. A damaged thread's history
-   * was never decoded, so a run that would read it is refused, never shortened.
+   * was never decoded, so a run on it is refused, never shortened. Another
+   * thread of the run's resource that cannot be read is left out, as a search
+   * answers around one (`thread-search.ts`): it lists as damaged, and it must
+   * not stop every thread beside it from running.
    */
   readRunnable(
-    catalog: Pick<HostThreadCatalog, 'assertRunnable'>,
-    threadIds: ReadonlySet<string>
+    catalog: Pick<HostThreadCatalog, 'assertRunnable' | 'isDamaged'>,
+    threadIds: ReadonlySet<string>,
+    runThreadId: string
   ): readonly HostLogRow[] {
-    for (const threadId of threadIds) {
-      catalog.assertRunnable(threadId);
-    }
-    return this.committed.read(threadIds);
+    catalog.assertRunnable(runThreadId);
+    return this.committed.read(
+      new Set([...threadIds].filter((threadId) => !catalog.isDamaged(threadId)))
+    );
   }
 
   forget(threadId: string): void {
