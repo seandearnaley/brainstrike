@@ -360,7 +360,12 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
   'git/status': RootRequest,
   'git/switch-branch': Schema.Struct({ branch: Text, rootId: Id }),
   'workspace/git/subscribe': None,
-  'worktrees/adopt': Schema.Struct({ createdBy: Creator, path: Text, ...RunProvenance }),
+  'worktrees/adopt': Schema.Struct({
+    createdBy: Creator,
+    id: Schema.optionalKey(Id),
+    path: Text,
+    ...RunProvenance,
+  }),
   'worktrees/archive': Schema.Struct({
     confirmIgnoredEntries: Schema.optionalKey(Text),
     force: Schema.optionalKey(Schema.Boolean),
