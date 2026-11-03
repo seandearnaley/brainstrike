@@ -94,8 +94,20 @@ test('nothing renders while no child waits', () => {
 function running(
   activeTurnId?: string,
   children: HostTreeRunning['children'] = [
-    { owner: 'Cedar-1a2b3c', threadId: 'child-a', turnId: 'turn-1' },
-    { owner: 'Fern-4d5e6f', threadId: 'child-b', turnId: 'turn-1' },
+    {
+      color: 'emerald',
+      owner: 'Cedar-1a2b3c',
+      persona: 'worker',
+      threadId: 'child-a',
+      turnId: 'turn-1',
+    },
+    {
+      color: 'emerald',
+      owner: 'Fern-4d5e6f',
+      persona: 'worker',
+      threadId: 'child-b',
+      turnId: 'turn-1',
+    },
   ]
 ): Pick<HostTreeApprovals, 'getRunning' | 'subscribe' | 'threadId'> {
   const snapshot: HostTreeRunning = {
@@ -129,7 +141,15 @@ test('between the root’s runs, it names its working background children and St
 test('while the root runs, it only names its working children; the composer’s Stop ends the turn', () => {
   render(<HostChildrenRunning client={stopClient(vi.fn())} tree={running('turn-1')} />);
   expect(screen.getByRole('status')).toHaveTextContent('2 subagents running');
-  expect(screen.queryByRole('button')).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Stop/u })).toBeNull();
+});
+
+test('each working child is a button in its colour that opens its conversation', () => {
+  render(<HostChildrenRunning client={stopClient(vi.fn())} tree={running('turn-1')} />);
+  const fern = screen.getByRole('button', { name: "Open Fern-4d5e6f's conversation" });
+  expect(fern).toHaveAttribute('data-agent-color', 'emerald');
+  fireEvent.click(fern);
+  expect(opened).toHaveBeenCalledWith({ persona: 'worker', threadId: 'child-b' });
 });
 
 // Codex review on #3719: a child of turn 1 still works after the root starts
@@ -141,8 +161,20 @@ test('while the root runs a later turn, Stop ends only the children of earlier t
     <HostChildrenRunning
       client={stopClient(request)}
       tree={running('turn-2', [
-        { owner: 'Cedar-1a2b3c', threadId: 'child-a', turnId: 'turn-1' },
-        { owner: 'Fern-4d5e6f', threadId: 'child-b', turnId: 'turn-2' },
+        {
+          color: 'emerald',
+          owner: 'Cedar-1a2b3c',
+          persona: 'worker',
+          threadId: 'child-a',
+          turnId: 'turn-1',
+        },
+        {
+          color: 'emerald',
+          owner: 'Fern-4d5e6f',
+          persona: 'worker',
+          threadId: 'child-b',
+          turnId: 'turn-2',
+        },
       ])}
     />
   );

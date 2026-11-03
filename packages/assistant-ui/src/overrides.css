@@ -87,34 +87,34 @@
 
 /* Agent identity is scoped to a conversation. The same validated color paints
    its reading surface and composer; delegation cards override it per child. */
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="blue"] { --agent-accent: var(--color-sky-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="emerald"] { --agent-accent: var(--color-emerald-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="amber"] { --agent-accent: var(--color-amber-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="rose"] { --agent-accent: var(--color-rose-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="violet"] { --agent-accent: var(--color-violet-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="slate"] { --agent-accent: var(--color-slate-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="cyan"] { --agent-accent: var(--color-cyan-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="lime"] { --agent-accent: var(--color-lime-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="orange"] { --agent-accent: var(--color-orange-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="fuchsia"] { --agent-accent: var(--color-fuchsia-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="indigo"] { --agent-accent: var(--color-indigo-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="red"] { --agent-accent: var(--color-red-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="teal"] { --agent-accent: var(--color-teal-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="green"] { --agent-accent: var(--color-green-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="yellow"] { --agent-accent: var(--color-yellow-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="pink"] { --agent-accent: var(--color-pink-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="purple"] { --agent-accent: var(--color-purple-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="zinc"] { --agent-accent: var(--color-zinc-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="blue"] { --agent-accent: var(--color-sky-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="emerald"] { --agent-accent: var(--color-emerald-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="amber"] { --agent-accent: var(--color-amber-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="rose"] { --agent-accent: var(--color-rose-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="violet"] { --agent-accent: var(--color-violet-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="slate"] { --agent-accent: var(--color-slate-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="cyan"] { --agent-accent: var(--color-cyan-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="lime"] { --agent-accent: var(--color-lime-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="orange"] { --agent-accent: var(--color-orange-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="fuchsia"] { --agent-accent: var(--color-fuchsia-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="indigo"] { --agent-accent: var(--color-indigo-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="red"] { --agent-accent: var(--color-red-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="teal"] { --agent-accent: var(--color-teal-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="green"] { --agent-accent: var(--color-green-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="yellow"] { --agent-accent: var(--color-yellow-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="pink"] { --agent-accent: var(--color-pink-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="purple"] { --agent-accent: var(--color-purple-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="zinc"] { --agent-accent: var(--color-zinc-500); }
 
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color^="family:"] {
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color^="family:"] {
   --agent-accent: var(--agent-accent-light);
 }
 
-.dark :where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color^="family:"] {
+.dark :where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color^="family:"] {
   --agent-accent: var(--agent-accent-dark);
 }
 
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="unresolved"] {
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="unresolved"] {
   --agent-accent: var(--muted-foreground);
 }
 
@@ -2143,6 +2143,12 @@ span.bs-composer-chip {
   inline-size: 0.875rem;
 }
 
+.assistant-ui-panel .bs-subagents-running-agents {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
 .assistant-ui-panel .bs-subagents-running-label {
   color: var(--foreground);
   font-weight: 500;
@@ -2855,4 +2861,62 @@ span.bs-composer-chip {
     opacity: 0;
     transform: translateY(0.5rem);
   }
+}
+
+/* A subagent's call sign on a dot of its family colour (`SubagentChip`). */
+.bs-subagent-chip {
+  align-items: center;
+  background: color-mix(in oklab, var(--agent-accent) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--agent-accent) 45%, transparent);
+  border-radius: 9999px;
+  color: var(--foreground);
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.6875rem;
+  gap: 0.3125rem;
+  line-height: 1.25rem;
+  max-inline-size: 12rem;
+  padding: 0 0.5rem 0 0.375rem;
+}
+
+.bs-subagent-chip-dot {
+  background: var(--agent-accent);
+  border-radius: 9999px;
+  block-size: 0.5rem;
+  flex-shrink: 0;
+  inline-size: 0.5rem;
+}
+
+.bs-subagent-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.bs-subagent-chip {
+  cursor: pointer;
+}
+
+button.bs-subagent-chip:hover {
+  background: color-mix(in oklab, var(--agent-accent) 22%, transparent);
+}
+
+button.bs-subagent-chip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* A reviewed approval a subagent raised carries its family colour. */
+.bs-approval-reviewed[data-agent-color] {
+  border-inline-start: 3px solid var(--agent-accent);
+  padding-inline-start: 0.625rem;
+}
+
+/* The subagents a group delegated to, beside its collapsed header. */
+.bs-activity-agents {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-width: 0;
 }

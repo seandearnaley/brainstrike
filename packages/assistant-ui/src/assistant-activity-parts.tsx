@@ -37,6 +37,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { ShellOutputProvider } from './shell-output-context';
+import { SubagentDelegationChip } from './subagent-delegation-chip';
 import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
@@ -289,6 +290,10 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
     [groupParts, renderers]
   );
   const hasActivityParts = groupParts.some(isActivityPart);
+  const delegations = groupParts.filter(
+    (part): part is Extract<PartState, { type: 'tool-call' }> =>
+      part.type === 'tool-call' && isSubagentDelegationToolName(part.toolName)
+  );
   // A group's own member statuses can all already read "complete" (e.g. a
   // tool-call result arrives atomically in one streamed chunk) even though
   // the group is still the OPEN, trailing run of a message that hasn't
@@ -380,6 +385,17 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
           <ActivityStepMetaProvider meta={stepMeta}>
             <ActivityGroupViewProvider view={layout.view}>
               <ActivityTrace
+                {...(delegations.length > 0
+                  ? {
+                      agents: delegations.map((part) => (
+                        <SubagentDelegationChip
+                          key={part.toolCallId}
+                          result={part.result}
+                          toolCallId={part.toolCallId}
+                        />
+                      )),
+                    }
+                  : {})}
                 expanded={layout.expanded}
                 fallbackMs={activityFallbackMs}
                 incompleteReason={incompleteReason}

@@ -264,13 +264,20 @@ export class HostThreadTrees {
     if (!this.threads.has(threadId)) {
       throw refusalError('input', 'thread.unknown', 'Unknown thread');
     }
-    const descendants = this.registry
-      .descendants(threadId, this.threads)
-      .map(({ callSign, origin, threadId: child }) => ({
-        ...this.summary(child),
-        callSign,
-        origin,
-      }));
+    const delegated = this.registry.descendants(threadId, this.threads);
+    // Each family colour as its parent's listing allocates it.
+    const colors = new Map(
+      [...new Set(delegated.map(({ origin }) => origin.parentThreadId))].flatMap((parent) =>
+        this.listed(parent).map(({ color, threadId: child }) => [child, color] as const)
+      )
+    );
+    const descendants = delegated.map(({ callSign, origin, threadId: child }) => {
+      const color = colors.get(child);
+      if (color === undefined) {
+        throw new Error('A child conversation has no family colour.');
+      }
+      return { ...this.summary(child), callSign, color, origin };
+    });
     return { descendants, thread: this.summary(threadId) };
   }
 

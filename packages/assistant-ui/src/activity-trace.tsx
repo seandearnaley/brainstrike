@@ -21,6 +21,11 @@ import { useElapsedMs } from './use-activity-trace-clock';
 import { useLabelEnterClass } from './use-label-enter-class';
 
 export interface ActivityTraceProps {
+  /**
+   * The subagents this group delegated to, each a chip that opens its
+   * conversation, so a collapsed group still says who did the work.
+   */
+  readonly agents?: ReactNode;
   readonly children?: ReactNode;
   /**
    * Controlled disclosure, for a group that opens itself (a jump to a failed
@@ -316,6 +321,7 @@ function TraceCollapse({
  * `use-label-enter-class.ts` (BST-1684); this file owns the markup.
  */
 export function ActivityTrace({
+  agents,
   children,
   expanded: controlledExpanded,
   fallbackMs,
@@ -398,6 +404,7 @@ export function ActivityTrace({
         {phase === 'running' ? null : (
           <FailedCount count={summary.counts.failed} onShow={onShowFailed} />
         )}
+        {agents ? <span className="bs-activity-agents">{agents}</span> : null}
         {strip ? (
           <ActivityRunStrip
             failed={summary.counts.failed}

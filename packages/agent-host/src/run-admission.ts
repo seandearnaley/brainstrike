@@ -675,10 +675,21 @@ export async function hostRunPolicyAnswers(
 ): Promise<boolean> {
   const tools = hostRunTools(run);
   const { decision, yolo } = await hostToolPolicy(platform, run, tools, call.toolId);
-  return decision === 'allow' && (yolo === true || !isPersonOnly(tools[call.toolId], call.input));
+  return (
+    decision === 'allow' &&
+    (yolo === true || !isPersonOnly(tools[call.toolId], call.input, run.grants))
+  );
 }
-function isPersonOnly(registered: HostTool | undefined, input: unknown): boolean {
-  return registered?.personApproval?.(input) !== undefined;
+/** The person's own call, unless they already allowed such calls of its tool this session. */
+function isPersonOnly(
+  registered: HostTool | undefined,
+  input: unknown,
+  grants: HostThreadGrants
+): boolean {
+  return (
+    registered?.personApproval?.(input) !== undefined &&
+    !grants.outsideSandbox.has(registered.permissionToolId ?? '')
+  );
 }
 /**
  * The policy's ask, or a call that is the person's own to approve: that asks
@@ -688,9 +699,10 @@ function asksPerson(
   decision: 'allow' | 'ask',
   yolo: boolean | undefined,
   registered: HostTool,
-  input: unknown
+  input: unknown,
+  grants: HostThreadGrants
 ): boolean {
-  return decision === 'ask' || (yolo !== true && isPersonOnly(registered, input));
+  return decision === 'ask' || (yolo !== true && isPersonOnly(registered, input, grants));
 }
 /** `tools` is passed because admission decides before it retains the run's tools. */
 async function hostToolDecision(
@@ -953,7 +965,10 @@ export async function decideHostSdkApproval(
   if (consented) {
     return consented;
   }
-  if (asksPerson(decision, yolo, registered, call.input) && prior?.decision !== 'approve') {
+  if (
+    asksPerson(decision, yolo, registered, call.input, run.grants) &&
+    prior?.decision !== 'approve'
+  ) {
     return await hostAskDecision(run, registered, call, action, autoReview, { prior, runs });
   }
   run.permits.set(call.toolCallId, action);

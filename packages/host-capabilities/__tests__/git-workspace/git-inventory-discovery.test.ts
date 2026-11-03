@@ -155,6 +155,31 @@ describe('walkForGitEntries', () => {
     expect(result.gitEntries).toEqual([{ kind: 'file', path: nativePath('/root/.git') }]);
   });
 
+  it('never walks the files of a linked worktree or submodule checkout below its gitfile', async () => {
+    const fs = new FakeFs();
+    fs.addDir(nativePath('/root'), ['.git', 'worktrees']);
+    fs.addDir(nativePath('/root/.git'), []);
+    fs.addDir(nativePath('/root/worktrees'), ['agent-1']);
+    fs.addDir(nativePath('/root/worktrees/agent-1'), ['.git', 'src']);
+    fs.addFile(
+      nativePath('/root/worktrees/agent-1/.git'),
+      `gitdir: ${nativePath('/root/.git/worktrees/agent-1')}\n`
+    );
+    fs.addDir(nativePath('/root/worktrees/agent-1/src'), []);
+
+    const result = await walkForGitEntries({
+      fs,
+      rootLabel: 'root-1',
+      rootPath: nativePath('/root'),
+    });
+
+    expect(result.gitEntries).toEqual([
+      { kind: 'dir', path: nativePath('/root/.git') },
+      { kind: 'file', path: nativePath('/root/worktrees/agent-1/.git') },
+    ]);
+    expect(fs.readdirCalls).not.toContain(nativePath('/root/worktrees/agent-1/src'));
+  });
+
   it('skips ignored directory names but keeps descending into ordinary ones (repos nested below other repos)', async () => {
     const fs = new FakeFs();
     fs.addDir(nativePath('/root'), ['node_modules', 'src']);

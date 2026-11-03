@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 import type { ActivitySummary } from '../activity-trace-model';
+import { SubagentChip } from '../subagent-chip';
 
 const live: ActivitySummary = {
   counts: { failed: 0, steps: 2 },
@@ -42,6 +43,33 @@ describe('ActivityTrace', () => {
     expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(1);
     // The live tail names the newest settled step; the running one is the label.
     expect(screen.getByTestId('assistant-activity-tail')).toHaveTextContent('Readfoo');
+  });
+
+  it('names the subagents a collapsed group delegated to, each opening its conversation', async () => {
+    const open = vi.fn();
+    render(
+      <ActivityTrace
+        agents={
+          <SubagentChip agent={{ callSign: 'Cedar-1a2b3c', colorId: 'emerald', onOpen: open }} />
+        }
+        fallbackMs={12_000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={null}
+        summary={done}
+        tail={[]}
+      />
+    );
+    expect(screen.getByTestId('assistant-activity-body')).toHaveAttribute('hidden');
+    const chip = screen.getByRole('button', { name: "Open Cedar-1a2b3c's conversation" });
+    // A sibling of the disclosure, never nested inside its button.
+    expect(screen.getByTestId('assistant-activity-summary')).not.toContainElement(chip);
+    await userEvent.setup().click(chip);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('assistant-activity-summary')).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
   });
 
   it('settles into the verb summary with Worked for as meta', () => {

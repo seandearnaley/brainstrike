@@ -267,6 +267,88 @@ test.each([
   }
 );
 
+test('allowing commands this session on an outside-the-sandbox call answers the later ones', async () => {
+  const executed: unknown[] = [];
+  const personApproval = shippedPersonApproval();
+  const commandTool: HostTool = {
+    description: 'command fixture',
+    execute: async (input) => {
+      executed.push(input);
+      return { ok: true };
+    },
+    identity: 'command-generation-1',
+    inputSchema: z
+      .object({ command: z.string(), dangerouslyDisableSandbox: z.boolean().optional() })
+      .strict(),
+    ...(personApproval ? { personApproval } : {}),
+    permissionToolId: 'brainstrike.executeCommand',
+    risk: 'execute',
+  };
+  const later = { command: 'gh run list', dangerouslyDisableSandbox: true };
+  const root = await mkdtemp(join(tmpdir(), 'bs-escape-session-'));
+  const store = await StateStore.open(root);
+  const tools = { execute_command: commandTool };
+  const platform: HostPlatform = {
+    admitRun: async () => ({
+      configuration: {},
+      model: scriptedToolSequence([
+        { input: ESCAPE, toolId: 'execute_command' },
+        { input: later, toolId: 'execute_command' },
+      ]),
+      snapshot: {
+        configuration: {},
+        maxSteps: 4,
+        toolIdentities: { execute_command: commandTool.identity },
+      },
+      tools,
+    }),
+    close: async () => undefined,
+    readPermissionPolicy: () => AUTO_POLICY,
+  };
+  const core = await HostCore.open(store, platform, () => () => undefined);
+  cleanup.push(async () => {
+    await core.close();
+    await store.close();
+    await rm(root, { force: true, recursive: true });
+  });
+  const { threadId } = await core.startThread({ commandId: randomUUID() });
+  const { runId } = await core.startRun({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Check CI.',
+    threadId,
+  });
+  const asked = async () => {
+    let events: HostEvent[] = [];
+    await expect
+      .poll(async () => {
+        events = (await core.read(threadId, 0)).map((row) => row.event);
+        return requested(events) !== undefined;
+      })
+      .toBe(true);
+    return events.filter(
+      (event): event is Extract<HostEvent, { type: 'interaction.requested' }> =>
+        event.type === 'interaction.requested'
+    );
+  };
+  const [first] = await asked();
+  expect(first?.reason).toBe(ESCAPE_REASON);
+  await core.respond({
+    commandId: randomUUID(),
+    decision: 'approve',
+    grant: { category: 'execute', scope: 'session' },
+    interactionId: first?.interactionId ?? '',
+    runId,
+    threadId,
+  });
+
+  await expect
+    .poll(async () => (await core.read(threadId, 0)).some(finished(runId)), { timeout: 5000 })
+    .toBe(true);
+  expect(executed).toEqual([ESCAPE, later]);
+  expect(await asked()).toHaveLength(1);
+});
+
 test('Full access runs a command outside the sandbox without asking', async () => {
   const { events, executed } = await runCommand(
     async () =>
