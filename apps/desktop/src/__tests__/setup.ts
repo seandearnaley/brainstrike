@@ -26,11 +26,19 @@ vi.mock(
 // `const {app, ipcMain, shell} = electron` at import time, so when `electron`
 // is aliased to the test stub (see vitest.config.mts) any per-test
 // `vi.mock('electron', …)` that returns only a partial surface would otherwise
-// crash electron-store at import. Tests inject fake stores via DI, so an inert
-// constructor is sufficient here; files that exercise electron-store directly
-// still override this with their own per-file `vi.mock('electron-store', …)`.
+// crash electron-store at import. Each store keeps its values in memory: Main
+// reads its settings store at boot (where a tray shows, the app-lifetime choices).
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();
+  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
+    const values = new Map<string, unknown>();
+    Object.assign(this, {
+      get: (key: string) => values.get(key),
+      set: (key: string, value: unknown) => {
+        values.set(key, value);
+      },
+    });
+  });
   return { default: MockElectronStore };
 });
 

@@ -96,17 +96,6 @@ vi.mock('../../window-state', () => ({
   registerWindowStatePersistence: vi.fn(),
 }));
 
-vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn();
-  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {
-      get: vi.fn(),
-      set: vi.fn(),
-    });
-  });
-  return { default: MockElectronStore };
-});
-
 const ORIGINAL_ARGV = [...process.argv];
 const ORIGINAL_AGENT_DEVTOOLS = process.env['BRAINSTRIKE_AGENT_DEVTOOLS'];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];

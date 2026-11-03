@@ -150,15 +150,6 @@ vi.mock('../../window-state', async () => {
   };
 });
 
-// Use function syntax for Vitest 4 constructor mocks
-vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn();
-  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
-  return { default: MockElectronStore };
-});
-
 const { applicationDomainCapture } = vi.hoisted(() => ({
   applicationDomainCapture: {
     close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
