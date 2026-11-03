@@ -160,6 +160,18 @@ describe('a worktree thread following its folders to their current records', () 
     expect(write.binding).not.toHaveProperty('checkoutLocalRootId');
   });
 
+  it('keeps a hand-off folder that is still recorded, even when it is not the repository', () => {
+    const sub = { displayName: 'sub', path: '/ws/alpha/sub', rootId: 'r-sub' } as const;
+    const write = deriveRecordedPrimary(
+      folders(oldWorktreeRoot, [sub], { checkoutLocalRootId: 'r-sub', checkoutMode: 'worktree' }),
+      worktreeRoot,
+      { root: alpha, worktree }
+    );
+    expect(write.ids).toEqual(['r-sub']);
+    expect(write.checkoutLocalRootId).toBe('r-sub');
+    expect(write.binding).not.toHaveProperty('checkoutLocalRootId');
+  });
+
   it('moves its hand-off folder to the record it is open under now, with the whole checkout', () => {
     const goneAlpha: ThreadCheckoutRoot = {
       displayName: 'Unknown folder',

@@ -858,9 +858,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const threadWorktree = useMemo(
     () =>
       checkoutMode === 'worktree' && checkoutWorktreeId && checkoutWorktreePath
-        ? { id: checkoutWorktreeId, path: checkoutWorktreePath }
+        ? { id: checkoutWorktreeId, localRootId: checkoutLocalRootId, path: checkoutWorktreePath }
         : undefined,
-    [checkoutMode, checkoutWorktreeId, checkoutWorktreePath]
+    [checkoutLocalRootId, checkoutMode, checkoutWorktreeId, checkoutWorktreePath]
   );
   const followPrimaryRecord = useFollowPrimaryRecord({
     checkoutLocalRootId,

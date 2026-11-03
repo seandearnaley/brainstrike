@@ -422,6 +422,17 @@ export function deriveUseFolder(
 }
 
 /**
+ * True when the thread's folders hold no record for the folder a hand-off returns to: that record
+ * was deleted, so the folder is known by no path the thread could reopen.
+ */
+export function handOffRecordGone(
+  folders: readonly { readonly path?: string | undefined; readonly rootId: string }[],
+  localRootId: string | undefined
+): boolean {
+  return !folders.some((folder) => folder.rootId === localRootId && folder.path);
+}
+
+/**
  * The thread's folders are open again under other records than the ones the thread names: their
  * old records are gone, and the folders at the same paths are recorded afresh. The thread follows
  * its primary (and, in a worktree, the repository a hand-off returns to) to those records, so it
@@ -447,7 +458,13 @@ export function deriveRecordedPrimary(
   );
   const previousLocalRootId = current.checkoutLocalRootId;
   const worktree = current.checkoutMode === 'worktree';
-  const followedLocal = worktree && localRoot && localRoot.rootId !== previousLocalRootId;
+  // Only a hand-off folder whose record is gone follows the repository: one still recorded (a
+  // subfolder of the repository, say) stays where the person left it.
+  const followedLocal =
+    worktree &&
+    localRoot &&
+    localRoot.rootId !== previousLocalRootId &&
+    handOffRecordGone(current.secondaryRoots, previousLocalRootId);
   if (followedLocal && previousLocalRootId) {
     gone.add(previousLocalRootId);
   }

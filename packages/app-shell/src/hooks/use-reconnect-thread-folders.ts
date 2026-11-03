@@ -24,6 +24,7 @@ import { subscribeRootRegistered } from '../roots/root-registration-events';
 import { markThreadFoldersReopening } from '../roots/thread-folders-reopening';
 import { useWorktreesBridge } from '../workspace-git-services';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
+import { handOffRecordGone } from './use-workspace-bar-write-derive';
 
 const logger = createLogger('WorkspaceBar');
 
@@ -51,6 +52,8 @@ interface UseReconnectThreadFoldersArgs {
 
 interface ThreadWorktree {
   readonly id: string;
+  /** The folder a hand-off returns to, by the record the binding names. */
+  readonly localRootId: string | undefined;
   readonly path: string;
 }
 
@@ -112,8 +115,13 @@ async function reopenPrimary(
   if (own) {
     await recordThreadWorktree(own.worktrees, own.worktree, args.threadId);
   }
-  // The repository opens first, so the Explorer ends on the thread's own folder.
-  const localRootPath = own ? await worktreeRepositoryRoot(own.worktrees, own.worktree) : undefined;
+  // When the record of the folder a hand-off returns to is gone, the repository stands in for it.
+  // It opens first, so the Explorer ends on the thread's own folder.
+  const localRecordGone =
+    own !== undefined && handOffRecordGone(args.secondaryRoots, own.worktree.localRootId);
+  const localRootPath = localRecordGone
+    ? await worktreeRepositoryRoot(own.worktrees, own.worktree)
+    : undefined;
   if (localRootPath) {
     await args.addRootByPath(localRootPath);
   }
@@ -127,6 +135,7 @@ interface ReopenThreadFoldersArgs {
   readonly followPrimaryRecord: UseReconnectThreadFoldersArgs['followPrimaryRecord'];
   readonly missing: readonly (WorkspaceBarRoot & { readonly path: string })[];
   readonly primaryRoot: WorkspaceBarRoot | undefined;
+  readonly secondaryRoots: readonly WorkspaceBarRoot[];
   readonly threadId: string;
   readonly worktree:
     | { readonly worktree: ThreadWorktree; readonly worktrees: WorktreesBridge }
@@ -211,6 +220,7 @@ export function useReconnectThreadFolders({
       followPrimaryRecord,
       missing,
       primaryRoot,
+      secondaryRoots,
       threadId,
       worktree: worktree && worktrees ? { worktree, worktrees } : undefined,
     })
