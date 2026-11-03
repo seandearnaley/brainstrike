@@ -53,6 +53,7 @@ import {
 } from './use-workspace-bar-write-derive';
 import { NO_TOUCHED_FIELDS, useWriteTailQueue } from './use-workspace-bar-write-tail-queue';
 import { copyWorkspaceBarPath } from './workspace-bar-clipboard';
+import { withFolderRequest } from './workspace-bar-folder-requests.ts';
 
 // Re-exported (not just imported) so existing test imports of
 // `deriveMakePrimary` from this module keep working unchanged — the pure
@@ -1068,6 +1069,11 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     worktreeCheckout,
   });
   const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
+  const folderRequests = fileSystem.folderRequests;
+  const shownSecondaryRoots = useMemo(
+    () => secondaryRoots.map((root) => withFolderRequest(root, folderRequests)),
+    [folderRequests, secondaryRoots]
+  );
 
   return {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
@@ -1087,10 +1093,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onRemovePrimary: onRemoveFromThread,
     onRemoveSecondary: onRemoveFromThread,
     onUseFolder,
-    ...(primaryRoot ? { primaryRoot } : {}),
+    ...(primaryRoot ? { primaryRoot: withFolderRequest(primaryRoot, folderRequests) } : {}),
     recentRoots,
     ...(reveal ? { reveal } : {}),
-    secondaryRoots,
+    secondaryRoots: shownSecondaryRoots,
     workspaceFolders,
   };
 }

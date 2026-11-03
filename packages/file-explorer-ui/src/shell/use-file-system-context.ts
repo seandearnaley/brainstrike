@@ -659,6 +659,8 @@ export function useFileSystemInstance() {
        */
       addRootDirectoryByPath: coreApi.addRootDirectoryByPath,
       clearRootDirectory,
+      /** Mounts in flight by the path asked for, and the last failure of each. */
+      folderRequests: coreApi.folderRequests,
       isAccessLoading: coreApi.isAccessLoading,
       isFileSystemAccessSupported: coreApi.isFileSystemAccessSupported,
       /** Desktop-only companion to addRootDirectoryByPath; see its note. */
@@ -679,6 +681,8 @@ export function useFileSystemInstance() {
       registerRestoredHandles,
       /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
       removeRootDirectory,
+      /** The start-up restore has not answered yet, so any folder may still be opening. */
+      restorePending: coreApi.restorePending,
       rootDirectoryHandle: view.focused,
       /** The open folders, with the active thread's worktree in place of its folder (ADR-0034). */
       rootDirectoryHandles: view.handles,
@@ -711,7 +715,9 @@ export function useFileSystemInstance() {
       coreApi.addRootDirectoryByPath,
       view,
       coreApi.rootDirectoryHandles,
+      coreApi.folderRequests,
       coreApi.isAccessLoading,
+      coreApi.restorePending,
       coreApi.isFileSystemAccessSupported,
       coreApi.listRecentRoots,
       coreApi.openRootDirectory,

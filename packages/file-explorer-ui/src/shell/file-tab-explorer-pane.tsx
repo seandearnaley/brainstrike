@@ -2,6 +2,8 @@ import type { ReactElement } from 'react';
 import { useFileTabPaneStore } from '../stores/file-tab-pane-store';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
+import type { FileFolderStatus } from './file-folder-status.ts';
+import { FolderStatusNotice } from './file-tab-status-screens.tsx';
 import { useTabRootHandle } from './use-tab-root-handle';
 
 /**
@@ -13,6 +15,9 @@ import { useTabRootHandle } from './use-tab-root-handle';
  */
 export interface FileTabExplorerPaneProps {
   readonly compositeKey: string;
+  /** Where the file's folder stands: the pane says the same as the tab while it is not open. */
+  readonly folderStatus: FileFolderStatus;
+  readonly onReopenFolder: (() => void) | undefined;
   /** Re-trigger key: bump to re-reveal the SAME path (repeated clicks). */
   readonly revealNonce: number;
   /** One-shot reveal target forwarded to the tree (file path or folder path). */
@@ -27,7 +32,7 @@ function PaneTree({
   folderId,
   revealNonce,
   revealPath,
-}: FileTabExplorerPaneProps & {
+}: Pick<FileTabExplorerPaneProps, 'compositeKey' | 'revealNonce' | 'revealPath'> & {
   readonly folderId: string;
 }): ReactElement {
   const treeContext = useFileTreeContext();
@@ -55,22 +60,20 @@ function PaneTree({
 
 export function FileTabExplorerPane({
   compositeKey,
+  folderStatus,
+  onReopenFolder,
   revealNonce,
   revealPath,
 }: FileTabExplorerPaneProps): ReactElement {
   const { folderId, handle } = useTabRootHandle(compositeKey);
 
   if (!(folderId && handle)) {
-    // Visible degradation, not a silent fallback: the tab's root is not
-    // connected (workspace changed, root disconnected). The file body still
-    // renders; only the pane says why it cannot.
     return (
-      <div
-        className="text-muted-foreground flex h-full items-center justify-center p-4 text-center text-xs"
-        data-testid="file-tab-pane-unavailable"
-      >
-        This file's workspace root is not connected.
-      </div>
+      <FolderStatusNotice
+        onReopen={onReopenFolder}
+        status={folderStatus.kind === 'open' ? { kind: 'opening', name: null } : folderStatus}
+        testId="file-tab-pane-unavailable"
+      />
     );
   }
 

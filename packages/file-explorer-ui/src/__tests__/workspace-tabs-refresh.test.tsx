@@ -166,10 +166,12 @@ async function configureRejectedFileExplorer(
       fileContentErrors,
       fileContents,
       fileTree: [],
+      folderRequests: { failures: new Map<string, string>(), opening: new Map<string, number>() },
       loadFileContent,
       loadingFiles,
       loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       reloadFileContents,
+      restorePending: false,
       rootDescriptors: {},
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>;
@@ -218,10 +220,12 @@ describe('workspace tabs open-file refresh', () => {
       fileContentErrors: new Map<string, Error>(),
       fileContents: {},
       fileTree: [],
+      folderRequests: { failures: new Map<string, string>(), opening: new Map<string, number>() },
       loadFileContent,
       loadingFiles: new Set<string>(),
       loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       reloadFileContents: vi.fn().mockResolvedValue(undefined),
+      restorePending: false,
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 

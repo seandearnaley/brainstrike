@@ -27,11 +27,11 @@ import { useEditorViewStateStore } from '../stores/editor-view-state-store';
 import { useTabManagerStore } from '../stores/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import { useFileFolderStatus } from './file-folder-status.ts';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useTerminalHotkey } from './use-terminal-hotkey';
 import { useWorkspaceOpenFileRefresh } from './use-workspace-open-file-refresh';
 import {
-  type FileRootState,
   useWorkspaceTabs,
   type WorkspaceTabRef,
   WorkspaceTabsContext,
@@ -147,6 +147,7 @@ export function WorkspaceTabsProvider({
     };
   }, [fileContentLoadAuthority]);
 
+  const explorer = useFileExplorer();
   const {
     canLoadWithoutTree,
     fileContentErrors,
@@ -155,7 +156,7 @@ export function WorkspaceTabsProvider({
     loadFileContent,
     loadingFiles,
     reloadFileContents,
-  } = useFileExplorer();
+  } = explorer;
   const startFileContentLoad = useCallback(
     (compositeKey: string): void => {
       void loadFileContent(compositeKey, 'interactive').catch((error: unknown) => {
@@ -179,25 +180,6 @@ export function WorkspaceTabsProvider({
     [reloadFileContents]
   );
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
-  const isAccessLoading = useFileExplorerStoreSelector((state) => state.isAccessLoading);
-  const fileRootState = useCallback(
-    (compositeKey: string): FileRootState => {
-      if (!canLoadWithoutTree) {
-        return 'connected';
-      }
-      let folderId: string;
-      try {
-        ({ folderId } = decodeFileSelection(compositeKey));
-      } catch {
-        return 'disconnected';
-      }
-      if (rootDescriptors[folderId] !== undefined) {
-        return 'connected';
-      }
-      return isAccessLoading ? 'connecting' : 'disconnected';
-    },
-    [canLoadWithoutTree, isAccessLoading, rootDescriptors]
-  );
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
   const openAppIds = useWorkspaceTabSelectionStore((s) => s.openAppIds);
@@ -243,6 +225,16 @@ export function WorkspaceTabsProvider({
   // silently vanished tab.
   const { tabStatuses, requestTabPermission, getStatusMessage, isRestoring } =
     useTabFileRestoration(tabs);
+  // A folder is still opening while either the folders or the persisted tabs are restoring.
+  const { fileFolderStatus, reopenFolder } = useFileFolderStatus({
+    addRootDirectoryByPath: explorer.addRootDirectoryByPath,
+    canLoadWithoutTree,
+    folderRequests: explorer.folderRequests,
+    listRecentRoots: explorer.listRecentRoots,
+    recentRootsRevision: explorer.recentRootsRevision,
+    restorePending: explorer.restorePending || isRestoring,
+    rootDescriptors,
+  });
 
   useWorkspaceOpenFileRefresh({ reloadFileContents, tabs });
 
@@ -738,7 +730,7 @@ export function WorkspaceTabsProvider({
       apps,
       fileContentErrors,
       fileContents,
-      fileRootState,
+      fileFolderStatus,
       getTabStatusMessage: getStatusMessage,
       handleOpenFileInTab,
       hasClosedTabs,
@@ -764,6 +756,7 @@ export function WorkspaceTabsProvider({
       onRetryFileContent: handleRetryFileContent,
       onSelectFileTab: handleSelectFileTab,
       openApps,
+      reopenFolder,
       rootDescriptors,
       selection,
       tabOrder,
@@ -774,7 +767,7 @@ export function WorkspaceTabsProvider({
       apps,
       fileContentErrors,
       fileContents,
-      fileRootState,
+      fileFolderStatus,
       getStatusMessage,
       handleOpenFileInTab,
       hasClosedTabs,
@@ -797,6 +790,7 @@ export function WorkspaceTabsProvider({
       handleRetryFileContent,
       handleSelectFileTab,
       openApps,
+      reopenFolder,
       reorderTabs,
       rootDescriptors,
       selection,

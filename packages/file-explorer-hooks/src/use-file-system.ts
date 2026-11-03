@@ -4,6 +4,12 @@ import type { FileExplorerState, RootDescriptor, StoredRootDescriptor } from '@b
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
 import { useAdapters } from './adapters-context.js';
 import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers.js';
+import {
+  type FolderRequestOutcome,
+  type FolderRequests,
+  NO_FOLDER_REQUESTS,
+  nextFolderRequests,
+} from './folder-requests.ts';
 
 const logger = createLogger('FileSystemHook');
 
@@ -55,9 +61,13 @@ interface UseFileSystemParams {
 }
 
 interface FileSystemState {
+  /** Mounts in flight by the path asked for, and the last failure of each. */
+  folderRequests: FolderRequests;
   isAccessLoading: boolean;
   /** Monotonic signal that a supported flow may have mutated Recents. */
   recentRootsRevision: number;
+  /** The start-up restore has not answered yet, so any folder may still be opening. */
+  restorePending: boolean;
   rootDirectoryHandle: DirectoryHandle | null;
   /** All active roots (ordered). rootDirectoryHandle is always in this list (or null when empty). */
   rootDirectoryHandles: DirectoryHandle[];
@@ -68,6 +78,8 @@ interface FileSystemState {
 type FileSystemAction =
   | { type: 'setRoot'; handle: DirectoryHandle | null }
   | { type: 'setAccessLoading'; loading: boolean }
+  | { type: 'folderRequest'; path: string; outcome: FolderRequestOutcome }
+  | { type: 'restoreSettled' }
   | { type: 'addOrFocusHandle'; handle: DirectoryHandle; rootId?: string }
   | { type: 'removeHandle'; rootId: string }
   /** ADR-0034: the opened folder replaces every open folder; worktree mounts stay. */
@@ -211,6 +223,13 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
     }
     case 'setAccessLoading':
       return { ...state, isAccessLoading: action.loading };
+    case 'folderRequest':
+      return {
+        ...state,
+        folderRequests: nextFolderRequests(state.folderRequests, action.path, action.outcome),
+      };
+    case 'restoreSettled':
+      return { ...state, restorePending: false };
     case 'addOrFocusHandle': {
       // Stamp the rootId so the stored handle self-identifies — keying by path
       // would collapse two same-named web roots into one entry. ensureStamped is
@@ -399,6 +418,7 @@ async function runMultiRootRestore({
     if (!cancelledRef.value) {
       hasAttemptedRestoreRef.current = true;
       dispatch({ loading: false, type: 'setAccessLoading' });
+      dispatch({ type: 'restoreSettled' });
     }
     isRestoringRef.current = false;
   }
@@ -416,21 +436,26 @@ export function useFileSystem({
 }: UseFileSystemParams) {
   const { fileSystemAdapter } = useAdapters();
 
+  // An adapter that restores folders is loading access from the first render until its restore
+  // settles, so nothing reads "no folder" before the restore has answered.
+  const restores =
+    typeof (fileSystemAdapter as { restoreRoots?: unknown }).restoreRoots === 'function';
   const [
     {
+      folderRequests,
       rootDirectoryHandle,
       rootDirectoryHandles,
       isAccessLoading,
       recentRootsRevision,
+      restorePending,
       rootIdByPath,
     },
     dispatch,
   ] = useReducer(reducer, {
-    // An adapter that restores folders is loading access from the first render until its restore
-    // settles, so nothing reads "no folder" before the restore has answered.
-    isAccessLoading:
-      typeof (fileSystemAdapter as { restoreRoots?: unknown }).restoreRoots === 'function',
+    folderRequests: NO_FOLDER_REQUESTS,
+    isAccessLoading: restores,
     recentRootsRevision: 0,
+    restorePending: restores,
     rootDirectoryHandle: null,
     rootDirectoryHandles: [],
     rootIdByPath: new Map<string, string>(),
@@ -544,6 +569,7 @@ export function useFileSystem({
     }
     return async (rootPath: string): Promise<DirectoryHandle | null> => {
       dispatch({ loading: true, type: 'setAccessLoading' });
+      dispatch({ outcome: 'started', path: rootPath, type: 'folderRequest' });
       const addRoot = async (): Promise<DirectoryHandle> => {
         const { handle, rootId, displayName, persisted } = await adapterAddRootByPath.call(
           fileSystemAdapter,
@@ -563,9 +589,21 @@ export function useFileSystem({
         return handle;
       };
       return addRoot()
-        .catch((error: unknown) => {
-          throw mapFileSystemError(error);
-        })
+        .then(
+          (handle) => {
+            dispatch({ outcome: 'settled', path: rootPath, type: 'folderRequest' });
+            return handle;
+          },
+          (error: unknown) => {
+            const mapped = mapFileSystemError(error);
+            dispatch({
+              outcome: { failure: mapped.message },
+              path: rootPath,
+              type: 'folderRequest',
+            });
+            throw mapped;
+          }
+        )
         .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
     };
   }, [adapterAddRootByPath, addActiveRoot, fileSystemAdapter, updateCurrentFolderId]);
@@ -585,6 +623,13 @@ export function useFileSystem({
     }
     return async (rootPath?: string): Promise<DirectoryHandle | null> => {
       dispatch({ loading: true, type: 'setAccessLoading' });
+      // A recent folder opened by path is opening; the picker's choice is unknown until it answers.
+      const settle = (outcome: FolderRequestOutcome): void => {
+        if (rootPath !== undefined) {
+          dispatch({ outcome, path: rootPath, type: 'folderRequest' });
+        }
+      };
+      settle('started');
       const open = async (): Promise<DirectoryHandle> => {
         const { handle, rootId, displayName } = await adapterOpenRoot.call(
           fileSystemAdapter,
@@ -600,12 +645,21 @@ export function useFileSystem({
         return opened;
       };
       return open()
-        .catch((error: unknown) => {
-          if (isUserCancellation(error)) {
-            return null;
+        .then(
+          (handle) => {
+            settle('settled');
+            return handle;
+          },
+          (error: unknown) => {
+            if (isUserCancellation(error)) {
+              settle('settled');
+              return null;
+            }
+            const mapped = mapFileSystemError(error);
+            settle({ failure: mapped.message });
+            throw mapped;
           }
-          throw mapFileSystemError(error);
-        })
+        )
         .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
     };
   }, [adapterOpenRoot, fileSystemAdapter, openActiveRoot, updateCurrentFolderId]);
@@ -822,7 +876,12 @@ export function useFileSystem({
   // Auto-restore on startup: an adapter with restoreRoots restores ALL granted roots.
   // Runs once and never changes hook order.
   useEffect(() => {
-    if (hasAttemptedRestoreRef.current || rootDirectoryHandle || isRestoringRef.current) {
+    if (hasAttemptedRestoreRef.current || isRestoringRef.current) {
+      return;
+    }
+    if (rootDirectoryHandle) {
+      // A folder was mounted before any restore finished, so nothing waits on one any more.
+      dispatch({ type: 'restoreSettled' });
       return;
     }
 
@@ -873,6 +932,7 @@ export function useFileSystem({
       addRootDirectory,
       addRootDirectoryByPath,
       clearRootDirectory,
+      folderRequests,
       isAccessLoading,
       isFileSystemAccessSupported,
       listRecentRoots,
@@ -880,6 +940,7 @@ export function useFileSystem({
       recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
+      restorePending,
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,
@@ -892,7 +953,9 @@ export function useFileSystem({
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,
+      folderRequests,
       isAccessLoading,
+      restorePending,
       addExternalRootHandle,
       addRootDirectory,
       addRootDirectoryByPath,
