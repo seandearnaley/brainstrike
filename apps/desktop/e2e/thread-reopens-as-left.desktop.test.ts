@@ -66,19 +66,25 @@ function makeOtherFolder(): string {
   return other;
 }
 
-/** Opens another folder as the window's project, in place of the thread's folder. */
-async function openOtherFolder(
+/** Opens a folder as the window's project through the picker, in place of the open ones. */
+async function openFolder(
   page: Page,
   electronApp: ElectronAppContext,
-  other: string
+  folder: string,
+  fileName: string
 ): Promise<void> {
   await electronApp.app.evaluate((_electron, next) => {
     process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = next;
-  }, other);
+  }, folder);
   await page.keyboard.press('Control+k');
   await page.keyboard.type('Open folder');
   await page.keyboard.press('Enter');
-  await expect(page.getByText('other-file.txt').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(fileName).first()).toBeVisible({ timeout: 30_000 });
+}
+
+/** Opens another folder as the window's project, in place of the thread's folder. */
+function openOtherFolder(page: Page, electronApp: ElectronAppContext, other: string) {
+  return openFolder(page, electronApp, other, 'other-file.txt');
 }
 
 /** The folder's record in the app's store: opening the thread opens it again. */
@@ -175,13 +181,21 @@ test('a folder thread opens with its folder after the folder record was deleted'
   });
 });
 
-test('a worktree thread opens with its worktree after another folder and a restart', async ({
-  electron,
-  electronApp,
-  modelProvider,
-  window: page,
-}) => {
-  test.setTimeout(360_000);
+/**
+ * A worktree thread, left while another folder is open, whose worktree record is lost before the
+ * restart. With `recordsDeleted`, the folder records of the worktree and its repository are gone
+ * too, and the person opens the repository again before opening the thread.
+ */
+async function reopenWorktreeThread(
+  fixtures: {
+    readonly electron: ElectronHarness;
+    readonly electronApp: ElectronAppContext;
+    readonly modelProvider: ModelProviderShim;
+    readonly page: Page;
+  },
+  recordsDeleted: boolean
+): Promise<void> {
+  const { electron, electronApp, modelProvider, page } = fixtures;
   const root = await electronApp.app.evaluate(
     () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
   );
@@ -220,14 +234,35 @@ test('a worktree thread opens with its worktree after another folder and a resta
       worktreeId = recorded?.['id'];
       worktreePath = String(recorded?.['path']);
       expect(db.prepare('DELETE FROM brainstrike_worktrees').run().changes).toBe(1);
+      if (recordsDeleted) {
+        const deleteRoot = db.prepare('DELETE FROM roots WHERE path = ?');
+        expect([deleteRoot.run(root).changes, deleteRoot.run(worktreePath).changes]).toEqual([
+          1, 1,
+        ]);
+      }
     } finally {
       db.close();
     }
-    const restarted = (await electron.restart()).window;
+    const restartedApp = await electron.restart();
+    const restarted = restartedApp.window;
     await ensureAssistantShellVisible(restarted);
+    if (recordsDeleted) {
+      // Opened first, the thread cannot record its worktree again: its repository is not open.
+      await restarted.locator(`#${tabId}`).click();
+      await expect(restarted.getByRole('button', { name: "can't be opened" })).toBeVisible({
+        timeout: 30_000,
+      });
+      // Opening the repository through the picker is what the thread was waiting for.
+      await openFolder(restarted, restartedApp, root, 'hello.ts');
+    }
     // Opening the thread brings its worktree back without a click, and the thread sends.
     await openThread(restarted, tabId, stateDb, worktreePath);
     await send(restarted, 'STEP_2');
+    // The checkout chip names the worktree again, with no warning that it is missing.
+    await expect(restarted.getByTestId('workspace-bar-mode-chip')).toHaveAttribute(
+      'aria-label',
+      `Worktree: ${name}`
+    );
     const reopened = new DatabaseSync(stateDb, { readOnly: true });
     try {
       // The record is written again under the id the thread names.
@@ -241,4 +276,24 @@ test('a worktree thread opens with its worktree after another folder and a resta
     await electron.dispose();
     rmSync(other, { force: true, recursive: true });
   }
+}
+
+test('a worktree thread opens with its worktree after another folder and a restart', async ({
+  electron,
+  electronApp,
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(360_000);
+  await reopenWorktreeThread({ electron, electronApp, modelProvider, page }, false);
+});
+
+test('a worktree thread opens with its worktree after its folder records were deleted', async ({
+  electron,
+  electronApp,
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(360_000);
+  await reopenWorktreeThread({ electron, electronApp, modelProvider, page }, true);
 });

@@ -27,7 +27,7 @@ export interface UseThreadCheckoutArgs {
   readonly threadMetadata: AssistantThreadMetadata | undefined;
 }
 
-function displayNameForPath(path: string): string {
+export function displayNameForPath(path: string): string {
   const displayName = path.split(/[\\/]/u).filter(Boolean).at(-1);
   if (!displayName) {
     throw new Error(`Cannot check out a worktree whose path has no display name: ${path}`);

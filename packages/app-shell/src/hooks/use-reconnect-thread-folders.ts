@@ -19,10 +19,12 @@
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { WorkspaceBarRoot } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent, useRef } from 'react';
+import { subscribeRootRegistered } from '../roots/root-registration-events';
 import { markThreadFoldersReopening } from '../roots/thread-folders-reopening';
 import { useWorktreesBridge } from '../workspace-git-services';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
+import { handOffRecordGone } from './use-workspace-bar-write-derive';
 
 const logger = createLogger('WorkspaceBar');
 
@@ -35,7 +37,8 @@ interface UseReconnectThreadFoldersArgs {
    * record the thread names (the old one is gone). A no-op when they agree.
    */
   readonly followPrimaryRecord: (
-    root: WorkspaceBarRoot & { readonly path: string }
+    root: WorkspaceBarRoot & { readonly path: string },
+    localRootPath: string | undefined
   ) => Promise<void>;
   readonly primaryRoot: WorkspaceBarRoot | undefined;
   /** False while the thread's folders are still being read: a missing folder is not yet known. */
@@ -49,6 +52,8 @@ interface UseReconnectThreadFoldersArgs {
 
 interface ThreadWorktree {
   readonly id: string;
+  /** The folder a hand-off returns to, by the record the binding names. */
+  readonly localRootId: string | undefined;
   readonly path: string;
 }
 
@@ -82,6 +87,98 @@ async function recordThreadWorktree(
   }
 }
 
+/**
+ * The folder of the repository the worktree belongs to: where a hand-off returns. The thread
+ * records it by id only, so when that record is gone the repository is found again from git.
+ */
+async function worktreeRepositoryRoot(
+  worktrees: WorktreesBridge,
+  worktree: ThreadWorktree
+): Promise<string | undefined> {
+  const listed = await worktrees.list();
+  if (!listed.ok) {
+    logger.warn("A thread worktree's repository could not be read", {
+      path: worktree.path,
+      reason: describeBoundaryFailure(listed.error),
+    });
+    return undefined;
+  }
+  return listed.value.find((entry) => entry.path === worktree.path)?.repositoryRoot;
+}
+
+/** Mounts the primary, recording its worktree first and following both to their records. */
+async function reopenPrimary(
+  args: ReopenThreadFoldersArgs,
+  root: WorkspaceBarRoot & { readonly path: string }
+): Promise<void> {
+  const own = args.worktree?.worktree.path === root.path ? args.worktree : undefined;
+  if (own) {
+    await recordThreadWorktree(own.worktrees, own.worktree, args.threadId);
+  }
+  // When the record of the folder a hand-off returns to is gone, the repository stands in for it.
+  // It opens first, so the Explorer ends on the thread's own folder.
+  const localRecordGone =
+    own !== undefined && handOffRecordGone(args.secondaryRoots, own.worktree.localRootId);
+  const localRootPath = localRecordGone
+    ? await worktreeRepositoryRoot(own.worktrees, own.worktree)
+    : undefined;
+  if (localRootPath) {
+    await args.addRootByPath(localRootPath);
+  }
+  await args.addRootByPath(root.path);
+  await args.followPrimaryRecord(root, localRootPath);
+}
+
+interface ReopenThreadFoldersArgs {
+  readonly addRootByPath: (path: string) => Promise<unknown>;
+  readonly describeFailure: (error: unknown) => string;
+  readonly followPrimaryRecord: UseReconnectThreadFoldersArgs['followPrimaryRecord'];
+  readonly missing: readonly (WorkspaceBarRoot & { readonly path: string })[];
+  readonly primaryRoot: WorkspaceBarRoot | undefined;
+  readonly secondaryRoots: readonly WorkspaceBarRoot[];
+  readonly threadId: string;
+  readonly worktree:
+    | { readonly worktree: ThreadWorktree; readonly worktrees: WorktreesBridge }
+    | undefined;
+}
+
+/**
+ * One at a time: the host orders folder changes anyway, and the last one keeps focus. The
+ * thread's other folders mount first, so its worktree's repository is open when it is read.
+ * Resolves to the paths of the folders that stay disconnected.
+ */
+async function reopenThreadFolders(args: ReopenThreadFoldersArgs): Promise<readonly string[]> {
+  const unopened: string[] = [];
+  for (const root of args.missing) {
+    try {
+      if (root === args.primaryRoot) {
+        await reopenPrimary(args, root);
+      } else {
+        await args.addRootByPath(root.path);
+      }
+    } catch (error) {
+      unopened.push(root.path);
+      // The reason travels as text: the log buffer keeps only a summary of a large error.
+      logger.warn('A thread folder stays disconnected', {
+        error,
+        path: root.path,
+        reason: args.describeFailure(error),
+        rootId: root.rootId,
+      });
+    }
+  }
+  return unopened;
+}
+
+interface ThreadOpening {
+  handled: boolean;
+  readonly threadId: string | undefined;
+  /** Folders this opening could not reopen: a folder opened since may be what they need. */
+  unopened: ReadonlySet<string>;
+}
+
+const NOTHING_UNOPENED: ReadonlySet<string> = new Set();
+
 export function useReconnectThreadFolders({
   addRootByPath,
   describeFailure,
@@ -96,59 +193,61 @@ export function useReconnectThreadFolders({
   // The thread in front, and whether its opening was handled. Bringing another thread's tab (or a
   // new chat) to the front starts afresh, so returning to a thread reconnects a folder that left in
   // the meantime.
-  const openingRef = useRef<{ handled: boolean; threadId: string | undefined }>({
+  const openingRef = useRef<ThreadOpening>({
     handled: false,
     threadId: undefined,
+    unopened: NOTHING_UNOPENED,
+  });
+  // `only` limits the reopening to the folders an earlier try left disconnected.
+  const reopen = useEffectEvent((only?: ReadonlySet<string>): void => {
+    if (!(threadId && addRootByPath)) {
+      return;
+    }
+    // The primary goes last, so it is the folder the Explorer ends on.
+    const missing = [...secondaryRoots, ...(primaryRoot ? [primaryRoot] : [])].filter(
+      (root): root is WorkspaceBarRoot & { readonly path: string } =>
+        root.removed === true && Boolean(root.path) && (!only || only.has(root.path ?? ''))
+    );
+    if (missing.length === 0) {
+      return;
+    }
+    const opening = openingRef.current;
+    opening.unopened = NOTHING_UNOPENED;
+    const reopened = markThreadFoldersReopening(threadId);
+    void reopenThreadFolders({
+      addRootByPath,
+      describeFailure,
+      followPrimaryRecord,
+      missing,
+      primaryRoot,
+      secondaryRoots,
+      threadId,
+      worktree: worktree && worktrees ? { worktree, worktrees } : undefined,
+    })
+      .then((unopened) => {
+        opening.unopened = new Set(unopened);
+      })
+      .finally(reopened);
   });
   useEffect(() => {
     if (openingRef.current.threadId !== threadId) {
-      openingRef.current = { handled: false, threadId };
+      openingRef.current = { handled: false, threadId, unopened: NOTHING_UNOPENED };
     }
     if (!(ready && threadId && addRootByPath) || openingRef.current.handled) {
       return;
     }
     openingRef.current.handled = true;
-    // The primary goes last, so it is the folder the Explorer ends on.
-    const missing = [...secondaryRoots, ...(primaryRoot ? [primaryRoot] : [])].filter(
-      (root): root is WorkspaceBarRoot & { readonly path: string } =>
-        root.removed === true && Boolean(root.path)
-    );
-    if (missing.length === 0) {
-      return;
+    reopen();
+  }, [addRootByPath, ready, threadId]);
+  // A folder that could not reopen may need another one open first: a worktree whose record is
+  // gone is recorded again only once its repository is open. So each folder the person opens
+  // while this thread is in front gives the folders it left disconnected another go. A folder the
+  // person disconnects later is not among them, so it stays disconnected.
+  const reopenUnopened = useEffectEvent((): void => {
+    const { unopened } = openingRef.current;
+    if (unopened.size > 0) {
+      reopen(unopened);
     }
-    const reopened = markThreadFoldersReopening(threadId);
-    void (async () => {
-      // One at a time: the host orders folder changes anyway, and the last one keeps focus. The
-      // thread's other folders mount first, so its worktree's repository is open when it is read.
-      for (const root of missing) {
-        try {
-          if (worktrees && worktree && root === primaryRoot && root.path === worktree.path) {
-            await recordThreadWorktree(worktrees, worktree, threadId);
-          }
-          await addRootByPath(root.path);
-          if (root === primaryRoot) {
-            await followPrimaryRecord(root);
-          }
-        } catch (error) {
-          // The reason travels as text: the log buffer keeps only a summary of a large error.
-          logger.info('A thread folder stays disconnected', {
-            error,
-            path: root.path,
-            reason: describeFailure(error),
-            rootId: root.rootId,
-          });
-        }
-      }
-    })().finally(reopened);
-  }, [
-    addRootByPath,
-    describeFailure,
-    followPrimaryRecord,
-    primaryRoot,
-    ready,
-    secondaryRoots,
-    threadId,
-    worktree,
-    worktrees,
-  ]);
+  });
+  useEffect(() => subscribeRootRegistered(() => reopenUnopened()), []);
 }
