@@ -21,7 +21,7 @@ export {
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
- * BST-2202: the agent host's error and fatal log records reach Main's
+ * BST-2202: the agent host's warn, error and fatal log records reach Main's
  * diagnostics, as MCP's records do (`platform/mcp/diagnostics`), so the cause a
  * correlation id names is in the desktop log and debug bundle.
  */
@@ -31,7 +31,7 @@ export const PlatformDiagnosticRecordSchema = Schema.Struct({
   record: Schema.Struct({
     args: Schema.mutable(Schema.Array(Schema.MutableJson)),
     bindings: Schema.Record(Schema.String, Schema.MutableJson),
-    level: Schema.Literals(['error', 'fatal']),
+    level: Schema.Literals(['warn', 'error', 'fatal']),
     message: Schema.optional(Schema.String),
     scope: Schema.optional(Id.check(Schema.isMaxCodePoints(128))),
     timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
