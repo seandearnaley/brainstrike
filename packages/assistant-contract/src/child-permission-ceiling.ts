@@ -1,4 +1,5 @@
 import {
+  isPermissionDenied,
   type PermissionDecision,
   type PermissionToolGateSnapshot,
   resolvePermissionDecision,
@@ -19,11 +20,25 @@ const risks = ['read', 'edit', 'execute', 'mcp'] as const;
 const combine = (admitted: PermissionDecision, current: PermissionDecision): PermissionDecision =>
   admitted === 'deny' ? 'deny' : current;
 
+/**
+ * One snapshot's decision as the host gate enforces it: an explicit deny, the
+ * tool's own or its category's, outranks YOLO and grants (ADR-0010). The
+ * resolver alone returns `allow` under YOLO before it reads any deny, and the
+ * ceiling drops YOLO, so a Full-access deny would otherwise reach the child as
+ * `allow`.
+ */
 function decision(
   snapshot: PermissionToolGateSnapshot,
   riskCategory: ToolRiskCategory,
   toolId?: string
 ): PermissionDecision {
+  if (
+    toolId
+      ? isPermissionDenied(snapshot, riskCategory, toolId)
+      : snapshot.policies[riskCategory] === 'deny'
+  ) {
+    return 'deny';
+  }
   return resolvePermissionDecision({
     ...snapshot,
     riskCategory,
