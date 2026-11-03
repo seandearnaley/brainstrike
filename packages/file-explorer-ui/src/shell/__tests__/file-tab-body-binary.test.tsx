@@ -8,9 +8,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
+import type { FileFolderStatus } from '../file-folder-status.ts';
 import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
-const { openFileInTab, toastFn } = vi.hoisted(() => ({
+const { onCloseTab, openFileInTab, toastFn } = vi.hoisted(() => ({
+  onCloseTab: vi.fn(),
   openFileInTab: vi.fn(),
   toastFn: vi.fn(),
 }));
@@ -39,8 +41,9 @@ interface RenderOptions {
   readonly compositeKey?: string;
   /** `null` renders a tab whose content has not arrived. */
   readonly content?: string | null;
+  readonly folderStatus?: FileFolderStatus;
+  readonly onReopenFolder?: () => void;
   readonly rootPath?: string | null;
-  readonly rootState?: 'connected' | 'connecting' | 'disconnected';
   readonly services?: ActionServices;
 }
 
@@ -49,7 +52,8 @@ function renderBinaryBody({
   compositeKey = BINARY_KEY,
   content = BINARY_CONTENT_MESSAGE,
   rootPath = '/root',
-  rootState,
+  folderStatus,
+  onReopenFolder,
   services,
 }: RenderOptions = {}) {
   const { registry, writtenTexts } = createTestActionRegistry({
@@ -63,9 +67,11 @@ function renderBinaryBody({
         content={content ?? undefined}
         isLoading={false}
         isRestoring={false}
+        onCloseTab={onCloseTab}
+        {...(onReopenFolder ? { onReopenFolder } : {})}
         onRetryContent={vi.fn()}
         rootPath={rootPath}
-        {...(rootState ? { rootState } : {})}
+        {...(folderStatus ? { folderStatus } : {})}
         status={undefined}
         tab={{
           compositeKey,
@@ -130,14 +136,39 @@ describe('FileTabBody binary file preview', () => {
     expect(screen.getByTestId('file-code-surface')).toBeInTheDocument();
   });
 
-  it('says the folder is connecting while it restores, then that it is not connected', () => {
-    renderBinaryBody({ content: null, rootState: 'connecting' });
-    expect(screen.getByRole('status')).toHaveTextContent('Connecting folder…');
+  it('names the folder while it opens, then offers Reopen and Close tab once it is closed', () => {
+    renderBinaryBody({ content: null, folderStatus: { kind: 'opening', name: 'beaker' } });
+    expect(screen.getByRole('status')).toHaveTextContent('Opening beaker…');
 
     cleanup();
-    renderBinaryBody({ content: null, rootState: 'disconnected' });
-    expect(screen.getByText('Folder not connected')).toBeInTheDocument();
-    expect(screen.queryByText('Connecting folder…')).not.toBeInTheDocument();
+    const onReopenFolder = vi.fn();
+    renderBinaryBody({
+      content: null,
+      folderStatus: { failure: null, kind: 'closed', name: 'beaker', path: '/root' },
+      onReopenFolder,
+    });
+    expect(screen.getByText('beaker is closed')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen folder' }));
+    expect(onReopenFolder).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Close tab' }));
+    expect(onCloseTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("says why a folder can't be opened, and offers to try again", () => {
+    renderBinaryBody({
+      content: null,
+      folderStatus: {
+        failure: 'The folder no longer exists.',
+        kind: 'closed',
+        name: 'sunny-ivy',
+        path: '/root',
+      },
+      onReopenFolder: vi.fn(),
+    });
+    expect(screen.getByText("sunny-ivy can't be opened")).toBeInTheDocument();
+    expect(screen.getByText('The folder no longer exists.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
   it('renders a canonical inaccessible worker result outside the code surface', () => {

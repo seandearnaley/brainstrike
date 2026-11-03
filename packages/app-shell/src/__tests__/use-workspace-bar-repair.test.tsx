@@ -18,6 +18,7 @@ import { resetRootRegistrationEventsForTests } from '../roots/root-registration-
 const fs = {
   addRootDirectory: vi.fn(),
   addRootDirectoryByPath: vi.fn(),
+  folderRequests: { failures: new Map<string, string>(), opening: new Map<string, number>() },
   isFileSystemAccessSupported: vi.fn(() => ({ reason: '', supported: true })),
   listRecentRoots: vi.fn(async () => []),
   recentRootsRevision: 0,

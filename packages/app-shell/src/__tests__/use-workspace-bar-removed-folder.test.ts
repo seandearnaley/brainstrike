@@ -68,7 +68,7 @@ describe('a removed thread folder', () => {
 
   it('cannot itself be made primary', () => {
     expect(() => deriveMakePrimary(folders(alpha, [bravo]), 'r-bravo')).toThrow(
-      'bravo was removed from the workspace. Re-add it before making it primary.'
+      'bravo is closed. Reopen it before making it primary.'
     );
   });
 

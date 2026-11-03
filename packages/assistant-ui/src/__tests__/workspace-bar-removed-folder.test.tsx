@@ -1,6 +1,6 @@
 /**
  * BST-1990: the folder chip marks a thread folder the workspace no longer
- * serves and offers its repairs: Re-add folder, Remove from this thread, and
+ * serves and offers its repairs: Reopen folder, Remove from this thread, and
  * "Use another folder…" once no thread folder is live.
  */
 
@@ -50,16 +50,16 @@ describe('a removed thread folder in the folder chip', () => {
   it('is named on the chip itself', () => {
     render(<WorkspaceBar {...props({ secondaryRoots: [alpha] })} />);
     expect(screen.getByTestId('workspace-bar-folder-chip')).toHaveAccessibleName(
-      'Folder: bravo (removed from the workspace), 1 more'
+      'Folder: bravo (closed), 1 more'
     );
   });
 
-  it('as the primary, offers Re-add and a Remove that promotes the live folder', async () => {
+  it('as the primary, offers Reopen and a Remove that promotes the live folder', async () => {
     const onAddRecent = vi.fn();
     const onRemovePrimary = vi.fn();
     render(<WorkspaceBar {...props({ onAddRecent, onRemovePrimary, secondaryRoots: [alpha] })} />);
     const row = await openRootSubmenu('r-bravo');
-    expect(row).toHaveTextContent('Removed from the workspace');
+    expect(row).toHaveTextContent('Closed');
     expect(screen.queryByTestId('workspace-bar-reveal-r-bravo')).not.toBeInTheDocument();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     await user.click(await screen.findByTestId('workspace-bar-remove-primary-r-bravo'));
@@ -105,11 +105,49 @@ describe('a removed thread folder in the folder chip', () => {
     );
     await openRootSubmenu('r-bravo');
     const menu = await screen.findByTestId('workspace-bar-readd-r-bravo');
-    expect(within(menu).getByText('Re-add folder')).toBeInTheDocument();
+    expect(within(menu).getByText('Reopen folder')).toBeInTheDocument();
     expect(screen.queryByTestId('workspace-bar-make-primary-r-bravo')).not.toBeInTheDocument();
     expect(screen.queryByTestId('workspace-bar-use-another-folder')).not.toBeInTheDocument();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     await user.click(await screen.findByTestId('workspace-bar-remove-secondary-r-bravo'));
     expect(onRemoveSecondary).toHaveBeenCalledWith('r-bravo');
+  });
+
+  it("says why it can't be opened, and offers to try again", async () => {
+    render(
+      <WorkspaceBar
+        {...props({
+          primaryRoot: alpha,
+          secondaryRoots: [{ ...bravo, reopenFailure: 'The folder no longer exists.' }],
+        })}
+      />
+    );
+    const row = await openRootSubmenu('r-bravo');
+    expect(row).toHaveTextContent("Can't be opened: The folder no longer exists.");
+    const retry = await screen.findByTestId('workspace-bar-readd-r-bravo');
+    expect(within(retry).getByText('Try again')).toBeInTheDocument();
+  });
+
+  it("keeps the host's reason as written in the chip's name", () => {
+    render(
+      <WorkspaceBar
+        {...props({
+          primaryRoot: {
+            ...bravo,
+            reopenFailure: 'The folder is no longer at /Users/Sean/Beaker.',
+          },
+        })}
+      />
+    );
+    expect(screen.getByTestId('workspace-bar-folder-chip')).toHaveAccessibleName(
+      "Folder: bravo (can't be opened: The folder is no longer at /Users/Sean/Beaker.)"
+    );
+  });
+
+  it('shows a reopen in flight as opening', () => {
+    render(<WorkspaceBar {...props({ primaryRoot: { ...bravo, reopening: true } })} />);
+    expect(screen.getByTestId('workspace-bar-folder-chip')).toHaveAccessibleName(
+      'Folder: bravo (opening…)'
+    );
   });
 });

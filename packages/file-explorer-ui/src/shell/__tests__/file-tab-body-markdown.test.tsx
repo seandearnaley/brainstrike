@@ -141,6 +141,7 @@ function renderBody(
       content={content}
       isLoading={false}
       isRestoring={false}
+      onCloseTab={vi.fn()}
       onRetryContent={vi.fn()}
       rootPath="/root"
       status={undefined}

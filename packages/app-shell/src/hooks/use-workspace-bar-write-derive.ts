@@ -260,9 +260,7 @@ export function deriveMakePrimary(
   const next = current.secondaryRoots.find((root) => root.rootId === rootId);
   const nextPath = next?.path;
   if (next?.removed) {
-    throw new Error(
-      `${next.displayName} was removed from the workspace. Re-add it before making it primary.`
-    );
+    throw new Error(`${next.displayName} is closed. Reopen it before making it primary.`);
   }
   if (!(next && nextPath)) {
     if (current.secondaryRootsError) {

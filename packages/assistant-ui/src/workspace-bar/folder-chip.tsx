@@ -48,9 +48,32 @@ type RootHandlers = Pick<
   | 'reveal'
 >;
 
-/** Shown on a removed folder, and why a removed primary's Remove action waits. */
-const REMOVED_FOLDER_LABEL = 'Removed from the workspace';
 const REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER = 'Choose another folder for this thread first.';
+
+/**
+ * What a folder the workspace no longer serves is doing, in the words the file tabs use: opening
+ * again, closed, or unable to open (with the host's reason). A folder with no path left no row.
+ */
+function removedFolderState(root: WorkspaceBarRoot): string {
+  if (root.reopening) {
+    return 'Opening…';
+  }
+  if (!root.path) {
+    return 'No longer exists';
+  }
+  return root.reopenFailure ? "Can't be opened" : 'Closed';
+}
+
+/**
+ * Where a removed folder stands. The fixed wording opens a sentence in the menu and sits
+ * lowercase inside the chip's accessible name; the host's reason is never recased.
+ */
+function removedFolderLabel(root: WorkspaceBarRoot, inline = false): string {
+  const state = removedFolderState(root);
+  const words = inline ? state.toLowerCase() : state;
+  const reason = root.path && !root.reopening ? root.reopenFailure : undefined;
+  return reason ? `${words}: ${reason}` : words;
+}
 
 /**
  * A folder the workspace no longer serves (BST-1990): the host refuses the
@@ -71,7 +94,7 @@ function removedRootActions(
           {
             disabledReason: null,
             icon: RotateCcw,
-            label: 'Re-add folder',
+            label: root.reopenFailure ? 'Try again' : 'Reopen folder',
             onSelect: () => onAddRecent(path),
             testId: `workspace-bar-readd-${root.rootId}`,
           },
@@ -205,7 +228,7 @@ const RootRowContent = ({
     <span className="flex min-w-0 flex-1 flex-col">
       <span className="truncate">{root.displayName}</span>
       {root.removed ? (
-        <span className="text-destructive text-xs">{REMOVED_FOLDER_LABEL}</span>
+        <span className="text-destructive text-xs">{removedFolderLabel(root)}</span>
       ) : null}
     </span>
     {isPrimary ? (
@@ -359,7 +382,7 @@ function folderChipName(primaryRoot: WorkspaceBarRoot | undefined, secondaryCoun
   if (!primaryRoot) {
     return 'Choose a folder';
   }
-  const removed = primaryRoot.removed ? ` (${REMOVED_FOLDER_LABEL.toLowerCase()})` : '';
+  const removed = primaryRoot.removed ? ` (${removedFolderLabel(primaryRoot, true)})` : '';
   const more = secondaryCount > 0 ? `, ${secondaryCount} more` : '';
   return `Folder: ${primaryRoot.displayName}${removed}${more}`;
 }
