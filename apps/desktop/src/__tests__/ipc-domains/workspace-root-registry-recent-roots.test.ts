@@ -144,14 +144,12 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     });
   });
 
-  it('reopens a recorded worktree by its record, never as an open folder', async () => {
+  it('never reopens a worktree by its record alone: its grant is the worktree ledger', async () => {
     const catalogRequest = createRegistryCatalogRequest([], [MANAGED]);
     const registry = createRegistry({ recents: storage }, catalogRequest);
-    const mounted = await registry.addRootByPath(MANAGED).catch(() => null);
-    expect(mounted).toBeNull();
-    await registry.addRoot(rootHandle(MANAGED));
-    const reopened = await registry.addRootByPath(MANAGED);
-    expect(reopened.handle.worktree).toBe(true);
+    const mounted = await registry.addRoot(rootHandle(MANAGED));
+    await registry.removeRoot(mounted.rootId);
+    await expect(registry.addRootByPath(MANAGED)).rejects.toThrow();
   });
 
   it('names where a granted folder was when it is no longer there', async () => {
