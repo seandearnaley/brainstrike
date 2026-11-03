@@ -42,7 +42,7 @@ import type {
 } from '../ports.ts';
 import { committedRewrites } from '../projection-rewrites.ts';
 import type { HostLogRow } from '../protocol.ts';
-import { HostRunOwnerCleanupError } from '../run-admission.ts';
+import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.ts';
 import { committedMemoryTranscript } from './committed-memory-transcript.ts';
 import {
   HostMemory,
@@ -547,6 +547,18 @@ export class StateStoreHostMemory implements HostRunOwner {
       }
       try {
         await this.domain.close();
+      } catch (cause) {
+        // Its operations drained and failed: the run's outcome, not a leak.
+        if (!(cause instanceof HostRunOwnerFailure)) {
+          throw new HostRunOwnerCleanupError(
+            failure ?? cause,
+            cause,
+            'Memory storage cleanup failed'
+          );
+        }
+        failure ??= cause;
+      }
+      try {
         await this.storage.close();
       } catch (cleanup) {
         throw new HostRunOwnerCleanupError(
