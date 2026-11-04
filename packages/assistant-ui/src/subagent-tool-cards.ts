@@ -41,25 +41,31 @@ function useSubagentChildRun(threadId: string | undefined): SubagentChildRun | u
  * SubagentExecutionCard. Kept out of the card so the card stays
  * render-testable without the assistant-ui store.
  */
-const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
+/**
+ * The child conversation a delegation call started, from the current message:
+ * its result names the child, or the owner's live listing does before the
+ * result lands. Shared by the delegation card and the activity header's chips.
+ */
+export function useSubagentDelegationAddress(
+  toolCallId: string,
+  result: unknown
+): { readonly address: SubagentConversationAddress; readonly invocation: SubagentInvocationRun } {
   const liveInvocations = use(SubagentLiveInvocationContext);
   const invocationJson = useAuiState((state) =>
     JSON.stringify(
-      readSubagentInvocationRun(state.message.parts, props.toolCallId, state.message.metadata)
+      readSubagentInvocationRun(state.message.parts, toolCallId, state.message.metadata)
     )
   );
   const invocation = JSON.parse(invocationJson) as SubagentInvocationRun;
   const addressJson = useAuiState((state) =>
-    JSON.stringify(
-      readSubagentConversationAddress(state.message.parts, props.toolCallId, props.result)
-    )
+    JSON.stringify(readSubagentConversationAddress(state.message.parts, toolCallId, result))
   );
   const persistedAddress = JSON.parse(addressJson) as SubagentConversationAddress;
   const getLiveThreadId = () =>
     invocation.kind === 'available'
       ? liveInvocations?.getThreadId({
           parentRuntimeRunId: invocation.parentRuntimeRunId,
-          parentToolCallId: props.toolCallId,
+          parentToolCallId: toolCallId,
         })
       : undefined;
   const liveThreadId = useSyncExternalStore(
@@ -75,6 +81,11 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
       : persistedAddress.kind === 'unavailable' && liveThreadId
         ? { kind: 'available', threadId: liveThreadId }
         : persistedAddress;
+  return { address, invocation };
+}
+
+const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
+  const { address, invocation } = useSubagentDelegationAddress(props.toolCallId, props.result);
   const { entry: presentation, reload } = useSubagentPresentation(
     address.kind === 'available' ? address.threadId : undefined
   );

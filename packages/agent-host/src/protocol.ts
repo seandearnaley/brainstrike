@@ -1067,6 +1067,8 @@ export const HOST_RESULT_SCHEMAS = {
         Schema.Struct({
           ...ThreadSummaryFields,
           callSign: Schema.String.check(Schema.isMinCodePoints(1)),
+          /** Its family colour, as `thread/children` lists it. */
+          color: Schema.String.check(Schema.isMinCodePoints(1)),
           origin: HostChildOriginSchema,
         })
       )

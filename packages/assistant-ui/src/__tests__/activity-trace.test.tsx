@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 import type { ActivitySummary } from '../activity-trace-model';
+import { SubagentChip } from '../subagent-chip';
 
 const live: ActivitySummary = {
   counts: { failed: 0, steps: 2 },
@@ -42,6 +43,51 @@ describe('ActivityTrace', () => {
     expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(1);
     // The live tail names the newest settled step; the running one is the label.
     expect(screen.getByTestId('assistant-activity-tail')).toHaveTextContent('Readfoo');
+  });
+
+  it('names the subagents a collapsed group delegated to, each opening its conversation', async () => {
+    const open = vi.fn();
+    render(
+      <ActivityTrace
+        agents={
+          <SubagentChip agent={{ callSign: 'Cedar-1a2b3c', colorId: 'emerald', onOpen: open }} />
+        }
+        fallbackMs={12_000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={null}
+        summary={done}
+        tail={[]}
+      />
+    );
+    expect(screen.getByTestId('assistant-activity-body')).toHaveAttribute('hidden');
+    const chip = screen.getByRole('button', { name: 'Go to Cedar-1a2b3c' });
+    // A sibling of the disclosure, never nested inside its button.
+    expect(screen.getByTestId('assistant-activity-summary')).not.toContainElement(chip);
+    await userEvent.setup().click(chip);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('assistant-activity-summary')).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+  });
+
+  it('drops the live tail while the group is open: its body already shows every step', () => {
+    render(
+      <ActivityTrace
+        expanded
+        fallbackMs={1500}
+        incompleteReason={undefined}
+        isActive
+        restingOverride={null}
+        summary={live}
+        tail={[{ family: 'read', id: 'call-1', state: 'done', target: 'foo', verb: 'Read' }]}
+      >
+        <div>body</div>
+      </ActivityTrace>
+    );
+    expect(screen.getByTestId('assistant-activity-body')).not.toHaveAttribute('hidden');
+    expect(screen.queryByTestId('assistant-activity-tail')).toBeNull();
   });
 
   it('settles into the verb summary with Worked for as meta', () => {

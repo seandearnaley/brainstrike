@@ -49,7 +49,8 @@ describe('WorktreeService mount authorization (real git + real SQLite)', () => {
   });
 
   it('authorizes a live ledger path under the managed directory and refuses row-less paths', async () => {
-    const service = buildService();
+    const resolveInventory = vi.fn(() => Promise.resolve({ errors: [], repositories: [] }));
+    const service = buildService({ resolveInventory });
     const created = await service.create({
       baseRef: 'main',
       branch: { name: 'bs/grant' },
@@ -61,7 +62,10 @@ describe('WorktreeService mount authorization (real git + real SQLite)', () => {
     if (!created.ok) {
       return;
     }
+    resolveInventory.mockClear();
     await expect(service.isManagedWorktreePath(created.value.worktree.path)).resolves.toBe(true);
+    // A worktree the app created mounts without rebuilding the whole inventory.
+    expect(resolveInventory).not.toHaveBeenCalled();
     await expect(service.isManagedWorktreePath(repo)).resolves.toBe(false);
     mkdirSync(path.join(managedDirectory, 'not-a-row'), { recursive: true });
     await expect(

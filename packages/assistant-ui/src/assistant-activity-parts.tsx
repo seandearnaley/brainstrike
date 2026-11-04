@@ -37,6 +37,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { ShellOutputProvider } from './shell-output-context';
+import { SubagentDelegationChip } from './subagent-delegation-chip';
 import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
@@ -135,6 +136,28 @@ const ActivityToolPart = memo(function ActivityToolPart(props: ToolCallMessagePa
     CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName] ??
     CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
   return <Component {...props} />;
+});
+
+/**
+ * A grouped tool call's whole slot, memoized on the same props as its tool
+ * part. A collapsed group's body is a hidden `<Activity>`, which defers any
+ * re-render inside it to a separate commit: without this, every streamed token
+ * of the answer would re-render each unchanged card there and commit twice.
+ */
+const ActivityToolCallSlot = memo(function ActivityToolCallSlot({
+  shellOutputs,
+  ...part
+}: ToolCallMessagePartProps & {
+  readonly shellOutputs: ReturnType<typeof useShellOutputs>;
+  readonly toolUI?: ReactNode;
+}) {
+  return (
+    <ActivityToolSlot toolCallId={part.toolCallId}>
+      <ShellOutputProvider outputs={shellOutputs}>
+        <ActivityPartLayout>{part.toolUI ?? <ActivityToolPart {...part} />}</ActivityPartLayout>
+      </ShellOutputProvider>
+    </ActivityToolSlot>
+  );
 });
 
 /**
@@ -289,6 +312,10 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
     [groupParts, renderers]
   );
   const hasActivityParts = groupParts.some(isActivityPart);
+  const delegations = groupParts.filter(
+    (part): part is Extract<PartState, { type: 'tool-call' }> =>
+      part.type === 'tool-call' && isSubagentDelegationToolName(part.toolName)
+  );
   // A group's own member statuses can all already read "complete" (e.g. a
   // tool-call result arrives atomically in one streamed chunk) even though
   // the group is still the OPEN, trailing run of a message that hasn't
@@ -380,6 +407,17 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
           <ActivityStepMetaProvider meta={stepMeta}>
             <ActivityGroupViewProvider view={layout.view}>
               <ActivityTrace
+                {...(delegations.length > 0
+                  ? {
+                      agents: delegations.map((part) => (
+                        <SubagentDelegationChip
+                          key={part.toolCallId}
+                          result={part.result}
+                          toolCallId={part.toolCallId}
+                        />
+                      )),
+                    }
+                  : {})}
                 expanded={layout.expanded}
                 fallbackMs={activityFallbackMs}
                 incompleteReason={incompleteReason}
@@ -484,15 +522,7 @@ export function AssistantActivityParts(): ReactNode {
               // vendor's registered renderer; false explicitly suppresses it.
               return false;
             }
-            return (
-              <ActivityToolSlot toolCallId={part.toolCallId}>
-                <ShellOutputProvider outputs={shellOutputs}>
-                  <ActivityPartLayout>
-                    {part.toolUI ?? <ActivityToolPart {...part} />}
-                  </ActivityPartLayout>
-                </ShellOutputProvider>
-              </ActivityToolSlot>
-            );
+            return <ActivityToolCallSlot {...part} shellOutputs={shellOutputs} />;
           case 'data':
             return part.dataRendererUI;
           case 'indicator':

@@ -192,6 +192,12 @@ async function walkDirectory(
     return;
   }
 
+  // A `.git` FILE marks a linked worktree or a submodule checkout. Its
+  // repository's other worktrees come from `git worktree list` on the shared
+  // git dir, so the walk records the gitfile and never descends into the
+  // checkout: a repository with hundreds of agent worktrees inside it would
+  // otherwise cost a full walk of every one of them on each build.
+  const checkout = entries.some((entry) => entry.name === '.git' && entry.isFile());
   const childWalks: Promise<void>[] = [];
   for (const entry of entries) {
     const childPath = path.join(dirPath, entry.name);
@@ -218,7 +224,7 @@ async function walkDirectory(
     // into. Deliberate: the walk only ever follows real directory structure,
     // never chases an arbitrary symlink target while looking for `.git`
     // entries to enumerate.
-    if (!entry.isDirectory()) {
+    if (checkout || !entry.isDirectory()) {
       continue;
     }
     if (ctx.ignoreNames.has(entry.name)) {
