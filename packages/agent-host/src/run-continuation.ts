@@ -326,16 +326,24 @@ export function enteredWorktreeRunParams(
 }
 /**
  * The thread's next run, started by the host: an approved plan carried out,
- * a child's human input (BST-1932), or work moved into a worktree. A next
- * run that cannot start is committed as failed, with its cause, so it never
- * ends silently.
+ * a child's human input (BST-1932), or work moved into a worktree, which
+ * carries on the turn of the run that entered it (`turnId`). `refused`
+ * commits it as failed with that cause instead of starting it.
+ */
+export interface HostNextRun {
+  readonly params: HostParams<'run/start'>;
+  readonly refused?: Error;
+  readonly turnId?: string;
+}
+/**
+ * Starts the thread's next run. A next run that cannot start is committed as
+ * failed, with its cause, so it never ends silently.
  */
 export async function startHostNextRun(
   runs: Iterable<Run>,
-  params: HostParams<'run/start'>,
+  { params, refused, turnId }: HostNextRun,
   start: () => Promise<unknown>,
-  commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>,
-  refused?: Error
+  commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>
 ): Promise<boolean> {
   try {
     if (refused) {
@@ -345,7 +353,7 @@ export async function startHostNextRun(
     return true;
   } catch (cause) {
     const runId = randomUUID();
-    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause));
+    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, turnId));
     return false;
   }
 }
@@ -354,10 +362,16 @@ export function failedHostStartEvents(
   runs: Iterable<Run>,
   params: HostParams<'run/start'>,
   runId: string,
-  cause: unknown
+  cause: unknown,
+  turnId?: string
 ): HostEvent[] {
   return [
-    { ...hostStartPosition(runs, params), modelId: params.modelId, runId, type: 'run.started' },
+    {
+      ...hostStartPosition(runs, params, turnId),
+      modelId: params.modelId,
+      runId,
+      type: 'run.started',
+    },
     {
       detail: describeBoundaryFailure(
         toBoundaryFailure(cause, (message, fields) =>
@@ -639,7 +653,7 @@ export interface HostRunContinuationPorts {
   readonly loop: (model: LanguageModel) => Promise<void>;
   readonly openRun: () => Promise<unknown>;
   readonly platform: HostPlatform;
-  readonly startNextRun: (params: HostParams<'run/start'>) => Promise<boolean>;
+  readonly startNextRun: (next: HostNextRun) => Promise<boolean>;
 }
 /**
  * Continue a run once every decision it waits on is answered: commit the
@@ -666,7 +680,7 @@ export async function continueHostRun(run: Run, ports: HostRunContinuationPorts)
     const plan = approvedHostPlan(run);
     if (plan) {
       await ports.finish('completed');
-      await ports.startNextRun(approvedHostPlanRunParams(run, plan));
+      await ports.startNextRun({ params: approvedHostPlanRunParams(run, plan) });
       return;
     }
     if (run.steps >= admission.snapshot.maxSteps) {

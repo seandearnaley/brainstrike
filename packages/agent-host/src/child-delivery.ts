@@ -5,6 +5,13 @@
  * turn's own message, so it carries each outcome it delivers: a bounded or
  * observed history window drops the parent's older tool results, and an
  * outcome kept only there never reaches the model.
+ *
+ * Each outcome is carried in full once, by the delivery that first takes it.
+ * Every ledger is a new message that stays in the thread, so re-sending each
+ * earlier outcome in full grew a turn's wakes with the square of its workers
+ * (debug pack 2026-11-04). A later ledger lists a delivered invocation by its
+ * outcome's opening instead: that earlier message can leave Memory's window
+ * too, and the opening still tells the model what the worker concluded.
  */
 import type { UserModelMessage } from 'ai';
 import type { HostChildDelivery, HostChildDeliveryEntry } from './protocol.ts';
@@ -14,9 +21,11 @@ export type HostChildLedgerState = HostChildDeliveryEntry['state'] | 'running';
 export interface HostChildLedgerEntry {
   /** The name the user sees for the child (`hostChildCallSign`). */
   readonly callSign: string;
+  /** Settled, and an earlier delivery carried its whole outcome. */
+  readonly deliveredEarlier?: boolean | undefined;
   /** Dispatched by another of the thread's turns; only a running one is listed. */
   readonly earlierTurn?: boolean | undefined;
-  /** A settled invocation's outcome, in every report of its turn; absent while it runs. */
+  /** A settled invocation's outcome; absent while it runs. */
   readonly outcome?: string | undefined;
   readonly persona: string;
   readonly prompt: string;
@@ -26,9 +35,47 @@ export interface HostChildLedgerEntry {
   readonly toolName: string;
 }
 
-/** A delivered outcome, fenced so its own Markdown cannot run into the next entry. */
-function outcomeBlock(entry: HostChildLedgerEntry): string {
-  return `\n<subagent_outcome callSign="${entry.callSign}">\n${entry.outcome ?? 'No outcome was recorded.'}\n</subagent_outcome>`;
+/** About a paragraph: enough for a worker's conclusion, small enough to list on every wake. */
+const OPENING_UTF16_CODE_UNITS = 500;
+
+/** The end of `text`'s longest run of whole `granularity` segments within the opening's bound. */
+function fittingEnd(text: string, granularity: 'grapheme' | 'sentence' | 'word'): number {
+  let end = 0;
+  for (const { index, segment } of new Intl.Segmenter(undefined, { granularity }).segment(text)) {
+    if (index + segment.length > OPENING_UTF16_CODE_UNITS) {
+      break;
+    }
+    end = index + segment.length;
+  }
+  return end;
+}
+
+/**
+ * An outcome's opening, cut after its last whole sentence within the bound,
+ * or its last whole word when that keeps more than half, never inside a
+ * character; a cut is marked.
+ */
+function outcomeOpening(outcome: string): string {
+  if (outcome.length <= OPENING_UTF16_CODE_UNITS) {
+    return outcome;
+  }
+  const end =
+    [fittingEnd(outcome, 'sentence'), fittingEnd(outcome, 'word')].find(
+      (candidate) => candidate >= OPENING_UTF16_CODE_UNITS / 2
+    ) ?? fittingEnd(outcome, 'grapheme');
+  return `${outcome.slice(0, end).trimEnd()} […]`;
+}
+
+/**
+ * A settled invocation's outcome, fenced so its own Markdown cannot run into
+ * the next entry: in full when this ledger delivers it, by its opening when
+ * an earlier delivery carried it.
+ */
+function outcomeBlock(entry: HostChildLedgerEntry, label: string): string {
+  const outcome = entry.outcome ?? 'No outcome was recorded.';
+  return entry.deliveredEarlier
+    ? `${label} was delivered in full in an earlier message; it opens:\n<subagent_outcome_opening callSign="${entry.callSign}">\n${outcomeOpening(outcome)}\n</subagent_outcome_opening>`
+    : `${label}:\n<subagent_outcome callSign="${entry.callSign}">\n${outcome}\n</subagent_outcome>`;
 }
 
 function describeEntry(entry: HostChildLedgerEntry): string {
@@ -36,9 +83,9 @@ function describeEntry(entry: HostChildLedgerEntry): string {
   const prompt = ` Prompt: "${entry.prompt}".`;
   switch (entry.state) {
     case 'returned':
-      return `${head}: returned.${prompt} Do not execute it again. Its outcome:${outcomeBlock(entry)}`;
+      return `${head}: returned.${prompt} Do not execute it again. ${outcomeBlock(entry, 'Its outcome')}`;
     case 'failed':
-      return `${head}: failed — ${entry.reason ?? 'no reason recorded'}.${prompt} Do not retry it unless the user asks. What it reported:${outcomeBlock(entry)}`;
+      return `${head}: failed — ${entry.reason ?? 'no reason recorded'}.${prompt} Do not retry it unless the user asks. ${outcomeBlock(entry, 'What it reported')}`;
     case 'cancelled':
       return `${head}: cancelled by the user; it has no result.${prompt} Do not call it again unless the user asks.`;
     case 'running':

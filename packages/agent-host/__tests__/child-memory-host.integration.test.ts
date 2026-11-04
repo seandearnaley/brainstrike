@@ -153,9 +153,12 @@ test('a wake reads its outcome after Memory has left the dispatching turn behind
   expect(userTexts(wakeCall).join('\n')).toContain('Child outcome.');
 });
 
-test('a later wake of the same turn still reads the outcome an earlier wake delivered', async () => {
+test('a later wake of the same turn still reads the conclusion an earlier wake delivered', async () => {
   // Two children of one turn settle in two wakes; Memory's window keeps only
   // the latest message, so the first wake's message is gone by the second.
+  // The later ledger lists the earlier outcome by its opening, not in full.
+  const conclusion = 'Fast outcome: the notes name three owners.';
+  const report = [conclusion, ...Array.from({ length: 80 }, () => 'Supporting detail.')].join(' ');
   let releaseSlow = (): void => undefined;
   const slow = new Promise<void>((resolve) => {
     releaseSlow = resolve;
@@ -168,7 +171,7 @@ test('a later wake of the same turn still reads the outcome an earlier wake deli
           await slow;
           return stream(text('Slow outcome.'));
         }
-        return stream(text('Fast outcome.'));
+        return stream(text(report));
       }
       if (user.endsWith('Delegate.') && !call.prompt.some((message) => message.role === 'tool')) {
         return stream(
@@ -200,7 +203,9 @@ test('a later wake of the same turn still reads the outcome an earlier wake deli
   );
   const lastWake = userTexts(ledgerCalls.at(-1) as CallOptions).join('\n');
   expect(lastWake).toContain('Slow outcome.');
-  expect(lastWake).toContain('Fast outcome.');
+  // The whole report left with the first wake's message; its conclusion did not.
+  expect(lastWake).not.toContain(report);
+  expect(lastWake).toContain(conclusion);
 });
 
 test('a next turn under Memory reads the interrupted child ledger once, and later turns recall it', async () => {
