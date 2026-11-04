@@ -17,7 +17,7 @@ import {
 } from '@brainstrike/assistant-contract/assistant-attachments';
 import type { ModelMessage, UserModelMessage } from 'ai';
 import { Schema } from 'effect';
-import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.ts';
+import { withHostDeliveryLedger } from './child-delivery.ts';
 import {
   createHostRunState,
   foldHostInteraction,
@@ -177,12 +177,10 @@ export function hostRunContext(
   runs: ReadonlyMap<string, HostRunState>,
   run: HostRunState
 ): ModelMessage[] {
-  const path = [...hostRunAncestors(runs, run), run];
-  // BST-1932: delivered child outcomes replace their acknowledgements from then on.
-  const delivered = path.flatMap((turn) => turn.branch.delivery?.entries ?? []);
-  return path.flatMap((turn) => [
+  // BST-1932: a delivering turn's own message carries the outcomes it delivers.
+  return [...hostRunAncestors(runs, run), run].flatMap((turn) => [
     withHostDeliveryLedger(hostUserMessage(turn.branch), turn.branch.delivery),
-    ...overlayHostChildOutcomes(turn.id, turn.messages, delivered),
+    ...turn.messages,
   ]);
 }
 /** `run`'s ancestor runs on its committed branch, root first. */

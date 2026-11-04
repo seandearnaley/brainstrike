@@ -11,6 +11,7 @@ import type { StateStore } from '@brainstrike/state-store';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { StateStoreHostMemory } from '../src/adapters/state-store-host-memory.js';
+import { hostChildCallSign } from '../src/child-presentation.js';
 import { committedRunIdentity } from '../src/committed-identities.js';
 import type { HostPlatform } from '../src/ports.js';
 import { hostRunMemoryOptions } from '../src/production-platform.js';
@@ -46,12 +47,12 @@ const startedRuns = (rows: readonly HostLogRow[]) =>
   rows.flatMap(({ event }) => (event.type === 'run.started' ? [event] : []));
 
 /** The production run owner, as the host platform opens it for every run. */
-function productionMemory(store: StateStore): HostPlatform['openRun'] {
+function productionMemory(store: StateStore, lastMessages = 10): HostPlatform['openRun'] {
   const resourceId = randomUUID();
   const memory = {
     native: {
       options: {
-        lastMessages: 10,
+        lastMessages,
         observationalMemory: false as const,
         workingMemory: { enabled: true, scope: 'thread' as const },
       },
@@ -108,12 +109,14 @@ test('a background child and its wake run under the root Memory with host-admitt
     outcome: 'completed',
   });
   expect(wake?.delivery).toMatchObject({ via: 'wake' });
-  // The wake reads the saved outcome in place of the acknowledgement Memory recalled.
+  // The wake's own message delivers the outcome, naming the child as the user sees it.
   const wakeCall = model.doStreamCalls.find((call) =>
     userTexts(call).some((input) => input.includes(LEDGER))
   ) as CallOptions;
-  expect(JSON.stringify(toolResults(wakeCall))).toContain('Child outcome.');
-  expect(JSON.stringify(toolResults(wakeCall))).not.toContain('Background task started.');
+  const wakeInput = userTexts(wakeCall).join('\n');
+  expect(wakeInput).toContain('Child outcome.');
+  expect(wakeInput).toContain(hostChildCallSign(childThreadId ?? ''));
+  expect(JSON.stringify(toolResults(wakeCall))).not.toContain('Child outcome.');
   // The child's task is its thread's first user message, keyed by the child thread.
   expect(committedRunIdentity(childRows, childRun?.runId ?? '')).toMatchObject({
     assistantMessageId: childRun?.runId,
@@ -126,6 +129,27 @@ test('a background child and its wake run under the root Memory with host-admitt
     parentMessageId: rootRunId,
     userMessageId: wake?.delivery?.via === 'wake' ? wake.delivery.messageId : 'missing',
   });
+});
+
+test('a wake reads its outcome after Memory has left the dispatching turn behind', async () => {
+  // The field failure: a long parent turn's tool results leave Memory's
+  // window, and the outcome kept only there never reached the wake.
+  const model = delegatingModel(() => stream(text('Child outcome.')));
+  const harness = await setupChildRunHost(model, cleanup, {
+    memory: (store) => productionMemory(store, 1),
+  });
+  const rootRunId = await harness.start('Delegate.');
+  await rowsUntil(
+    harness,
+    harness.threadId,
+    (row) => row.event.type === 'run.finished' && row.event.runId !== rootRunId,
+    SETTLED
+  );
+  const wakeCall = model.doStreamCalls.find((call) =>
+    userTexts(call).some((input) => input.includes(LEDGER))
+  ) as CallOptions;
+  expect(JSON.stringify(toolResults(wakeCall))).not.toContain('Background task started.');
+  expect(userTexts(wakeCall).join('\n')).toContain('Child outcome.');
 });
 
 test('a next turn under Memory reads the interrupted child ledger once, and later turns recall it', async () => {

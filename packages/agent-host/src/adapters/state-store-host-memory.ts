@@ -22,11 +22,7 @@ import {
   modelMessageSchema,
   wrapLanguageModel,
 } from 'ai';
-import {
-  hostBranchDeliveries,
-  overlayHostChildOutcomes,
-  withHostDeliveryLedger,
-} from '../child-delivery.ts';
+import { withHostDeliveryLedger } from '../child-delivery.ts';
 import {
   committedRowAddress,
   committedRunAncestors,
@@ -376,11 +372,6 @@ export class StateStoreHostMemory implements HostRunOwner {
     // window does not re-add one (Core adds the note).
     const compacted = compactedRunIds(rows);
     this.preparedRewrites = committedRewrites(rows);
-    // BST-1932: a delivered child outcome replaces its acknowledgement, as without Memory.
-    const delivered = hostBranchDeliveries(
-      rows,
-      (runId) => path.has(runId) || runId === this.identity.runId
-    );
     for (const started of rows) {
       if (
         started.event.type !== 'run.started' ||
@@ -429,7 +420,6 @@ export class StateStoreHostMemory implements HostRunOwner {
         }
         return [];
       });
-      const occurrence = overlayHostChildOutcomes(previousRunId, committed, delivered);
       const interrupted = rows.some((row) => {
         const event = row.event;
         return (
@@ -440,7 +430,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       });
       if (interrupted) {
         const calls = new Set(
-          occurrence.flatMap((message) =>
+          committed.flatMap((message) =>
             message.role === 'assistant' && typeof message.content !== 'string'
               ? message.content.flatMap((part) =>
                   part.type === 'tool-call' ? [part.toolCallId] : []
@@ -448,9 +438,9 @@ export class StateStoreHostMemory implements HostRunOwner {
               : []
           )
         );
-        historical.push(...healInterruptedModelMessages(occurrence, calls));
+        historical.push(...healInterruptedModelMessages(committed, calls));
       } else {
-        historical.push(...occurrence);
+        historical.push(...committed);
       }
     }
     const { continuation, system } = native;

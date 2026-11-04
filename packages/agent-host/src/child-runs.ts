@@ -18,6 +18,7 @@ import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/su
 import type { ModelMessage } from 'ai';
 import { Schema } from 'effect';
 import { hostAnswerText } from './child-answer.ts';
+import { hostChildCallSign } from './child-presentation.ts';
 import { type HostChildWorkQueue, hostPermitModel } from './child-work-queue.ts';
 import { canonical, jsonValue } from './json-value.ts';
 import type { HostDelegation, HostRunAdmission, HostTool } from './ports.ts';
@@ -304,12 +305,16 @@ function missingAnswerText(persona: AssistantPersonaDefinition, calls: number): 
     'gather the remainder directly.'
   );
 }
-/** The shipped Mastra acknowledgement for a background dispatch. */
+/**
+ * The shipped Mastra acknowledgement for a background dispatch, naming the
+ * child by the call sign the user sees for it.
+ */
 export function hostChildStarted(childThreadId: string, toolName: string): HostChildResult {
+  const callSign = hostChildCallSign(childThreadId);
   return {
     childThreadId,
     status: 'started',
-    text: `Background task started. Task ID: ${childThreadId}. The tool "${toolName}" is running in the background. You will be notified when it completes.`,
+    text: `Background task started. Task ID: ${childThreadId}. The tool "${toolName}" is running in the background as ${callSign}, the name the user sees for it. You will be notified when it completes.`,
   };
 }
 /** What the parent's model reads for a settled child; never an empty success. */
