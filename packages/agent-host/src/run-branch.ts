@@ -263,6 +263,9 @@ export function startedHostRun(
   if (started.planMode) {
     run.planMode = true;
   }
+  if (started.turnId !== undefined) {
+    run.turnId = started.turnId;
+  }
   if (admission.input) {
     run.input = admission.input;
   }
@@ -319,11 +322,12 @@ export function foldHostRunEvent(
       break;
   }
 }
-/** Where a new run's user message goes. */
+/** Where a new run's user message goes, and the turn it continues when the host carries one on. */
 export type HostRunPosition = {
   readonly attachments?: HostImageAttachment[];
   readonly delivery?: HostChildDelivery;
   readonly prompt: string;
+  readonly turnId?: string;
 } & (
   | {
       readonly parentMessageId: string | null;
@@ -332,10 +336,15 @@ export type HostRunPosition = {
       readonly userMessageId: string;
     }
 );
-/** A start follows its requested parent (omitted: the current tip; null: the root). */
+/**
+ * A start follows its requested parent (omitted: the current tip; null: the
+ * root). A run the host starts to carry a run's task on continues that run's
+ * turn (ADR-0028 step 3); any other start begins its own.
+ */
 export function hostStartPosition(
   runs: Iterable<HostRunState>,
-  params: HostParams<'run/start'>
+  params: HostParams<'run/start'>,
+  turnId?: string
 ): HostRunPosition {
   if (params.attachments) {
     assertHostAttachments(params.attachments);
@@ -344,6 +353,7 @@ export function hostStartPosition(
     ...(params.attachments ? { attachments: params.attachments } : {}),
     parentMessageId: resolveHostBranchParent(runs, params.threadId, params.parentMessageId),
     prompt: params.prompt,
+    ...(turnId === undefined ? {} : { turnId }),
   };
 }
 /** A regeneration answers its committed user message again. */

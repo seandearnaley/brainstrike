@@ -23,6 +23,7 @@ Owners: [child admission](../../packages/agent-host/src/child-runs.ts), [persona
 
 Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 
+- A turn is a person's message and every run the host starts to carry it on: its wakes, and the run continued in the worktree one of its runs entered (ADR-0028 step 3; `run.started` `turnId`). Workers dispatched before and after that switch share one queue, ledger, invocation limit and root Stop.
 - Tree limits come from admitted subagent settings; invocation admission is atomic across parallel calls.
 - All descendants share the turn's work queue.
   - Model streams and tool execution hold permits; delegation and approval waits hold none.

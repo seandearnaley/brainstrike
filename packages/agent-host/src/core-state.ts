@@ -382,7 +382,11 @@ export interface HostRunState {
   readonly threadId: string;
   /** PostToolUse hooks' committed context, read with each tool's result. */
   readonly toolContexts: Map<string, string>;
-  /** A follow-up typed into an idle child starts its own turn: its ID. */
+  /**
+   * The turn the run belongs to when neither its origin nor its delivery names
+   * it: a follow-up typed into an idle child starts its own (its ID), and a run
+   * the host started to carry a run's task on continues that run's turn.
+   */
   turnId?: string;
   /** The run's committed turn-start snapshots: the roots its turn end snapshots. */
   turnStart?: Extract<

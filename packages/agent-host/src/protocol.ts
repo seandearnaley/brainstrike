@@ -651,6 +651,11 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         ...PlanMode,
         prompt: Prompt,
         snapshot: Schema.optional(hostRunSnapshotSchema(json)),
+        /**
+         * On a run the host started to carry a run's task on in the worktree
+         * that run entered (ADR-0028 step 3): the turn it continues (`hostRootRunTurnId`).
+         */
+        turnId: Schema.optional(Id),
         userMessageId: Schema.optional(Id),
       }),
       Schema.Struct({ type: Schema.Literal('stream.chunk'), ...RunFields, chunk: json() }),
