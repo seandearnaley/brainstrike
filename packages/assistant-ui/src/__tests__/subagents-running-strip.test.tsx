@@ -48,9 +48,7 @@ it('opens a subagent’s conversation from its chip', async () => {
       stoppable={[]}
     />
   );
-  await userEvent
-    .setup()
-    .click(screen.getByRole('button', { name: "Open Cedar-1a2b3c's conversation" }));
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Go to Cedar-1a2b3c' }));
   expect(open).toHaveBeenCalledTimes(1);
 });
 

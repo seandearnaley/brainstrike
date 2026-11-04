@@ -146,7 +146,7 @@ test('while the root runs, it only names its working children; the composer’s 
 
 test('each working child is a button in its colour that opens its conversation', () => {
   render(<HostChildrenRunning client={stopClient(vi.fn())} tree={running('turn-1')} />);
-  const fern = screen.getByRole('button', { name: "Open Fern-4d5e6f's conversation" });
+  const fern = screen.getByRole('button', { name: 'Go to Fern-4d5e6f' });
   expect(fern).toHaveAttribute('data-agent-color', 'emerald');
   fireEvent.click(fern);
   expect(opened).toHaveBeenCalledWith({ persona: 'worker', threadId: 'child-b' });

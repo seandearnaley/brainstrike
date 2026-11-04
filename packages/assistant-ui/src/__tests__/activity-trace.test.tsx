@@ -61,7 +61,7 @@ describe('ActivityTrace', () => {
       />
     );
     expect(screen.getByTestId('assistant-activity-body')).toHaveAttribute('hidden');
-    const chip = screen.getByRole('button', { name: "Open Cedar-1a2b3c's conversation" });
+    const chip = screen.getByRole('button', { name: 'Go to Cedar-1a2b3c' });
     // A sibling of the disclosure, never nested inside its button.
     expect(screen.getByTestId('assistant-activity-summary')).not.toContainElement(chip);
     await userEvent.setup().click(chip);

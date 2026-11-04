@@ -230,7 +230,7 @@ function hostChildStatus(
 function parentsFirst(
   entries: readonly (readonly [string, HostChildOrigin])[]
 ): (readonly [string, HostChildOrigin])[] {
-  const listed = new Set(entries.map(([child]) => child));
+  const byChild = new Map(entries.map((entry) => [entry[0], entry] as const));
   const placed = new Set<string>();
   const ordered: (readonly [string, HostChildOrigin])[] = [];
   const place = (entry: readonly [string, HostChildOrigin]): void => {
@@ -238,8 +238,8 @@ function parentsFirst(
       return;
     }
     placed.add(entry[0]);
-    const parent = entries.find(([child]) => child === entry[1].parentThreadId);
-    if (parent && listed.has(parent[0])) {
+    const parent = byChild.get(entry[1].parentThreadId);
+    if (parent) {
       place(parent);
     }
     ordered.push(entry);
@@ -248,6 +248,10 @@ function parentsFirst(
     place(entry);
   }
   return ordered;
+}
+/** The one presentation field a family colour allocation reads: the root's own colour. */
+interface FamilyColorPresentations {
+  read(threadId: string): { readonly color?: string | undefined };
 }
 export class HostChildRuns {
   private readonly grantsByRoot = new Map<string, HostThreadGrants>();
@@ -508,16 +512,48 @@ export class HostChildRuns {
   topLevel(threads: ReadonlySet<string>): string[] {
     return [...threads].filter((threadId) => !this.isChild(threadId));
   }
+  /** Each child of `threadId`'s root tree and its family colour, in one allocation. */
+  familyColors(
+    threadId: string,
+    threads: ReadonlySet<string>,
+    presentations: FamilyColorPresentations
+  ): ReadonlyMap<string, string> {
+    return this.committedTree(threadId, threads, presentations).colors;
+  }
   listed(
     threadId: string,
     threads: ReadonlySet<string>,
-    presentations: {
-      read(threadId: string): {
-        readonly color?: string | undefined;
-      };
-    },
+    presentations: FamilyColorPresentations,
     runs: ReadonlyMap<string, HostRunState>
   ): HostResults['thread/children']['children'] {
+    const { colors, committed } = this.committedTree(threadId, threads, presentations);
+    return committed.flatMap(([child, origin]) => {
+      const color = colors.get(child);
+      if (origin.parentThreadId !== threadId) {
+        return [];
+      }
+      if (!color) {
+        throw new Error('A child conversation has no family colour.');
+      }
+      return [
+        {
+          callSign: hostChildCallSign(child),
+          color,
+          origin,
+          status: hostChildStatus(child, runs),
+          threadId: child,
+        },
+      ];
+    });
+  }
+  private committedTree(
+    threadId: string,
+    threads: ReadonlySet<string>,
+    presentations: FamilyColorPresentations
+  ): {
+    readonly colors: ReadonlyMap<string, string>;
+    readonly committed: readonly (readonly [string, HostChildOrigin])[];
+  } {
     if (!threads.has(threadId)) {
       throw refusalError('input', 'thread.unknown', 'Unknown thread');
     }
@@ -539,25 +575,7 @@ export class HostChildRuns {
       this.coloring.get(root)
     );
     this.coloring.set(root, coloring);
-    const colors = coloring.colors;
-    return committed.flatMap(([child, origin]) => {
-      const color = colors.get(child);
-      if (origin.parentThreadId !== threadId) {
-        return [];
-      }
-      if (!color) {
-        throw new Error('A child conversation has no family colour.');
-      }
-      return [
-        {
-          callSign: hostChildCallSign(child),
-          color,
-          origin,
-          status: hostChildStatus(child, runs),
-          threadId: child,
-        },
-      ];
-    });
+    return { colors: coloring.colors, committed };
   }
   /** A committed run.started's delivery advances the watermark. */
   recordDelivery(delivery: HostChildDelivery | undefined): void {

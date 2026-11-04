@@ -24,7 +24,7 @@ import {
   type RunStripMark,
 } from './activity-group-view-model';
 import type { ActivityStep } from './activity-trace-model';
-import { isSettledPermissionApproval } from './assistant-activity-grouping';
+import { isSettledCommandApproval } from './assistant-activity-grouping';
 import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { extractResolvedRootName } from './tool-fallback-state';
 import { useStableByKey } from './use-stable-by-key';
@@ -72,7 +72,7 @@ function keepsItsOwnCard(part: PartState, renderers: readonly ToolResultRenderer
     return false;
   }
   if (
-    (part.approval !== undefined && !isSettledPermissionApproval(part)) ||
+    (part.approval !== undefined && !isSettledCommandApproval(part)) ||
     isSubagentDelegationToolName(part.toolName)
   ) {
     return true;

@@ -47,7 +47,7 @@ describe('groupAssistantActivityPart', () => {
       args: {},
       argsText: '{}',
       toolCallId: 'c',
-      toolName: 'run',
+      toolName: 'brainstrike.executeCommand',
       type: 'tool-call',
     };
     const done = { ...command, result: { exitCode: 0 } };
@@ -67,6 +67,13 @@ describe('groupAssistantActivityPart', () => {
         part({ ...done, approval: { approved: true, display: 'text', id: 'i' } })
       )
     ).toEqual([]);
+    // An answered edit keeps its card: its Undo is the next thing the person may press.
+    const edit = {
+      ...done,
+      approval: { approved: true, id: 'i' },
+      toolName: 'brainstrike.stringReplaceWorkspaceFile',
+    };
+    expect(groupAssistantActivityPart(part(edit))).toEqual([]);
   });
 
   it('keeps text standalone (BST-1656: text splits activity)', () => {

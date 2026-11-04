@@ -677,19 +677,25 @@ export async function hostRunPolicyAnswers(
   const tools = hostRunTools(run);
   const { decision, yolo } = await hostToolPolicy(platform, run, tools, call.toolId);
   return (
-    decision === 'allow' &&
-    (yolo === true || !isPersonOnly(tools[call.toolId], call.input, run.grants))
+    decision === 'allow' && (yolo === true || !isPersonOnly(tools[call.toolId], call, run.grants))
   );
+}
+/**
+ * The one key a person's session grant on an escape is kept under and read
+ * by: the tool's permission id, which several registered ids may share.
+ */
+export function outsideSandboxGrantKey(registered: HostTool, toolId: string): string {
+  return registered.permissionToolId ?? toolId;
 }
 /** The person's own call, unless they already allowed such calls of its tool this session. */
 function isPersonOnly(
   registered: HostTool | undefined,
-  input: unknown,
+  call: { readonly input: unknown; readonly toolId: string },
   grants: HostThreadGrants
 ): boolean {
   return (
-    registered?.personApproval?.(input) !== undefined &&
-    !grants.outsideSandbox.has(registered.permissionToolId ?? '')
+    registered?.personApproval?.(call.input) !== undefined &&
+    !grants.outsideSandbox.has(outsideSandboxGrantKey(registered, call.toolId))
   );
 }
 /**
@@ -702,10 +708,10 @@ function asksPerson(
   decision: 'allow' | 'ask',
   yolo: boolean | undefined,
   registered: HostTool,
-  input: unknown,
+  call: { readonly input: unknown; readonly toolId: string },
   grants: HostThreadGrants
 ): boolean {
-  return decision === 'ask' || (yolo !== true && isPersonOnly(registered, input, grants));
+  return decision === 'ask' || (yolo !== true && isPersonOnly(registered, call, grants));
 }
 /** `tools` is passed because admission decides before it retains the run's tools. */
 async function hostToolDecision(
@@ -969,7 +975,13 @@ export async function decideHostSdkApproval(
     return consented;
   }
   if (
-    asksPerson(decision, yolo, registered, call.input, run.grants) &&
+    asksPerson(
+      decision,
+      yolo,
+      registered,
+      { input: call.input, toolId: call.toolName },
+      run.grants
+    ) &&
     prior?.decision !== 'approve'
   ) {
     return await hostAskDecision(run, registered, call, action, autoReview, { prior, runs });

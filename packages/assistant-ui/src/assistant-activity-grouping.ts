@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
+import { verbForTool } from './activity-verbs';
 import { isAlwaysVisibleRunEvent } from './assistant-run-event-derivation';
 import { HOST_EVENT_DATA_NAME, HOST_STREAM_DATA_NAME } from './committed-host-event-readers';
 
@@ -86,24 +87,35 @@ export function groupAssistantActivityPart(part: PartState): readonly ActivityGr
  */
 interface GroupablePart {
   readonly approval?: unknown;
+  readonly args?: unknown;
   readonly data?: unknown;
   readonly name?: string;
   readonly result?: unknown;
+  readonly toolName?: string;
   readonly type: string;
 }
 
 /**
- * A command or edit approval the person answered whose call has finished: it
- * then reads as ordinary activity beside the calls around it. An open
- * approval, a call still running after its answer (its live output shows in
- * its card), and any question, plan or network consent keep their own card.
+ * A command approval the person answered whose command has finished: it then
+ * reads as one more command beside the ones around it. Every other approval
+ * keeps its own card, because its card carries what the person acts on next:
+ * an edit's Undo, a canvas link, an MCP App or task, a question, a plan, a
+ * network consent, or the live output of a command still running.
  */
-export function isSettledPermissionApproval(part: {
+export function isSettledCommandApproval(part: {
   readonly approval?: unknown;
+  readonly args?: unknown;
   readonly result?: unknown;
+  readonly toolName?: string;
 }): boolean {
-  const { approval } = part;
-  if (typeof approval !== 'object' || approval === null || part.result === undefined) {
+  const { approval, toolName } = part;
+  if (
+    typeof approval !== 'object' ||
+    approval === null ||
+    part.result === undefined ||
+    toolName === undefined ||
+    verbForTool(toolName, part.args).family !== 'run'
+  ) {
     return false;
   }
   const answer = approval as Readonly<Record<string, unknown>>;
@@ -118,12 +130,8 @@ function classifyPart(part: GroupablePart): readonly ActivityGroupKey[] {
   // BST-1977: the ordinary committed plan rendered inside a hidden activity
   // body after answering its preceding question. Public approval-bearing tool
   // parts are pause cards too; keep their history at the same boundary, until
-  // a permission approval is answered and its call is ordinary activity.
-  if (
-    part.type === 'tool-call' &&
-    part.approval !== undefined &&
-    !isSettledPermissionApproval(part)
-  ) {
+  // a command approval is answered and its command is ordinary activity.
+  if (part.type === 'tool-call' && part.approval !== undefined && !isSettledCommandApproval(part)) {
     return STANDALONE;
   }
   if (ACTIVITY_PART_TYPES.has(part.type)) {

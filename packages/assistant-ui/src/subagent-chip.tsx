@@ -30,7 +30,7 @@ export function SubagentChip({ agent }: { readonly agent: SubagentChipAgent }): 
   return agent.onOpen ? (
     <button
       {...shared}
-      aria-label={`Open ${agent.callSign}'s conversation`}
+      aria-label={`Go to ${agent.callSign}`}
       onClick={agent.onOpen}
       title={`Open ${agent.callSign}'s conversation`}
       type="button"
