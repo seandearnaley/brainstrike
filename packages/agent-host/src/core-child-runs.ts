@@ -743,9 +743,13 @@ export class HostChildRuns {
         followUp: true,
       })
     );
-    const reportedNow = due.map((invocation) => entry(invocation, invocation.outcome));
-    // The ledger is the message the parent's model reads: it carries each outcome it delivers.
-    const delivered = new Map(reportedNow.map((report) => [report.childRunId, report.outcome]));
+    // The ledger is the one message the parent's model is sure to read: an
+    // earlier wake's message can leave Memory's window as the dispatching
+    // turn's tool results did, so every settled invocation's outcome is in it.
+    const settledOutcome = (invocation: Invocation): string | undefined => {
+      const outcome = reported(invocation);
+      return outcome === undefined ? undefined : entry(invocation, outcome).outcome;
+    };
     const ledger = due.length
       ? [
           describeHostChildLedger(
@@ -753,7 +757,7 @@ export class HostChildRuns {
               .filter(({ origin }) => turns.has(origin.turnId))
               .map((invocation) => ({
                 callSign: hostChildCallSign(invocation.threadId),
-                outcome: delivered.get(invocation.run.id),
+                outcome: settledOutcome(invocation),
                 persona: persona(invocation).label,
                 prompt: invocation.run.branch.prompt,
                 reason: invocation.run.detail,
@@ -765,7 +769,7 @@ export class HostChildRuns {
         ]
       : [];
     return {
-      entries: [...reportedNow, ...continued],
+      entries: [...due.map((invocation) => entry(invocation, invocation.outcome)), ...continued],
       ledger: [
         ...ledger,
         ...continued.map((followUp) =>

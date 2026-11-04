@@ -72,7 +72,7 @@ export function stream(chunks: Chunk[]) {
     stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
   };
 }
-function toolCalls(calls: readonly [string, unknown, string][]): Chunk[] {
+export function toolCalls(calls: readonly [string, unknown, string][]): Chunk[] {
   return [
     { type: 'stream-start', warnings: [] },
     ...calls.map(

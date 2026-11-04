@@ -14,7 +14,7 @@ export type HostChildLedgerState = HostChildDeliveryEntry['state'] | 'running';
 export interface HostChildLedgerEntry {
   /** The name the user sees for the child (`hostChildCallSign`). */
   readonly callSign: string;
-  /** The outcome this report delivers; absent when an earlier report delivered it. */
+  /** A settled invocation's outcome, in every report of its turn; absent while it runs. */
   readonly outcome?: string | undefined;
   readonly persona: string;
   readonly prompt: string;
@@ -26,24 +26,17 @@ export interface HostChildLedgerEntry {
 
 /** A delivered outcome, fenced so its own Markdown cannot run into the next entry. */
 function outcomeBlock(entry: HostChildLedgerEntry): string {
-  return `\n<subagent_outcome callSign="${entry.callSign}">\n${entry.outcome}\n</subagent_outcome>`;
+  return `\n<subagent_outcome callSign="${entry.callSign}">\n${entry.outcome ?? 'No outcome was recorded.'}\n</subagent_outcome>`;
 }
 
 function describeEntry(entry: HostChildLedgerEntry): string {
   const head = `- ${entry.callSign} (${entry.toolName}, ${entry.persona}, tool call ${entry.toolCallId})`;
   const prompt = ` Prompt: "${entry.prompt}".`;
-  const delivered = entry.outcome !== undefined;
   switch (entry.state) {
     case 'returned':
-      return delivered
-        ? `${head}: returned.${prompt} Do not execute it again. Its outcome:${outcomeBlock(entry)}`
-        : `${head}: returned.${prompt} Its outcome was reported earlier in this conversation; do not execute it again.`;
+      return `${head}: returned.${prompt} Do not execute it again. Its outcome:${outcomeBlock(entry)}`;
     case 'failed':
-      return `${head}: failed — ${entry.reason ?? 'no reason recorded'}.${prompt} Do not retry it unless the user asks.${
-        delivered
-          ? ` What it reported:${outcomeBlock(entry)}`
-          : ' Its failure was reported earlier in this conversation.'
-      }`;
+      return `${head}: failed — ${entry.reason ?? 'no reason recorded'}.${prompt} Do not retry it unless the user asks. What it reported:${outcomeBlock(entry)}`;
     case 'cancelled':
       return `${head}: cancelled by the user; it has no result.${prompt} Do not call it again unless the user asks.`;
     case 'running':

@@ -26,6 +26,7 @@ import {
   stream,
   text,
   toolCall,
+  toolCalls,
   toolNames,
   toolResults,
   userTexts,
@@ -150,6 +151,56 @@ test('a wake reads its outcome after Memory has left the dispatching turn behind
   ) as CallOptions;
   expect(JSON.stringify(toolResults(wakeCall))).not.toContain('Background task started.');
   expect(userTexts(wakeCall).join('\n')).toContain('Child outcome.');
+});
+
+test('a later wake of the same turn still reads the outcome an earlier wake delivered', async () => {
+  // Two children of one turn settle in two wakes; Memory's window keeps only
+  // the latest message, so the first wake's message is gone by the second.
+  let releaseSlow = (): void => undefined;
+  const slow = new Promise<void>((resolve) => {
+    releaseSlow = resolve;
+  });
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const user = userTexts(call).join('\n');
+      if (!toolNames(call).includes('agent-explore')) {
+        if (user.includes('SLOW_TASK')) {
+          await slow;
+          return stream(text('Slow outcome.'));
+        }
+        return stream(text('Fast outcome.'));
+      }
+      if (user.endsWith('Delegate.') && !call.prompt.some((message) => message.role === 'tool')) {
+        return stream(
+          toolCalls([
+            ['agent-explore', { prompt: 'FAST_TASK: read the notes.' }, 'memory-fast'],
+            ['agent-explore', { prompt: 'SLOW_TASK: read the notes.' }, 'memory-slow'],
+          ])
+        );
+      }
+      return stream(text('Parent continues.'));
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {
+    memory: (store) => productionMemory(store, 1),
+  });
+  await harness.start('Delegate.');
+  /** How many wakes (runs that deliver child outcomes) have finished on the parent. */
+  const finishedWakes = async (): Promise<number> => {
+    const rows = await harness.core().read(harness.threadId, 0);
+    const wakes = new Set(startedRuns(rows).flatMap((run) => (run.delivery ? [run.runId] : [])));
+    return rows.filter(({ event }) => event.type === 'run.finished' && wakes.has(event.runId))
+      .length;
+  };
+  await expect.poll(finishedWakes, { timeout: SETTLED }).toBe(1);
+  releaseSlow();
+  await expect.poll(finishedWakes, { timeout: SETTLED }).toBe(2);
+  const ledgerCalls = model.doStreamCalls.filter((call) =>
+    userTexts(call).some((input) => input.includes(LEDGER))
+  );
+  const lastWake = userTexts(ledgerCalls.at(-1) as CallOptions).join('\n');
+  expect(lastWake).toContain('Slow outcome.');
+  expect(lastWake).toContain('Fast outcome.');
 });
 
 test('a next turn under Memory reads the interrupted child ledger once, and later turns recall it', async () => {
