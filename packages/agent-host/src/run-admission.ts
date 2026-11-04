@@ -665,8 +665,9 @@ export async function hostRunToolDecision(
 }
 /**
  * Whether the live policy answers this call with no person: it allows the tool
- * and the call is not the person's own to approve, which only Full runs
- * unasked (BST-2373).
+ * and the call is not the person's own to approve (BST-2373). Full runs such a
+ * call unasked, and so does a person's earlier session or tool grant given on
+ * one of that tool's escapes in this root tree.
  */
 export async function hostRunPolicyAnswers(
   platform: HostPlatform,
@@ -693,7 +694,9 @@ function isPersonOnly(
 }
 /**
  * The policy's ask, or a call that is the person's own to approve: that asks
- * even where a grant or override allows its tool, and only Full runs it.
+ * even where a policy grant or override allows its tool. Full runs it, and so
+ * does a session or tool grant the person gave on an earlier escape of that
+ * tool in this root tree, for the life of the process.
  */
 function asksPerson(
   decision: 'allow' | 'ask',
