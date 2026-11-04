@@ -505,6 +505,7 @@ export async function createHostPlatform(
     // Live commands are retired before MCP and the host capabilities close.
     close: () =>
       closeStandaloneOwners({ commands: () => disposeStandaloneChildren(worktrees), host, mcp }),
+    commandSessionExits: { subscribe: (listener) => hostCommandSessionManager().onExit(listener) },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),

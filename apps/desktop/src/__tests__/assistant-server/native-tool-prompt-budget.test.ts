@@ -815,9 +815,11 @@ describe('desktop native tool provider prompt budget', () => {
       // action union's discriminant is now Effect's one-element
       // `enum: ["start"]` where zod emitted `const: "start"`, which costs one
       // token per tool. See docs/agents/effect-schema-migration.md.
+      // 483 → 519: manageCommandSession now says a session that ends by itself
+      // is reported in a later message, so the model does not poll it.
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 328,
-        brainstrike_manageCommandSession: 483,
+        brainstrike_manageCommandSession: 519,
       },
     });
   });

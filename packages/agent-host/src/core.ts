@@ -4,7 +4,7 @@ import type { LanguageModel, ModelMessage } from 'ai';
 import { acceptHostChildInput } from './child-input.ts';
 import { HostContextCompactions } from './context-compaction.ts';
 import { hostCanvases } from './core-canvases.ts';
-import { type HostChildRunPort, HostChildRuns, hostDeliveryPosition } from './core-child-runs.ts';
+import { type HostChildRunPort, HostChildRuns } from './core-child-runs.ts';
 import { hostMcpTaskOwner } from './core-mcp-owner.ts';
 import { readHostThreadMemory } from './core-memory-read.ts';
 import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.ts';
@@ -190,9 +190,9 @@ export class HostCore {
     read: (threadId) => this.read(threadId, 0),
     runs: () => this.runs,
     startNextRun: (params, origin, refused) => this.startNextRun(params, origin, refused),
-    wake: (threadId) =>
+    wake: (threadId, exits) =>
       this.admit(threadId, async () => {
-        const wake = this.children.wakeParams(threadId, this.runs, this.selections);
+        const wake = this.children.wakeParams(threadId, this.runs, this.selections, exits);
         if (wake) {
           await this.admitRun('wake', wake.params, wake.origin, () =>
             hostStartPosition(this.runs.values(), this.rewinds.position(wake.params))
@@ -255,6 +255,7 @@ export class HostCore {
     await this.rewinds.recover();
     // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
     this.platform.attachMcpTaskOwner?.(hostMcpTaskOwner(this.executionPorts()));
+    this.ends.exits.listen(this.platform);
     await recoverHostRuns(this.runs.values(), {
       continueRun: (run) => this.continueRun(run),
       finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, false),
@@ -518,6 +519,7 @@ export class HostCore {
     this.conversationIds.delete(threadId);
     this.threads.delete(threadId);
     this.children.forget(threadId);
+    this.ends.exits.forget(threadId);
     this.presentations.forget(threadId);
     this.workspaces.forget(threadId);
     this.selections.forget(threadId);
@@ -623,12 +625,7 @@ export class HostCore {
           method,
           runId,
         },
-        hostDeliveryPosition(
-          method,
-          params.commandId,
-          selected,
-          this.children.pending(params.threadId, this.runs, admission.delegation, method !== 'wake')
-        ),
+        this.ends.deliveryPosition(method, params, selected, admission.delegation),
         this.children.grants(root),
         admission.snapshot,
         controller
@@ -649,7 +646,7 @@ export class HostCore {
       await (method === 'wake'
         ? this.append(params.threadId, events)
         : this.accept(params.threadId, method, record, committed, events));
-      this.children.recordDelivery(started.delivery);
+      this.ends.recordDelivery(params.threadId, started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
@@ -989,6 +986,7 @@ export class HostCore {
 
   private async closeOwned(): Promise<void> {
     this.closing = true;
+    this.ends.exits.close();
     // Retirement reads the runs the fold restores; a failed fold still closes what it opened.
     await this.hydrated.catch(() => undefined);
     const outcomes = await retireHostCoreRuns({

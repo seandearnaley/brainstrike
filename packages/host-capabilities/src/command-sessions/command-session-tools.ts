@@ -416,6 +416,39 @@ export function runManageCommandSession(
   return manageCommandSession(input, runtimeData, dependencies).catch(rethrowRefusal);
 }
 
+/** Start a session owned by the run's thread, which hears when it ends by itself. */
+async function startCommandSession(
+  operation: Extract<ManageCommandSessionInput['operation'], { readonly action: 'start' }>,
+  rootId: string,
+  runtimeData: RuntimeData | undefined,
+  dependencies: ManageCommandSessionDependencies
+): Promise<RunningCommandSession> {
+  const { manager } = dependencies;
+  // The thread whose run started the session hears when it ends by itself.
+  const ownerThreadId = dependencies.executionThreadId ?? runtimeData?.memory?.threadId;
+  if (dependencies.executionThreadId && !runtimeData?.memory?.threadId) {
+    throw new ToolInputError(
+      'Command session execution requires its originating conversation identity.'
+    );
+  }
+  return await manager.start({
+    command: operation.command,
+    ...(dependencies.rootsFromRuntime
+      ? { resolver: { listRoots: async () => runtimeData?.workspaceRoots ?? [] } }
+      : {}),
+    rootId,
+    ...(dependencies.executionThreadId &&
+    dependencies.executionThreadId !== runtimeData?.memory?.threadId
+      ? { delegatedThreadId: dependencies.executionThreadId }
+      : {}),
+    ...(ownerThreadId === undefined ? {} : { ownerThreadId }),
+    ...(operation.cols === undefined ? {} : { cols: operation.cols }),
+    ...(operation.cwd === undefined ? {} : { cwd: operation.cwd }),
+    ...(operation.rows === undefined ? {} : { rows: operation.rows }),
+    ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
+  });
+}
+
 async function manageCommandSession(
   input: ManageCommandSessionInput,
   runtimeData: RuntimeData | undefined,
@@ -425,26 +458,7 @@ async function manageCommandSession(
   const rootId = resolveRootId(runtimeData, input.root);
   const operation = input.operation;
   if (operation.action === 'start') {
-    if (dependencies.executionThreadId && !runtimeData?.memory?.threadId) {
-      throw new ToolInputError(
-        'Command session execution requires its originating conversation identity.'
-      );
-    }
-    return await manager.start({
-      command: operation.command,
-      ...(dependencies.rootsFromRuntime
-        ? { resolver: { listRoots: async () => runtimeData?.workspaceRoots ?? [] } }
-        : {}),
-      rootId,
-      ...(dependencies.executionThreadId &&
-      dependencies.executionThreadId !== runtimeData?.memory?.threadId
-        ? { delegatedThreadId: dependencies.executionThreadId }
-        : {}),
-      ...(operation.cols === undefined ? {} : { cols: operation.cols }),
-      ...(operation.cwd === undefined ? {} : { cwd: operation.cwd }),
-      ...(operation.rows === undefined ? {} : { rows: operation.rows }),
-      ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
-    });
+    return await startCommandSession(operation, rootId, runtimeData, dependencies);
   }
   if (operation.action === 'write') {
     manager.write(rootId, operation.sessionId, operation.data);

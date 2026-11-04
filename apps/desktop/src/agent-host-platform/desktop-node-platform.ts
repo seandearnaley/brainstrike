@@ -390,6 +390,7 @@ export async function createDesktopHostConfiguration(
         throw delivered.reason;
       }
     },
+    commandSessionExits: { subscribe: (listener) => hostCommandSessionManager().onExit(listener) },
     confirmMainReady: async () => {
       wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
         await request('platform/ready', {}, startup.signal)

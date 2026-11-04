@@ -1,0 +1,55 @@
+/** What a run delivers to its thread's model that no person typed (BST-1932). */
+import { Schema } from 'effect';
+
+const Id = Schema.String.check(Schema.isMinCodePoints(1));
+
+/** One settled background invocation delivered to its parent (BST-1932). */
+export const HostChildDeliveryEntrySchema = Schema.Struct({
+  childRunId: Id,
+  childThreadId: Id,
+  followUp: Schema.optional(Schema.Literal(true)),
+  outcome: Schema.String,
+  parentRunId: Id,
+  state: Schema.Literals(['returned', 'failed', 'cancelled']),
+  toolCallId: Id,
+});
+export type HostChildDeliveryEntry = (typeof HostChildDeliveryEntrySchema)['Type'];
+/** A command session a run started that ended by itself, delivered with a wake. */
+export const HostCommandSessionDeliverySchema = Schema.Struct({
+  exitCode: Schema.Int,
+  rootId: Id,
+  sessionId: Id,
+  signal: Schema.NullOr(Schema.Int),
+  threadId: Id,
+});
+export type HostCommandSessionDelivery = (typeof HostCommandSessionDeliverySchema)['Type'];
+/**
+ * The durable delivery watermark: these entries reached the parent's model
+ * input on the run that records them, as an automated message that the user
+ * did not write. A wake run's prompt is that message; a user turn carries it
+ * ahead of its own message.
+ */
+export const HostChildDeliverySchema = Schema.Union(
+  [
+    Schema.Struct({
+      /** Ended command sessions; a wake may deliver only these, with no child entries. */
+      commandSessions: Schema.optional(
+        Schema.mutable(Schema.Array(HostCommandSessionDeliverySchema)).check(Schema.isMinLength(1))
+      ),
+      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
+      messageId: Id,
+      turnId: Id,
+      via: Schema.Literal('wake'),
+    }),
+    Schema.Struct({
+      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
+        Schema.isMinLength(1)
+      ),
+      ledger: Id,
+      messageId: Id,
+      via: Schema.Literal('next-turn'),
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type HostChildDelivery = (typeof HostChildDeliverySchema)['Type'];

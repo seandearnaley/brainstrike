@@ -837,6 +837,23 @@ export interface HostRewindFiles {
   }): Promise<readonly HostRewindConflict[]>;
 }
 
+/**
+ * A command session a run started that ended by itself. It names no command
+ * and carries no output: both stay out of durable history, and the model reads
+ * the output with the session tool up to `outputCursor`.
+ */
+export interface HostCommandSessionExit {
+  readonly createdAt: number;
+  readonly exitCode: number;
+  readonly exitedAt: number;
+  readonly outputCursor: number;
+  readonly rootId: string;
+  readonly sessionId: string;
+  readonly signal: number | null;
+  /** The thread whose run started the session. */
+  readonly threadId: string;
+}
+
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   /**
@@ -849,6 +866,15 @@ export interface HostPlatform {
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
   close(): Promise<void>;
+  /**
+   * The command sessions this host's runs start that end by themselves, until
+   * the returned function unsubscribes. Absent where runs start no sessions.
+   */
+  readonly commandSessionExits?:
+    | {
+        subscribe(listener: (exit: HostCommandSessionExit) => void): () => void;
+      }
+    | undefined;
   /** The default admission's delegation capability; `admitRun` sets it per admission. */
   readonly delegation?: HostDelegation | undefined;
   /** The desktop Explorer's reads; absent where no window shows an Explorer (the CLI). */
