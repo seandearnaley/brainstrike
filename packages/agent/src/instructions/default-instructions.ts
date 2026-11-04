@@ -579,6 +579,23 @@ function buildPlanModeBlock(names: ModelFacingToolNames): string {
 }
 
 /** The plan-mode block as a leading prefix (with trailing newline), or ''. */
+/**
+ * State changes need the user's say-so, and a request for the outcome is that
+ * say-so. The earlier rule ("only after the user confirms") read as a ban on
+ * every change the user had asked for; a model asked to carry work "through to
+ * a PR" cited it and never opened the PR (debug pack 2026-11-04).
+ */
+const CONFIRMATION_INSTRUCTION =
+  'Run state-changing tools only for work the user asked for or confirmed; confirm first when the request is ambiguous or the change is destructive.';
+
+/**
+ * Finish what was asked. In the same thread the model answered "whats the PR"
+ * and "whats up with validation" with accurate status and then stopped, with
+ * the PR still unopened and a failed check not rerun.
+ */
+const COMPLETION_INSTRUCTION =
+  'When the user asks for an outcome (a fix, a finished change, a PR), keep working until it is done or blocked on something only the user can give. A question about progress does not end that task: answer it, then continue. Never end a turn on a plan or a status report while work you can do remains. When you must wait on background work, end the turn; its result arrives in a later message.';
+
 function buildPlanModePrefix(names: ModelFacingToolNames, planMode: boolean | undefined): string {
   return planMode ? `${buildPlanModeBlock(names)}\n` : '';
 }
@@ -658,7 +675,8 @@ export function buildDefaultInstructions(
     'If an expected native tool is unavailable, name its ID; use an alternative only if it still answers the user.',
     'When asked, list callable tool IDs with brief descriptions.',
     buildToolResultDoctrine(names),
-    'Only run state-changing tools after the user confirms.',
+    CONFIRMATION_INSTRUCTION,
+    options.planMode ? '' : COMPLETION_INSTRUCTION,
     'Answer concisely.',
   ]
     .filter((line) => line.length > 0)
