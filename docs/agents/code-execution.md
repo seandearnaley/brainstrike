@@ -31,6 +31,7 @@ Implementation: `packages/agent` code-execution adapters, the `host-capabilities
 - The fence only wraps the command. executeCommand's own process owner spawns it, so streaming, output bounds, group teardown and the workspace lease are unchanged.
 - A readiness failure refuses the command with its reason; it never falls back.
 - `dangerouslyDisableSandbox` runs one command outside the fence. Run admission gives that call to the person in Ask and Auto (the auto reviewer never approves it); Full runs it.
+  - A policy grant or Always-allow on commands never answers an escape. An approval of an escape that carries a session or tool grant does: that tool's later escapes in the same root tree run unasked for the life of the host process (`HostThreadGrants.outsideSandbox`).
 - The standalone host, Windows and command sessions run unsandboxed, and the result says `sandboxed: false`.
   - An executeCommand approval carries the same fact (`sandboxed` on `interaction.requested`, from the tool's own check), so the card says the command will run unsandboxed before the person approves it.
 - sandbox-runtime's process-wide `network.allowedDomains` is read by every sandboxed process, so it stays empty.

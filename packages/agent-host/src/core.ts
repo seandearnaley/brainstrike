@@ -164,7 +164,8 @@ export class HostCore {
   private readonly children = new HostChildRuns();
   /** BST-1932: each thread's children, its summary and its delegated tree (`thread/tree`). */
   readonly trees = new HostThreadTrees(this.projections, this.catalog, this.children, {
-    listed: (id) => this.children.listed(id, this.threads, this.presentations, this.runs),
+    presentations: this.presentations,
+    runs: this.runs,
     threads: this.threads,
   });
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
@@ -942,8 +943,7 @@ export class HostCore {
           join
         ),
       async (result) => {
-        // The committed command records intent, not proof of physical cleanup.
-        // Repeated Stop must observe the same joined completion, including failure.
+        // Stop commits intent, not cleanup; each repeat joins the same completion or failure.
         await join();
         return result;
       }

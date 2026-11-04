@@ -1,6 +1,7 @@
 import { Square } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
 import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
+import { SubagentChip, type SubagentChipAgent } from './subagent-chip';
 
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -12,17 +13,18 @@ function errorText(cause: unknown): string {
  * run, and its composer offers no Stop, so this names them and stops the ones
  * the owner says it can (`stoppable`). While the conversation's own run is
  * active, its Stop already ends that turn's children; a child from an earlier
- * turn stays stoppable here.
+ * turn stays stoppable here. Each subagent is a chip in its family colour that
+ * opens its conversation.
  */
 export function SubagentsRunningStrip({
+  agents,
   onStop,
-  owners,
   stoppable,
 }: {
+  /** The working subagents, in delegation order. */
+  readonly agents: readonly SubagentChipAgent[];
   /** Stops the `stoppable` subagents through the conversation's owner. */
   readonly onStop: () => Promise<void>;
-  /** The working subagents' call signs, in delegation order. */
-  readonly owners: readonly string[];
   /** The call signs `onStop` ends; empty when the running turn's Stop owns them all. */
   readonly stoppable: readonly string[];
 }): ReactElement | null {
@@ -32,10 +34,10 @@ export function SubagentsRunningStrip({
     readonly message: string;
     readonly targets: readonly string[];
   }>();
-  if (owners.length === 0) {
+  if (agents.length === 0) {
     return null;
   }
-  const count = owners.length;
+  const count = agents.length;
   const noun = count === 1 ? 'subagent' : 'subagents';
   const stopNoun = stoppable.length === 1 ? 'subagent' : 'subagents';
   const error = failure?.targets.some((owner) => stoppable.includes(owner))
@@ -59,8 +61,13 @@ export function SubagentsRunningStrip({
       role="status"
     >
       <BrainstrikeThinkingMark className="size-3.5" testId="subagents-running-mark" />
-      <span className="bs-subagents-running-label" title={owners.join(', ')}>
+      <span className="bs-subagents-running-label">
         {count} {noun} running
+      </span>
+      <span className="bs-subagents-running-agents">
+        {agents.map((agent) => (
+          <SubagentChip agent={agent} key={agent.callSign} />
+        ))}
       </span>
       {stoppable.length > 0 ? (
         <button

@@ -226,6 +226,33 @@ function hostChildStatus(
     ? 'needs-input'
     : 'working';
 }
+/** `entries` with every parent ahead of its children, keeping their relative order otherwise. */
+function parentsFirst(
+  entries: readonly (readonly [string, HostChildOrigin])[]
+): (readonly [string, HostChildOrigin])[] {
+  const byChild = new Map(entries.map((entry) => [entry[0], entry] as const));
+  const placed = new Set<string>();
+  const ordered: (readonly [string, HostChildOrigin])[] = [];
+  const place = (entry: readonly [string, HostChildOrigin]): void => {
+    if (placed.has(entry[0])) {
+      return;
+    }
+    placed.add(entry[0]);
+    const parent = byChild.get(entry[1].parentThreadId);
+    if (parent) {
+      place(parent);
+    }
+    ordered.push(entry);
+  };
+  for (const entry of entries) {
+    place(entry);
+  }
+  return ordered;
+}
+/** The one presentation field a family colour allocation reads: the root's own colour. */
+interface FamilyColorPresentations {
+  read(threadId: string): { readonly color?: string | undefined };
+}
 export class HostChildRuns {
   private readonly grantsByRoot = new Map<string, HostThreadGrants>();
   private readonly origins = new Map<string, HostChildOrigin>();
@@ -262,7 +289,11 @@ export class HostChildRuns {
    */
   grants(threadId: string): HostThreadGrants {
     const root = this.rootThread(threadId);
-    const grants = this.grantsByRoot.get(root) ?? { categories: new Set(), tools: new Set() };
+    const grants = this.grantsByRoot.get(root) ?? {
+      categories: new Set(),
+      outsideSandbox: new Set(),
+      tools: new Set(),
+    };
     this.grantsByRoot.set(root, grants);
     return grants;
   }
@@ -481,36 +512,21 @@ export class HostChildRuns {
   topLevel(threads: ReadonlySet<string>): string[] {
     return [...threads].filter((threadId) => !this.isChild(threadId));
   }
+  /** Each child of `threadId`'s root tree and its family colour, in one allocation. */
+  familyColors(
+    threadId: string,
+    threads: ReadonlySet<string>,
+    presentations: FamilyColorPresentations
+  ): ReadonlyMap<string, string> {
+    return this.committedTree(threadId, threads, presentations).colors;
+  }
   listed(
     threadId: string,
     threads: ReadonlySet<string>,
-    presentations: {
-      read(threadId: string): {
-        readonly color?: string | undefined;
-      };
-    },
+    presentations: FamilyColorPresentations,
     runs: ReadonlyMap<string, HostRunState>
   ): HostResults['thread/children']['children'] {
-    if (!threads.has(threadId)) {
-      throw refusalError('input', 'thread.unknown', 'Unknown thread');
-    }
-    const root = this.rootThread(threadId);
-    // Only committed children: a delegation reserves its origin before its
-    // thread commits, and a reader of the listing opens the child's own log.
-    const committed = [...this.origins].filter(([child]) => threads.has(child));
-    // Colours are allocated across the whole root tree, in creation order.
-    const coloring = hostChildColors(
-      root,
-      presentations.read(root).color,
-      committed.flatMap(([child, origin]) =>
-        this.rootThread(child) === root
-          ? [{ parentThreadId: origin.parentThreadId, threadId: child }]
-          : []
-      ),
-      this.coloring.get(root)
-    );
-    this.coloring.set(root, coloring);
-    const colors = coloring.colors;
+    const { colors, committed } = this.committedTree(threadId, threads, presentations);
     return committed.flatMap(([child, origin]) => {
       const color = colors.get(child);
       if (origin.parentThreadId !== threadId) {
@@ -529,6 +545,37 @@ export class HostChildRuns {
         },
       ];
     });
+  }
+  private committedTree(
+    threadId: string,
+    threads: ReadonlySet<string>,
+    presentations: FamilyColorPresentations
+  ): {
+    readonly colors: ReadonlyMap<string, string>;
+    readonly committed: readonly (readonly [string, HostChildOrigin])[];
+  } {
+    if (!threads.has(threadId)) {
+      throw refusalError('input', 'thread.unknown', 'Unknown thread');
+    }
+    const root = this.rootThread(threadId);
+    // Only committed children: a delegation reserves its origin before its
+    // thread commits, and a reader of the listing opens the child's own log.
+    // A restart folds the threads in id order, so a parent is moved ahead of
+    // any child that came first; registry order is kept otherwise.
+    const committed = parentsFirst([...this.origins].filter(([child]) => threads.has(child)));
+    // Colours are allocated across the whole root tree, in creation order.
+    const coloring = hostChildColors(
+      root,
+      presentations.read(root).color,
+      committed.flatMap(([child, origin]) =>
+        this.rootThread(child) === root
+          ? [{ parentThreadId: origin.parentThreadId, threadId: child }]
+          : []
+      ),
+      this.coloring.get(root)
+    );
+    this.coloring.set(root, coloring);
+    return { colors: coloring.colors, committed };
   }
   /** A committed run.started's delivery advances the watermark. */
   recordDelivery(delivery: HostChildDelivery | undefined): void {

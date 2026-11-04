@@ -46,7 +46,7 @@ describe('CommittedApprovalStrip', () => {
   });
 
   it('reviews each pending approval with its owner and the card’s own decisions', async () => {
-    const child = pending(1, 'edit', 'Fern-a1b2c3');
+    const child = { ...pending(1, 'edit', 'Fern-a1b2c3'), ownerColor: 'emerald' };
     const unclassified = pending(2, undefined);
     render(<CommittedApprovalStrip approvals={[child, unclassified]} />);
     // An approval without a risk category is reviewed but never granted by category.
@@ -59,6 +59,9 @@ describe('CommittedApprovalStrip', () => {
     expect(
       within(entries[0] as HTMLElement).getByTestId('approval-delegation-owner')
     ).toHaveTextContent('Fern-a1b2c3');
+    // A subagent's approval carries its family colour; the conversation's own has none.
+    expect(entries[0]).toHaveAttribute('data-agent-color', 'emerald');
+    expect(entries[1]).not.toHaveAttribute('data-agent-color');
     expect(within(entries[1] as HTMLElement).queryByTestId('approval-delegation-owner')).toBeNull();
     expect(
       within(entries[0] as HTMLElement)

@@ -2,6 +2,7 @@ import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-meta
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { BellRing, Timer, X } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
+import { agentColorStyle } from './agent-color-style';
 import {
   RISK_CATEGORY_GRANT_NOUN,
   RISK_CATEGORY_GRANT_NOUN_SINGULAR,
@@ -16,6 +17,7 @@ import {
   describableApprovalOptions,
   grantsDescribable,
 } from './committed-approval-options';
+import { SubagentChip } from './subagent-chip';
 
 /** One committed approval still waiting in a host thread or one of its delegated children. */
 export interface CommittedPendingApproval {
@@ -23,6 +25,8 @@ export interface CommittedPendingApproval {
   readonly interactionId: string;
   /** The delegated child that asks, by its call sign; absent for the viewed thread itself. */
   readonly owner?: string;
+  /** That child's family colour, which marks its approvals. */
+  readonly ownerColor?: string;
   /** Answers this approval through its own thread; the host's publication removes it. */
   readonly respond: (response: {
     readonly approved: boolean;
@@ -89,11 +93,25 @@ function ReviewedApproval({ approval }: { readonly approval: CommittedPendingApp
       });
   };
   return (
-    <fieldset aria-label={`Approval ${approval.toolName}`} className="flex flex-col gap-2 py-2">
+    <fieldset
+      aria-label={`Approval ${approval.toolName}`}
+      className="bs-approval-reviewed flex flex-col gap-2 py-2"
+      {...(approval.owner
+        ? {
+            'data-agent-color': approval.ownerColor ?? 'unresolved',
+            style: agentColorStyle(approval.ownerColor),
+          }
+        : {})}
+    >
       <div className="flex items-center gap-2 text-sm">
         {approval.owner ? (
           <span className="bs-approval-row-owner" data-testid="approval-delegation-owner">
-            {approval.owner}
+            <SubagentChip
+              agent={{
+                callSign: approval.owner,
+                ...(approval.ownerColor ? { colorId: approval.ownerColor } : {}),
+              }}
+            />
           </span>
         ) : null}
         <span className="font-medium">{approval.toolName}</span>

@@ -30,7 +30,11 @@ const policy = (mcp: 'allow' | 'ask' | 'deny', overrides = {}): PermissionToolGa
   policies: { edit: 'ask', execute: 'ask', mcp, read: 'allow' },
   yolo: false,
 });
-const none = (): HostThreadGrants => ({ categories: new Set(), tools: new Set() });
+const none = (): HostThreadGrants => ({
+  categories: new Set(),
+  outsideSandbox: new Set(),
+  tools: new Set(),
+});
 const call = { app, toolName: 'increment' };
 
 describe("an MCP App's own tool call on a host thread", () => {

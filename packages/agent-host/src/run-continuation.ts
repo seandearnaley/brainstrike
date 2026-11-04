@@ -39,6 +39,7 @@ import {
   hostRunPolicyAnswers,
   hostRunToolDecision,
   hostRunTools,
+  outsideSandboxGrantKey,
 } from './run-admission.ts';
 import { hostStartPosition } from './run-branch.ts';
 
@@ -241,6 +242,13 @@ export async function commitHostInteractionResponse(
   ]);
   if (grant) {
     applyHostPermissionGrant(run, grant);
+    // A session grant given on a call that was the person's alone (a command
+    // outside the sandbox) answers such calls of its tool for the session.
+    const registered = hostRunTools(run)[pending.event.toolId];
+    const approved = 'decision' in params && params.decision === 'approve';
+    if (approved && registered?.personApproval?.(pending.event.input) !== undefined) {
+      run.grants.outsideSandbox.add(outsideSandboxGrantKey(registered, pending.event.toolId));
+    }
   }
   if (approval) {
     pending.decision = params.decision;

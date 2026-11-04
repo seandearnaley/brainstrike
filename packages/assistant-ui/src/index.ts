@@ -141,6 +141,7 @@ export {
   useRunVerdictContext,
 } from './run-verdict-context';
 export type { SlashCommand } from './slash-commands';
+export { SubagentChip, type SubagentChipAgent } from './subagent-chip';
 export {
   type DelegatedApprovalOwner,
   DelegatedApprovalOwnerContext,

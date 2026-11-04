@@ -29,7 +29,11 @@ export function HostChildrenRunning({
   readonly tree: Pick<HostTreeApprovals, 'getRunning' | 'subscribe' | 'threadId'>;
 }): ReactElement | null {
   const running = useSyncExternalStore(tree.subscribe, tree.getRunning, tree.getRunning);
-  const owners = running.children.map((child) => child.owner);
+  const agents = running.children.map(({ color, owner, persona, threadId }) => ({
+    callSign: owner,
+    colorId: color,
+    onOpen: () => openHostChildTab({ persona, threadId }),
+  }));
   const earlier = running.children.filter((child) => child.turnId !== running.activeTurnId);
   const stoppable = useMemo(() => earlier.map((child) => child.owner), [earlier]);
   const stop = () =>
@@ -40,7 +44,7 @@ export function HostChildrenRunning({
       });
       throw new Error(describeBoundaryError(cause));
     });
-  return <SubagentsRunningStrip onStop={stop} owners={owners} stoppable={stoppable} />;
+  return <SubagentsRunningStrip agents={agents} onStop={stop} stoppable={stoppable} />;
 }
 
 /**

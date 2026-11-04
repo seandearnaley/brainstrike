@@ -42,6 +42,40 @@ describe('groupAssistantActivityPart', () => {
     ).toEqual([ACTIVITY_GROUP_KEY]);
   });
 
+  it('keeps an open or running approval on its own card and folds a finished command into the group', () => {
+    const command = {
+      args: {},
+      argsText: '{}',
+      toolCallId: 'c',
+      toolName: 'brainstrike.executeCommand',
+      type: 'tool-call',
+    };
+    const done = { ...command, result: { exitCode: 0 } };
+    expect(groupAssistantActivityPart(part({ ...done, approval: { id: 'i' } }))).toEqual([]);
+    // Approved and still running: its live output shows in its own card.
+    expect(
+      groupAssistantActivityPart(part({ ...command, approval: { approved: true, id: 'i' } }))
+    ).toEqual([]);
+    for (const approved of [true, false]) {
+      expect(
+        groupAssistantActivityPart(part({ ...done, approval: { approved, id: 'i' } }))
+      ).toEqual([ACTIVITY_GROUP_KEY]);
+    }
+    // A question or plan the person answered keeps its card and what they said.
+    expect(
+      groupAssistantActivityPart(
+        part({ ...done, approval: { approved: true, display: 'text', id: 'i' } })
+      )
+    ).toEqual([]);
+    // An answered edit keeps its card: its Undo is the next thing the person may press.
+    const edit = {
+      ...done,
+      approval: { approved: true, id: 'i' },
+      toolName: 'brainstrike.stringReplaceWorkspaceFile',
+    };
+    expect(groupAssistantActivityPart(part(edit))).toEqual([]);
+  });
+
   it('keeps text standalone (BST-1656: text splits activity)', () => {
     expect(groupAssistantActivityPart(part({ text: 'Done.', type: 'text' }))).toEqual([]);
   });
