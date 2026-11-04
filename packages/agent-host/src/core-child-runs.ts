@@ -662,7 +662,8 @@ export class HostChildRuns {
   }
   /**
    * Settled background invocations of `threadId` not yet delivered, with the
-   * ledger of every background invocation of their turns. A stopped turn's
+   * ledger of every background invocation of their turns and every one still
+   * running from the thread's other turns. A stopped turn's
    * results wait for the next user turn (`includeStopped`), never a wake.
    */
   pending(
@@ -763,6 +764,7 @@ export class HostChildRuns {
               )
               .map((invocation) => ({
                 callSign: hostChildCallSign(invocation.threadId),
+                earlierTurn: !turns.has(invocation.origin.turnId),
                 outcome: settledOutcome(invocation),
                 persona: persona(invocation).label,
                 prompt: invocation.run.branch.prompt,

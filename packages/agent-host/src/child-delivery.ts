@@ -14,6 +14,8 @@ export type HostChildLedgerState = HostChildDeliveryEntry['state'] | 'running';
 export interface HostChildLedgerEntry {
   /** The name the user sees for the child (`hostChildCallSign`). */
   readonly callSign: string;
+  /** Dispatched by another of the thread's turns; only a running one is listed. */
+  readonly earlierTurn?: boolean | undefined;
   /** A settled invocation's outcome, in every report of its turn; absent while it runs. */
   readonly outcome?: string | undefined;
   readonly persona: string;
@@ -48,13 +50,19 @@ function describeEntry(entry: HostChildLedgerEntry): string {
   }
 }
 
-/** The whole ledger of the turn's background invocations (ADR-0010), not one line per event. */
+/**
+ * The whole ledger of the turn's background invocations (ADR-0010), not one
+ * line per event, with any still running from the thread's other turns.
+ */
 export function describeHostChildLedger(entries: readonly HostChildLedgerEntry[]): string {
   const count = (state: HostChildLedgerState): number =>
     entries.filter((entry) => entry.state === state).length;
   const running = count('running');
+  const scope = entries.some((entry) => entry.earlierTurn)
+    ? 'Background invocations of this turn, and those still running from earlier turns'
+    : 'Background invocations of this turn';
   const lines = [
-    `Background invocations of this turn — ${entries.length} total: ${count('returned')} returned, ${count('failed')} failed, ${count('cancelled')} cancelled, ${running} still running.`,
+    `${scope} — ${entries.length} total: ${count('returned')} returned, ${count('failed')} failed, ${count('cancelled')} cancelled, ${running} still running.`,
     ...entries.map(describeEntry),
   ];
   lines.push(

@@ -78,7 +78,9 @@ test('a wake names a running worker an earlier turn dispatched', { timeout: 20_0
   ).find((row) => row.event.type === 'run.started' && row.event.delivery?.via === 'wake');
   const ledger = wake?.event.type === 'run.started' ? (wake.event.prompt ?? '') : '';
 
-  expect(ledger).toContain('1 returned, 0 failed, 0 cancelled, 1 still running.');
+  expect(ledger).toContain(
+    'Background invocations of this turn, and those still running from earlier turns — 2 total: 1 returned, 0 failed, 0 cancelled, 1 still running.'
+  );
   expect(ledger).toContain(`still running. Prompt: "${SLOW}"`);
   expect(ledger).not.toContain('Nothing is still running');
 
