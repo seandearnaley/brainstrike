@@ -1,15 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import {
-  type BoundaryFailureCategory,
-  fault,
-  refusal,
-} from '@brainstrike/assistant-contract/boundary-failure';
+import { fault } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
+import { commandSessionRefusal } from './command-session-error.ts';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
   CommandSessionError,
-  type CommandSessionErrorCode,
   type CommandSessionInfo,
   type CommandSessionManager,
   type CommandSessionRead,
@@ -18,19 +14,6 @@ import {
 const logger = createLogger('HostCommandSessions');
 
 type CommandSessionResult<T = null> = BoundaryResult<T>;
-
-/** How each manager refusal reads at the boundary; the rest are faults whose cause stays here. */
-const REFUSAL_CATEGORIES: Partial<Record<CommandSessionErrorCode, BoundaryFailureCategory>> = {
-  aborted: 'availability',
-  'cursor-out-of-range': 'input',
-  'cwd-not-found': 'input',
-  'cwd-outside-root': 'input',
-  'invalid-input': 'input',
-  'root-unavailable': 'availability',
-  'session-exited': 'conflict',
-  'session-not-found': 'input',
-  'workspace-busy': 'conflict',
-};
 
 interface CommandSessionIdentityParams {
   readonly rootId: string;
@@ -75,13 +58,9 @@ function success(): CommandSessionResult {
 }
 
 function failure(error: unknown): CommandSessionResult<never> {
-  const category =
-    error instanceof CommandSessionError ? REFUSAL_CATEGORIES[error.code] : undefined;
-  if (error instanceof CommandSessionError && category !== undefined) {
-    return {
-      error: refusal({ category, code: `command-session.${error.code}`, message: error.message }),
-      ok: false,
-    };
+  const refused = commandSessionRefusal(error);
+  if (refused) {
+    return { error: refused, ok: false };
   }
   const correlationId = randomUUID();
   logger.error('Command-session call failed', {
