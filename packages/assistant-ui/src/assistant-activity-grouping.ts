@@ -88,14 +88,42 @@ interface GroupablePart {
   readonly approval?: unknown;
   readonly data?: unknown;
   readonly name?: string;
+  readonly result?: unknown;
   readonly type: string;
+}
+
+/**
+ * A command or edit approval the person answered whose call has finished: it
+ * then reads as ordinary activity beside the calls around it. An open
+ * approval, a call still running after its answer (its live output shows in
+ * its card), and any question, plan or network consent keep their own card.
+ */
+export function isSettledPermissionApproval(part: {
+  readonly approval?: unknown;
+  readonly result?: unknown;
+}): boolean {
+  const { approval } = part;
+  if (typeof approval !== 'object' || approval === null || part.result === undefined) {
+    return false;
+  }
+  const answer = approval as Readonly<Record<string, unknown>>;
+  return (
+    typeof answer['approved'] === 'boolean' &&
+    answer['display'] === undefined &&
+    answer['allowFreeform'] === undefined
+  );
 }
 
 function classifyPart(part: GroupablePart): readonly ActivityGroupKey[] {
   // BST-1977: the ordinary committed plan rendered inside a hidden activity
   // body after answering its preceding question. Public approval-bearing tool
-  // parts are pause cards too; keep their history at the same boundary.
-  if (part.type === 'tool-call' && part.approval !== undefined) {
+  // parts are pause cards too; keep their history at the same boundary, until
+  // a permission approval is answered and its call is ordinary activity.
+  if (
+    part.type === 'tool-call' &&
+    part.approval !== undefined &&
+    !isSettledPermissionApproval(part)
+  ) {
     return STANDALONE;
   }
   if (ACTIVITY_PART_TYPES.has(part.type)) {

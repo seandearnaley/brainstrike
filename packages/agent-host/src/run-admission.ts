@@ -665,8 +665,9 @@ export async function hostRunToolDecision(
 }
 /**
  * Whether the live policy answers this call with no person: it allows the tool
- * and the call is not the person's own to approve, which only Full runs
- * unasked (BST-2373).
+ * and the call is not the person's own to approve (BST-2373). Full runs such a
+ * call unasked, and so does a person's earlier session or tool grant given on
+ * one of that tool's escapes in this root tree.
  */
 export async function hostRunPolicyAnswers(
   platform: HostPlatform,
@@ -675,22 +676,36 @@ export async function hostRunPolicyAnswers(
 ): Promise<boolean> {
   const tools = hostRunTools(run);
   const { decision, yolo } = await hostToolPolicy(platform, run, tools, call.toolId);
-  return decision === 'allow' && (yolo === true || !isPersonOnly(tools[call.toolId], call.input));
+  return (
+    decision === 'allow' &&
+    (yolo === true || !isPersonOnly(tools[call.toolId], call.input, run.grants))
+  );
 }
-function isPersonOnly(registered: HostTool | undefined, input: unknown): boolean {
-  return registered?.personApproval?.(input) !== undefined;
+/** The person's own call, unless they already allowed such calls of its tool this session. */
+function isPersonOnly(
+  registered: HostTool | undefined,
+  input: unknown,
+  grants: HostThreadGrants
+): boolean {
+  return (
+    registered?.personApproval?.(input) !== undefined &&
+    !grants.outsideSandbox.has(registered.permissionToolId ?? '')
+  );
 }
 /**
  * The policy's ask, or a call that is the person's own to approve: that asks
- * even where a grant or override allows its tool, and only Full runs it.
+ * even where a policy grant or override allows its tool. Full runs it, and so
+ * does a session or tool grant the person gave on an earlier escape of that
+ * tool in this root tree, for the life of the process.
  */
 function asksPerson(
   decision: 'allow' | 'ask',
   yolo: boolean | undefined,
   registered: HostTool,
-  input: unknown
+  input: unknown,
+  grants: HostThreadGrants
 ): boolean {
-  return decision === 'ask' || (yolo !== true && isPersonOnly(registered, input));
+  return decision === 'ask' || (yolo !== true && isPersonOnly(registered, input, grants));
 }
 /** `tools` is passed because admission decides before it retains the run's tools. */
 async function hostToolDecision(
@@ -953,7 +968,10 @@ export async function decideHostSdkApproval(
   if (consented) {
     return consented;
   }
-  if (asksPerson(decision, yolo, registered, call.input) && prior?.decision !== 'approve') {
+  if (
+    asksPerson(decision, yolo, registered, call.input, run.grants) &&
+    prior?.decision !== 'approve'
+  ) {
     return await hostAskDecision(run, registered, call, action, autoReview, { prior, runs });
   }
   run.permits.set(call.toolCallId, action);

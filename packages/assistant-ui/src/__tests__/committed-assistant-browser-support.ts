@@ -448,6 +448,9 @@ export async function measureRecordedTextPublications(
       const attributeRenders = trial < ATTRIBUTION_TRIALS;
       const target = attributeRenders ? attributed : samples;
       const handles = await mountTrial({ baseline, firstChild, saved });
+      // The mount is done once its deferred work has committed too: a collapsed
+      // activity group pre-renders its hidden body after the visible mount.
+      await waitForQuiescence();
       const { counts, views } = handles;
       // Independent child source: its own recorded progress, concurrently mounted.
       const rootBefore = views.root;

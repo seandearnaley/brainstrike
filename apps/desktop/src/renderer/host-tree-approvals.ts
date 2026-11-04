@@ -13,8 +13,12 @@ const HOST_TREE_DISCONNECTED =
 
 /** A background child of the viewed thread whose run is still working. */
 export interface HostTreeRunningChild {
+  /** The child's family colour. */
+  readonly color: string;
   /** The child's call sign. */
   readonly owner: string;
+  /** The persona its conversation opens under. */
+  readonly persona: string;
   readonly threadId: string;
   /** The viewed thread's root run whose user turn admitted the child. */
   readonly turnId: string;
@@ -56,6 +60,8 @@ export interface HostTreeApproval {
   readonly approval: PendingHostApproval;
   /** The delegated thread's call sign; absent for the viewed thread's own approval. */
   readonly owner?: string;
+  /** The delegated thread's family colour, beside its call sign. */
+  readonly ownerColor?: string;
   readonly threadId: string;
 }
 
@@ -294,10 +300,10 @@ export class HostTreeApprovals implements SubagentChildRunSource {
       this.snapshot,
       [
         ...own,
-        ...delegated.flatMap(({ callSign, pending, threadId }) =>
+        ...delegated.flatMap(({ callSign, color, pending, threadId }) =>
           pending
             .filter((approval) => approval.kind === 'approval')
-            .map((approval) => ({ approval, owner: callSign, threadId }))
+            .map((approval) => ({ approval, owner: callSign, ownerColor: color, threadId }))
         ),
       ],
       NO_APPROVALS,
@@ -367,12 +373,12 @@ export class HostTreeApprovals implements SubagentChildRunSource {
     if (this.lost !== undefined) {
       return NOT_RUNNING;
     }
-    const children = tree.descendants.flatMap(({ callSign, origin, run, threadId }) =>
+    const children = tree.descendants.flatMap(({ callSign, color, origin, run, threadId }) =>
       origin.background &&
       origin.parentThreadId === this.threadId &&
       working(run) &&
       run?.delegatedInvocation
-        ? [{ owner: callSign, threadId, turnId: origin.turnId }]
+        ? [{ color, owner: callSign, persona: origin.persona, threadId, turnId: origin.turnId }]
         : []
     );
     const own = tree.thread.run;

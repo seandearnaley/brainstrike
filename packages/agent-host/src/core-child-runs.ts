@@ -226,6 +226,29 @@ function hostChildStatus(
     ? 'needs-input'
     : 'working';
 }
+/** `entries` with every parent ahead of its children, keeping their relative order otherwise. */
+function parentsFirst(
+  entries: readonly (readonly [string, HostChildOrigin])[]
+): (readonly [string, HostChildOrigin])[] {
+  const listed = new Set(entries.map(([child]) => child));
+  const placed = new Set<string>();
+  const ordered: (readonly [string, HostChildOrigin])[] = [];
+  const place = (entry: readonly [string, HostChildOrigin]): void => {
+    if (placed.has(entry[0])) {
+      return;
+    }
+    placed.add(entry[0]);
+    const parent = entries.find(([child]) => child === entry[1].parentThreadId);
+    if (parent && listed.has(parent[0])) {
+      place(parent);
+    }
+    ordered.push(entry);
+  };
+  for (const entry of entries) {
+    place(entry);
+  }
+  return ordered;
+}
 export class HostChildRuns {
   private readonly grantsByRoot = new Map<string, HostThreadGrants>();
   private readonly origins = new Map<string, HostChildOrigin>();
@@ -262,7 +285,11 @@ export class HostChildRuns {
    */
   grants(threadId: string): HostThreadGrants {
     const root = this.rootThread(threadId);
-    const grants = this.grantsByRoot.get(root) ?? { categories: new Set(), tools: new Set() };
+    const grants = this.grantsByRoot.get(root) ?? {
+      categories: new Set(),
+      outsideSandbox: new Set(),
+      tools: new Set(),
+    };
     this.grantsByRoot.set(root, grants);
     return grants;
   }
@@ -497,7 +524,9 @@ export class HostChildRuns {
     const root = this.rootThread(threadId);
     // Only committed children: a delegation reserves its origin before its
     // thread commits, and a reader of the listing opens the child's own log.
-    const committed = [...this.origins].filter(([child]) => threads.has(child));
+    // A restart folds the threads in id order, so a parent is moved ahead of
+    // any child that came first; registry order is kept otherwise.
+    const committed = parentsFirst([...this.origins].filter(([child]) => threads.has(child)));
     // Colours are allocated across the whole root tree, in creation order.
     const coloring = hostChildColors(
       root,

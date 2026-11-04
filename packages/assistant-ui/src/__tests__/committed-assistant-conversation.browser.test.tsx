@@ -191,9 +191,18 @@ async function mountReader(width: number) {
   );
   const surface = conversation();
   await surface.ui.findByText(recordedPrompt);
-  // Read the recorded arguments/result: a real keyboard expansion of the shipped card.
-  const details = surface.ui.getByRole('button', { name: /expand details/u });
+  // Read the recorded arguments/result: a real keyboard expansion of the shipped
+  // card, inside the turn's activity its finished call folded into.
+  await press(surface.ui.getByRole('button', { name: 'Expand activity' }));
+  await settleAnimations(surface.region);
+  const details = await surface.ui.findByRole('button', { name: /expand details/u });
   await press(details);
+  await settleAnimations(surface.region);
+  // Focusing a control inside the open group can scroll the reader to it,
+  // which rightly stops following; these tests start from the latest message.
+  act(() => {
+    surface.viewport.scrollTo({ behavior: 'instant', top: surface.viewport.scrollHeight });
+  });
   await waitFor(() => {
     expect(surface.viewport.scrollHeight - surface.viewport.clientHeight).toBeGreaterThanOrEqual(
       MIN_READER_OVERFLOW_PX
@@ -399,6 +408,8 @@ describe('keyboard approval and errors', () => {
     await waitFor(() => expect(card).not.toBeInTheDocument());
     expect(surface.ui.queryByRole('button', { name: APPROVE })).toBeNull();
     await act(async () => source.publishPrefix(committedRows.length));
+    // The finished call folds into the turn's activity, which opens on its header.
+    await press(await surface.ui.findByRole('button', { name: 'Expand activity' }));
     const done = await surface.ui.findByRole('button', {
       name: new RegExp(`^Used ${recordedToolName}`, 'u'),
     });
@@ -873,7 +884,15 @@ describe('recorded text publication cost (BST-1929 spike s-ui budget)', () => {
   beforeAll(async () => {
     previousViewport = { height: window.innerHeight, width: window.innerWidth };
     await page.viewport(900, 800);
-    measurement = await measureRecordedTextPublications(mountMeasuredTrial, COMPLETED_TEXT);
+    // The recorded turn's finished command sits in a live activity group until
+    // the answer starts, and that group's elapsed clock ticks every 100 ms. The
+    // clock is not a publication's cost, so it stays still while one is measured.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      measurement = await measureRecordedTextPublications(mountMeasuredTrial, COMPLETED_TEXT);
+    } finally {
+      vi.useRealTimers();
+    }
     const reactBuild = '_store' in <div /> ? 'development' : 'production';
     console.info(
       'COMMITTED_UI_MEASUREMENT',

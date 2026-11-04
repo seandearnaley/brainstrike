@@ -135,10 +135,9 @@ async function assertReachable(
  * inventory's containment. Forced-fresh is load-bearing (PR #2681 review): a
  * `roots` table write never dirties the inventory cache, so the default
  * cached read could authorize against a root the user closed seconds ago (or
- * refuse one they just granted) for up to the cache TTL. The call is
- * user-initiated and off every latency-critical path, so the bounded rebuild
- * is an acceptable price for the documented "live containment" rule being
- * literally true.
+ * refuse one they just granted) for up to the cache TTL. A worktree the app
+ * created sits under the managed directory, which needs no inventory, so that
+ * arm answers first: mounting a new worktree never waits on a full rebuild.
  *
  * An outside-roots path (e.g. its granting root was disconnected after
  * adoption) stays refused — a ledger row alone is never a mount grant. An
@@ -165,6 +164,9 @@ export async function isAuthorizedWorktreeMountPath(
     const row = await deps.ledger.getByPath(realCandidate);
     if (row === null || row.archivedAt !== null) {
       return false;
+    }
+    if (await isReachableCheckout(deps, realCandidate, 'outside-roots')) {
+      return true;
     }
     let containment: WorktreeDescriptor['containment'] = 'outside-roots';
     try {
