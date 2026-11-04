@@ -139,6 +139,28 @@ const ActivityToolPart = memo(function ActivityToolPart(props: ToolCallMessagePa
 });
 
 /**
+ * A grouped tool call's whole slot, memoized on the same props as its tool
+ * part. A collapsed group's body is a hidden `<Activity>`, which defers any
+ * re-render inside it to a separate commit: without this, every streamed token
+ * of the answer would re-render each unchanged card there and commit twice.
+ */
+const ActivityToolCallSlot = memo(function ActivityToolCallSlot({
+  shellOutputs,
+  ...part
+}: ToolCallMessagePartProps & {
+  readonly shellOutputs: ReturnType<typeof useShellOutputs>;
+  readonly toolUI?: ReactNode;
+}) {
+  return (
+    <ActivityToolSlot toolCallId={part.toolCallId}>
+      <ShellOutputProvider outputs={shellOutputs}>
+        <ActivityPartLayout>{part.toolUI ?? <ActivityToolPart {...part} />}</ActivityPartLayout>
+      </ShellOutputProvider>
+    </ActivityToolSlot>
+  );
+});
+
+/**
  * The reasoning row's glyph slot. It replaces the generic state glyph rather
  * than reusing it (BST-1681) because the reasoning mark carries the phase-1
  * test ids the hydration-liveness invariant and the disclosure suite read:
@@ -500,15 +522,7 @@ export function AssistantActivityParts(): ReactNode {
               // vendor's registered renderer; false explicitly suppresses it.
               return false;
             }
-            return (
-              <ActivityToolSlot toolCallId={part.toolCallId}>
-                <ShellOutputProvider outputs={shellOutputs}>
-                  <ActivityPartLayout>
-                    {part.toolUI ?? <ActivityToolPart {...part} />}
-                  </ActivityPartLayout>
-                </ShellOutputProvider>
-              </ActivityToolSlot>
-            );
+            return <ActivityToolCallSlot {...part} shellOutputs={shellOutputs} />;
           case 'data':
             return part.dataRendererUI;
           case 'indicator':

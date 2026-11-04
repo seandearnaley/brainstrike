@@ -72,6 +72,24 @@ describe('ActivityTrace', () => {
     );
   });
 
+  it('drops the live tail while the group is open: its body already shows every step', () => {
+    render(
+      <ActivityTrace
+        expanded
+        fallbackMs={1500}
+        incompleteReason={undefined}
+        isActive
+        restingOverride={null}
+        summary={live}
+        tail={[{ family: 'read', id: 'call-1', state: 'done', target: 'foo', verb: 'Read' }]}
+      >
+        <div>body</div>
+      </ActivityTrace>
+    );
+    expect(screen.getByTestId('assistant-activity-body')).not.toHaveAttribute('hidden');
+    expect(screen.queryByTestId('assistant-activity-tail')).toBeNull();
+  });
+
   it('settles into the verb summary with Worked for as meta', () => {
     render(
       <ActivityTrace

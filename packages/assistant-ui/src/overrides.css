@@ -1700,11 +1700,16 @@ span.bs-composer-chip {
   --bs-family-web: oklch(0.76 0.1 235);
 }
 
+/* The header's glyphs and labels swap and animate as the group's phase
+   changes. Never the node native scroll anchoring holds still: while one of
+   its transitions ran, Chromium kept no anchor, and a reader parked lower in
+   an open group moved when content landed above. */
 .assistant-ui-panel .bs-activity-header {
   align-items: center;
   container-type: inline-size;
   display: flex;
   min-width: 0;
+  overflow-anchor: none;
 }
 
 /* The disclosure yields room to its siblings instead of claiming the row. */

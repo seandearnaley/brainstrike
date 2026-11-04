@@ -422,7 +422,8 @@ export function ActivityTrace({
       <span aria-live="polite" className="sr-only">
         {announcement}
       </span>
-      <TraceTail isActive={isActive} tail={tail} />
+      {/* The tail lets a reader follow a collapsed run; an open body already shows every step. */}
+      <TraceTail isActive={isActive && !expanded} tail={tail} />
       <TraceCollapse bodyId={bodyId} expanded={expanded} preserveBodyEffects={preserveBodyEffects}>
         {children}
       </TraceCollapse>

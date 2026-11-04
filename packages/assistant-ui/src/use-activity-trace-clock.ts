@@ -38,9 +38,11 @@ export function useElapsedMs(
       () => setMeasuredMs(Date.now() - start),
       ACTIVITY_TRACE_CLOCK_INTERVAL_MS
     );
+    // Settling keeps the last tick as the frozen value: a state write here
+    // would cost the conversation a second commit at the very word the
+    // answer starts, while the tick it replaces is at most 100ms behind.
     return () => {
       accumulatedRef.current = Date.now() - start;
-      setMeasuredMs(accumulatedRef.current);
       clearInterval(intervalId);
     };
   }, [isActive]);

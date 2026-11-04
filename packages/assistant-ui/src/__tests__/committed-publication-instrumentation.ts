@@ -97,6 +97,14 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
   const COMPONENT_TAGS = new Set([0, 1, 11, 15]);
   const HOST_COMPONENT_TAG = 5;
   const PERFORMED_WORK = 1;
+  // React's offscreen fiber, which `<Activity mode="hidden">` renders: work
+  // inside a hidden one is deferred, low-priority pre-rendering of content the
+  // reader cannot see (a collapsed activity group's body), so the visible
+  // budgets below never count it.
+  const OFFSCREEN_TAG = 22;
+  const isHiddenOffscreen = (fiber: Fiber): boolean =>
+    fiber.tag === OFFSCREEN_TAG &&
+    (fiber.memoizedProps as { readonly mode?: unknown } | null)?.mode === 'hidden';
 
   function nameOf(fiber: Fiber): string {
     const type = fiber.type as {
@@ -154,7 +162,7 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
         state.rendered.set(owner, names);
         owners.add(owner);
       }
-      if (previous === null || fiber.child !== previous.child) {
+      if (!isHiddenOffscreen(fiber) && (previous === null || fiber.child !== previous.child)) {
         for (let child = fiber.child; child; child = child.sibling) {
           stack.push(child);
         }
