@@ -14,7 +14,7 @@ import type { HostChildDelivery, HostEvent, HostLogRow, HostParams } from './pro
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
 import { endHostRunTurn } from './run-admission.ts';
 import type { HostRunPosition } from './run-branch.ts';
-import { enteredWorktreeRunParams } from './run-continuation.ts';
+import { enteredWorktreeRunParams, type HostNextRun } from './run-continuation.ts';
 import type { HostThreadPresentationState } from './thread-presentation-state.ts';
 
 type Outcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
@@ -35,9 +35,8 @@ export interface HostRunEndPorts {
   readonly read: (threadId: string) => Promise<HostLogRow[]>;
   readonly runs: () => ReadonlyMap<string, HostRunState>;
   readonly startNextRun: (
-    params: HostParams<'run/start'>,
-    origin: HostClientOrigin | undefined,
-    refused?: Error
+    next: HostNextRun,
+    origin: HostClientOrigin | undefined
   ) => Promise<boolean>;
   /** Admit the thread's wake run, when its children or ended command sessions left it one. */
   readonly wake: (threadId: string, exits: readonly HostCommandSessionExit[]) => Promise<void>;
@@ -119,16 +118,20 @@ export class HostRunEnds {
       let next = false;
       if (input) {
         try {
-          next = await ports.startNextRun(input.params, run.input?.origin, input.refused);
+          next = await ports.startNextRun(input, run.input?.origin);
         } finally {
           // The input's run, or its refusal, is committed: the report now waits on that run.
           settleHostChildInput(run, ports.runs());
         }
       }
-      // ADR-0028 step 3: the task goes on in the worktree the run entered.
+      // ADR-0028 step 3: the task goes on in the worktree the run entered, in
+      // the same turn, so the turn's workers before and after it are one.
       if (!next && open && outcome === 'completed' && run.enteredWorktree) {
         next = await ports.startNextRun(
-          enteredWorktreeRunParams(run, run.enteredWorktree),
+          {
+            params: enteredWorktreeRunParams(run, run.enteredWorktree),
+            turnId: hostRunTurnId(run),
+          },
           run.input?.origin
         );
       }

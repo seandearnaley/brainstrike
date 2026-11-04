@@ -174,8 +174,19 @@ describe('default assistant instructions', () => {
     expect(instructions).toContain('Brainstrike IDE');
     expect(instructions).toContain('brainstrike_listWorkspaceContext');
     expect(instructions).toContain('brainstrike_readWorkspaceContext');
-    expect(instructions).toContain('Only run state-changing tools after the user confirms.');
+    expect(instructions).toContain(
+      'Run state-changing tools only for work the user asked for or confirmed'
+    );
+    expect(instructions).toContain('A question about progress does not end that task');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
+  });
+
+  it('asks a run to finish the outcome the user asked for, but not in plan mode', () => {
+    const working = buildDefaultInstructions(new Map());
+    const planning = buildDefaultInstructions(new Map(), { planMode: true });
+
+    expect(working).toContain('keep working until it is done or blocked');
+    expect(planning).not.toContain('keep working until it is done or blocked');
   });
 
   it('leaves no blank instruction line when optional tools (e.g. askUser) are unregistered', () => {

@@ -82,6 +82,7 @@ import {
   commitHostInteractionResponse,
   commitHostModelMessages,
   continueHostRun,
+  type HostNextRun,
   startHostNextRun,
 } from './run-continuation.ts';
 import { userRunVerdict } from './run-verdicts.ts';
@@ -189,7 +190,7 @@ export class HostCore {
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
     runs: () => this.runs,
-    startNextRun: (params, origin, refused) => this.startNextRun(params, origin, refused),
+    startNextRun: (next, origin) => this.startNextRun(next, origin),
     wake: (threadId, exits) =>
       this.admit(threadId, async () => {
         const wake = this.children.wakeParams(threadId, this.runs, this.selections, exits);
@@ -542,14 +543,19 @@ export class HostCore {
     });
   }
 
-  startRun(params: HostParams<'run/start'>, origin?: HostClientOrigin): Promise<{ runId: string }> {
+  /** A run/start; one the host starts to carry a run's task on continues that run's `turnId`. */
+  startRun(
+    params: HostParams<'run/start'>,
+    origin?: HostClientOrigin,
+    turnId?: string
+  ): Promise<{ runId: string }> {
     const record = hostStartCommandRecord(params);
     return this.settledCommand('run/start', record, () =>
       this.admitRun(
         'run/start',
         params,
         origin,
-        () => hostStartPosition(this.runs.values(), this.rewinds.position(params)),
+        () => hostStartPosition(this.runs.values(), this.rewinds.position(params), turnId),
         record
       )
     );
@@ -891,7 +897,7 @@ export class HostCore {
       loop: (model) => this.loop(run, model),
       openRun: () => this.openRun(run),
       platform: this.platform,
-      startNextRun: (params) => this.startNextRun(params, run.input?.origin),
+      startNextRun: (next) => this.startNextRun(next, run.input?.origin),
     });
   }
 
@@ -964,18 +970,14 @@ export class HostCore {
     return run.ownerClose;
   }
 
-  private startNextRun(
-    params: HostParams<'run/start'>,
-    origin: HostClientOrigin | undefined,
-    refused?: Error
-  ): Promise<boolean> {
+  private startNextRun(next: HostNextRun, origin: HostClientOrigin | undefined): Promise<boolean> {
+    const { params, turnId } = next;
     return startHostNextRun(
       this.runs.values(),
-      params,
-      () => this.startRun(params, origin),
+      next,
+      () => this.startRun(params, origin, turnId),
       (runId, events) =>
-        this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows),
-      refused
+        this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows)
     );
   }
 
