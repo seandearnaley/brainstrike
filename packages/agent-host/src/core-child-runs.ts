@@ -754,7 +754,13 @@ export class HostChildRuns {
       ? [
           describeHostChildLedger(
             all
-              .filter(({ origin }) => turns.has(origin.turnId))
+              // Another turn's invocation still at work is listed too: a
+              // ledger that left it out told the model nothing was running,
+              // and the model dispatched that work a second time.
+              .filter(
+                (invocation) =>
+                  turns.has(invocation.origin.turnId) || reported(invocation) === undefined
+              )
               .map((invocation) => ({
                 callSign: hostChildCallSign(invocation.threadId),
                 outcome: settledOutcome(invocation),

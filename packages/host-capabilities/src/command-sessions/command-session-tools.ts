@@ -8,14 +8,15 @@ import {
   normalizeManageCommandSessionInput,
 } from '@brainstrike/agent';
 import {
+  BoundaryFailureError,
   type GuardedToolError,
   isGuardedToolError,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
 import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
+import { commandSessionRefusal } from './command-session-error.ts';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
-  CommandSessionError,
   type CommandSessionInfo,
   type CommandSessionManager,
   type CommandSessionRead,
@@ -360,7 +361,29 @@ function unsupportedOperation(operation: never): never {
   throw new Error(`Unsupported command-session action: ${JSON.stringify(operation)}`);
 }
 
+/**
+ * A manager refusal reaches the model as the typed refusal it is, so a cursor
+ * past the output's end says where the end is; only a fault keeps the fixed
+ * text. A model that got the fixed text guessed cursors until one fit.
+ */
+function rethrowRefusal(error: unknown): never {
+  const refused = commandSessionRefusal(error);
+  throw refused ? new BoundaryFailureError(refused, { cause: error }) : error;
+}
+
 export function runInspectCommandSessions(
+  input: InspectCommandSessionsInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: CommandSessionToolDependencies
+): InspectCommandSessionsResult {
+  try {
+    return inspectCommandSessions(input, runtimeData, dependencies);
+  } catch (error) {
+    return rethrowRefusal(error);
+  }
+}
+
+function inspectCommandSessions(
   input: InspectCommandSessionsInput,
   runtimeData: RuntimeData | undefined,
   dependencies: CommandSessionToolDependencies
@@ -380,13 +403,23 @@ export function runInspectCommandSessions(
   return fitSessionReadPage(read, manager.get(rootId, input.operation.sessionId));
 }
 
-export async function runManageCommandSession(
+type ManageCommandSessionDependencies = CommandSessionToolDependencies & {
+  readonly signal?: AbortSignal;
+  readonly executionThreadId?: string | undefined;
+};
+
+export function runManageCommandSession(
   input: ManageCommandSessionInput,
   runtimeData: RuntimeData | undefined,
-  dependencies: CommandSessionToolDependencies & {
-    readonly signal?: AbortSignal;
-    readonly executionThreadId?: string | undefined;
-  }
+  dependencies: ManageCommandSessionDependencies
+): Promise<ManageCommandSessionResult> {
+  return manageCommandSession(input, runtimeData, dependencies).catch(rethrowRefusal);
+}
+
+async function manageCommandSession(
+  input: ManageCommandSessionInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: ManageCommandSessionDependencies
 ): Promise<ManageCommandSessionResult> {
   const { manager } = dependencies;
   const rootId = resolveRootId(runtimeData, input.root);
@@ -397,31 +430,21 @@ export async function runManageCommandSession(
         'Command session execution requires its originating conversation identity.'
       );
     }
-    return await manager
-      .start({
-        command: operation.command,
-        ...(dependencies.rootsFromRuntime
-          ? { resolver: { listRoots: async () => runtimeData?.workspaceRoots ?? [] } }
-          : {}),
-        rootId,
-        ...(dependencies.executionThreadId &&
-        dependencies.executionThreadId !== runtimeData?.memory?.threadId
-          ? { delegatedThreadId: dependencies.executionThreadId }
-          : {}),
-        ...(operation.cols === undefined ? {} : { cols: operation.cols }),
-        ...(operation.cwd === undefined ? {} : { cwd: operation.cwd }),
-        ...(operation.rows === undefined ? {} : { rows: operation.rows }),
-        ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
-      })
-      .catch((error: unknown) => {
-        if (
-          error instanceof CommandSessionError &&
-          (error.code === 'workspace-busy' || error.code === 'aborted')
-        ) {
-          throw new ToolInputError(error.message);
-        }
-        throw error;
-      });
+    return await manager.start({
+      command: operation.command,
+      ...(dependencies.rootsFromRuntime
+        ? { resolver: { listRoots: async () => runtimeData?.workspaceRoots ?? [] } }
+        : {}),
+      rootId,
+      ...(dependencies.executionThreadId &&
+      dependencies.executionThreadId !== runtimeData?.memory?.threadId
+        ? { delegatedThreadId: dependencies.executionThreadId }
+        : {}),
+      ...(operation.cols === undefined ? {} : { cols: operation.cols }),
+      ...(operation.cwd === undefined ? {} : { cwd: operation.cwd }),
+      ...(operation.rows === undefined ? {} : { rows: operation.rows }),
+      ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
+    });
   }
   if (operation.action === 'write') {
     manager.write(rootId, operation.sessionId, operation.data);
