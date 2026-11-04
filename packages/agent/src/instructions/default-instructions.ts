@@ -578,7 +578,6 @@ function buildPlanModeBlock(names: ModelFacingToolNames): string {
   return `PLAN MODE IS ACTIVE. You are investigating and PROPOSING a plan — you MUST NOT modify files, run commands, or change any state yet. Use read-only tools to understand the code.${askUserClause} ${submitPlanClause}`;
 }
 
-/** The plan-mode block as a leading prefix (with trailing newline), or ''. */
 /**
  * State changes need the user's say-so, and a request for the outcome is that
  * say-so. The earlier rule ("only after the user confirms") read as a ban on
@@ -596,6 +595,7 @@ const CONFIRMATION_INSTRUCTION =
 const COMPLETION_INSTRUCTION =
   'When the user asks for an outcome (a fix, a finished change, a PR), keep working until it is done or blocked on something only the user can give. A question about progress does not end that task: answer it, then continue. Never end a turn on a plan or a status report while work you can do remains. When you must wait on background work, end the turn; its result arrives in a later message.';
 
+/** The plan-mode block as a leading prefix (with trailing newline), or ''. */
 function buildPlanModePrefix(names: ModelFacingToolNames, planMode: boolean | undefined): string {
   return planMode ? `${buildPlanModeBlock(names)}\n` : '';
 }
