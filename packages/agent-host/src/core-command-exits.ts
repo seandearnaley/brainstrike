@@ -37,7 +37,11 @@ export function describeHostCommandSessionExits(
     const starter =
       exit.threadId === threadId ? 'you' : `subagent ${hostChildCallSign(exit.threadId)}`;
     const from = Math.max(0, exit.outputCursor - TAIL_UTF16_CODE_UNITS);
-    return `- ${exit.sessionId} (root ${exit.rootId}), started by ${starter}, ${ending(exit)} after ${duration(exit)}. Its output ends at cursor ${exit.outputCursor}; read its last lines with brainstrike_inspectCommandSessions {action:"read", sessionId:"${exit.sessionId}", cursor:${from}}.`;
+    const read = JSON.stringify({
+      operation: { action: 'read', cursor: from, sessionId: exit.sessionId },
+      root: exit.rootId,
+    });
+    return `- ${exit.sessionId} (root ${exit.rootId}), started by ${starter}, ${ending(exit)} after ${duration(exit)}. Its output ends at cursor ${exit.outputCursor}; read its last lines with brainstrike_inspectCommandSessions ${read}.`;
   });
   return [
     `Command sessions that ended by themselves — ${exits.length}:`,
@@ -92,6 +96,11 @@ export class HostCommandSessionExits {
     return this.own(threadId).some((run) => !run.terminal);
   }
 
+  /** A stopped turn wakes for nothing: its thread's exits wait for the person's next turn to end. */
+  private stopped(threadId: string): boolean {
+    return this.own(threadId).at(-1)?.stopped === true;
+  }
+
   /** The thread that hears an exit: the starter while it runs, else its nearest busy or root ancestor. */
   private listener(threadId: string): string {
     let target = threadId;
@@ -116,7 +125,7 @@ export class HostCommandSessionExits {
       queue.push(exit);
     }
     this.queued.set(target, queue);
-    if (!this.active(target)) {
+    if (!(this.active(target) || this.stopped(target))) {
       this.ports.wake(target);
     }
   }
@@ -133,8 +142,9 @@ export class HostCommandSessionExits {
     }
   }
 
+  /** The exits a wake of `threadId` would deliver now: none after a Stop. */
   pending(threadId: string): readonly HostCommandSessionExit[] {
-    return this.queued.get(threadId) ?? [];
+    return this.stopped(threadId) ? [] : (this.queued.get(threadId) ?? []);
   }
 
   /** The exits a committed run's delivery took no longer wait. */
@@ -143,7 +153,7 @@ export class HostCommandSessionExits {
       return;
     }
     const taken = new Set(delivery.commandSessions.map((session) => session.sessionId));
-    const left = this.pending(threadId).filter((exit) => !taken.has(exit.sessionId));
+    const left = (this.queued.get(threadId) ?? []).filter((exit) => !taken.has(exit.sessionId));
     if (left.length > 0) {
       this.queued.set(threadId, left);
     } else {

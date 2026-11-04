@@ -5,6 +5,7 @@
  * worker's background validation finished unseen and the parent went idle on
  * "still running" (debug pack 2026-11-04).
  */
+import { randomUUID } from 'node:crypto';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { hostChildCallSign } from '../src/child-presentation.js';
@@ -121,7 +122,10 @@ test('a session the root started that exits by itself wakes the root', async () 
   expect(wake.prompt).toContain(
     'command-session-1 (root root-a), started by you, exited with code 1 after 1m 5s.'
   );
-  expect(wake.prompt).toContain('cursor:5000}');
+  // The read it names is the inspector's own input, root included.
+  expect(wake.prompt).toContain(
+    'brainstrike_inspectCommandSessions {"operation":{"action":"read","cursor":5000,"sessionId":"command-session-1"},"root":"root-a"}.'
+  );
 });
 
 test('a busy root hears a session that ended once its run ends', async () => {
@@ -135,6 +139,24 @@ test('a busy root hears a session that ended once its run ends', async () => {
 
   release.resolve();
   await rowsUntil(harness, harness.threadId, finished(busy), 5000);
+  await wakeRun(harness);
+});
+
+test('a Stop wakes nothing; the session waits until the next turn ends', async () => {
+  const release = Promise.withResolvers<void>();
+  const { exit, harness } = await exitHost(release.promise);
+  const busy = await harness.start('HOLD while the build runs.');
+  exit(harness.threadId);
+
+  await harness.core().stop({ commandId: randomUUID(), runId: busy, threadId: harness.threadId });
+  release.resolve();
+  await rowsUntil(harness, harness.threadId, finished(busy), 5000);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const stopped = await harness.core().read(harness.threadId, 0);
+  expect(stopped.filter((row) => row.event.type === 'run.started')).toHaveLength(1);
+
+  const next = await harness.start('Anything new?');
+  await rowsUntil(harness, harness.threadId, finished(next), 5000);
   await wakeRun(harness);
 });
 
