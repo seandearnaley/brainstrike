@@ -21,6 +21,7 @@ function child(fields: Partial<Tree['descendants'][number]>): Tree['descendants'
   return {
     answered: [],
     callSign: 'Explorer 1',
+    color: 'emerald',
     origin,
     pending: [],
     run: { delegatedInvocation: true, status: 'running', toolCalls: 2, turnId: 'root-run' },

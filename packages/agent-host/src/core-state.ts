@@ -160,6 +160,12 @@ export interface HostRunInput {
  */
 export interface HostThreadGrants {
   readonly categories: Set<ToolRiskCategory>;
+  /**
+   * Tools the person allowed for the session while answering a call that was
+   * theirs alone to approve (a command outside the sandbox): such calls of the
+   * tool run unasked for the rest of the session, as the grant said.
+   */
+  readonly outsideSandbox: Set<string>;
   readonly tools: Set<string>;
 }
 export function applyHostPermissionGrant(run: HostRunState, grant: HostPermissionGrant): void {

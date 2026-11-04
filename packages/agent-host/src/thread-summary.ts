@@ -228,35 +228,42 @@ type HostTree = HostResults['thread/tree'];
 
 type Children = HostResults['thread/children']['children'];
 
+type TreeRegistry = Pick<HostChildRuns, 'descendants' | 'familyColors' | 'listed' | 'parentOf'>;
+
+/** What a listing reads beside the registry: the committed threads, their presentations and runs. */
+interface TreeSources {
+  readonly presentations: Parameters<HostChildRuns['listed']>[2];
+  readonly runs: Parameters<HostChildRuns['listed']>[3];
+  readonly threads: ReadonlySet<string>;
+}
+
 /** BST-1932: `thread/tree`, and which committed rows change a tree. */
 export class HostThreadTrees {
   private readonly summaries: HostThreadSummaries;
   /** Why a thread's history cannot be read, when it cannot. */
   private readonly catalog: Pick<HostThreadCatalog, 'entry'>;
-  private readonly registry: Pick<HostChildRuns, 'descendants' | 'parentOf'>;
+  private readonly registry: TreeRegistry;
   /** Every committed thread: a delegation reserves its origin before its thread commits. */
   private readonly threads: ReadonlySet<string>;
-  private readonly listed: (threadId: string) => Children;
+  private readonly sources: TreeSources;
 
   constructor(
     projections: { readonly summaries: HostThreadSummaries },
     catalog: Pick<HostThreadCatalog, 'entry'>,
-    registry: Pick<HostChildRuns, 'descendants' | 'parentOf'>,
-    sources: {
-      readonly listed: (threadId: string) => Children;
-      readonly threads: ReadonlySet<string>;
-    }
+    registry: TreeRegistry,
+    sources: TreeSources
   ) {
     this.summaries = projections.summaries;
     this.catalog = catalog;
     this.registry = registry;
     this.threads = sources.threads;
-    this.listed = sources.listed;
+    this.sources = sources;
   }
 
   /** A thread's direct child threads, in delegation order, with their origins. */
   children(threadId: string): Children {
-    return this.listed(threadId);
+    const { presentations, runs, threads } = this.sources;
+    return this.registry.listed(threadId, threads, presentations, runs);
   }
 
   /** A thread's summary and each thread delegated beneath it, parents before their children. */
@@ -264,13 +271,16 @@ export class HostThreadTrees {
     if (!this.threads.has(threadId)) {
       throw refusalError('input', 'thread.unknown', 'Unknown thread');
     }
-    const descendants = this.registry
-      .descendants(threadId, this.threads)
-      .map(({ callSign, origin, threadId: child }) => ({
-        ...this.summary(child),
-        callSign,
-        origin,
-      }));
+    const delegated = this.registry.descendants(threadId, this.threads);
+    // One allocation colours the whole tree, as each parent's listing does.
+    const colors = this.registry.familyColors(threadId, this.threads, this.sources.presentations);
+    const descendants = delegated.map(({ callSign, origin, threadId: child }) => {
+      const color = colors.get(child);
+      if (color === undefined) {
+        throw new Error('A child conversation has no family colour.');
+      }
+      return { ...this.summary(child), callSign, color, origin };
+    });
     return { descendants, thread: this.summary(threadId) };
   }
 
