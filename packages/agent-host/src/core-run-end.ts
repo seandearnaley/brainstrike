@@ -1,12 +1,19 @@
 import { settleHostChildInput, takeHostChildInput } from './child-input.ts';
-import { type HostChildRuns, reportHostChildWakeFailure } from './core-child-runs.ts';
+import {
+  type HostChildRuns,
+  hostDeliveryPosition,
+  hostRunTurnId,
+  reportHostChildWakeFailure,
+} from './core-child-runs.ts';
+import { HostCommandSessionExits } from './core-command-exits.ts';
 import { joinHostThreadSettlements, settleHostRunOwner } from './core-run-lifecycle.ts';
 import type { HostRunState } from './core-state.ts';
 import { hostRunTerminalEvents } from './hook-context.ts';
-import type { HostClientOrigin } from './ports.ts';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
+import type { HostClientOrigin, HostCommandSessionExit, HostDelegation } from './ports.ts';
+import type { HostChildDelivery, HostEvent, HostLogRow, HostParams } from './protocol.ts';
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
 import { endHostRunTurn } from './run-admission.ts';
+import type { HostRunPosition } from './run-branch.ts';
 import { enteredWorktreeRunParams } from './run-continuation.ts';
 import type { HostThreadPresentationState } from './thread-presentation-state.ts';
 
@@ -32,8 +39,8 @@ export interface HostRunEndPorts {
     origin: HostClientOrigin | undefined,
     refused?: Error
   ) => Promise<boolean>;
-  /** Admit the thread's wake run, when its children left it one. */
-  readonly wake: (threadId: string) => Promise<void>;
+  /** Admit the thread's wake run, when its children or ended command sessions left it one. */
+  readonly wake: (threadId: string, exits: readonly HostCommandSessionExit[]) => Promise<void>;
 }
 
 /**
@@ -44,9 +51,42 @@ export interface HostRunEndPorts {
  */
 export class HostRunEnds {
   private readonly ports: HostRunEndPorts;
+  /** Command sessions a run started that ended by themselves, until a wake reports them. */
+  readonly exits: HostCommandSessionExits;
 
   constructor(ports: HostRunEndPorts) {
     this.ports = ports;
+    this.exits = new HostCommandSessionExits({
+      children: ports.children,
+      runs: ports.runs,
+      wake: (threadId) => this.wake(threadId),
+    });
+  }
+
+  /** A new run's position with the child results, and for a wake the ended sessions, it delivers. */
+  deliveryPosition(
+    method: 'run/start' | 'run/regenerate' | 'wake',
+    params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
+    position: HostRunPosition,
+    delegation: HostDelegation | undefined
+  ): HostRunPosition {
+    const { threadId } = params;
+    const runs = this.ports.runs();
+    const tip = [...runs.values()].filter((run) => run.threadId === threadId).at(-1);
+    const exits = this.exits.pending(threadId);
+    return hostDeliveryPosition(
+      method,
+      params.commandId,
+      position,
+      this.ports.children.pending(threadId, runs, delegation, method !== 'wake'),
+      method === 'wake' && tip ? { exits, threadId, turnId: hostRunTurnId(tip) } : undefined
+    );
+  }
+
+  /** A committed run's delivery: its child results and ended sessions no longer wait. */
+  recordDelivery(threadId: string, delivery: HostChildDelivery | undefined): void {
+    this.ports.children.recordDelivery(delivery);
+    this.exits.delivered(threadId, delivery);
   }
 
   finish(run: HostRunState, outcome: Outcome, detail?: string, wakes = true): Promise<void> {
@@ -70,6 +110,7 @@ export class HostRunEnds {
         })
     ).then(async () => {
       ports.presentations.settle(run);
+      this.exits.handOn(run.threadId);
       const parent =
         ports.children.deliveryParent(run, ports.runs()) ?? (run.origin ? undefined : run.threadId);
       // BST-1932: a child's human input runs next; only that run reports to the parent.
@@ -102,15 +143,18 @@ export class HostRunEnds {
     return joinHostThreadSettlements(this.ports.runs().values(), threadId);
   }
 
-  /** B10/B14 (ADR-0010): an idle, unparked parent wakes once per batch of settled children. */
-  private wake(threadId: string): void {
+  /**
+   * B10/B14 (ADR-0010): an idle, unparked parent wakes once per batch of
+   * settled children, and a thread for its command sessions that ended.
+   */
+  wake(threadId: string): void {
     (async () => {
       await this.settled(threadId);
       // The fence finish applies before waking holds again after the wait.
       if (this.ports.closing() || this.ports.deletions.has(threadId)) {
         return;
       }
-      await this.ports.wake(threadId);
+      await this.ports.wake(threadId, this.exits.pending(threadId));
     })().catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
   }
 }

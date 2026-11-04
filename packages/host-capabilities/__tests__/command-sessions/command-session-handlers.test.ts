@@ -20,6 +20,7 @@ function createManager(): CommandSessionManager {
         status: 'running' as const,
       },
     ]),
+    onExit: vi.fn(() => () => undefined),
     read: vi.fn(() => ({
       bufferStartCursor: 0,
       hasMore: true,

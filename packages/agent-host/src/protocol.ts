@@ -24,6 +24,7 @@ import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
 import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
+import { HostChildDeliverySchema } from './protocol-delivery.ts';
 import { FILE_SEARCH_METHOD_SCHEMAS, FILE_SEARCH_RESULT_SCHEMAS } from './protocol-file-search.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
@@ -282,45 +283,14 @@ export const HostRunTelemetrySchema = Schema.Struct({
   toolCallId: Schema.optional(Id),
 });
 export type HostRunTelemetry = (typeof HostRunTelemetrySchema)['Type'];
-/** One settled background invocation delivered to its parent (BST-1932). */
-export const HostChildDeliveryEntrySchema = Schema.Struct({
-  childRunId: Id,
-  childThreadId: Id,
-  followUp: Schema.optional(Schema.Literal(true)),
-  outcome: Schema.String,
-  parentRunId: Id,
-  state: Schema.Literals(['returned', 'failed', 'cancelled']),
-  toolCallId: Id,
-});
-export type HostChildDeliveryEntry = (typeof HostChildDeliveryEntrySchema)['Type'];
-/**
- * The durable delivery watermark: these entries reached the parent's model
- * input on the run that records them, as an automated message that the user
- * did not write. A wake run's prompt is that message; a user turn carries it
- * ahead of its own message.
- */
-export const HostChildDeliverySchema = Schema.Union(
-  [
-    Schema.Struct({
-      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
-        Schema.isMinLength(1)
-      ),
-      messageId: Id,
-      turnId: Id,
-      via: Schema.Literal('wake'),
-    }),
-    Schema.Struct({
-      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
-        Schema.isMinLength(1)
-      ),
-      ledger: Id,
-      messageId: Id,
-      via: Schema.Literal('next-turn'),
-    }),
-  ],
-  { mode: 'oneOf' }
-);
-export type HostChildDelivery = (typeof HostChildDeliverySchema)['Type'];
+export {
+  type HostChildDelivery,
+  type HostChildDeliveryEntry,
+  HostChildDeliveryEntrySchema,
+  HostChildDeliverySchema,
+  type HostCommandSessionDelivery,
+  HostCommandSessionDeliverySchema,
+} from './protocol-delivery.ts';
 /** Credentials and executable capabilities remain process-local. */
 export function hostRunSnapshotSchema(json: JsonSchemaFactory) {
   return Schema.Struct({
