@@ -70,5 +70,7 @@
 // v19 (2026-11-02): `workspace/roots/delete-data` is removed with the Explorer's "Also delete
 // folder data" option; disconnecting a folder keeps its record for a later re-add.
 // Additions since: `thread/tree` (a thread's summary and every thread delegated beneath it, as
-// Core folds them) and its `thread/tree/changed` notice.
+// Core folds them) and its `thread/tree/changed` notice, and a wake that delivers the command
+// sessions its runs started that ended by themselves (`run.started` delivery `commandSessions`,
+// with `entries` then possibly empty).
 export const AGENT_HOST_PROTOCOL_VERSION = 19;

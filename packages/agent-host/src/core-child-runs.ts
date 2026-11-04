@@ -33,13 +33,22 @@ import {
 } from './child-runs.ts';
 import { HostChildWorkQueue } from './child-work-queue.ts';
 import { hostRootRunTurnId } from './committed-identities.ts';
+import {
+  describeHostCommandSessionExits,
+  hostCommandSessionDelivery,
+} from './core-command-exits.ts';
 import { retainHostRunWork } from './core-run-lifecycle.ts';
 import {
   type HostRunState,
   type HostThreadGrants,
   hasHostInteractionResponse,
 } from './core-state.ts';
-import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.ts';
+import type {
+  HostCommandSessionExit,
+  HostDelegation,
+  HostPlatform,
+  HostRunAdmission,
+} from './ports.ts';
 import type {
   HostChildDelivery,
   HostChildDeliveryEntry,
@@ -102,21 +111,42 @@ export interface HostPreparedChild {
   readonly threadId: string;
 }
 type Pending = ReturnType<HostChildRuns['pending']>;
-/** A new run's position with the child results it delivers (BST-1932). */
+/** The command sessions a wake reports, for the thread it wakes. */
+export interface HostWakeExits {
+  readonly exits: readonly HostCommandSessionExit[];
+  readonly threadId: string;
+  /** The turn the wake continues when it delivers no child result: the thread tip's. */
+  readonly turnId: string;
+}
+/**
+ * A new run's position with the child results it delivers (BST-1932), and,
+ * for a wake, the command sessions that ended by themselves.
+ */
 export function hostDeliveryPosition(
   method: string,
   messageId: string,
   position: HostRunPosition,
-  pending: Pending
+  pending: Pending,
+  ended?: HostWakeExits
 ): HostRunPosition {
   if (method === 'wake') {
-    if (!pending) {
-      throw new Error('A wake has no undelivered child results');
+    const exits = ended?.exits ?? [];
+    const turnId = pending?.turnId ?? (exits.length > 0 ? ended?.turnId : undefined);
+    if (turnId === undefined) {
+      throw new Error('A wake has nothing undelivered');
     }
+    const report =
+      ended && exits.length > 0 ? describeHostCommandSessionExits(ended.threadId, exits) : '';
     return {
       ...position,
-      delivery: { entries: pending.entries, messageId, turnId: pending.turnId, via: 'wake' },
-      prompt: pending.ledger,
+      delivery: {
+        ...(exits.length > 0 ? { commandSessions: exits.map(hostCommandSessionDelivery) } : {}),
+        entries: pending?.entries ?? [],
+        messageId,
+        turnId,
+        via: 'wake',
+      },
+      prompt: [pending?.ledger, report].filter(Boolean).join('\n\n'),
     };
   }
   if (!pending) {
@@ -150,7 +180,7 @@ export function reportHostChildWakeFailure(threadId: string, cause: unknown): vo
   });
 }
 /** The root turn a run belongs to: children and wakes keep their turn's ID. */
-function hostRunTurnId(run: HostRunState): string {
+export function hostRunTurnId(run: HostRunState): string {
   return (
     run.turnId ??
     run.origin?.turnId ??
@@ -453,17 +483,19 @@ export class HostChildRuns {
     runs: ReadonlyMap<string, HostRunState>,
     selections: {
       forWake(threadId: string): HostRunSelection;
-    }
+    },
+    /** Command sessions that ended by themselves, waiting for this thread. */
+    exits: readonly unknown[] = []
   ) {
     const own = [...runs.values()].filter((run) => run.threadId === threadId);
     const tip = own.at(-1);
     const pending = this.pending(threadId, runs, undefined, false);
-    if (!(tip && pending) || own.some((run) => !run.terminal)) {
+    if (!(tip && (pending || exits.length > 0)) || own.some((run) => !run.terminal)) {
       return;
     }
     return {
       // The wake continues its turn under the client transport that admitted the turn.
-      origin: runs.get(pending.turnId)?.input?.origin,
+      origin: runs.get(pending?.turnId ?? hostRunTurnId(tip))?.input?.origin,
       params: {
         ...selections.forWake(threadId),
         commandId: randomUUID(),

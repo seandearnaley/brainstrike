@@ -14,8 +14,12 @@ import {
   runManageCommandSession,
 } from '../../src/command-sessions/command-session-tools.ts';
 
-/** A PTY that prints what the test tells it to and exits only when killed. */
-function fakePty(): { emit: (data: string) => void; pty: IPty } {
+/** A PTY that prints what the test tells it to and exits when killed or told to. */
+function fakePty(): {
+  emit: (data: string) => void;
+  exit: (exitCode: number) => void;
+  pty: IPty;
+} {
   const listeners = new Set<(data: string) => void>();
   const exits = new Set<(event: { exitCode: number; signal?: number }) => void>();
   const pty = {
@@ -42,6 +46,11 @@ function fakePty(): { emit: (data: string) => void; pty: IPty } {
         listener(data);
       }
     },
+    exit: (exitCode) => {
+      for (const exit of exits) {
+        exit({ exitCode });
+      }
+    },
     pty: pty as unknown as IPty,
   };
 }
@@ -55,25 +64,66 @@ afterEach(async () => {
 });
 
 async function startedSession() {
-  const process = fakePty();
+  const processes: ReturnType<typeof fakePty>[] = [];
   const manager = createCommandSessionManager({
     resolver: { listRoots: () => Promise.resolve([{ displayName: 'A', path: root, rootId: 'a' }]) },
-    spawn: (() => process.pty) as never,
+    spawn: (() => {
+      const next = fakePty();
+      processes.push(next);
+      return next.pty;
+    }) as never,
     terminateTree: () => Promise.resolve(),
   });
   const runtimeData = {
+    memory: { threadId: 'thread-root' },
     workspaceRoots: [{ displayName: 'A', path: root, rootId: 'a' }],
   } as unknown as RuntimeData;
-  const session = await runManageCommandSession(
-    { operation: { action: 'start', command: 'pnpm test:affected' }, root: 'a' },
+  const start = async () => {
+    const session = await runManageCommandSession(
+      { operation: { action: 'start', command: 'pnpm test:affected' }, root: 'a' },
+      runtimeData,
+      { executionThreadId: 'thread-root', manager }
+    );
+    if (!('id' in session)) {
+      throw new Error('The session did not start');
+    }
+    const process = processes.at(-1);
+    if (!process) {
+      throw new Error('No process was spawned');
+    }
+    return { ...process, sessionId: session.id };
+  };
+  const first = await start();
+  return { emit: first.emit, manager, runtimeData, sessionId: first.sessionId, start };
+}
+
+it('a session that ends by itself is reported to the thread that started it; a stopped one is not', async () => {
+  const { manager, runtimeData, start } = await startedSession();
+  const exits: unknown[] = [];
+  manager.onExit((exit) => exits.push(exit));
+  const finishes = await start();
+  const stopped = await start();
+
+  finishes.emit('Tests 73 passed (74)');
+  finishes.exit(1);
+  await runManageCommandSession(
+    { operation: { action: 'stop', sessionId: stopped.sessionId }, root: 'a' },
     runtimeData,
     { manager }
   );
-  if (!('id' in session)) {
-    throw new Error('The session did not start');
-  }
-  return { emit: process.emit, manager, runtimeData, sessionId: session.id };
-}
+  expect(manager.get('a', stopped.sessionId).status).toBe('exited');
+
+  expect(exits).toEqual([
+    expect.objectContaining({
+      exitCode: 1,
+      outputCursor: 20,
+      rootId: 'a',
+      sessionId: finishes.sessionId,
+      threadId: 'thread-root',
+    }),
+  ]);
+  await manager.dispose();
+});
 
 it('a read past the end of the output tells the model where the end is', async () => {
   const { emit, manager, runtimeData, sessionId } = await startedSession();

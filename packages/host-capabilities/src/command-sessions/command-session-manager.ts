@@ -63,6 +63,22 @@ export interface ExitedCommandSession extends CommandSessionBase {
 
 export type CommandSessionInfo = ExitedCommandSession | RunningCommandSession;
 
+/**
+ * A session that ended by itself: no stop, removal or disposal asked for it.
+ * It carries no command text or output, which stay out of durable history;
+ * the owner reads the output by cursor up to `outputCursor`.
+ */
+export interface CommandSessionExit {
+  readonly createdAt: number;
+  readonly exitCode: number;
+  readonly exitedAt: number;
+  readonly outputCursor: number;
+  readonly rootId: string;
+  readonly sessionId: string;
+  readonly signal: number | null;
+  readonly threadId: string;
+}
+
 interface StartCommandSessionInput {
   readonly cols?: number;
   readonly command: string;
@@ -70,6 +86,11 @@ interface StartCommandSessionInput {
   readonly cwd?: string;
   /** Host-observed delegated child, never a tool-input field. */
   readonly delegatedThreadId?: string;
+  /**
+   * Host-observed thread whose run started the session, never a tool-input
+   * field. An exit nobody asked for is reported for it ({@link CommandSessionExit}).
+   */
+  readonly ownerThreadId?: string;
   /**
    * The calling run's freshly admitted roots; a manager built without a
    * resolver (an agent host's) takes its roots only from here.
@@ -113,6 +134,7 @@ interface SessionEntry {
   exitPromise: Promise<void>;
   info: CommandSessionInfo;
   outputCursor: number;
+  ownerThreadId: string | undefined;
   process: IPty;
   reaping?: Promise<void>;
   releaseWorkspaceLease: (() => void) | undefined;
@@ -138,6 +160,8 @@ export interface CommandSessionManager {
   disposeRoot: (rootId: string) => Promise<number>;
   get: (rootId: string, sessionId: string) => CommandSessionInfo;
   list: (rootId: string) => readonly CommandSessionInfo[];
+  /** Every owned session that ends by itself, until the returned function unsubscribes. */
+  onExit: (listener: (exit: CommandSessionExit) => void) => () => void;
   read: (
     rootId: string,
     sessionId: string,
@@ -295,6 +319,37 @@ export function createCommandSessionManager({
     'exitedRetention'
   );
   const sessions = new Map<string, SessionEntry>();
+  const exitListeners = new Set<(exit: CommandSessionExit) => void>();
+
+  function onExit(listener: (exit: CommandSessionExit) => void): () => void {
+    exitListeners.add(listener);
+    return () => exitListeners.delete(listener);
+  }
+
+  /** An exit that no stop, removal or disposal asked for, told to the owner's listeners. */
+  function reportExit(entry: SessionEntry): void {
+    const info = entry.info;
+    if (entry.reaping || entry.removed || !entry.ownerThreadId || info.status !== 'exited') {
+      return;
+    }
+    const exit: CommandSessionExit = {
+      createdAt: info.createdAt,
+      exitCode: info.exitCode,
+      exitedAt: info.exitedAt,
+      outputCursor: entry.outputCursor,
+      rootId: info.rootId,
+      sessionId: info.id,
+      signal: info.signal,
+      threadId: entry.ownerThreadId,
+    };
+    for (const listener of exitListeners) {
+      try {
+        listener(exit);
+      } catch (cause) {
+        logger.error('A command-session exit listener failed', { cause, sessionId: info.id });
+      }
+    }
+  }
 
   function resolveOwned(rootId: string, sessionId: string): SessionEntry {
     assertRootId(rootId);
@@ -538,6 +593,7 @@ export function createCommandSessionManager({
     entry.abortListener?.();
     entry.abortListener = undefined;
     disposeSubscriptions(entry);
+    reportExit(entry);
     if (entry.removed) {
       return;
     }
@@ -666,6 +722,7 @@ export function createCommandSessionManager({
       exitPromise,
       info,
       outputCursor: 0,
+      ownerThreadId: input.ownerThreadId,
       process: processHandle,
       releaseWorkspaceLease,
       removed: false,
@@ -935,6 +992,7 @@ export function createCommandSessionManager({
     disposeRoot,
     get,
     list,
+    onExit,
     read,
     remove,
     start,

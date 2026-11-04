@@ -129,6 +129,8 @@ export const worker: AssistantPersonaDefinition = {
 
 /** Overrides for a fixture host: its personas, root policy and extra tools. */
 export interface ChildRunFixture {
+  /** The command sessions the host's runs start that end by themselves. */
+  readonly commandSessionExits?: HostPlatform['commandSessionExits'];
   /** Holds a batch's commit until it resolves, to observe the host between a reservation and its commit. */
   readonly holdAppend?: (items: readonly AppendItem[]) => Promise<void>;
   /** The production run owner over the fixture's own store, as the host platform opens it. */
@@ -160,6 +162,7 @@ function fixturePlatform(
 ): HostPlatform {
   return {
     close: async () => undefined,
+    ...(fixture.commandSessionExits ? { commandSessionExits: fixture.commandSessionExits } : {}),
     delegation: {
       personas: fixture.personas ?? [explorer],
       settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, ...fixture.settings },

@@ -6,13 +6,13 @@ export const manageCommandSession = defineNativeTool({
   activity: { active: 'Running', done: 'Ran', family: 'run', request: 'Run' },
   defaults: {
     category: 'action',
-    estimatedTokens: 482,
+    estimatedTokens: 518,
     loadingTier: 'deferred',
     requiresApproval: true,
     riskCategory: 'execute',
   },
   description:
-    'Start, write to, stop, or remove a persistent PTY command session in one open workspace root. Pass exactly one typed operation. Use this for servers and interactive commands that must outlive one tool call; use executeCommand for normal bounded commands. Arbitrary execution with no sandbox; requires approval by default',
+    'Start, write to, stop, or remove a persistent PTY command session in one open workspace root. Pass exactly one typed operation. Use this for servers, interactive commands and long work that must outlive one tool call; use executeCommand for normal bounded commands. When a session ends by itself, a later message tells you its exit code and where its output ends, so do not poll a session to learn whether it finished. Arbitrary execution with no sandbox; requires approval by default',
   discovery: { family: 'command sessions', namespace: 'sessions' },
   // Inspector-only prose (never sent to the model); see toToolSchemaDisplay.
   display: {

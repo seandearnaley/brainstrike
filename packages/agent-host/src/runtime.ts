@@ -207,6 +207,9 @@ function composeHostRoot(
   let catalogStore: StateStore | undefined;
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
+    get commandSessionExits(): HostPlatform['commandSessionExits'] {
+      return currentPlatform().commandSessionExits;
+    },
     get delegation(): HostPlatform['delegation'] {
       return currentPlatform().delegation;
     },

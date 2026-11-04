@@ -114,6 +114,8 @@ export interface ProductionHostPlatformOptions {
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
   close(): Promise<void>;
+  /** The command sessions this host's runs start that end by themselves. */
+  readonly commandSessionExits?: HostPlatform['commandSessionExits'];
   /** ADR-0029 stage 4: the desktop Explorer's reads. */
   readonly fileReads?: HostPlatform['fileReads'];
   /** ADR-0035: the desktop Explorer's Search tab. */
@@ -680,6 +682,7 @@ export async function createProductionHostPlatform<Configuration extends Product
       ? { attachMcpTaskOwner: options.mcp.attachTaskOwner.bind(options.mcp) }
       : {}),
     ...(options.attachThreadReads ? { attachThreadReads: options.attachThreadReads } : {}),
+    ...(options.commandSessionExits ? { commandSessionExits: options.commandSessionExits } : {}),
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.mcp ? { mcp: options.mcp } : {}),
