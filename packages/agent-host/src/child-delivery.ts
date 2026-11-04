@@ -1,15 +1,21 @@
 /**
  * BST-1932: what a parent's model reads about its background children. The
  * wording is the shipped wake ledger (packages/agent/src/mastra/
- * background-ledger.ts, removed with BST-1935); the outcomes replace their
- * dispatch acknowledgements in the parent's own tool results.
+ * background-ledger.ts, removed with BST-1935). The ledger is the delivering
+ * turn's own message, so it carries each outcome it delivers: a bounded or
+ * observed history window drops the parent's older tool results, and an
+ * outcome kept only there never reaches the model.
  */
-import type { ModelMessage, UserModelMessage } from 'ai';
-import type { HostChildDelivery, HostChildDeliveryEntry, HostLogRow } from './protocol.ts';
+import type { UserModelMessage } from 'ai';
+import type { HostChildDelivery, HostChildDeliveryEntry } from './protocol.ts';
 
 export type HostChildLedgerState = HostChildDeliveryEntry['state'] | 'running';
 
 export interface HostChildLedgerEntry {
+  /** The name the user sees for the child (`hostChildCallSign`). */
+  readonly callSign: string;
+  /** The outcome this report delivers; absent when an earlier report delivered it. */
+  readonly outcome?: string | undefined;
   readonly persona: string;
   readonly prompt: string;
   readonly reason?: string | undefined;
@@ -18,14 +24,26 @@ export interface HostChildLedgerEntry {
   readonly toolName: string;
 }
 
+/** A delivered outcome, fenced so its own Markdown cannot run into the next entry. */
+function outcomeBlock(entry: HostChildLedgerEntry): string {
+  return `\n<subagent_outcome callSign="${entry.callSign}">\n${entry.outcome}\n</subagent_outcome>`;
+}
+
 function describeEntry(entry: HostChildLedgerEntry): string {
-  const head = `- ${entry.toolCallId} (${entry.toolName}, ${entry.persona})`;
+  const head = `- ${entry.callSign} (${entry.toolName}, ${entry.persona}, tool call ${entry.toolCallId})`;
   const prompt = ` Prompt: "${entry.prompt}".`;
+  const delivered = entry.outcome !== undefined;
   switch (entry.state) {
     case 'returned':
-      return `${head}: returned.${prompt} Use its saved outcome; do not execute it again.`;
+      return delivered
+        ? `${head}: returned.${prompt} Do not execute it again. Its outcome:${outcomeBlock(entry)}`
+        : `${head}: returned.${prompt} Its outcome was reported earlier in this conversation; do not execute it again.`;
     case 'failed':
-      return `${head}: failed — ${entry.reason ?? 'no reason recorded'}.${prompt} Its failure is in the conversation. Do not retry it unless the user asks.`;
+      return `${head}: failed — ${entry.reason ?? 'no reason recorded'}.${prompt} Do not retry it unless the user asks.${
+        delivered
+          ? ` What it reported:${outcomeBlock(entry)}`
+          : ' Its failure was reported earlier in this conversation.'
+      }`;
     case 'cancelled':
       return `${head}: cancelled by the user; it has no result.${prompt} Do not call it again unless the user asks.`;
     case 'running':
@@ -48,8 +66,9 @@ export function describeHostChildLedger(entries: readonly HostChildLedgerEntry[]
   ];
   lines.push(
     running === 0
-      ? `All ${entries.length} background invocations have finished. Nothing is still running. Continue with the task using the saved outcomes.`
-      : 'Do not re-dispatch a running invocation; its outcome will be delivered.'
+      ? `All ${entries.length} background invocations have finished. Nothing is still running. Continue with the task using their outcomes.`
+      : 'Do not re-dispatch a running invocation; its outcome will be delivered.',
+    'The user sees each subagent by its call sign: name a subagent by its call sign when you tell the user about it, never by its tool call or task ID.'
   );
   return lines.join('\n');
 }
@@ -66,44 +85,18 @@ const CONTINUATION_STATUS = {
  * continuation notification (packages/agent/src/mastra/child-continuation.ts,
  * removed with BST-1935): its final leg's text and how it ended.
  */
-export function describeHostChildContinuation(entry: HostChildDeliveryEntry): string {
+export function describeHostChildContinuation(
+  entry: HostChildDeliveryEntry,
+  callSign: string
+): string {
   const contents = JSON.stringify({
+    callSign,
     childThreadId: entry.childThreadId,
     continuationId: entry.childRunId,
     result: entry.outcome,
     status: CONTINUATION_STATUS[entry.state],
   });
   return `<child_continuation_result>${contents}</child_continuation_result>`;
-}
-
-/** A parent run's own messages with each delivered outcome in place of its acknowledgement. */
-export function overlayHostChildOutcomes(
-  runId: string,
-  messages: readonly ModelMessage[],
-  entries: readonly HostChildDeliveryEntry[]
-): ModelMessage[] {
-  // A follow-up answered no tool call; only invocation outcomes replace acknowledgements.
-  const outcomes = new Map(
-    entries
-      .filter((entry) => entry.parentRunId === runId && !entry.followUp)
-      .map((entry) => [entry.toolCallId, entry.outcome])
-  );
-  if (outcomes.size === 0) {
-    return [...messages];
-  }
-  return messages.map((message) =>
-    message.role === 'tool'
-      ? {
-          ...message,
-          content: message.content.map((part) => {
-            const outcome = part.type === 'tool-result' ? outcomes.get(part.toolCallId) : undefined;
-            return outcome === undefined || part.type !== 'tool-result'
-              ? part
-              : { ...part, output: { type: 'text' as const, value: outcome } };
-          }),
-        }
-      : message
-  );
 }
 
 /**
@@ -123,14 +116,4 @@ export function withHostDeliveryLedger(
       ? [{ text: message.content, type: 'text' as const }]
       : message.content;
   return { ...message, content: [{ text: delivery.ledger, type: 'text' }, ...content] };
-}
-
-/** Every child outcome delivered on a committed branch, from its runs' starts. */
-export function hostBranchDeliveries(
-  rows: readonly HostLogRow[],
-  onBranch: (runId: string) => boolean
-): HostChildDeliveryEntry[] {
-  return rows.flatMap(({ event }) =>
-    event.type === 'run.started' && onBranch(event.runId) ? (event.delivery?.entries ?? []) : []
-  );
 }
