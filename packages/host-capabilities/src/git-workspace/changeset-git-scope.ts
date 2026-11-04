@@ -18,6 +18,7 @@
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { createConcurrencyLimiter } from '@brainstrike/effect-kit';
 import type {
   ChangedFileEntry,
   ChangedFileStatus,
@@ -37,6 +38,7 @@ import {
 import { parseCommitFiles } from './git-repository-parsers.ts';
 import {
   createGitService,
+  diffFailure,
   GIT_DEFAULT_TIMEOUT_MS,
   type GitCommandRun,
   type GitCommandRunner,
@@ -50,6 +52,15 @@ import {
   validateBaseRef,
   validateCommitId,
 } from './git-structured-diff-refs.ts';
+import {
+  boundViewPatches,
+  completePatch,
+  diffGitHeader,
+  type PatchCapture,
+  pinnedDiffArgs,
+  pinnedPatchArgs,
+  splitPatchByFile,
+} from './structured-diff-content.ts';
 import { parseNumstatZ } from './structured-diff-parsers.ts';
 
 type GitScopeChangeset = Extract<Changeset, { kind: 'git-scope' }>;
@@ -264,8 +275,59 @@ interface ScopeChangeRecord {
   readonly additions: number | null;
   readonly deletions: number | null;
   readonly oldPath: string | null;
+  /** The file's whole patch, before the view's budget (`boundViewPatches`). */
+  readonly patch: string | null;
   readonly path: string;
   readonly status: ChangedFileStatus;
+}
+
+/**
+ * An untracked file's counts and patch, read through its own per-file diff,
+ * since numstat never sees an untracked file. Null when the read failed; the
+ * file then loads its diff when opened.
+ */
+type UntrackedDiffReader = (
+  path: string
+) => Promise<Pick<ScopeChangeRecord, 'additions' | 'deletions' | 'patch'> | null>;
+
+/** Untracked files diffed at once: each is its own `git diff --no-index`. */
+const UNTRACKED_DIFF_CONCURRENCY = 8;
+
+/**
+ * Untracked files the view diffs up front, in path order. Each costs a git
+ * process, so a tree of thousands of unignored files stays one `git status`;
+ * the files past this count load their diff when opened.
+ */
+const UNTRACKED_VIEW_DIFFS = 100;
+
+/**
+ * Give each listed file its section of the scope's patch, matched by the
+ * `diff --git` line git writes for its paths, never by position. A text file
+ * with no section, or a section no listed file claims, is a visible error. A
+ * binary file has no patch to draw. A cut capture leaves the files past the
+ * cut without one; they load their diff on demand.
+ */
+function attachPatches(
+  records: readonly Omit<ScopeChangeRecord, 'patch'>[],
+  capture: PatchCapture
+): BoundaryResult<readonly ScopeChangeRecord[]> {
+  const sections = splitPatchByFile(capture);
+  const unclaimed = new Set(sections.keys());
+  const withPatches: ScopeChangeRecord[] = [];
+  for (const record of records) {
+    const header = diffGitHeader(record.oldPath ?? record.path, record.path);
+    const section = sections.get(header);
+    unclaimed.delete(header);
+    if (section === undefined && record.additions !== null && !capture.truncated) {
+      return gitUnexpected(`git diff returned no patch for "${record.path}"`);
+    }
+    withPatches.push({ ...record, patch: record.additions === null ? null : (section ?? null) });
+  }
+  const [stray] = unclaimed;
+  if (stray !== undefined) {
+    return gitUnexpected(`git diff returned a patch no listed file claims: "${stray}"`);
+  }
+  return { ok: true, value: withPatches };
 }
 
 /**
@@ -306,7 +368,8 @@ const NAME_STATUS_TO_CHANGED_STATUS: ReadonlyMap<string, ChangedFileStatus> = ne
  * `[oldRef, newRef]` = two explicit refs) via TWO invocations —
  * `--numstat` (counts + rename pairs) and `--name-status` (status
  * classification, see {@link NAME_STATUS_TO_CHANGED_STATUS}) — merged by
- * final path. Two calls are needed because `--numstat` alone carries no
+ * final path, plus the patch every file draws ({@link attachPatches}). Two
+ * listing calls are needed because `--numstat` alone carries no
  * add/delete/modify classification. `-z` NUL parsing and rename-triple
  * decoding reuse the existing parsers (`parseNumstatZ`, `parseCommitFiles`)
  * rather than a hand-rolled second `-z` parser.
@@ -323,15 +386,20 @@ async function listRefComparisonChanges(
   invoke: InvokeFn,
   target: readonly string[]
 ): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
-  const [numstatRun, nameStatusRun] = await Promise.all([
-    invoke(['diff', ...target, '--numstat', '-z', '--relative', '--find-renames']),
-    invoke(['diff', ...target, '--name-status', '-z', '--relative', '--find-renames']),
+  const [numstatRun, nameStatusRun, patchRun] = await Promise.all([
+    invoke(pinnedDiffArgs([...target, '--numstat', '-z', '--relative', '--find-renames'])),
+    invoke(pinnedDiffArgs([...target, '--name-status', '-z', '--relative', '--find-renames'])),
+    invoke(pinnedPatchArgs([...target, '--relative', '--find-renames'])),
   ]);
   if (numstatRun.exitCode !== 0) {
     return gitCommandFailed(numstatRun);
   }
   if (nameStatusRun.exitCode !== 0) {
     return gitCommandFailed(nameStatusRun);
+  }
+  const patchFailure = diffFailure(patchRun, false);
+  if (patchFailure) {
+    return patchFailure;
   }
   const numstatEntries = parseNumstatZ(numstatRun.stdout);
   const nameStatusEntries = parseCommitFiles(nameStatusRun.stdout);
@@ -346,7 +414,7 @@ async function listRefComparisonChanges(
     }
   }
 
-  const records: ScopeChangeRecord[] = [];
+  const records: Omit<ScopeChangeRecord, 'patch'>[] = [];
   for (const numstatEntry of numstatEntries) {
     const statusEntry = statusByPath.get(numstatEntry.path);
     if (!statusEntry) {
@@ -383,16 +451,21 @@ async function listRefComparisonChanges(
       status: mappedStatus,
     });
   }
-  return { ok: true, value: records };
+  return attachPatches(records, {
+    text: patchRun.stdout,
+    truncated: patchRun.failureReason === 'maxBuffer',
+  });
 }
 
 /** Untracked files (`uncommitted` scope only — `unstaged`/`staged` never
  * include them: an untracked file is by definition not in the index). Numstat
  * has no concept of an untracked file (`git diff` never diffs one), so
  * `additions`/`deletions` are honestly `null` here, matching the binary
- * convention — never a fabricated count from reading the file. */
+ * convention — never a fabricated count from reading the file. Each file's
+ * patch comes from its own per-file diff, so the two never differ. */
 async function listUntrackedChanges(
-  invoke: InvokeFn
+  invoke: InvokeFn,
+  readDiff: UntrackedDiffReader
 ): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
   const [statusRun, prefixRun] = await Promise.all([
     invoke(['status', '--porcelain=v2', '--untracked-files=all', '-z', '--', '.']),
@@ -411,23 +484,28 @@ async function listUntrackedChanges(
   if (!scoped.ok) {
     return scoped;
   }
-  const records: ScopeChangeRecord[] = [];
-  for (const file of scoped.value.files) {
-    if (file.untracked) {
-      records.push({
-        additions: null,
-        deletions: null,
-        oldPath: null,
-        path: file.path,
-        status: 'untracked',
-      });
-    }
-  }
+  const limit = createConcurrencyLimiter(UNTRACKED_DIFF_CONCURRENCY);
+  const records = await Promise.all(
+    scoped.value.files
+      .filter((file) => file.untracked)
+      .map(async (file, index) => {
+        const diff = index < UNTRACKED_VIEW_DIFFS ? await limit(() => readDiff(file.path)) : null;
+        return {
+          additions: diff?.additions ?? null,
+          deletions: diff?.deletions ?? null,
+          oldPath: null,
+          patch: diff?.patch ?? null,
+          path: file.path,
+          status: 'untracked' as const,
+        };
+      })
+  );
   return { ok: true, value: records };
 }
 
 async function resolveUncommittedChanges(
-  invoke: InvokeFn
+  invoke: InvokeFn,
+  readDiff: UntrackedDiffReader
 ): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
   const unborn = await isHeadUnborn(invoke);
   let oldTarget = 'HEAD';
@@ -442,7 +520,7 @@ async function resolveUncommittedChanges(
   if (!tracked.ok) {
     return tracked;
   }
-  const untracked = await listUntrackedChanges(invoke);
+  const untracked = await listUntrackedChanges(invoke, readDiff);
   if (!untracked.ok) {
     return untracked;
   }
@@ -454,11 +532,12 @@ async function resolveUncommittedChanges(
  * `createGitService`, which has no listing op. */
 async function resolveScopeChanges(
   invoke: InvokeFn,
-  scope: GitScope
+  scope: GitScope,
+  readDiff: UntrackedDiffReader
 ): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
   switch (scope.kind) {
     case 'uncommitted':
-      return await resolveUncommittedChanges(invoke);
+      return await resolveUncommittedChanges(invoke, readDiff);
     case 'unstaged':
       return await listRefComparisonChanges(invoke, []);
     case 'staged': {
@@ -508,7 +587,8 @@ export interface GitScopeDeps {
  * (never coerced to 0 — the entry itself still appears with `additions: null`).
  * `revertible` is honestly `false` for every entry: git-scope changesets have
  * no journal-backed undo path (that concept applies only to `agent-run`/
- * `run-range` changesets).
+ * `run-range` changesets). Each entry carries its patch within the view's
+ * budget (`boundViewPatches`).
  */
 export async function resolveGitScopeChangesetView(
   deps: GitScopeDeps,
@@ -528,14 +608,18 @@ export async function resolveGitScopeChangesetView(
     return cwdResult;
   }
   const invoke = createInvoke(cwdResult.value, deps.run);
-  const changesResult = await resolveScopeChanges(invoke, changeset.scope);
+  const changesResult = await resolveScopeChanges(
+    invoke,
+    changeset.scope,
+    untrackedDiffReader(cwdResult.value, deps.run)
+  );
   if (!changesResult.ok) {
     return changesResult;
   }
 
   // Totals are ALWAYS real computed numbers for a git-scope changeset (never
-  // null — see `ChangesetView`'s doc comment): binary numstat columns are
-  // null and are EXCLUDED from the sum (never coerced to 0 silently — the
+  // null — see `ChangesetView`'s doc comment): binary numstat columns, and
+  // untracked files the view did not diff, are null and are EXCLUDED from the sum (never coerced to 0 silently — the
   // entry itself still carries `additions: null`), so a changeset whose
   // files are ALL binary correctly totals `0`/`0`, a real computed zero.
   const files: ChangedFileEntry[] = [];
@@ -546,6 +630,7 @@ export async function resolveGitScopeChangesetView(
       additions: record.additions,
       deletions: record.deletions,
       ...(record.oldPath === null ? {} : { oldPath: record.oldPath }),
+      patch: record.patch,
       path: record.path,
       repositoryRoot: changeset.repositoryRoot,
       revertible: false,
@@ -556,7 +641,30 @@ export async function resolveGitScopeChangesetView(
     totalAdditions += record.additions ?? 0;
     totalDeletions += record.deletions ?? 0;
   }
-  return { ok: true, value: { changeset, files, totalAdditions, totalDeletions } };
+  return {
+    ok: true,
+    value: { changeset, files: boundViewPatches(files), totalAdditions, totalDeletions },
+  };
+}
+
+/**
+ * An untracked file's counts and patch through the engine's own `untracked`
+ * mode, so the view and the file's diff share one code path. A file that
+ * cannot be read here (it vanished, or resolves outside the folder) gets
+ * null; opening its diff reports why.
+ */
+function untrackedDiffReader(cwd: string, run: GitCommandRunner): UntrackedDiffReader {
+  const service = createGitService({ cwd, run });
+  return async (path_) => {
+    const diff = await service.structuredFileDiff({ mode: 'untracked', path: path_ });
+    return diff.ok
+      ? {
+          additions: diff.value.additions,
+          deletions: diff.value.deletions,
+          patch: completePatch(diff.value.content),
+        }
+      : null;
+  };
 }
 
 /** Path-untracked check scoped to ONE path — the `uncommitted`/`unstaged`

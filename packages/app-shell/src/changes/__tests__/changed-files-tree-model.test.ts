@@ -23,6 +23,7 @@ function makeEntry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry 
   return {
     additions: 3,
     deletions: 1,
+    patch: null,
     path: 'src/a.ts',
     repositoryRoot: '/repo',
     revertible: true,

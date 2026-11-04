@@ -24,7 +24,6 @@ const DIFF: StructuredFileDiff = {
   additions: null,
   content: { kind: 'binary' },
   deletions: null,
-  hunks: [],
   path: 'src/file.ts',
   status: 'modified',
 };

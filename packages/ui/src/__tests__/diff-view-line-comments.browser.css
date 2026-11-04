@@ -1,5 +1,0 @@
-/* Tailwind's layout utilities, so the diff scrolls inside its own box as in
-   the app. The app's globals are left out: their button transitions would
-   leave the + mid-fade when a test reads its opacity. */
-@import "tailwindcss";
-@source "../diff-view";

@@ -1,0 +1,6 @@
+/* The app's Tailwind and tokens, so the review is drawn as in the app. */
+@import "tailwindcss";
+@import "../globals.css";
+@source "../diff-view";
+@source "../toaster.tsx";
+@source "../toast.tsx";

@@ -17,7 +17,7 @@
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { ChangedFileEntry } from '@brainstrike/types';
 import { ActionRegistryProvider } from '@brainstrike/ui';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useChangesStore } from '../changes-store';
@@ -33,6 +33,7 @@ function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
   return {
     additions: 1,
     deletions: 0,
+    patch: null,
     path: 'src/a.ts',
     repositoryRoot: '/repo',
     revertible: true,
@@ -44,8 +45,7 @@ function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
 }
 
 beforeEach(() => {
-  useChangesStore.getState().clearSelection();
-  useChangesStore.getState().setExpandedIds(new Set());
+  useChangesStore.getState().reset();
 });
 
 describe('ChangedFilesTree first-load auto-expand', () => {
@@ -72,7 +72,9 @@ describe('ChangedFilesTree first-load auto-expand', () => {
 
     // The user collapses everything, then switches source. The new changeset
     // must arrive expanded — the latch is per-changeset, not per-mount.
-    useChangesStore.getState().setExpandedIds(new Set());
+    act(() => {
+      useChangesStore.getState().setExpandedIds(new Set());
+    });
     rerender(
       withRegistry(
         <ChangedFilesTree

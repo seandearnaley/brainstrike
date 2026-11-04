@@ -1,11 +1,12 @@
 import type { ChangedFileEntry } from '@brainstrike/types';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { changedFileKey, selectRenderedFiles, useChangesStore } from '../changes-store';
+import { changedFileKey, type DraftComment, useChangesStore } from '../changes-store';
 
 function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
   return {
     additions: 1,
     deletions: 0,
+    patch: null,
     path: 'src/a.ts',
     repositoryRoot: '/repo',
     revertible: true,
@@ -16,9 +17,29 @@ function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
   };
 }
 
+function comment(id: string, text: string): DraftComment {
+  return {
+    comment: {
+      endLine: 3,
+      fileId: changedFileKey(entry()),
+      id,
+      lines: ['const value = 1;'],
+      side: 'additions',
+      startLine: 3,
+      text,
+    },
+    entry: entry(),
+  };
+}
+
+function drafts(changesetKey: string): readonly string[] {
+  return (useChangesStore.getState().commentsByChangeset.get(changesetKey) ?? []).map(
+    (draft) => draft.comment.text
+  );
+}
+
 beforeEach(() => {
-  useChangesStore.getState().clearSelection();
-  useChangesStore.getState().setExpandedIds(new Set());
+  useChangesStore.getState().reset();
 });
 
 describe('changedFileKey', () => {
@@ -45,36 +66,7 @@ describe('changedFileKey', () => {
   });
 });
 
-describe('selectRenderedFiles', () => {
-  const files = [entry({ path: 'src/a.ts' }), entry({ path: 'src/b.ts' })];
-
-  it('renders every file when nothing is explicitly selected', () => {
-    // An EMPTY selection means "no explicit narrowing", not "render nothing".
-    expect(selectRenderedFiles(files, new Set())).toBe(files);
-  });
-
-  it('renders only the selected files, preserving changeset order', () => {
-    const selection = new Set([changedFileKey(files[1] as ChangedFileEntry)]);
-
-    expect(selectRenderedFiles(files, selection)).toEqual([files[1]]);
-  });
-});
-
 describe('useChangesStore', () => {
-  it('tracks explicit selection separately from set size', () => {
-    const key = changedFileKey(entry());
-    expect(useChangesStore.getState().hasExplicitSelection).toBe(false);
-
-    useChangesStore.getState().toggleFileKey(key);
-    expect(useChangesStore.getState().hasExplicitSelection).toBe(true);
-    expect(useChangesStore.getState().selectedFileKeys.has(key)).toBe(true);
-
-    // Toggling the last key back off returns to "no explicit selection", which
-    // is the render-everything state — not an empty view.
-    useChangesStore.getState().toggleFileKey(key);
-    expect(useChangesStore.getState().hasExplicitSelection).toBe(false);
-  });
-
   it('toggles expansion ids', () => {
     useChangesStore.getState().toggleExpanded('repo:/repo');
     expect(useChangesStore.getState().expandedIds.has('repo:/repo')).toBe(true);
@@ -83,17 +75,51 @@ describe('useChangesStore', () => {
     expect(useChangesStore.getState().expandedIds.has('repo:/repo')).toBe(false);
   });
 
-  it('reset() clears both selection and expansion, matching the factory-reset contract', () => {
-    const key = changedFileKey(entry());
-    useChangesStore.getState().toggleFileKey(key);
+  it('keeps draft comments in the order they were written', () => {
+    useChangesStore.getState().saveComment('cs-1', comment('a', 'first'));
+    useChangesStore.getState().saveComment('cs-1', comment('b', 'second'));
+
+    expect(drafts('cs-1')).toEqual(['first', 'second']);
+  });
+
+  it('replaces an edited draft in place instead of adding another', () => {
+    useChangesStore.getState().saveComment('cs-1', comment('a', 'first'));
+    useChangesStore.getState().saveComment('cs-1', comment('b', 'second'));
+
+    useChangesStore.getState().saveComment('cs-1', comment('a', 'first, reworded'));
+
+    expect(drafts('cs-1')).toEqual(['first, reworded', 'second']);
+  });
+
+  it('deletes only the named draft', () => {
+    useChangesStore.getState().saveComment('cs-1', comment('a', 'first'));
+    useChangesStore.getState().saveComment('cs-1', comment('b', 'second'));
+
+    useChangesStore.getState().deleteComment('cs-1', 'a');
+    expect(drafts('cs-1')).toEqual(['second']);
+
+    useChangesStore.getState().deleteComment('cs-1', 'b');
+    expect(drafts('cs-1')).toEqual([]);
+  });
+
+  it("clears one changeset's drafts and keeps every other changeset's", () => {
+    useChangesStore.getState().saveComment('cs-1', comment('a', 'on the turn'));
+    useChangesStore.getState().saveComment('cs-2', comment('a', 'on the branch'));
+
+    useChangesStore.getState().clearComments('cs-1');
+
+    expect(drafts('cs-1')).toEqual([]);
+    expect(drafts('cs-2')).toEqual(['on the branch']);
+  });
+
+  it('reset() drops every draft and every expanded group (factory reset)', () => {
+    useChangesStore.getState().saveComment('cs-1', comment('a', 'first'));
+    useChangesStore.getState().saveComment('cs-2', comment('b', 'second'));
     useChangesStore.getState().toggleExpanded('repo:/repo');
-    expect(useChangesStore.getState().hasExplicitSelection).toBe(true);
-    expect(useChangesStore.getState().expandedIds.size).toBeGreaterThan(0);
 
     useChangesStore.getState().reset();
 
-    expect(useChangesStore.getState().hasExplicitSelection).toBe(false);
-    expect(useChangesStore.getState().selectedFileKeys.size).toBe(0);
+    expect(useChangesStore.getState().commentsByChangeset.size).toBe(0);
     expect(useChangesStore.getState().expandedIds.size).toBe(0);
   });
 });

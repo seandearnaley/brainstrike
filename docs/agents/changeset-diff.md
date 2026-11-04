@@ -1,6 +1,6 @@
 # Git changes and managed worktrees
 
-Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilities/src/git-workspace` (changeset, Git-inventory, worktree and snapshot services). Decisions: ADRs 0016, 0017 and 0029.
+Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilities/src/git-workspace` (changeset, Git-inventory, worktree and snapshot services). Decisions: ADRs 0016, 0017, 0029 and 0036.
 
 ## Scope and trust
 
@@ -34,4 +34,12 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 - The host owns the worktree ledger; Main reads a live worktree through `worktrees/managed-paths`.
 - The standalone CLI host composes the same worktree service over its launch roots (list, archive, shell correlation). Creating a worktree and turn snapshots stay desktop-only.
 - Changes uses the structured diff engine with explicit invalidation and safe failure surfaces.
+
+## Drawing diffs (ADR-0036)
+
+- Git's patch is the diff. Every display `git diff` pins its output flags so user config cannot change the text; never parse a patch made without them.
+- A view entry carries its file's complete patch while the view stays under its patch budget; a binary file, a file past the budget or a hunks-only file has `patch: null` and loads its `StructuredFileDiff` when opened.
+- The renderer (`@brainstrike/ui/diff-view`, @pierre/diffs) parses the patch and never diffs it again. Full sides only expand unchanged context.
+- Only an approval preview, whose text is not in git yet, is diffed by the renderer.
+- Line comments are per-changeset drafts in `changes-store` until added to the active thread's message.
 - A worktree status still loading is not a clean checkout. Closing UI never mutates durable run history.

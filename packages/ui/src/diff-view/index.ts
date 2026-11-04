@@ -1,7 +1,9 @@
-export { DiffView, type DiffViewMode, type DiffViewProps } from './diff-view';
-export type {
-  DiffLineComment,
-  DiffLineCommentHandler,
-  DiffLineSide,
-} from './diff-view-line-comments';
-export type { DiffViewSource } from './diff-view-source';
+export type { DiffSide } from './diff-metadata';
+export {
+  DiffReview,
+  type DiffReviewFile,
+  type DiffReviewHandle,
+  type DiffReviewProps,
+} from './diff-review';
+export type { DiffComment, DiffCommentTarget } from './diff-review-comment';
+export { FileDiffView, type FileDiffViewProps } from './file-diff-view';
