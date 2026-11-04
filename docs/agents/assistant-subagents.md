@@ -35,6 +35,7 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 - Background completion delivers the whole turn's invocation ledger with a durable delivery watermark.
   - Wakes use the parent thread's current committed selection and keep the original admitting client origin ([ADR-0019](../adr/0019-host-thread-run-selection.md)).
   - Delivery follows the thread, not the dispatching reply: a regenerate or edit of that reply's message takes its undelivered results once.
+  - An outcome is in full only in the delivery that first takes it. A later ledger of the turn lists that invocation by its outcome's opening, which still reaches the model after Memory's window drops the earlier message.
 
 ## Conversation controls and retirement
 

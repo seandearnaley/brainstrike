@@ -776,9 +776,9 @@ export class HostChildRuns {
         followUp: true,
       })
     );
-    // The ledger is the one message the parent's model is sure to read: an
-    // earlier wake's message can leave Memory's window as the dispatching
-    // turn's tool results did, so every settled invocation's outcome is in it.
+    // The ledger is the one message the parent's model is sure to read, and an
+    // earlier wake's can leave Memory's window: each settled outcome is in it,
+    // in full when first delivered and by its opening after that.
     const settledOutcome = (invocation: Invocation): string | undefined => {
       const outcome = reported(invocation);
       return outcome === undefined ? undefined : entry(invocation, outcome).outcome;
@@ -796,6 +796,7 @@ export class HostChildRuns {
               )
               .map((invocation) => ({
                 callSign: hostChildCallSign(invocation.threadId),
+                deliveredEarlier: this.delivered.has(invocation.run.id),
                 earlierTurn: !turns.has(invocation.origin.turnId),
                 outcome: settledOutcome(invocation),
                 persona: persona(invocation).label,
