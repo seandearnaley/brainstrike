@@ -3,6 +3,7 @@ import { executableInputSchema } from './executable-input-schema.ts';
 import { canonical, type Json, jsonValue } from './json-value.ts';
 import type { HostTool } from './ports.ts';
 import type { HostEvent } from './protocol.ts';
+import { withoutVacuousPropertyNames } from './vacuous-property-names.ts';
 
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 interface Approval {
@@ -192,7 +193,8 @@ export function approvalRuntimeSchema(
   if (!validate) {
     throw new Error('Executable tool has no input validator');
   }
-  return jsonSchema(() => schema.jsonSchema, {
+  // The model-facing view only: `validate` below still enforces the authored schema.
+  return jsonSchema(async () => withoutVacuousPropertyNames(await schema.jsonSchema), {
     validate: async (rawInput) => {
       const existing = admitted(rawInput);
       if (existing) {
