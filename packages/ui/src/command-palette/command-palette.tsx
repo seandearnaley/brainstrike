@@ -7,7 +7,9 @@ import type {
 import { createLogger } from '@brainstrike/logging';
 import { Description as DialogDescription, Title as DialogTitle } from '@radix-ui/react-dialog';
 import { Command as Cmdk } from 'cmdk';
+import { ChevronLeft } from 'lucide-react';
 import * as React from 'react';
+import { Button } from '../button';
 import { COMMAND_PALETTE_CONTENT_CLASS, COMMAND_PALETTE_OVERLAY_CLASS } from '../layers';
 import { formatShortcut } from '../lib/format-shortcut';
 import { cn } from '../lib/utils';
@@ -40,6 +42,11 @@ export interface CommandPaletteProps {
   readonly context: CommandContext;
   readonly onOpenChange: (open: boolean) => void;
   readonly open: boolean;
+}
+
+/** An open sub-page and the label of the page command that opened it. */
+interface OpenPage extends CommandPage {
+  readonly label: string;
 }
 
 interface CommandSection {
@@ -82,7 +89,8 @@ function groupCommands(commands: readonly Command[]): readonly CommandSection[] 
  * case-insensitive substring match; selection invokes `command.run(context)`.
  *
  * A page command (Go to Tab…) swaps the list for its page instead of running;
- * Backspace in an empty query goes back, and closing always resets to the root.
+ * a breadcrumb chip names the page with a back button, Backspace in an empty
+ * query also goes back, and closing always resets to the root.
  *
  * No-silent-fallbacks: a failing `ActionOutcome` ({ ok: false }) — or a thrown
  * run — surfaces a toast and a log; success closes the palette. The palette
@@ -95,7 +103,8 @@ export function CommandPalette({
   context,
 }: CommandPaletteProps): React.ReactElement {
   const [query, setQuery] = React.useState('');
-  const [page, setPage] = React.useState<CommandPage | null>(null);
+  const [page, setPage] = React.useState<OpenPage | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   // Derive the filtered + grouped sections during render — no setState in an
@@ -124,9 +133,16 @@ export function CommandPalette({
     }
   };
 
+  const handleBack = () => {
+    setPage(null);
+    setQuery('');
+    inputRef.current?.focus();
+  };
+
   const handleSelect = async (command: Command) => {
     if (command.page) {
-      setPage(command.page(context));
+      // The chip names the page without the label's trailing ellipsis.
+      setPage({ ...command.page(context), label: command.label.replace(/…$/u, '') });
       setQuery('');
       return;
     }
@@ -174,7 +190,22 @@ export function CommandPalette({
       <DialogDescription className="sr-only">
         Search for a command and press Enter to run it.
       </DialogDescription>
-      <div className="flex items-center border-b px-3" data-cmdk-input-wrapper="">
+      <div className="flex items-center gap-2 border-b px-3" data-cmdk-input-wrapper="">
+        {page ? (
+          <span className="bg-muted text-foreground flex shrink-0 items-center gap-0.5 rounded-md py-0.5 pr-2 pl-0.5 text-xs font-medium">
+            <Button
+              aria-label="Back to all commands"
+              className="size-5"
+              onClick={handleBack}
+              size="icon-xs"
+              title="Back (Backspace)"
+              variant="ghost"
+            >
+              <ChevronLeft aria-hidden="true" className="size-3.5" />
+            </Button>
+            {page.label}
+          </span>
+        ) : null}
         <Cmdk.Input
           className={cn(
             'flex h-12 w-full rounded-md bg-transparent py-3 text-sm outline-none',
@@ -183,6 +214,7 @@ export function CommandPalette({
           onKeyDown={handleInputKeyDown}
           onValueChange={setQuery}
           placeholder={page?.placeholder ?? 'Type a command…'}
+          ref={inputRef}
           value={query}
         />
       </div>

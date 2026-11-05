@@ -391,6 +391,19 @@ describe('CommandPalette', () => {
       expect(screen.getByText('New Thread')).toBeTruthy();
     });
 
+    it('names the page in a chip whose back button returns to the root list', async () => {
+      await openPage();
+
+      expect(screen.getByText('Go to Tab')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Back to all commands' }));
+
+      const root = await screen.findByPlaceholderText('Type a command…');
+      expect(screen.getByText('New Thread')).toBeTruthy();
+      expect(screen.queryByText('Alpha')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Back to all commands' })).toBeNull();
+      expect(document.activeElement).toBe(root);
+    });
+
     it('starts from the root list the next time it opens', async () => {
       const onOpenChange = vi.fn();
       const view = render(
