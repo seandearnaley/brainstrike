@@ -57,7 +57,7 @@ import {
   readGitHookFreeFlags,
   stripLineEnding,
 } from './git-service.ts';
-import { STRUCTURED_DIFF_CONTENT_CAP_BYTES } from './git-structured-diff.ts';
+import { type DiffSide, STRUCTURED_DIFF_CONTENT_CAP_BYTES } from './structured-diff-content.ts';
 
 /** Discriminated cause for every failure this module throws. */
 export type SnapshotGitErrorCode =
@@ -199,12 +199,6 @@ function gitIndexFileEnv(indexPath: string): Readonly<Record<string, string>> {
  */
 const CAT_FILE_ABSENT_STDERR_PATTERN =
   /does not exist|exists on disk, but not in|invalid object name/u;
-
-/** One side's size-gated blob read (shape mirrors the structured-diff engine). */
-export type ShadowBlobRead =
-  | { readonly content: Buffer; readonly kind: 'present' }
-  | { readonly kind: 'absent' }
-  | { readonly kind: 'over-cap'; readonly size: number };
 
 export interface ShadowGitInvokeOptions {
   readonly binaryStdout?: boolean | undefined;
@@ -388,10 +382,7 @@ export function createShadowGitPlumbing({ gitDir, rootPath, runner }: ShadowGitP
    * read is a hard failure (a truncated blob is silent corruption — see
    * `GitCommandRun.stdoutBuffer`'s contract).
    */
-  async function readBlobSized(
-    spec: string,
-    options?: ShadowGitInvokeOptions
-  ): Promise<ShadowBlobRead> {
+  async function readBlobSized(spec: string, options?: ShadowGitInvokeOptions): Promise<DiffSide> {
     const sizeRun = await invoke(['cat-file', '-s', spec], options);
     if (sizeRun.exitCode !== 0 || sizeRun.failureReason !== undefined) {
       if (sizeRun.exitCode === 128 && CAT_FILE_ABSENT_STDERR_PATTERN.test(sizeRun.stderr)) {

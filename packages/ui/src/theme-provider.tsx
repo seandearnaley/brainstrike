@@ -151,6 +151,11 @@ export function useCodeTheme(): CodeThemeId {
   return React.useContext(ThemeProviderContext)?.codeTheme ?? DEFAULT_CODE_THEME;
 }
 
+/** Light, dark or system, for code surfaces; outside the provider it follows the system. */
+export function useThemeMode(): ThemeMode {
+  return React.useContext(ThemeProviderContext)?.mode ?? 'system';
+}
+
 export const useTheme = () => {
   const context = React.useContext(ThemeProviderContext);
 

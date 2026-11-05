@@ -14,15 +14,14 @@ export * from './context-menu';
 export * from './copy-text-button';
 export * from './data-table';
 export * from './dialog';
-// DiffView itself loads from the `./diff-view` subpath, so CodeMirror Merge
+// The diff components load from the `./diff-view` subpath, so @pierre/diffs
 // stays out of every chunk that only needs the root.
 export type {
-  DiffLineComment,
-  DiffLineCommentHandler,
-  DiffLineSide,
-  DiffViewMode,
-  DiffViewProps,
-  DiffViewSource,
+  DiffComment,
+  DiffCommentTarget,
+  DiffReviewFile,
+  DiffReviewHandle,
+  DiffSide,
 } from './diff-view';
 export * from './dropdown-menu';
 export * from './empty-state';

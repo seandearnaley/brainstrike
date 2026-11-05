@@ -17,7 +17,7 @@
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { Changeset, ChangesetView, GitInventory } from '@brainstrike/types';
 import { Button, Input } from '@brainstrike/ui';
-import { GitCommitHorizontal, History, Loader2, RefreshCw, Upload } from 'lucide-react';
+import { GitCommitHorizontal, History, RefreshCw, Upload } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
 import { useGitBridge } from '../../workspace-git-services';
 import { useRewindStore } from '../rewind-store';
@@ -32,7 +32,6 @@ export interface ChangesetHeaderProps {
   readonly inventoryError: string | null;
   /** See module doc comment — additive, required by the source picker. */
   readonly latestRunId: string | null;
-  readonly loading: boolean;
   /** Additive per the task brief: retries the failed `useChangeset` load. */
   readonly onRetry?: () => void;
   /**
@@ -442,7 +441,6 @@ export function ChangesetHeader({
   inventory,
   inventoryError,
   latestRunId,
-  loading,
   onRetry,
   onRetryInventory,
   onSelectChangeset,
@@ -506,22 +504,6 @@ export function ChangesetHeader({
             </Button>
           ) : null}
         </div>
-      ) : null}
-
-      {!error && loading ? (
-        <p
-          className="text-muted-foreground flex items-center gap-1.5 text-xs"
-          data-testid="changeset-header-loading"
-        >
-          <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
-          Loading changeset…
-        </p>
-      ) : null}
-
-      {!(error || loading) && view && view.files.length === 0 ? (
-        <p className="text-muted-foreground text-xs" data-testid="changeset-header-empty">
-          No changes in this changeset
-        </p>
       ) : null}
     </div>
   );

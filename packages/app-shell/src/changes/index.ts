@@ -17,7 +17,7 @@ export type {
   RewindRedoPayload,
 } from './changes-bridge';
 export type { ChangesStoreState } from './changes-store';
-export { changedFileKey, selectRenderedFiles, useChangesStore } from './changes-store';
+export { changedFileKey, useChangesStore } from './changes-store';
 export type {
   ReadyRewindPreview,
   RewindApplyResult,

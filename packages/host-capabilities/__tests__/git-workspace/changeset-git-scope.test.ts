@@ -60,6 +60,11 @@ function ok(overrides: Partial<GitCommandRun> = {}): GitCommandRun {
   return { exitCode: 0, stderr: '', stdout: '', timedOut: false, ...overrides };
 }
 
+/** A `git diff` call; pinned output settings (`-c ...`) may precede the subcommand. */
+function isDiff(args: readonly string[]): boolean {
+  return args.includes('diff');
+}
+
 interface RecordedCall {
   readonly args: readonly string[];
 }
@@ -152,11 +157,14 @@ describe('resolveGitScopeChangesetView — rootId validation (NTH-2)', () => {
     const rootDir = await makeTempDir();
     let receivedRootId: unknown;
     const { run } = createFakeRunner((args) => {
-      if (args[0] === 'diff' && args.includes('--numstat')) {
+      if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: '1\t0\ta.txt\0' });
       }
-      if (args[0] === 'diff' && args.includes('--name-status')) {
+      if (isDiff(args) && args.includes('--name-status')) {
         return ok({ stdout: 'M\x00a.txt\x00' });
+      }
+      if (isDiff(args)) {
+        return ok({ stdout: 'diff --git a/a.txt b/a.txt\n@@ -1 +1,2 @@\n a\n+b\n' });
       }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
     });
@@ -185,6 +193,73 @@ describe('resolveGitScopeChangesetView — rootId validation (NTH-2)', () => {
   });
 });
 
+describe("resolveGitScopeChangesetView — each entry's patch", () => {
+  async function viewOf(numstat: string, nameStatus: string, patch: string) {
+    const rootDir = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      if (isDiff(args) && args.includes('--numstat')) {
+        return ok({ stdout: numstat });
+      }
+      if (isDiff(args) && args.includes('--name-status')) {
+        return ok({ stdout: nameStatus });
+      }
+      if (isDiff(args)) {
+        return ok({ stdout: patch });
+      }
+      throw new Error(`unexpected call: ${JSON.stringify(args)}`);
+    });
+    return await resolveGitScopeChangesetView(
+      { resolveRootCwd: async () => ({ ok: true, value: rootDir }), run },
+      'root-id',
+      {
+        kind: 'git-scope',
+        repositoryRoot: rootDir,
+        scope: { kind: 'unstaged' },
+        worktreePath: rootDir,
+      }
+    );
+  }
+
+  it('matches sections to files by their paths, not their order, quoting names as git does', async () => {
+    const quoted = 'diff --git "a/tab\\there" "b/tab\\there"\n@@ -1 +1 @@\n-a\n+b\n';
+    const renamed =
+      'diff --git a/old name.txt b/new name.txt\nsimilarity index 90%\nrename from old name.txt\nrename to new name.txt\n';
+    const view = await viewOf(
+      '1\t1\ttab\there\x000\t0\t\x00old name.txt\x00new name.txt\x00',
+      'M\x00tab\there\x00R090\x00old name.txt\x00new name.txt\x00',
+      `${renamed}${quoted}`
+    );
+    expect(view.ok).toBe(true);
+    if (!view.ok) {
+      return;
+    }
+    expect(view.value.files.map((file) => [file.path, file.patch])).toEqual([
+      ['tab\there', quoted],
+      ['new name.txt', renamed],
+    ]);
+  });
+
+  it('a binary file draws no patch', async () => {
+    const view = await viewOf(
+      '-\t-\tlogo.png\x00',
+      'M\x00logo.png\x00',
+      'diff --git a/logo.png b/logo.png\nBinary files a/logo.png and b/logo.png differ\n'
+    );
+    expect(view.ok && view.value.files[0]?.patch).toBeNull();
+  });
+
+  it('fails visibly when a listed text file has no section, or a section has no listed file', async () => {
+    const missing = await viewOf('1\t0\ta.txt\x00', 'M\x00a.txt\x00', '');
+    expect(missing.ok).toBe(false);
+    const stray = await viewOf(
+      '1\t0\ta.txt\x00',
+      'M\x00a.txt\x00',
+      'diff --git a/a.txt b/a.txt\n@@ -1 +1,2 @@\n a\n+b\ndiff --git a/b.txt b/b.txt\n@@ -1 +1 @@\n-x\n+y\n'
+    );
+    expect(stray.ok).toBe(false);
+  });
+});
+
 const NO_HOOKS = ok({ exitCode: 1 });
 const EMPTY_NUMSTAT = ok({ stdout: '' });
 
@@ -204,7 +279,7 @@ describe('resolveGitScopeChangesetView — branch-vs-base base-ref resolution', 
       if (args[0] === 'merge-base') {
         return ok({ stdout: 'mergebasesha\n' });
       }
-      if (args[0] === 'diff') {
+      if (isDiff(args)) {
         return EMPTY_NUMSTAT;
       }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
@@ -237,7 +312,7 @@ describe('resolveGitScopeChangesetView — branch-vs-base base-ref resolution', 
       if (args[0] === 'merge-base') {
         return ok({ stdout: 'mergebasesha\n' });
       }
-      if (args[0] === 'diff') {
+      if (isDiff(args)) {
         return EMPTY_NUMSTAT;
       }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
@@ -276,7 +351,7 @@ describe('resolveGitScopeChangesetView — branch-vs-base base-ref resolution', 
       if (args[0] === 'merge-base') {
         return ok({ stdout: 'mergebasesha\n' });
       }
-      if (args[0] === 'diff') {
+      if (isDiff(args)) {
         return EMPTY_NUMSTAT;
       }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
@@ -437,7 +512,7 @@ describe('empty-tree resolution — per-repo object format (review finding, BST-
       if (args[0] === 'rev-parse' && args.includes('--show-object-format')) {
         return ok({ stdout: 'sha256\n' });
       }
-      if (args[0] === 'diff') {
+      if (isDiff(args)) {
         return ok({ stdout: '' });
       }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
@@ -454,7 +529,7 @@ describe('empty-tree resolution — per-repo object format (review finding, BST-
       }
     );
     expect(result.ok).toBe(true);
-    const diffCalls = calls.filter((call) => call.args[0] === 'diff');
+    const diffCalls = calls.filter((call) => isDiff(call.args));
     expect(diffCalls.length).toBeGreaterThan(0);
     for (const call of diffCalls) {
       expect(call.args).toContain(SHA256_EMPTY_TREE);
@@ -504,10 +579,13 @@ describe('resolveGitScopeStructuredFileDiffParams — bogus commitId (NTH-9)', (
 describe('listRefComparisonChanges — bidirectional numstat/name-status merge (NTH-3)', () => {
   it('a numstat entry with NO matching name-status entry is a visible error, not a silent drop', async () => {
     const { run } = createFakeRunner((args) => {
-      if (args[0] === 'diff' && args.includes('--numstat')) {
+      if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: '1\t0\tonly-in-numstat.txt\0' });
       }
-      if (args[0] === 'diff' && args.includes('--name-status')) {
+      if (isDiff(args) && args.includes('--name-status')) {
+        return ok({ stdout: '' });
+      }
+      if (isDiff(args)) {
         return ok({ stdout: '' });
       }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
@@ -532,11 +610,14 @@ describe('listRefComparisonChanges — bidirectional numstat/name-status merge (
 
   it('a name-status entry with NO matching numstat entry is a visible error, not a silent drop', async () => {
     const { run } = createFakeRunner((args) => {
-      if (args[0] === 'diff' && args.includes('--numstat')) {
+      if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: '' });
       }
-      if (args[0] === 'diff' && args.includes('--name-status')) {
+      if (isDiff(args) && args.includes('--name-status')) {
         return ok({ stdout: 'M\x00only-in-namestatus.txt\x00' });
+      }
+      if (isDiff(args)) {
+        return ok({ stdout: '' });
       }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
     });
@@ -562,11 +643,14 @@ describe('listRefComparisonChanges — bidirectional numstat/name-status merge (
 describe('listRefComparisonChanges — unmerged path (R3)', () => {
   it('an unmerged (U) path is a hard, dedicated "unmerged-path:" error naming the path', async () => {
     const { run } = createFakeRunner((args) => {
-      if (args[0] === 'diff' && args.includes('--numstat')) {
+      if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: '0\t0\tconflict.txt\0' });
       }
-      if (args[0] === 'diff' && args.includes('--name-status')) {
+      if (isDiff(args) && args.includes('--name-status')) {
         return ok({ stdout: 'U\x00conflict.txt\x00' });
+      }
+      if (isDiff(args)) {
+        return ok({ stdout: '' });
       }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
     });

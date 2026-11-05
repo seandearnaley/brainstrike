@@ -367,6 +367,7 @@ describe('useChangeset', () => {
         {
           additions: null,
           deletions: null,
+          patch: null,
           path: 'src/file.ts',
           repositoryRoot: null,
           revertible: true,
@@ -414,7 +415,6 @@ describe('useChangeset', () => {
         additions: null,
         content: { kind: 'binary' },
         deletions: null,
-        hunks: [],
         path: 'src/file.ts',
         status: 'modified',
       },
@@ -446,7 +446,6 @@ describe('useChangeset', () => {
         additions: null,
         content: { kind: 'binary' },
         deletions: null,
-        hunks: [],
         path: 'src/file.ts',
         status: 'modified',
       },
@@ -494,6 +493,7 @@ describe('useChangeset', () => {
           {
             additions: null,
             deletions: null,
+            patch: null,
             path: 'stale.ts',
             repositoryRoot: null,
             revertible: false,
@@ -508,6 +508,7 @@ describe('useChangeset', () => {
           {
             additions: null,
             deletions: null,
+            patch: null,
             path: 'fresh.ts',
             repositoryRoot: null,
             revertible: false,

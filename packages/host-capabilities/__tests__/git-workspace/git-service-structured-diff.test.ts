@@ -27,7 +27,10 @@ import {
   type GitCommandRun,
   type GitCommandRunner,
 } from '../../src/git-workspace/git-service.ts';
-import { STRUCTURED_DIFF_CONTENT_CAP_BYTES } from '../../src/git-workspace/git-structured-diff.ts';
+import {
+  PATCH_BOUND,
+  STRUCTURED_DIFF_CONTENT_CAP_BYTES,
+} from '../../src/git-workspace/structured-diff-content.ts';
 
 const createdRoots: string[] = [];
 
@@ -133,6 +136,8 @@ describe('structuredFileDiff — absent-side classification', () => {
   it('classifies an added file: old side (HEAD:./path) absent, new side present', async () => {
     const cwd = await makeTempDir();
     const newContent = Buffer.from('a\nb\nc\n', 'utf8');
+    const patch =
+      'diff --git a/added.txt b/added.txt\nnew file mode 100644\n--- /dev/null\n+++ b/added.txt\n@@ -0,0 +1,3 @@\n+a\n+b\n+c\n';
     const { calls, run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '3\t0\tadded.txt\0' });
@@ -145,10 +150,7 @@ describe('structuredFileDiff — absent-side classification', () => {
         return presentSpec(args, newContent);
       }
       if (isUnifiedDiff(args)) {
-        return ok({
-          stdout:
-            'diff --git a/added.txt b/added.txt\nnew file mode 100644\n--- /dev/null\n+++ b/added.txt\n@@ -0,0 +1,3 @@\n+a\n+b\n+c\n',
-        });
+        return ok({ stdout: patch });
       }
       throw new Error(`unexpected invocation: ${args.join(' ')}`);
     });
@@ -164,6 +166,7 @@ describe('structuredFileDiff — absent-side classification', () => {
       kind: 'full',
       newContent: 'a\nb\nc\n',
       oldContent: null,
+      patch,
     });
     // New side for staged mode is read via `:0:./<path>`, not the worktree.
     const catFileCalls = calls.filter((c) => isCatFile(c.args));
@@ -309,8 +312,8 @@ describe('structuredFileDiff — unmerged stage-0 (real merge conflict) classifi
   });
 });
 
-describe('structuredFileDiff — binary detection via stdoutBuffer null byte', () => {
-  it('classifies content as binary when either present side contains a null byte', async () => {
+describe("structuredFileDiff — binary is git's call, as in its numstat", () => {
+  it('classifies content as binary when git reports the pair as binary', async () => {
     const cwd = await makeTempDir();
     const binaryBytes = Buffer.from([0x89, 0x50, 0x00, 0x47]);
     const { run } = createFakeRunner((args) => {
@@ -324,6 +327,12 @@ describe('structuredFileDiff — binary detection via stdoutBuffer null byte', (
         }
         return presentSpec(args, binaryBytes);
       }
+      if (isUnifiedDiff(args)) {
+        return ok({
+          stdout:
+            'diff --git a/image.png b/image.png\nnew file mode 100644\nBinary files /dev/null and b/image.png differ\n',
+        });
+      }
       throw new Error(`unexpected invocation: ${args.join(' ')}`);
     });
     const service = createGitService({ cwd, run });
@@ -335,15 +344,21 @@ describe('structuredFileDiff — binary detection via stdoutBuffer null byte', (
       return;
     }
     expect(result.value.content).toEqual({ kind: 'binary' });
-    expect(result.value.hunks).toEqual([]);
     expect(result.value.additions).toBeNull();
     expect(result.value.deletions).toBeNull();
   });
 
-  it('classifies untracked binary content the same way, without any git invocation at all', async () => {
+  it('classifies untracked binary content the same way, with no line counts', async () => {
     const cwd = await makeTempDir();
     await fsPromises.writeFile(path.join(cwd, 'bin.dat'), Buffer.from([0x00, 0x01, 0x02]));
-    const { calls, run } = createFakeRunner((args) => {
+    const { run } = createFakeRunner((args) => {
+      if (isUnifiedDiff(args) && args.includes('--no-index')) {
+        return ok({
+          exitCode: 1,
+          stdout:
+            'diff --git a/bin.dat b/bin.dat\nnew file mode 100644\nBinary files /dev/null and b/bin.dat differ\n',
+        });
+      }
       throw new Error(`unexpected invocation for untracked mode: ${args.join(' ')}`);
     });
     const service = createGitService({ cwd, run });
@@ -354,9 +369,12 @@ describe('structuredFileDiff — binary detection via stdoutBuffer null byte', (
     if (!result.ok) {
       return;
     }
-    expect(result.value.content).toEqual({ kind: 'binary' });
-    expect(result.value.status).toBe('untracked');
-    expect(calls).toHaveLength(0);
+    expect(result.value).toMatchObject({
+      additions: null,
+      content: { kind: 'binary' },
+      deletions: null,
+      status: 'untracked',
+    });
   });
 });
 
@@ -418,11 +436,13 @@ describe('structuredFileDiff — cap boundary (size-probed, never over-reading a
     if (!result.ok) {
       return;
     }
-    expect(result.value.content.kind).toBe('hunks-only');
-    if (result.value.content.kind === 'hunks-only') {
-      expect(result.value.content.reason).toBe('over-cap-new');
-    }
-    expect(result.value.hunks).toEqual([{ newLines: 1, newStart: 1, oldLines: 0, oldStart: 0 }]);
+    // The side is too large to inline, but git's patch is whole.
+    expect(result.value.content).toEqual({
+      kind: 'hunks-only',
+      patch: 'diff --git a/big.txt b/big.txt\n@@ -0,0 +1,1 @@\n+a\n',
+      patchTruncated: false,
+      reason: 'over-cap-new',
+    });
     // The size probe determined "over cap" alone — the `blob` sub-command
     // must never have been invoked for the new side.
     expect(calls.some((c) => isCatFile(c.args) && c.args.includes('blob'))).toBe(false);
@@ -492,14 +512,12 @@ describe('structuredFileDiff — cap boundary (size-probed, never over-reading a
 });
 
 describe('structuredFileDiff — a maxBuffer overflow on the diff invocation forces hunks-only', () => {
-  it('never claims full content with short/wrong hunks when the unified diff itself overflows, even though both sides are small', async () => {
+  it('never claims full content when the unified diff itself overflows, even though both sides are small', async () => {
     const cwd = await makeTempDir();
-    // Real, over 1MB (GIT_MAX_OUTPUT_BYTES) so boundOutput's own truncation
-    // actually engages — the guarantee parseHunkHeaders relies on (a clean,
-    // marker-terminated prefix) only holds once boundOutput has truncated.
-    // The one real hunk header appears well before the cut, so it survives
-    // intact; only the trailing filler content past it gets cut.
-    const hugeDiffText = `diff --git a/small.txt b/small.txt\n@@ -1,1 +1,1 @@\n-a\n+${'x'.repeat(1_100_000)}\n`;
+    // The capture was cut inside the first hunk, so no hunk is whole: the
+    // patch keeps only the file header and still parses.
+    const header = 'diff --git a/small.txt b/small.txt\n';
+    const hugeDiffText = `${header}@@ -1,1 +1,1 @@\n-a\n+${'x'.repeat(PATCH_BOUND)}`;
     const { run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '1\t1\tsmall.txt\0' });
@@ -532,24 +550,21 @@ describe('structuredFileDiff — a maxBuffer overflow on the diff invocation for
     if (!result.ok) {
       return;
     }
-    // Never 'full' with silently-short hunks — always an honest hunks-only.
-    expect(result.value.content.kind).toBe('hunks-only');
-    if (result.value.content.kind !== 'hunks-only') {
-      return;
-    }
-    expect(result.value.content.hunkTextTruncated).toBe(true);
-    expect(result.value.content.hunkText).toContain('…(output truncated)');
-    // Neither side individually crossed the per-file cap — the diff overflow
-    // itself is the (honest) reason, not a guess at which side is "over cap".
-    expect(result.value.content.reason).toBe('diff-overflow');
-    // The one hunk header that appeared before the cut point still parses.
-    expect(result.value.hunks).toEqual([{ newLines: 1, newStart: 1, oldLines: 1, oldStart: 1 }]);
+    // Neither side crossed the per-file cap: the overflow itself is the reason.
+    expect(result.value.content).toEqual({
+      kind: 'hunks-only',
+      patch: header,
+      patchTruncated: true,
+      reason: 'diff-overflow',
+    });
   });
 });
 
 describe('structuredFileDiff — rename oldPath read routing', () => {
   it('routes the old-side read through oldPath, not the current path', async () => {
     const cwd = await makeTempDir();
+    const renamePatch =
+      'diff --git a/old.txt b/new.txt\nsimilarity index 50%\nrename from old.txt\nrename to new.txt\n@@ -1,2 +1,2 @@\n line1\n-line2\n+line2-edited\n';
     const { calls, run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '1\t1\t\0old.txt\0new.txt\0' });
@@ -563,10 +578,7 @@ describe('structuredFileDiff — rename oldPath read routing', () => {
       }
       if (isUnifiedDiff(args)) {
         expect(args).toEqual(expect.arrayContaining(['--', 'old.txt', 'new.txt']));
-        return ok({
-          stdout:
-            'diff --git a/old.txt b/new.txt\nsimilarity index 50%\nrename from old.txt\nrename to new.txt\n@@ -1,2 +1,2 @@\n line1\n-line2\n+line2-edited\n',
-        });
+        return ok({ stdout: renamePatch });
       }
       throw new Error(`unexpected invocation: ${args.join(' ')}`);
     });
@@ -584,6 +596,7 @@ describe('structuredFileDiff — rename oldPath read routing', () => {
       kind: 'full',
       newContent: 'line1\nline2-edited\n',
       oldContent: 'line1\nline2\n',
+      patch: renamePatch,
     });
     const oldSideSpec = calls.find((c) => isCatFile(c.args) && c.args.at(-1) === 'HEAD:./old.txt');
     expect(oldSideSpec).toBeDefined();
@@ -964,6 +977,7 @@ describe('structuredFileDiff — "unstaged" mode (BST-1113 review finding)', () 
       kind: 'full',
       newContent: 'worktree-side\n',
       oldContent: 'index-side\n',
+      patch: '',
     });
     expect(calls.some((call) => call.args.some((arg) => arg.includes(':0:./x.txt')))).toBe(true);
   });

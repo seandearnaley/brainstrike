@@ -27,6 +27,7 @@ import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundar
 // Deep subpath, not the `assistant-ui-panel` barrel: that barrel pulls the
 // whole assistant panel (and `@assistant-ui/react`) into the Changes chunk.
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
+import type { ChangedFileEntry } from '@brainstrike/types';
 import {
   Button,
   Dialog,
@@ -35,11 +36,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  type DiffReviewHandle,
   ToastAction,
   useToast,
 } from '@brainstrike/ui';
 import { Loader2 } from 'lucide-react';
-import { type ReactElement, type ReactNode, useState } from 'react';
+import { type ReactElement, type ReactNode, useRef, useState } from 'react';
+import { changedFileKey } from '../changes-store';
 import type {
   RewindConflictModel,
   RewindConversationEffect,
@@ -134,6 +137,10 @@ function RewindPreviewRegion({
 }): ReactElement {
   const { inventory } = useGitInventory();
   const rootLabelById = useRootLabelById();
+  const review = useRef<DiffReviewHandle | null>(null);
+  const selectFile = (entry: ChangedFileEntry) => {
+    review.current?.scrollToFile(changedFileKey(entry));
+  };
   const preview = rewind.preview;
   const ready = preview?.ok === true ? preview : null;
   const files = ready?.view ? ready.view.files : NO_FILES;
@@ -191,15 +198,16 @@ function RewindPreviewRegion({
               files={files}
               inventory={inventory}
               loading={rewind.loading}
+              onSelectFile={selectFile}
               rootLabelById={rootLabelById}
             />
           </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <ChangesetDiffPane
               changesetKey={requestKey}
-              changesetKind={changeset.kind}
               files={files}
               loadFileDiff={rewind.fileDiff}
+              reviewRef={review}
             />
           </div>
         </div>

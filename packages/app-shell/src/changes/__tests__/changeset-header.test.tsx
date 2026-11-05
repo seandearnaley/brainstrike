@@ -125,6 +125,7 @@ const GIT_SCOPE_CHANGESET: Changeset = {
 const FILE: ChangedFileEntry = {
   additions: 3,
   deletions: 1,
+  patch: null,
   path: 'src/index.ts',
   repositoryRoot: '/repo',
   revertible: true,
@@ -140,7 +141,6 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof ChangesetHeade
     inventory: null,
     inventoryError: null,
     latestRunId: null,
-    loading: false,
     onSelectChangeset: vi.fn(),
     onSelectLastTurn: vi.fn(),
     rootId: 'root-1',
@@ -228,29 +228,6 @@ describe('ChangesetHeader', () => {
     );
     screen.getByRole('button', { name: /retry/iu }).click();
     expect(onRetry).toHaveBeenCalledOnce();
-  });
-
-  it('renders the honest empty state only for a RESOLVED view with zero files', () => {
-    const emptyView: ChangesetView = {
-      changeset: AGENT_RUN_CHANGESET,
-      files: [],
-      totalAdditions: null,
-      totalDeletions: null,
-    };
-    render(
-      <ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view: emptyView })} />,
-      { wrapper: workspaceHost() }
-    );
-    expect(screen.getByTestId('changeset-header-empty')).toHaveTextContent(
-      'No changes in this changeset'
-    );
-  });
-
-  it('does NOT render the empty state when the view has not resolved (null)', () => {
-    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view: null })} />, {
-      wrapper: workspaceHost(),
-    });
-    expect(screen.queryByTestId('changeset-header-empty')).toBeNull();
   });
 
   it('shows an actionable message instead of a blank header when no workspace root is open', () => {
