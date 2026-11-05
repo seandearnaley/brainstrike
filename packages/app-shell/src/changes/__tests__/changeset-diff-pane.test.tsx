@@ -21,7 +21,8 @@ type LoadFileDiff = (
 type SendComments = (drafts: readonly DraftComment[]) => boolean;
 type ApplyAction = (
   action: ChangesAction,
-  target: ChangesActionTarget
+  target: ChangesActionTarget,
+  rootId: string | null
 ) => Promise<BoundaryResult<ChangesApplyResult>>;
 
 function patchOf(path: string): string {
@@ -330,18 +331,18 @@ describe('ChangesetDiffPane actions', () => {
     renderActions();
 
     await user.click(await hunkButton('Stage'));
-    expect(applied).toHaveBeenLastCalledWith('stage', {
-      hunks: [HUNK],
-      kind: 'hunks',
-      path: 'src/a.ts',
-    });
+    expect(applied).toHaveBeenLastCalledWith(
+      'stage',
+      { hunks: [HUNK], kind: 'hunks', path: 'src/a.ts' },
+      'root-1'
+    );
 
     await user.click(await hunkButton('Revert'));
-    expect(applied).toHaveBeenLastCalledWith('revert', {
-      hunks: [HUNK],
-      kind: 'hunks',
-      path: 'src/a.ts',
-    });
+    expect(applied).toHaveBeenLastCalledWith(
+      'revert',
+      { hunks: [HUNK], kind: 'hunks', path: 'src/a.ts' },
+      'root-1'
+    );
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
@@ -351,10 +352,11 @@ describe('ChangesetDiffPane actions', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Unstage src/b.ts' }));
 
-    expect(applied).toHaveBeenCalledWith('unstage', {
-      files: [{ path: 'src/b.ts', revision: 'b-1' }],
-      kind: 'files',
-    });
+    expect(applied).toHaveBeenCalledWith(
+      'unstage',
+      { files: [{ path: 'src/b.ts', revision: 'b-1' }], kind: 'files' },
+      'root-2'
+    );
   });
 
   it('reverts a file only once Revert is chosen in the question', async () => {
@@ -372,10 +374,11 @@ describe('ChangesetDiffPane actions', () => {
     await user.click(
       within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Revert' })
     );
-    expect(applied).toHaveBeenCalledWith('revert', {
-      files: [{ path: 'src/a.ts', revision: 'a-1' }],
-      kind: 'files',
-    });
+    expect(applied).toHaveBeenCalledWith(
+      'revert',
+      { files: [{ path: 'src/a.ts', revision: 'a-1' }], kind: 'files' },
+      'root-1'
+    );
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
@@ -395,24 +398,53 @@ describe('ChangesetDiffPane actions', () => {
     ]);
 
     await user.click(await screen.findByRole('button', { name: 'Stage all' }));
-    expect(applied).toHaveBeenLastCalledWith('stage', {
-      files: [{ path: 'src/c.ts', revision: 'src/c.ts@1' }],
-      kind: 'files',
-    });
+    expect(applied).toHaveBeenLastCalledWith(
+      'stage',
+      { files: [{ path: 'src/c.ts', revision: 'src/c.ts@1' }], kind: 'files' },
+      'root-2'
+    );
     expect(screen.queryByRole('button', { name: 'Unstage all' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Revert all' }));
     const question = await screen.findByRole('alertdialog', { name: 'Revert 3 files?' });
     expect(applied).toHaveBeenCalledTimes(1);
     await user.click(within(question).getByRole('button', { name: 'Revert' }));
-    expect(applied).toHaveBeenLastCalledWith('revert', {
-      files: [
-        { path: 'src/c.ts', revision: 'src/c.ts@1' },
-        { path: 'src/d.ts', revision: 'src/d.ts@1' },
-        { path: 'src/f.ts', revision: 'src/f.ts@1' },
-      ],
-      kind: 'files',
+    expect(applied).toHaveBeenLastCalledWith(
+      'revert',
+      {
+        files: [
+          { path: 'src/c.ts', revision: 'src/c.ts@1' },
+          { path: 'src/d.ts', revision: 'src/d.ts@1' },
+          { path: 'src/f.ts', revision: 'src/f.ts@1' },
+        ],
+        kind: 'files',
+      },
+      'root-2'
+    );
+  });
+
+  it("reverts a turn's files whole, once for each folder they lie in", async () => {
+    const user = userEvent.setup();
+    const turnFile = (entry: ChangedFileEntry): ChangedFileEntry => ({
+      ...entry,
+      actions: ['revert'],
+      wholeFile: true,
     });
+    renderActions(applied, [turnFile(WITH_PATCH), turnFile(WITHOUT_PATCH)]);
+
+    await screen.findByRole('button', { name: 'Revert src/a.ts' });
+    expect(screen.queryByRole('button', { name: 'Revert' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Revert all' }));
+    await user.click(
+      within(await screen.findByRole('alertdialog', { name: 'Revert 2 files?' })).getByRole(
+        'button',
+        { name: 'Revert' }
+      )
+    );
+    expect(applied.mock.calls).toEqual([
+      ['revert', { files: [{ path: 'src/a.ts', revision: 'a-1' }], kind: 'files' }, 'root-1'],
+      ['revert', { files: [{ path: 'src/b.ts', revision: 'b-1' }], kind: 'files' }, 'root-2'],
+    ]);
   });
 
   it("says why git refused, in the host's words", async () => {

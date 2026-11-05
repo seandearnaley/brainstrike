@@ -43,6 +43,16 @@ export function gitInvalid(message: string): GitFailed {
   return gitRefused('input', 'git.invalid-request', message);
 }
 
+/** A changes view does not offer the action, or its target cannot take it. */
+export function refuseUnoffered(message: string): GitFailed {
+  return gitRefused('input', 'changeset.action-unavailable', message);
+}
+
+/** A changes target is no longer what the view drew. */
+export function refuseStale(message: string): GitFailed {
+  return gitRefused('conflict', 'changeset.stale', message);
+}
+
 /** A path that resolves outside the folder the user opened. */
 export function gitOutsideFolder(message: string): GitFailed {
   return gitRefused('authorization', 'git.outside-folder', message);

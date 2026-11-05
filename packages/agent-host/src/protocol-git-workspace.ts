@@ -181,6 +181,7 @@ const ChangesetViewSchema = Schema.Struct({
       rootId: NullableText,
       status: ChangedFileStatusSchema,
       toolAttributed: Schema.optionalKey(Schema.Boolean),
+      wholeFile: Schema.optionalKey(Schema.Literal(true)),
       worktreePath: NullableText,
     })
   ),

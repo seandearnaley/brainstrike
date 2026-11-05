@@ -604,6 +604,16 @@ test('a file whose hunks cannot be taken one at a time offers its actions on its
   expect(hunkButtons('Stage').elements()).toHaveLength(0);
 });
 
+test('a file whose actions take only the whole file offers them on its header only', async () => {
+  const onAction = vi.fn<OnAction>();
+  const file: DiffReviewFile = { ...offering(TWO_HUNKS, ['revert']), wholeFile: true };
+  render(<Review files={[file]} onAction={onAction} />);
+  await expect.element(page.getByText('const m = 2;')).toBeVisible();
+  await page.getByRole('button', { name: 'Revert src/two.ts' }).click();
+  expect(onAction).toHaveBeenLastCalledWith('revert', file, null);
+  expect(hunkButtons('Revert').elements()).toHaveLength(0);
+});
+
 test('while an action runs, no action can start', async () => {
   render(<Review actionsDisabled files={[offering(TWO_HUNKS, ['stage'])]} onAction={() => {}} />);
   await expect.element(hunkButtons('Stage').nth(1)).toBeDisabled();

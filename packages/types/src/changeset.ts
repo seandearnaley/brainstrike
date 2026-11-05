@@ -169,6 +169,11 @@ export interface ChangedFileEntry {
    * never as `false`.
    */
   readonly toolAttributed?: boolean;
+  /**
+   * Set in a turn's view, whose actions take the whole file and never one
+   * hunk: a revert puts the file back as it was before the turn.
+   */
+  readonly wholeFile?: true;
   readonly worktreePath: string | null;
 }
 
