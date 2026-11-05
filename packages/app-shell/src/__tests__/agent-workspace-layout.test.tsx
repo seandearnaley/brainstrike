@@ -59,9 +59,9 @@ describe('AgentWorkspaceLayout', () => {
     expect(props.panelConstraints).toEqual({
       leftPanelMaxSize: '70%',
       leftPanelMinSize: '180px',
-      mainContentMinSize: '15%',
+      mainContentMinSize: '360px',
       rightPanelMaxSize: '75%',
-      rightPanelMinSize: '15%',
+      rightPanelMinSize: '192px',
     });
   });
 

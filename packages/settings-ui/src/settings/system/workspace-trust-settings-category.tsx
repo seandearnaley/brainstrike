@@ -31,6 +31,7 @@ export function createWorkspaceTrustSettingsCategory(
       'commands',
       'subagents',
       'security',
+      'trusted folders',
     ],
     title: 'Workspace Trust',
   };

@@ -1,17 +1,31 @@
+import { Button } from '@brainstrike/ui';
 import type { ReactElement, ReactNode } from 'react';
+
+/**
+ * The step that clears a disabled reason (e.g. "Connect a provider" opening
+ * Settings → Providers). Offered only where the host can take the user there;
+ * without it the reason shows as text alone.
+ */
+export interface ComposerDisabledAction {
+  readonly label: string;
+  readonly onSelect: () => void;
+}
 
 /**
  * The thread's body: its messages above the composer, or, for a new thread
  * that has no messages yet, a centred welcome with the same composer beneath
- * it on a soft gradient.
+ * it on a soft gradient. On the welcome, a disabled reason carries its fix as
+ * the one primary action.
  */
 export function ThreadBody({
   children: composer,
+  disabledAction,
   disabledReason,
   messages,
   welcome,
 }: {
   readonly children: ReactNode;
+  readonly disabledAction?: ComposerDisabledAction | undefined;
   readonly disabledReason: string | undefined;
   readonly messages: ReactNode;
   readonly welcome: boolean;
@@ -43,9 +57,7 @@ export function ThreadBody({
           The thread is saved when you send your first message.
         </p>
         {disabledReason ? (
-          <p aria-live="polite" className="text-muted-foreground max-w-prose text-xs">
-            {disabledReason}
-          </p>
+          <WelcomeDisabledReason action={disabledAction} reason={disabledReason} />
         ) : null}
       </div>
       {composer}
@@ -53,3 +65,25 @@ export function ThreadBody({
     </div>
   );
 }
+
+const WelcomeDisabledReason = ({
+  action,
+  reason,
+}: {
+  readonly action: ComposerDisabledAction | undefined;
+  readonly reason: string;
+}) => (
+  <div className="flex flex-col items-center gap-3" data-testid="new-thread-disabled-reason">
+    <p
+      aria-live="polite"
+      className={action ? 'max-w-prose text-sm' : 'text-muted-foreground max-w-prose text-xs'}
+    >
+      {reason}
+    </p>
+    {action ? (
+      <Button onClick={action.onSelect} size="sm" type="button">
+        {action.label}
+      </Button>
+    ) : null}
+  </div>
+);

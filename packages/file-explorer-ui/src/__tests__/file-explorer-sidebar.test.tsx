@@ -130,12 +130,40 @@ describe('FileExplorerSidebar', () => {
     expect(alert.textContent).toContain('Filter error');
   });
 
-  it('displays "No matching files found" when quickFilteredTree is empty', () => {
+  it('says the folder is empty when nothing filters an empty single-root tree', () => {
     act(() => {
       renderWithProviders(<FileExplorerSidebar {...defaultProps} quickFilteredTree={[]} />);
     });
 
-    expect(screen.getByText('No matching files found')).toBeInTheDocument();
+    expect(screen.getByText('No files in this folder')).toBeInTheDocument();
+  });
+
+  it('names the search when it hides every file in a single-root tree', async () => {
+    const storeRef: { current: ReturnType<typeof useFileExplorerStoreContext> | null } = {
+      current: null,
+    };
+    function Harness() {
+      storeRef.current = useFileExplorerStoreContext();
+      return <FileExplorerSidebar {...defaultProps} isDisplayTreeFiltered quickFilteredTree={[]} />;
+    }
+    act(() => {
+      renderWithProviders(<Harness />);
+    });
+    act(() => {
+      storeRef.current?.getState().setQuickFilter('zzz');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('No files match the search "zzz"')).toBeInTheDocument();
+    });
+  });
+
+  it('shows the single root folder full path on hover', () => {
+    act(() => {
+      renderWithProviders(<FileExplorerSidebar {...defaultProps} />);
+    });
+
+    expect(screen.getByText('test-directory')).toHaveAttribute('title', '/test-directory');
   });
 
   // Single-root regression: rootDirectoryHandles with one entry → no forest
@@ -1238,9 +1266,9 @@ describe('FileExplorerSidebar', () => {
         expect(screen.getByText('No files match the view filters (*.md)')).toBeInTheDocument();
       });
       // Section A: streamed zero nodes — genuinely empty, different message.
-      expect(screen.getByText('No files in this folder')).toBeInTheDocument();
-      // The full-height single-tree empty state must NOT appear in forest mode.
-      expect(screen.queryByText('No matching files found')).toBeNull();
+      // Exactly once: the full-height single-tree empty state must NOT also
+      // appear in forest mode.
+      expect(screen.getAllByText('No files in this folder')).toHaveLength(1);
     });
   });
 

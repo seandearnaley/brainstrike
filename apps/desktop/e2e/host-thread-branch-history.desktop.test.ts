@@ -122,9 +122,7 @@ test('a host thread edit and regenerate are navigable branches that survive a re
 
   // Regenerate the edited branch's answer: a sibling answer to the same message.
   await row('Gamma answer.').hover();
-  await row('Gamma answer.')
-    .getByRole('button', { exact: true, name: 'Regenerate response' })
-    .click();
+  await row('Gamma answer.').getByRole('button', { exact: true, name: 'Retry' }).click();
   await expect(panel.getByText('Delta answer.', { exact: true })).toBeVisible({
     timeout: E2E_TIMEOUTS.messageVisibility,
   });

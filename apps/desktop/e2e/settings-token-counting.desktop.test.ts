@@ -22,7 +22,7 @@ test.describe('Token Counting settings (desktop)', () => {
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await toggle.click();
     await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
-      'Heuristic mode (explicit)'
+      'Estimated counts'
     );
 
     const { reloadRenderer, waitForAppReady } = await loadElectronHelpers();
@@ -35,7 +35,7 @@ test.describe('Token Counting settings (desktop)', () => {
       'false'
     );
     await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
-      'Heuristic mode (explicit)'
+      'Estimated counts'
     );
   });
 });

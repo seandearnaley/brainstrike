@@ -3,10 +3,11 @@ import { SUSPENDED_RUN_DISCOVERY_ERROR_DATA_NAME } from '@brainstrike/assistant-
 import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/citation-markers';
 import { TooltipIconButton, useCopyToClipboard } from '@brainstrike/ui';
 import { CheckIcon, CopyIcon, RefreshCwIcon } from 'lucide-react';
+import { selectHasErrorState } from './message-error-state.ts';
 
 export const ASSISTANT_ACTION_BAR_CLASSNAME =
   'inline-flex gap-0.5 align-middle text-muted-foreground data-[floating]:absolute';
-export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
+export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-6';
 
 /**
  * Copy / retry controls for an assistant message.
@@ -14,6 +15,9 @@ export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
 export const AssistantActionBar = () => {
   const aui = useAui();
   const canReload = useAuiState((state) => state.thread.capabilities.reload);
+  // A failed reply carries its own Retry inside the error block
+  // (AssistantMessageError), so the bar does not repeat it.
+  const hasError = useAuiState(selectHasErrorState);
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
   const isDiscoveryNotice = useAuiState((state) =>
     state.message.parts.some(
@@ -72,10 +76,10 @@ export const AssistantActionBar = () => {
       <span aria-live="polite" className="sr-only" role="status">
         {isFailed ? 'Copy failed' : null}
       </span>
-      {canReload ? (
+      {canReload && !hasError ? (
         <ActionBarPrimitive.Reload asChild>
           <TooltipIconButton
-            aria-label="Regenerate response"
+            aria-label="Retry"
             className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
             tooltip="Retry"
           >

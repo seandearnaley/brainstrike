@@ -372,7 +372,7 @@ describe('assistant runtime helpers', () => {
     });
   });
 
-  it('reports provider disabled reasons for unavailable provider states', () => {
+  it('reports provider disabled reasons for unavailable provider states, with the Settings page that fixes each', () => {
     expect(
       resolveAssistantProviderDisabledReason({
         configuredProviders: [],
@@ -380,7 +380,10 @@ describe('assistant runtime helpers', () => {
         providerHasEnabledModels: () => false,
         selectedProvider: null,
       })
-    ).toBe('Connect an AI provider in Settings → Providers to enable the assistant.');
+    ).toEqual({
+      message: 'Connect an AI provider in Settings → Providers to enable the assistant.',
+      settings: { categoryId: 'providers', label: 'Connect a provider' },
+    });
     expect(
       resolveAssistantProviderDisabledReason({
         configuredProviders: ['openai'],
@@ -388,7 +391,19 @@ describe('assistant runtime helpers', () => {
         providerHasEnabledModels: () => false,
         selectedProvider: 'openai',
       })
-    ).toBe('Enable at least one model for OpenAI to continue.');
+    ).toEqual({
+      message: 'Enable at least one model for OpenAI to continue.',
+      settings: { categoryId: 'model-catalog', label: 'Enable models' },
+    });
+    // The composer's own picker fixes a missing selection: no Settings page.
+    expect(
+      resolveAssistantProviderDisabledReason({
+        configuredProviders: ['openai'],
+        currentModel: null,
+        providerHasEnabledModels: () => true,
+        selectedProvider: 'openai',
+      })
+    ).toEqual({ message: 'Select a model for the chosen provider to continue.' });
     expect(
       resolveAssistantProviderDisabledReason({
         configuredProviders: ['openrouter'],
@@ -399,7 +414,10 @@ describe('assistant runtime helpers', () => {
         },
         selectedProvider: 'openrouter',
       })
-    ).toBe('Stored OpenRouter key is unreadable. Re-enter it to repair access.');
+    ).toMatchObject({
+      message: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
+      settings: { categoryId: 'providers' },
+    });
   });
 });
 

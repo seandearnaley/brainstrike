@@ -21,6 +21,11 @@ function resolveAppMenuBridge(): AppMenuBridge | null {
   return bridge as AppMenuBridge;
 }
 
+/** Whether this window has the app menu's Settings… item (and its ⌘, / Ctrl+, accelerator). */
+export function hasAppMenuSettings(): boolean {
+  return resolveAppMenuBridge() !== null;
+}
+
 /** Opens Settings when the app menu asks. Mount once, at the visible-UI root. */
 export function useAppMenuSettings(): void {
   const openSettings = usePanelLayoutStore((state) => state.openSettings);

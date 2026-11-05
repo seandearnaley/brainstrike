@@ -38,7 +38,7 @@ export function TokenBudgetSummary({
         isError
           ? 'border-destructive/50 bg-destructive/5'
           : isWarning
-            ? 'border-yellow-500/50 bg-yellow-500/5'
+            ? 'border-warning/50 bg-warning/5'
             : 'border-border bg-muted/30'
       )}
       data-testid="token-budget-summary"

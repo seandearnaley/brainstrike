@@ -122,7 +122,7 @@ export function DesktopAppLifetimeSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Startup</CardTitle>
+        <CardTitle>Login and tray</CardTitle>
         <CardDescription>
           Runs belong to Brainstrike, not to its window: they keep going until you quit.
         </CardDescription>

@@ -7,7 +7,7 @@
 export function DiagnosticSinkHealthBanner({ reason }: { reason: string }) {
   return (
     <div
-      className="text-warning rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+      className="text-warning border-warning/40 bg-warning/5 rounded-md border p-3 text-xs"
       data-testid="diagnostic-sink-health-banner"
       role="alert"
     >

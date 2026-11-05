@@ -1,4 +1,5 @@
 import {
+  type AssistantProviderNotice,
   buildDraftRuntimeForProvider,
   buildModelSettings,
   buildProviderOptionsWhenReady,
@@ -14,6 +15,7 @@ import {
   useConfiguredAssistantProviders,
   useEnableModel,
   useOpenRouterModelMetadata,
+  useOpenSettingsSection,
 } from '@brainstrike/app-shell';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
@@ -67,7 +69,9 @@ type Presentation = Pick<
   | 'onComposerTextChange'
   | 'slashCommands'
   | 'isComposerDisabled'
+  | 'disabledAction'
   | 'disabledReason'
+  | 'onManageModels'
   | 'openRouterModelMetadataLookup'
   | 'effectiveInputBudget'
   | 'planMode'
@@ -191,7 +195,12 @@ function useProviderNotice({
   readonly providerReadErrors: ProviderReadErrors | undefined;
   readonly selectedModel: string | null | undefined;
   readonly selectedProvider: SupportedProvider | undefined;
-}): { readonly advisory: string | undefined; readonly blocking: string | undefined } {
+}): {
+  readonly advisory: string | undefined;
+  readonly blocking: string | undefined;
+  /** The Settings page that clears `blocking`, when one does. */
+  readonly blockingSettings: AssistantProviderNotice['settings'];
+} {
   // Enablement is read through the picker's own predicate. Until the catalog
   // is read, no catalog provider is claimed to have nothing enabled.
   const providerHasEnabledModels = useCallback(
@@ -213,7 +222,33 @@ function useProviderNotice({
   });
   const catalogError =
     catalog.state === 'error' ? `Could not read the enabled models: ${catalog.message}` : undefined;
-  return { advisory: refresh, blocking: blockingRefresh ?? provider ?? catalogError };
+  return {
+    advisory: refresh,
+    blocking: blockingRefresh ?? provider?.message ?? catalogError,
+    blockingSettings: blockingRefresh === undefined ? provider?.settings : undefined,
+  };
+}
+
+/**
+ * The welcome's one action for a disabled reason: the Settings page that
+ * clears it, offered only while that reason is the one shown.
+ */
+function useDisabledAction(
+  disabledReason: string | undefined,
+  notice: ReturnType<typeof useProviderNotice>
+): CommittedAssistantConversationProps['disabledAction'] {
+  const openSettingsSection = useOpenSettingsSection();
+  const settings =
+    disabledReason !== undefined && disabledReason === notice.blocking
+      ? notice.blockingSettings
+      : undefined;
+  return useMemo(
+    () =>
+      settings
+        ? { label: settings.label, onSelect: () => openSettingsSection(settings.categoryId) }
+        : undefined,
+    [openSettingsSection, settings]
+  );
 }
 
 /** The panel shows the reason a send is gated, else a notice that gates nothing. */
@@ -365,6 +400,12 @@ export function useDesktopHostPresentation(
   // then an invalid settings draft; then the thread's own selection.
   const gate = providerNotice.blocking ?? metadata.reason ?? selectionGate;
   const disabledReason = composerDisabledReason(gate, pick?.error);
+  const disabledAction = useDisabledAction(disabledReason, providerNotice);
+  const openSettingsSection = useOpenSettingsSection();
+  const onManageModels = useCallback(
+    () => openSettingsSection('model-catalog'),
+    [openSettingsSection]
+  );
   const readModelId = useCallback((): string => {
     if (!selectedModel) {
       throw new Error('Select a provider and model before sending');
@@ -481,6 +522,7 @@ export function useDesktopHostPresentation(
     onComposerDraftCommandApplied: composerDraft.onApplied,
     onComposerTextChange: composerDraft.onTextChange,
     onEnableModel,
+    onManageModels,
     onModelChange,
     onProviderSettingsChange,
     onProviderSettingsValidationChange: providerDraft.report,
@@ -500,6 +542,7 @@ export function useDesktopHostPresentation(
       ? { effectiveInputBudget: metadata.agentLoopSettings.inputTokenLimit }
       : {}),
     ...noticeProps(disabledReason, providerNotice.advisory),
+    ...(disabledAction ? { disabledAction } : {}),
     ...(selectedModel ? { selectedModel } : {}),
     ...(selectedProvider ? { selectedProvider } : {}),
     ...(contextWindow ? { contextWindow } : {}),

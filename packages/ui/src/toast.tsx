@@ -86,17 +86,18 @@ const ToastClose = ({
   ref?: React.RefObject<React.ComponentRef<typeof ToastPrimitives.Close> | null>;
 }) => (
   <ToastPrimitives.Close
+    aria-label="Dismiss notification"
     className={cn(
       // Always visible (brightening on hover/focus): a hover-only close reads
       // as "cannot be dismissed", especially on sticky/error toasts.
-      'text-foreground/50 hover:text-foreground group-[.destructive]:text-destructive-foreground focus-visible:group-[.destructive]:ring-destructive-foreground hover:group-[.destructive]:text-destructive-foreground absolute top-2 right-2 rounded-md p-1 opacity-70 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-hidden',
+      'text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:ring-ring group-[.destructive]:text-destructive-foreground focus-visible:group-[.destructive]:ring-destructive-foreground hover:group-[.destructive]:text-destructive-foreground absolute top-2 right-2 rounded-md p-1 transition-colors focus-visible:ring-2 focus-visible:outline-hidden',
       className
     )}
     ref={ref}
     toast-close=""
     {...props}
   >
-    <X className="h-4 w-4" />
+    <X aria-hidden="true" className="h-4 w-4" />
   </ToastPrimitives.Close>
 );
 ToastClose.displayName = ToastPrimitives.Close.displayName;

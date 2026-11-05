@@ -4,12 +4,16 @@
 
 import { Moon, Sun } from 'lucide-react';
 import { Button } from './button';
+import { useResolvedTheme } from './hooks/use-resolved-theme';
 import { useTheme } from './theme-provider';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
 export function ThemeToggle() {
   const { mode, setMode } = useTheme();
-  const nextMode = mode === 'light' ? 'dark' : 'light';
+  // In System mode the painted theme is the system's, so the next mode flips
+  // what is on screen rather than the stored choice.
+  const resolvedTheme = useResolvedTheme();
+  const nextMode = resolvedTheme === 'dark' ? 'light' : 'dark';
   const tooltipLabel = `Switch to ${nextMode} mode`;
 
   return (
@@ -17,7 +21,7 @@ export function ThemeToggle() {
       <TooltipTrigger asChild>
         <Button
           aria-label={tooltipLabel}
-          className="h-12 w-12 rounded-lg transition-colors duration-200 ease-out hover:shadow-sm"
+          className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground dark:hover:bg-sidebar-accent h-12 w-12 rounded-lg transition-colors duration-200 ease-out hover:shadow-sm"
           depress={false}
           onClick={() => setMode(nextMode)}
           size="icon"
@@ -38,6 +42,7 @@ export function ThemeToggle() {
       </TooltipTrigger>
       <TooltipContent side="right" sideOffset={8}>
         <p className="font-medium">{tooltipLabel}</p>
+        {mode === 'system' ? <p className="opacity-80">Following system</p> : null}
       </TooltipContent>
     </Tooltip>
   );

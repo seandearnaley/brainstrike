@@ -51,6 +51,8 @@ export function createAppearanceSettingsCategory(): SettingsCategory {
       'typeface',
       'code theme',
       'syntax',
+      'interface font',
+      'code font',
     ],
     title: 'Appearance',
   };
@@ -67,10 +69,19 @@ export function createTokenCountingSettingsCategoryWithRuntimeSupport({
 }): SettingsCategory {
   return {
     content: <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />,
-    description: 'Control the tokenizer used for Explorer token counts.',
+    description: 'Choose how Explorer counts tokens.',
     icon: Sigma,
     id: 'token-counting',
-    keywords: ['token', 'counting', 'tiktoken', 'preview'],
+    keywords: [
+      'token',
+      'counting',
+      'tiktoken',
+      'preview',
+      'accurate token counts',
+      'estimated counts',
+      'tokenizer',
+      'wasm',
+    ],
     title: 'Token Counting',
   };
 }
@@ -104,7 +115,18 @@ export function createFactoryResetSettingsCategory(
     description: 'Wipe application data and reset preferences.',
     icon: Settings,
     id: 'factory-reset',
-    keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
+    keywords: [
+      'factory',
+      'reset',
+      'resetting',
+      'wipe',
+      'preferences',
+      'stored folders',
+      'clear content',
+      'delete chats',
+      'forget all folders',
+      'inline fixtures',
+    ],
     title: 'Factory Reset',
   };
 }
@@ -142,6 +164,10 @@ export function createWorkspaceSettingsCategory(
       'setup command',
       'consent',
       'revoke',
+      'managed worktree location',
+      'default location',
+      'disable setup',
+      'setup script',
     ],
     title: 'Workspace',
   };
@@ -182,6 +208,14 @@ export function createPermissionSettingsCategory(options?: {
       'guardrails',
       'sites',
       'browser',
+      'enforce tool permissions',
+      'tool policy',
+      'tool category policies',
+      'per-tool overrides',
+      'session grants',
+      'access mode',
+      'auto-review model',
+      'sites the agent may open',
     ],
     title: 'Permissions',
   };
@@ -206,7 +240,17 @@ export function createAssistantMemorySettingsCategory({
     description: 'Configure the assistant’s observational memory.',
     icon: BrainCircuit,
     id: 'assistant-memory',
-    keywords: ['memory', 'observations', 'mastra'],
+    keywords: [
+      'memory',
+      'observations',
+      'mastra',
+      'observational memory',
+      'enable observations',
+      'observation scope',
+      'observe messages after',
+      'reflect observations after',
+      'retrieval mode',
+    ],
     title: 'Assistant Memory',
   };
 }
@@ -239,6 +283,13 @@ export function createSubagentPersonasSettingsCategory(
       'steps',
       'output tokens',
       'summary',
+      'enable subagent delegation',
+      'subagent limits',
+      'delegation depth',
+      'subagents per turn',
+      'subagent work at once',
+      'steps per subagent',
+      'runtime per subagent',
     ],
     title: 'Subagents',
   };
@@ -264,7 +315,18 @@ export function createHooksSettingsCategory(
     description: 'Approve a workspace’s shell hooks before they run at tool-lifecycle events.',
     icon: Webhook,
     id: 'hooks',
-    keywords: ['hooks', 'shell', 'lifecycle', 'pretooluse', 'posttooluse', 'trust', 'approve'],
+    keywords: [
+      'hooks',
+      'shell',
+      'lifecycle',
+      'pretooluse',
+      'posttooluse',
+      'trust',
+      'approve',
+      'workspace hooks',
+      'hooks.json',
+      'revoke',
+    ],
     title: 'Hooks',
   };
 }

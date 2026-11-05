@@ -70,7 +70,7 @@ function WorktreeTrustBadge({
     <Tooltip>
       <TooltipTrigger asChild>
         <Badge
-          className="text-warning gap-1 border-amber-500/40"
+          className="text-warning border-warning/40 gap-1"
           data-testid="changed-files-worktree-trust-badge"
           variant="outline"
         >

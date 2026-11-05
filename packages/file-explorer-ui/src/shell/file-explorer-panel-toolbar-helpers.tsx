@@ -55,13 +55,13 @@ export function FilterChipsToggleButton({
         <Button
           aria-label={label}
           aria-pressed={isFilterChipsVisible}
-          className="h-8 w-8 shrink-0 @[300px]:h-9 @[300px]:w-9"
+          className="shrink-0"
           data-testid="toggle-filter-chips-button"
           onClick={() => setFilterChipsVisible(!isFilterChipsVisible)}
-          size="icon"
+          size="icon-sm"
           variant="ghost"
         >
-          {isFilterChipsVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+          {isFilterChipsVisible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
         </Button>
       </TooltipTrigger>
       <TooltipContent>
@@ -93,12 +93,12 @@ export function ViewFiltersToggleButton({
           aria-expanded={isFiltersExpanded}
           aria-label={label}
           className={cn(
-            'relative size-6 shrink-0 p-0 @[236px]/explorer-toolbar:size-7',
+            'relative size-6 shrink-0 @[236px]/explorer-toolbar:size-7',
             isFiltersExpanded && 'bg-muted text-foreground'
           )}
           data-testid="toggle-view-filters-button"
           onClick={() => setFiltersExpanded(!isFiltersExpanded)}
-          size="icon"
+          size="icon-xs"
           variant="ghost"
         >
           <SlidersHorizontal className="size-4" />
@@ -151,7 +151,7 @@ export function CompactToolbarActions({
         <Button
           aria-label="More Explorer actions"
           className="size-6 @[236px]/explorer-toolbar:hidden"
-          size="icon"
+          size="icon-xs"
           variant="ghost"
         >
           <MoreHorizontal className="size-4" />

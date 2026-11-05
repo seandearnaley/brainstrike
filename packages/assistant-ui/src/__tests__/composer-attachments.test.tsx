@@ -18,8 +18,9 @@ import {
   useAui,
   useLocalRuntime,
 } from '@assistant-ui/react';
+import { ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES } from '@brainstrike/assistant-contract';
 import { act } from '@brainstrike/test-utils/react-act';
-import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { type ReactNode, StrictMode, useEffect, useMemo } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAssistantImageAttachmentAdapter } from '../attachment-adapter';
@@ -260,5 +261,87 @@ describe('ComposerAttachmentChip', () => {
       'assistant-composer-attachment-preview'
     );
     expect(survivor.src).toMatch(/^data:image\/png;base64,/u);
+  });
+});
+
+describe('ComposerAttachmentErrorNote', () => {
+  async function mountBar(): Promise<AuiApi> {
+    let aui: AuiApi | undefined;
+    render(
+      <StrictMode>
+        <ComposerHarness
+          onAui={(value) => {
+            aui = value;
+          }}
+        >
+          <ComposerAttachmentsBar />
+        </ComposerHarness>
+      </StrictMode>
+    );
+    await waitFor(() => {
+      expect(aui).toBeDefined();
+    });
+    return aui as AuiApi;
+  }
+
+  /** One paste, drop or pick: every file is added at once. */
+  async function addBatch(aui: AuiApi, files: readonly File[]): Promise<void> {
+    await act(async () => {
+      await Promise.allSettled(files.map((file) => aui.composer().addAttachment(file)));
+    });
+  }
+
+  const svgFile = () => new File(['<svg/>'], 'vector.svg', { type: 'image/svg+xml' });
+  const oversizedPng = () =>
+    new File([new Uint8Array(ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES + 1)], 'huge.png', {
+      type: 'image/png',
+    });
+
+  it('names the accepted types briefly for an unsupported file', async () => {
+    const aui = await mountBar();
+    await addBatch(aui, [svgFile()]);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'A file (image/svg+xml) is not a supported image. Use GIF, JPEG, PNG or WebP.'
+    );
+  });
+
+  it('shows every rejection of one batch in one message, beside the files it accepted', async () => {
+    const aui = await mountBar();
+    await addBatch(aui, [svgFile(), pngFile('ok.png'), oversizedPng()]);
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('2 files skipped:');
+    expect(within(alert).getAllByRole('listitem')).toHaveLength(2);
+    expect(alert).toHaveTextContent(/huge\.png.*5 MB/u);
+    expect(screen.getByRole('button', { name: 'Remove attachment ok.png' })).toBeVisible();
+  });
+
+  it('keeps the message until it is dismissed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const aui = await mountBar();
+      await addBatch(aui, [svgFile()]);
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(screen.getByRole('alert')).toBeVisible();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss attachment error' }));
+      expect(screen.queryByRole('alert')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the message on the next successful add, and a new batch replaces it', async () => {
+    const aui = await mountBar();
+    await addBatch(aui, [svgFile()]);
+    await addBatch(aui, [oversizedPng()]);
+    expect(screen.getByRole('alert')).toHaveTextContent(/huge\.png/u);
+    expect(screen.getByRole('alert')).not.toHaveTextContent('svg');
+
+    await addBatch(aui, [pngFile('ok.png')]);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

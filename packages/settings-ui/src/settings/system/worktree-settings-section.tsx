@@ -1,5 +1,6 @@
 import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
 import { Badge, Button, Checkbox, Input, Label } from '@brainstrike/ui';
+import { Check } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
 
 export type WorktreeSettingsStatus =
@@ -52,6 +53,16 @@ export function WorktreeSettingsSection({
   return <WorktreeSettingsForm onSave={onSave} settings={settings} />;
 }
 
+const QUOTE_ERROR =
+  'Quoting is not supported. Each whitespace-separated token becomes one argument.';
+
+function sameSetupCommand(a: WorktreeSetupCommand, b: WorktreeSetupCommand): boolean {
+  if (a === null || b === null || a === 'disabled' || b === 'disabled') {
+    return a === b;
+  }
+  return a.length === b.length && a.every((part, index) => part === b[index]);
+}
+
 function WorktreeSettingsForm({
   onSave,
   settings,
@@ -64,25 +75,40 @@ function WorktreeSettingsForm({
     settings.setupCommand === 'disabled' ? '' : (settings.setupCommand ?? []).join(' ')
   );
   const [setupDisabled, setSetupDisabled] = useState(settings.setupCommand === 'disabled');
-  const [commandError, setCommandError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const commandParts = command.trim().length > 0 ? command.trim().split(/\s+/u) : null;
+  const commandError = !setupDisabled && /["']/u.test(command) ? QUOTE_ERROR : null;
+  const setupCommand: WorktreeSetupCommand = setupDisabled ? 'disabled' : commandParts;
+  const trimmedDirectory = directory.trim();
+  // An empty field means the default location, which the stored settings already
+  // use when they are the default.
+  const directoryChanged =
+    trimmedDirectory.length > 0
+      ? trimmedDirectory !== settings.managedDirectory
+      : !settings.isDefaultDirectory;
+  const dirty = directoryChanged || !sameSetupCommand(setupCommand, settings.setupCommand);
+
+  const edited = (): void => {
+    setSaved(false);
+  };
 
   const save = (next: {
     readonly managedDirectory: string | null;
     readonly setupCommand: WorktreeSetupCommand;
   }): void => {
-    if (next.setupCommand !== 'disabled' && /["']/u.test(command)) {
-      setSaveError(null);
-      setCommandError(
-        'Quoting is not supported. Each whitespace-separated token becomes one argument.'
-      );
+    if (commandError) {
       return;
     }
     setSaving(true);
-    setCommandError(null);
+    setSaved(false);
     setSaveError(null);
     onSave(next)
+      .then(() => {
+        setSaved(true);
+      })
       .catch((error: unknown) => {
         setSaveError(error instanceof Error ? error.message : String(error));
       })
@@ -90,8 +116,6 @@ function WorktreeSettingsForm({
         setSaving(false);
       });
   };
-
-  const commandParts = command.trim().length > 0 ? command.trim().split(/\s+/u) : null;
 
   return (
     <div className="space-y-4">
@@ -107,7 +131,10 @@ function WorktreeSettingsForm({
         <Input
           data-testid="worktree-settings-directory"
           id="worktree-managed-directory"
-          onChange={(event) => setDirectory(event.target.value)}
+          onChange={(event) => {
+            setDirectory(event.target.value);
+            edited();
+          }}
           value={directory}
         />
         <p className="text-muted-foreground text-xs">
@@ -119,12 +146,14 @@ function WorktreeSettingsForm({
       <div className="space-y-2">
         <Label htmlFor="worktree-setup-command">Setup command (optional)</Label>
         <Input
+          aria-describedby={commandError ? 'worktree-setup-command-error' : undefined}
+          aria-invalid={commandError ? true : undefined}
           data-testid="worktree-settings-setup-command"
           disabled={setupDisabled}
           id="worktree-setup-command"
           onChange={(event) => {
             setCommand(event.target.value);
-            setCommandError(null);
+            edited();
           }}
           placeholder="pnpm install --frozen-lockfile"
           value={command}
@@ -134,7 +163,10 @@ function WorktreeSettingsForm({
             checked={setupDisabled}
             data-testid="worktree-settings-disable-setup"
             id="worktree-disable-setup"
-            onCheckedChange={(checked) => setSetupDisabled(checked === true)}
+            onCheckedChange={(checked) => {
+              setSetupDisabled(checked === true);
+              edited();
+            }}
           />
           <Label className="text-sm font-normal" htmlFor="worktree-disable-setup">
             Disable setup entirely; do not fall back to the repository setup script.
@@ -144,6 +176,7 @@ function WorktreeSettingsForm({
           <p
             className="text-destructive text-sm"
             data-testid="worktree-settings-setup-command-error"
+            id="worktree-setup-command-error"
             role="alert"
           >
             {commandError}
@@ -170,35 +203,42 @@ function WorktreeSettingsForm({
           {saveError}
         </p>
       ) : null}
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <Button
           data-testid="worktree-settings-save"
-          disabled={saving}
+          disabled={saving || !dirty || commandError !== null}
           onClick={() =>
             save({
-              managedDirectory: directory.trim().length > 0 ? directory.trim() : null,
-              setupCommand: setupDisabled ? 'disabled' : commandParts,
+              managedDirectory: trimmedDirectory.length > 0 ? trimmedDirectory : null,
+              setupCommand,
             })
           }
           type="button"
         >
-          Save
+          {saving ? 'Saving…' : 'Save'}
         </Button>
         <Button
           data-testid="worktree-settings-reset"
-          disabled={saving || settings.isDefaultDirectory}
+          disabled={saving || settings.isDefaultDirectory || commandError !== null}
           onClick={() => {
             setDirectory('');
-            save({
-              managedDirectory: null,
-              setupCommand: setupDisabled ? 'disabled' : commandParts,
-            });
+            save({ managedDirectory: null, setupCommand });
           }}
           type="button"
           variant="outline"
         >
           Use the default location
         </Button>
+        {saved ? (
+          <p
+            className="text-success flex items-center gap-1 text-sm"
+            data-testid="worktree-settings-saved"
+            role="status"
+          >
+            <Check aria-hidden="true" className="size-4" />
+            Saved
+          </p>
+        ) : null}
       </div>
     </div>
   );

@@ -25,8 +25,8 @@ describe('AssistantActionBar styling', () => {
   it('keeps floating on hover', () => {
     expect(ASSISTANT_ACTION_BAR_CLASSNAME).toContain('data-[floating]:absolute');
   });
-  it('uses smaller buttons', () => {
-    expect(ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME).toContain('size-5');
+  it('matches the 24px code-block Copy button', () => {
+    expect(ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME).toContain('size-6');
   });
 });
 

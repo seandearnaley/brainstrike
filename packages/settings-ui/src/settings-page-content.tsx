@@ -1,8 +1,8 @@
 import { cn, Input } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { Settings } from 'lucide-react';
+import { Settings, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SettingsSearchIcon } from './settings/settings-search-icon';
 import { SETTINGS_SEARCH_INPUT_STYLE } from './settings/settings-search-layout';
 
@@ -67,9 +67,9 @@ export interface SettingsCategory {
   id: string;
 
   /**
-   * Optional search terms that aren't displayed to users but improve discoverability.
-   * Include synonyms, related terms, or common misspellings.
-   * Searches are case-insensitive and use substring matching.
+   * Search terms that find this category: the labels of the settings it holds
+   * (card titles, row labels) so a search for a visible setting lands here, plus
+   * synonyms and related terms. Searches are case-insensitive substring matches.
    */
   keywords?: string[];
   /** How the category's content is laid out; defaults to `document`. */
@@ -168,6 +168,7 @@ export function SettingsPageContent({
   searchPlaceholder = 'Search settings…',
 }: SettingsPageContentProps) {
   const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const [activeCategoryId, setActiveCategoryId] = useState(() =>
     selectInitialCategory(categories, defaultCategoryId)
   );
@@ -257,13 +258,35 @@ export function SettingsPageContent({
             <SettingsSearchIcon />
             <Input
               aria-label="Search settings"
-              className="border-border/70 bg-background/75 h-9 rounded-lg pr-3 pl-10 shadow-none"
+              className="border-border/70 bg-background/75 h-9 rounded-lg pr-8 pl-10 shadow-none"
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query) {
+                  // Clears the query first; a second Escape reaches whatever owns the page.
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setQuery('');
+                }
+              }}
               placeholder={searchPlaceholder}
+              ref={searchRef}
               role="searchbox"
               style={SETTINGS_SEARCH_INPUT_STYLE}
               value={query}
             />
+            {query ? (
+              <button
+                aria-label="Clear search"
+                className="text-muted-foreground hover:bg-muted hover:text-foreground absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center rounded-md"
+                onClick={() => {
+                  setQuery('');
+                  searchRef.current?.focus();
+                }}
+                type="button"
+              >
+                <X aria-hidden="true" className="size-3.5" />
+              </button>
+            ) : null}
           </div>
         </div>
 
