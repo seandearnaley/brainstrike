@@ -993,8 +993,7 @@ export class HostCore {
       closeOwner: (owned) => this.closeRunOwner(owned),
       closePlatform: () => this.platform.close(),
       failedAdmissions: () => [...this.failedAdmissions.values()],
-      finish: (owned) =>
-        this.ends.finish(owned, 'interrupted', 'Host closed with a pending decision'),
+      finish: (owned) => this.ends.finish(owned, 'interrupted', 'Host is closing'),
       pendingAdmissions: this.pendingAdmissions.keys(),
       runs: () => [...this.runs.values()],
     });
