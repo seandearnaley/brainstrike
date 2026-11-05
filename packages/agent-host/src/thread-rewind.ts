@@ -27,7 +27,6 @@
 
 import { randomUUID } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
-import { hostUserMessageParent } from './abandoned-turns.ts';
 import type { HostRunState } from './core-state.ts';
 import type { Json } from './json-value.ts';
 import type { HostPlatform } from './ports.ts';
@@ -269,11 +268,10 @@ export class HostThreadRewinds {
     return { files, headId: target.headId, runIds: target.runIds };
   }
 
-  rewind(params: HostParams<'thread/rewind'>): Promise<HostResults['thread/rewind']> {
+  async rewind(params: HostParams<'thread/rewind'>): Promise<HostResults['thread/rewind']> {
     const method = 'thread/rewind';
-    const { runs } = this.ports.owner();
-    const from = hostUserMessageParent(runs, params.threadId, params.messageId);
-    return this.ports.command(
+    const from = await this.forkPoint(params);
+    return await this.ports.command(
       method,
       params,
       async () => {
@@ -389,6 +387,33 @@ export class HostThreadRewinds {
         }
       });
     });
+  }
+
+  /**
+   * Where this rewind forks, when it would go ahead now: only then does it end
+   * the turns it leaves (audit TW-3). One it would refuse, or a files rewind
+   * whose drift the person has not acknowledged, ends nothing. Its own command
+   * then reports that refusal or those conflicts.
+   */
+  private async forkPoint(params: HostParams<'thread/rewind'>): Promise<string | null | undefined> {
+    let headId: string | null;
+    try {
+      ({ headId } = this.target(params.threadId, params.messageId));
+    } catch {
+      return undefined;
+    }
+    if (params.mode === 'conversation-only') {
+      return headId;
+    }
+    const rewindFiles = this.ports.owner().platform.rewindFiles;
+    if (!rewindFiles || params.previewId === undefined) {
+      return undefined;
+    }
+    if (params.acknowledgeConflicts === true) {
+      return headId;
+    }
+    const request = { previewId: params.previewId, threadId: params.threadId };
+    return (await rewindFiles.drift(request)).length === 0 ? headId : undefined;
   }
 
   private assertIdle(threadId: string): void {

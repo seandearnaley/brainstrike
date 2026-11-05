@@ -163,3 +163,17 @@ test('a replayed edit stops no worker the person started since', async () => {
   const [later = ''] = (await childThreads(harness.harness)).filter((id) => id !== child);
   expect(outcomes(await core.read(later, 0))).toEqual([]);
 });
+
+test('a files rewind this host refuses leaves the turn and its worker working', async () => {
+  const { core, message, threadId, worker } = await workingTurn();
+  // The fixture host has no snapshot owner, so a files rewind is refused.
+  await expect(
+    core.rewinds.rewind({
+      commandId: randomUUID(),
+      messageId: message,
+      mode: 'conversation-and-files',
+      threadId,
+    })
+  ).rejects.toMatchObject({ failure: { code: 'rewind.files-unavailable' } });
+  expect(await worker()).toEqual([]);
+});
