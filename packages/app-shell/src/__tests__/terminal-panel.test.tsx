@@ -949,7 +949,7 @@ describe('TerminalPanel appearance', () => {
     try {
       await waitFor(() => expect(lastTerminal().options.cursorBlink).toBe(false));
     } finally {
-      delete document.documentElement.dataset['motion'];
+      document.documentElement.removeAttribute('data-motion');
     }
   });
 });
