@@ -209,11 +209,11 @@ export function AssistantRunTimeline({
           aria-label={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
           className="text-muted-foreground size-6 shrink-0"
           onClick={() => setIsExpanded((current) => !current)}
-          size="icon"
+          size="icon-xs"
           title={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
           variant="ghost"
         >
-          {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+          {isExpanded ? <ChevronUp /> : <ChevronDown />}
         </Button>
       </div>
       {isExpanded ? (

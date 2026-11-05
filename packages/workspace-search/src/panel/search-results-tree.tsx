@@ -124,11 +124,11 @@ function FileRow({
             event.stopPropagation();
             onAttachFile(compositeKey);
           }}
-          size="icon"
+          size="icon-xs"
           title="Attach this file to the thread"
           variant="ghost"
         >
-          <Paperclip aria-hidden="true" className="size-3.5" />
+          <Paperclip aria-hidden="true" />
         </Button>
       ) : null}
     </span>

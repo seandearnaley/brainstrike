@@ -171,13 +171,13 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
         <span className="text-muted-foreground text-xs font-semibold uppercase">New Preset</span>
         <Button
           aria-label="Cancel preset creation"
-          className="size-5"
+          className="relative size-5 after:absolute after:-inset-1 after:content-['']"
           onClick={onCancel}
-          size="icon"
+          size="icon-xs"
           title="Cancel preset creation"
           variant="ghost"
         >
-          <X className="size-3" />
+          <X />
         </Button>
       </div>
       <div className="space-y-2">
@@ -292,11 +292,11 @@ function PresetEditForm({
           aria-label="Cancel editing preset"
           className="size-6"
           onClick={onCancel}
-          size="icon"
+          size="icon-xs"
           title="Cancel editing preset"
           variant="ghost"
         >
-          <X className="size-3" />
+          <X />
         </Button>
       </div>
       <IconPicker
@@ -725,11 +725,11 @@ export function ViewFilterPresetDropdown({
                           e.stopPropagation();
                           startEditing(preset);
                         }}
-                        size="icon"
+                        size="icon-xs"
                         title="Edit preset"
                         variant="ghost"
                       >
-                        <Settings2 className="size-3" />
+                        <Settings2 />
                       </Button>
                     </div>
                   </div>
