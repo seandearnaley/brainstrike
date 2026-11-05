@@ -103,9 +103,11 @@ import {
 import {
   type DiffSide,
   fileDiffContent,
+  NO_FSMONITOR,
   type PatchCapture,
   pinnedDiffArgs,
   pinnedPatchArgs,
+  pinnedStatusArgs,
   STRUCTURED_DIFF_CONTENT_CAP_BYTES,
 } from './structured-diff-content.ts';
 import { countLines, type NumstatEntry, parseNumstatZ } from './structured-diff-parsers.ts';
@@ -292,7 +294,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * `GitCommandRun.stdoutBuffer`).
    */
   async function readRefBlob(spec: string, pathArg: string): Promise<BoundaryResult<DiffSide>> {
-    const sizeRun = await invoke(['cat-file', '-s', spec]);
+    const sizeRun = await invoke([...NO_FSMONITOR, 'cat-file', '-s', spec]);
     if (sizeRun.exitCode !== 0) {
       const classified = classifyCatFileFailure(sizeRun, pathArg);
       if (!classified.ok) {
@@ -308,7 +310,11 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
       return { ok: true, value: { kind: 'over-cap', size } };
     }
 
-    const run_ = await invoke(['cat-file', 'blob', spec], GIT_DEFAULT_TIMEOUT_MS, true);
+    const run_ = await invoke(
+      [...NO_FSMONITOR, 'cat-file', 'blob', spec],
+      GIT_DEFAULT_TIMEOUT_MS,
+      true
+    );
     if (run_.failureReason === 'maxBuffer') {
       return gitRefused(
         'input',
@@ -381,6 +387,10 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
         const target = await readlink(resolved);
         return { ok: true, value: { content: Buffer.from(target, 'utf8'), kind: 'present' } };
       }
+      // Git lists an untracked repository, or a submodule, as its directory.
+      if (lstats.isDirectory()) {
+        return gitRefused('input', 'git.directory-path', `"${pathArg}" is a repository folder`);
+      }
       const handle = await open(resolved, 'r');
       try {
         const stats = await handle.stat();
@@ -414,7 +424,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    */
   async function isPathUntracked(pathArg: string): Promise<BoundaryResult<boolean>> {
     const [statusRun, prefixRun] = await Promise.all([
-      invoke(['status', '--porcelain=v2', '--untracked-files=all', '-z', '--', pathArg]),
+      invoke(pinnedStatusArgs(pathArg)),
       invoke(['rev-parse', '--show-prefix']),
     ]);
     if (statusRun.exitCode !== 0) {

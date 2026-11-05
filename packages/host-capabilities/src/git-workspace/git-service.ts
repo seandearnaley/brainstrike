@@ -151,6 +151,8 @@ export type GitCommandRunner = (params: {
    * environment.
    */
   readonly env?: Readonly<Record<string, string>> | undefined;
+  /** Written to git's stdin, which then closes: a patch for `git apply -`, or pathspecs. */
+  readonly input?: string | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;
 }) => Promise<GitCommandRun>;

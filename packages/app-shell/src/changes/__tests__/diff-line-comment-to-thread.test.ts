@@ -68,12 +68,13 @@ describe('formatDiffLineComment', () => {
 
 describe('useDiffCommentsToThread', () => {
   const answer: ChangedFileEntry = {
+    actions: [],
     additions: 1,
     deletions: 1,
     patch: null,
     path: 'src/answer.ts',
     repositoryRoot: '/repo',
-    revertible: true,
+    revision: 'r1',
     rootId: 'root-app',
     status: 'modified',
     worktreePath: '/repo',

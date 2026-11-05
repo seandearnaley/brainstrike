@@ -8,10 +8,37 @@ import {
   type ChangeTypes,
   type FileDiffLoadedChangedFiles,
   type FileDiffMetadata,
+  type Hunk,
   processFile,
 } from '@pierre/diffs';
 
 export type DiffSide = 'additions' | 'deletions';
+
+/**
+ * Where a hunk's last change, as @pierre/diffs groups it, ends as drawn: its
+ * last added line, or its last removed one when it adds none. Side by side, a
+ * change that removes more lines than it adds ends on the removed side.
+ */
+export function lastChangedLine(
+  hunk: Hunk,
+  diffStyle: 'split' | 'unified'
+): { readonly lineNumber: number; readonly side: DiffSide } | null {
+  const change = hunk.hunkContent.findLast((content) => content.type === 'change');
+  if (change?.type !== 'change') {
+    return null;
+  }
+  const added =
+    change.additions > 0 && (diffStyle === 'unified' || change.additions >= change.deletions);
+  // The hunk's lines of one side are consecutive, so a change's offset into
+  // the hunk is its offset into the file from the hunk's first line.
+  const [first, hunkIndex, changeIndex, count] = added
+    ? [hunk.additionStart, hunk.additionLineIndex, change.additionLineIndex, change.additions]
+    : [hunk.deletionStart, hunk.deletionLineIndex, change.deletionLineIndex, change.deletions];
+  return {
+    lineNumber: first + changeIndex - hunkIndex + count - 1,
+    side: added ? 'additions' : 'deletions',
+  };
+}
 
 /**
  * Parses git's diff of one file. With both sides the diff can expand its

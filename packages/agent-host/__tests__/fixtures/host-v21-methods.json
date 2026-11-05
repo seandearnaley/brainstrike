@@ -1,11 +1,12 @@
 {
-  "version": 20,
+  "version": 21,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
     "auth/login",
     "canvas/list",
     "canvas/read",
+    "changes/apply",
     "changes/file-diff",
     "changes/inventory",
     "changes/resolve-view",
