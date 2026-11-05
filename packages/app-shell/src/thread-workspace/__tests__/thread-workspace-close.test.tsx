@@ -28,6 +28,8 @@ function render(harness: ReturnType<typeof createHarness>, initialThread: string
 
 describe('thread workspace app-owned close', () => {
   beforeEach(async () => {
+    // Each test is its own profile: durable renderer stores read localStorage at import.
+    window.localStorage.clear();
     vi.resetModules();
     ({ prepareRendererClose } = await import('@brainstrike/app-state/renderer-close'));
     ({ useThreadWorkspaceCoordinator } = await import('../use-thread-workspace-coordinator'));
@@ -284,4 +286,108 @@ describe('thread workspace app-owned close', () => {
       reopened.unmount();
     }
   );
+
+  // BST-2281: the close joins writes, never reads. A tab opened while the boot read is still
+  // pending has no write to join; the close records the hydration and the next document resumes
+  // it. `harness.state` stands in for the persisted tab store and `harness.rows` for the host's
+  // rows; both outlive the document, as they do across a real relaunch.
+  it.each([
+    ['no saved row', false],
+    ['a saved row', true],
+  ] as const)(
+    'a tab opened while the boot read is pending survives quit and relaunch (%s)',
+    async (_case, savedRow) => {
+      const harness = createHarness();
+      if (savedRow) {
+        // An earlier session saved thread-a with the Changes tab open.
+        await saveSession(harness, 'thread-a', 'changes');
+      }
+
+      // Boot: the host is slow to answer thread-a's read. Quit before it does: the close
+      // resolves without it, and the document unloads, abandoning the read's continuation.
+      await quitWhileBootReadPending(harness, 'thread-a', 'database');
+
+      await relaunch();
+      const reopened = render(harness, 'thread-a');
+      try {
+        await waitFor(() =>
+          expect(harness.rows.get('thread-a')?.apps.openAppIds).toContain('database')
+        );
+        expect(visibleTabs(harness)).toEqual({
+          openAppIds: expect.arrayContaining(['database']),
+          selection: { appId: 'database', kind: 'app' },
+        });
+      } finally {
+        reopened.unmount();
+      }
+    }
+  );
+
+  it("never merges an interrupted hydration into another thread's workspace", async () => {
+    const harness = createHarness();
+    await saveSession(harness, 'thread-a', 'context-explorer');
+    await saveSession(harness, 'thread-b', 'changes');
+    // thread-a's boot is interrupted, then the next document opens thread-b instead and edits it.
+    await quitWhileBootReadPending(harness, 'thread-a', 'database');
+    await saveSession(harness, 'thread-b', 'logs');
+
+    await relaunch();
+    const reopened = render(harness, 'thread-a');
+    try {
+      await waitFor(() => expect(harness.state.openAppIds).toEqual(['context-explorer']));
+      expect(harness.rows.get('thread-a')?.apps.openAppIds).toEqual(['context-explorer']);
+    } finally {
+      reopened.unmount();
+    }
+  });
 });
+
+/** A relaunched document: a fresh close registry and coordinator module, the same storage. */
+async function relaunch(): Promise<void> {
+  vi.resetModules();
+  ({ prepareRendererClose } = await import('@brainstrike/app-state/renderer-close'));
+  ({ useThreadWorkspaceCoordinator } = await import('../use-thread-workspace-coordinator'));
+}
+
+/** A document that opens `threadId`, selects `appId` once hydrated, and saves it. */
+async function saveSession(
+  harness: ReturnType<typeof createHarness>,
+  threadId: string,
+  appId: string
+): Promise<void> {
+  await relaunch();
+  const session = render(harness, threadId);
+  await waitFor(() => expect(harness.rows.has(threadId)).toBe(true));
+  act(() => {
+    harness.state.openAppIds = [appId];
+    harness.state.selection = { appId, kind: 'app' };
+    harness.notify();
+  });
+  await waitFor(() => expect(harness.rows.get(threadId)?.apps.openAppIds).toEqual([appId]));
+  session.unmount();
+}
+
+/** A document whose boot read of `threadId` never answers: the user opens `appId` and quits. */
+async function quitWhileBootReadPending(
+  harness: ReturnType<typeof createHarness>,
+  threadId: string,
+  appId: string
+): Promise<void> {
+  await relaunch();
+  const bootRead = Promise.withResolvers<WorkspaceSnapshotV1 | null>();
+  vi.mocked(harness.repository.getThreadWorkspace).mockReturnValueOnce(bootRead.promise);
+  const booted = render(harness, threadId);
+  act(() => {
+    harness.state.openAppIds = [...harness.state.openAppIds, appId];
+    harness.state.selection = { appId, kind: 'app' };
+    harness.notify();
+  });
+  await act(async () => {
+    await prepareRendererClose();
+  });
+  booted.unmount();
+}
+
+function visibleTabs(harness: ReturnType<typeof createHarness>) {
+  return { openAppIds: harness.state.openAppIds, selection: harness.state.selection };
+}
