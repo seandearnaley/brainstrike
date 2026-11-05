@@ -4,8 +4,9 @@
  * `resolveView` resolves any `Changeset` (agent-run / run-range / git-scope)
  * to an eager `ChangesetView`; `fileDiff` loads one file's
  * `StructuredFileDiff` lazily; `apply` stages, unstages or reverts what a view
- * drew. All accept `unknown` renderer-supplied arguments (the client boundary
- * is untrusted, same as `git-methods.ts`) — `validateChangeset`/`validatePath`/
+ * drew; `commits` lists a worktree's latest commits. All accept `unknown`
+ * renderer-supplied arguments (the client boundary is untrusted, same as
+ * `git-methods.ts`) — `validateChangeset`/`validatePath`/
  * `validateApplyParams` structurally narrow the payload before it ever reaches
  * `ChangesetDiffService`, which only ever sees typed values.
  *
@@ -21,6 +22,7 @@ import type {
   ChangesActionTarget,
   ChangesApplyParams,
   ChangesApplyResult,
+  ChangesCommit,
   Changeset,
   ChangesetView,
   ChangesFileRevision,
@@ -422,6 +424,10 @@ function validateInventoryOptions(value: unknown): BoundaryResult<{ readonly max
 
 export interface ChangesMethods {
   readonly apply: (params: unknown) => Promise<BoundaryResult<ChangesApplyResult>>;
+  readonly commits: (
+    rootId: unknown,
+    worktreePath: unknown
+  ) => Promise<BoundaryResult<readonly ChangesCommit[]>>;
   readonly fileDiff: (
     rootId: unknown,
     changeset: unknown,
@@ -491,6 +497,12 @@ export function createChangesMethods(options: ChangesMethodsOptions): ChangesMet
         logger.error('Unexpected changes:apply handler failure', { error });
         return gitThrew(error);
       }
+    },
+    commits: async (rootId, worktreePath) => {
+      if (!isNonEmptyString(worktreePath)) {
+        return gitInvalid('changes:commits requires a non-empty worktreePath');
+      }
+      return await service.commits(rootId, worktreePath);
     },
     fileDiff: async (rootId, changeset, path) => {
       const changesetResult = validateChangeset(changeset);

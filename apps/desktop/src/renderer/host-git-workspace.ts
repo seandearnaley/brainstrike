@@ -70,6 +70,7 @@ export function createDesktopWorkspaceGitServices(
   return {
     changes: {
       apply: (params) => request('changes/apply', params),
+      commits: (rootId, worktreePath) => request('changes/commits', { rootId, worktreePath }),
       fileDiff: (rootId, changeset, path) =>
         request('changes/file-diff', { changeset, path, rootId }),
       inventory: (options) => request('changes/inventory', { ...options }),

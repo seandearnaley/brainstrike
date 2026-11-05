@@ -19,14 +19,30 @@ export async function openChanges(page: Page, repo: string, reloadReason: string
  * closes the submenu under the click.
  */
 export async function chooseScope(page: Page, scope: 'staged' | 'unstaged'): Promise<void> {
+  await openWorktreeMenu(page);
+  await page.getByRole('menuitem', { exact: true, name: scope }).focus();
+  await page.keyboard.press('Enter');
+}
+
+/** Choose one of the first worktree's commits by its subject, with the keyboard. */
+export async function chooseCommit(page: Page, subject: string): Promise<void> {
+  await openWorktreeMenu(page);
+  const commits = page.getByRole('menuitem', { exact: true, name: 'Commits' });
+  await commits.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(commits).toHaveAttribute('aria-expanded', 'true');
+  const commit = page.getByRole('menuitem', { name: subject });
+  await commit.focus({ timeout: 30_000 });
+  await page.keyboard.press('Enter');
+}
+
+async function openWorktreeMenu(page: Page): Promise<void> {
   const surface = page.getByTestId('changes-surface');
   await surface.getByTestId('changeset-source-picker-trigger').click({ timeout: 30_000 });
   const worktree = page.getByTestId('changeset-source-worktree').first();
   await worktree.focus({ timeout: 30_000 });
   await page.keyboard.press('ArrowRight');
   await expect(worktree).toHaveAttribute('aria-expanded', 'true');
-  await page.getByRole('menuitem', { exact: true, name: scope }).focus();
-  await page.keyboard.press('Enter');
 }
 
 export const diffOf = (page: Page): Locator =>

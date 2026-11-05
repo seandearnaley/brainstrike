@@ -44,6 +44,7 @@ import {
 import { AlertTriangle, Check, GitBranch } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { describeGitScopeKind } from './git-scope-label';
+import { WorktreeCommitsMenu } from './worktree-commits-menu';
 
 export interface ChangesetSourcePickerProps {
   readonly changeset: Changeset | null;
@@ -63,7 +64,7 @@ export interface ChangesetSourcePickerProps {
   readonly threadId: string | null;
 }
 
-/** The `GitScope` kinds this picker offers (excludes `commit`, a history-view concept). */
+/** The `GitScope` kinds each worktree offers; a `commit` comes from its Commits menu. */
 const OFFERED_GIT_SCOPE_KINDS = ['uncommitted', 'staged', 'unstaged', 'branch-vs-base'] as const;
 type OfferedGitScopeKind = (typeof OFFERED_GIT_SCOPE_KINDS)[number];
 
@@ -233,7 +234,9 @@ export function ChangesetSourcePicker({
               // it, so its scopes can never resolve. Disable the trigger
               // itself (never a submenu of items that all fail) rather than
               // offering a dead menu.
-              const isResolvable = worktree.containment !== 'outside-roots';
+              const rootId =
+                worktree.containment === 'outside-roots' ? null : (worktree.containment[0] ?? null);
+              const isResolvable = rootId !== null;
               const unresolvableReason =
                 "This worktree isn't inside any workspace root and can't be opened here.";
               return (
@@ -297,6 +300,18 @@ export function ChangesetSourcePicker({
                         </DropdownMenuItem>
                       );
                     })}
+                    {rootId === null ? null : (
+                      <>
+                        <DropdownMenuSeparator />
+                        <WorktreeCommitsMenu
+                          isActive={(candidate) => activeKey === changesetKey(candidate)}
+                          onSelectChangeset={onSelectChangeset}
+                          repositoryRoot={repository.identity.repositoryRoot}
+                          rootId={rootId}
+                          worktreePath={worktree.path}
+                        />
+                      </>
+                    )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
               );

@@ -46,6 +46,7 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 - A finished turn that edited files shows its agent-run view under its reply, each file folded to its header; it loads as the turn nears view, and Review opens it in Changes.
 - Line comments are per-changeset drafts in `changes-store` until added to the active thread's message. So are viewed marks: a file marked viewed at a revision folds, and opens again once its revision moves on. A file a person folded or opened stays as they left it across refreshes; marking or unmarking it puts it back where it starts.
 - Highlighting is @pierre/highlights (WebAssembly, compiled synchronously on the main thread, which the CSP's `'wasm-unsafe-eval'` allows). No worker pool: measured, it painted later than this backend took to finish.
+- Each worktree's Commits menu lists its latest commits (`changes/commits`: git's log of HEAD, flags pinned), read each time the menu opens. A commit opens as the `commit` scope, which applies nothing.
 - A line number of a file's new version opens the file at that line in an editor tab. A file header's right-click opens the same `changed-file` menu as its tree row, which copies its path or the patch the view drew. Only headers take that menu (`DiffReview` `fileMenu`): `ActionContextMenu` cancels any right-click it wraps, so wrapping the lines would take away the shell's Copy and the comment box's Paste.
 - A worktree status still loading is not a clean checkout. Closing UI never mutates durable run history.
 
