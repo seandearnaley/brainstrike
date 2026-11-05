@@ -95,7 +95,7 @@ describe('AssistantActionBar copy', () => {
 
   it('does not offer model regeneration for a decision discovery failure', () => {
     render(<Harness recovery text="" />);
-    expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Copy message' })).not.toBeInTheDocument();
     expect(chatModel.run).not.toHaveBeenCalled();
   });

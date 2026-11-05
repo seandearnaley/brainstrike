@@ -112,6 +112,8 @@ describe('a long run in one activity group', () => {
     expect(within(group).getByRole('button', { name: 'Reads500' })).toBeInTheDocument();
     const strip = within(group).getByTestId('assistant-activity-run-strip');
     expect(strip.querySelectorAll('rect').length).toBeLessThanOrEqual(80);
+    // Named by steps, not by its bucketed marks.
+    expect(strip).toHaveAccessibleName('500 steps. Open the newest step');
   });
 
   it('opens the group at its failure from the failed count, and ] / [ walk the failures', async () => {

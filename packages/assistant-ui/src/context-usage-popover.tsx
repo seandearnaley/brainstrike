@@ -727,7 +727,7 @@ const WorkspaceFilesRow = ({
       Workspace files in the window
       {onOpenContextMap && (
         <button
-          className="text-foreground focus-visible:ring-ring text-[11px] underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:outline-none"
+          className="text-foreground focus-visible:ring-ring text-[11px] underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:outline-hidden"
           data-testid="context-usage-open-context-map"
           onClick={onOpenContextMap}
           type="button"

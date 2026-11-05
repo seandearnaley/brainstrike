@@ -31,17 +31,6 @@ async function openTokenCountingSettings(
   await settingsPage.openCategory(/Token Counting/iu, 'token-counting');
 }
 
-/** Answer the native reset confirmation once, then restore it. */
-async function confirmNextReset(window: Page): Promise<void> {
-  await window.evaluate(() => {
-    const original = globalThis.confirm;
-    globalThis.confirm = () => {
-      globalThis.confirm = original;
-      return true;
-    };
-  });
-}
-
 /** The host's saved workspace folders, from its own store: the open list and the recent list. */
 async function readFolders(userDataDir: string): Promise<unknown[]> {
   const hostRoot = await readHostRoot(userDataDir);
@@ -263,14 +252,14 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
 
       await homePage.openSettings();
       await settingsPage.openCategory(/Factory Reset/iu, 'factory-reset');
-      await confirmNextReset(window);
+      await window.getByTestId('factory-reset-button').click();
       // Every durable renderer store the used profile saved, which the reset must clear whole.
       expect(await markDurableEntries(window)).toContain('brainstrike:token-preferences.v1');
       // The retired document stays visually ready while Main purges its stores.
       // Join the replacement document before consulting its readiness or catalog.
       await Promise.all([
         window.waitForEvent('load', { predicate: (loaded) => loaded.url() !== 'about:blank' }),
-        window.getByTestId('factory-reset-button').click(),
+        window.getByTestId('factory-reset-confirm').click(),
       ]);
       await expect.poll(() => fs.existsSync(sentinelFile), { timeout: 10_000 }).toBe(false);
       await expect

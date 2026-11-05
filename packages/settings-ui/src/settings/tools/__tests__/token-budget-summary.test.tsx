@@ -105,7 +105,7 @@ describe('TokenBudgetSummary', () => {
 
       const summary = screen.getByTestId('token-budget-summary');
       // Should have warning styles (yellow border)
-      expect(summary.className).toContain('border-yellow-500/50');
+      expect(summary.className).toContain('border-warning/50');
     });
 
     it('shows error state when usage exceeds 100%', () => {

@@ -1,6 +1,6 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import { Button, Input } from '@brainstrike/ui';
+import { Button, ErrorNotice, Input } from '@brainstrike/ui';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { Search, Shapes } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -37,7 +37,10 @@ function openArtifact(artifact: AssistantThreadHostArtifact): void {
  * The list, read whenever the page is shown and whenever a run commits a
  * canvas while it is. A failed read stays an error, never an empty gallery.
  */
-function useArtifactList(artifacts: AssistantThreadHostArtifacts, shown: boolean): ArtifactList {
+function useArtifactList(
+  artifacts: AssistantThreadHostArtifacts,
+  shown: boolean
+): { readonly list: ArtifactList; readonly retry: () => void } {
   const host = useAssistantThreadHost();
   const [list, setList] = useState<ArtifactList>({ status: 'loading' });
   const [generation, setGeneration] = useState(0);
@@ -67,7 +70,11 @@ function useArtifactList(artifacts: AssistantThreadHostArtifacts, shown: boolean
       cancelled = true;
     };
   }, [artifacts, generation, shown]);
-  return list;
+  const retry = (): void => {
+    setList({ status: 'loading' });
+    setGeneration((value) => value + 1);
+  };
+  return { list, retry };
 }
 
 function GalleryNotice({ children }: { readonly children: ReactNode }): ReactElement {
@@ -86,7 +93,7 @@ function ArtifactsGallery({
   readonly shellSrc: string;
 }): ReactElement {
   const shown = usePanelLayoutStore((state) => state.activeTab === 'artifacts');
-  const list = useArtifactList(artifacts, shown);
+  const { list, retry } = useArtifactList(artifacts, shown);
   const threads = useAssistantThreadStore(
     (state) => state.threadsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
   );
@@ -123,9 +130,12 @@ function ArtifactsGallery({
   } else if (list.status === 'error') {
     body = (
       <GalleryNotice>
-        <p className="text-destructive max-w-md text-sm" data-testid="artifacts-error" role="alert">
-          Artifacts could not be listed: {list.error}
-        </p>
+        <ErrorNotice
+          className="max-w-md"
+          data-testid="artifacts-error"
+          message={`Artifacts could not be listed: ${list.error}`}
+          onRetry={retry}
+        />
       </GalleryNotice>
     );
   } else if (list.artifacts.length === 0) {

@@ -1,6 +1,6 @@
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
-import { useCodeFont, useToast } from '@brainstrike/ui';
+import { prefersReducedMotion, useCodeFont, useToast } from '@brainstrike/ui';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
@@ -12,7 +12,7 @@ import {
 } from '../roots/transient-root-error';
 import { useTerminalBridge } from '../workspace-terminal-services';
 import { SurrogateBuffer } from './surrogate-buffer';
-import { XTERM_THEME } from './xterm-theme';
+import { readTerminalTheme, XTERM_MINIMUM_CONTRAST_RATIO } from './xterm-theme';
 
 const logger = createLogger('TerminalPanel');
 
@@ -219,13 +219,39 @@ export function useTerminalSession(
     let offExit: (() => void) | null = null;
     let offInput: (() => void) | null = null;
 
+    let appliedTheme = readTerminalTheme(container);
     const term = new Terminal({
       convertEol: false,
-      cursorBlink: true,
+      cursorBlink: !prefersReducedMotion(),
       fontFamily: OPENING_FONT_FAMILY,
       fontSize: 13,
+      minimumContrastRatio: XTERM_MINIMUM_CONTRAST_RATIO,
       scrollback: 5000,
-      theme: XTERM_THEME,
+      theme: appliedTheme,
+    });
+    // ThemeProvider writes the light/dark class, palette and motion setting on
+    // <html>; repaint the terminal and follow Reduced motion whenever they
+    // change. The observer fires after the attribute lands, so the computed
+    // tokens are current.
+    const appearanceObserver = new MutationObserver(() => {
+      const cursorBlink = !prefersReducedMotion();
+      if (term.options.cursorBlink !== cursorBlink) {
+        term.options.cursorBlink = cursorBlink;
+      }
+      const next = readTerminalTheme(container);
+      // Palettes differ in foreground; a palette switch keeps the mode but
+      // repaints `--background`.
+      if (
+        next.foreground !== appliedTheme.foreground ||
+        next.background !== appliedTheme.background
+      ) {
+        term.options.theme = next;
+        appliedTheme = next;
+      }
+    });
+    appearanceObserver.observe(container.ownerDocument.documentElement, {
+      attributeFilter: ['class', 'data-motion', 'data-theme', 'style'],
+      attributes: true,
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -389,6 +415,7 @@ export function useTerminalSession(
 
     return () => {
       cancelled = true;
+      appearanceObserver.disconnect();
       liveTerminalRef.current = null;
       disposeTerminalSessionHandles({
         offData,

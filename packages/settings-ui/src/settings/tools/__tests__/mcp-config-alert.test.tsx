@@ -75,7 +75,7 @@ describe('McpConfigAlert', () => {
     expect(screen.getByText(/\/custom\/path\/mcp.config.json/u)).toBeInTheDocument();
   });
 
-  it('calls onSelectConfig when Select Config File button is clicked', async () => {
+  it('calls onSelectConfig when Select config file button is clicked', async () => {
     const user = userEvent.setup();
     const onSelectConfig = vi.fn().mockResolvedValue(undefined);
     const configInfo: McpConfigInfo = {
@@ -95,7 +95,7 @@ describe('McpConfigAlert', () => {
     expect(onSelectConfig).toHaveBeenCalledOnce();
   });
 
-  it('calls onResetConfig when Reset to Default button is clicked', async () => {
+  it('calls onResetConfig when Reset to default button is clicked', async () => {
     const user = userEvent.setup();
     const onResetConfig = vi.fn().mockResolvedValue(undefined);
     const configInfo: McpConfigInfo = {
@@ -115,7 +115,7 @@ describe('McpConfigAlert', () => {
     expect(onResetConfig).toHaveBeenCalledOnce();
   });
 
-  it('shows Create Sample Config button when onCreateSample is provided', () => {
+  it('shows Create sample config button when onCreateSample is provided', () => {
     const configInfo: McpConfigInfo = {
       exists: false,
       path: '/path/to/mcp.config.json',
@@ -132,7 +132,7 @@ describe('McpConfigAlert', () => {
     expect(screen.getByTestId('create-sample-btn')).toBeInTheDocument();
   });
 
-  it('hides Create Sample Config button when onCreateSample is not provided', () => {
+  it('hides Create sample config button when onCreateSample is not provided', () => {
     const configInfo: McpConfigInfo = {
       exists: false,
       path: '/path/to/mcp.config.json',
@@ -143,7 +143,7 @@ describe('McpConfigAlert', () => {
     expect(screen.queryByTestId('create-sample-btn')).not.toBeInTheDocument();
   });
 
-  it('calls onCreateSample when Create Sample Config button is clicked', async () => {
+  it('calls onCreateSample when Create sample config button is clicked', async () => {
     const user = userEvent.setup();
     const onCreateSample = vi.fn().mockResolvedValue(undefined);
     const configInfo: McpConfigInfo = {

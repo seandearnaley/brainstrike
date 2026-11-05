@@ -322,7 +322,7 @@ describe('ToolPlayground', () => {
 
       await waitFor(() => {
         const result = screen.getByTestId('execution-result');
-        expect(result.className).toContain('border-green-500/50');
+        expect(result.className).toContain('border-success/50');
       });
     });
 

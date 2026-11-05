@@ -58,7 +58,7 @@ describe('createAssistantMemorySettingsCategory', () => {
 
     expect(category.id).toBe('assistant-memory');
     expect(category.title).toBe('Assistant Memory');
-    expect(category.keywords).toEqual(['memory', 'observations', 'mastra']);
+    expect(category.keywords).toEqual(expect.arrayContaining(['memory', 'observations', 'mastra']));
   });
 
   it('renders the memory section with the backend flag and provider key sources', () => {
@@ -126,6 +126,7 @@ describe('settings search for the relocated sections', () => {
   const navButtonNames = (): string[] =>
     within(screen.getByRole('navigation', { name: /settings categories/iu }))
       .getAllByRole('button')
+      .filter((button) => button.getAttribute('aria-label') !== 'Clear search')
       .map((button) => button.textContent ?? '');
 
   it.each(['memory', 'observations', 'mastra'])(

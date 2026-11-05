@@ -251,7 +251,7 @@ export function SubagentPersonasSettingsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Subagents</CardTitle>
+        <CardTitle>Personas</CardTitle>
         <CardDescription>
           The assistant can delegate focused tasks to subagent personas: read-only ones survey and
           analyze, and worker personas can edit and run within the tools and permissions the host

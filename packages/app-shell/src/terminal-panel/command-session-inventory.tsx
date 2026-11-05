@@ -290,7 +290,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
               <form className="border-border flex gap-2 border-t p-2" onSubmit={sendInput}>
                 <input
                   aria-label="Command session input"
-                  className="border-input bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:ring-2"
+                  className="border-input bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2.5 py-1.5 font-mono text-xs outline-hidden focus-visible:ring-2"
                   onChange={(event) => setInput(event.target.value)}
                   placeholder="Send input"
                   value={input}

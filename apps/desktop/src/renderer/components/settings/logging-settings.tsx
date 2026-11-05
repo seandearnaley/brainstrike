@@ -89,7 +89,7 @@ export function DesktopLoggingSettings() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Logging & Diagnostics</CardTitle>
+          <CardTitle>Logging</CardTitle>
           <CardDescription>Loading logging preferences…</CardDescription>
         </CardHeader>
         <CardContent>
@@ -103,7 +103,7 @@ export function DesktopLoggingSettings() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Logging & Diagnostics</CardTitle>
+          <CardTitle>Logging</CardTitle>
           <CardDescription>Logging configuration is unavailable.</CardDescription>
         </CardHeader>
         <CardContent>

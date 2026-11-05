@@ -210,6 +210,27 @@ describe('ArtifactsPage', () => {
     expect(screen.queryByText('No artifacts yet')).not.toBeInTheDocument();
   });
 
+  it('lists the artifacts again when Retry is pressed after a failed list', async () => {
+    let calls = 0;
+    renderPage(
+      createHost({
+        artifacts: artifacts(async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error('host closed');
+          }
+          return [artifact('chart', 'Revenue chart', 'thread-sales')];
+        }),
+      })
+    );
+
+    const error = await screen.findByTestId('artifacts-error');
+    fireEvent.click(within(error).getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(cardTitles()).toEqual(['Revenue chart']));
+    expect(screen.queryByTestId('artifacts-error')).not.toBeInTheDocument();
+  });
+
   it('says when there are no artifacts yet', async () => {
     renderPage(createHost({ artifacts: artifacts(async () => []) }));
 

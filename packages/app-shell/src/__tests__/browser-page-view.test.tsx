@@ -218,6 +218,41 @@ describe('browser page tab', () => {
     expect(bridge.navigate).toHaveBeenCalledExactlyOnceWith('p1', 'example.com');
   });
 
+  it('gives up a typed address on Escape, showing the page URL again', async () => {
+    const user = userEvent.setup();
+    render(<PageTabs isMenuOpen={false} />);
+
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    await user.clear(address);
+    await user.type(address, 'example.com');
+    await user.keyboard('{Escape}');
+
+    expect(address).toHaveValue('https://docs.test/');
+    expect(bridge.navigate).not.toHaveBeenCalled();
+  });
+
+  it('says in the pane when a navigation fails, and tries it again on Retry', async () => {
+    const user = userEvent.setup();
+    bridge.reload.mockRejectedValueOnce(new Error('page crashed'));
+    render(<PageTabs isMenuOpen={false} />);
+
+    await user.click(screen.getByRole('button', { name: 'Reload' }));
+    const failure = await screen.findByTestId('browser-page-error');
+    expect(failure).toHaveTextContent("Couldn't reload the page: page crashed");
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(bridge.reload).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('browser-page-error')).not.toBeInTheDocument();
+  });
+
+  it('shows a progress bar in the toolbar while the page loads', () => {
+    render(<PageTabs isMenuOpen={false} />);
+    expect(screen.queryByRole('progressbar', { name: 'Loading page' })).not.toBeInTheDocument();
+
+    act(() => useBrowserTabsStore.getState().setTabs([{ ...PAGE, isLoading: true }]));
+    expect(screen.getByRole('progressbar', { name: 'Loading page' })).toBeInTheDocument();
+  });
+
   it('names the tab after its page, marks it while it loads, and says when the page is closed', () => {
     const { result } = renderHook(() => useBrowserWorkspaceApps(bridge));
     expect(result.current.map((app) => [app.label, app.status, app.tooltip])).toEqual([

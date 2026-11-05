@@ -1,6 +1,7 @@
 import { cn } from '@brainstrike/ui';
 import type { ReactElement, ReactNode } from 'react';
 import { useState } from 'react';
+import { useComposerTakesImageDrops, yieldsToComposerImageDrop } from '../composer-image-drop';
 
 /**
  * True when a drag originates from the OS and carries files/folders.
@@ -29,14 +30,23 @@ export interface WorkspaceBarDropZoneProps {
  * `currentTarget === target` check: the bar is full of chips, and a dragleave
  * bubbling off any one of them would flicker the ring. `relatedTarget` names where the pointer actually
  * went, so a move onto a still-contained chip is not a leave.
+ *
+ * A drag of images only, where the composer attaches images, is not a folder
+ * drop: it passes through untouched to the composer shell around the bar,
+ * which attaches the images (or says why the model cannot take them).
  */
 export function WorkspaceBarDropZone({
   children,
   onDropItems,
 }: WorkspaceBarDropZoneProps): ReactElement {
   const [isDragOver, setIsDragOver] = useState(false);
+  const composerTakesImages = useComposerTakesImageDrops();
 
   const handleDragOver = (event: React.DragEvent<HTMLElement>) => {
+    if (yieldsToComposerImageDrop(composerTakesImages, event.dataTransfer)) {
+      setIsDragOver(false);
+      return;
+    }
     if (!dragCarriesFiles(event)) {
       return;
     }
@@ -53,7 +63,10 @@ export function WorkspaceBarDropZone({
   };
 
   const handleDrop = (event: React.DragEvent<HTMLElement>) => {
-    if (!dragCarriesFiles(event)) {
+    if (
+      !dragCarriesFiles(event) ||
+      yieldsToComposerImageDrop(composerTakesImages, event.dataTransfer)
+    ) {
       // Internal drags (thread tabs, text selections) pass through
       // untouched; this surface only mounts real OS folders.
       setIsDragOver(false);

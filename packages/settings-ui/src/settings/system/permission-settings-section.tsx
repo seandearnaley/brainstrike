@@ -44,10 +44,17 @@ import {
   CardHeader,
   CardTitle,
   cn,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Label,
   Switch,
 } from '@brainstrike/ui';
 import { AlertTriangle, X } from 'lucide-react';
+import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { listObservationalMemoryModelOptions } from '../models/assistant-memory-models';
 
@@ -214,6 +221,49 @@ function PerToolOverridesBlock() {
   );
 }
 
+/** Asks before a bulk action that cannot be undone: Cancel, then the action. */
+function ConfirmActionDialog({
+  confirmLabel,
+  description,
+  onConfirm,
+  onOpenChange,
+  open,
+  title,
+}: {
+  readonly confirmLabel: string;
+  readonly description: string;
+  readonly onConfirm: () => void;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly open: boolean;
+  readonly title: string;
+}) {
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)} type="button" variant="outline">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              onOpenChange(false);
+              onConfirm();
+            }}
+            type="button"
+            variant="destructive"
+          >
+            {confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
  * Active "allow for this session" grants; session-lived, cleared on reload.
  * Like the overrides block, revoke stays available regardless of `enforce` so a
@@ -223,6 +273,7 @@ function SessionGrantsBlock() {
   const sessionGrants = usePermissionPolicyStore(permissionPolicySelectors.sessionGrants);
   const revokeSessionCategory = usePermissionPolicyStore((state) => state.revokeSessionCategory);
   const clearSessionGrants = usePermissionPolicyStore((state) => state.clearSessionGrants);
+  const [confirmingRevokeAll, setConfirmingRevokeAll] = useState(false);
   // Taxonomy order (read → edit → execute → mcp), same source the category
   // cards use — no local duplicate of the ordering.
   const active = TOOL_RISK_CATEGORIES.filter((category) => sessionGrants.has(category));
@@ -240,7 +291,7 @@ function SessionGrantsBlock() {
             aria-label="Revoke all session grants"
             className="shrink-0"
             data-testid="permission-session-grants-revoke-all"
-            onClick={() => clearSessionGrants()}
+            onClick={() => setConfirmingRevokeAll(true)}
             size="sm"
             title="Revoke every session grant at once"
             variant="ghost"
@@ -279,6 +330,14 @@ function SessionGrantsBlock() {
           ))}
         </div>
       )}
+      <ConfirmActionDialog
+        confirmLabel="Revoke all"
+        description="Every category allowed for this session goes back to its policy, so its next tool call asks again."
+        onConfirm={() => clearSessionGrants()}
+        onOpenChange={setConfirmingRevokeAll}
+        open={confirmingRevokeAll}
+        title="Revoke all session grants?"
+      />
     </fieldset>
   );
 }
@@ -403,6 +462,7 @@ export function PermissionSettingsSection() {
   const setEnforce = usePermissionPolicyStore((state) => state.setEnforce);
   const setCategoryPolicy = usePermissionPolicyStore((state) => state.setCategoryPolicy);
   const saveError = usePermissionPolicySave((state) => state.error);
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   // BST-1930: editing defaults while the host is still opening can overwrite
   // saved policy and lose the pending write when the user immediately quits.
@@ -410,16 +470,24 @@ export function PermissionSettingsSection() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Permissions</CardTitle>
+          <CardTitle>Tool policy</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {hydration.status === 'failed' ? (
             <>
               <p role="alert">Unable to load permission settings: {hydration.error}</p>
               {hydration.unreadable ? (
-                <Button onClick={() => void discardSavedPermissionPolicy()}>
-                  Reset to defaults
-                </Button>
+                <>
+                  <Button onClick={() => setConfirmingReset(true)}>Reset to defaults</Button>
+                  <ConfirmActionDialog
+                    confirmLabel="Reset to defaults"
+                    description="This discards the saved permission settings and starts again from the defaults. It cannot be undone."
+                    onConfirm={() => void discardSavedPermissionPolicy()}
+                    onOpenChange={setConfirmingReset}
+                    open={confirmingReset}
+                    title="Reset permission settings?"
+                  />
+                </>
               ) : (
                 <Button onClick={() => void rehydratePermissionPolicy()}>Retry</Button>
               )}
@@ -435,7 +503,7 @@ export function PermissionSettingsSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Permissions</CardTitle>
+        <CardTitle>Tool policy</CardTitle>
         <CardDescription>
           Control whether the assistant must check a policy before using its tools. Enforcement is
           on by default: read and MCP tools run normally, while edits and commands prompt you for

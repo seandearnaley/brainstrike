@@ -874,13 +874,11 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
         restarted.window.getByText('Factory reset is unavailable on Windows in this version.')
       ).toBeVisible();
     } else {
-      await restarted.window.evaluate(() => {
-        window.confirm = () => true;
-      });
+      await restarted.window.getByTestId('factory-reset-button').click();
       const replacementLoaded = restarted.window.waitForEvent('domcontentloaded', {
         timeout: 60_000,
       });
-      await restarted.window.getByTestId('factory-reset-button').click();
+      await restarted.window.getByTestId('factory-reset-confirm').click();
       await replacementLoaded;
       await openToolsSettings(restarted.window);
       await restarted.window.getByRole('tab', { name: 'Tools' }).click();

@@ -66,7 +66,7 @@ function Separator() {
 }
 
 const SEGMENT_BUTTON_CLASS =
-  'truncate rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'truncate rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring';
 
 function SegmentButton({
   onSegmentClick,
@@ -202,7 +202,7 @@ export function Breadcrumbs({
               <DropdownMenuTrigger asChild>
                 <button
                   aria-label="Show hidden path segments"
-                  className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex h-4 w-4 items-center justify-center rounded-sm transition-colors focus-visible:ring-1 focus-visible:outline-none"
+                  className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex h-4 w-4 items-center justify-center rounded-sm transition-colors focus-visible:ring-1 focus-visible:outline-hidden"
                   type="button"
                 >
                   <MoreHorizontal className="h-3 w-3" />
