@@ -948,11 +948,12 @@ export class CommittedAssistantLogProjection {
   }
 
   /**
-   * Committed SDK messages outside a step: a Stop's partial reply inside an
-   * open step, or a person's input the run read at a step boundary.
+   * Committed SDK messages outside a step's own: a Stop's partial reply inside
+   * an open step, or a person's input a run read before a step (a retried
+   * attempt's failed step stays open). Only an input names a delivery's inputs.
    */
   private messages(run: ProjectedRun, row: CommittedAssistantLogRow): void {
-    const input = run.stepOpen ? undefined : committedPersonInput(row.event);
+    const input = committedPersonInput(row.event);
     if (input) {
       this.read(row.event);
       this.data(run, row, input, PERSON_INPUT_DATA_NAME);

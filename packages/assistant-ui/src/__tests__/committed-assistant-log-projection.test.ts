@@ -517,6 +517,55 @@ describe('rich committed-log presentation projection', () => {
     expect(parts.at(-1)).toMatchObject({ data: { text: 'Name it notes.md.', unread: true } });
   });
 
+  it('draws an input a retried attempt read, though the failed attempt’s step never committed', () => {
+    const projection = projector();
+    const stepStarted = rows.findIndex(
+      ({ event }) =>
+        event['type'] === 'stream.chunk' && record(event['chunk'])?.['type'] === 'start-step'
+    );
+    const opened = rows.slice(0, stepStarted + 1);
+    projection.acceptCommitted(opened);
+    let seq = opened.at(-1)?.seq ?? 0;
+    const commit = (event: Record<string, unknown>) =>
+      projection.acceptCommitted([{ event, seq: ++seq, threadId }]);
+    const payload = {
+      commandId: 'stalled',
+      modelId: 'scripted',
+      prompt: 'Still there?',
+      runId,
+      threadId,
+    };
+    commit({
+      commandId: 'stalled',
+      method: 'run/input',
+      payload,
+      result: { accepted: true },
+      type: 'command.accepted',
+    });
+    commit({
+      attempt: 1,
+      detail: 'The provider stopped responding.',
+      maxAttempts: 2,
+      reason: 'stalled',
+      recovered: true,
+      runId,
+      type: 'run.attempt',
+    });
+    // The retry's first step reads it before its own start-step.
+    commit({
+      delivery: { entries: [], inputs: ['stalled'] },
+      messages: [{ content: [{ text: 'Still there?', type: 'text' }], role: 'user' }],
+      runId,
+      type: 'model.messages',
+    });
+    const inputs = answer(projection).content.filter(
+      (part) => part.type === 'data' && part.name === PERSON_INPUT_DATA_NAME
+    );
+    expect(inputs).toEqual([
+      { data: { images: [], text: 'Still there?' }, name: PERSON_INPUT_DATA_NAME, type: 'data' },
+    ]);
+  });
+
   it('keeps an input a stopped run never read at its reply’s end until the next run takes it', () => {
     const next = { ...identity, assistantMessageId: 'next-answer', userMessageId: 'next-prompt' };
     const projection = new CommittedAssistantLogProjection({
