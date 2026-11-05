@@ -74,4 +74,7 @@
 // sessions its runs started that ended by themselves (`run.started` delivery `commandSessions`,
 // with `entries` then possibly empty), and the turn a run the host continued in the worktree its
 // previous run entered carries on (`run.started` `turnId`; ADR-0028 step 3).
-export const AGENT_HOST_PROTOCOL_VERSION = 19;
+// v20 (2026-11-05): `log/subscribe` answers a `subscriptionId`, and `log/unsubscribe` names it
+// instead of the thread, so ending one view's subscription never ends another's. The required
+// parameter is why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 20;

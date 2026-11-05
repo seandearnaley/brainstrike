@@ -357,7 +357,8 @@ export const HOST_METHOD_SCHEMAS = {
   /** Every thread's runs and costed provider calls, as Core folds its committed log. */
   'ledger/read': Schema.Record(Schema.String, Schema.Never),
   'log/subscribe': Schema.Struct({ ...Thread, fromSeq: Seq }),
-  'log/unsubscribe': Schema.Struct(Thread),
+  /** Names the subscription its `log/subscribe` answered. */
+  'log/unsubscribe': Schema.Struct({ subscriptionId: Id }),
   /** Core's decision on an app's call under the thread's live policy; nothing runs. */
   'mcp/app/admit': Schema.Struct(McpAppCall),
   /** Decided afresh, an asked call runs only `approved`, on the app's own server. */
@@ -957,6 +958,7 @@ export const HOST_RESULT_SCHEMAS = {
   'ledger/read': Schema.Struct({ threads: Schema.mutable(Schema.Array(HostLedgerThreadSchema)) }),
   'log/subscribe': Schema.Struct({
     rows: Schema.mutable(Schema.Array(HostLogRowSchema)),
+    subscriptionId: Id,
     telemetry: Schema.mutable(Schema.Array(HostRunTelemetrySchema)),
   }),
   'log/unsubscribe': Schema.Struct({ unsubscribed: Schema.Literal(true) }),
