@@ -16,7 +16,7 @@ import {
   type CommittedAssistantLogRow,
   type CommittedAssistantRunIdentity,
 } from '../committed-assistant-log-projection';
-import { CommittedRowUnreadableError } from '../committed-host-event-readers';
+import { CommittedRowUnreadableError, record } from '../committed-host-event-readers';
 import { PERSON_INPUT_DATA_NAME } from '../committed-person-input';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from '../compaction-summary-message';
 import { recordedMessage } from './committed-assistant-test-support';
@@ -410,6 +410,206 @@ describe('rich committed-log presentation projection', () => {
       name: PERSON_INPUT_DATA_NAME,
       type: 'data',
     });
+  });
+
+  it('shows a person’s input faded at the reply’s end from its send until the run reads it there', () => {
+    const projection = projector();
+    const finished = rows.findIndex(({ event }) => event['type'] === 'run.finished');
+    const running = rows.slice(0, finished);
+    projection.acceptCommitted(running);
+    let seq = running.at(-1)?.seq ?? 0;
+    const commit = (event: Record<string, unknown>) =>
+      projection.acceptCommitted([{ event, seq: ++seq, threadId }]);
+    commit({
+      commandId: 'input-command-1',
+      method: 'run/input',
+      payload: {
+        attachments: [
+          {
+            data: 'data:image/png;base64,aGk=',
+            mediaType: 'image/png',
+            name: 'a.png',
+            type: 'image',
+          },
+        ],
+        commandId: 'input-command-1',
+        modelId: 'scripted',
+        prompt: 'Also add a title.',
+        runId,
+        threadId,
+      },
+      result: { accepted: true },
+      type: 'command.accepted',
+    });
+    const unread = {
+      data: { images: ['data:image/png;base64,aGk='], text: 'Also add a title.', unread: true },
+      name: PERSON_INPUT_DATA_NAME,
+      type: 'data',
+    };
+    expect(answer(projection).content.at(-1)).toEqual(unread);
+    // The step still in flight when it was sent ends before it.
+    commit({ runId, type: 'step.noted' });
+    expect(answer(projection).content.at(-2)).toMatchObject({ data: { type: 'step.noted' } });
+    expect(answer(projection).content.at(-1)).toEqual(unread);
+    commit({
+      delivery: { entries: [], inputs: ['input-command-1'] },
+      messages: [
+        {
+          content: [
+            { text: 'Also add a title.', type: 'text' },
+            { data: 'data:image/png;base64,aGk=', mediaType: 'image/png', type: 'file' },
+          ],
+          role: 'user',
+        },
+      ],
+      runId,
+      type: 'model.messages',
+    });
+    const parts = answer(projection).content;
+    expect(
+      parts.filter((part) => part.type === 'data' && part.name === PERSON_INPUT_DATA_NAME)
+    ).toEqual([
+      { ...unread, data: { images: ['data:image/png;base64,aGk='], text: 'Also add a title.' } },
+    ]);
+    expect(parts.at(-2)).toMatchObject({ data: { type: 'step.noted' } });
+  });
+
+  it('keeps a step’s text before its tool call when an input arrived while the step ran', () => {
+    const projection = projector();
+    const stepStarted = rows.findIndex(
+      ({ event }) =>
+        event['type'] === 'stream.chunk' && record(event['chunk'])?.['type'] === 'start-step'
+    );
+    const opened = rows.slice(0, stepStarted + 1);
+    projection.acceptCommitted(opened);
+    let seq = opened.at(-1)?.seq ?? 0;
+    const commit = (event: Record<string, unknown>) =>
+      projection.acceptCommitted([{ event, seq: ++seq, threadId }]);
+    const payload = {
+      commandId: 'mid-step',
+      modelId: 'scripted',
+      prompt: 'Name it notes.md.',
+      runId,
+      threadId,
+    };
+    commit({
+      commandId: 'mid-step',
+      method: 'run/input',
+      payload,
+      result: { accepted: true },
+      type: 'command.accepted',
+    });
+    // The step commits its text with the tool call it precedes, and the call's chunk follows.
+    const call = { input: {}, toolCallId: 'call-x', toolName: 'write_file', type: 'tool-call' };
+    commit({
+      messages: [{ content: [{ text: 'Writing it.', type: 'text' }, call], role: 'assistant' }],
+      runId,
+      type: 'model.step',
+    });
+    commit({ chunk: call, runId, type: 'stream.chunk' });
+    const parts = answer(projection).content;
+    const text = parts.findIndex((part) => part.type === 'text' && part.text === 'Writing it.');
+    const tool = parts.findIndex(
+      (part) => part.type === 'tool-call' && part.toolCallId === 'call-x'
+    );
+    expect(text).toBeGreaterThan(-1);
+    expect(text).toBeLessThan(tool);
+    expect(parts.at(-1)).toMatchObject({ data: { text: 'Name it notes.md.', unread: true } });
+  });
+
+  it('draws an input a retried attempt read, though the failed attempt’s step never committed', () => {
+    const projection = projector();
+    const stepStarted = rows.findIndex(
+      ({ event }) =>
+        event['type'] === 'stream.chunk' && record(event['chunk'])?.['type'] === 'start-step'
+    );
+    const opened = rows.slice(0, stepStarted + 1);
+    projection.acceptCommitted(opened);
+    let seq = opened.at(-1)?.seq ?? 0;
+    const commit = (event: Record<string, unknown>) =>
+      projection.acceptCommitted([{ event, seq: ++seq, threadId }]);
+    const payload = {
+      commandId: 'stalled',
+      modelId: 'scripted',
+      prompt: 'Still there?',
+      runId,
+      threadId,
+    };
+    commit({
+      commandId: 'stalled',
+      method: 'run/input',
+      payload,
+      result: { accepted: true },
+      type: 'command.accepted',
+    });
+    commit({
+      attempt: 1,
+      detail: 'The provider stopped responding.',
+      maxAttempts: 2,
+      reason: 'stalled',
+      recovered: true,
+      runId,
+      type: 'run.attempt',
+    });
+    // The retry's first step reads it before its own start-step.
+    commit({
+      delivery: { entries: [], inputs: ['stalled'] },
+      messages: [{ content: [{ text: 'Still there?', type: 'text' }], role: 'user' }],
+      runId,
+      type: 'model.messages',
+    });
+    const inputs = answer(projection).content.filter(
+      (part) => part.type === 'data' && part.name === PERSON_INPUT_DATA_NAME
+    );
+    expect(inputs).toEqual([
+      { data: { images: [], text: 'Still there?' }, name: PERSON_INPUT_DATA_NAME, type: 'data' },
+    ]);
+  });
+
+  it('keeps an input a stopped run never read at its reply’s end until the next run takes it', () => {
+    const next = { ...identity, assistantMessageId: 'next-answer', userMessageId: 'next-prompt' };
+    const projection = new CommittedAssistantLogProjection({
+      identifyRun: (row) => (row.event['runId'] === runId ? identity : next),
+      threadId,
+    });
+    projection.acceptCommitted(rows);
+    let seq = rows.at(-1)?.seq ?? 0;
+    const commit = (event: Record<string, unknown>) =>
+      projection.acceptCommitted([{ event, seq: ++seq, threadId }]);
+    const payload = {
+      commandId: 'late-input',
+      modelId: 'scripted',
+      prompt: 'One more.',
+      runId,
+      threadId,
+    };
+    commit({
+      commandId: 'late-input',
+      method: 'run/input',
+      payload,
+      result: { accepted: true },
+      type: 'command.accepted',
+    });
+    expect(answer(projection).content.at(-1)).toMatchObject({
+      data: { text: 'One more.', unread: true },
+    });
+    // The idle thread's next run takes it as its own prompt.
+    commit({
+      delivery: { entries: [], inputs: ['late-input'], messageId: 'delivery', via: 'next-turn' },
+      modelId: 'scripted',
+      prompt: 'One more.',
+      runId: 'next-run',
+      type: 'run.started',
+    });
+    expect(
+      answer(projection).content.some(
+        (part) => part.type === 'data' && part.name === PERSON_INPUT_DATA_NAME
+      )
+    ).toBe(false);
+    const prompt = projection
+      .getSnapshot()
+      .repository.messages.find(({ message }) => message.id === 'next-prompt')?.message;
+    expect(prompt?.content).toEqual([{ text: 'One more.', type: 'text' }]);
   });
 
   it('keeps an agentic compaction’s reason, turns, summarizer model and usage on its card part', () => {
