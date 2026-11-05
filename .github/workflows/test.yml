@@ -173,13 +173,13 @@ jobs:
       # Blobless: affected selection reads commits and trees, and git fetches
       # any other blob it needs on demand (a full-history clone took 8-16 s).
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           filter: blob:none
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
@@ -362,7 +362,7 @@ jobs:
       # action is read off the runner's filesystem, so the repo has to be on
       # disk before it can resolve. See setup-workspace/action.yml's header.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Lint never runs turbo, so it skips the .turbo cache layer.
       - name: Setup workspace
@@ -389,7 +389,7 @@ jobs:
           exit 1
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -438,7 +438,7 @@ jobs:
       # Unit plan. Checkout stays in the caller (not the composite) — see
       # setup-workspace/action.yml's header.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           filter: blob:none
@@ -465,7 +465,7 @@ jobs:
       # archive against manifest.json before it skips either.
       - name: Cache the bundled Python archives
         if: inputs.nightly && matrix.shard == 'desktop-1'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: apps/desktop/resources/python-runtime/*.tar.gz
           key: ${{ runner.os }}-${{ runner.arch }}-python-runtime-${{ hashFiles('apps/desktop/resources/python-runtime/manifest.json') }}
@@ -708,7 +708,7 @@ jobs:
     steps:
       # The same checkout as Unit's.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           filter: blob:none
@@ -809,7 +809,7 @@ jobs:
           exit 1
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -847,7 +847,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -884,7 +884,7 @@ jobs:
       # The nightly desktop-1 Unit shard saves these on main (see unit-shard).
       # On a miss, beforePack downloads and derives them, as it always did.
       - name: Restore the bundled Python archives
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: apps/desktop/resources/python-runtime/*.tar.gz
           key: ${{ runner.os }}-${{ runner.arch }}-python-runtime-${{ hashFiles('apps/desktop/resources/python-runtime/manifest.json') }}
@@ -982,14 +982,14 @@ jobs:
           exit 1
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
       # No pnpm store cache, for the reason in setup-workspace/action.yml.
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
@@ -1001,7 +1001,7 @@ jobs:
       # because its fixed full `pnpm install` would hit node-gyp in this
       # toolchain-less container).
       - name: Restore turbo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}

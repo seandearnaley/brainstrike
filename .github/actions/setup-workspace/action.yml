@@ -69,21 +69,21 @@ runs:
       shell: bash
       run: echo "version=$(tr -d '[:space:]' < .nvmrc)" >> "$GITHUB_OUTPUT"
     - id: node-cache
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@v6
       with:
         path: ${{ runner.tool_cache }}/node/${{ steps.nvmrc.outputs.version }}
         key: ${{ runner.os }}-${{ runner.arch }}-node-${{ steps.nvmrc.outputs.version }}
     - id: node
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v7
       with:
         node-version-file: .nvmrc
     - if: ${{ steps.node-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' }}
-      uses: actions/cache/save@v5
+      uses: actions/cache/save@v6
       with:
         path: ${{ runner.tool_cache }}/node/${{ steps.nvmrc.outputs.version }}
         key: ${{ runner.os }}-${{ runner.arch }}-node-${{ steps.nvmrc.outputs.version }}
     - if: ${{ inputs.turbo-cache == 'true' }}
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: .turbo
         # Re-key on lockfile + turbo.jsonc (performance.yml's established
