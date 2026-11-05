@@ -1,3 +1,4 @@
+import { fault } from '@brainstrike/assistant-contract/boundary-failure';
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -155,6 +156,46 @@ describe('ChangesetSourcePicker', () => {
       scope: { commitId, kind: 'commit' },
       worktreePath: '/repo',
     });
+  });
+
+  it.each([
+    [
+      'a failed listing',
+      async () => ({
+        error: fault({
+          category: 'internal',
+          code: 'git.internal',
+          correlationId: '0b6f6c1e-4f0a-4c3e-9a51-2d8e7f3b9c10',
+          message: 'The git operation failed unexpectedly.',
+        }),
+        ok: false as const,
+      }),
+      'The git operation failed unexpectedly. Reference: 0b6f6c1e-4f0a-4c3e-9a51-2d8e7f3b9c10',
+    ],
+    [
+      'a dropped connection',
+      async () => {
+        throw new Error('ipc pipe closed at 0x7f');
+      },
+      'Something went wrong. The details were recorded in the diagnostic log.',
+    ],
+  ])("says why a worktree's commits can't be listed, after %s", async (_case, commits, shown) => {
+    render(<ChangesetSourcePicker {...baseProps({ inventory: INVENTORY })} />, {
+      wrapper: workspaceGitWrapper({ changes: stubChangesBridge({ commits }) }),
+    });
+    await openMenu();
+    const rows = screen.getAllByTestId('changeset-source-worktree');
+    const inRootRow = rows.find((candidate) => candidate.textContent?.includes('/repo'));
+    if (!inRootRow) {
+      throw new Error('expected the in-root worktree row to be present');
+    }
+    await userEvent.hover(inRootRow);
+    await userEvent.hover(await screen.findByRole('menuitem', { name: 'Commits' }));
+
+    expect(await screen.findByRole('menuitem', { name: shown })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
   });
 
   it('disables the scope submenu for a worktree with no containing root, with a reason', async () => {

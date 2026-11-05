@@ -4,6 +4,11 @@
  * the menu opens, so it is never stale. Without the Changes bridge there is
  * no menu.
  */
+import {
+  describeBoundaryError,
+  describeBoundaryFailure,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import { createLogger } from '@brainstrike/logging';
 import type { ChangesCommit, Changeset } from '@brainstrike/types';
 import {
   DropdownMenuItem,
@@ -15,6 +20,8 @@ import { Check } from 'lucide-react';
 import { type ReactElement, useEffect, useState } from 'react';
 import { useChangesBridge } from '../../workspace-git-services';
 import type { ChangesBridge } from '../changes-bridge';
+
+const logger = createLogger('WorktreeCommitsMenu');
 
 interface WorktreeCommitsMenuProps {
   readonly isActive: (candidate: Changeset) => boolean;
@@ -66,10 +73,12 @@ function CommitItems({
         settle(
           result.ok
             ? { commits: result.value, kind: 'listed' }
-            : { kind: 'failed', message: result.error.message }
+            : { kind: 'failed', message: describeBoundaryFailure(result.error) }
         ),
-      (error: unknown) =>
-        settle({ kind: 'failed', message: error instanceof Error ? error.message : String(error) })
+      (error: unknown) => {
+        logger.error('Failed to list worktree commits', { error, worktreePath });
+        settle({ kind: 'failed', message: describeBoundaryError(error) });
+      }
     );
     return () => {
       current = false;
