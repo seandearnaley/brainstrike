@@ -176,12 +176,12 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({
       {open ? (
         <div className="flex flex-col gap-1 px-2.5 pb-2" id={bodyId}>
           {rawArgs ? (
-            <pre className="text-muted-foreground overflow-x-auto text-[11px] break-words whitespace-pre-wrap">
+            <pre className="text-muted-foreground text-2xs overflow-x-auto break-words whitespace-pre-wrap">
               {rawArgs}
             </pre>
           ) : null}
           {rawResult ? (
-            <pre className="text-muted-foreground overflow-x-auto text-[11px] break-words whitespace-pre-wrap">
+            <pre className="text-muted-foreground text-2xs overflow-x-auto break-words whitespace-pre-wrap">
               {rawResult}
             </pre>
           ) : null}

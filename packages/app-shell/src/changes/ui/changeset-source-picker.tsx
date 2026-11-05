@@ -203,7 +203,7 @@ export function ChangesetSourcePicker({
           >
             {inventory.errors.map((message) => (
               <span
-                className="text-destructive flex items-start gap-1.5 text-[11px]"
+                className="text-destructive text-2xs flex items-start gap-1.5"
                 data-testid="changeset-source-inventory-error"
                 key={message}
               >
@@ -223,7 +223,7 @@ export function ChangesetSourcePicker({
         ) : null}
         {inventory?.repositories.map((repository) => (
           <div className="py-1" key={repository.identity.repositoryRoot}>
-            <div className="text-muted-foreground truncate px-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
+            <div className="text-muted-foreground text-2xs truncate px-2 pb-1 font-medium tracking-wide uppercase">
               {repository.identity.repositoryRoot}
             </div>
             {repository.worktrees.map((worktree) => {
@@ -257,12 +257,12 @@ export function ChangesetSourcePicker({
                             </Badge>
                           ) : null}
                         </span>
-                        <span className="text-muted-foreground truncate text-[10px]">
+                        <span className="text-muted-foreground text-2xs truncate">
                           {worktree.path}
                         </span>
                         {worktree.trust === 'unvalidated' && worktree.trustReason ? (
                           <span
-                            className="text-warning text-[10px]"
+                            className="text-warning text-2xs"
                             data-testid="worktree-trust-reason"
                           >
                             {worktree.trustReason}
@@ -270,7 +270,7 @@ export function ChangesetSourcePicker({
                         ) : null}
                         {isResolvable ? null : (
                           <span
-                            className="text-muted-foreground text-[10px]"
+                            className="text-muted-foreground text-2xs"
                             data-testid="worktree-unresolvable-reason"
                           >
                             Outside every workspace root

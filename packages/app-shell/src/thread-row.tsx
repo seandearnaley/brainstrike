@@ -623,7 +623,7 @@ function ThreadRenameForm({
         }}
         value={draftTitle}
       />
-      {renameError ? <span className="text-destructive text-[11px]">{renameError}</span> : null}
+      {renameError ? <span className="text-destructive text-2xs">{renameError}</span> : null}
       <Button
         aria-label="Save thread title"
         className={THREAD_CONTROL_ACTION_CLASS_NAME}
@@ -859,10 +859,10 @@ function ThreadRowDisplay({
       </div>
       {pendingDelete ? (
         <div className="border-destructive/30 bg-destructive/5 mt-2 mb-2 rounded-md border p-2">
-          <p className="text-destructive text-[11px]">
+          <p className="text-destructive text-2xs">
             Delete this thread, its delegated children, and saved conversation data permanently?
           </p>
-          {deleteError ? <p className="text-destructive mt-1 text-[11px]">{deleteError}</p> : null}
+          {deleteError ? <p className="text-destructive text-2xs mt-1">{deleteError}</p> : null}
           <div className="mt-2 flex justify-end gap-2">
             <Button
               aria-label={`Cancel delete thread ${thread.title}`}
@@ -929,11 +929,11 @@ function ThreadCustomizationPanel({
     <div className="grid gap-3" data-testid="thread-customization-panel">
       <div>
         <div className="text-xs font-medium">Thread appearance</div>
-        <p className="text-muted-foreground mt-0.5 text-[11px]">Choose an icon and color.</p>
+        <p className="text-muted-foreground text-2xs mt-0.5">Choose an icon and color.</p>
       </div>
       <div className="grid gap-3">
         <div>
-          <div className="text-muted-foreground mb-1.5 text-[11px]">Icon</div>
+          <div className="text-muted-foreground text-2xs mb-1.5">Icon</div>
           <div className="grid grid-cols-6 gap-1">
             {ASSISTANT_THREAD_ICON_IDS.map((iconId) => {
               const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
@@ -961,7 +961,7 @@ function ThreadCustomizationPanel({
           </div>
         </div>
         <div>
-          <div className="text-muted-foreground mb-1.5 text-[11px]">Color palette</div>
+          <div className="text-muted-foreground text-2xs mb-1.5">Color palette</div>
           <div className="grid gap-2.5">
             {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
               <div key={palette.label}>
@@ -1002,7 +1002,7 @@ function ThreadCustomizationPanel({
           <ThreadColorFamilyPreview rootColor={getThreadColorId(thread)} />
         </div>
       </div>
-      {metadataError ? <p className="text-destructive text-[11px]">{metadataError}</p> : null}
+      {metadataError ? <p className="text-destructive text-2xs">{metadataError}</p> : null}
     </div>
   );
 }

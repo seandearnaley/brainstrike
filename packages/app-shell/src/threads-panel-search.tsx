@@ -61,7 +61,7 @@ function SearchResultRow({
       <div className="flex min-w-0 items-center gap-2">
         <span className="truncate text-[13px] leading-5 font-medium">{title}</span>
         {groupName ? (
-          <span className="border-border bg-background text-muted-foreground shrink-0 rounded-full border px-1.5 py-px text-[10px]">
+          <span className="border-border bg-background text-muted-foreground text-2xs shrink-0 rounded-full border px-1.5 py-px">
             {groupName}
           </span>
         ) : null}
@@ -80,7 +80,7 @@ function SearchResultRow({
               <span className="min-w-0 flex-1 truncate">
                 {match.headline ? renderMarkedText(match.headline) : null}
               </span>
-              <span className="shrink-0 text-[10px] opacity-70">
+              <span className="text-2xs shrink-0 opacity-70">
                 {formatMatchDate(match.messageCreatedAt)}
               </span>
             </li>

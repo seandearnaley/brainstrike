@@ -67,7 +67,7 @@ export function HostChildSidebarCell({
           role="img"
         />
       ) : null}
-      <span className="text-muted-foreground ml-auto shrink-0 pr-1 text-[11px]">
+      <span className="text-muted-foreground text-2xs ml-auto shrink-0 pr-1">
         {STATUS_LABEL[child.status]}
       </span>
     </button>

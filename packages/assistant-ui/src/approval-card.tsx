@@ -322,7 +322,7 @@ export function ApprovalCard({
                 {title.text}
               </span>
             </span>
-            <span className="bs-approval-status ml-2 rounded-full border px-2 py-0.5 text-[10px]">
+            <span className="bs-approval-status text-2xs ml-2 rounded-full border px-2 py-0.5">
               {state.status}
             </span>
           </p>
@@ -405,7 +405,7 @@ export function ApprovalCard({
               <div className="contents" key={label}>
                 <dt className={cn(DETAIL_LABEL_CLASS, 'pt-1')}>{label}</dt>
                 <dd className="text-foreground/90 min-w-0 pt-1 break-words">
-                  <pre className="font-mono text-[11px] leading-4 whitespace-pre-wrap">{text}</pre>
+                  <pre className="text-2xs font-mono leading-4 whitespace-pre-wrap">{text}</pre>
                 </dd>
                 <dd>
                   <CopyTextButton ariaLabel={`Copy ${label}`} className="h-6 px-1.5" text={text} />

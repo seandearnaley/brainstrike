@@ -88,7 +88,7 @@ const EffortSliderRow = ({
         type="range"
         value={slider.index}
       />
-      <span aria-hidden="true" className="text-muted-foreground flex justify-between text-[10px]">
+      <span aria-hidden="true" className="text-muted-foreground text-2xs flex justify-between">
         {slider.stops.map((stop) => (
           <span className={stop.isModelDefault ? 'text-foreground' : undefined} key={stop.value}>
             {stop.label}

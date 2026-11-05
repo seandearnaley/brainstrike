@@ -62,7 +62,7 @@ export function TurnScrubber({
               />
               <span
                 className={cn(
-                  'rounded px-1 font-mono text-[11px]',
+                  'text-2xs rounded px-1 font-mono',
                   turn === selected && 'bg-foreground text-background'
                 )}
               >

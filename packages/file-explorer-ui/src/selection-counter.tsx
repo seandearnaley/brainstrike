@@ -276,14 +276,14 @@ export function SelectionCounter({
                 </Button>
               </div>
               {error && (
-                <p aria-live="polite" className="text-destructive text-[11px]" role="alert">
+                <p aria-live="polite" className="text-destructive text-2xs" role="alert">
                   {error}
                 </p>
               )}
             </div>
 
             <div className="space-y-1.5">
-              <span className="text-muted-foreground text-[11px]">Quick presets</span>
+              <span className="text-muted-foreground text-2xs">Quick presets</span>
               <div className="flex flex-wrap gap-1.5">
                 {SELECTION_PRESETS.map((preset) => (
                   <Button
@@ -303,7 +303,7 @@ export function SelectionCounter({
               </div>
             </div>
 
-            <p className="text-muted-foreground text-[10px]">
+            <p className="text-muted-foreground text-2xs">
               Maximum number of files that can be selected at once
             </p>
           </div>

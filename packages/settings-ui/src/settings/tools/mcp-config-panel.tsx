@@ -723,7 +723,7 @@ function McpHelpCard() {
           a server whose tools work longer than that in silence, set `toolTimeoutMs` (milliseconds,
           1000 to 600000), for example `"toolTimeoutMs": 180000`.
         </div>
-        <pre className="bg-muted/30 overflow-x-auto rounded-md border p-3 text-[11px]">
+        <pre className="bg-muted/30 text-2xs overflow-x-auto rounded-md border p-3">
           {`// stdio example
 {
   "transport": "stdio",

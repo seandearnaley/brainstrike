@@ -50,7 +50,7 @@ export function ToolRowExpanded({ tool, onExecuteTest }: ToolRowExpandedProps): 
           </div>
         )}
         {tool.requiresApproval && (
-          <Badge className="text-[10px]" variant="outline">
+          <Badge className="text-2xs" variant="outline">
             Requires Approval
           </Badge>
         )}

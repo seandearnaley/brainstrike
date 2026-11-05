@@ -78,7 +78,7 @@ export function ModelCell({ row }: { readonly row: CatalogRow }) {
         <HighlightedText query={query} text={row.name} />
       </span>
       {row.recommended ? (
-        <Badge className="h-5 shrink-0 px-1.5 text-[10px]" variant="secondary">
+        <Badge className="text-2xs h-5 shrink-0 px-1.5" variant="secondary">
           Recommended
         </Badge>
       ) : null}

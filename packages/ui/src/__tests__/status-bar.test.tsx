@@ -51,7 +51,7 @@ describe('StatusBar', () => {
       'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]',
       'border-border/80',
       'bg-muted/70',
-      'text-[11px]',
+      'text-2xs',
       'leading-none'
     );
     expect(screen.getByTestId('status-bar-left')).toHaveClass(

@@ -47,7 +47,7 @@ export function CanvasLinkChip({
     <div className="px-2 pb-1.5">
       <button
         aria-label={`Open canvas ${canvasId}, version ${version}`}
-        className="border-border bg-muted/40 hover:bg-muted inline-flex max-w-full items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+        className="border-border bg-muted/40 hover:bg-muted text-2xs inline-flex max-w-full items-center gap-1 rounded border px-1.5 py-0.5 disabled:cursor-not-allowed disabled:opacity-60"
         data-canvas-id={canvasId}
         data-testid="canvas-link-chip"
         disabled={!capabilities}

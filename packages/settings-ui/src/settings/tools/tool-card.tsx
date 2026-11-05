@@ -62,14 +62,14 @@ export function ToolCard({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <code className="font-mono text-sm">{tool.id}</code>
-              <Badge className="text-[10px]" variant={getTierBadgeVariant(tool.loadingTier)}>
+              <Badge className="text-2xs" variant={getTierBadgeVariant(tool.loadingTier)}>
                 {tierInfo?.label ?? tool.loadingTier}
               </Badge>
-              <Badge className="text-[10px]" variant="outline">
+              <Badge className="text-2xs" variant="outline">
                 {categoryInfo?.label ?? tool.category}
               </Badge>
               {tool.requiresApproval && (
-                <Badge className="text-[10px]" variant="outline">
+                <Badge className="text-2xs" variant="outline">
                   Requires Approval
                 </Badge>
               )}

@@ -172,7 +172,7 @@ function RunPythonStreamPane({
       {text.length > 0 ? (
         <section
           aria-label={label}
-          className="bg-muted/50 max-h-64 overflow-auto rounded p-2 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap"
+          className="bg-muted/50 text-2xs max-h-64 overflow-auto rounded p-2 font-mono leading-relaxed break-words whitespace-pre-wrap"
           data-testid={testId}
         >
           {text}

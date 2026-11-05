@@ -176,14 +176,14 @@ export function AssistantRunTimeline({
           </span>
           {repeatCount !== undefined && repeatCount > 1 ? (
             <span
-              className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 text-[10px] tabular-nums"
+              className="bg-muted text-muted-foreground text-2xs shrink-0 rounded-full px-1.5 tabular-nums"
               title={`Repeated ${repeatCount} times`}
             >
               ×{repeatCount}
             </span>
           ) : null}
           {event.detail ? (
-            <span className="text-muted-foreground truncate text-[11px]" title={event.detail}>
+            <span className="text-muted-foreground text-2xs truncate" title={event.detail}>
               {event.detail}
             </span>
           ) : null}
@@ -196,11 +196,11 @@ export function AssistantRunTimeline({
           />
         ) : null}
         {durationLabel ? (
-          <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
+          <span className="text-muted-foreground text-2xs shrink-0 tabular-nums">
             {durationLabel}
           </span>
         ) : null}
-        <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
+        <span className="text-muted-foreground text-2xs shrink-0 tabular-nums">
           {formatTimestamp(event.timestamp)}
         </span>
         <Button

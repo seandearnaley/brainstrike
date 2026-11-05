@@ -186,10 +186,7 @@ function ToolRunTiming({
     return null;
   }
   return (
-    <span
-      className="text-muted-foreground shrink-0 text-[11px] tabular-nums"
-      title="Execution time"
-    >
+    <span className="text-muted-foreground text-2xs shrink-0 tabular-nums" title="Execution time">
       {durationLabel}
     </span>
   );
@@ -222,10 +219,7 @@ function CheckpointRevertButton({
 
   if (entry.revertedAt) {
     return (
-      <span
-        className="text-muted-foreground shrink-0 text-[11px]"
-        data-testid="checkpoint-reverted"
-      >
+      <span className="text-muted-foreground text-2xs shrink-0" data-testid="checkpoint-reverted">
         Reverted
       </span>
     );
@@ -245,7 +239,7 @@ function CheckpointRevertButton({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className="text-muted-foreground shrink-0 text-[11px]"
+            className="text-muted-foreground text-2xs shrink-0"
             data-testid="checkpoint-unrevertible"
           >
             Can't restore
@@ -275,12 +269,12 @@ function CheckpointRevertButton({
 
   if (phase === 'failed') {
     return (
-      <span className="flex shrink-0 items-center gap-1 text-[11px]">
+      <span className="text-2xs flex shrink-0 items-center gap-1">
         <span className="text-destructive" data-testid="checkpoint-revert-error">
           {failure}
         </span>
         <Button
-          className="h-5 px-1.5 text-[11px]"
+          className="text-2xs h-5 px-1.5"
           data-testid="checkpoint-revert-retry"
           onClick={() => {
             setFailure(null);
@@ -297,10 +291,10 @@ function CheckpointRevertButton({
 
   if (phase === 'conflict') {
     return (
-      <span className="flex shrink-0 items-center gap-1 text-[11px]">
+      <span className="text-2xs flex shrink-0 items-center gap-1">
         <span className="text-muted-foreground">Changed since —</span>
         <Button
-          className="h-5 px-1.5 text-[11px]"
+          className="text-2xs h-5 px-1.5"
           data-testid="checkpoint-revert-anyway"
           onClick={() => runRevert(true)}
           size="sm"
@@ -316,7 +310,7 @@ function CheckpointRevertButton({
     return (
       <span className="flex shrink-0 items-center gap-1">
         <Button
-          className="h-5 px-1.5 text-[11px]"
+          className="text-2xs h-5 px-1.5"
           data-testid="checkpoint-revert-confirm"
           onClick={() => runRevert(false)}
           size="sm"
@@ -325,7 +319,7 @@ function CheckpointRevertButton({
           Confirm restore
         </Button>
         <Button
-          className="text-muted-foreground h-5 px-1.5 text-[11px]"
+          className="text-muted-foreground text-2xs h-5 px-1.5"
           onClick={() => setPhase('idle')}
           size="sm"
           variant="ghost"
@@ -344,7 +338,7 @@ function CheckpointRevertButton({
         <span className="shrink-0">
           <Button
             aria-label={`Revert ${toolName}`}
-            className="h-5 gap-1 px-1.5 text-[11px]"
+            className="text-2xs h-5 gap-1 px-1.5"
             data-testid="checkpoint-revert"
             disabled={phase === 'reverting' || refusal !== null}
             onClick={() => setPhase('confirm')}

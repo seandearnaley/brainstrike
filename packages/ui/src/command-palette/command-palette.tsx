@@ -266,7 +266,7 @@ function CommandPaletteItem({ command, onSelect }: CommandPaletteItemProps): Rea
         ) : null}
       </span>
       {command.shortcut ? (
-        <kbd className="border-border bg-muted text-muted-foreground shrink-0 rounded border px-1.5 font-sans text-[11px] leading-4 tracking-widest">
+        <kbd className="border-border bg-muted text-muted-foreground text-2xs shrink-0 rounded border px-1.5 font-sans leading-4 tracking-widest">
           {formatShortcut(command.shortcut)}
         </kbd>
       ) : null}

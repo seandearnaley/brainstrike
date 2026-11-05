@@ -265,7 +265,7 @@ function buildLogColumns(
         const payload = getValue() as string;
         return payload ? (
           <code
-            className={`border-border/20 bg-muted/30 text-muted-foreground rounded border px-1.5 py-0.5 font-mono text-[10px] ${payloadClassName}`}
+            className={`border-border/20 bg-muted/30 text-muted-foreground text-2xs rounded border px-1.5 py-0.5 font-mono ${payloadClassName}`}
             title={payload}
           >
             {payload}
@@ -285,7 +285,7 @@ function buildLogColumns(
         const parsed = bindings && bindings !== '{}' ? bindings : null;
         return parsed ? (
           <code
-            className={`border-border/20 bg-muted/30 text-muted-foreground rounded border px-1.5 py-0.5 font-mono text-[10px] ${payloadClassName}`}
+            className={`border-border/20 bg-muted/30 text-muted-foreground text-2xs rounded border px-1.5 py-0.5 font-mono ${payloadClassName}`}
             title={parsed}
           >
             {parsed}
@@ -676,7 +676,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
           <div className="from-background pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t to-transparent opacity-50" />
         </div>
 
-        <div className="border-border/40 bg-muted/20 text-muted-foreground flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5 text-[10px]">
+        <div className="border-border/40 bg-muted/20 text-muted-foreground text-2xs flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5">
           <span data-testid="log-viewer-summary">{summaryText}</span>
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span data-testid="log-viewer-source-coverage">{sourceCoverageText}</span>

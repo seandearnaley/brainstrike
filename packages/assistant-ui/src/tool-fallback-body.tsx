@@ -198,7 +198,7 @@ function ToolDetailsPane({
       {showRawIo ? (
         <div className="px-2 py-1">
           <ToolDetailLabel>Metadata</ToolDetailLabel>
-          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+          <dl className="text-2xs grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono">
             <dt className="text-muted-foreground">toolCallId</dt>
             <dd className="text-foreground/90 min-w-0 break-words">{toolCallId}</dd>
             <dt className="text-muted-foreground">tool</dt>
@@ -211,7 +211,7 @@ function ToolDetailsPane({
           <ToolDetailHeader copyLabel="Copy arguments" text={formattedArgs}>
             Arguments
           </ToolDetailHeader>
-          <pre className="bg-muted/40 max-h-48 overflow-auto rounded p-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
+          <pre className="bg-muted/40 text-2xs max-h-48 overflow-auto rounded p-1.5 font-mono leading-relaxed break-words whitespace-pre-wrap">
             {formattedArgs}
           </pre>
         </div>
@@ -221,7 +221,7 @@ function ToolDetailsPane({
           <ToolDetailHeader copyLabel="Copy result" text={formattedResult}>
             Result
           </ToolDetailHeader>
-          <pre className="bg-muted/40 max-h-64 overflow-auto rounded p-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
+          <pre className="bg-muted/40 text-2xs max-h-64 overflow-auto rounded p-1.5 font-mono leading-relaxed break-words whitespace-pre-wrap">
             {formattedResult}
           </pre>
         </div>
