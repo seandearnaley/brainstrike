@@ -609,7 +609,7 @@ describe('canonical provider request preparation', () => {
         model: fixture,
       }),
       prepareStep: ({ messages: current }) => ({
-        messages: healInterruptedModelMessages(current, new Set(['call_interrupted'])),
+        messages: healInterruptedModelMessages(current, new Set(['call_interrupted']), 'stopped'),
       }),
     });
     const errors = [];

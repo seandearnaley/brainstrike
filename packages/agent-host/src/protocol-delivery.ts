@@ -14,7 +14,7 @@ export const HostChildDeliveryEntrySchema = Schema.Struct({
   toolCallId: Id,
 });
 export type HostChildDeliveryEntry = (typeof HostChildDeliveryEntrySchema)['Type'];
-/** A command session a run started that ended by itself, delivered with a wake. */
+/** A command session a run started that ended by itself, delivered with the thread's next run. */
 export const HostCommandSessionDeliverySchema = Schema.Struct({
   exitCode: Schema.Int,
   rootId: Id,
@@ -29,26 +29,32 @@ export type HostCommandSessionDelivery = (typeof HostCommandSessionDeliverySchem
  * did not write. A wake run's prompt is that message; a user turn carries it
  * ahead of its own message.
  */
+/** Ended command sessions; a delivery may carry only these, with no child entries. */
+const CommandSessions = Schema.optional(
+  Schema.mutable(Schema.Array(HostCommandSessionDeliverySchema)).check(Schema.isMinLength(1))
+);
 export const HostChildDeliverySchema = Schema.Union(
   [
     Schema.Struct({
-      /** Ended command sessions; a wake may deliver only these, with no child entries. */
-      commandSessions: Schema.optional(
-        Schema.mutable(Schema.Array(HostCommandSessionDeliverySchema)).check(Schema.isMinLength(1))
-      ),
+      commandSessions: CommandSessions,
       entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
       messageId: Id,
       turnId: Id,
       via: Schema.Literal('wake'),
     }),
     Schema.Struct({
-      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
-        Schema.isMinLength(1)
-      ),
+      commandSessions: CommandSessions,
+      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
       ledger: Id,
       messageId: Id,
       via: Schema.Literal('next-turn'),
-    }),
+    }).check(
+      Schema.makeFilter((delivery) =>
+        delivery.entries.length > 0 || delivery.commandSessions
+          ? undefined
+          : { issue: 'A next-turn delivery delivers nothing', path: [] }
+      )
+    ),
   ],
   { mode: 'oneOf' }
 );

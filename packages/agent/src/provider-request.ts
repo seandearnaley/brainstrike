@@ -35,7 +35,6 @@ import { applyProviderHistoryCompat } from './providers/provider-history-compat.
 import {
   assertProviderRequestBoundaries,
   dropAbortedOpenAIItems,
-  healInterruptedToolCalls,
   ProviderRequestBoundaryError,
 } from './providers/request-history.ts';
 import { rewriteToolProjectionPrompt } from './providers/tool-projection-rewrite.ts';
@@ -58,6 +57,7 @@ export {
 export {
   healInterruptedModelMessages,
   ProviderRequestBoundaryError,
+  type ToolInterruption,
 } from './providers/request-history.ts';
 
 export interface ProviderRequestContext {
@@ -66,7 +66,6 @@ export interface ProviderRequestContext {
   /** Replay provenance for canonical eligibility and signed-reasoning rules. */
   readonly history?: readonly MastraDBMessage[];
   readonly inputTokenLimit?: number;
-  readonly interruptedToolCallIds?: ReadonlySet<string>;
   readonly provider: SupportedProvider;
   readonly rewrites?: ReadonlyMap<string, ToolProjectionRewriteEntry>;
   readonly runtimeData?: Pick<RuntimeData, 'model' | 'modelSettings' | 'providerOptions'>;
@@ -397,7 +396,6 @@ export async function prepareProviderRequest(
     isOpenAI(context.provider) && context.abortedItemIds
       ? dropAbortedOpenAIItems(params.prompt, context.abortedItemIds)
       : params.prompt;
-  prompt = healInterruptedToolCalls(prompt, context.interruptedToolCallIds ?? new Set());
   if (context.history) {
     prompt = new ProjectionSafeToolCallFilter({
       toolNameMap: context.toolNameMap ?? new Map(),
