@@ -3,15 +3,11 @@
  * repository: the host applies each action with git, and the view redraws
  * from git's new state.
  */
-import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { setupAssistantMock } from './utils/assistant-mock';
+import { chooseScope, diffOf, openChanges } from './utils/changes-surface';
 import { createTempDirTracker, freshRepo, git } from './utils/git-fixtures';
-import { ensureAssistantShellVisible } from './utils/layout-helpers';
-import { seedRoot } from './utils/seed-root';
 
 const tempDirs = createTempDirTracker();
 const LINES = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
@@ -33,36 +29,10 @@ function repoWithTwoHunks(label: string): string {
   return repo;
 }
 
-async function openChanges(page: Page, repo: string): Promise<void> {
-  await seedRoot(page, repo, { reloadReason: 'changes-git-actions', rootId: randomUUID() });
-  await setupAssistantMock(page);
-  await ensureAssistantShellVisible(page);
-  await page.getByTestId('workspace-add-tab').click({ timeout: 15_000 });
-  await page.getByRole('menuitem', { name: /Changes/u }).click({ timeout: 15_000 });
-}
-
-/**
- * Choose a scope with the keyboard, as the other submenu specs do: a pointer
- * moving into a submenu that is still opening can cross the parent menu, which
- * closes the submenu under the click.
- */
-async function chooseScope(page: Page, scope: 'staged' | 'unstaged'): Promise<void> {
-  const surface = page.getByTestId('changes-surface');
-  await surface.getByTestId('changeset-source-picker-trigger').click({ timeout: 30_000 });
-  const worktree = page.getByTestId('changeset-source-worktree').first();
-  await worktree.focus({ timeout: 30_000 });
-  await page.keyboard.press('ArrowRight');
-  await expect(worktree).toHaveAttribute('aria-expanded', 'true');
-  await page.getByRole('menuitem', { exact: true, name: scope }).focus();
-  await page.keyboard.press('Enter');
-}
-
-const diffOf = (page: Page) => page.getByTestId('changes-surface').getByTestId('diff-review');
-
 test('a hunk stages from Unstaged, and its file unstages from Staged', async ({ window: page }) => {
   test.setTimeout(120_000);
   const repo = repoWithTwoHunks('stage');
-  await openChanges(page, repo);
+  await openChanges(page, repo, 'changes-git-actions');
   await chooseScope(page, 'unstaged');
   const hunkStage = diffOf(page).getByRole('button', { exact: true, name: 'Stage' });
   await expect(hunkStage).toHaveCount(2, { timeout: 30_000 });
@@ -85,7 +55,7 @@ test('a hunk reverts at once, a new file reverts after the question, and Stage a
   test.setTimeout(120_000);
   const repo = repoWithTwoHunks('revert');
   writeFileSync(path.join(repo, 'draft.txt'), 'a new file\n');
-  await openChanges(page, repo);
+  await openChanges(page, repo, 'changes-git-actions');
   await chooseScope(page, 'unstaged');
   const diff = diffOf(page);
   await expect(diff.getByRole('button', { exact: true, name: 'Revert' })).toHaveCount(2, {

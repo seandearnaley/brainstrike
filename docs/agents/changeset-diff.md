@@ -44,7 +44,9 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 - The renderer (`@brainstrike/ui/diff-view`, @pierre/diffs) parses the patch and never diffs it again. Full sides only expand unchanged context.
 - Only an approval preview, whose text is not in git yet, is diffed by the renderer. Its text comes from `interaction/preview`: the host runs the call's own tool resolution and matcher without writing, and returns the file's text before and after.
 - A finished turn that edited files shows its agent-run view under its reply, each file folded to its header; it loads as the turn nears view, and Review opens it in Changes.
-- Line comments are per-changeset drafts in `changes-store` until added to the active thread's message.
+- Line comments are per-changeset drafts in `changes-store` until added to the active thread's message. So are viewed marks: a file marked viewed at a revision folds, and opens again once its revision moves on.
+- Highlighting is @pierre/highlights (WebAssembly, compiled synchronously on the main thread, which the CSP's `'wasm-unsafe-eval'` allows). No worker pool: measured, it painted later than this backend took to finish.
+- A line number of a file's new version opens the file at that line in an editor tab. A file header's right-click opens the same `changed-file` menu as its tree row, which copies its path or the patch the view drew.
 - A worktree status still loading is not a clean checkout. Closing UI never mutates durable run history.
 
 ## Stage, unstage and revert (ADR-0036)

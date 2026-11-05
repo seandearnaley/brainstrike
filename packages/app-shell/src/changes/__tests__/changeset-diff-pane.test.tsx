@@ -1,4 +1,5 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type {
   ChangedFileEntry,
   ChangesAction,
@@ -6,11 +7,13 @@ import type {
   ChangesApplyResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
-import { resetToastStore, Toaster, TooltipProvider } from '@brainstrike/ui';
+import { ActionRegistryProvider, resetToastStore, Toaster, TooltipProvider } from '@brainstrike/ui';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { gitFailure } from '../../__tests__/helpers/git-failure';
+import { changesActions } from '../changes-context-actions';
 import { changedFileKey, type DraftComment, useChangesStore } from '../changes-store';
 import { ChangesetDiffPane } from '../ui/changeset-diff-pane';
 
@@ -253,6 +256,99 @@ describe('ChangesetDiffPane', () => {
 
     expect(screen.getByTestId('changeset-diff-pane-send-comments')).toBeVisible();
     expect(useChangesStore.getState().commentsByChangeset.get('cs-1')).toEqual([first]);
+  });
+});
+
+describe('ChangesetDiffPane file menu and lines', () => {
+  const ROOTS: ReadonlyMap<string, string> = new Map([
+    ['root-1', '/repo'],
+    ['root-2', '/other'],
+  ]);
+
+  function withMenu(node: ReactElement) {
+    const { registry } = createTestActionRegistry({ actions: [...changesActions] });
+    return <ActionRegistryProvider registry={registry}>{node}</ActionRegistryProvider>;
+  }
+
+  /** The number of a line of the file's new version. */
+  async function newLineNumber(line: number): Promise<HTMLElement> {
+    await screen.findByRole('button', { name: /src\/a\.ts/u });
+    for (const host of document.querySelectorAll('diffs-container')) {
+      const cell = host.shadowRoot?.querySelector<HTMLElement>(
+        `[data-additions] [data-column-number="${line}"]`
+      );
+      if (cell) {
+        return cell;
+      }
+    }
+    throw new Error(`No new line ${line} is showing.`);
+  }
+
+  it("offers a file's header the menu its tree row has, with its patch to copy", async () => {
+    const user = userEvent.setup();
+    const { registry, writtenTexts } = createTestActionRegistry({ actions: [...changesActions] });
+    render(
+      <ActionRegistryProvider registry={registry}>
+        <ChangesetDiffPane
+          changesetKey="cs-1"
+          files={FILES}
+          loadFileDiff={unusedLoad}
+          rootPathById={ROOTS}
+        />
+      </ActionRegistryProvider>
+    );
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: await screen.findByRole('button', { name: /src\/a\.ts/u }),
+    });
+    expect(await screen.findByRole('menuitem', { name: 'Reveal in Explorer' })).toBeVisible();
+    await user.click(screen.getByRole('menuitem', { name: 'Copy Patch' }));
+    expect(writtenTexts).toEqual([patchOf('src/a.ts')]);
+
+    // A file the view sent without its patch has none to copy.
+    await user.pointer({ keys: '[MouseRight]', target: await unloadedHeader() });
+    expect(await screen.findByRole('menuitem', { name: 'Copy Relative Path' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: 'Copy Patch' })).not.toBeInTheDocument();
+  });
+
+  it("opens a line in its file's root, from a worktree inside that root", async () => {
+    const user = userEvent.setup();
+    const openFileInTab = vi.fn();
+    render(
+      withMenu(
+        <ChangesetDiffPane
+          changesetKey="cs-1"
+          files={[{ ...WITH_PATCH, worktreePath: '/repo/wt' }]}
+          loadFileDiff={unusedLoad}
+          openFileInTab={openFileInTab}
+          rootPathById={ROOTS}
+        />
+      )
+    );
+    await user.click(await newLineNumber(1));
+    expect(openFileInTab).toHaveBeenCalledWith('root-1|@|wt/src/a.ts', { line: 1 });
+  });
+
+  it('says a file in a worktree outside every open folder cannot open', async () => {
+    const user = userEvent.setup();
+    const openFileInTab = vi.fn();
+    render(
+      withMenu(
+        <>
+          <ChangesetDiffPane
+            changesetKey="cs-1"
+            files={[{ ...WITH_PATCH, worktreePath: '/elsewhere/wt' }]}
+            loadFileDiff={unusedLoad}
+            openFileInTab={openFileInTab}
+            rootPathById={ROOTS}
+          />
+          <Toaster />
+        </>
+      )
+    );
+    await user.click(await newLineNumber(1));
+    expect(await screen.findByText("Couldn't open src/a.ts")).toBeVisible();
+    expect(openFileInTab).not.toHaveBeenCalled();
   });
 });
 

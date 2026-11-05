@@ -16,6 +16,9 @@
  * whole file, on each hunk of a modified file whose whole patch the diff
  * holds, under the hunk's last change (@pierre/diffs' accept/reject pattern).
  * A hunk action hands back the hunk exactly as git's patch has it.
+ *
+ * With `onOpenLine`, a click on a line number of a file's new version opens
+ * the file at that line.
  */
 import {
   actionHunks,
@@ -120,6 +123,13 @@ export interface DiffReviewProps {
   /** Saves a new or edited comment. Without it the diff takes none. */
   readonly onComment?: ((comment: DiffComment) => void) | undefined;
   readonly onDeleteComment?: ((id: string) => void) | undefined;
+  /** A right-click on a file's header. */
+  readonly onFileContextMenu?: ((file: DiffReviewFile) => void) | undefined;
+  /**
+   * Opens a file at a line of its new version, from a click on that line's
+   * number. Without it line numbers do nothing.
+   */
+  readonly onOpenLine?: ((file: DiffReviewFile, line: number) => void) | undefined;
   /** Marks a file viewed or not. Without it the diff offers no viewed marks. */
   readonly onViewed?: ((file: DiffReviewFile, viewed: boolean) => void) | undefined;
   readonly ref?: Ref<DiffReviewHandle> | undefined;
@@ -383,6 +393,7 @@ function FileHeader({
   loadedFile,
   loading,
   onAction,
+  onContextMenu,
   onToggle,
   onViewed,
   open,
@@ -396,6 +407,7 @@ function FileHeader({
   readonly loadedFile: LoadedFile | undefined;
   readonly loading: boolean;
   readonly onAction: (action: ChangesAction) => void;
+  readonly onContextMenu: (() => void) | undefined;
   readonly onToggle: () => void;
   readonly onViewed: ((viewed: boolean) => void) | undefined;
   readonly open: boolean;
@@ -408,9 +420,11 @@ function FileHeader({
     </span>
   );
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/noNoninteractiveElementInteractions: the menu key on the header's own controls bubbles here; the header takes no focus itself.
     <div
       className="border-border bg-background flex h-11 items-center gap-2 border-b px-2 font-sans text-xs"
       data-testid="diff-review-file-header"
+      onContextMenu={onContextMenu}
     >
       {expandable ? (
         <button
@@ -482,6 +496,8 @@ export function DiffReview({
   onAction,
   onComment,
   onDeleteComment,
+  onFileContextMenu,
+  onOpenLine,
   onViewed,
   ref,
   viewed = NO_VIEWED,
@@ -683,6 +699,18 @@ export function DiffReview({
     }
   );
 
+  const openLine = useStableCallback(
+    (
+      line: { readonly annotationSide?: DiffSide; readonly lineNumber: number },
+      { item }: { readonly item: CodeViewItem<Note> }
+    ): void => {
+      const file = fileById.get(item.id);
+      if (file && line.annotationSide === 'additions') {
+        onOpenLine?.(file, line.lineNumber);
+      }
+    }
+  );
+
   const saveDraft = (): void => {
     const text = draft?.text.trim();
     if (!(draft && text && onComment)) {
@@ -698,6 +726,8 @@ export function DiffReview({
     enableGutterUtility: onComment !== undefined,
     loadDiffFiles,
     onGutterUtilityClick: openComment,
+    // Only the new version is the file as it is now, so only its numbers open it.
+    ...(onOpenLine && { onLineNumberClick: openLine }),
     stickyHeaders: true,
   };
 
@@ -719,6 +749,7 @@ export function DiffReview({
         loadedFile={loadedFile}
         loading={loadingIds.has(file.id)}
         onAction={(action) => onAction?.(action, file, null)}
+        onContextMenu={onFileContextMenu && (() => onFileContextMenu(file))}
         onToggle={() => {
           if (unloaded) {
             // Opens once it loads, whichever way the files start.

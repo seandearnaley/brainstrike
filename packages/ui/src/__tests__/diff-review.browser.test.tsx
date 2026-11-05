@@ -93,6 +93,8 @@ function Review({
   loadFile = loadById,
   onAction,
   onComment = () => {},
+  onFileContextMenu,
+  onOpenLine,
 }: {
   readonly actionsDisabled?: boolean;
   readonly diffStyle?: 'split' | 'unified';
@@ -100,6 +102,8 @@ function Review({
   readonly loadFile?: (id: string) => Promise<StructuredFileDiff>;
   readonly onAction?: OnAction;
   readonly onComment?: (comment: DiffComment) => void;
+  readonly onFileContextMenu?: (file: DiffReviewFile) => void;
+  readonly onOpenLine?: (file: DiffReviewFile, line: number) => void;
 }) {
   const [comments, setComments] = useState<DiffComment[]>([]);
   return (
@@ -118,6 +122,8 @@ function Review({
               setComments((current) => [...current.filter((c) => c.id !== comment.id), comment]);
             }}
             onDeleteComment={(id) => setComments((current) => current.filter((c) => c.id !== id))}
+            onFileContextMenu={onFileContextMenu}
+            onOpenLine={onOpenLine}
           />
         </div>
         <Toaster />
@@ -136,6 +142,43 @@ function commentButton(): HTMLElement {
   }
   throw new Error('No comment button is showing.');
 }
+
+/** The number beside a line of one side, as the split diff draws it. */
+function lineNumber(side: 'additions' | 'deletions', line: number): HTMLElement {
+  for (const host of document.querySelectorAll('diffs-container')) {
+    const cell = host.shadowRoot?.querySelector<HTMLElement>(
+      `[data-${side}] [data-column-number="${line}"]`
+    );
+    if (cell) {
+      return cell;
+    }
+  }
+  throw new Error(`No ${side} line ${line} is showing.`);
+}
+
+test('a line number of the new version opens the file at that line', async () => {
+  const onOpenLine = vi.fn();
+  render(<Review diffStyle="split" onOpenLine={onOpenLine} />);
+  await expect.element(page.getByText('return x + y;').first()).toBeVisible();
+
+  await userEvent.click(lineNumber('additions', 3));
+  expect(onOpenLine).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'sum' }), 3);
+  await userEvent.click(lineNumber('additions', 4));
+  expect(onOpenLine).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'sum' }), 4);
+
+  // The old version is not the file any more, so its numbers open nothing.
+  onOpenLine.mockClear();
+  await userEvent.click(lineNumber('deletions', 3));
+  await userEvent.click(lineNumber('deletions', 4));
+  expect(onOpenLine).not.toHaveBeenCalled();
+});
+
+test('a right-click on a file header names its file', async () => {
+  const onFileContextMenu = vi.fn();
+  render(<Review onFileContextMenu={onFileContextMenu} />);
+  await userEvent.click(page.getByText('src/sum.ts'), { button: 'right' });
+  expect(onFileContextMenu).toHaveBeenCalledWith(expect.objectContaining({ id: 'sum' }));
+});
 
 test('every file shows in one scroll with its counts', async () => {
   render(<Review />);

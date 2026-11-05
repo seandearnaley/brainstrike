@@ -10,9 +10,15 @@
  * file that offers them (ADR-0036), naming each file as the view drew it, and
  * once for each root a turn's files lie in. Reverting a file asks first; one
  * action runs at a time.
+ *
+ * With `rootPathById`, a right-click on a file's header opens the menu its
+ * tree row does. With `openFileInTab` too, a line number of a file's new
+ * version opens the file at that line.
  */
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { toRelativePath } from '@brainstrike/context-actions';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type {
   ChangedFileEntry,
   ChangesAction,
@@ -21,6 +27,7 @@ import type {
   StructuredFileDiff,
 } from '@brainstrike/types';
 import {
+  ActionContextMenu,
   Button,
   Dialog,
   DialogContent,
@@ -29,7 +36,9 @@ import {
   DialogTitle,
   type DiffComment,
   type DiffReviewHandle,
+  type OpenFileInTab,
   toast,
+  useContextMenuTarget,
 } from '@brainstrike/ui';
 import {
   CHANGES_ACTION_LABEL,
@@ -38,6 +47,7 @@ import {
   type DiffReviewFile,
 } from '@brainstrike/ui/diff-view';
 import { type ReactElement, type Ref, useMemo, useState } from 'react';
+import { changedFileTarget } from '../changes-context-actions';
 import { changedFileKey, type DraftComment, useChangesStore } from '../changes-store';
 
 export interface ChangesetDiffPaneProps {
@@ -62,7 +72,10 @@ export interface ChangesetDiffPaneProps {
   ) => Promise<BoundaryResult<StructuredFileDiff>>;
   /** Adds the drafts to a message; false keeps them. Without it the diff takes no comments. */
   readonly onSendComments?: ((drafts: readonly DraftComment[]) => boolean) | undefined;
+  readonly openFileInTab?: OpenFileInTab | undefined;
   readonly reviewRef?: Ref<DiffReviewHandle> | undefined;
+  /** Each mounted root's path, by its id. */
+  readonly rootPathById?: ReadonlyMap<string, string> | undefined;
 }
 
 const NO_DRAFTS: readonly DraftComment[] = [];
@@ -76,6 +89,26 @@ function describeFiles(files: readonly ChangesFileRevision[]): string {
 
 function describeTarget(target: ChangesActionTarget): string {
   return target.kind === 'hunks' ? target.path : describeFiles(target.files);
+}
+
+/**
+ * The file's path inside its root, or null when its worktree lies outside
+ * every open root. A path no worktree resolved is the root's already.
+ */
+function pathInRoot(entry: ChangedFileEntry, rootPath: string | undefined): string | null {
+  if (entry.worktreePath === null) {
+    return entry.path;
+  }
+  if (rootPath === undefined) {
+    return null;
+  }
+  const separator = entry.worktreePath.includes('\\') ? '\\' : '/';
+  const base = entry.worktreePath.endsWith(separator)
+    ? entry.worktreePath
+    : `${entry.worktreePath}${separator}`;
+  const absolute = `${base}${entry.path}`;
+  const relative = toRelativePath(absolute, rootPath);
+  return relative === absolute ? null : relative;
 }
 
 function revisionOf({ path, revision }: ChangedFileEntry): ChangesFileRevision {
@@ -117,7 +150,9 @@ export function ChangesetDiffPane({
   files,
   loadFileDiff,
   onSendComments,
+  openFileInTab,
   reviewRef,
+  rootPathById,
 }: ChangesetDiffPaneProps): ReactElement | null {
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split');
   const [applying, setApplying] = useState(false);
@@ -131,6 +166,8 @@ export function ChangesetDiffPane({
   const clearComments = useChangesStore((state) => state.clearComments);
   const viewed = useChangesStore((state) => state.viewedByChangeset.get(changesetKey) ?? NO_VIEWED);
   const setViewed = useChangesStore((state) => state.setViewed);
+  const contextMenu = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenu;
 
   const reviewFiles = useMemo(() => files.map(toReviewFile), [files]);
   const comments = useMemo(() => drafts.map((draft) => draft.comment), [drafts]);
@@ -216,6 +253,28 @@ export function ChangesetDiffPane({
     }
   };
 
+  const claimFile = (file: DiffReviewFile) => {
+    const entry = entryById.get(file.id);
+    setContextMenuTarget(entry && rootPathById ? changedFileTarget(entry, rootPathById) : null);
+  };
+
+  const openLine = (file: DiffReviewFile, line: number) => {
+    const entry = entryById.get(file.id);
+    if (!(entry && openFileInTab)) {
+      return;
+    }
+    const path = entry.rootId === null ? null : pathInRoot(entry, rootPathById?.get(entry.rootId));
+    if (entry.rootId === null || path === null) {
+      toast({
+        description: 'It lies outside your open folders.',
+        title: `Couldn't open ${entry.path}`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    openFileInTab(encodeFileSelection(entry.rootId, path), { line });
+  };
+
   const confirmRevert = () => {
     if (reverting) {
       setReverting(null);
@@ -231,6 +290,24 @@ export function ChangesetDiffPane({
       })
     : [];
   const unified = diffStyle === 'unified';
+  const diff = (
+    <DiffReview
+      actionsDisabled={applying}
+      comments={comments}
+      diffStyle={diffStyle}
+      files={reviewFiles}
+      key={changesetKey}
+      loadFile={loadFile}
+      onAction={applyAction && applyToFile}
+      onComment={onSendComments && saveDraft}
+      onDeleteComment={(id) => deleteComment(changesetKey, id)}
+      onFileContextMenu={rootPathById && claimFile}
+      onOpenLine={openFileInTab && openLine}
+      onViewed={(file, marked) => setViewed(changesetKey, file.id, marked ? file.revision : null)}
+      ref={reviewRef}
+      viewed={viewed}
+    />
+  );
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="changeset-diff-pane">
       <div className="border-border flex h-9 shrink-0 items-center gap-1.5 border-b px-2">
@@ -269,24 +346,15 @@ export function ChangesetDiffPane({
           </Button>
         </div>
       </div>
-      <div className="min-h-0 flex-1">
-        <DiffReview
-          actionsDisabled={applying}
-          comments={comments}
-          diffStyle={diffStyle}
-          files={reviewFiles}
-          key={changesetKey}
-          loadFile={loadFile}
-          onAction={applyAction && applyToFile}
-          onComment={onSendComments && saveDraft}
-          onDeleteComment={(id) => deleteComment(changesetKey, id)}
-          onViewed={(file, marked) =>
-            setViewed(changesetKey, file.id, marked ? file.revision : null)
-          }
-          ref={reviewRef}
-          viewed={viewed}
-        />
-      </div>
+      {rootPathById ? (
+        <ActionContextMenu controller={contextMenu}>
+          <div className="min-h-0 flex-1" onContextMenuCapture={() => setContextMenuTarget(null)}>
+            {diff}
+          </div>
+        </ActionContextMenu>
+      ) : (
+        <div className="min-h-0 flex-1">{diff}</div>
+      )}
       {reverting ? (
         <Dialog
           onOpenChange={(open) => {
