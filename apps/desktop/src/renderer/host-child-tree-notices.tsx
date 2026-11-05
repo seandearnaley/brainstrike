@@ -48,9 +48,9 @@ export function HostChildrenRunning({
 }
 
 /**
- * BST-1932 (AT-08): the questions and plans waiting in threads delegated
- * beneath a host thread, owner-named at its composer, as the shipped root was
- * told a child waited. Each is answered in its own child, which this opens.
+ * The network consents waiting in threads delegated beneath a host thread,
+ * owner-named at its composer in the words of the child's own card. Each is
+ * answered in its own child, which this opens.
  */
 export function HostChildWaiting({
   tree,
@@ -71,9 +71,9 @@ export function HostChildWaiting({
           key={interaction.interactionId}
         >
           <span>
-            {interaction.kind === 'plan'
-              ? `${owner} proposes a plan`
-              : `${owner} asks you a question`}
+            {interaction.origin === undefined
+              ? `${owner} wants to reach the internet`
+              : `${owner} wants to open ${interaction.origin}`}
           </span>
           <Button
             className="h-6 text-xs"
