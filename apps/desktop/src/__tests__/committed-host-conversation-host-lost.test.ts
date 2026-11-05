@@ -57,7 +57,11 @@ function recordedClient(runStart: () => Promise<unknown>) {
     ).threadId;
     const log: HostLogRow[] = rows.filter((row) => row.threadId === thread);
     const answers: Partial<Record<HostMethod, () => unknown>> = {
-      'log/subscribe': () => ({ rows: log, telemetry: [] }),
+      'log/subscribe': () => ({
+        rows: log,
+        subscriptionId: `subscription-${thread}`,
+        telemetry: [],
+      }),
       'log/unsubscribe': () => ({ unsubscribed: true }),
       'run/start': runStart,
       'thread/read': () => ({ rows: log }),

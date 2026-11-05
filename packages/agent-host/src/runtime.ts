@@ -16,6 +16,7 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
+import { jsonRpcLogger } from './boundary-wire.ts';
 import { serveHostCatalog } from './catalog/transport.ts';
 import { bindHostConnection, type HostConnectionOptions, type HostIdentity } from './connection.ts';
 import { HostCore } from './core.ts';
@@ -489,7 +490,7 @@ export async function startAgentHost(
           const connection = createMessageConnection(
             reader,
             new StreamMessageWriter(socket),
-            undefined,
+            jsonRpcLogger('AgentHostConnection'),
             {
               messageStrategy: {
                 handleMessage: async (message, next) => {
