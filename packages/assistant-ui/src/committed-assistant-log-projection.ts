@@ -669,11 +669,10 @@ export class CommittedAssistantLogProjection {
   /** Insert a part before an existing anchor part, or after the reply's read parts without one. */
   private insertPart(run: ProjectedRun, key: string, part: Part, anchor?: string): void {
     const message = this.message(run);
+    const at = anchor !== undefined && run.partIndexes.has(anchor) ? anchor : run.unread[0];
     this.put({
       ...message,
-      content: [
-        ...withIndexedPart(message.content, run.partIndexes, key, part, anchor ?? run.unread[0]),
-      ],
+      content: [...withIndexedPart(message.content, run.partIndexes, key, part, at)],
     });
   }
 

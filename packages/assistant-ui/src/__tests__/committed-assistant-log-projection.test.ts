@@ -16,7 +16,7 @@ import {
   type CommittedAssistantLogRow,
   type CommittedAssistantRunIdentity,
 } from '../committed-assistant-log-projection';
-import { CommittedRowUnreadableError } from '../committed-host-event-readers';
+import { CommittedRowUnreadableError, record } from '../committed-host-event-readers';
 import { PERSON_INPUT_DATA_NAME } from '../committed-person-input';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from '../compaction-summary-message';
 import { recordedMessage } from './committed-assistant-test-support';
@@ -472,6 +472,49 @@ describe('rich committed-log presentation projection', () => {
       { ...unread, data: { images: ['data:image/png;base64,aGk='], text: 'Also add a title.' } },
     ]);
     expect(parts.at(-2)).toMatchObject({ data: { type: 'step.noted' } });
+  });
+
+  it('keeps a step’s text before its tool call when an input arrived while the step ran', () => {
+    const projection = projector();
+    const stepStarted = rows.findIndex(
+      ({ event }) =>
+        event['type'] === 'stream.chunk' && record(event['chunk'])?.['type'] === 'start-step'
+    );
+    const opened = rows.slice(0, stepStarted + 1);
+    projection.acceptCommitted(opened);
+    let seq = opened.at(-1)?.seq ?? 0;
+    const commit = (event: Record<string, unknown>) =>
+      projection.acceptCommitted([{ event, seq: ++seq, threadId }]);
+    const payload = {
+      commandId: 'mid-step',
+      modelId: 'scripted',
+      prompt: 'Name it notes.md.',
+      runId,
+      threadId,
+    };
+    commit({
+      commandId: 'mid-step',
+      method: 'run/input',
+      payload,
+      result: { accepted: true },
+      type: 'command.accepted',
+    });
+    // The step commits its text with the tool call it precedes, and the call's chunk follows.
+    const call = { input: {}, toolCallId: 'call-x', toolName: 'write_file', type: 'tool-call' };
+    commit({
+      messages: [{ content: [{ text: 'Writing it.', type: 'text' }, call], role: 'assistant' }],
+      runId,
+      type: 'model.step',
+    });
+    commit({ chunk: call, runId, type: 'stream.chunk' });
+    const parts = answer(projection).content;
+    const text = parts.findIndex((part) => part.type === 'text' && part.text === 'Writing it.');
+    const tool = parts.findIndex(
+      (part) => part.type === 'tool-call' && part.toolCallId === 'call-x'
+    );
+    expect(text).toBeGreaterThan(-1);
+    expect(text).toBeLessThan(tool);
+    expect(parts.at(-1)).toMatchObject({ data: { text: 'Name it notes.md.', unread: true } });
   });
 
   it('keeps an input a stopped run never read at its reply’s end until the next run takes it', () => {
