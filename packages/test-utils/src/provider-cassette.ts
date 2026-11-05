@@ -582,7 +582,9 @@ export interface ProviderCassetteReplayOptions {
    * committed the end of every run it started. A response's last chunk waits
    * for each other conversation the recording had finished by then, so
    * concurrent conversations (background children) settle in their recorded
-   * order however slowly the client commits them.
+   * order however slowly the client commits them. It also waits for each
+   * other conversation's request the recording had received by then, so a
+   * conversation never ends before a request another one sent while it ran.
    */
   readonly settled?: (lane: string) => Promise<void>;
   readonly substitutions?: readonly ProviderCassetteSubstitution[];
@@ -670,7 +672,13 @@ export function createProviderCassetteReplay(
   const { settled } = options;
   const remaining = [...cassette.exchanges];
   const ends = conversationEnds(cassette.exchanges);
-  /** Waits for every other conversation the recording had finished before `exchange` ended. */
+  const claims = new Map(
+    cassette.exchanges.map((exchange) => [exchange, Promise.withResolvers<void>()] as const)
+  );
+  /**
+   * Waits for every other conversation the recording had finished before
+   * `exchange` ended, and for every request another conversation had sent by then.
+   */
   const settledBefore = async (exchange: ProviderCassetteExchange): Promise<void> => {
     // A one-shot request (a title) belongs to no conversation, and the run that
     // asked for it cannot finish before it answers, so it waits on none.
@@ -678,11 +686,15 @@ export function createProviderCassetteReplay(
       return;
     }
     const end = recordedEndMs(exchange);
-    await Promise.all(
-      [...ends]
-        .filter(([lane, laneEnd]) => lane !== exchange.key.lane && laneEnd < end)
-        .map(([lane]) => settled(lane))
-    );
+    const concurrent = (lane: string): boolean => lane !== '' && lane !== exchange.key.lane;
+    await Promise.all([
+      ...[...ends]
+        .filter(([lane, laneEnd]) => concurrent(lane) && laneEnd < end)
+        .map(([lane]) => settled(lane)),
+      ...[...claims]
+        .filter(([other]) => concurrent(other.key.lane) && other.startedAtMs < end)
+        .map(([, claim]) => claim.promise),
+    ]);
   };
   let holding = 0;
   return {
@@ -696,6 +708,7 @@ export function createProviderCassetteReplay(
         return { key, unserved: remaining.map((candidate) => candidate.key) };
       }
       remaining.splice(index, 1);
+      claims.get(exchange)?.resolve();
       const recorded = exchange.response;
       if (!(await writeRecorded(recorded, response, pace, () => settledBefore(exchange)))) {
         return;
