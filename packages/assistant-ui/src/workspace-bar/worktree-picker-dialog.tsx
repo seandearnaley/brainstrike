@@ -47,13 +47,13 @@ const PickerRow = ({
           ) : null}
           {option.current ? <Badge variant="outline">Current</Badge> : null}
         </div>
-        <p className="text-muted-foreground truncate font-mono text-[11px]">{option.path}</p>
-        <p className="text-muted-foreground text-[11px]">
+        <p className="text-muted-foreground text-2xs truncate font-mono">{option.path}</p>
+        <p className="text-muted-foreground text-2xs">
           {option.repositoryName} · {option.branch ?? 'Detached HEAD'}
         </p>
         {option.disabledReason ? (
           <p
-            className="text-warning mt-1 text-[11px] leading-snug"
+            className="text-warning text-2xs mt-1 leading-snug"
             data-testid={`worktree-picker-reason-${optionId}`}
           >
             {option.disabledReason}

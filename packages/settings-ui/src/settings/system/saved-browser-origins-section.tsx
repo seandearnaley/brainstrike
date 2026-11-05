@@ -12,6 +12,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ErrorNotice,
 } from '@brainstrike/ui';
 import { type ReactElement, useEffect, useState } from 'react';
 
@@ -93,12 +94,7 @@ export function SavedBrowserOriginsSection({
       <CardContent className="space-y-3">
         {listing.status === 'loading' ? <p role="status">Loading saved sites…</p> : null}
         {listing.status === 'failed' ? (
-          <>
-            <p role="alert">Unable to load saved sites: {listing.error}</p>
-            <Button onClick={reload} size="sm" variant="outline">
-              Retry
-            </Button>
-          </>
+          <ErrorNotice message={`Unable to load saved sites: ${listing.error}`} onRetry={reload} />
         ) : null}
         {listing.status === 'ready' && entries.length === 0 ? (
           <p className="text-muted-foreground text-sm" data-testid="saved-browser-origins-empty">

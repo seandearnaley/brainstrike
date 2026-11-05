@@ -150,7 +150,7 @@ export const RootSectionHeader = ({
         )}
         {isMain && (
           <span
-            className="bg-secondary text-secondary-foreground ml-1 inline-flex shrink-0 items-center rounded-full px-1.5 text-[9px] leading-4 font-medium tracking-normal normal-case"
+            className="bg-secondary text-secondary-foreground text-2xs ml-1 inline-flex shrink-0 items-center rounded-full px-1.5 leading-4 font-medium tracking-normal normal-case"
             data-testid="root-main-badge"
           >
             Main

@@ -33,7 +33,7 @@
 
   /* Muted - Slightly darker warm gray for disabled/secondary content */
   --bs-muted: hsl(30 15% 94%); /* #F2EFEC - Muted warm */
-  --bs-muted-foreground: hsl(25 8% 45%); /* #6B5F55 - Muted text */
+  --bs-muted-foreground: hsl(25 8% 42%); /* #746A63 - Muted text, 4.5:1 on --bs-muted */
 
   /* Accent - Hover states and interactive elements */
   --bs-accent: hsl(30 12% 90%); /* #E8E4E0 - Accent warm */
@@ -122,7 +122,7 @@
 
   /* Muted - For disabled and secondary content */
   --bs-muted: hsl(30 5% 18%); /* #302C29 - Muted warm dark */
-  --bs-muted-foreground: hsl(30 6% 55%); /* #918A83 - Warm muted text */
+  --bs-muted-foreground: hsl(30 6% 59%); /* #9D9690 - Warm muted text, 4.5:1 on --bs-muted */
 
   /* Accent - Hover states */
   --bs-accent: hsl(30 5% 22%); /* #3A3633 - Warm hover dark */

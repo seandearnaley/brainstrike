@@ -17,8 +17,9 @@
  *   theme       red
  *
  *   contrastAdjusted: moved to WCAG AA (4.5:1) because Brainstrike also uses
- *   primary and destructive as text on the background, and every fill needs
- *   a readable foreground:
+ *   primary and destructive as text on the background, muted-foreground as
+ *   text on muted fills, and every fill needs a readable foreground:
+ *     muted-foreground (light)
  *     sidebar-primary-foreground (light)
  *     primary (dark)
  *     primary-foreground (dark)
@@ -41,7 +42,7 @@
   --bs-secondary: oklch(0.967 0.001 286.375);
   --bs-secondary-foreground: oklch(0.21 0.006 285.885);
   --bs-muted: oklch(0.97 0 0);
-  --bs-muted-foreground: oklch(0.556 0 0);
+  --bs-muted-foreground: oklch(0.546 0 0);
   --bs-accent: oklch(0.97 0 0);
   --bs-accent-foreground: oklch(0.205 0 0);
   --bs-destructive: oklch(0.577 0.245 27.325);

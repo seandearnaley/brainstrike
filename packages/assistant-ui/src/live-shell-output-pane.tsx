@@ -16,7 +16,7 @@ export function LiveShellOutputPane({
   return (
     <div className="px-2.5 pb-1.5">
       {omittedBytes ? (
-        <p className="text-muted-foreground pb-0.5 text-[10px] italic">
+        <p className="text-muted-foreground text-2xs pb-0.5 italic">
           Earlier output not shown ({Math.ceil(omittedBytes / 1024)} KB)
         </p>
       ) : null}
@@ -25,12 +25,12 @@ export function LiveShellOutputPane({
         className="bg-muted/50 flex max-h-40 flex-col-reverse overflow-auto rounded"
         role="log"
       >
-        <pre className="text-muted-foreground p-2 font-mono text-[11px] break-words whitespace-pre-wrap">
+        <pre className="text-muted-foreground text-2xs p-2 font-mono break-words whitespace-pre-wrap">
           {text}
         </pre>
       </div>
       {truncated ? (
-        <p className="text-muted-foreground pt-0.5 text-[10px] italic">
+        <p className="text-muted-foreground text-2xs pt-0.5 italic">
           Live output truncated — the full result is kept when the command finishes.
         </p>
       ) : null}

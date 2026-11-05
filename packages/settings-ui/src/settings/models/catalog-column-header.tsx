@@ -75,7 +75,7 @@ export function CatalogColumnHeader({
                     sortColumn ? getTreeTableAriaSortValue(sortColumn, sortState) : undefined
                   }
                   className={cn(
-                    'text-muted-foreground h-8 px-2 text-[11px] font-medium tracking-wide uppercase',
+                    'text-muted-foreground text-2xs h-8 px-2 font-medium tracking-wide uppercase',
                     ALIGN_CLASS[column.align]
                   )}
                   data-column-id={column.id}

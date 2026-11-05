@@ -334,7 +334,7 @@ function FileLoggingCard({
             <div className="border-border/60 bg-muted/40 flex-1 rounded-md border px-3 py-2 text-sm">
               <div className="text-muted-foreground font-medium">{fileDestinationLabel.label}</div>
               {fileDestinationLabel.hint ? (
-                <div className="text-muted-foreground/80 text-xs">{fileDestinationLabel.hint}</div>
+                <div className="text-muted-foreground text-xs">{fileDestinationLabel.hint}</div>
               ) : null}
             </div>
             <div className="flex gap-2">

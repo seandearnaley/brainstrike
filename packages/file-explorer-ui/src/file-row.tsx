@@ -57,13 +57,12 @@ export const FileRow = memo<FileRowProps>(function FileRow({
         </span>
         <Button
           aria-label="Remove from selection"
-          className="h-7 w-7"
           onClick={onRemove}
-          size="icon"
+          size="icon-xs"
           title="Remove from selection"
           variant="ghost"
         >
-          <FileX2 className="h-3 w-3" />
+          <FileX2 />
         </Button>
       </div>
     </div>

@@ -115,13 +115,13 @@ export const ScanningStatus = React.memo(
         {cancellable && (
           <Button
             aria-label={isCancelling ? 'Cancelling' : 'Cancel scanning'}
-            className="h-6 w-6 shrink-0"
+            className="size-6 shrink-0"
             disabled={isCancelling}
             onClick={onCancel}
-            size="icon"
+            size="icon-xs"
             variant="ghost"
           >
-            <X className="h-3.5 w-3.5" />
+            <X />
           </Button>
         )}
       </div>

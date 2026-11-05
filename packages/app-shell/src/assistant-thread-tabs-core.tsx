@@ -17,7 +17,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import {
   Button,
-  TAB_STRIP_ICON_BUTTON_CLASS_NAME,
+  TAB_STRIP_LABELED_BUTTON_CLASS_NAME,
   TabPanelBoundary,
   TabStrip,
   type TabStripContextMenu,
@@ -419,7 +419,7 @@ export function AssistantThreadTabsCore({
               ) : null}
               <Button
                 aria-label={newThreadAction.label}
-                className={TAB_STRIP_ICON_BUTTON_CLASS_NAME}
+                className={TAB_STRIP_LABELED_BUTTON_CLASS_NAME}
                 data-testid="assistant-new-thread-button"
                 disabled={newThreadDisabled}
                 onClick={handleNewThreadClick}

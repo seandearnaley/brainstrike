@@ -9,7 +9,7 @@ import type {
   CodeExecutionApprovalContext,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
-import { Badge, CodeSurface } from '@brainstrike/ui';
+import { Badge, CodeSurface, cn } from '@brainstrike/ui';
 import { Option, Predicate, Schema } from 'effect';
 import { lazy, Suspense, use, useState } from 'react';
 import { type ReadApprovalChange, useApprovalChange } from './approval-change-context';
@@ -18,6 +18,7 @@ import {
   narrowRunPythonArgs,
   readRunPythonExecutionContext,
 } from './approval-preview-policy';
+import { DETAIL_LABEL_CLASS } from './detail-label';
 import { formatRunDuration } from './run-python-result-model';
 
 // The diff renderer loads with the first file approval, not with the chat.
@@ -595,7 +596,7 @@ function ExecuteCommandPreview({
           network.
         </p>
       ) : null}
-      <p className="text-foreground/90 text-xs font-medium">Command</p>
+      <p className={DETAIL_LABEL_CLASS}>Command</p>
       <pre
         className="border-border bg-muted/60 mt-1.5 max-w-full overflow-x-hidden rounded-md border p-3 font-mono text-xs leading-5 [overflow-wrap:anywhere] whitespace-pre-wrap select-text"
         data-testid="approval-command-preview"
@@ -770,7 +771,7 @@ function OtherArgumentsPreview({ args, enabled }: { args: unknown; enabled: bool
   const preview = truncatePreviewText(JSON.stringify(args, null, 2));
   return (
     <div className="mt-3">
-      <p className="mb-1 text-xs font-medium">Requested arguments</p>
+      <p className={cn(DETAIL_LABEL_CLASS, 'mb-1')}>Requested arguments</p>
       <pre
         className="bg-muted/40 max-h-48 overflow-auto rounded border p-2 text-xs break-words whitespace-pre-wrap"
         data-testid="approval-arguments-preview"

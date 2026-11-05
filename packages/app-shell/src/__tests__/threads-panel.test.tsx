@@ -837,7 +837,7 @@ describe('ThreadsPanel', () => {
       expect(control).not.toHaveClass('hover:bg-accent');
       // Visual box shrinks but the pointer target stays >= 24px.
       expect(control.className).toMatch(/after:-inset-1/u);
-      expect(control.querySelector('svg')).toHaveClass('size-3');
+      expect(control.querySelector('svg')).toHaveClass('size-3.5');
     }
   });
 
@@ -1186,7 +1186,7 @@ describe('ThreadsPanel', () => {
       screen.queryByRole('button', { name: 'Customize thread Second thread' })
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
-    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Customize' }));
     const customizer = screen.getByRole('dialog');
     await user.click(within(customizer).getByRole('button', { name: 'Use Bug icon' }));
     await user.click(within(customizer).getByRole('button', { name: 'Use Rose color' }));
@@ -1229,7 +1229,7 @@ describe('ThreadsPanel', () => {
     expect(checkbox).not.toBeChecked();
     expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Customize' }));
     await user.click(screen.getByRole('button', { name: 'Use Bug icon' }));
     expect(checkbox).not.toBeChecked();
     expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
@@ -1374,7 +1374,7 @@ describe('ThreadsPanel', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
     await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
-    await user.click(screen.getByRole('button', { name: 'Rename' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Thread title' });
     await user.clear(input);
     await user.type(input, 'Deployment plan');
@@ -1394,7 +1394,7 @@ describe('ThreadsPanel', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
     await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
-    await user.click(screen.getByRole('button', { name: 'Rename' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Thread title' });
     await user.clear(input);
     await user.click(screen.getByRole('button', { name: 'Save thread title' }));
@@ -1412,7 +1412,7 @@ describe('ThreadsPanel', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
     await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
-    await user.click(screen.getByRole('button', { name: 'Delete…' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete…' }));
     expect(
       screen.getByRole('button', { name: 'Confirm delete thread Second thread' })
     ).toBeVisible();
@@ -1440,7 +1440,7 @@ describe('ThreadsPanel', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
     await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
-    await user.click(screen.getByRole('button', { name: 'Delete…' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete…' }));
     await user.click(screen.getByRole('button', { name: 'Confirm delete thread Second thread' }));
 
     expect(await screen.findByText('Delete failed.')).toBeVisible();

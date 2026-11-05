@@ -124,11 +124,11 @@ function FileRow({
             event.stopPropagation();
             onAttachFile(compositeKey);
           }}
-          size="icon"
+          size="icon-xs"
           title="Attach this file to the thread"
           variant="ghost"
         >
-          <Paperclip aria-hidden="true" className="size-3.5" />
+          <Paperclip aria-hidden="true" />
         </Button>
       ) : null}
     </span>
@@ -155,7 +155,7 @@ function MatchRow({
 
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <span className="text-muted-foreground/70 w-9 shrink-0 text-right font-mono text-xs tabular-nums">
+      <span className="text-muted-foreground w-9 shrink-0 text-right font-mono text-xs tabular-nums">
         {match.line}
       </span>
       {/* A narrow panel truncates the line; its title keeps the whole line readable. */}

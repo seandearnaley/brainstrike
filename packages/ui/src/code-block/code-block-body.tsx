@@ -1,6 +1,8 @@
+import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import type * as React from 'react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import ShikiHighlighter from 'react-shiki/core';
+import { Button } from '../button';
 import { useNearViewport } from '../hooks/use-near-viewport';
 import { cn } from '../lib/utils';
 import { normalizeShikiLanguage, useShikiHighlighter } from '../shiki/highlighter-core';
@@ -13,11 +15,24 @@ export interface CodeBlockBodyProps {
   readonly delay?: number | undefined;
   readonly fallback?: React.ReactNode;
   readonly language: string;
+  /** The block is still arriving: it stays at full height until complete. */
+  readonly streaming?: boolean | undefined;
+  /** Long lines wrap instead of scrolling sideways. */
+  readonly wrap?: boolean | undefined;
 }
 
+/** A block longer than this many lines starts collapsed once complete. */
+export const CODE_BLOCK_COLLAPSE_LINES = 25;
+
+const countLines = (code: string): number => code.replace(/\n$/u, '').split('\n').length;
+
 /**
- * Bottom half of the shared code-block box. A block is highlighted once it
- * comes near the visible area; until then it shows the plain fallback, which
+ * Bottom half of the shared code-block box. A complete block longer than
+ * CODE_BLOCK_COLLAPSE_LINES shows its first lines with a "Show all N lines"
+ * toggle (the clamp is CSS, so every line stays in the DOM for find-in-page);
+ * a block that is still streaming is never clamped, so it does not jump while
+ * it grows. A block is highlighted once it comes near the visible area; until
+ * then it shows the plain fallback, which
  * keeps its text searchable and copyable. The wrapper div is CONSTANT across
  * the plain-fallback → Shiki swap so the box chrome never flashes and there is
  * no layout shift when highlighting resolves (padding/font metrics for both
@@ -55,11 +70,16 @@ export function CodeBlockBody({
   delay,
   fallback,
   language,
+  streaming = false,
+  wrap = false,
 }: CodeBlockBodyProps): React.ReactNode {
   const highlighter = useShikiHighlighter();
   const codeTheme = useCodeTheme();
   const bodyRef = useRef<HTMLDivElement>(null);
   const near = useNearViewport(bodyRef);
+  const [expanded, setExpanded] = useState(false);
+  const lineCount = countLines(code);
+  const collapsible = !streaming && lineCount > CODE_BLOCK_COLLAPSE_LINES;
 
   return (
     <div
@@ -67,6 +87,8 @@ export function CodeBlockBody({
         'bs-code-block-body border-border bg-muted/40 overflow-x-auto rounded-b-md border border-t-0',
         className
       )}
+      data-collapsed={collapsible && !expanded ? '' : undefined}
+      data-wrap={wrap ? '' : undefined}
       ref={bodyRef}
     >
       {code && highlighter && near ? (
@@ -88,6 +110,18 @@ export function CodeBlockBody({
           </pre>
         ))
       )}
+      {collapsible ? (
+        <Button
+          aria-expanded={expanded}
+          className="border-border text-muted-foreground w-full rounded-none rounded-b-md border-t"
+          onClick={() => setExpanded((value) => !value)}
+          size="xs"
+          variant="ghost"
+        >
+          {expanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+          {expanded ? 'Show less' : `Show all ${lineCount} lines`}
+        </Button>
+      ) : null}
     </div>
   );
 }

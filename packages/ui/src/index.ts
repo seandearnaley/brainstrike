@@ -28,7 +28,6 @@ export * from './empty-state';
 export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';
 // Export ErrorBoundary
 export { default as ErrorBoundary } from './error-boundary';
-export * from './error-fallback';
 export * from './error-notice';
 export type { ExpandableTextareaProps } from './expandable-textarea';
 export { ExpandableTextarea } from './expandable-textarea';

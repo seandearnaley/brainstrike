@@ -119,9 +119,9 @@ function WorktreeThreadDetails({
       ) : (
         <span className="text-muted-foreground text-xs">No linked thread</span>
       )}
-      {current ? <span className="text-primary text-[10px]">Current thread</span> : null}
+      {current ? <span className="text-primary text-2xs">Current thread</span> : null}
       {card.lastActivityLabel ? (
-        <p className="text-muted-foreground text-[10px]">{card.lastActivityLabel}</p>
+        <p className="text-muted-foreground text-2xs">{card.lastActivityLabel}</p>
       ) : null}
     </div>
   );
@@ -152,7 +152,7 @@ export function WorktreeMapCard({
             {entry.name}
           </h3>
           <Badge
-            className="shrink-0 px-1.5 py-0 text-[10px]"
+            className="text-2xs shrink-0 px-1.5 py-0"
             data-testid="worktree-map-provenance"
             variant="outline"
           >
@@ -162,14 +162,14 @@ export function WorktreeMapCard({
         <div className="text-muted-foreground mt-1 flex min-w-0 items-center gap-1.5 text-xs">
           <GitBranch aria-hidden="true" className="size-3.5 shrink-0" />
           <span
-            className="truncate font-mono text-[11px]"
+            className="text-2xs truncate font-mono"
             data-testid="worktree-map-branch"
             title={card.branchLabel}
           >
             {card.branchLabel}
           </span>
         </div>
-        <p className="text-muted-foreground mt-1 truncate text-[10px]" title={entry.path}>
+        <p className="text-muted-foreground text-2xs mt-1 truncate" title={entry.path}>
           {entry.path}
         </p>
         {card.disabledReason ? (

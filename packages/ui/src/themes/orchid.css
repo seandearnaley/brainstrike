@@ -17,8 +17,8 @@
  *   theme       pink
  *
  *   contrastAdjusted: moved to WCAG AA (4.5:1) because Brainstrike also uses
- *   primary and destructive as text on the background, and every fill needs
- *   a readable foreground:
+ *   primary and destructive as text on the background, muted-foreground as
+ *   text on muted fills, and every fill needs a readable foreground:
  *     sidebar-primary-foreground (light)
  *     primary (dark)
  *     primary-foreground (dark)

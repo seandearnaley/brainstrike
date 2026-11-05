@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon } from 'lucide-react';
+import { CheckIcon, CopyIcon, WrapTextIcon } from 'lucide-react';
 import type * as React from 'react';
 import { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
 import { cn } from '../lib/utils';
@@ -10,6 +10,9 @@ export interface CodeBlockHeaderProps {
   readonly className?: string;
   readonly code: string;
   readonly language?: string | undefined;
+  /** Shows the wrap-lines toggle beside Copy; the owner holds the state. */
+  readonly onWrapChange?: ((wrap: boolean) => void) | undefined;
+  readonly wrap?: boolean | undefined;
 }
 
 /** '' / undefined / 'unknown' (the @assistant-ui/react-markdown label for an
@@ -23,14 +26,17 @@ const displayLanguage = (language: string | undefined): string => {
 };
 
 /**
- * Top half of the shared code-block box: language label + copy button.
- * Pairs with CodeBlockBody (rounded-b, border-t-0) to read as one box even
- * when a pipeline (chat) forces the halves to render as siblings.
+ * Top half of the shared code-block box: language label, the optional
+ * wrap-lines toggle and the copy button.
+ * Pairs with CodeBlockBody (rounded-b, border-t-0) to read as one box; the
+ * CodeBlock composition owns the wrap state they share.
  */
 export function CodeBlockHeader({
   className,
   code,
   language,
+  onWrapChange,
+  wrap = false,
 }: CodeBlockHeaderProps): React.ReactNode {
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
 
@@ -67,16 +73,31 @@ export function CodeBlockHeader({
       )}
     >
       <span className="text-muted-foreground lowercase">{displayLanguage(language)}</span>
-      <TooltipIconButton
-        aria-label="Copy code to clipboard"
-        className="size-6"
-        onClick={onCopy}
-        size="icon"
-        tooltip={tooltip}
-        variant="ghost"
-      >
-        {copyIcon}
-      </TooltipIconButton>
+      <div className="flex items-center gap-1">
+        {onWrapChange ? (
+          <TooltipIconButton
+            aria-label="Wrap lines"
+            aria-pressed={wrap}
+            className={cn('size-6', wrap && 'bg-accent text-accent-foreground')}
+            onClick={() => onWrapChange(!wrap)}
+            size="icon"
+            tooltip={wrap ? 'Stop wrapping lines' : 'Wrap lines'}
+            variant="ghost"
+          >
+            <WrapTextIcon className="size-3.5" />
+          </TooltipIconButton>
+        ) : null}
+        <TooltipIconButton
+          aria-label="Copy code to clipboard"
+          className="size-6"
+          onClick={onCopy}
+          size="icon"
+          tooltip={tooltip}
+          variant="ghost"
+        >
+          {copyIcon}
+        </TooltipIconButton>
+      </div>
       {/* Proactively announce a broken clipboard to screen readers — the
           tooltip alone is not announced (no-silent-fallbacks). Mirrors
           CopyTextButton. */}

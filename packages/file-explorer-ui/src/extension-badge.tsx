@@ -13,7 +13,7 @@ interface ExtensionBadgeProps {
 const sizeStyles: Record<ExtensionBadgeSize, { badge: string; label: string }> = {
   compact: {
     badge: 'max-w-[4rem] px-1.5 py-0 leading-tight',
-    label: 'font-medium text-[9px]',
+    label: 'font-medium text-2xs',
   },
   default: {
     badge: 'max-w-[5rem] px-2 py-0.5',

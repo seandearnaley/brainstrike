@@ -112,7 +112,7 @@ export function ProviderModelSection({
                   <span className="truncate text-sm font-medium">{model.name}</span>
                   {isRecommended ? (
                     <Badge
-                      className="h-5 px-1.5 text-[10px]"
+                      className="text-2xs h-5 px-1.5"
                       data-testid={`provider-model-recommended-${model.id}`}
                       variant="secondary"
                     >

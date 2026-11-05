@@ -329,7 +329,7 @@ export function CatalogToolbar({
           />
           <span
             aria-hidden="true"
-            className="bg-muted text-muted-foreground pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1.5 font-mono text-[10px]"
+            className="bg-muted text-muted-foreground text-2xs pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1.5 font-mono"
           >
             /
           </span>
@@ -354,7 +354,7 @@ export function CatalogToolbar({
                 {activeFilterCount > 0 ? (
                   <>
                     {' '}
-                    <Badge className="h-4 px-1 text-[10px]" variant="secondary">
+                    <Badge className="text-2xs h-4 px-1" variant="secondary">
                       {activeFilterCount} <span className="sr-only">active</span>
                     </Badge>
                   </>

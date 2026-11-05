@@ -146,7 +146,7 @@ function VerdictChip({
   return (
     <Badge
       className={cn(
-        'h-5 px-1.5 text-[10px]',
+        'text-2xs h-5 px-1.5',
         presentation.tone === 'danger' && 'border-destructive/40 text-destructive',
         presentation.tone === 'warning' && 'text-warning border-warning/40',
         presentation.tone === 'success' && 'text-success border-success/40'

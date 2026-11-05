@@ -1,6 +1,7 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown';
-import { render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { TooltipProvider } from '@brainstrike/ui';
+import { render as baseRender, screen, waitFor } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const shikiMocks = vi.hoisted(() => ({
@@ -39,6 +40,9 @@ const components: SyntaxHighlighterProps['components'] = {
   ),
   Pre: ({ children }: { children?: ReactNode }) => <pre data-testid="fallback-pre">{children}</pre>,
 };
+
+/** The chat mounts every code box under the app's TooltipProvider. */
+const render = (ui: ReactElement) => baseRender(ui, { wrapper: TooltipProvider });
 
 async function importSubject(): Promise<typeof import('../shiki-highlighter')> {
   return import('../shiki-highlighter');

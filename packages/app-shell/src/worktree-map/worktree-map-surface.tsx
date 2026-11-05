@@ -183,19 +183,19 @@ export function WorktreeMapSurface(): ReactElement {
                 <div className="min-w-0">
                   <h2 className="truncate text-sm font-medium">{repositoryModel.repositoryName}</h2>
                   <p
-                    className="text-muted-foreground truncate text-[10px]"
+                    className="text-muted-foreground text-2xs truncate"
                     title={repositoryModel.repositoryRoot}
                   >
                     {repositoryModel.repositoryRoot}
                   </p>
                 </div>
-                <span className="text-muted-foreground shrink-0 text-[10px] tabular-nums">
+                <span className="text-muted-foreground text-2xs shrink-0 tabular-nums">
                   {repositoryModel.cards.length} shown
                 </span>
               </header>
               <div
                 aria-hidden="true"
-                className="text-muted-foreground hidden grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem] gap-3 border-l-2 border-l-transparent px-3 text-[10px] @min-[760px]/worktrees:grid"
+                className="text-muted-foreground text-2xs hidden grid-cols-[minmax(0,1fr)_8.5rem_11rem_12rem] gap-3 border-l-2 border-l-transparent px-3 @min-[760px]/worktrees:grid"
               >
                 <span>Checkout</span>
                 <span>Git status</span>

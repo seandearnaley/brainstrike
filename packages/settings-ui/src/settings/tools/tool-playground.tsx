@@ -60,7 +60,7 @@ function ParameterRow({ param }: { param: ToolParameterDisplay }) {
         <code className="text-foreground font-mono text-xs">{param.name}</code>
         {param.required && <span className="text-destructive text-xs">*</span>}
       </div>
-      <Badge className="px-1.5 text-[9px]" variant={getTypeBadgeVariant(param.type)}>
+      <Badge className="text-2xs px-1.5" variant={getTypeBadgeVariant(param.type)}>
         {param.type}
         {param.arrayItemType && `[${param.arrayItemType}]`}
       </Badge>
@@ -69,14 +69,14 @@ function ParameterRow({ param }: { param: ToolParameterDisplay }) {
         {param.enumValues && (
           <div className="mt-0.5 flex flex-wrap gap-1">
             {param.enumValues.map((value: string) => (
-              <code className="bg-muted/50 rounded px-1 py-0.5 font-mono text-[10px]" key={value}>
+              <code className="bg-muted/50 text-2xs rounded px-1 py-0.5 font-mono" key={value}>
                 {value}
               </code>
             ))}
           </div>
         )}
         {(param.min !== undefined || param.max !== undefined) && (
-          <span className="text-muted-foreground text-[10px]">
+          <span className="text-muted-foreground text-2xs">
             {formatRangeLabel(param.min, param.max)}
           </span>
         )}
