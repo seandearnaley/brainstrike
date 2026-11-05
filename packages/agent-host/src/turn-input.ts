@@ -7,14 +7,30 @@
  * https://ai-sdk.dev/docs/reference/ai-sdk-core/model-message
  */
 import type { ModelMessage, UserModelMessage } from 'ai';
+import type { HostParams } from './protocol.ts';
 
 const NAMESPACE = 'brainstrike';
+const INTAKE = { [NAMESPACE]: { intake: true } };
 
 /** The user message that carries `text`, the notices a running run takes, to its model. */
 export function hostIntakeMessage(text: string): UserModelMessage {
   return {
     content: [{ text, type: 'text' }],
-    providerOptions: { [NAMESPACE]: { intake: true } },
+    providerOptions: INTAKE,
+    role: 'user',
+  };
+}
+
+/** A person's message a running run takes at a step: their words and images, as a run/start's. */
+export function hostPersonInputMessage(input: HostParams<'run/input'>): UserModelMessage {
+  return {
+    content: [
+      ...(input.prompt ? [{ text: input.prompt, type: 'text' as const }] : []),
+      ...(input.attachments ?? []).map(
+        ({ data, mediaType }) => ({ data, mediaType, type: 'file' }) as const
+      ),
+    ],
+    providerOptions: INTAKE,
     role: 'user',
   };
 }

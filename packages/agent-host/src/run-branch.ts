@@ -159,7 +159,7 @@ function hostUserMessage(branch: HostRunBranch): UserModelMessage {
   };
 }
 /** The shared attachment contract, checked before a user message is admitted. */
-function assertHostAttachments(attachments: readonly HostImageAttachment[]): void {
+export function assertHostAttachments(attachments: readonly HostImageAttachment[]): void {
   let total = 0;
   for (const attachment of attachments) {
     total += validateImageAttachmentPart(attachment);

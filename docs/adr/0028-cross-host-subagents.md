@@ -5,9 +5,9 @@
   - Implemented so far: step 2 (children never get `askUser` or `submitPlan`;
     `PARENT_ONLY_TOOL_IDS` in `packages/assistant-contract/src/personas.ts`), step 3 for
     root runs (a created worktree binds its thread; `packages/agent-host/src/worktree-binding.ts`),
-    and step 3b's notice for child reports and command-session exits, taken at a run's start or
-    its next step (`packages/agent-host/src/notices.ts`).
-  - Not yet: step 3b's human input; steps 4–10.
+    and step 3b's notice for child reports, command-session exits and a person's input, taken at
+    a run's start or its next step (`packages/agent-host/src/notices.ts`).
+  - Not yet: steps 4–10.
 - **Date:** 2026-10-22
 - **Builds on:** [ADR-0009](0009-host-run-loop-invariants.md) (with its 2026-10-22
   amendment), [ADR-0010](0010-approvals-and-delegation.md),
@@ -292,9 +292,12 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
      names them, so the branch counts them taken. An idle thread wakes, or its next run takes
      them (`queue`). A turn's input is its first user message by identity
      (`turn-input.ts`), not the last user message by role.
-   - **Next:** a person's input to a running agent is a notice taken at the next step,
-     replacing "end the run, then start the next one" (`child-input.ts`, `run/steer`'s hand-off).
-     Step 4's `message` tool and step 5's `agents/notify` then post notices.
+   - **Done:** a person's input (`run/input`) is a notice: its committed command. A working run
+     reads it at its next step, as its own user message, so an awaited child's answer to it is
+     its parent's tool result; an idle thread, decided in commit order, starts the person's turn
+     with it. This removed "end the run, then start the next one" (`child-input.ts`).
+   - **Next:** the root composer's steer sends `run/input` too, retiring `run/steer`. Step 4's
+     `message` tool and step 5's `agents/notify` then post notices.
 4. **The `message` tool**, addressing children by call sign: follow-up run if idle, `run/input`
    if working. Committed as agent-authored.
 5. **Directory on one host:** `agents/list`, `agents/message`, `agents/notify`; the sidebar reads

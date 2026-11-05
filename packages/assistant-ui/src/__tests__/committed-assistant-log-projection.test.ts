@@ -17,6 +17,7 @@ import {
   type CommittedAssistantRunIdentity,
 } from '../committed-assistant-log-projection';
 import { CommittedRowUnreadableError } from '../committed-host-event-readers';
+import { PERSON_INPUT_DATA_NAME } from '../committed-person-input';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from '../compaction-summary-message';
 import { recordedMessage } from './committed-assistant-test-support';
 
@@ -365,6 +366,42 @@ describe('rich committed-log presentation projection', () => {
     expect(answer(projection).content.at(-1)).toEqual({
       data: { kind: 'deterministic', reason: 'pre-request', summary, turnsCompacted: 1 },
       name: HOST_CONTEXT_COMPACTED_DATA_NAME,
+      type: 'data',
+    });
+  });
+
+  it('draws a person’s input the running agent read as their message inside its reply', () => {
+    const projection = projector();
+    projection.acceptCommitted(rows);
+    const last = rows.at(-1);
+    if (!last) {
+      throw new Error('Missing recorded rows.');
+    }
+    // The exact event the host commits when a run reads the person's input at a step.
+    projection.acceptCommitted([
+      {
+        event: {
+          delivery: { entries: [], inputs: ['input-command-1'] },
+          messages: [
+            {
+              content: [
+                { text: 'Also add a title.', type: 'text' },
+                { data: 'aGk=', mediaType: 'image/png', type: 'file' },
+              ],
+              providerOptions: { brainstrike: { intake: true } },
+              role: 'user',
+            },
+          ],
+          runId,
+          type: 'model.messages',
+        },
+        seq: last.seq + 1,
+        threadId,
+      },
+    ]);
+    expect(answer(projection).content.at(-1)).toEqual({
+      data: { images: ['data:image/png;base64,aGk='], text: 'Also add a title.' },
+      name: PERSON_INPUT_DATA_NAME,
       type: 'data',
     });
   });

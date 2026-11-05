@@ -184,7 +184,7 @@ export function withHostDeliveryLedger(
   message: UserModelMessage,
   delivery: HostChildDelivery | undefined
 ): UserModelMessage {
-  if (delivery?.via !== 'next-turn') {
+  if (delivery?.via !== 'next-turn' || delivery.ledger === undefined) {
     return message;
   }
   const content =

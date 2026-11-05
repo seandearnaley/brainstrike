@@ -41,10 +41,12 @@ import {
 } from './core-state.ts';
 import {
   type HostChildNotice,
+  type HostInputNotice,
   type HostNoticeBranch,
   HostNotices,
   type HostSessionNotice,
   hostChildNotice,
+  hostInputRunCommandId,
   hostNoticeBranch,
   hostNoticeIntake,
 } from './notices.ts';
@@ -128,30 +130,6 @@ export function reportHostChildWakeFailure(threadId: string, cause: unknown): vo
   });
 }
 type Outcome = NonNullable<HostRunState['outcome']>;
-/**
- * BST-1932: whether `run` is the run that takes the human input `accepted`
- * handed on (a committed run/input, never a legacy run/steer): the run its
- * input's run/start committed (BST-2178), never a regenerate or edit of it.
- */
-function takesHostInputOf(run: HostRunState, accepted: HostRunState): boolean {
-  return accepted.inputRun === run.id;
-}
-/**
- * BST-1932: child work that took human input (an invocation or a follow-up,
- * BST-2178) reports with the run taking that input, in one wake, so it is
- * still at work for its parent until that run, and any input that run took in
- * turn, settles. The input stays on the run until its run is committed
- * (core-run-end.ts).
- */
-function hostRunTakingInput(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): boolean {
-  const next = runs.get(run.inputRun ?? '');
-  return (
-    run.childInput !== undefined ||
-    (next !== undefined &&
-      takesHostInputOf(next, run) &&
-      (!next.terminal || hostRunTakingInput(next, runs)))
-  );
-}
 /**
  * BST-1932: HostCore's child-thread registry, folded from the committed log.
  * HostCore remains the only writer; this owns no store, queue or loop.
@@ -265,7 +243,10 @@ export class HostChildRuns {
       if (run && origin) {
         this.adopt(run, origin);
       }
-    } else if (event.type === 'notice.posted') {
+    } else if (
+      event.type === 'notice.posted' ||
+      (event.type === 'command.accepted' && event.method === 'run/input')
+    ) {
       this.notices.fold(row);
     } else if (event.type === 'run.finished') {
       this.settlements.get(event.runId)?.resolve();
@@ -434,9 +415,17 @@ export class HostChildRuns {
     if (!pending) {
       return;
     }
+    // The wake continues its turn under the client transport that admitted the turn.
+    const origin = runs.get(pending.turnId ?? hostRunTurnId(tip))?.input?.origin;
+    const [input] = pending.inputs;
+    if (input) {
+      // A person's input to an idle thread starts their own turn, as they sent it.
+      const { commandId: _sent, runId: _to, ...sent } = input.params;
+      const commandId = hostInputRunCommandId(input);
+      return { input, origin, params: { ...sent, commandId, parentMessageId: tip.id } };
+    }
     return {
-      // The wake continues its turn under the client transport that admitted the turn.
-      origin: runs.get(pending?.turnId ?? hostRunTurnId(tip))?.input?.origin,
+      origin,
       params: {
         ...selections.forWake(threadId),
         commandId: randomUUID(),
@@ -552,57 +541,33 @@ export class HostChildRuns {
   }
   /**
    * The parent thread a settled child run reports to: a background invocation
-   * in any outcome; a follow-up when it completed, or in any outcome when it
-   * takes the human input of a run that reports, whose report it carries (a
-   * pause or a stop never wakes the parent otherwise).
+   * in any outcome; a follow-up when it completed (a pause or a stop never
+   * wakes the parent).
    */
-  deliveryParent(
-    run: HostRunState,
-    runs: ReadonlyMap<string, HostRunState>,
-    outcome = run.outcome
-  ): string | undefined {
+  deliveryParent(run: HostRunState, outcome = run.outcome): string | undefined {
     const origin = run.origin;
     if (!origin) {
       return;
     }
     const invocation = this.invocations.get(run.threadId) === run.id;
-    const reports = invocation
-      ? origin.background
-      : outcome === 'completed' || this.inputOf(run, runs) !== undefined;
+    const reports = invocation ? origin.background : outcome === 'completed';
     return reports ? origin.parentThreadId : undefined;
   }
   /**
-   * ADR-0028 step 3b: the notices a child run's terminal commit posts on the
-   * thread it reports to, decided once, here. A run that hands its human input
-   * on posts nothing yet: the run taking that input reports for both.
+   * ADR-0028 step 3b: the notice a child run's terminal commit posts on the
+   * thread it reports to, decided once, here.
    */
   notify(
     run: HostRunState,
-    ended: { readonly detail?: string | undefined; readonly outcome: Outcome },
-    runs: ReadonlyMap<string, HostRunState>
+    ended: { readonly detail?: string | undefined; readonly outcome: Outcome }
   ): { readonly event: HostEvent; readonly threadId: string }[] {
-    const parent = this.deliveryParent(run, runs, ended.outcome);
-    if (parent === undefined || run.childInput) {
+    const parent = this.deliveryParent(run, ended.outcome);
+    if (parent === undefined || this.notices.has(parent, run.id)) {
       return [];
     }
-    const chain: HostRunState[] = [];
-    for (let at: HostRunState | undefined = run; at; at = this.inputOf(at, runs)) {
-      if (this.notices.has(parent, at.id)) {
-        break;
-      }
-      chain.unshift(at);
-    }
-    return chain.map((at) => ({
-      event: {
-        notice: hostChildNotice(
-          at,
-          this.invocations.get(at.threadId) === at.id,
-          at === run ? ended : { detail: at.detail, outcome: at.outcome }
-        ),
-        type: 'notice.posted',
-      },
-      threadId: parent,
-    }));
+    const invocation = this.invocations.get(run.threadId) === run.id;
+    const notice = hostChildNotice(run, invocation, ended);
+    return [{ event: { notice, type: 'notice.posted' }, threadId: parent }];
   }
 
   /**
@@ -684,6 +649,8 @@ export class HostChildRuns {
   ):
     | {
         readonly entries: HostChildDeliveryEntry[];
+        /** The person's inputs, in post order: a running run reads them at its next step. */
+        readonly inputs: readonly HostInputNotice[];
         readonly ledger: string | undefined;
         readonly sessions: readonly HostSessionNotice[];
         readonly turnId: string | undefined;
@@ -693,9 +660,15 @@ export class HostChildRuns {
       !includeStopped && turnId !== undefined && hostTurnStopped(runs, turnId);
     const tipStopped = stopped(after && hostRunTurnId(after));
     const branch = hostNoticeBranch(runs, after);
-    const due = this.notices
-      .due(threadId, branch)
-      .filter((notice) => (notice.kind === 'child' ? !stopped(notice.turnId) : !tipStopped));
+    // A stopped run starts nothing after it: an input it never read waits for the next run.
+    const halted = tipStopped || (!includeStopped && after?.stopped === true);
+    const due = this.notices.due(threadId, branch).filter((notice) => {
+      if (notice.kind === 'child') {
+        return !stopped(notice.turnId);
+      }
+      return notice.kind === 'input' ? !halted : !tipStopped;
+    });
+    const inputs = due.filter((notice): notice is HostInputNotice => notice.kind === 'input');
     if (due.length === 0) {
       return;
     }
@@ -751,6 +724,7 @@ export class HostChildRuns {
     ].join('\n\n');
     return {
       entries: [...invoked, ...continued].map((notice) => notice.entry),
+      inputs,
       ledger: ledger === '' ? undefined : ledger,
       sessions,
       // The turn its invocations belong to; a follow-up's report is not a turn of the parent's.
@@ -763,8 +737,7 @@ export class HostChildRuns {
     return hostNoticeIntake(pending, run.threadId);
   }
   /**
-   * The background invocations `branch` dispatched that are still at work:
-   * running, or settled while the run taking their human input runs.
+   * The background invocations `branch` dispatched that are still running.
    */
   private working(
     threadId: string,
@@ -778,26 +751,10 @@ export class HostChildRuns {
         origin.background &&
         this.invocations.get(run.threadId) === run.id &&
         !this.notices.has(threadId, run.id) &&
-        (!run.terminal || hostRunTakingInput(run, runs))
+        !run.terminal
         ? [{ origin, run }]
         : [];
     });
-  }
-  /**
-   * The run whose accepted human input `run` takes (its branch parent), when
-   * that run reports to the parent: a background invocation or a reported
-   * follow-up (BST-2178). `run`'s report carries it.
-   */
-  private inputOf(
-    run: HostRunState,
-    runs: ReadonlyMap<string, HostRunState>
-  ): HostRunState | undefined {
-    const accepted = runs.get(run.branch.parentMessageId ?? '');
-    return accepted &&
-      takesHostInputOf(run, accepted) &&
-      this.deliveryParent(accepted, runs) !== undefined
-      ? accepted
-      : undefined;
   }
   /** The child's identity, its admission narrowed from the parent's, and its committed rows. */
   private prepare(

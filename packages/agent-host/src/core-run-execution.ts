@@ -105,10 +105,10 @@ export interface HostRunExecutionPorts {
   ): Promise<void>;
   fold(row: HostLogRow): void;
   foldRows(rows: readonly HostLogRow[]): void;
-  /** ADR-0028 step 3b: the notices the running `run` takes at its next step; none when nothing is due. */
+  /** ADR-0028 step 3b: the notices the running `run` takes at its next step, one message each commit. */
   intake(
     run: Run
-  ): { readonly delivery: HostStepDelivery; readonly message: ModelMessage } | undefined;
+  ): readonly { readonly delivery: HostStepDelivery; readonly message: ModelMessage }[];
   readonly mcpInputs: HostMcpInputState;
   openRun(run: Run): Promise<HostRunOwner | undefined>;
   /** BST-1178: the answers saved for browser origins, in Core's own StateStore. */
@@ -616,19 +616,19 @@ async function runHostSdkAttempt(
           recordedInputLength = messages.length;
         }
         // ADR-0028 step 3b: what the thread was told while this run worked
-        // (a worker's report, a command's exit) reaches its model at this
-        // step. The SDK carries the returned messages into the next steps.
-        const intake = ports.intake(run);
-        if (intake) {
+        // (a worker's report, a command's exit, the person's message) reaches
+        // its model at this step. The SDK carries the returned messages into
+        // the next steps.
+        for (const { delivery, message } of ports.intake(run)) {
           await commitHostModelMessages(
             run,
-            [intake.message],
+            [message],
             (event) => ports.append(run.threadId, [event]).then((rows) => rows[0]),
             () => ports.syncBoundary(run.threadId),
             (row) => ports.fold(row),
-            intake.delivery
+            delivery
           );
-          messages = [...messages, intake.message];
+          messages = [...messages, message];
           recordedInputLength = messages.length;
         }
         let prepared: ModelMessage[];
