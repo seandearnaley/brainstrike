@@ -33,6 +33,8 @@ export async function recoverHostRuns(
       outcome: 'interrupted' | 'stopped',
       detail: string | undefined
     ) => Promise<void>;
+    /** Commit the refusal of a child's input that no run took before the host stopped. */
+    readonly refuseInput: (run: HostRunState) => Promise<unknown>;
     readonly retainRun: () => () => void;
   }
 ): Promise<void> {
@@ -47,6 +49,9 @@ export async function recoverHostRuns(
         run.task = owner.continueRun(run);
         run.task.catch(() => undefined);
       }
+    } else {
+      // An ended run whose input committed after its end, the host stopping before its run.
+      await owner.refuseInput(run);
     }
   }
 }

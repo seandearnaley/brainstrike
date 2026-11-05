@@ -88,7 +88,8 @@ export class HostRunEnds {
     this.exits.delivered(threadId, delivery);
   }
 
-  finish(run: HostRunState, outcome: Outcome, detail?: string, wakes = true): Promise<void> {
+  /** A `recovered` run's end (a host start finishing it) wakes no parent (Q-2). */
+  finish(run: HostRunState, outcome: Outcome, detail?: string, recovered = false): Promise<void> {
     const ports = this.ports;
     // While its admission is live: a completed run asks for a title, a failed one withdraws it.
     ports.presentations.finishing(run, outcome, ports.runs().values());
@@ -107,7 +108,7 @@ export class HostRunEnds {
           commit();
           ports.foldRows(rows);
         }),
-      () => this.handOn(run, wakes)
+      () => this.handOn(run, recovered)
     );
   }
 
@@ -117,24 +118,15 @@ export class HostRunEnds {
    * after it, so a Stop that lands while the run's end commits never waits on
    * the run it would have started.
    */
-  private async handOn(run: HostRunState, wakes: boolean): Promise<void> {
+  private async handOn(run: HostRunState, recovered: boolean): Promise<void> {
     const ports = this.ports;
     ports.presentations.settle(run);
     this.exits.handOn(run.threadId);
     const parent =
       ports.children.deliveryParent(run, ports.runs()) ?? (run.origin ? undefined : run.threadId);
+    const open = !(ports.closing() || ports.deletions.has(run.threadId));
     // BST-1932: a child's human input runs next; only that run reports to the parent.
-    const open = wakes && !(ports.closing() || ports.deletions.has(run.threadId));
-    const input = takeHostChildInput(run, open);
-    let next = false;
-    if (input) {
-      try {
-        next = await ports.startNextRun(input, run.input?.origin);
-      } finally {
-        // The input's run, or its refusal, is committed: the report now waits on that run.
-        settleHostChildInput(run, ports.runs());
-      }
-    }
+    let next = open && (await this.takeInput(run, recovered));
     // An approved plan, or ADR-0028 step 3's worktree: the task goes on in
     // the same turn, so the turn's workers before and after it are one.
     const continued =
@@ -144,8 +136,36 @@ export class HostRunEnds {
     if (continued) {
       next = await ports.startNextRun(continued, run.input?.origin);
     }
-    if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
+    if (parent && !recovered && !next && !(ports.closing() || ports.deletions.has(parent))) {
       this.wake(parent);
+    }
+  }
+
+  /**
+   * BST-1932: start the run that takes `run`'s committed human input, or
+   * commit the input's refusal (a stopped or ended run, or a host restart).
+   */
+  async takeInput(run: HostRunState, restarted = false): Promise<boolean> {
+    const input = takeHostChildInput(run, restarted);
+    if (!input) {
+      return false;
+    }
+    try {
+      return await this.ports.startNextRun(input, run.input?.origin);
+    } finally {
+      // The input's run, or its refusal, is committed: the report now waits on that run.
+      settleHostChildInput(run, this.ports.runs());
+    }
+  }
+
+  /**
+   * An input committed after its run's `run.finished`: once that end has
+   * handed on without it, the input starts the child's next run itself.
+   */
+  async takeLateInput(run: HostRunState): Promise<void> {
+    await Promise.allSettled([run.completion]);
+    if (!(this.ports.closing() || this.ports.deletions.has(run.threadId))) {
+      await this.takeInput(run);
     }
   }
 

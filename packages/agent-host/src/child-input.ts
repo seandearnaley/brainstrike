@@ -1,17 +1,20 @@
-import { deriveHostInputRunCommandId, type HostRunState } from './core-state.ts';
+import { refusalError } from '@brainstrike/assistant-contract';
+import { retainHostRunWork } from './core-run-lifecycle.ts';
+import type { HostRunState } from './core-state.ts';
 import type { HostParams } from './protocol.ts';
 
 /**
  * BST-1932 (AT-09): accept human input for a running child. Its active run
  * ends after the step in flight, and the input starts the child's next run
- * under the given run settings. A restart interrupts the child (ADR-0010), so
- * input still waiting is not replayed.
+ * under the given run settings. The committed run/input is the input's one
+ * record (`foldHostAcceptedCommand`), so a restart still finds it.
  */
 export async function acceptHostChildInput(
   run: HostRunState,
   isChild: boolean,
-  params: HostParams<'run/input'>,
-  accept: () => Promise<void>
+  accept: () => Promise<void>,
+  /** The input's run, for an input whose commit landed after its run's `run.finished`. */
+  takeLate: (run: HostRunState) => Promise<void>
 ): Promise<{ accepted: true }> {
   if (!isChild) {
     throw new Error('Human input reaches a running child; a thread queues its next message');
@@ -23,10 +26,10 @@ export async function acceptHostChildInput(
     throw new Error('The child is already taking input');
   }
   await accept();
-  const { commandId: input, runId, ...settings } = params;
-  run.steered = true;
-  run.inputCommandId = deriveHostInputRunCommandId(input);
-  run.childInput = { ...settings, commandId: run.inputCommandId, parentMessageId: runId };
+  // The run's own end, committed first, could not take it: it starts the run itself.
+  if (run.terminal) {
+    retainHostRunWork(run, takeLate(run));
+  }
   return { accepted: true };
 }
 
@@ -50,26 +53,27 @@ export function settleHostChildInput(
 }
 
 /**
- * The input a settled child run hands to the child's next run, while the host
- * may still start one; its run's end takes it once. A run that was stopped or
- * ended some other way refuses it, so the input is committed as a failed run,
- * never dropped. The input stays on the run until that next run is committed:
- * until then the run is still taking it (core-child-runs.ts).
+ * The input an ended child run hands to the child's next run. A run that was
+ * stopped, ended some other way, or that a restart found, refuses it, so the
+ * input is committed as a failed run, never dropped. The input stays on the
+ * run until that next run is committed: until then the run is still taking it
+ * (core-child-runs.ts).
  */
 export function takeHostChildInput(
   run: HostRunState,
-  open: boolean
+  restarted: boolean
 ): { readonly params: HostParams<'run/start'>; readonly refused?: Error } | undefined {
   const params = run.childInput;
-  if (!(open && params)) {
+  if (!params) {
     return;
   }
-  if (run.stopped || run.outcome !== 'completed') {
-    const ended = run.stopped ? 'stopped' : run.outcome;
-    return {
-      params,
-      refused: new Error(`The child run ended ${ended} before it read this input.`),
-    };
-  }
-  return { params };
+  const ended = run.stopped ? 'stopped' : run.outcome;
+  const reason = restarted
+    ? 'The host restarted before the child read this input.'
+    : ended === 'completed'
+      ? undefined
+      : `The child run ended ${ended} before it read this input.`;
+  return reason === undefined
+    ? { params }
+    : { params, refused: refusalError('conflict', 'child.input-unread', reason) };
 }

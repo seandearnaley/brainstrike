@@ -259,7 +259,8 @@ export class HostCore {
     this.ends.exits.listen(this.platform);
     await recoverHostRuns(this.runs.values(), {
       continueRun: (run) => this.continueRun(run),
-      finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, false),
+      finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, true),
+      refuseInput: (run) => this.ends.takeInput(run, true),
       retainRun: this.retainRun,
     });
   }
@@ -914,8 +915,9 @@ export class HostCore {
       acceptHostChildInput(
         this.runs.requireForThread(params.threadId, params.runId),
         this.children.isChild(params.threadId),
-        params,
-        () => this.accept(params.threadId, 'run/input', params, { accepted: true }, [])
+        () =>
+          this.accept(params.threadId, 'run/input', params, { accepted: true }, [], this.foldRows),
+        (run) => this.ends.takeLateInput(run)
       )
     );
   }
