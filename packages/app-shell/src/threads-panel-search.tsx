@@ -207,7 +207,7 @@ export function ThreadsPanelSearch({
           {query ? (
             <button
               aria-label="Clear search"
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute top-1/2 right-0.5 flex size-6 -translate-y-1/2 items-center justify-center rounded outline-none focus-visible:ring-2"
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute top-1/2 right-0.5 flex size-6 -translate-y-1/2 items-center justify-center rounded outline-hidden focus-visible:ring-2"
               onClick={clearAndRefocus}
               type="button"
             >
