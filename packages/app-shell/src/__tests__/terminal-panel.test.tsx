@@ -18,6 +18,7 @@ import type {
   TerminalExitEvent,
 } from '../terminal-panel/terminal-bridge';
 import { TerminalPanel } from '../terminal-panel/terminal-panel';
+import { XTERM_DARK_THEME, XTERM_LIGHT_THEME } from '../terminal-panel/xterm-theme';
 import {
   NO_WORKSPACE_TERMINAL_SERVICES,
   type WorkspaceTerminalServices,
@@ -73,6 +74,13 @@ interface FakeTerminal {
   loadAddon: ReturnType<typeof vi.fn>;
   onData: (cb: (data: string) => void) => { dispose: () => void };
   open: ReturnType<typeof vi.fn>;
+  /** The options the terminal was constructed with, updated by later assignments. */
+  options: {
+    cursorBlink?: boolean;
+    fontFamily?: string;
+    minimumContrastRatio?: number;
+    theme?: { background?: string; foreground?: string };
+  };
   rows: number;
   write: ReturnType<typeof vi.fn>;
 }
@@ -105,7 +113,9 @@ vi.mock('@xterm/xterm', () => {
     emitInput(data: string) {
       this.inputCb?.(data);
     }
-    constructor() {
+    options: Record<string, unknown>;
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = { ...options };
       terminals.push(this as unknown as FakeTerminal);
     }
   }
@@ -829,5 +839,77 @@ describe('TerminalPanel', () => {
 
     await waitFor(() => expect(commandSessions.list).toHaveBeenCalledWith({ rootId: 'root-1' }));
     expect(commandSessions.list).not.toHaveBeenCalledWith({ rootId: 'root-2' });
+  });
+});
+
+describe('TerminalPanel appearance', () => {
+  beforeEach(() => {
+    mockRoot.handle = {
+      kind: 'directory',
+      name: 'repo',
+      path: '/abs/repo',
+      platform: 'electron',
+      rootId: 'root-1',
+    };
+    terminals.length = 0;
+    useTerminalTargetStore.getState().reset();
+    (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {
+        /* no-op */
+      }
+      disconnect() {
+        /* no-op */
+      }
+      unobserve() {
+        /* no-op */
+      }
+    };
+  });
+
+  afterEach(() => {
+    document.documentElement.classList.remove('dark');
+    services = NO_WORKSPACE_TERMINAL_SERVICES;
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('paints the light palette in the light theme and enforces a 4.5:1 contrast floor', async () => {
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+
+    expect(lastTerminal().options.theme?.foreground).toBe(XTERM_LIGHT_THEME.foreground);
+    expect(lastTerminal().options.minimumContrastRatio).toBe(4.5);
+  });
+
+  it('paints the dark palette in the dark theme and follows a switch back to light', async () => {
+    document.documentElement.classList.add('dark');
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+    expect(lastTerminal().options.theme?.foreground).toBe(XTERM_DARK_THEME.foreground);
+
+    document.documentElement.classList.remove('dark');
+
+    await waitFor(() =>
+      expect(lastTerminal().options.theme?.foreground).toBe(XTERM_LIGHT_THEME.foreground)
+    );
+  });
+
+  it('keeps the cursor still when the user asks for reduced motion', async () => {
+    vi.stubGlobal(
+      'matchMedia',
+      (query: string) =>
+        ({
+          addEventListener: () => {},
+          matches: query === '(prefers-reduced-motion: reduce)',
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList
+    );
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+
+    expect(lastTerminal().options.cursorBlink).toBe(false);
   });
 });

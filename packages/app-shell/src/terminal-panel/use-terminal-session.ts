@@ -1,6 +1,6 @@
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
-import { useToast } from '@brainstrike/ui';
+import { prefersReducedMotion, useToast } from '@brainstrike/ui';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
@@ -12,7 +12,7 @@ import {
 } from '../roots/transient-root-error';
 import { useTerminalBridge } from '../workspace-terminal-services';
 import { SurrogateBuffer } from './surrogate-buffer';
-import { XTERM_THEME } from './xterm-theme';
+import { readTerminalAppearance, XTERM_MINIMUM_CONTRAST_RATIO } from './xterm-theme';
 
 const logger = createLogger('TerminalPanel');
 
@@ -200,14 +200,38 @@ export function useTerminalSession(
     let offExit: (() => void) | null = null;
     let offInput: (() => void) | null = null;
 
+    const appearance = readTerminalAppearance(container);
     const term = new Terminal({
       convertEol: false,
-      cursorBlink: true,
-      fontFamily:
-        'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+      cursorBlink: !prefersReducedMotion(),
+      fontFamily: appearance.fontFamily,
       fontSize: 13,
+      minimumContrastRatio: XTERM_MINIMUM_CONTRAST_RATIO,
       scrollback: 5000,
-      theme: XTERM_THEME,
+      theme: appearance.theme,
+    });
+    // ThemeProvider writes the light/dark class, palette and font stack on
+    // <html>; repaint the terminal whenever any of them changes. The observer
+    // fires after the attribute lands, so the computed tokens are current.
+    let appliedAppearance = appearance;
+    const appearanceObserver = new MutationObserver(() => {
+      const next = readTerminalAppearance(container);
+      // Palettes differ in foreground; a palette switch keeps the mode but
+      // repaints `--background`.
+      if (
+        next.theme.foreground !== appliedAppearance.theme.foreground ||
+        next.theme.background !== appliedAppearance.theme.background
+      ) {
+        term.options.theme = next.theme;
+      }
+      if (next.fontFamily !== appliedAppearance.fontFamily) {
+        term.options.fontFamily = next.fontFamily;
+      }
+      appliedAppearance = next;
+    });
+    appearanceObserver.observe(container.ownerDocument.documentElement, {
+      attributeFilter: ['class', 'data-theme', 'style'],
+      attributes: true,
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -355,6 +379,7 @@ export function useTerminalSession(
 
     return () => {
       cancelled = true;
+      appearanceObserver.disconnect();
       disposeTerminalSessionHandles({
         offData,
         offExit,
