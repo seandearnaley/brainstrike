@@ -1,14 +1,13 @@
 import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
-import { isSeparatorCode, isWindowsPath } from '@brainstrike/utils/path-ancestors';
 
-const CONTEXT_IGNORED_PATH_SEGMENTS = [
+const CONTEXT_IGNORED_NAMES: ReadonlySet<string> = new Set([
   ...IGNORED_PATHS,
   '.turbo',
   'coverage',
   '.nyc_output',
-] as const;
+]);
 
 export interface ReadFullFileTreeOptions {
   maxDepth?: number;
@@ -20,26 +19,6 @@ interface TraversalState {
   maxDepth: number;
   rootFolderId: string;
   visitedPaths: Set<string>;
-}
-
-/** Whether one segment of `path`, split by its grammar, is exactly `segment`. */
-function pathHasSegment(path: string, segment: string, windows: boolean): boolean {
-  let segmentStart = 0;
-  for (let index = 0; index <= path.length; index += 1) {
-    if (index < path.length && !isSeparatorCode(path.charCodeAt(index), windows)) {
-      continue;
-    }
-    if (index - segmentStart === segment.length && path.startsWith(segment, segmentStart)) {
-      return true;
-    }
-    segmentStart = index + 1;
-  }
-  return false;
-}
-
-function shouldIgnorePath(path: string): boolean {
-  const windows = isWindowsPath(path);
-  return CONTEXT_IGNORED_PATH_SEGMENTS.some((segment) => pathHasSegment(path, segment, windows));
 }
 
 function createFileNodeBase(node: IFileNode, state: TraversalState): IFileNode {
@@ -112,7 +91,8 @@ async function readDirectoryTree(
   const entries: IFileNode[] = [];
 
   for (const node of directoryContents) {
-    if (shouldIgnorePath(node.path)) {
+    // Only the entry's own name counts: folders above the workspace root are not ours to judge.
+    if (CONTEXT_IGNORED_NAMES.has(node.name)) {
       continue;
     }
 
