@@ -242,6 +242,17 @@ describe('ThreadRow', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
     expect(screen.queryByRole('menu')).toBeNull();
+
+    // So does Enter on a focused "…".
+    await user.click(actions);
+    await user.click(screen.getByRole('menuitem', { name: 'Customize' }));
+    expect(screen.getByRole('dialog')).toBeVisible();
+    actions.focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   // BST-2116: a pick shows at once; a save that fails and is put back says so,

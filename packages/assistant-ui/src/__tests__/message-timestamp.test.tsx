@@ -7,6 +7,7 @@ import {
 } from '@assistant-ui/react';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { AssistantActionBar } from '../assistant-action-bar';
 import { UserActionBar } from '../assistant-ui-panel';
@@ -51,6 +52,20 @@ describe('message timestamps', () => {
     const time = await screen.findByText('5 minutes ago');
     expect(time.tagName).toBe('TIME');
     expect(time).toHaveAttribute('datetime', FIVE_MINUTES_AGO.toISOString());
+  });
+
+  it('opens the full date from the keyboard', async () => {
+    render(<Harness messages={[question(YESTERDAY), answer(FIVE_MINUTES_AGO)]} />);
+    const time = await screen.findByText('5 minutes ago');
+
+    // Tab through the bars until the time takes focus, or focus runs out.
+    const user = userEvent.setup();
+    for (let step = 0; step < 10 && document.activeElement !== time; step += 1) {
+      await user.tab();
+    }
+
+    expect(time).toHaveFocus();
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
   });
 
   it('shows when a question was sent in its action bar', async () => {

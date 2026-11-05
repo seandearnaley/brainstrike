@@ -16,11 +16,13 @@ function TimestampLabel({ className, createdAtMs }: TimestampLabelProps) {
       <TooltipTrigger asChild>
         <time
           className={cn(
-            'text-muted-foreground self-center px-1 text-xs whitespace-nowrap',
+            'text-muted-foreground focus-visible:ring-ring self-center rounded-sm px-1 text-xs whitespace-nowrap outline-hidden focus-visible:ring-2',
             className
           )}
           data-testid="message-timestamp"
           dateTime={new Date(createdAtMs).toISOString()}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: The time is a Radix tooltip trigger; focus opens the full date for keyboard users.
+          tabIndex={0}
         >
           {formatRelativeTime(createdAtMs, now)}
         </time>

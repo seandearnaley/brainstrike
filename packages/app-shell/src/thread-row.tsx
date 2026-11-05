@@ -776,6 +776,15 @@ function ThreadRowDisplay({
                         onCustomizeThreadToggle();
                       }
                     }}
+                    onKeyDown={(event) => {
+                      // Enter and Space on "…" close the open panel too, without
+                      // opening the menu.
+                      if (customizing && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onCustomizeThreadToggle();
+                      }
+                    }}
                     onPointerDown={(event) => {
                       // While the panel is open, "…" closes it (onClick) and
                       // does not also open the menu.
