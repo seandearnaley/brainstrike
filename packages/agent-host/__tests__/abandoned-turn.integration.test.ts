@@ -82,7 +82,7 @@ async function workingTurn() {
     await core.idle(threadId);
     return wakes(await core.read(threadId, 0)).length > 0;
   };
-  return { core, head, message, threadId, turn, woken, worker };
+  return { child, core, harness, head, message, threadId, turn, woken, worker };
 }
 
 test("editing a message ends its turn's worker before the edited branch runs", async () => {
@@ -136,4 +136,30 @@ test('sending on from the turn keeps its worker working', async () => {
     threadId,
   });
   expect(await worker()).toEqual([]);
+});
+
+test('a replayed edit stops no worker the person started since', async () => {
+  const harness = await workingTurn();
+  const { child, core, head, threadId } = harness;
+  const edit = {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    parentMessageId: head,
+    prompt: 'Edited.',
+    threadId,
+  };
+  const { runId } = await core.startRun(edit);
+  await core.idle(threadId);
+  const { runId: next } = await core.startRun({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'DISPATCH another.',
+    threadId,
+  });
+  await rowsUntil(harness.harness, threadId, finished(next), 5000);
+
+  // The client retries the edit it already sent: the host answers it again and ends nothing.
+  await expect(core.startRun(edit)).resolves.toEqual({ runId });
+  const [later = ''] = (await childThreads(harness.harness)).filter((id) => id !== child);
+  expect(outcomes(await core.read(later, 0))).toEqual([]);
 });
