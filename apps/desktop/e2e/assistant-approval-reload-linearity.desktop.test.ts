@@ -391,7 +391,8 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
         await trustWorkspaceFromComposer(root);
         await root.getByRole('textbox', { name: 'Message input' }).fill(parentPrompt);
         await root.getByRole('button', { exact: true, name: 'Send' }).click();
-        await expect(root.getByTestId('host-child-waiting')).toBeVisible();
+        // The root's strip counts the child's approval; the child answers it itself.
+        await expect(root.getByRole('button', { name: 'Review 1 pending approval' })).toBeVisible();
         await ensureActivityExpanded(root);
         await root.getByRole('button', { name: /Open .* conversation/u }).click();
         const childTab = window
