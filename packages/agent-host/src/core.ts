@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { BlobContent } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { endHostAbandonedTurns, type HostForkPoint, hostRunFork } from './abandoned-turns.ts';
-import { acceptHostChildInput } from './child-input.ts';
 import { HostContextCompactions } from './context-compaction.ts';
 import { hostCanvases } from './core-canvases.ts';
 import { type HostChildRunPort, HostChildRuns } from './core-child-runs.ts';
@@ -67,6 +66,7 @@ import {
 } from './run-admission.ts';
 import {
   admittedHostRun,
+  assertHostAttachments,
   assertHostRunAdmissible,
   foldHostRunAdmission,
   foldHostRunEvent,
@@ -184,12 +184,16 @@ export class HostCore {
   /** A run's end: its terminal commit, memory settlement, then the next run or wake. */
   private readonly ends = new HostRunEnds({
     admit: (threadId, perform) => this.admit(threadId, perform),
-    admitWake: ({ origin, params }) =>
-      this.admitRun('wake', params, origin, () => hostStartPosition(this.runs.values(), params)),
+    admitWake: (method, params, origin, record) => {
+      const position = () => hostStartPosition(this.runs.values(), params);
+      return this.admitRun(method, params, origin, position, record);
+    },
     appendTerminal: (items, beforePublish) => this.appendAcross(items, 'full', beforePublish),
     children: this.children,
     closeOwner: (run) => this.closeRunOwner(run),
     closing: () => this.closing,
+    commitStart: (record, runId, events) =>
+      this.accept(record.threadId, 'run/start', record, { runId }, events, this.foldRows),
     deletions: this.deletions,
     foldRows: (rows) => this.foldRows(rows),
     // Queued: a thread being deleted or a closing host takes no notice.
@@ -263,7 +267,6 @@ export class HostCore {
     await recoverHostRuns(this.runs.values(), {
       continueRun: (run) => this.continueRun(run),
       finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, true),
-      refuseInput: (run) => this.ends.takeInput(run, true),
       retainRun: this.retainRun,
     });
   }
@@ -913,17 +916,19 @@ export class HostCore {
     });
   }
 
-  /** BST-1932 (AT-09): a running child's active run ends after its step; the input runs next. */
+  /**
+   * ADR-0028 step 3b: a person's message to a thread, committed as its notice. A
+   * working run reads it at its next step; an idle thread starts their turn (the wake).
+   */
   input(params: HostParams<'run/input'>): Promise<{ accepted: true }> {
-    return this.command('run/input', params, () =>
-      acceptHostChildInput(
-        this.runs.requireForThread(params.threadId, params.runId),
-        this.children.isChild(params.threadId),
-        () =>
-          this.accept(params.threadId, 'run/input', params, { accepted: true }, [], this.foldRows),
-        (run) => this.ends.takeLateInput(run)
-      )
-    );
+    const { threadId } = params;
+    return this.command('run/input', params, async () => {
+      this.runs.requireForThread(threadId, params.runId);
+      assertHostAttachments(params.attachments ?? []);
+      await this.accept(threadId, 'run/input', params, { accepted: true }, [], this.foldRows);
+      this.ends.wake(threadId);
+      return { accepted: true } as const;
+    });
   }
 
   steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {

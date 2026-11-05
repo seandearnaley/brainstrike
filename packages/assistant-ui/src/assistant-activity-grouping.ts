@@ -10,6 +10,7 @@ import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-sus
 import { verbForTool } from './activity-verbs';
 import { isAlwaysVisibleRunEvent } from './assistant-run-event-derivation';
 import { HOST_EVENT_DATA_NAME, HOST_STREAM_DATA_NAME } from './committed-host-event-readers';
+import { PERSON_INPUT_DATA_NAME } from './committed-person-input';
 
 /**
  * The one synthetic group key the assistant message renders through
@@ -41,11 +42,13 @@ const GROUP_TRANSPARENT_DATA_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The two human-in-the-loop card data names that must always stand alone —
- * called out explicitly here (rather than relying only on the fallthrough
- * below) so the pause boundary reads as a deliberate rule, not an omission.
+ * The two human-in-the-loop card data names, and the person's own message read
+ * mid-run, must always stand alone — called out explicitly here (rather than
+ * relying only on the fallthrough below) so the boundary reads as a deliberate
+ * rule, not an omission.
  */
 const STANDALONE_DATA_NAMES: ReadonlySet<string> = new Set([
+  PERSON_INPUT_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
   TOOL_SUSPEND_DATA_NAME,
 ]);

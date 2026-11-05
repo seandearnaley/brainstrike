@@ -138,6 +138,49 @@ export async function readHostSystemContext(options: {
   };
 }
 
+/**
+ * ADR-0028 step 3b: the context a person's message read mid-run calls for, as
+ * a run's admission reads it for its own prompt: the files it mentions and the
+ * skills it activates. The run's instructions already carry the rest.
+ */
+export async function readHostPromptContext(options: {
+  readonly attachedMentions?: AttachedMentionFolders;
+  readonly prompt: string;
+  readonly readWorkspaceFile?: WorkspaceFileReader;
+  readonly runtime: RuntimeData;
+  readonly workspaceSkills?: ScannedWorkspaceSkills;
+}): Promise<{
+  readonly context?: string;
+  readonly referencedFileFailures: readonly ReferencedFileFailure[];
+}> {
+  const referenced = await readReferencedFilesContext(
+    options.prompt,
+    options.runtime,
+    options.readWorkspaceFile ?? readWorkspaceTextFile,
+    options.attachedMentions
+  );
+  const input: AgentMessage = {
+    id: 'context-input',
+    parts: [{ text: options.prompt, type: 'text' }],
+    role: 'user',
+  };
+  const messages = await injectActivatedSkillsContext(
+    [...(referenced.message ? [referenced.message] : []), input],
+    options.workspaceSkills
+  );
+  const context = joinedSections(
+    messages
+      .filter((message) => message.role === 'system')
+      .map((message) =>
+        message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')
+      )
+  );
+  return {
+    ...(context === undefined ? {} : { context }),
+    referencedFileFailures: referenced.failures,
+  };
+}
+
 /** The repo-supplied context a run's instructions carry, read by every host. */
 export interface HostWorkspaceContext {
   /** Each injected context message's text: referenced files, activated skills, instructions, roots. */
