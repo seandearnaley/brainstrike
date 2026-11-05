@@ -7,10 +7,13 @@
 import { randomUUID } from 'node:crypto';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
+import type { HostRunAdmission, HostUserPromptVerdict } from '../src/ports.ts';
 import type { HostLogRow } from '../src/protocol.ts';
 import {
   blocked,
+  type CallOptions,
   childThreads,
+  recordingAdmission,
   setupChildRunHost,
   stream,
   text,
@@ -263,7 +266,11 @@ test('an input a restart finds untaken survives, and the next run reads it', asy
   expect(await nextChildRun(harness, child, model)).toBe(true);
 });
 
-test('a working root reads the input at its next step, in the same run', async () => {
+/**
+ * A root that reads its notes, and the person's input lands while it does.
+ * `read` replaces what the root's admission adds to a prompt (hooks, mentions).
+ */
+async function readingRoot(read: Pick<HostRunAdmission, 'hooks' | 'readPromptContext'> = {}) {
   const sent = Promise.withResolvers<void>();
   const reading = Promise.withResolvers<void>();
   const model = new MockLanguageModelV4({
@@ -276,20 +283,86 @@ test('a working root reads the input at its next step, in the same run', async (
         : stream(text('Read it.'));
     },
   });
-  const harness = await setupChildRunHost(model, cleanup, {
-    readFile: async () => {
-      reading.resolve();
-      await sent.promise;
-      return { content: 'notes' };
+  const harness = await setupChildRunHost(
+    model,
+    cleanup,
+    {
+      readFile: async () => {
+        reading.resolve();
+        await sent.promise;
+        return { content: 'notes' };
+      },
     },
-  });
+    (platform) => {
+      const base = recordingAdmission([])(platform);
+      return base && (async (request) => ({ ...(await base(request)), ...read }));
+    }
+  );
   const runId = await harness.start('Read the notes.');
   await reading.promise;
   await send(harness, harness.threadId, runId);
   sent.resolve();
   await harness.core().idle(harness.threadId);
+  return { harness, model, runId };
+}
+
+/** Hooks that answer the person's input with `verdict` and pass everything else. */
+const promptHooks = (verdict: HostUserPromptVerdict): HostRunAdmission['hooks'] => ({
+  matchesPreToolUse: () => false,
+  postToolUse: async () => ({}),
+  preToolUse: async () => ({ blocked: false }),
+  stop: async () => ({}),
+  userPromptSubmit: async (prompt) => (prompt === FOLLOW ? verdict : { blocked: false }),
+});
+
+const sawText = (call: CallOptions, value: string) => JSON.stringify(call.prompt).includes(value);
+
+test('a working root reads the input at its next step, in the same run', async () => {
+  const { harness, runId } = await readingRoot();
   expect(await finished(harness, harness.threadId)).toEqual([[runId, 'completed']]);
   const taken = (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
+    event.type === 'model.messages' && event.delivery?.inputs ? event.delivery.inputs : []
+  );
+  expect(taken).toHaveLength(1);
+});
+
+test("the input's hooks and mentioned files reach the model with it, as a prompt's do at a run's start", async () => {
+  const failure = {
+    failure: {
+      category: 'availability',
+      code: 'file.unavailable',
+      kind: 'refusal',
+      message: 'Gone.',
+    },
+    path: 'gone.md',
+    rootId: 'root-a',
+  } as const;
+  const { harness, model, runId } = await readingRoot({
+    hooks: promptHooks({ additionalContext: 'HOOK_CONTEXT', blocked: false }),
+    readPromptContext: async (prompt) =>
+      prompt === FOLLOW
+        ? { context: 'FILE_CONTEXT', referencedFileFailures: [failure] }
+        : { referencedFileFailures: [] },
+  });
+  expect(await finished(harness, harness.threadId)).toEqual([[runId, 'completed']]);
+  const read = model.doStreamCalls.find((call) => sawText(call, FOLLOW));
+  expect(read && sawText(read, 'FILE_CONTEXT') && sawText(read, 'HOOK_CONTEXT')).toBe(true);
+  const rows = await harness.core().read(harness.threadId, 0);
+  expect(
+    rows.flatMap(({ event }) => (event.type === 'references.unavailable' ? event.files : []))
+  ).toEqual([failure]);
+});
+
+test('a hook that blocks the input ends the run with its reason, and the input is not read again', async () => {
+  const { harness, model, runId } = await readingRoot({
+    hooks: promptHooks({ blocked: true, reason: 'NO_TITLES' }),
+  });
+  const rows = await harness.core().read(harness.threadId, 0);
+  const ended = rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event] : []));
+  expect(ended.map(({ outcome, runId: id }) => [id, outcome])).toEqual([[runId, 'failed']]);
+  expect(ended[0]?.detail).toContain('NO_TITLES');
+  expect(model.doStreamCalls.some((call) => sawText(call, FOLLOW))).toBe(false);
+  const taken = rows.flatMap(({ event }) =>
     event.type === 'model.messages' && event.delivery?.inputs ? event.delivery.inputs : []
   );
   expect(taken).toHaveLength(1);

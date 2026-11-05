@@ -295,7 +295,8 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
    - **Done:** a person's input (`run/input`) is a notice: its committed command. A working run
      reads it at its next step, as its own user message, so an awaited child's answer to it is
      its parent's tool result; an idle thread, decided in commit order, starts the person's turn
-     with it. This removed "end the run, then start the next one" (`child-input.ts`).
+     with it. This removed "end the run, then start the next one" (`child-input.ts`). The read
+     message passes its UserPromptSubmit hooks, mentioned files and skills, as a prompt does.
    - **Next:** the root composer's steer sends `run/input` too, retiring `run/steer`. Step 4's
      `message` tool and step 5's `agents/notify` then post notices.
 4. **The `message` tool**, addressing children by call sign: follow-up run if idle, `run/input`

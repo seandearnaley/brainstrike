@@ -387,6 +387,12 @@ describe('rich committed-log presentation projection', () => {
               content: [
                 { text: 'Also add a title.', type: 'text' },
                 { data: 'aGk=', mediaType: 'image/png', type: 'file' },
+                // What the host read for it (a mentioned file) is the model's, never their words.
+                {
+                  providerOptions: { brainstrike: { context: true } },
+                  text: 'Referenced file notes.md: ...',
+                  type: 'text',
+                },
               ],
               providerOptions: { brainstrike: { intake: true } },
               role: 'user',

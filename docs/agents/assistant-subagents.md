@@ -54,7 +54,8 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 - Opening a child panel neither starts nor cancels its run.
 - Controls name the selected child and exact host interaction; root controls are never inherited by accident.
 - A person's input to a working child (`run/input`) is a notice, its committed command (ADR-0028 step 3b).
-  - The running run reads it at its next step as its own user message, drawn inside its reply where it read it. The run does not end early, so an awaited child's answer to the input is its parent's tool result, and a background child's one report carries it.
+  - The running run reads it at its next step as its own user message, drawn inside its reply where it read it.
+  - It passes what a run's own prompt passes at its start (`person-input.ts`): its UserPromptSubmit hooks, then the files it mentions and the skills it activates (the admission's `readPromptContext`). What they add rides in a marked text part of that message, so the commit keeps it and the bubble leaves it out. A hook's block ends the run with its reason; the input stays taken. The run does not end early, so an awaited child's answer to the input is its parent's tool result, and a background child's one report carries it.
   - An input committed after the run ended, or sent to an idle child, starts the person's turn on that child (decided in commit order by the wake). That follow-up reports when it completes.
   - A stopped run starts nothing after it: an input it never read waits for the thread's next run, which reads it at its first step. So does one a restart finds untaken.
 - A delegation card shows its child's committed run (working, waiting on a person, or how it ended, with its tool calls), as Core folds it from the child's own log, never from the delegation call, which settles when a background child starts.

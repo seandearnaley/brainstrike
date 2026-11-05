@@ -32,10 +32,18 @@ export function committedPersonInput(
         ? [`data:${mediaType};base64,${data}`]
         : []
     ),
+    // The host's reading of the message (mentioned files, skills) is the model's, not the person's.
     text: parts
-      .flatMap(({ text, type }) => (type === 'text' && typeof text === 'string' ? [text] : []))
+      .flatMap(({ providerOptions, text, type }) =>
+        type === 'text' && typeof text === 'string' && !readsForInput(providerOptions) ? [text] : []
+      )
       .join('\n'),
   };
+}
+
+/** Whether a text part is what the host read for the message (`HOST_INPUT_CONTEXT`). */
+function readsForInput(providerOptions: unknown): boolean {
+  return record(record(providerOptions)?.['brainstrike'])?.['context'] === true;
 }
 
 /** The data part's payload, as the projection stored it. */

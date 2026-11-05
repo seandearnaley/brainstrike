@@ -28,7 +28,7 @@ import {
   type HostStepDelivery,
 } from './protocol.ts';
 import { type HostRunPosition, hostRunAncestors } from './run-branch.ts';
-import { hostIntakeMessage, hostPersonInputMessage } from './turn-input.ts';
+import { hostIntakeMessage } from './turn-input.ts';
 
 export type HostChildNotice = Extract<HostNotice, { kind: 'child' }>;
 export type HostSessionNotice = Extract<HostNotice, { kind: 'command-session' }>;
@@ -276,21 +276,23 @@ export function hostDeliveryPosition(
   };
 }
 
+/** One message a running run takes at a step: a report the host wrote, or a person's input it reads first. */
+export type HostIntake =
+  | { readonly delivery: HostStepDelivery; readonly message: UserModelMessage }
+  | { readonly delivery: HostStepDelivery; readonly input: HostParams<'run/input'> };
+
 /**
  * ADR-0028 step 3b: the notices a running run takes at its next step, each a
  * user message to its model with the delivery its `model.messages` commits it
  * with: the reports in one, then each person's input in its own, in post order.
  */
-export function hostNoticeIntake(
-  pending: HostPendingNotices,
-  threadId: string
-): { readonly delivery: HostStepDelivery; readonly message: UserModelMessage }[] {
+export function hostNoticeIntake(pending: HostPendingNotices, threadId: string): HostIntake[] {
   const { delivery, report } = hostNoticeReport(pending, threadId);
   return [
     ...(report === '' ? [] : [{ delivery, message: hostIntakeMessage(report) }]),
     ...(pending?.inputs ?? []).map(({ params }) => ({
       delivery: { entries: [], inputs: [params.commandId] },
-      message: hostPersonInputMessage(params),
+      input: params,
     })),
   ];
 }

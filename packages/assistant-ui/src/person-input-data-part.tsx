@@ -1,5 +1,6 @@
 import type { DataMessagePartComponent } from '@assistant-ui/react';
 import { readPersonInput } from './committed-person-input';
+import { PersonText } from './user-message-text';
 
 /** The person's message where the running agent read it: their bubble, inside the agent's reply. */
 export const PersonInputDataPart: DataMessagePartComponent = ({ data }) => {
@@ -21,9 +22,9 @@ export const PersonInputDataPart: DataMessagePartComponent = ({ data }) => {
           ))}
         </div>
         {text ? (
-          <p className="bg-muted max-w-full rounded-2xl px-4 py-2 break-words whitespace-pre-wrap">
-            {text}
-          </p>
+          <div className="bg-muted max-w-full rounded-2xl px-4 py-2 break-words">
+            <PersonText text={text} />
+          </div>
         ) : null}
       </div>
     </div>
