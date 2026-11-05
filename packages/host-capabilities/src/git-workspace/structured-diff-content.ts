@@ -19,9 +19,9 @@ import type { StructuredFileDiffContent } from '@brainstrike/types';
 export const STRUCTURED_DIFF_CONTENT_CAP_BYTES = 2 * 1024 * 1024;
 
 /**
- * Largest patch, in UTF-16 code units, sent whole for one file. It stays below
- * the runner's 4 MB capture ceiling (`GIT_MAX_BUFFER_BYTES`), so a patch
- * between the two is captured whole and then cut at a hunk.
+ * Largest patch, in UTF-16 code units, one view entry carries. A larger file
+ * loads its own diff when opened, which carries git's whole patch up to the
+ * runner's 4 MB capture ceiling (`GIT_MAX_BUFFER_BYTES`).
  */
 export const PATCH_BOUND = 1_000_000;
 
@@ -99,26 +99,20 @@ const HUNK_HEADER = '@@ ';
 const BINARY_PATCH_LINE = /^Binary files /mu;
 
 /**
- * Keep a patch within {@link PATCH_BOUND}. An over-bound or cut capture ends
- * after the last whole hunk that fits: the cut lands where a hunk or file
- * section begins, so every hunk kept is complete and the patch parses. A cut
- * capture never keeps its last hunk, which may be partial.
+ * The whole patch, or, when the runner cut the capture at its ceiling, the
+ * patch up to its last whole hunk: the cut lands where the last, possibly
+ * partial, hunk or file section begins, so every hunk kept is complete and
+ * the patch parses.
  */
 function boundPatch({ text, truncated }: PatchCapture): {
   patch: string;
   patchTruncated: boolean;
 } {
-  if (!truncated && text.length <= PATCH_BOUND) {
+  if (!truncated) {
     return { patch: text, patchTruncated: false };
   }
-  let cut = 0;
-  let lineStart = text.indexOf('\n') + 1;
-  while (lineStart > 0 && lineStart < text.length && lineStart <= PATCH_BOUND) {
-    if (text.startsWith(HUNK_HEADER, lineStart) || text.startsWith(FILE_HEADER, lineStart)) {
-      cut = lineStart;
-    }
-    lineStart = text.indexOf('\n', lineStart) + 1;
-  }
+  const cut =
+    Math.max(text.lastIndexOf(`\n${HUNK_HEADER}`), text.lastIndexOf(`\n${FILE_HEADER}`)) + 1;
   return { patch: text.slice(0, cut), patchTruncated: true };
 }
 

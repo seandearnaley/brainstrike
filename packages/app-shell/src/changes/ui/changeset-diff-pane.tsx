@@ -64,7 +64,8 @@ export function ChangesetDiffPane({
     [files]
   );
 
-  if (files.length === 0) {
+  // With every file gone, drafts still need their button.
+  if (files.length === 0 && drafts.length === 0) {
     return null;
   }
 

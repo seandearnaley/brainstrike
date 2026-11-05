@@ -343,8 +343,8 @@ function attachPatches(
  * - `C` (copy — only possible with an explicit `--find-copies`/`-C` flag,
  *   which this module never passes, so `C` should not occur today; mapped
  *   defensively anyway) → `'added'`: a copy's destination is a NEW path.
- * - `U` (unmerged) is NOT in this map — handled as a hard, dedicated,
- *   `unmerged-path:`-prefixed error in {@link listRefComparisonChanges},
+ * - `U` (unmerged) is NOT in this map — handled as a hard, dedicated
+ *   `changeset.unmerged-path` refusal in {@link listRefComparisonChanges},
  *   matching W1's unmerged-surfacing posture in `git-structured-diff.ts`
  *   (`CAT_FILE_UNMERGED_STDERR_PATTERN`): a conflicted path has a real,
  *   structured reason it can't be diffed, and silently reporting it as any
@@ -403,6 +403,17 @@ async function listRefComparisonChanges(
   }
   const numstatEntries = parseNumstatZ(numstatRun.stdout);
   const nameStatusEntries = parseCommitFiles(nameStatusRun.stdout);
+  // Index against worktree, git lists a conflicted path twice, `U` then `M`,
+  // and writes its patch as a combined `diff --cc`; against the index alone
+  // it lists `U` only. Either way the conflict is named, never misreported.
+  const unmerged = nameStatusEntries.find((entry) => entry.status === 'U');
+  if (unmerged) {
+    return gitRefused(
+      'conflict',
+      'changeset.unmerged-path',
+      `"${unmerged.path}" has unresolved merge conflicts — resolve them before viewing this scope's diff.`
+    );
+  }
   const statusByPath = new Map(nameStatusEntries.map((entry) => [entry.path, entry]));
   const numstatPaths = new Set(numstatEntries.map((entry) => entry.path));
 
@@ -420,21 +431,6 @@ async function listRefComparisonChanges(
     if (!statusEntry) {
       return gitUnexpected(
         `git numstat reported "${numstatEntry.path}" with no matching name-status entry`
-      );
-    }
-    if (statusEntry.status === 'U') {
-      // DEFENSIVE (NTH-5, review finding): `git diff --name-status` reports
-      // an UNRESOLVED merge conflict as `M` with real numstat counts, NOT
-      // `U` (empirically confirmed) — `--diff-filter=U`/status `U` is a
-      // `git status` concept, not a `git diff` one. This branch guards the
-      // documented, intentional posture (never silently misreport a
-      // conflicted path) for whatever future git version, flag, or scope
-      // this module doesn't yet cover MIGHT emit `U` from `--name-status`;
-      // it is not known to be reachable today.
-      return gitRefused(
-        'conflict',
-        'changeset.unmerged-path',
-        `"${statusEntry.path}" has unresolved merge conflicts — resolve them before viewing this scope's diff.`
       );
     }
     const mappedStatus = NAME_STATUS_TO_CHANGED_STATUS.get(statusEntry.status);

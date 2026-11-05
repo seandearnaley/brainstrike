@@ -38,7 +38,8 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 ## Drawing diffs (ADR-0036)
 
 - Git's patch is the diff. Every display `git diff` pins its output flags so user config cannot change the text; never parse a patch made without them.
-- A view entry carries its file's complete patch while the view stays under its patch budget; a binary file, a file past the budget or a hunks-only file has `patch: null` and loads its `StructuredFileDiff` when opened.
+- A view entry carries its file's complete patch while the view stays under its patch budget; a binary file, a file past the budget or a cut patch has `patch: null` and loads its `StructuredFileDiff` when opened. A file's own diff carries git's whole patch, cut after its last whole hunk only at the runner's capture ceiling.
+- A conflicted path refuses the scope that holds it (`changeset.unmerged-path`); git writes its patch as a combined diff, which nothing draws.
 - The renderer (`@brainstrike/ui/diff-view`, @pierre/diffs) parses the patch and never diffs it again. Full sides only expand unchanged context.
 - Only an approval preview, whose text is not in git yet, is diffed by the renderer.
 - Line comments are per-changeset drafts in `changes-store` until added to the active thread's message.

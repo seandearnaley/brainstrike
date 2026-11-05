@@ -21,29 +21,38 @@ function hunk(start: number, size: number, width = 20): string {
 }
 
 describe('fileDiffContent — the patch always parses', () => {
-  it('cuts an over-bound patch after the last whole hunk that fits, keeping the header', () => {
+  it("keeps a whole patch past the view's bound: a file's own diff carries every hunk", () => {
     const hunks = Array.from({ length: 30 }, (_, index) => hunk(index * 1000 + 1, 800));
     const text = `${HEADER}${hunks.join('')}`;
     expect(text.length).toBeGreaterThan(PATCH_BOUND);
 
     const content = fileDiffContent(SMALL, SMALL, { text, truncated: false });
 
+    expect(content).toMatchObject({ kind: 'full', patch: text });
+    expect(parsePatch(text).hunks).toBe(hunks.length);
+  });
+
+  it('cuts a capture the runner cut after its last whole hunk, keeping the header', () => {
+    const hunks = Array.from({ length: 30 }, (_, index) => hunk(index * 1000 + 1, 80));
+    const whole = `${HEADER}${hunks.join('')}`;
+    const text = whole.slice(0, Math.floor(whole.length * 0.6));
+
+    const content = fileDiffContent(SMALL, SMALL, { text, truncated: true });
+
     expect(content.kind).toBe('hunks-only');
     if (content.kind !== 'hunks-only') {
       return;
     }
     expect(content).toMatchObject({ patchTruncated: true, reason: 'diff-overflow' });
-    expect(content.patch.length).toBeLessThanOrEqual(PATCH_BOUND);
     expect(content.patch.startsWith(HEADER)).toBe(true);
-    expect(text.startsWith(content.patch)).toBe(true);
-    expect(text.slice(content.patch.length).startsWith('@@ ')).toBe(true);
+    expect(whole.startsWith(content.patch)).toBe(true);
+    expect(whole.slice(content.patch.length).startsWith('@@ ')).toBe(true);
     const parsed = parsePatch(content.patch);
     expect(parsed.hunks).toBeGreaterThan(0);
     expect(parsed.hunks).toBeLessThan(hunks.length);
-    expect(content.patch).not.toContain('truncated');
   });
 
-  it('drops the last hunk of a capture the runner cut, even under the bound', () => {
+  it('drops the last hunk of a capture the runner cut, even a small one', () => {
     const whole = `${HEADER}${hunk(1, 2)}${hunk(50, 2)}`;
     const cut = whole.slice(0, whole.length - 7);
 

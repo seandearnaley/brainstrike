@@ -311,8 +311,9 @@ describe('a hostile git config', () => {
 });
 
 describe('an over-bound patch', () => {
-  it('is cut after a whole hunk, still parses and applies, and the view leaves it to load on demand', async () => {
-    const lines = Array.from({ length: 40_000 }, (_, index) => `line ${index} ${'x'.repeat(28)}`);
+  it('is cut after a whole hunk at the capture ceiling, still parses and applies, and the view leaves it to load on demand', async () => {
+    // About 14,000 hunks: a patch past the runner's 4 MB capture ceiling.
+    const lines = Array.from({ length: 140_000 }, (_, index) => `line ${index} ${'x'.repeat(28)}`);
     const before = `${lines.join('\n')}\n`;
     const after = `${lines.map((line, index) => (index % 10 === 5 ? `${line}!` : line)).join('\n')}\n`;
     const dir = await repoWith({ 'f.txt': before });
@@ -322,25 +323,64 @@ describe('an over-bound patch', () => {
     const [diff, listing] = await Promise.all([fileDiff(dir, 'f.txt'), view(dir)]);
     const whole = git(dir, pinnedPatchArgs(['HEAD', '--', 'f.txt']));
 
-    expect(whole.length).toBeGreaterThan(PATCH_BOUND);
-    expect(diff).toMatchObject({ additions: 4000, deletions: 4000 });
+    expect(diff).toMatchObject({ additions: 14_000, deletions: 14_000 });
     expect(diff.content).toMatchObject({
       kind: 'hunks-only',
       patchTruncated: true,
-      reason: 'diff-overflow',
+      reason: 'over-cap-both',
     });
     const patch = patchOf(diff);
-    expect(patch.length).toBeLessThanOrEqual(PATCH_BOUND);
+    expect(patch.length).toBeGreaterThan(PATCH_BOUND);
     expect(whole.startsWith(patch)).toBe(true);
     expect(whole.slice(patch.length).startsWith('@@ ')).toBe(true);
     const parsed = parsePatch(patch);
     expect(parsed.hunks).toBeGreaterThan(0);
-    expect(parsed.additions).toBeLessThan(4000);
+    expect(parsed.additions).toBeLessThan(14_000);
     const partial = await applied(patch, { 'f.txt': before }, 'f.txt');
     expect(after.startsWith(partial.slice(0, partial.lastIndexOf('!') + 1))).toBe(true);
     expect(listing.files).toEqual([
-      expect.objectContaining({ additions: 4000, deletions: 4000, patch: null, path: 'f.txt' }),
+      expect.objectContaining({ additions: 14_000, deletions: 14_000, patch: null, path: 'f.txt' }),
     ]);
     expect(diffs.find((entry) => entry.path === 'f.txt')?.content).toEqual(diff.content);
+  });
+
+  it("a single hunk past the view's bound opens whole", async () => {
+    const added = Array.from({ length: 30_000 }, (_, index) => `added ${index} ${'y'.repeat(30)}`);
+    const dir = await repoWith({ 'keep.txt': 'keep\n' });
+    await writeFile(path.join(dir, 'big.txt'), `${added.join('\n')}\n`);
+    git(dir, ['add', 'big.txt']);
+
+    const [diff, listing] = await Promise.all([fileDiff(dir, 'big.txt'), view(dir)]);
+
+    expect(diff).toMatchObject({ additions: 30_000, content: { kind: 'full' }, deletions: 0 });
+    expect(patchOf(diff).length).toBeGreaterThan(PATCH_BOUND);
+    expect(parsePatch(patchOf(diff))).toMatchObject({ additions: 30_000, hunks: 1 });
+    expect(listing.files).toEqual([
+      expect.objectContaining({ additions: 30_000, patch: null, path: 'big.txt' }),
+    ]);
+  });
+});
+
+describe('a merge conflict', () => {
+  it('names the conflicted file in the scopes that hold it, and leaves the uncommitted view whole', async () => {
+    const dir = await repoWith({ 'c.txt': 'base\n', 'other.txt': 'x\n' });
+    git(dir, ['checkout', '-q', '-b', 'side']);
+    await writeFile(path.join(dir, 'c.txt'), 'side\n');
+    git(dir, ['commit', '-qam', 'side']);
+    git(dir, ['checkout', '-q', '-']);
+    await writeFile(path.join(dir, 'c.txt'), 'ours\n');
+    git(dir, ['commit', '-qam', 'ours']);
+    expect(() => git(dir, ['merge', '-q', 'side'])).toThrow();
+    await writeFile(path.join(dir, 'other.txt'), 'y\n');
+
+    for (const kind of ['unstaged', 'staged'] as const) {
+      const result = await resolveGitScopeChangesetView(deps(dir), 'root', {
+        ...uncommitted(dir),
+        scope: { kind },
+      });
+      expect(result).toMatchObject({ error: { code: 'changeset.unmerged-path' }, ok: false });
+      expect(result.ok ? '' : result.error.message).toContain('c.txt');
+    }
+    expect((await view(dir)).files.map((file) => file.path)).toEqual(['c.txt', 'other.txt']);
   });
 });

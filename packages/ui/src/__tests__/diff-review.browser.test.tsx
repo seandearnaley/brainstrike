@@ -264,3 +264,84 @@ test('an open comment keeps its text when the view switches between inline and s
     .element(page.getByRole('textbox', { name: 'Comment on line 4' }))
     .toHaveValue('half written');
 });
+
+test('side by side, a file replaced by a symlink shows both versions', async () => {
+  const patch = [
+    'diff --git a/link b/link',
+    'deleted file mode 100644',
+    'index 1111111..0000000',
+    '--- a/link',
+    '+++ /dev/null',
+    '@@ -1,2 +0,0 @@',
+    '-first old line',
+    '-second old line',
+    'diff --git a/link b/link',
+    'new file mode 120000',
+    'index 0000000..2222222',
+    '--- /dev/null',
+    '+++ b/link',
+    '@@ -0,0 +1 @@',
+    '+../elsewhere',
+    '\\ No newline at end of file',
+    '',
+  ].join('\n');
+  render(
+    <Review
+      diffStyle="split"
+      files={[{ additions: 1, deletions: 2, id: 'link', patch, path: 'link', status: 'modified' }]}
+    />
+  );
+  await expect.element(page.getByText('second old line')).toBeVisible();
+  await expect.element(page.getByText('../elsewhere')).toBeVisible();
+});
+
+test('an opened file shows its newest version after the view refreshes', async () => {
+  const version = (line: string): StructuredFileDiff => ({
+    additions: 1,
+    content: {
+      kind: 'hunks-only',
+      patch: [
+        'diff --git a/src/big.ts b/src/big.ts',
+        'index 1111111..2222222 100644',
+        '--- a/src/big.ts',
+        '+++ b/src/big.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        `+${line}`,
+        '',
+      ].join('\n'),
+      patchTruncated: false,
+      reason: 'over-cap-new',
+    },
+    deletions: 1,
+    path: 'src/big.ts',
+    status: 'modified',
+  });
+  let current = version('first version');
+  const big: DiffReviewFile = {
+    additions: 1,
+    deletions: 1,
+    id: 'big',
+    patch: null,
+    path: 'src/big.ts',
+    status: 'modified',
+  };
+  const { rerender } = render(<Review files={[big]} loadFile={async () => current} />);
+  await page.getByRole('button', { name: 'src/big.ts' }).click();
+  await expect.element(page.getByText('first version')).toBeVisible();
+
+  // Still too large for the view: it loads again.
+  current = version('second version');
+  rerender(<Review files={[{ ...big }]} loadFile={async () => current} />);
+  await expect.element(page.getByText('second version')).toBeVisible();
+
+  // Now the view carries its patch, which wins over the loaded copy.
+  const patch = version('third version').content;
+  rerender(
+    <Review
+      files={[{ ...big, patch: patch.kind === 'binary' ? null : patch.patch }]}
+      loadFile={async () => current}
+    />
+  );
+  await expect.element(page.getByText('third version')).toBeVisible();
+});

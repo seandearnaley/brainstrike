@@ -204,6 +204,25 @@ describe('ChangesetDiffPane', () => {
     expect(onSendComments).toHaveBeenCalledWith([gone]);
   });
 
+  it('still offers the drafts when every file has left the view', async () => {
+    const user = userEvent.setup();
+    const gone = draft(WITH_PATCH, 'c-1', 'Reverted?');
+    useChangesStore.getState().saveComment('cs-1', gone);
+    const onSendComments = vi.fn<SendComments>(() => true);
+    render(
+      <ChangesetDiffPane
+        changesetKey="cs-1"
+        files={[]}
+        loadFileDiff={unusedLoad}
+        onSendComments={onSendComments}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Add 1 comment to message' }));
+
+    expect(onSendComments).toHaveBeenCalledWith([gone]);
+  });
+
   it('keeps the drafts when they could not be added', async () => {
     const user = userEvent.setup();
     const first = draft(WITH_PATCH, 'c-1', 'Why new?');

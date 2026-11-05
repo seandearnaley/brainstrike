@@ -25,7 +25,16 @@ import {
   type CodeViewReactOptions,
 } from '@pierre/diffs/react';
 import { ChevronRight, Loader2 } from 'lucide-react';
-import { type ReactElement, type Ref, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import {
+  type ReactElement,
+  type Ref,
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { cn } from '../lib/utils';
 import { toast } from '../use-toast';
 import { useDiffAppearance } from './diff-appearance';
@@ -107,9 +116,28 @@ function isBinary(file: DiffReviewFile, loaded: LoadedFile | undefined): boolean
   return file.patch === null && file.additions === null && file.status !== 'untracked';
 }
 
+/**
+ * The file's loaded diff while the view sends the file without its patch.
+ * Once the view carries a patch, that patch is the newer version.
+ */
+function loadedOf(
+  file: DiffReviewFile,
+  loaded: ReadonlyMap<string, LoadedFile>
+): LoadedFile | undefined {
+  return file.patch === null ? loaded.get(file.id) : undefined;
+}
+
 /** A text file the view sent without its patch, not loaded yet. */
 function isUnloaded(file: DiffReviewFile, loaded: LoadedFile | undefined): boolean {
   return loaded === undefined && file.patch === null && !isBinary(file, undefined);
+}
+
+function toastLoadFailure(file: DiffReviewFile, error: unknown): void {
+  toast({
+    description: messageOf(error),
+    title: `Couldn't load ${file.path}`,
+    variant: 'destructive',
+  });
 }
 
 function targetOf(comment: DiffComment): DiffCommentTarget {
@@ -171,7 +199,7 @@ class ReviewItems {
     const parsed = new Map<string, Parsed>();
     const versions = new Map<string, Versioned>();
     const items = files.map((file) => {
-      const load = loaded.get(file.id);
+      const load = loadedOf(file, loaded);
       const fileDiff = load?.fileDiff ?? this.#parse(file, load, parsed);
       const collapsed = collapsedIds.has(file.id) || isUnloaded(file, load);
       const annotations = notesOf(file);
@@ -355,30 +383,43 @@ export function DiffReview({
     [cache, collapsedIds, comments, draftCommentId, draftTarget, files, loaded]
   );
 
+  const readFile = async (file: DiffReviewFile): Promise<LoadedFile> => {
+    const diff = await loadFile(file.id);
+    return {
+      additions: diff.additions,
+      deletions: diff.deletions,
+      fileDiff: loadedFileDiff(diff),
+      truncated: diff.content.kind === 'hunks-only' && diff.content.patchTruncated,
+    };
+  };
+  const showLoaded = (file: DiffReviewFile, entry: LoadedFile): void =>
+    setLoaded((current) => new Map(current).set(file.id, entry));
+
   const load = async (file: DiffReviewFile): Promise<void> => {
     setLoadingIds((current) => toggled(current, file.id, true));
     try {
-      const diff = await loadFile(file.id);
-      const fileDiff = loadedFileDiff(diff);
-      const truncated = diff.content.kind === 'hunks-only' && diff.content.patchTruncated;
-      setLoaded((current) =>
-        new Map(current).set(file.id, {
-          additions: diff.additions,
-          deletions: diff.deletions,
-          fileDiff,
-          truncated,
-        })
-      );
+      showLoaded(file, await readFile(file));
     } catch (error) {
-      toast({
-        description: messageOf(error),
-        title: `Couldn't load ${file.path}`,
-        variant: 'destructive',
-      });
+      toastLoadFailure(file, error);
     } finally {
       setLoadingIds((current) => toggled(current, file.id, false));
     }
   };
+
+  // A refresh never leaves an opened file on an older version: a file the
+  // view still sends without its patch loads again (`loadedOf` covers the
+  // rest). It keeps showing what it showed until the new diff arrives.
+  const openedWithoutPatch = useEffectEvent((current: readonly DiffReviewFile[]) =>
+    current.filter((file) => file.patch === null && loaded.has(file.id))
+  );
+  useEffect(() => {
+    for (const file of openedWithoutPatch(files)) {
+      readFile(file).then(
+        (entry) => showLoaded(file, entry),
+        (error: unknown) => toastLoadFailure(file, error)
+      );
+    }
+  }, [files]);
 
   const loadDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
     const id = cache.idOf(fileDiff);
@@ -449,7 +490,7 @@ export function DiffReview({
     if (!file || item.type !== 'diff') {
       return null;
     }
-    const loadedFile = loaded.get(file.id);
+    const loadedFile = loadedOf(file, loaded);
     const binary = isBinary(file, loadedFile);
     const unloaded = isUnloaded(file, loadedFile);
     return (

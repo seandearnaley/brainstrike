@@ -17,6 +17,10 @@ export type DiffSide = 'additions' | 'deletions';
  * Parses git's diff of one file. With both sides the diff can expand its
  * unchanged lines; without them it holds the patch's lines only. Throws when
  * the text is not one file's diff.
+ *
+ * Git writes a type change (a file replaced by a symlink, or back) as the old
+ * entry's deletion then the new one's addition. The parser names the file by
+ * its first section, so a type change reads as a change with both sides.
  */
 export function parseFilePatch(
   patch: string,
@@ -30,7 +34,10 @@ export function parseFilePatch(
   if (!metadata?.name) {
     throw new Error('The patch holds no file diff.');
   }
-  return metadata;
+  const typeChange =
+    (metadata.type === 'deleted' && metadata.hunks.some((hunk) => hunk.additionCount > 0)) ||
+    (metadata.type === 'new' && metadata.hunks.some((hunk) => hunk.deletionCount > 0));
+  return typeChange ? { ...metadata, type: 'change' } : metadata;
 }
 
 const CHANGE_TYPE: Record<ChangedFileStatus, ChangeTypes> = {
@@ -83,7 +90,14 @@ export function sidesOf(diff: StructuredFileDiff): FileDiffLoadedChangedFiles | 
   };
 }
 
-/** One side's file lines `start`–`end` that the diff holds, without line endings. */
+/** Stands for the folded lines a range crosses, so a quote never reads as adjacent lines. */
+export const FOLDED_LINES = '⋯';
+
+/**
+ * One side's file lines `start`–`end` that the diff holds, without line
+ * endings. Lines the diff does not hold (folded unchanged lines between two
+ * hunks) become one {@link FOLDED_LINES} line.
+ */
 export function sideLines(
   fileDiff: FileDiffMetadata,
   side: DiffSide,
@@ -92,12 +106,19 @@ export function sideLines(
 ): string[] {
   const lines = side === 'additions' ? fileDiff.additionLines : fileDiff.deletionLines;
   const result: string[] = [];
+  let folded = false;
   for (let line = start; line <= end; line += 1) {
     const index = lineIndex(fileDiff, side, line);
     const text = index === null ? undefined : lines[index];
-    if (text !== undefined) {
-      result.push(text.replace(/\r?\n$/u, ''));
+    if (text === undefined) {
+      folded = result.length > 0;
+      continue;
     }
+    if (folded) {
+      result.push(FOLDED_LINES);
+      folded = false;
+    }
+    result.push(text.replace(/\r?\n$/u, ''));
   }
   return result;
 }
