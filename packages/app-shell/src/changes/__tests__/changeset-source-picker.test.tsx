@@ -2,6 +2,10 @@ import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  stubChangesBridge,
+  workspaceGitWrapper,
+} from '../../__tests__/helpers/workspace-git-services-wrapper';
 import { ChangesetSourcePicker } from '../ui/changeset-source-picker';
 
 // Deliberately chosen so basename(path) !== name — the descriptor's `.name`
@@ -120,6 +124,35 @@ describe('ChangesetSourcePicker', () => {
       kind: 'git-scope',
       repositoryRoot: '/repo',
       scope: { kind: 'staged' },
+      worktreePath: '/repo',
+    });
+  });
+
+  it("opens one of a worktree's latest commits", async () => {
+    const commitId = 'a'.repeat(40);
+    const commits = vi.fn(async () => ({
+      ok: true as const,
+      value: [{ commitId, subject: 'Fix the parser' }],
+    }));
+    const onSelectChangeset = vi.fn();
+    render(<ChangesetSourcePicker {...baseProps({ inventory: INVENTORY, onSelectChangeset })} />, {
+      wrapper: workspaceGitWrapper({ changes: stubChangesBridge({ commits }) }),
+    });
+    await openMenu();
+    const rows = screen.getAllByTestId('changeset-source-worktree');
+    const inRootRow = rows.find((candidate) => candidate.textContent?.includes('/repo'));
+    if (!inRootRow) {
+      throw new Error('expected the in-root worktree row to be present');
+    }
+    await userEvent.hover(inRootRow);
+    await userEvent.hover(await screen.findByRole('menuitem', { name: 'Commits' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Fix the parser/u }));
+
+    expect(commits).toHaveBeenCalledWith('root-1', '/repo');
+    expect(onSelectChangeset).toHaveBeenCalledExactlyOnceWith({
+      kind: 'git-scope',
+      repositoryRoot: '/repo',
+      scope: { commitId, kind: 'commit' },
       worktreePath: '/repo',
     });
   });

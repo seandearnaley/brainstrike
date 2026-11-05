@@ -1,6 +1,7 @@
 import { BoundaryFailureSchema } from '@brainstrike/assistant-contract';
 import type {
   ChangesApplyResult,
+  ChangesCommit,
   ChangesetView,
   ChangesInvalidationEvent,
   GitCommitResult,
@@ -201,6 +202,10 @@ const ChangesActionTargetSchema = Schema.Union(
 const ChangesApplyResultSchema = Schema.Struct({
   paths: Texts,
 }) satisfies Schema.ConstraintDecoder<ChangesApplyResult>;
+const ChangesCommitSchema = Schema.Struct({
+  commitId: Text,
+  subject: Text,
+}) satisfies Schema.ConstraintDecoder<ChangesCommit>;
 const Containment = Schema.Union([Texts, Schema.Literal('outside-roots')]);
 const WorktreeProvenanceSchema = Schema.Literals(['agent-reported', 'both', 'scanned']);
 const Trust = Schema.Literals(['unvalidated', 'validated']);
@@ -367,6 +372,7 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
     rootId: Id,
     target: ChangesActionTargetSchema,
   }),
+  'changes/commits': Schema.Struct({ rootId: Id, worktreePath: Text }),
   'changes/file-diff': Schema.Struct({ changeset: ChangesetSchema, path: Text, rootId: Id }),
   'changes/inventory': Schema.Struct({ maxAgeMs: Schema.optionalKey(Count) }),
   'changes/resolve-view': Schema.Struct({ changeset: ChangesetSchema, rootId: Id }),
@@ -429,6 +435,7 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
 
 export const GIT_WORKSPACE_RESULT_SCHEMAS = {
   'changes/apply': gitResult(ChangesApplyResultSchema),
+  'changes/commits': gitResult(Schema.Array(ChangesCommitSchema)),
   'changes/file-diff': gitResult(StructuredFileDiffSchema),
   'changes/inventory': gitResult(GitInventorySchema),
   'changes/resolve-view': gitResult(ChangesetViewSchema),

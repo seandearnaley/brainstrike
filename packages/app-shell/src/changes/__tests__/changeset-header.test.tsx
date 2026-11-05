@@ -57,6 +57,7 @@ function installChangesBridge(): void {
     ...installed,
     changes: {
       apply: unused,
+      commits: unused,
       fileDiff: unused,
       inventory: unused,
       onInvalidated: unused,

@@ -284,6 +284,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
   });
   const service: HostGitWorkspace = {
     'changes/apply': (request) => changes.apply(request),
+    'changes/commits': ({ rootId, worktreePath }) => changes.commits(rootId, worktreePath),
     'changes/file-diff': ({ changeset, path: filePath, rootId }) =>
       changes.fileDiff(rootId, changeset, filePath),
     'changes/inventory': (request) => changes.inventory(request),
