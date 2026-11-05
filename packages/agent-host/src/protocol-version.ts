@@ -84,5 +84,6 @@
 // v21 (2026-11-05): each `changes/resolve-view` entry carries the actions the host offers for it
 // (`actions`) and the `revision` of what the view drew, and `revertible` is gone; `changes/apply`
 // stages, unstages or reverts a view's hunks or files (ADR-0036), a new method. The required
-// fields are why this is a version bump.
+// fields are why this is a version bump. Additive since: a turn's entries carry `wholeFile`,
+// and a settled turn's view reverts whole files.
 export const AGENT_HOST_PROTOCOL_VERSION = 21;

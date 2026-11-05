@@ -88,6 +88,8 @@ interface SnapshotGitCommandParams {
   readonly binaryStdout?: boolean | undefined;
   readonly cwd: string;
   readonly env?: Readonly<Record<string, string>> | undefined;
+  /** Written to the command's stdin. */
+  readonly input?: string | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;
 }
@@ -203,6 +205,7 @@ const CAT_FILE_ABSENT_STDERR_PATTERN =
 export interface ShadowGitInvokeOptions {
   readonly binaryStdout?: boolean | undefined;
   readonly env?: Readonly<Record<string, string>> | undefined;
+  readonly input?: string | undefined;
 }
 
 /**
@@ -237,6 +240,7 @@ export function createShadowGitPlumbing({ gitDir, rootPath, runner }: ShadowGitP
       binaryStdout: options?.binaryStdout,
       cwd: rootPath,
       env: options?.env,
+      input: options?.input,
       timeoutMs: SNAPSHOT_GIT_TIMEOUT_MS,
     });
   }

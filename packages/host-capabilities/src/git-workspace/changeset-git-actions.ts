@@ -34,6 +34,8 @@ import {
   gitFault,
   gitRefused,
   gitUnexpected,
+  refuseStale,
+  refuseUnoffered,
 } from './git-failure.ts';
 import {
   GIT_DEFAULT_TIMEOUT_MS,
@@ -63,15 +65,6 @@ interface WritePlan {
 }
 
 type Invoke = (args: readonly string[], input?: string) => Promise<GitCommandRun>;
-
-/** The view does not offer `action`, or its target cannot take it. */
-export function refuseUnoffered(message: string) {
-  return gitRefused('input', 'changeset.action-unavailable', message);
-}
-
-function refuseStale(message: string) {
-  return gitRefused('conflict', 'changeset.stale', message);
-}
 
 /** NUL-separated pathspecs on stdin: no command-line limit, and literal under the runner's pins. */
 const PATHSPECS_FROM_STDIN = ['--pathspec-from-file=-', '--pathspec-file-nul'];

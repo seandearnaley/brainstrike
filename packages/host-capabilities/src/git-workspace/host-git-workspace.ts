@@ -262,7 +262,10 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     // BST-1977: host threads' agent-run changesets resolve from Core's log.
     hostThreadTurns: createHostThreadTurns({
       listThreads: async () =>
-        new Set((await workspace.threadReads().listThreads()).map(({ threadId }) => threadId)),
+        (await workspace.threadReads().listThreads()).map(({ latestRun, threadId }) => ({
+          running: latestRun?.status === 'running',
+          threadId,
+        })),
       readRows: (threadId, fromSeq) => workspace.threadReads().read(threadId, fromSeq),
     }),
     resolveInventoryService: inventory,

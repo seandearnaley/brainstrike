@@ -30,7 +30,7 @@ function turnStart(
 }
 function turns(rows: readonly HostLogRow[]) {
   return createHostThreadTurns({
-    listThreads: async () => new Set([THREAD]),
+    listThreads: async () => [{ running: false, threadId: THREAD }],
     readRows: async (_threadId, fromSeq) => rows.filter((row) => row.seq > fromSeq),
   });
 }

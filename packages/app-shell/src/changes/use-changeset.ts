@@ -183,11 +183,13 @@ export interface UseChangesetResult {
    * changeset, at the root it was resolved for, even while another changeset
    * resolves. The active changeset resolves again before this returns,
    * whether git took the action or refused it, so nothing acts on a view git
-   * has moved past. Returns a typed failure (never throws).
+   * has moved past. `entryRootId` names the root of the target's files, as
+   * for `fileDiff`. Returns a typed failure (never throws).
    */
   readonly apply: (
     action: ChangesAction,
-    target: ChangesActionTarget
+    target: ChangesActionTarget,
+    entryRootId?: string | null
   ) => Promise<BoundaryResult<ChangesApplyResult>>;
   /** True when the host serves the Changes bridge. */
   readonly available: boolean;
@@ -359,7 +361,8 @@ export function useChangeset(
 
   const apply = async (
     action: ChangesAction,
-    target: ChangesActionTarget
+    target: ChangesActionTarget,
+    entryRootId?: string | null
   ): Promise<BoundaryResult<ChangesApplyResult>> => {
     // The target names files of the view the caller drew, which can still be
     // the previous changeset's while the selected one resolves.
@@ -372,7 +375,7 @@ export function useChangeset(
       result = await bridge.apply({
         action,
         changeset: drawn.changeset,
-        rootId: drawnRootId,
+        rootId: entryRootId ?? drawnRootId,
         target,
       });
     } catch (caught) {

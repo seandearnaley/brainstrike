@@ -181,6 +181,17 @@ describe('useChangeset', () => {
       expect(resolveView).toHaveBeenCalledTimes(3);
     });
     expect(result.current.view?.totalAdditions).toBe(3);
+
+    // A turn's file in another folder applies in that folder.
+    await act(async () => {
+      await result.current.apply('revert', target, 'root-2');
+    });
+    expect(apply).toHaveBeenLastCalledWith({
+      action: 'revert',
+      changeset: CHANGESET,
+      rootId: 'root-2',
+      target,
+    });
   });
 
   it('acts on the view it drew while the next changeset still resolves', async () => {

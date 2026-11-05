@@ -604,6 +604,45 @@ test('a file whose hunks cannot be taken one at a time offers its actions on its
   expect(hunkButtons('Stage').elements()).toHaveLength(0);
 });
 
+test('a file whose actions take only the whole file offers them on its header only', async () => {
+  const onAction = vi.fn<OnAction>();
+  const file: DiffReviewFile = { ...offering(TWO_HUNKS, ['revert']), wholeFile: true };
+  render(<Review files={[file]} onAction={onAction} />);
+  await expect.element(page.getByText('const m = 2;')).toBeVisible();
+  await page.getByRole('button', { name: 'Revert src/two.ts' }).click();
+  expect(onAction).toHaveBeenLastCalledWith('revert', file, null);
+  expect(hunkButtons('Revert').elements()).toHaveLength(0);
+});
+
+test('the + beside the hovered line still opens a comment after the view refreshes', async () => {
+  // A turn view refreshes as its run settles: first the same files, then
+  // with Revert on each file's header.
+  const settled = (actions: readonly ChangesAction[]): DiffReviewFile[] => [
+    {
+      actions,
+      additions: 1,
+      deletions: 1,
+      id: 'sum',
+      patch: patchOf('src/sum.ts'),
+      path: 'src/sum.ts',
+      revision: 'sum-1',
+      status: 'modified',
+      wholeFile: true,
+    },
+  ];
+  const { rerender } = render(<Review files={settled([])} onAction={() => {}} />);
+  await userEvent.hover(page.getByText('return x + y;'));
+  const plus = commentButton();
+
+  rerender(<Review files={settled([])} onAction={() => {}} />);
+  rerender(<Review files={settled(['revert'])} onAction={() => {}} />);
+  await expect.element(page.getByRole('button', { name: 'Revert src/sum.ts' })).toBeVisible();
+
+  expect(plus.isConnected).toBe(true);
+  await userEvent.click(plus);
+  await expect.element(page.getByRole('textbox', { name: 'Comment on line 4' })).toHaveFocus();
+});
+
 test('while an action runs, no action can start', async () => {
   render(<Review actionsDisabled files={[offering(TWO_HUNKS, ['stage'])]} onAction={() => {}} />);
   await expect.element(hunkButtons('Stage').nth(1)).toBeDisabled();
