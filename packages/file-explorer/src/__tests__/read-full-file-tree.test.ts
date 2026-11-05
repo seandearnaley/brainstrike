@@ -444,13 +444,17 @@ describe('readFullFileTree', () => {
   it.each([
     { name: 'POSIX', root: '/repo', separator: '/' },
     { name: 'Windows', root: 'C:\\repo', separator: '\\' },
+    { name: 'POSIX under an ignored-named folder', root: '/home/u/build/my-app', separator: '/' },
+    { name: 'Windows under an ignored-named folder', root: 'C:\\dist\\app', separator: '\\' },
   ])('skips ignored folders of a native $name tree', async ({ root, separator }) => {
     const join = (...segments: string[]) => [root, ...segments].join(separator);
     const listing: Record<string, readonly [name: string, kind: 'directory' | 'file'][]> = {
       [root]: [
+        ['dist', 'directory'],
         ['node_modules', 'directory'],
         ['src', 'directory'],
       ],
+      [join('dist')]: [['bundle.js', 'file']],
       [join('node_modules')]: [['lib.js', 'file']],
       [join('src')]: [
         ['.git', 'directory'],
