@@ -2,8 +2,8 @@
 /**
  * Messages written while a committed run is active wait in assistant-ui's own
  * queue and are sent one per committed run end. Enter queues, Shift+Ctrl/⌘+Enter
- * steers (first in line, and the run is asked to stop at its next step), and
- * each waiting row can be steered, sent, pulled back to edit, or removed.
+ * steers (into the running run, which reads it at its next step), and each
+ * waiting row can be steered, sent, pulled back to edit, or removed.
  * Driven through the shipped conversation over a published committed view.
  */
 import '@testing-library/jest-dom/vitest';
@@ -48,7 +48,7 @@ function Conversation({
 }: {
   readonly onCancel?: () => Promise<void>;
   readonly onNew: (message: AppendMessage) => Promise<void>;
-  readonly onSteer?: () => Promise<boolean>;
+  readonly onSteer?: (message: AppendMessage) => Promise<void>;
   readonly store: PublishedConversation;
 }) {
   return (
@@ -56,7 +56,7 @@ function Conversation({
       <CommittedAssistantConversation
         commands={{ onCancel: onCancel ?? (async () => undefined), onNew }}
         label="Run controls"
-        onSteerActiveRun={onSteer}
+        onSteer={onSteer}
         store={store}
       />
     </TooltipProvider>
@@ -122,53 +122,56 @@ describe('composer run controls over the committed queue', () => {
     await waitFor(() => expect(host.sent).toEqual(['first', 'second']));
   });
 
-  it('steers on Shift+Ctrl+Enter: the draft goes first and the run is asked to stop', async () => {
+  it('steers on Shift+Ctrl+Enter into the running run, leaving the queue as it was', async () => {
     const user = userEvent.setup();
     const host = runningHost();
-    const onSteer = vi.fn(async () => true);
+    const steered: string[] = [];
+    const onSteer = vi.fn(async (message: AppendMessage) => {
+      steered.push(sentText(message));
+    });
     render(<Conversation onNew={host.onNew} onSteer={onSteer} store={host.store} />);
     await user.type(input(), 'earlier follow-up{Enter}');
     await user.type(input(), 'use the vendor primitive instead');
     await user.keyboard('{Shift>}{Control>}{Enter}{/Control}{/Shift}');
 
-    expect(onSteer).toHaveBeenCalledOnce();
-    expect(queuedPrompts(THREAD)).toEqual([
-      'use the vendor primitive instead',
-      'earlier follow-up',
-    ]);
+    await waitFor(() => expect(steered).toEqual(['use the vendor primitive instead']));
+    expect(queuedPrompts(THREAD)).toEqual(['earlier follow-up']);
     expect(input()).toHaveValue('');
     await host.endRun();
-    await waitFor(() => expect(host.sent).toEqual(['use the vendor primitive instead']));
+    // The run took the steered message; only the queued one starts a run.
+    await waitFor(() => expect(host.sent).toEqual(['earlier follow-up']));
   });
 
-  it('keeps a steered message first in line when the steer request fails', async () => {
+  it('keeps a steered message first in line when the running run refuses it', async () => {
     const user = userEvent.setup();
     const host = runningHost();
     const onSteer = vi.fn(async () => {
-      throw new Error('control endpoint down');
+      throw new Error('host refused the input');
     });
     render(<Conversation onNew={host.onNew} onSteer={onSteer} store={host.store} />);
+    await user.type(input(), 'queued first{Enter}');
     await user.type(input(), 'steer this');
-    await user.click(
-      screen.getByRole('button', { name: 'Steer: send now, stopping the run at the next step' })
-    );
+    await user.click(screen.getByRole('button', { name: 'Steer' }));
 
-    expect(queuedPrompts(THREAD)).toEqual(['steer this']);
+    await waitFor(() => expect(queuedPrompts(THREAD)).toEqual(['steer this', 'queued first']));
     await host.endRun();
     await waitFor(() => expect(host.sent).toEqual(['steer this']));
   });
 
-  it('steers an already-queued row by moving it to the front', async () => {
+  it('steers an already-queued row into the running run', async () => {
     const user = userEvent.setup();
     const host = runningHost();
-    const onSteer = vi.fn(async () => true);
+    const steered: string[] = [];
+    const onSteer = vi.fn(async (message: AppendMessage) => {
+      steered.push(sentText(message));
+    });
     render(<Conversation onNew={host.onNew} onSteer={onSteer} store={host.store} />);
     await user.type(input(), 'first{Enter}');
     await user.type(input(), 'second{Enter}');
 
-    await user.click(screen.getByRole('button', { name: 'Steer now: second' }));
-    expect(queuedPrompts(THREAD)).toEqual(['second', 'first']);
-    expect(onSteer).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole('button', { name: 'Steer: second' }));
+    await waitFor(() => expect(steered).toEqual(['second']));
+    expect(queuedPrompts(THREAD)).toEqual(['first']);
   });
 
   it('pulls a queued row back into an empty composer to edit, never over a draft', async () => {

@@ -76,7 +76,6 @@ export function foldHostWorktreeEntry(
     throw new Error('A committed worktree entry names no operating root path.');
   }
   run.enteredWorktree = { branch: event.binding.checkoutBranch ?? null, path };
-  run.steered = true;
 }
 
 /**

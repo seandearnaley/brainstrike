@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  BoundaryFailureError,
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   NATIVE_TOOL_ID,
@@ -361,7 +362,26 @@ export async function rowsUntil(
 export const finished = (runId: string) => (row: HostLogRow) =>
   row.event.type === 'run.finished' && row.event.runId === runId;
 
-/** Every child thread committed so far, in commit order of their origins. */
+/**
+ * Every child thread the host reads so far, in commit order of their origins.
+ * The store lists a child as soon as its rows are written, a moment before the host knows it.
+ */
 export async function childThreads(harness: ChildRunHarness): Promise<string[]> {
-  return (await harness.store.threads()).filter((id) => id !== harness.threadId);
+  const ids = (await harness.store.threads()).filter((id) => id !== harness.threadId);
+  const known = await Promise.all(ids.map((id) => hostReads(harness, id)));
+  return ids.filter((_, index) => known[index]);
 }
+
+const hostReads = (harness: ChildRunHarness, threadId: string): Promise<boolean> =>
+  harness
+    .core()
+    .read(threadId, 0)
+    .then(
+      () => true,
+      (cause: unknown) => {
+        if (cause instanceof BoundaryFailureError && cause.code === 'thread.unknown') {
+          return false;
+        }
+        throw cause;
+      }
+    );

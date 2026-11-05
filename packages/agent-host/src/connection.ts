@@ -377,7 +377,6 @@ export function bindHostConnection(
   handleCore('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
   handleCore('run/start', (params) => core.startRun(params, origin));
   handleCore('run/regenerate', (params) => core.regenerateRun(params, origin));
-  handleCore('run/steer', (params) => core.steer(params));
   handleCore('run/input', (params) => core.input(params));
   handleCore('run/stop', (params) => core.stop(params));
   handleCore('checkpoint/revert', (params) => core.revertCheckpoint(params));
