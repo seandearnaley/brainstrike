@@ -604,7 +604,7 @@ function ThreadRenameForm({
       <input
         aria-label="Thread title"
         autoFocus
-        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-xs outline-none focus-visible:ring-2"
+        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-xs outline-hidden focus-visible:ring-2"
         onChange={(event) => {
           onDraftTitleChange(event.target.value);
         }}
@@ -703,7 +703,7 @@ function ThreadRowDisplay({
         <button
           aria-current={selected ? 'true' : undefined}
           aria-label={getThreadRowAccessibleName(status, thread.title)}
-          className="min-w-0 flex-1 text-left outline-none"
+          className="focus-visible:ring-ring min-w-0 flex-1 rounded-sm text-left outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
           onClick={(event) => {
             // Handled here, not by the row: preventDefault keeps the click
             // visible to the page, so an open popover closes on it.

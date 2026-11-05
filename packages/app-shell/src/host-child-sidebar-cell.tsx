@@ -34,7 +34,7 @@ export function HostChildSidebarCell({
   const tint = getThreadTint(child.color);
   return (
     <button
-      className={`${THREAD_PANEL_ROW_CLASS_NAME} focus-visible:ring-ring w-full items-center gap-2 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset ${tint.washClassName}`}
+      className={`${THREAD_PANEL_ROW_CLASS_NAME} focus-visible:ring-ring w-full items-center gap-2 text-left text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-inset ${tint.washClassName}`}
       data-agent-color={child.color}
       onClick={() =>
         threadWorkspaceNavigation.open(

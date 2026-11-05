@@ -352,9 +352,11 @@ function FileLoggingCard({
                 Choose…
               </Button>
               <Button
+                aria-label="Open log folder"
                 disabled={!preferences.file.destination}
                 onClick={onOpenDestination}
                 size="sm"
+                title="Open log folder"
                 type="button"
                 variant="ghost"
               >

@@ -1785,7 +1785,16 @@ span.bs-composer-chip {
   width: 100%;
 }
 
-.assistant-ui-panel :is(.bs-activity-failed-jump, .bs-run-strip, .bs-activity-filter-chip, .bs-activity-filter-action):focus-visible {
+.assistant-ui-panel
+  :is(
+    .bs-activity-failed-jump,
+    .bs-run-strip,
+    .bs-activity-filter-chip,
+    .bs-activity-filter-action,
+    .bs-step-row,
+    .bs-approval-row-line,
+    .bs-approval-strip-grant
+  ):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }

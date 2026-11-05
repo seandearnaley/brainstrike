@@ -48,7 +48,7 @@ export function ArtifactCard({
   return (
     <li className="group relative">
       <button
-        className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring flex w-full flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:outline-none motion-reduce:transition-none"
+        className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring flex w-full flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:outline-hidden motion-reduce:transition-none"
         data-testid="artifact-card"
         onClick={() => onOpen(artifact)}
         title={`Open ${title} in its thread`}

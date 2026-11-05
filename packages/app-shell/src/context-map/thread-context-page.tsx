@@ -436,7 +436,7 @@ function LaneView({
                     // Narrow: name and tokens, then the strip on its own line.
                     'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded px-2 py-1.5 text-left',
                     '@[40rem]/context-map:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_6rem]',
-                    'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
+                    'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-hidden',
                     isSelected && 'bg-muted',
                     mode === 'window' && row.gone && 'opacity-60'
                   )}

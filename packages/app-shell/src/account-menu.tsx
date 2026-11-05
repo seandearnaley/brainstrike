@@ -25,7 +25,7 @@ export function AccountMenu({ onOpenSettings }: AccountMenuProps): ReactElement 
           <DropdownMenuTrigger asChild>
             <button
               aria-label="Open profile menu"
-              className="kinetic-depress text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring focus-visible:ring-offset-sidebar flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg transition-[transform,background-color,color] duration-200 ease-out hover:shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="kinetic-depress text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring focus-visible:ring-offset-sidebar flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg transition-[transform,background-color,color] duration-200 ease-out hover:shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden"
               type="button"
             >
               <UserRound aria-hidden="true" className="h-5 w-5" />

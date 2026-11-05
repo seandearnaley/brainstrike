@@ -15,6 +15,8 @@
 :root {
   /* Scrollbar thumb: translucent ink, so it takes the surface's tint. */
   --scrollbar-thumb: color-mix(in oklab, var(--bs-foreground) 20%, transparent);
+  /* Modal scrim: dims the page behind a dialog in the page's own ink. */
+  --scrim: color-mix(in oklab, var(--bs-foreground) 40%, transparent);
 
   --background: var(--bs-background);
   --foreground: var(--bs-foreground);
@@ -61,6 +63,8 @@
 
 .dark {
   --scrollbar-thumb: color-mix(in oklab, var(--bs-foreground) 14%, transparent);
+  /* Ink is light in dark themes, so the scrim fades toward the background. */
+  --scrim: color-mix(in oklab, var(--bs-background) 75%, transparent);
 
   --background: var(--bs-background);
   --foreground: var(--bs-foreground);
@@ -402,7 +406,7 @@
 
   /* Keep a fallback focus affordance for text-entry primitives only. */
   :where(a[href], input, textarea, select):focus-visible {
-    outline: 1.5px solid color-mix(in oklab, var(--foreground) 20%, transparent);
+    outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
 

@@ -1,5 +1,7 @@
 /** DOM lookups shared by the strip's focus and menu hooks. */
 
+import { smoothScrollBehavior } from '../lib/motion';
+
 export function findTab(root: HTMLElement | null, id: string): HTMLElement | null {
   if (!root) {
     return null;
@@ -17,13 +19,6 @@ export function findSelectedTab(root: HTMLElement | null): HTMLElement | null {
   return root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? null;
 }
 
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)')?.matches === true
-  );
-}
-
 export function revealTab(tab: HTMLElement | null, smooth: boolean): void {
   const shell = tab?.closest<HTMLElement>('[data-slot="tab-shell"]');
   // scrollIntoView is absent from unit-test DOM shims only.
@@ -31,7 +26,7 @@ export function revealTab(tab: HTMLElement | null, smooth: boolean): void {
     return;
   }
   shell.scrollIntoView({
-    behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto',
+    behavior: smooth ? smoothScrollBehavior() : 'auto',
     block: 'nearest',
     inline: 'nearest',
   });

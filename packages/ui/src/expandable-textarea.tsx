@@ -140,7 +140,7 @@ export function ExpandableTextarea({
         'border-input bg-background rounded-md border px-3 py-2',
         'ring-offset-background text-sm',
         'placeholder:text-muted-foreground',
-        'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
+        'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}

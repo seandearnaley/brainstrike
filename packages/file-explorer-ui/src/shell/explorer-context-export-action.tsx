@@ -152,7 +152,7 @@ export function ExplorerContextExportAction(): ReactElement {
                 Tree detail:
               </Label>
               <input
-                className="border-input bg-background focus-visible:ring-ring h-7 w-14 rounded-md border px-1.5 text-center text-sm tabular-nums focus-visible:ring-2 focus-visible:outline-none"
+                className="border-input bg-background focus-visible:ring-ring h-7 w-14 rounded-md border px-1.5 text-center text-sm tabular-nums focus-visible:ring-2 focus-visible:outline-hidden"
                 id={treeDetailId}
                 min="0"
                 onChange={(event) => {

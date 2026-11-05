@@ -33,7 +33,7 @@ const getNavItemStyles = (isActive: boolean): string =>
     // Active press state
     'kinetic-depress',
     // Focus visible state for keyboard navigation
-    'focus-visible:ring-sidebar-ring focus-visible:ring-offset-sidebar focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
+    'focus-visible:ring-sidebar-ring focus-visible:ring-offset-sidebar focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden',
     // Active/selected state styling - prominent background for clear indication
     isActive && [
       'bg-sidebar-accent text-sidebar-accent-foreground',

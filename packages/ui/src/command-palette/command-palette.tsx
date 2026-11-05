@@ -163,7 +163,7 @@ export function CommandPalette({
       label="Command palette"
       onOpenChange={handleOpenChange}
       open={open}
-      overlayClassName={cn('fixed inset-0 bg-black/50', COMMAND_PALETTE_OVERLAY_CLASS)}
+      overlayClassName={cn('fixed inset-0 bg-[var(--scrim)]', COMMAND_PALETTE_OVERLAY_CLASS)}
       shouldFilter={false}
     >
       {/* cmdk's Command.Dialog wraps @radix-ui/react-dialog's Content (same

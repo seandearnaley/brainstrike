@@ -219,7 +219,7 @@ export function ThreadsPanelSearch({
             aria-controls="thread-search-results"
             aria-expanded={searchActive}
             aria-label="Search threads"
-            className={`border-border bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border py-1.5 pl-7 text-[13px] leading-4 outline-none focus-visible:ring-2 ${
+            className={`border-border bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border py-1.5 pl-7 text-[13px] leading-4 outline-hidden focus-visible:ring-2 ${
               query && status === 'searching' ? 'pr-12' : 'pr-7'
             }`}
             data-testid="thread-search-input"
