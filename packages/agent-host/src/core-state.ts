@@ -386,6 +386,8 @@ export interface HostRunState {
   steps: number;
   stopAcceptance?: Promise<void> | undefined;
   stopped: boolean;
+  /** A user Stop of this run, from its commit to its joined cleanup: the thread's next run waits for it. */
+  stopping?: Promise<void> | undefined;
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;

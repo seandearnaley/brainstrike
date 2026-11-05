@@ -2,7 +2,8 @@
  * A Stop that lands while a run's end commits: the run entered a worktree, so
  * its end would carry the task on there. The Stop joins that run, so a run
  * its end started would queue behind the Stop itself and every thread's
- * commands would hang. A stopped run starts nothing after it.
+ * commands would hang. A stopped run starts nothing after it, and neither
+ * does a turn stopped while its continuation waited to start.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -17,7 +18,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostCore } from '../src/core.js';
-import type { HostPlatform } from '../src/ports.js';
+import type { HostPlatform, HostRunOwner } from '../src/ports.js';
 import {
   crashableStorePort,
   recordingAdmission,
@@ -42,7 +43,14 @@ const WORKTREE = {
   worktreeId: 'worktree-1',
 };
 
-test('a Stop while a worktree-entering run ends returns and starts no continuation', async () => {
+/** A thread whose first run enters a worktree, so its end carries the task on there. */
+async function worktreeHost(
+  options: {
+    /** Holds a batch's commit until it resolves. */
+    readonly hold?: (items: readonly AppendItem[]) => Promise<void>;
+    readonly openRun?: HostPlatform['openRun'];
+  } = {}
+) {
   const model = new MockLanguageModelV4({
     doStream: async (call) => {
       if (userTexts(call).some((input) => input.includes(WORKTREE.root.path))) {
@@ -57,6 +65,7 @@ test('a Stop while a worktree-entering run ends returns and starts no continuati
     close: async () => undefined,
     delegation: { personas: [worker], settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS } },
     maxSteps: 4,
+    ...(options.openRun ? { openRun: options.openRun } : {}),
     readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
     resolveModel: async () => model,
     tools: {
@@ -90,20 +99,13 @@ test('a Stop while a worktree-entering run ends returns and starts no continuati
         : admission;
     },
   };
-  // Hold the first run.finished commit: the run is mid-end when Stop arrives.
-  const reached = Promise.withResolvers<void>();
-  const gate = Promise.withResolvers<void>();
-  let held = false;
-  const writer = crashableStorePort(store, async (items: readonly AppendItem[]) => {
-    if (!held && items.some((item) => item.event.type === 'run.finished')) {
-      held = true;
-      reached.resolve();
-      await gate.promise;
-    }
+  const writer = crashableStorePort(store, async (items) => {
+    await options.hold?.(items);
   });
   const core = await HostCore.open(writer.port, platform, () => () => undefined);
+  const release = Promise.withResolvers<void>();
   cleanup.push(async () => {
-    gate.resolve();
+    release.resolve();
     await core.close();
     await store.close();
     await rm(root, { force: true, recursive: true });
@@ -124,6 +126,24 @@ test('a Stop while a worktree-entering run ends returns and starts no continuati
     prompt: 'Fix it.',
     threadId,
   });
+  return { core, runId, threadId };
+}
+
+test('a Stop while a worktree-entering run ends returns and starts no continuation', async () => {
+  // Hold the first run.finished commit: the run is mid-end when Stop arrives.
+  const reached = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  let held = false;
+  cleanup.push(async () => gate.resolve());
+  const { core, runId, threadId } = await worktreeHost({
+    hold: async (items) => {
+      if (!held && items.some((item) => item.event.type === 'run.finished')) {
+        held = true;
+        reached.resolve();
+        await gate.promise;
+      }
+    },
+  });
   await reached.promise;
   const stop = core.stop({ commandId: randomUUID(), runId, threadId });
   // The Stop's intent commits while the run's own end is still held.
@@ -142,4 +162,56 @@ test('a Stop while a worktree-entering run ends returns and starts no continuati
   });
   const rows = await core.read(threadId, 0);
   expect(rows.filter(({ event }) => event.type === 'run.started')).toHaveLength(1);
+});
+
+test('a turn stopped while its continuation waits to start starts no continuation', async () => {
+  // As the run's memory settles, another thread's command holds the admission
+  // queue and the composer's Stop of the turn queues behind it. The run's end
+  // decides to continue before that Stop is admitted.
+  const ready = Promise.withResolvers<{ core: HostCore; runId: string; threadId: string }>();
+  const settled = Promise.withResolvers<void>();
+  const holding = Promise.withResolvers<void>();
+  cleanup.push(async () => holding.resolve());
+  let holdNextThread = false;
+  let stop: Promise<{ outcome: string }> | undefined;
+  let other: Promise<unknown> | undefined;
+  let opened = 0;
+  const host = await worktreeHost({
+    hold: async (items) => {
+      if (holdNextThread && items.some((item) => item.event.type === 'thread.started')) {
+        holdNextThread = false;
+        await holding.promise;
+      }
+    },
+    openRun: async (): Promise<HostRunOwner> => {
+      const first = opened++ === 0;
+      return {
+        close: async () => {
+          if (!first) {
+            return;
+          }
+          const { core, runId, threadId } = await ready.promise;
+          holdNextThread = true;
+          other = core.startThread({ commandId: randomUUID() });
+          stop = core.stop({ commandId: randomUUID(), runId, threadId });
+          settled.resolve();
+        },
+        endTurn: async () => undefined,
+      };
+    },
+  });
+  ready.resolve(host);
+  await settled.promise;
+  // One read later the run's end has decided what follows it.
+  await host.core.read(host.threadId, 0);
+  holding.resolve();
+
+  await expect(stop).resolves.toEqual({ outcome: 'already-terminal' });
+  await other;
+  await host.core.idle(host.threadId);
+  const rows = await host.core.read(host.threadId, 0);
+  expect(rows.filter(({ event }) => event.type === 'run.started')).toHaveLength(1);
+  expect(
+    rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
+  ).toEqual(['completed']);
 });
