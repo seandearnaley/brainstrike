@@ -270,7 +270,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
             ) : null}
             <pre
               aria-label="Command session output"
-              className="min-h-0 flex-1 overflow-auto bg-black/95 p-3 font-mono text-[12px] leading-5 break-words whitespace-pre-wrap text-zinc-100"
+              className="bg-muted text-foreground min-h-0 flex-1 overflow-auto p-3 font-mono text-[12px] leading-5 break-words whitespace-pre-wrap"
               role="log"
             >
               {output || 'Waiting for output…'}
