@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { BlobContent } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
+import { endHostAbandonedTurns, type HostForkPoint, hostRunFork } from './abandoned-turns.ts';
 import { acceptHostChildInput } from './child-input.ts';
 import { HostContextCompactions } from './context-compaction.ts';
 import { hostCanvases } from './core-canvases.ts';
@@ -206,7 +207,7 @@ export class HostCore {
     accept: (threadId, method, params, result, events) =>
       this.accept(threadId, method, params, result, events, this.foldRows, 'full'),
     append: (threadId, events) => this.append(threadId, events, 'full', this.foldRows),
-    command: (method, params, perform) => this.settledCommand(method, params, perform),
+    command: (method, params, perform, fork) => this.settledCommand(method, params, perform, fork),
     owner: () => ({ pending: this.pendingAdmissions, platform: this.platform, runs: this.runs }),
   });
   private closing = false;
@@ -419,14 +420,17 @@ export class HostCore {
    * A command that opens the thread's next run or rewrites its history first
    * joins the memory its finished runs are still settling, outside the shared
    * admission queue so other threads never wait on it. A replay opens nothing.
+   * An edit, regenerate or rewind first ends the turns it leaves (`fork`).
    */
   private async settledCommand<T extends Json>(
     method: string,
     params: { commandId: string; threadId: string },
-    perform: () => Promise<T>
+    perform: () => Promise<T>,
+    fork?: HostForkPoint
   ): Promise<T> {
     if (!this.commands.known(params.commandId)) {
       await this.ends.settled(params.threadId);
+      await endHostAbandonedTurns(this, this.runs, params.threadId, fork);
     }
     return this.command(method, params, perform);
   }
@@ -552,15 +556,10 @@ export class HostCore {
     carry?: Pick<HostNextRun, 'follows' | 'hostPrompt' | 'turnId'>
   ): Promise<{ runId: string }> {
     const record = hostStartCommandRecord(params);
-    return this.settledCommand('run/start', record, () =>
-      this.admitRun(
-        'run/start',
-        params,
-        origin,
-        () => hostCarriedStartPosition(this.runs, this.rewinds.position(params), carry),
-        record
-      )
-    );
+    const { rewinds, runs } = this;
+    const position = () => hostCarriedStartPosition(runs, rewinds.position(params), carry);
+    const admit = () => this.admitRun('run/start', params, origin, position, record);
+    return this.settledCommand('run/start', record, admit, hostRunFork(runs, params));
   }
 
   /** A new answer to an existing committed user message, on a sibling branch. */
@@ -568,11 +567,10 @@ export class HostCore {
     params: HostParams<'run/regenerate'>,
     origin?: HostClientOrigin
   ): Promise<{ runId: string }> {
-    return this.settledCommand('run/regenerate', params, () =>
-      this.admitRun('run/regenerate', params, origin, () =>
-        hostRegeneratePosition(this.runs.values(), params)
-      )
-    );
+    const position = () => hostRegeneratePosition(this.runs.values(), params);
+    const fork = hostRunFork(this.runs, params);
+    const admit = () => this.admitRun('run/regenerate', params, origin, position);
+    return this.settledCommand('run/regenerate', params, admit, fork);
   }
 
   /** Memory readiness for the next run: read-only, never queued (`core-memory-read.ts`). */
@@ -703,7 +701,8 @@ export class HostCore {
           this.childRunPort(run, action)
         ),
       dispatch: (run, action, input) => this.dispatch(run, action, input),
-      enterWorktree: (run, action) => hostWorktreeEntry(this, this.children, run, action),
+      enterWorktree: (run, action) =>
+        hostWorktreeEntry(this, this.children, this.runs, run, action),
       finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail),
       fold: (row) => this.fold(row),
       foldRows: this.foldRows,

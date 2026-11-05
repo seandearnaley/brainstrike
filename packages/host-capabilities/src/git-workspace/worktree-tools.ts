@@ -32,9 +32,12 @@ const logger = createLogger('WorktreeTools');
 
 export const WORKTREE_TOOLS_UNAVAILABLE = 'Worktree management is not available in this session.';
 
-/** ADR-0028 decision 7: a child never moves its parent's workspace. */
+/**
+ * ADR-0028: a child never moves its parent's workspace (decision 7), and a
+ * conversation never moves away from its workers' checkout (rule 5).
+ */
 const WORKTREE_CREATE_ROOT_ONLY =
-  'Only the conversation that delegated this task can create a worktree. Report that the task needs one instead.';
+  'Only the conversation that delegated this task can create a worktree, and only while none of its background workers is still working. A delegated task reports that it needs one; otherwise wait for the workers to finish.';
 
 /** Core's binding of the run's thread to a worktree it created; absent for a child. */
 export type EnterWorktree = (worktree: {

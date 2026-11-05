@@ -24,7 +24,7 @@ Owners: [child admission](../../packages/agent-host/src/child-runs.ts), [persona
 
 Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 
-- A turn is a person's message and every run the host starts to carry it on: its wakes, and the run continued in the worktree one of its runs entered (ADR-0028 step 3; `run.started` `turnId`). Workers dispatched before and after that switch share one queue, ledger, invocation limit and root Stop.
+- A turn is a person's message and every run the host starts to carry it on: its wakes, and the run continued in the worktree one of its runs entered (ADR-0028 step 3; `run.started` `turnId`). A root enters a worktree only while none of its workers is still working, so a turn keeps one checkout (ADR-0028 rule 5); its workers from before and after the switch share one queue, ledger, invocation limit and root Stop.
   - Each run's turn is the one its `run.started` commits (`hostRunTurnId`): a wake's delivery turn, a carried-on run's `turnId`, a worker's invocation turn, otherwise its own run ID. Core and the thread summary read the same rule, so a regenerated wake reply starts its own turn in both.
   - A wake continues the turn whose invocations it delivers, else the turn of the run it follows, unless that turn was stopped: then the wake starts its own. A worker's follow-up is its own turn and never names the parent's.
 - Tree limits come from admitted subagent settings; invocation admission is atomic across parallel calls.
@@ -39,6 +39,7 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 - Background completion delivers the whole turn's invocation ledger with a durable delivery watermark.
   - Wakes use the parent thread's current committed selection and keep the original admitting client origin ([ADR-0019](../adr/0019-host-thread-run-selection.md)).
   - Delivery follows the thread, not the dispatching reply: a regenerate or edit of that reply's message takes its undelivered results once.
+  - An edit, regenerate or rewind that forks above a turn whose workers still work ends that turn first, as its Stop would, so no worker of a branch the person left keeps writing beside the new one (`abandoned-turns.ts`). Sending on from the turn keeps it.
   - An outcome is in full only in the delivery that first takes it. A later ledger of the turn lists that invocation by its outcome's opening, which still reaches the model after Memory's window drops the earlier message.
 - `HostCore.idle(threadId)` resolves once the thread and its child threads have no run executing, ending or settling and no wake pending. A run waiting on a person counts as idle. It joins promises the runs and wakes already own, so it starts nothing and never waits on a clock.
   - Tests of wakes and deliveries act, `await core.idle(threadId)`, then assert. "Nothing woke" is then a plain count, with no sleep and no poll. While a test holds a worker's model, `idle` waits for it too, so release the worker first.

@@ -1,8 +1,10 @@
 /**
- * A background worker that settles after the person rewound its parent thread:
- * the parent's wake continues the rewound branch, the one the rewind owns as
- * the thread's tip, never the branch the person rewound away from. Once a new
- * turn starts on that branch, the rewind no longer owns the tip.
+ * A background worker of a turn the rewind keeps settles after the person
+ * rewound its parent thread: the parent's wake continues the rewound branch,
+ * the one the rewind owns as the thread's tip, never the branch the person
+ * rewound away from. Once a new turn starts on that branch, the rewind no
+ * longer owns the tip. A rewound turn's own workers end with it
+ * (`abandoned-turn.integration.test.ts`).
  */
 import { randomUUID } from 'node:crypto';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -74,20 +76,21 @@ test('a wake after a rewind continues the rewound branch', async () => {
   const harness = await setupChildRunHost(delegatingModel(release.promise), cleanup);
   const core = harness.core();
   const { threadId } = harness;
-  const head = await harness.start('Hello.');
-  await core.idle(threadId);
-  const dispatch = randomUUID();
+  const head = await harness.start('DISPATCH the slow worker.');
+  await rowsUntil(harness, threadId, finished(head), 5000);
+  // The person sends on while the worker works, then rewinds that message away.
+  const second = randomUUID();
   const { runId: abandoned } = await core.startRun({
-    commandId: dispatch,
+    commandId: second,
     modelId: 'scripted',
-    prompt: 'DISPATCH the slow worker.',
+    prompt: 'Second.',
     threadId,
   });
   await rowsUntil(harness, threadId, finished(abandoned), 5000);
   await expect(
     core.rewinds.rewind({
       commandId: randomUUID(),
-      messageId: dispatch,
+      messageId: second,
       mode: 'conversation-only',
       threadId,
     })
