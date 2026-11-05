@@ -140,7 +140,6 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'run.resumed',
   'run.stalled',
   'run.started',
-  'run.steered',
   'run.step.finished',
   'run.step.started',
   'subagent.failed',

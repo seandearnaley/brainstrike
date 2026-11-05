@@ -4,8 +4,7 @@
 // `thread.updated`: title, colour and icon, also in `thread/list`), withheld observational memory,
 // tool catalog IDs on committed tool events, image attachments on a user message (`run/start` and
 // `run.started`), committed workspace edit attribution, `checkpoint/revert`, per-thread tool state,
-// the prompt breakdown on `provider.request.prepared`, `run/steer` (end the active run at its next
-// step boundary), run attempt records, `mcp.tools.unavailable`, committed with `run.started` for
+// the prompt breakdown on `provider.request.prepared`, run attempt records, `mcp.tools.unavailable`, committed with `run.started` for
 // each configured MCP server whose tools the run proceeds without, permission grants answered with
 // an approval (`interaction/respond` grant, `permission.granted`, the request's risk), plan mode
 // (`run/start`, `run/regenerate` and `run.started` planMode), child threads (BST-1932):
@@ -91,4 +90,7 @@
 // variant; `model.messages` carries the notices a running run took at a step (`delivery`);
 // `run/input` is a notice on any thread, read at the run's next step or starting the person's
 // turn on an idle thread, and a delivery names the inputs it took (`inputs`, `ledger` optional).
-export const AGENT_HOST_PROTOCOL_VERSION = 21;
+// v22 (2026-11-05): `run/steer` is gone. A person's message to a running thread is `run/input`,
+// which the run reads at its next step, so no run ends early to make room for it. Removing a
+// method is why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 22;
