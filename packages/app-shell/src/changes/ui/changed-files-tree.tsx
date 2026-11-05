@@ -35,7 +35,7 @@ import {
   TreeTable,
   useContextMenuTarget,
 } from '@brainstrike/ui';
-import { type ReactElement, useEffect, useMemo, useRef } from 'react';
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { useChangesStore } from '../changes-store';
 import { CHANGED_FILES_TREE_COLUMNS } from './changed-files-tree-columns';
 import {
@@ -47,8 +47,9 @@ import {
 export interface ChangedFilesTreeProps {
   /**
    * Structural identity of the active changeset. Scopes the first-load
-   * auto-expand so switching source re-expands the NEW tree instead of
-   * leaving it collapsed (the surface stays mounted for the whole session).
+   * auto-expand and the chosen row, so switching source re-expands the NEW
+   * tree and chooses nothing in it (the surface stays mounted for the whole
+   * session).
    */
   readonly changesetKey: string;
   readonly files: readonly ChangedFileEntry[];
@@ -64,8 +65,6 @@ export interface ChangedFilesTreeProps {
   readonly rootLabelById?: ReadonlyMap<string, string>;
   /** See module doc comment. Defaults to empty — every root resolves to `null`. */
   readonly rootPathById?: ReadonlyMap<string, string>;
-  /** The chosen file's `changedFileKey`. */
-  readonly selectedFileKey?: string | null | undefined;
 }
 
 const EMPTY_ROOT_PATHS: ReadonlyMap<string, string> = new Map();
@@ -140,7 +139,6 @@ export function ChangedFilesTree({
   onSelectFile,
   rootLabelById = EMPTY_ROOT_LABELS,
   rootPathById = EMPTY_ROOT_PATHS,
-  selectedFileKey = null,
 }: ChangedFilesTreeProps): ReactElement {
   const expandedIds = useChangesStore((state) => state.expandedIds);
   const setExpandedIds = useChangesStore((state) => state.setExpandedIds);
@@ -189,9 +187,16 @@ export function ChangedFilesTree({
     setContextMenuTarget(null);
   };
 
+  // The chosen row belongs to the changeset it was chosen in.
+  const [chosen, setChosen] = useState<{
+    readonly changesetKey: string;
+    readonly id: string;
+  } | null>(null);
+  const selectedId = chosen?.changesetKey === changesetKey ? chosen.id : null;
   const handleSelect = (nodeId: string | null) => {
     const node = nodeId === null ? undefined : nodeById.get(nodeId);
     if (node?.data.kind === 'file') {
+      setChosen({ changesetKey, id: node.id });
       onSelectFile?.(node.data.entry);
     }
   };
@@ -220,7 +225,7 @@ export function ChangedFilesTree({
           onSelect={handleSelect}
           onToggleExpand={toggleExpanded}
           rowHeight={ROW_HEIGHT}
-          selectedId={selectedFileKey}
+          selectedId={selectedId}
           selectionMode="single"
         />
       </div>

@@ -10,7 +10,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { changedFileKey, useChangesStore } from '../changes-store';
+import { useChangesStore } from '../changes-store';
 import { ChangedFilesTree } from '../ui/changed-files-tree';
 
 // The tree virtualizes its rows and happy-dom measures a zero-size viewport,
@@ -85,20 +85,26 @@ describe('ChangedFilesTree file choice', () => {
     expect(onSelectFile).toHaveBeenCalledWith(FILES[1]);
   });
 
-  it('marks the chosen file selected and offers no checkboxes', () => {
-    render(
-      withRegistry(
-        <ChangedFilesTree
-          changesetKey="cs-1"
-          files={FILES}
-          inventory={null}
-          selectedFileKey={changedFileKey(FILES[1] as ChangedFileEntry)}
-        />
-      )
-    );
+  it('marks the chosen file selected and offers no checkboxes', async () => {
+    const user = userEvent.setup();
+    render(withRegistry(<ChangedFilesTree changesetKey="cs-1" files={FILES} inventory={null} />));
+
+    await user.click(rowOf('src/b.ts'));
 
     expect(rowOf('src/b.ts')).toHaveAttribute('aria-selected', 'true');
     expect(rowOf('src/a.ts')).toHaveAttribute('aria-selected', 'false');
     expect(screen.queryAllByRole('checkbox')).toEqual([]);
+  });
+
+  it('chooses nothing in the next changeset, even a file both share', async () => {
+    const user = userEvent.setup();
+    const tree = (changesetKey: string) =>
+      withRegistry(<ChangedFilesTree changesetKey={changesetKey} files={FILES} inventory={null} />);
+    const { rerender } = render(tree('cs-1'));
+    await user.click(rowOf('src/b.ts'));
+
+    rerender(tree('cs-2'));
+
+    expect(rowOf('src/b.ts')).toHaveAttribute('aria-selected', 'false');
   });
 });

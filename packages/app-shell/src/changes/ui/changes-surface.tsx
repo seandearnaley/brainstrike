@@ -31,7 +31,7 @@ import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type { ChangedFileEntry, Changeset, GitInventory } from '@brainstrike/types';
 import type { DiffReviewHandle } from '@brainstrike/ui';
-import { type ReactElement, useMemo, useRef, useState } from 'react';
+import { type ReactElement, useMemo, useRef } from 'react';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { changedFileKey } from '../changes-store';
 import { useDiffCommentsToThread } from '../diff-line-comment-to-thread';
@@ -104,11 +104,8 @@ export function ChangesSurface(): ReactElement {
   const rootLabelById = useRootLabelById();
   const sendComments = useDiffCommentsToThread(rootLabelById);
   const review = useRef<DiffReviewHandle | null>(null);
-  const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null);
   const selectFile = (entry: ChangedFileEntry) => {
-    const key = changedFileKey(entry);
-    setSelectedFileKey(key);
-    review.current?.scrollToFile(key);
+    review.current?.scrollToFile(changedFileKey(entry));
   };
 
   const changeset = useChangesNavigationStore((state) => state.activeChangeset);
@@ -192,7 +189,6 @@ export function ChangesSurface(): ReactElement {
               onSelectFile={selectFile}
               rootLabelById={rootLabelById}
               rootPathById={rootPathById}
-              selectedFileKey={selectedFileKey}
             />
           </div>
           <div className="flex min-w-0 flex-1 flex-col">

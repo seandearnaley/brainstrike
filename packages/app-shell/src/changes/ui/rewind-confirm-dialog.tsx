@@ -138,11 +138,8 @@ function RewindPreviewRegion({
   const { inventory } = useGitInventory();
   const rootLabelById = useRootLabelById();
   const review = useRef<DiffReviewHandle | null>(null);
-  const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null);
   const selectFile = (entry: ChangedFileEntry) => {
-    const key = changedFileKey(entry);
-    setSelectedFileKey(key);
-    review.current?.scrollToFile(key);
+    review.current?.scrollToFile(changedFileKey(entry));
   };
   const preview = rewind.preview;
   const ready = preview?.ok === true ? preview : null;
@@ -203,7 +200,6 @@ function RewindPreviewRegion({
               loading={rewind.loading}
               onSelectFile={selectFile}
               rootLabelById={rootLabelById}
-              selectedFileKey={selectedFileKey}
             />
           </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
