@@ -24,21 +24,37 @@ vi.mock('@assistant-ui/react-streamdown', () => ({
     components?: Record<string, unknown>;
   }) => (
     <div className={className} data-testid="markdown-primitive">
-      {(
-        components?.['CodeHeader'] as
-          | ((props: { language?: string; code?: string }) => React.ReactNode)
-          | undefined
-      )?.({
-        code: 'const answer = 42;',
-        language: 'typescript',
-      })}
+      <FenceSlot
+        component={components?.['SyntaxHighlighter'] as React.ComponentType<FenceSlotProps>}
+      />
     </div>
   ),
 }));
 
-// Mock the syntax highlighter
-vi.mock('../shiki-highlighter', () => ({
-  SyntaxHighlighterComponent: () => <div data-testid="syntax-highlighter">Code</div>,
+interface FenceSlotProps {
+  readonly code: string;
+  readonly components: Record<'Code' | 'Pre', React.ComponentType<{ children?: React.ReactNode }>>;
+  readonly language: string;
+}
+
+/** Renders one fenced block through the chat's SyntaxHighlighter slot, as Streamdown does. */
+function FenceSlot({ component: Slot }: { component: React.ComponentType<FenceSlotProps> }) {
+  return (
+    <Slot
+      code="const answer = 42;"
+      components={{
+        Code: ({ children }) => <code>{children}</code>,
+        Pre: ({ children }) => <pre>{children}</pre>,
+      }}
+      language="typescript"
+    />
+  );
+}
+
+// The fence shows its plain fallback: no highlighter in this unit test.
+vi.mock('../../../ui/src/shiki/highlighter-core', () => ({
+  normalizeShikiLanguage: (language: string) => language,
+  useShikiHighlighter: () => null,
 }));
 
 // Preserve the original seam: CodeBlockHeader owns this relative primitive,
