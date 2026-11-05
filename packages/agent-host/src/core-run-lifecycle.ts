@@ -109,27 +109,24 @@ export async function steerHostRun(
 }
 
 /**
- * run/stop: commit the intent, then join the physical stop. A repeated Stop
- * observes the same joined completion, including its failure.
+ * run/stop's commit: the intent, in the admission queue. An ended run's Stop
+ * still marks its turn stopped and ends the turn's running children; aborting
+ * it would only cancel the memory it settles.
  */
 export async function acceptHostRunStop(
   run: HostRunState,
-  accept: (result: { outcome: 'stopped' | 'already-terminal' }) => Promise<void>,
-  join: () => Promise<void>
+  accept: (result: { outcome: 'stopped' | 'already-terminal' }) => Promise<void>
 ): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
   const result = {
     outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
   };
   if (run.stopAcceptance !== undefined) {
-    await join();
     await run.stopAcceptance;
     return result;
   }
   const acceptance = Promise.withResolvers<void>();
   run.stopAcceptance = acceptance.promise;
   acceptance.promise.catch(() => undefined);
-  // An ended run's Stop still marks its turn stopped and ends the turn's
-  // running children; aborting it would only cancel the memory it settles.
   run.stopped = true;
   if (result.outcome === 'stopped') {
     run.controller.abort(new Error('Run stopped by user'));
@@ -140,15 +137,51 @@ export async function acceptHostRunStop(
     run.stopAcceptance = undefined;
   } catch (cause) {
     acceptance.reject(cause);
-    const cleanup = await Promise.allSettled([join()]);
-    const failure = cleanup[0];
-    if (failure?.status === 'rejected' && failure.reason !== cause) {
-      throw new AggregateError([cause, failure.reason], 'Stop persistence and cleanup failed');
-    }
     throw cause;
   }
-  await join();
   return result;
+}
+
+/**
+ * run/stop (audit SC-6): `commit` records the intent in the host's one
+ * admission queue, and the physical stop joins outside it, so no other
+ * thread's command waits on this tree's teardown. The reply still waits for
+ * that join, and so does the thread's next run (`run.stopping`). A Stop whose
+ * commit failed still ends what it aborted.
+ */
+export function stopHostRunOutsideQueue<T>(
+  run: HostRunState | undefined,
+  join: () => Promise<void>,
+  commit: () => Promise<T>
+): Promise<T> {
+  const stopping = (async () => {
+    let result: T;
+    try {
+      result = await commit();
+    } catch (cause) {
+      const [cleanup] = await Promise.allSettled([join()]);
+      if (cleanup?.status === 'rejected' && cleanup.reason !== cause) {
+        throw new AggregateError([cause, cleanup.reason], 'Stop persistence and cleanup failed');
+      }
+      throw cause;
+    }
+    await join();
+    return result;
+  })();
+  if (run) {
+    // The Stop's own reply carries its failure; the next run only waits for it.
+    const joined = stopping.then(
+      () => undefined,
+      () => undefined
+    );
+    run.stopping = joined;
+    void joined.then(() => {
+      if (run.stopping === joined) {
+        run.stopping = undefined;
+      }
+    });
+  }
+  return stopping;
 }
 
 /** Join every settled outcome, failing with all of the failures rather than the first. */
@@ -373,7 +406,9 @@ export async function joinHostClosingRun(
   closeOwner: (run: HostRunState) => Promise<void>,
   finish: (run: HostRunState) => Promise<void>
 ): Promise<readonly unknown[]> {
-  const task = await Promise.allSettled([run.task ?? Promise.resolve()]);
+  // A Stop joins its stopped work outside the admission queue (`run.stopping`,
+  // which never rejects); close joins it too, so that work ends before its owners close.
+  const task = await Promise.allSettled([run.task ?? Promise.resolve(), run.stopping]);
   // A public SDK task can reject after committing its transcript checkpoint.
   // Join its actual effects and resource owners before separating that outcome
   // from an unproved cleanup. Never classify by abort identity or error text.
@@ -433,21 +468,23 @@ export function settleHostRunOwner(
 
 /**
  * The thread's next run or rewind reads or rewrites its history: it first joins
- * the memory its finished runs are still settling.
+ * a Stop still ending its run and the memory its finished runs are still settling.
  */
 export function joinHostThreadSettlements(
   runs: Iterable<HostRunState>,
   threadId: string
 ): Promise<void> {
   const settling = [...runs].flatMap((run) =>
-    run.threadId === threadId && run.settlement ? [run.settlement] : []
+    run.threadId === threadId
+      ? [run.stopping, run.settlement].filter((work) => work !== undefined)
+      : []
   );
   return joinAllHostWork(settling, 'Run memory settlement failed');
 }
 
 /** The work a run still owns: its task, effects, end and memory settlement. */
 function hostRunWork(run: HostRunState): Promise<unknown>[] {
-  return [run.task, run.completion, run.settlement, ...run.effects].filter(
+  return [run.task, run.completion, run.settlement, run.stopping, ...run.effects].filter(
     (work) => work !== undefined
   );
 }

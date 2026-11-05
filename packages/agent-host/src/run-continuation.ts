@@ -17,6 +17,7 @@ import {
   type HostBrowserOriginStore,
   saveHostBrowserOrigin,
 } from './browser-origin-answers.ts';
+import { hostTurnStopped } from './committed-identities.ts';
 import type { HostRunExecutionPorts } from './core-run-execution.ts';
 import {
   applyHostPermissionGrant,
@@ -43,7 +44,7 @@ import {
   hostRunTools,
   outsideSandboxGrantKey,
 } from './run-admission.ts';
-import { type HostRunCarry, hostStartPosition } from './run-branch.ts';
+import { type HostRunCarry, type HostRunPosition, hostStartPosition } from './run-branch.ts';
 
 const logger = createLogger('AgentHost');
 
@@ -376,8 +377,32 @@ function enteredWorktreeRunParams(
  * commits it as failed with that cause instead of starting it.
  */
 export interface HostNextRun extends HostRunCarry {
+  /**
+   * The turn of the run this one carries on. A Stop of that turn committed
+   * while this run waited to start refuses it at its admission, so it never
+   * starts (`hostCarriedStartPosition`).
+   */
+  readonly follows?: string;
   readonly params: HostParams<'run/start'>;
   readonly refused?: Error;
+}
+/** A run carried on from a turn that a Stop ended while it waited: it starts nothing. */
+export class HostTurnStoppedError extends Error {
+  constructor(turnId: string) {
+    super(`Turn ${turnId} was stopped before its next run started`);
+    this.name = 'HostTurnStoppedError';
+  }
+}
+/** A run/start's position; a carried-on run is admitted only while the turn it follows is not stopped. */
+export function hostCarriedStartPosition(
+  runs: ReadonlyMap<string, Run>,
+  params: HostParams<'run/start'>,
+  carry?: Pick<HostNextRun, 'follows' | 'hostPrompt' | 'turnId'>
+): HostRunPosition {
+  if (carry?.follows !== undefined && hostTurnStopped(runs, carry.follows)) {
+    throw new HostTurnStoppedError(carry.follows);
+  }
+  return hostStartPosition(runs.values(), params, carry);
 }
 /**
  * The run the host starts to carry a completed run's task on: its approved
@@ -387,11 +412,16 @@ export interface HostNextRun extends HostRunCarry {
 export function hostContinuationRun(run: Run, turnId: string): HostNextRun | undefined {
   const plan = approvedHostPlan(run);
   if (plan) {
-    return { params: approvedHostPlanRunParams(run, plan) };
+    return { follows: turnId, params: approvedHostPlanRunParams(run, plan) };
   }
   return run.enteredWorktree
     ? // The host wrote this prompt: it is model input, never the person's words.
-      { hostPrompt: true, params: enteredWorktreeRunParams(run, run.enteredWorktree), turnId }
+      {
+        follows: turnId,
+        hostPrompt: true,
+        params: enteredWorktreeRunParams(run, run.enteredWorktree),
+        turnId,
+      }
     : undefined;
 }
 /**
@@ -400,7 +430,7 @@ export function hostContinuationRun(run: Run, turnId: string): HostNextRun | und
  */
 export async function startHostNextRun(
   runs: Iterable<Run>,
-  { params, refused, ...carry }: HostNextRun,
+  { follows: _follows, params, refused, ...carry }: HostNextRun,
   start: () => Promise<unknown>,
   commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>
 ): Promise<boolean> {
@@ -411,6 +441,10 @@ export async function startHostNextRun(
     await start();
     return true;
   } catch (cause) {
+    // The person stopped the turn: nothing follows it, and nothing failed.
+    if (cause instanceof HostTurnStoppedError) {
+      return false;
+    }
     const runId = randomUUID();
     await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, carry));
     return false;
