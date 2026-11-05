@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const shikiMocks = vi.hoisted(() => ({
   createHighlighterCore: vi.fn(),
-  createOnigurumaEngine: vi.fn(() => ({ engine: 'oniguruma' })),
+  // The real engine owns the Wasm loader it is handed. The stub never needs the
+  // Wasm, but still settles the loader: Shiki 4.6 decompresses it on import with
+  // Response#bytes, which happy-dom lacks, and an unobserved rejection fails the run.
+  createOnigurumaEngine: vi.fn((wasm: Promise<unknown>) => {
+    wasm.catch(() => undefined);
+    return { engine: 'oniguruma' };
+  }),
 }));
 
 vi.mock('react-shiki/core', () => ({

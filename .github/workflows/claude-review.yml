@@ -63,13 +63,13 @@ jobs:
       # The PR head, not the merge ref, so line numbers the reviewer reads are
       # the ones GitHub anchors comments to. No credentials stay in .git/config:
       # the reviewer can read the checkout.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
