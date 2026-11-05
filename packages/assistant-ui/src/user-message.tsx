@@ -1,5 +1,4 @@
 import { ActionBarPrimitive, MessagePrimitive, useAui, useAuiState } from '@assistant-ui/react';
-import { CHILD_INPUT_DELIVERY_METADATA_KEY } from '@brainstrike/assistant-contract';
 import { TooltipIconButton, useCopyToClipboard } from '@brainstrike/ui';
 import { CheckIcon, CopyIcon, PencilIcon } from 'lucide-react';
 import { type ReactNode, use } from 'react';
@@ -27,9 +26,6 @@ import { UserMessageText } from './user-message-text';
 export const UserMessage = () => {
   const messageId = useAuiState((state) => state.message.id);
   const threadKey = use(ActiveThreadKeyContext);
-  const childInputDelivery = useAuiState(
-    (state) => state.message.metadata.custom[CHILD_INPUT_DELIVERY_METADATA_KEY]
-  );
   // Approval action messages ("Approved <tool>.") are transport bookkeeping —
   // kept in thread state (outcome locking + resume runConfig ride on them,
   // and they are excluded from every outbound payload at the transport seam)
@@ -73,16 +69,6 @@ export const UserMessage = () => {
           BST-1575). */}
       <div className="col-start-2 row-start-2 flex max-w-xl flex-col items-end gap-2">
         <UserMessageAttachments />
-        {childInputDelivery === 'pending' && (
-          <p className="text-muted-foreground text-sm" role="status">
-            Delivery unconfirmed. This input will not be replayed automatically.
-          </p>
-        )}
-        {childInputDelivery === 'delivered' && (
-          <p className="text-muted-foreground text-xs" role="status">
-            Accepted by child
-          </p>
-        )}
         {hasBubbleContent ? (
           <ExpandableMessageContent
             className="aui-user-message-content bg-muted max-w-full rounded-2xl px-4 py-2 break-words"

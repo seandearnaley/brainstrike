@@ -69,8 +69,6 @@
     "./tool-suspend": "./src/tool-suspend.ts",
     "./user-personas": "./src/user-personas.ts",
     "./model-reasoning": "./src/model-reasoning.ts",
-    "./delegated-conversation-stream": "./src/delegated-conversation-stream.ts",
-    "./child-followup": "./src/child-followup.ts",
     "./boundary-result": "./src/boundary-result.ts",
     "./boundary-failure": "./src/boundary-failure.ts",
     "./schema-boundary": "./src/schema-boundary.ts",
