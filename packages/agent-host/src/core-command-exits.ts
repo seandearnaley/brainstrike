@@ -8,15 +8,18 @@
  * it when its run ends, an idle root wakes for it, and any other run the
  * thread starts first carries it.
  *
- * Process-local: a session never outlives its host, so a restart leaves
- * nothing to report. The delivery a run commits records which exits it took.
+ * Each exit is a notice (ADR-0028 step 3b), committed on the thread that
+ * hears it, so one that no run has taken yet survives a restart. The delivery
+ * a run commits records which exits it took.
  */
+import { createLogger } from '@brainstrike/logging';
 import { hostChildCallSign } from './child-presentation.ts';
-import { hostRunTurnId, hostTurnStopped } from './committed-identities.ts';
 import type { HostChildRuns } from './core-child-runs.ts';
 import type { HostRunState } from './core-state.ts';
+import { type HostSessionNotice, hostNoticeBranch } from './notices.ts';
 import type { HostCommandSessionExit, HostPlatform } from './ports.ts';
-import type { HostChildDelivery, HostCommandSessionDelivery } from './protocol.ts';
+
+const logger = createLogger('AgentHost');
 
 /** The share of a session's output a model is pointed at: about a screen of log. */
 const TAIL_UTF16_CODE_UNITS = 4000;
@@ -52,20 +55,27 @@ export function describeHostCommandSessionExits(
   ].join('\n');
 }
 
-export function hostCommandSessionDelivery(
-  exit: HostCommandSessionExit
-): HostCommandSessionDelivery {
+/** An exit as the notice the thread that hears it is told (ADR-0028 step 3b). */
+function hostSessionNotice(exit: HostCommandSessionExit): HostSessionNotice {
   return {
-    exitCode: exit.exitCode,
-    rootId: exit.rootId,
-    sessionId: exit.sessionId,
-    signal: exit.signal,
-    threadId: exit.threadId,
+    createdAt: exit.createdAt,
+    exitedAt: exit.exitedAt,
+    kind: 'command-session',
+    outputCursor: exit.outputCursor,
+    session: {
+      exitCode: exit.exitCode,
+      rootId: exit.rootId,
+      sessionId: exit.sessionId,
+      signal: exit.signal,
+      threadId: exit.threadId,
+    },
   };
 }
 
 interface HostCommandExitPorts {
-  readonly children: Pick<HostChildRuns, 'isChild' | 'parentOf'>;
+  readonly children: Pick<HostChildRuns, 'isChild' | 'notices' | 'parentOf'>;
+  /** Commit a notice on the thread that hears it. */
+  readonly post: (threadId: string, notice: HostSessionNotice) => Promise<unknown>;
   readonly runs: () => ReadonlyMap<string, HostRunState>;
   /** Admit the thread's wake once its settlements join. */
   readonly wake: (threadId: string) => void;
@@ -73,7 +83,8 @@ interface HostCommandExitPorts {
 
 export class HostCommandSessionExits {
   private readonly ports: HostCommandExitPorts;
-  private readonly queued = new Map<string, HostCommandSessionExit[]>();
+  /** Each thread's notices still committing: `idle` joins them. */
+  private readonly posting = new Map<string, Set<Promise<void>>>();
   private unsubscribe: (() => void) | undefined;
 
   constructor(ports: HostCommandExitPorts) {
@@ -82,7 +93,9 @@ export class HostCommandSessionExits {
 
   /** Hear the platform's ended sessions until `close`. */
   listen(platform: Pick<HostPlatform, 'commandSessionExits'>): void {
-    this.unsubscribe = platform.commandSessionExits?.subscribe((exit) => this.report(exit));
+    this.unsubscribe = platform.commandSessionExits?.subscribe((exit) =>
+      this.post(this.listener(exit.threadId), hostSessionNotice(exit))
+    );
   }
 
   close(): void {
@@ -98,12 +111,6 @@ export class HostCommandSessionExits {
     return this.own(threadId).some((run) => !run.terminal);
   }
 
-  /** A stopped turn wakes for nothing: its thread's exits wait for the person's next turn. */
-  private stopped(threadId: string): boolean {
-    const tip = this.own(threadId).at(-1);
-    return tip !== undefined && hostTurnStopped(this.ports.runs(), hostRunTurnId(tip));
-  }
-
   /** The thread that hears an exit: the starter while it runs, else its nearest busy or root ancestor. */
   private listener(threadId: string): string {
     let target = threadId;
@@ -117,59 +124,55 @@ export class HostCommandSessionExits {
     return target;
   }
 
-  report(exit: HostCommandSessionExit): void {
-    const target = this.listener(exit.threadId);
-    if (this.own(target).length === 0) {
-      // A deleted thread has no run left to hear it.
+  /** Tell `threadId` once, then wake it: the wake admits only an idle thread. */
+  private post(threadId: string, notice: HostSessionNotice): void {
+    const { children, post, wake } = this.ports;
+    // A deleted thread has no run left to hear it.
+    if (
+      this.own(threadId).length === 0 ||
+      children.notices.has(threadId, notice.session.sessionId)
+    ) {
       return;
     }
-    const queue = this.queued.get(target) ?? [];
-    if (!queue.some((queuedExit) => queuedExit.sessionId === exit.sessionId)) {
-      queue.push(exit);
-    }
-    this.queued.set(target, queue);
-    if (!(this.active(target) || this.stopped(target))) {
-      this.ports.wake(target);
-    }
+    const posting = this.posting.get(threadId) ?? new Set<Promise<void>>();
+    this.posting.set(threadId, posting);
+    const posted = post(threadId, notice)
+      .then(() => wake(threadId))
+      .catch((cause: unknown) => reportHostExitNoticeFailure(threadId, cause))
+      .finally(() => {
+        posting.delete(posted);
+        if (posting.size === 0 && this.posting.get(threadId) === posting) {
+          this.posting.delete(threadId);
+        }
+      });
+    posting.add(posted);
   }
 
   /** A run ended: an idle child's exits go on to the thread that hears them now. */
   handOn(threadId: string): void {
-    if (!this.ports.children.isChild(threadId) || this.active(threadId)) {
+    const { children, runs } = this.ports;
+    if (!children.isChild(threadId) || this.active(threadId)) {
       return;
     }
-    const queue = this.queued.get(threadId);
-    this.queued.delete(threadId);
-    for (const exit of queue ?? []) {
-      this.report(exit);
+    const branch = hostNoticeBranch(runs(), this.own(threadId).at(-1));
+    for (const notice of children.notices.due(threadId, branch)) {
+      if (notice.kind === 'command-session') {
+        this.post(this.listener(threadId), { ...notice, handedOnFrom: threadId });
+      }
     }
   }
 
-  /** The exits the thread's next run delivers, whatever starts it. */
-  pending(threadId: string): readonly HostCommandSessionExit[] {
-    return this.queued.get(threadId) ?? [];
+  /** The thread's notices still committing. */
+  inFlight(threadId: string): Promise<void>[] {
+    return [...(this.posting.get(threadId) ?? [])];
   }
+}
 
-  /** Whether the exits waiting for `threadId` wake it: not after a Stop. */
-  wakes(threadId: string): boolean {
-    return this.pending(threadId).length > 0 && !this.stopped(threadId);
-  }
-
-  /** The exits a committed run's delivery took no longer wait. */
-  delivered(threadId: string, delivery: HostChildDelivery | undefined): void {
-    if (!delivery?.commandSessions) {
-      return;
-    }
-    const taken = new Set(delivery.commandSessions.map((session) => session.sessionId));
-    const left = (this.queued.get(threadId) ?? []).filter((exit) => !taken.has(exit.sessionId));
-    if (left.length > 0) {
-      this.queued.set(threadId, left);
-    } else {
-      this.queued.delete(threadId);
-    }
-  }
-
-  forget(threadId: string): void {
-    this.queued.delete(threadId);
-  }
+/** A notice that did not commit is reported; the session's end is not told. */
+function reportHostExitNoticeFailure(threadId: string, cause: unknown): void {
+  logger.warn('Host command session notice was not committed', {
+    code: 'host_command_exit_notice_failed',
+    errorName: cause instanceof Error ? cause.name : typeof cause,
+    threadId,
+  });
 }

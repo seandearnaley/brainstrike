@@ -131,20 +131,25 @@ test('an input committed after a failed child run is refused, and the parent sti
   expect(refused.at(-1)?.detail).toContain('before it read this input');
 });
 
-test('an input committed after the child run ended starts its next run and reports once', async () => {
+test('an input committed after the child run ended starts its next run, and each run reports once', async () => {
   const model = delegating('answer');
   const { childThreadId, harness } = await heldChildEnd(model);
   expect(await childThreads(harness)).toEqual([childThreadId]);
-  // The input's run finishes, then the parent's run that hears the child.
   const finishedRuns = async (threadId: string) =>
     (await harness.core().read(threadId, 0)).flatMap(({ event }) =>
       event.type === 'run.finished' ? [event.runId] : []
     );
   await harness.core().idle(harness.threadId);
-  expect(await finishedRuns(childThreadId)).toHaveLength(2);
-  const heard = await parentDeliveries(harness, childThreadId);
-  expect(heard).toHaveLength(1);
-  expect(await finishedRuns(harness.threadId)).toContain(heard[0]);
+  const [answered, followed] = await finishedRuns(childThreadId);
+  // In commit order: the child's answer ended before the input, so it reports, then the input's run does.
+  const reported = (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
+    event.type === 'run.started'
+      ? (event.delivery?.entries ?? []).flatMap((entry) =>
+          entry.childThreadId === childThreadId ? [entry.childRunId] : []
+        )
+      : []
+  );
+  expect(reported).toEqual([answered, followed]);
   expect(
     model.doStreamCalls.filter((call) => userTexts(call).some((value) => value.includes(FOLLOW)))
   ).toHaveLength(1);

@@ -1,10 +1,6 @@
 import { settleHostChildInput, takeHostChildInput } from './child-input.ts';
 import { hostRunTurnId, hostTurnStopped } from './committed-identities.ts';
-import {
-  type HostChildRuns,
-  hostDeliveryPosition,
-  reportHostChildWakeFailure,
-} from './core-child-runs.ts';
+import { type HostChildRuns, reportHostChildWakeFailure } from './core-child-runs.ts';
 import { HostCommandSessionExits } from './core-command-exits.ts';
 import {
   awaitHostThreadsIdle,
@@ -13,8 +9,9 @@ import {
 } from './core-run-lifecycle.ts';
 import type { HostRunState } from './core-state.ts';
 import { hostRunTerminalEvents } from './hook-context.ts';
-import type { HostClientOrigin, HostDelegation } from './ports.ts';
-import type { HostChildDelivery, HostEvent, HostLogRow, HostParams } from './protocol.ts';
+import { hostDeliveryPosition } from './notices.ts';
+import type { HostClientOrigin } from './ports.ts';
+import type { HostEvent, HostLogRow, HostNotice, HostParams } from './protocol.ts';
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
 import { endHostRunTurn } from './run-admission.ts';
 import type { HostRunPosition } from './run-branch.ts';
@@ -29,9 +26,9 @@ export interface HostRunEndPorts {
   readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
   /** Admit the wake run `HostChildRuns.wakeParams` chose. */
   readonly admitWake: (wake: HostWake) => Promise<unknown>;
+  /** One transaction: the run's terminal events and the notices its end posts on other threads. */
   readonly appendTerminal: (
-    threadId: string,
-    events: readonly HostEvent[],
+    items: readonly { readonly event: HostEvent; readonly threadId: string }[],
     beforePublish: (rows: readonly HostLogRow[]) => void
   ) => Promise<unknown>;
   readonly children: HostChildRuns;
@@ -39,6 +36,8 @@ export interface HostRunEndPorts {
   readonly closing: () => boolean;
   readonly deletions: ReadonlyMap<string, unknown>;
   readonly foldRows: (rows: readonly HostLogRow[]) => void;
+  /** Commit a notice on `threadId` and fold it. */
+  readonly post: (threadId: string, notice: HostNotice) => Promise<unknown>;
   readonly presentations: Pick<HostThreadPresentationState, 'finishing' | 'settle'>;
   readonly read: (threadId: string) => Promise<HostLogRow[]>;
   readonly runs: () => ReadonlyMap<string, HostRunState>;
@@ -61,7 +60,7 @@ type HostWake = NonNullable<ReturnType<HostChildRuns['wakeParams']>>;
  */
 export class HostRunEnds {
   private readonly ports: HostRunEndPorts;
-  /** Command sessions a run started that ended by themselves, until a wake reports them. */
+  /** Command sessions a run started that ended by themselves, each told as a notice. */
   readonly exits: HostCommandSessionExits;
   private readonly waking = new Map<string, Set<Promise<void>>>();
 
@@ -69,40 +68,43 @@ export class HostRunEnds {
     this.ports = ports;
     this.exits = new HostCommandSessionExits({
       children: ports.children,
+      post: (threadId, notice) => ports.post(threadId, notice),
       runs: ports.runs,
       wake: (threadId) => this.wake(threadId),
     });
   }
 
-  /** A new run's position with the child results and ended sessions it delivers. */
+  /**
+   * A new run's position with the notices it takes: those no run on the
+   * branch it grows from has taken (ADR-0028 step 3b).
+   */
   deliveryPosition(
     method: 'run/start' | 'run/regenerate' | 'wake',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
     position: HostRunPosition,
-    delegation: HostDelegation | undefined,
     runId: string
   ): HostRunPosition {
     const { threadId } = params;
     const runs = this.ports.runs();
+    const original =
+      'userMessageId' in position
+        ? [...runs.values()].find(
+            (run) =>
+              run.threadId === threadId && run.branch.userMessageId === position.userMessageId
+          )
+        : undefined;
+    // A regenerated wake repeats its prompt, which is its delivery: what it took stays taken.
+    if (original?.branch.delivery?.via === 'wake') {
+      return position;
+    }
+    const parent =
+      'parentMessageId' in position ? position.parentMessageId : original?.branch.parentMessageId;
+    const after = runs.get(parent ?? '');
     // A wake continues the turn of the run it follows, or starts its own once that turn stopped.
-    const tip =
-      'parentMessageId' in position ? runs.get(position.parentMessageId ?? '') : undefined;
-    const followed = tip && hostRunTurnId(tip);
+    const followed = 'parentMessageId' in position && after ? hostRunTurnId(after) : undefined;
     const turnId = followed === undefined || hostTurnStopped(runs, followed) ? runId : followed;
-    const exits = this.exits.pending(threadId);
-    return hostDeliveryPosition(
-      method,
-      params.commandId,
-      position,
-      this.ports.children.pending(threadId, runs, delegation, method !== 'wake'),
-      { exits, threadId, turnId }
-    );
-  }
-
-  /** A committed run's delivery: its child results and ended sessions no longer wait. */
-  recordDelivery(threadId: string, delivery: HostChildDelivery | undefined): void {
-    this.ports.children.recordDelivery(delivery);
-    this.exits.delivered(threadId, delivery);
+    const pending = this.ports.children.pending(threadId, runs, after, method !== 'wake');
+    return hostDeliveryPosition(method, params.commandId, position, pending, { threadId, turnId });
   }
 
   /** A `recovered` run's end (a host start finishing it) wakes no parent (Q-2). */
@@ -120,11 +122,19 @@ export class HostRunEnds {
         settle: (owned) => settleHostRunOwner(owned, ports.closeOwner),
       },
       () => ports.read(run.threadId),
-      async (event, commit) =>
-        ports.appendTerminal(run.threadId, await hostRunTerminalEvents(run, event), (rows) => {
+      async (event, commit) => {
+        const own = (await hostRunTerminalEvents(run, event)).map((terminal) => ({
+          event: terminal,
+          threadId: run.threadId,
+        }));
+        const notices = ports.children
+          .notify(run, event, ports.runs())
+          .filter(({ threadId }) => !ports.deletions.has(threadId));
+        return ports.appendTerminal([...own, ...notices], (rows) => {
           commit();
           ports.foldRows(rows);
-        }),
+        });
+      },
       () => this.handOn(run, recovered)
     );
   }
@@ -221,8 +231,7 @@ export class HostRunEnds {
       const { admitWake, children, runs, selections, tip } = this.ports;
       await this.ports.admit(threadId, async () => {
         // Read in the queue: a wake admitted ahead of this one may have delivered it all.
-        const exited = this.exits.wakes(threadId);
-        const wake = children.wakeParams(threadId, runs(), selections, exited, tip(threadId));
+        const wake = children.wakeParams(threadId, runs(), selections, tip(threadId));
         if (wake) {
           await admitWake(wake);
         }
@@ -244,7 +253,7 @@ export class HostRunEnds {
     return awaitHostThreadsIdle(
       () => children.subtree(threadId),
       () => runs().values(),
-      (id) => [...(this.waking.get(id) ?? [])]
+      (id) => [...(this.waking.get(id) ?? []), ...this.exits.inFlight(id)]
     );
   }
 }

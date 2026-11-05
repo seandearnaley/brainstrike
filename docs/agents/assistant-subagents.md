@@ -36,11 +36,14 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 - The parent's model receives the bounded child result; the child's full transcript and artifacts stay in its own log with original usage attribution.
 - Starting work never proves completion.
 - A child pause does not wake the parent.
-- Background completion delivers the whole turn's invocation ledger with a durable delivery watermark.
+- Background completion delivers the whole turn's invocation ledger. Each report is one notice (ADR-0028 step 3b, `notices.ts`).
+  - A child run's terminal commit posts `notice.posted` on the parent's log in the same transaction, so whether a run reports is decided once, and the report outlives the child's thread.
+  - A run takes the notices due on its own branch: not yet taken by a run on that branch (its `run.started` `delivery` names them), and dispatched by a run on that branch. An edit, regenerate or rewind that leaves the run that took one finds it due again; a branch that left the dispatching run never asked for that work.
+  - A regenerated wake repeats its prompt, which is its delivery, so it takes nothing new.
   - Wakes use the parent thread's current committed selection and keep the original admitting client origin ([ADR-0019](../adr/0019-host-thread-run-selection.md)).
-  - Delivery follows the thread, not the dispatching reply: a regenerate or edit of that reply's message takes its undelivered results once.
   - An edit, regenerate or rewind that forks above a turn whose workers still work ends that turn first, as its Stop would, so no worker of a branch the person left keeps writing beside the new one (`abandoned-turns.ts`). Sending on from the turn keeps it.
-  - An outcome is in full only in the delivery that first takes it. A later ledger of the turn lists that invocation by its outcome's opening, which still reaches the model after Memory's window drops the earlier message.
+  - An outcome is in full only in the delivery that first takes it on the branch. A later ledger of the turn lists that invocation by its outcome's opening, which still reaches the model after Memory's window drops the earlier message.
+- A command session that ends by itself is a notice too, posted on the thread that hears it: its starter while that runs, else the nearest busy or root ancestor. An idle child hands its untaken exits on to that thread. A notice no run took survives a restart and rides the next user turn (Q-2: nothing wakes for it).
 - `HostCore.idle(threadId)` resolves once the thread and its child threads have no run executing, ending or settling and no wake pending. A run waiting on a person counts as idle. It joins promises the runs and wakes already own, so it starts nothing and never waits on a clock.
   - Tests of wakes and deliveries act, `await core.idle(threadId)`, then assert. "Nothing woke" is then a plain count, with no sleep and no poll. While a test holds a worker's model, `idle` waits for it too, so release the worker first.
 
@@ -51,6 +54,7 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 - Human input during active child work ends that run after its current step, then starts the child's next run once.
   - Failed or stopped work reports why it could not consume the input.
   - Work that took human input (a background invocation, or a completed follow-up typed into an idle child) reaches the parent once, in the same delivery as the run that took the input and any input that run took in turn, however it ended. That run is the one the input's committed run/start started.
+  - Reports follow commit order: a run whose end committed before the input reports by itself, and the run that took the input reports after it.
   - A regenerate or edit of the input's message is the person's own follow-up and reports only when it completes.
   - A restart commits an input no run took as a failed run, and delivers both at the next user turn; it does not replay the input.
 - A delegation card shows its child's committed run (working, waiting on a person, or how it ended, with its tool calls), as Core folds it from the child's own log, never from the delegation call, which settles when a background child starts.

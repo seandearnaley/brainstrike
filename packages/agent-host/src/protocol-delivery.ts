@@ -24,6 +24,38 @@ export const HostCommandSessionDeliverySchema = Schema.Struct({
 });
 export type HostCommandSessionDelivery = (typeof HostCommandSessionDeliverySchema)['Type'];
 /**
+ * ADR-0028 step 3b: what a thread is told that no person typed, posted once on
+ * that thread's log by the commit that settles it, and taken by the run whose
+ * `delivery` names it, along that run's own branch.
+ */
+export const HostNoticeSchema = Schema.Union(
+  [
+    /** A child run's report to the thread that delegated it: its parent's ledger outlives the child. */
+    Schema.Struct({
+      entry: HostChildDeliveryEntrySchema,
+      kind: Schema.Literal('child'),
+      persona: Id,
+      prompt: Schema.String,
+      reason: Schema.optional(Schema.String),
+      toolName: Id,
+      /** The parent turn that dispatched an invocation; a follow-up's report has none. */
+      turnId: Schema.optional(Id),
+    }),
+    /** A command session that ended by itself, told to the thread that hears it. */
+    Schema.Struct({
+      createdAt: Schema.Int,
+      exitedAt: Schema.Int,
+      /** The idle child thread it was first told to, which handed it on. */
+      handedOnFrom: Schema.optional(Id),
+      kind: Schema.Literal('command-session'),
+      outputCursor: Schema.Int,
+      session: HostCommandSessionDeliverySchema,
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type HostNotice = (typeof HostNoticeSchema)['Type'];
+/**
  * The durable delivery watermark: these entries reached the parent's model
  * input on the run that records them, as an automated message that the user
  * did not write. A wake run's prompt is that message; a user turn carries it

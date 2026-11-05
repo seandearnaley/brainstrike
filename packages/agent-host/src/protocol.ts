@@ -25,7 +25,7 @@ import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
 import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
-import { HostChildDeliverySchema } from './protocol-delivery.ts';
+import { HostChildDeliverySchema, HostNoticeSchema } from './protocol-delivery.ts';
 import { FILE_SEARCH_METHOD_SCHEMAS, FILE_SEARCH_RESULT_SCHEMAS } from './protocol-file-search.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
@@ -291,6 +291,8 @@ export {
   HostChildDeliverySchema,
   type HostCommandSessionDelivery,
   HostCommandSessionDeliverySchema,
+  type HostNotice,
+  HostNoticeSchema,
 } from './protocol-delivery.ts';
 /** Credentials and executable capabilities remain process-local. */
 export function hostRunSnapshotSchema(json: JsonSchemaFactory) {
@@ -647,6 +649,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         result: json(),
         type: Schema.Literal('command.accepted'),
       }),
+      Schema.Struct({ notice: HostNoticeSchema, type: Schema.Literal('notice.posted') }),
       Schema.Struct({
         type: Schema.Literal('run.started'),
         ...RunFields,

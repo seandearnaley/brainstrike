@@ -86,5 +86,7 @@
 // stages, unstages or reverts a view's hunks or files (ADR-0036), a new method. The required
 // fields are why this is a version bump. Additive since: a turn's entries carry `wholeFile`,
 // and a settled turn's view reverts whole files; `changes/commits` (a worktree's latest
-// commits, for the Changes commit picker), a new method.
+// commits, for the Changes commit picker), a new method; `notice.posted` (a child run's report
+// or a command session's exit, posted on the thread that hears it; ADR-0028 step 3b), a new
+// variant.
 export const AGENT_HOST_PROTOCOL_VERSION = 21;
