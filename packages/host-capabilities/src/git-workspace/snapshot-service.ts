@@ -603,12 +603,12 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     return await entry.mutex(() => readWorktreeHashes(entry));
   }
 
-  /** Reject restore/delete targets whose EXISTING ancestor dirs include a
-   * symlink — writing or unlinking through one would escape the root. A
-   * missing ancestor is fine (checkout-index creates real directories). */
-  async function findSymlinkedAncestor(
+  /** The first EXISTING ancestor of `relativePath` that `stops` matches, or
+   * null. A missing ancestor ends the walk. */
+  async function findAncestor(
     rootPath: string,
-    relativePath: string
+    relativePath: string,
+    stops: (stats: Awaited<ReturnType<typeof fsPromises.lstat>>) => boolean
   ): Promise<string | null> {
     const segments = relativePath.split('/').slice(0, -1);
     let current = rootPath;
@@ -620,11 +620,18 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
       } catch {
         return null;
       }
-      if (stats.isSymbolicLink()) {
+      if (stops(stats)) {
         return current;
       }
     }
     return null;
+  }
+
+  /** Reject restore/delete targets whose EXISTING ancestor dirs include a
+   * symlink — writing or unlinking through one would escape the root. A
+   * missing ancestor is fine (checkout-index creates real directories). */
+  function findSymlinkedAncestor(rootPath: string, relativePath: string): Promise<string | null> {
+    return findAncestor(rootPath, relativePath, (stats) => stats.isSymbolicLink());
   }
 
   async function applyOneAction(
@@ -759,23 +766,26 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     const hashes = new Map<string, string>();
     const present: string[] = [];
     for (const relativePath of paths) {
-      if ((await findSymlinkedAncestor(entry.handle.rootPath, relativePath)) !== null) {
+      // The walk, not lstat's error, says a path lies under a file: Windows
+      // answers ENOENT for it where POSIX answers ENOTDIR.
+      const blocked = await findAncestor(
+        entry.handle.rootPath,
+        relativePath,
+        (stats) => !stats.isDirectory()
+      );
+      if (blocked !== null) {
         hashes.set(relativePath, UNREADABLE_PATH);
         continue;
       }
       const stats = await fsPromises
         .lstat(path.join(entry.handle.rootPath, relativePath))
         .catch((error: unknown) => {
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === 'ENOENT') {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
             return null;
-          }
-          if (code === 'ENOTDIR') {
-            return UNREADABLE_PATH;
           }
           throw error;
         });
-      if (stats === UNREADABLE_PATH || stats?.isDirectory()) {
+      if (stats?.isDirectory()) {
         hashes.set(relativePath, UNREADABLE_PATH);
       } else if (stats) {
         present.push(relativePath);
