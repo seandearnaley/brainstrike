@@ -27,6 +27,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
+import { hostUserMessageParent } from './abandoned-turns.ts';
 import type { HostRunState } from './core-state.ts';
 import type { Json } from './json-value.ts';
 import type { HostPlatform } from './ports.ts';
@@ -65,10 +66,12 @@ export interface HostThreadRewindPorts {
     events: readonly HostEvent[]
   ): Promise<void>;
   append(threadId: string, events: readonly HostEvent[]): Promise<unknown>;
+  /** `from`: the run a rewind forks at; the turns it leaves end first (`abandoned-turns.ts`). */
   command<T extends Json>(
     method: string,
     params: { commandId: string; threadId: string },
-    perform: () => Promise<T>
+    perform: () => Promise<T>,
+    from?: string | null
   ): Promise<T>;
   owner(): {
     readonly pending: Map<AbortController, string>;
@@ -268,55 +271,66 @@ export class HostThreadRewinds {
 
   rewind(params: HostParams<'thread/rewind'>): Promise<HostResults['thread/rewind']> {
     const method = 'thread/rewind';
-    return this.ports.command(method, params, async () => {
-      const target = this.target(params.threadId, params.messageId);
-      const rewindId = randomUUID();
-      const started: Started = {
-        commandId: params.commandId,
-        headId: target.headId,
-        messageId: params.messageId,
-        mode: params.mode,
-        rewindId,
-        runId: target.runId,
-        type: 'thread.rewind.started',
-      };
-      if (params.mode === 'conversation-only') {
-        const result: Rewound = { outcomes: [], rewindId, status: 'rewound' };
-        await this.ports.accept(params.threadId, method, params, result, [
-          started,
-          { outcomes: [], rewindId, type: 'thread.rewound' },
-        ]);
-        return result;
-      }
-      const { rewindFiles, targets } = this.fileTargets(target);
-      if (params.previewId === undefined) {
-        throw refusalError('input', 'rewind.preview-required', 'A files rewind needs its preview');
-      }
-      const request = { previewId: params.previewId, threadId: params.threadId };
-      const conflicts = await rewindFiles.drift(request);
-      if (conflicts.length > 0 && params.acknowledgeConflicts !== true) {
-        const result: RewindResult = { conflicts: [...conflicts], status: 'conflicts' };
-        return result;
-      }
-      await this.ports.append(params.threadId, [started]);
-      return await this.restoring(params.threadId, async () => {
-        try {
-          const outcomes = [...(await rewindFiles.apply({ ...request, rewindId, targets }))];
-          const result: Rewound = { outcomes, rewindId, status: 'rewound' };
+    const { runs } = this.ports.owner();
+    const from = hostUserMessageParent(runs, params.threadId, params.messageId);
+    return this.ports.command(
+      method,
+      params,
+      async () => {
+        const target = this.target(params.threadId, params.messageId);
+        const rewindId = randomUUID();
+        const started: Started = {
+          commandId: params.commandId,
+          headId: target.headId,
+          messageId: params.messageId,
+          mode: params.mode,
+          rewindId,
+          runId: target.runId,
+          type: 'thread.rewind.started',
+        };
+        if (params.mode === 'conversation-only') {
+          const result: Rewound = { outcomes: [], rewindId, status: 'rewound' };
           await this.ports.accept(params.threadId, method, params, result, [
-            { outcomes, rewindId, type: 'thread.rewound' },
-          ]);
-          return result;
-        } catch (cause) {
-          const detail = failureDetail(cause);
-          const result: RewindResult = { detail, rewindId, status: 'interrupted' };
-          await this.ports.accept(params.threadId, method, params, result, [
-            { detail, phase: 'rewind', rewindId, type: 'thread.rewind.interrupted' },
+            started,
+            { outcomes: [], rewindId, type: 'thread.rewound' },
           ]);
           return result;
         }
-      });
-    });
+        const { rewindFiles, targets } = this.fileTargets(target);
+        if (params.previewId === undefined) {
+          throw refusalError(
+            'input',
+            'rewind.preview-required',
+            'A files rewind needs its preview'
+          );
+        }
+        const request = { previewId: params.previewId, threadId: params.threadId };
+        const conflicts = await rewindFiles.drift(request);
+        if (conflicts.length > 0 && params.acknowledgeConflicts !== true) {
+          const result: RewindResult = { conflicts: [...conflicts], status: 'conflicts' };
+          return result;
+        }
+        await this.ports.append(params.threadId, [started]);
+        return await this.restoring(params.threadId, async () => {
+          try {
+            const outcomes = [...(await rewindFiles.apply({ ...request, rewindId, targets }))];
+            const result: Rewound = { outcomes, rewindId, status: 'rewound' };
+            await this.ports.accept(params.threadId, method, params, result, [
+              { outcomes, rewindId, type: 'thread.rewound' },
+            ]);
+            return result;
+          } catch (cause) {
+            const detail = failureDetail(cause);
+            const result: RewindResult = { detail, rewindId, status: 'interrupted' };
+            await this.ports.accept(params.threadId, method, params, result, [
+              { detail, phase: 'rewind', rewindId, type: 'thread.rewind.interrupted' },
+            ]);
+            return result;
+          }
+        });
+      },
+      from
+    );
   }
 
   redo(params: HostParams<'thread/rewind/redo'>): Promise<HostResults['thread/rewind/redo']> {
