@@ -56,6 +56,8 @@ Pins and patches live in `pnpm-workspace.yaml` and `patches/`.
     (owner-signal, narrower call signal and async-reflection turn signal cases).
 - `@mastra/memory`: the M3 lifecycle patch, built on the vendor's `runOMCommit`
   commit queue (flag writes keep that queue).
+  - It also treats an observer/reflector `interrupted` finish as incomplete, so a
+    reply the provider cut off is retried, never committed to memory.
   - Unpatched, every `memory-public-lifecycle` case fails (ESM and CJS).
   - Lifecycle owners: `memory-public-lifecycle`, `memory-adapter`,
     `memory-native-ownership`. Group details:
