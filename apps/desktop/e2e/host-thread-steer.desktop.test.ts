@@ -50,17 +50,27 @@ test('a steered message reaches the running run at its next step, in the same ru
   await input.fill(FIRST_PROMPT);
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
-  // The run's tool step is held at the provider until the steer is committed.
-  const steer = region.getByRole('button', { exact: true, name: 'Steer' });
-  await expect(steer).toBeVisible({ timeout: 60_000 });
+  // Steer once the run's first step is at the provider, so the step after the tool reads it;
+  // that step's tool call is held there until the steer is committed.
+  await expect(
+    region.getByRole('button', { exact: true, name: 'Expand activity' }).filter({
+      hasText: 'Reading evidence.txt',
+    })
+  ).toBeVisible({ timeout: 60_000 });
+  const userDataDir = electron.getUserDataDir();
+  const accepted = async () =>
+    (await readAgentHostLog(userDataDir)).typeCounts['command.accepted'] ?? 0;
+  const before = await accepted();
   await input.fill(STEER);
-  await steer.click();
+  await region.getByRole('button', { exact: true, name: 'Steer' }).click();
   await expect(input).toHaveValue('');
-  await expect(region.getByText(STEER)).toBeVisible({ timeout: 30_000 });
+  await expect.poll(accepted, { timeout: 30_000 }).toBe(before + 1);
   await expect(region.getByRole('list', { name: 'Queued follow-up messages' })).toHaveCount(0);
 
   toolFinish.resolve();
   await expect(region.getByText(STEERED_REPLY)).toBeVisible({ timeout: 90_000 });
+  // Drawn inside the reply, where the run read it.
+  await expect(region.getByText(STEER)).toBeVisible();
   await expect(region.getByText(UNSTEERED_REPLY)).toHaveCount(0);
   // One request carried the message: the step after the tool, with the tool's result before it.
   const steering = modelProvider
@@ -75,7 +85,7 @@ test('a steered message reaches the running run at its next step, in the same ru
   const steered = messages.findIndex((message) => JSON.stringify(message).includes(STEER));
   expect(toolResult).toBeGreaterThan(-1);
   expect(toolResult).toBeLessThan(steered);
-  const log = await readAgentHostLog(electron.getUserDataDir());
+  const log = await readAgentHostLog(userDataDir);
   expect(log.typeCounts['run.started']).toBe(1);
   expect(log.typeCounts['run.finished']).toBe(1);
   expect(modelProvider.refusals()).toEqual([]);
