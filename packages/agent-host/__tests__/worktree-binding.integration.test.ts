@@ -13,6 +13,7 @@ import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
 } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
+import type { LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -52,7 +53,13 @@ const WORKTREE = {
 };
 const CHILD_TASK = 'CHILD_TASK: make a worktree.';
 
-async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' | 'read' = 'read') {
+async function host(
+  model: MockLanguageModelV4,
+  offered: string[],
+  risk: 'edit' | 'read' = 'read',
+  /** Auto access mode's quick model: an edit is reviewed by it instead of asking. */
+  review?: LanguageModel
+) {
   const root = await mkdtemp(join(tmpdir(), 'bs-worktree-binding-'));
   const store = await StateStore.open(root);
   const requests: HostRunAdmissionRequest[] = [];
@@ -64,6 +71,7 @@ async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' 
     },
     maxSteps: 4,
     readPermissionPolicy: () => ({
+      ...(review ? { autoReview: { model: 'auto' } } : {}),
       policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask' },
       yolo: false,
     }),
@@ -80,6 +88,13 @@ async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' 
         inputSchema: z.object({}),
         risk,
       },
+      write_file: {
+        description: 'Write a workspace file',
+        execute: async () => ({ written: true }),
+        identity: 'native-write-generation-1',
+        inputSchema: z.object({ path: z.string() }),
+        risk: 'edit',
+      },
     },
     validateWorkspaceBinding: async () => undefined,
   };
@@ -93,12 +108,13 @@ async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' 
         throw new Error('No admission');
       }
       const rootId = request.workspaceBinding?.operatingRootId;
-      return rootId
-        ? {
-            ...admission,
-            configuration: { ...admission.configuration, boundWorkspaceRootId: rootId },
-          }
-        : admission;
+      return {
+        ...admission,
+        ...(rootId
+          ? { configuration: { ...admission.configuration, boundWorkspaceRootId: rootId } }
+          : {}),
+        ...(review ? { reviewModel: async () => review } : {}),
+      };
     },
   };
   let writer = crashableStorePort(store);
@@ -229,7 +245,8 @@ async function rootEntersWorktree(risk: 'edit' | 'read'): Promise<void> {
     expect(model.doStreamCalls).toHaveLength(2);
   }
   // The host started the next run, after the first, admitted in the worktree.
-  expect(next).toMatchObject({ parentMessageId: first });
+  // It records that the host wrote its prompt, so no reader takes it for the person's words.
+  expect(next).toMatchObject({ hostPrompt: true, parentMessageId: first });
   expect(rows.find(finished(next?.runId ?? ''))?.event).toMatchObject({ outcome: 'completed' });
   expect(requests.at(-1)?.workspaceBinding).toMatchObject({
     operatingRootId: WORKTREE.root.rootId,
@@ -243,6 +260,59 @@ test('a root run that creates a worktree ends there, and the next run works in i
 
 test('an approved worktree call ends its run there too, before any further step', async () => {
   await rootEntersWorktree('edit');
+});
+
+test("auto-review never reads the host's worktree continuation as the person's request", async () => {
+  const reviews: string[] = [];
+  const quick = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      reviews.push(JSON.stringify(options.prompt));
+      const answer = {
+        decision: 'approve',
+        rationale: 'The user asked for the fix.',
+        risk: 'low',
+        userAuthorization: 'high',
+      };
+      return {
+        content: [{ text: JSON.stringify(answer), type: 'text' }],
+        finishReason: { raw: 'stop', unified: 'stop' },
+        usage: {
+          inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+          outputTokens: { reasoning: 0, text: 1, total: 1 },
+        },
+        warnings: [],
+      };
+    },
+  });
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const answered = call.prompt.at(-1)?.role === 'tool';
+      if (userTexts(call).some((input) => input.includes(WORKTREE.root.path))) {
+        return stream(
+          answered ? text('Fixed.') : toolCall('write_file', { path: 'notes.md' }, 'write-1')
+        );
+      }
+      return stream(answered ? text('Moved.') : toolCall('create_worktree', {}, 'wt-call'));
+    },
+  });
+  const { core, threadId } = await host(model, [], 'read', quick);
+  const first = (
+    await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Fix it.',
+      threadId,
+    })
+  ).runId;
+  await rowsWhere(core, threadId, (all) => {
+    const next = started(all).find((run) => run.runId !== first);
+    return next !== undefined && all.some(finished(next.runId));
+  });
+
+  const [review] = reviews;
+  expect(reviews).toHaveLength(1);
+  expect(review).toContain('USER: Fix it.');
+  expect(review).not.toContain('USER: Continue the task in the worktree');
 });
 
 test('a host restarted after an approved worktree entry ends that run there and continues in it', async () => {

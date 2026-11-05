@@ -132,8 +132,8 @@ function assistantText(message: unknown): string[] {
 }
 /**
  * Committed history under the message the UI already renders: a typed prompt,
- * assistant text, tool result, decision or terminal diagnostic. Regeneration
- * and wake prompts do not introduce another user message.
+ * assistant text, tool result, decision or terminal diagnostic. Regeneration,
+ * wake and host-written prompts do not introduce another user message.
  */
 export function search(input: unknown): {
   readonly role: 'assistant' | 'user';
@@ -142,7 +142,10 @@ export function search(input: unknown): {
 } | null {
   const event = projectedEvent(input);
   if (event?.type === 'run.started') {
-    const typed = event.userMessageId === undefined && event.delivery?.via !== 'wake';
+    const typed =
+      event.userMessageId === undefined &&
+      event.delivery?.via !== 'wake' &&
+      event.hostPrompt !== true;
     return typed && event.prompt.trim()
       ? { role: 'user', runId: event.runId, text: event.prompt }
       : null;
