@@ -69,7 +69,7 @@ export class HostRunEnds {
     });
   }
 
-  /** A new run's position with the child results, and for a wake the ended sessions, it delivers. */
+  /** A new run's position with the child results and ended sessions it delivers. */
   deliveryPosition(
     method: 'run/start' | 'run/regenerate' | 'wake',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
@@ -87,7 +87,7 @@ export class HostRunEnds {
       params.commandId,
       position,
       this.ports.children.pending(threadId, runs, delegation, method !== 'wake'),
-      method === 'wake' && tip ? { exits, threadId, turnId: hostRunTurnId(tip) } : undefined
+      { exits, threadId, turnId: tip && hostRunTurnId(tip) }
     );
   }
 
@@ -197,7 +197,7 @@ export class HostRunEnds {
       const { admitWake, children, runs, selections, tip } = this.ports;
       await this.ports.admit(threadId, async () => {
         // Read in the queue: a wake admitted ahead of this one may have delivered it all.
-        const exited = this.exits.pending(threadId).length > 0;
+        const exited = this.exits.wakes(threadId);
         const wake = children.wakeParams(threadId, runs(), selections, exited, tip(threadId));
         if (wake) {
           await admitWake(wake);
