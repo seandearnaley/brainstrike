@@ -168,6 +168,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   let pending: PendingHostApproval | undefined;
   let stopRequested = false;
   let connectionClosed = false;
+  let subscriptionId: string | undefined;
   const finish = (cause?: unknown): void => {
     if (finished) {
       return;
@@ -352,7 +353,9 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   try {
-    accept((await client.request('log/subscribe', { fromSeq: 0, threadId })).rows);
+    const subscription = await client.request('log/subscribe', { fromSeq: 0, threadId });
+    subscriptionId = subscription.subscriptionId;
+    accept(subscription.rows);
     if (finished || stopRequested) {
       finish();
       await completion.promise;
@@ -382,8 +385,8 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     releaseTelemetry();
     await responding;
     await stopping;
-    if (!connectionClosed) {
-      await client.request('log/unsubscribe', { threadId });
+    if (subscriptionId !== undefined && !connectionClosed) {
+      await client.request('log/unsubscribe', { subscriptionId });
     }
   }
 }

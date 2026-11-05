@@ -115,6 +115,30 @@ function readResult<M extends HostMethod>(method: M, result: unknown): HostResul
   });
   throw new BoundaryFailureError({ ...INTERNAL_FAULT, correlationId }, { cause: parsed.failure });
 }
+/** A notification's decode failure as a log keeps it: each issue's path, never the row's content. */
+function decodeFailure(cause: unknown): Readonly<Record<string, unknown>> {
+  return cause instanceof Schema.SchemaError
+    ? { issues: SchemaIssue.makeFormatterStandardSchemaV1()(cause.issue).issues }
+    : { error: cause };
+}
+/** Every listener gets the value, even after one throws; what they threw comes back. */
+function deliverEach<T>(
+  listeners: Iterable<(value: T) => void>,
+  value: T
+): { readonly error: unknown } | undefined {
+  const failures: unknown[] = [];
+  for (const listener of listeners) {
+    try {
+      listener(value);
+    } catch (cause) {
+      failures.push(cause);
+    }
+  }
+  if (failures.length > 1) {
+    return { error: new AggregateError(failures, 'Host notification listeners failed') };
+  }
+  return failures.length === 1 ? { error: failures[0] } : undefined;
+}
 /** Browser-safe connection; what it expects of the host comes from the owning launcher. */
 export async function authenticateHostClient<E extends HostClientExpectation>(
   connection: MessageConnection,
@@ -122,139 +146,84 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
   closeTransport: () => Promise<void>,
   transportClosed: Promise<void>
 ): Promise<HostClient & { readonly record: E }> {
-  const listeners = new Set<(row: HostLogRow) => void>();
-  const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
-  const gitWorkspaceListeners = new Set<(event: GitWorkspaceEvent) => void>();
-  const presentationListeners = new Set<(event: McpPresentationEvent) => void>();
-  const terminalListeners = new Set<(event: TerminalEvent) => void>();
-  const workspaceFilesListeners = new Set<(event: WorkspaceFilesEvent) => void>();
-  const fileSearchListeners = new Set<(batch: FileSearchBatch) => void>();
-  const childListeners = new Set<(threadId: string) => void>();
-  const treeListeners = new Set<(threadIds: readonly string[]) => void>();
-  const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
-  const closeConnection = async (): Promise<void> => {
-    const failures: unknown[] = [];
-    try {
-      connection.dispose();
-    } catch (cause) {
-      failures.push(cause);
-    }
-    listeners.clear();
-    settingsListeners.clear();
-    gitWorkspaceListeners.clear();
-    presentationListeners.clear();
-    terminalListeners.clear();
-    workspaceFilesListeners.clear();
-    fileSearchListeners.clear();
-    childListeners.clear();
-    treeListeners.clear();
-    telemetryListeners.clear();
-    try {
-      await closeTransport();
-    } catch (cause) {
-      failures.push(cause);
-    }
-    if (failures.length === 1) {
-      throw failures[0];
-    }
-    if (failures.length > 1) {
-      throw new AggregateError(failures, 'Host client disposal and transport close failed');
-    }
+  const registries: { clear(): void }[] = [];
+  let closing: Promise<void> | undefined;
+  const closeConnection = (): Promise<void> => {
+    closing ??= (async (): Promise<void> => {
+      const failures: unknown[] = [];
+      try {
+        connection.dispose();
+      } catch (cause) {
+        failures.push(cause);
+      }
+      for (const registry of registries) {
+        registry.clear();
+      }
+      try {
+        await closeTransport();
+      } catch (cause) {
+        failures.push(cause);
+      }
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Host client disposal and transport close failed');
+      }
+    })();
+    return closing;
+  };
+  /**
+   * One host notification and its listeners. A notification this client cannot
+   * decode, or one a listener throws on, closes the connection: a view that
+   * missed a row would otherwise wait on its gap forever, and the owner's
+   * host-lost path reconnects and replays. Every listener still gets the value.
+   */
+  const notification = <S extends Schema.ConstraintDecoder<unknown>>(
+    method: string,
+    schema: S
+  ): ((listener: (value: S['Type']) => void) => () => void) => {
+    const decode = wireDecoder(schema, { errors: 'all', onExcessProperty: 'error' });
+    const listeners = new Set<(value: S['Type']) => void>();
+    registries.push(listeners);
+    const fail = (message: string, fields: Readonly<Record<string, unknown>>): void => {
+      logger.error(message, { ...fields, method });
+      closeConnection().catch((cause: unknown) =>
+        logger.error('Closing the agent host connection failed', { error: cause })
+      );
+    };
+    connection.onNotification(method, (input: unknown) => {
+      let value: S['Type'];
+      try {
+        value = decode(input);
+      } catch (cause) {
+        fail('The agent host sent a notification this client cannot read', decodeFailure(cause));
+        return;
+      }
+      const failure = deliverEach(listeners, value);
+      if (failure !== undefined) {
+        fail('A host notification listener failed', failure);
+      }
+    });
+    return (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
   };
   // Before any request: a host that closes its end can fail the next write.
   watchPeerReset(connection);
   connection.onNotification(HOST_CLOSING_EVENT, () => markHostClosing(connection));
   connection.onNotification(HOST_DRAINED_EVENT, () => markHostDrained(connection));
-  connection.onNotification('log/event', (input: unknown) => {
-    const row = Schema.decodeUnknownSync(HostLogRowSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of listeners) {
-      listener(row);
-    }
-  });
-  connection.onNotification(HOST_CHILDREN_CHANGED, (input: unknown) => {
-    const { threadId } = Schema.decodeUnknownSync(HostChildrenChangedSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of childListeners) {
-      listener(threadId);
-    }
-  });
-  connection.onNotification(HOST_TREE_CHANGED, (input: unknown) => {
-    const { threadIds } = Schema.decodeUnknownSync(HostTreeChangedSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of treeListeners) {
-      listener(threadIds);
-    }
-  });
-  connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
-    const event = wireDecoder(McpSettingsEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of settingsListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(GIT_WORKSPACE_EVENT, (input: unknown) => {
-    const event = wireDecoder(GitWorkspaceEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of gitWorkspaceListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(TERMINAL_EVENT, (input: unknown) => {
-    const event = wireDecoder(TerminalEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of terminalListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(WORKSPACE_FILES_EVENT, (input: unknown) => {
-    const event = wireDecoder(WorkspaceFilesEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of workspaceFilesListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(FILE_SEARCH_BATCH, (input: unknown) => {
-    const batch = wireDecoder(FileSearchBatchSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of fileSearchListeners) {
-      listener(batch);
-    }
-  });
-  connection.onNotification(MCP_PRESENTATION_EVENT, (input: unknown) => {
-    const event = wireDecoder(McpPresentationEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of presentationListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(HOST_RUN_TELEMETRY, (input: unknown) => {
-    const telemetry = Schema.decodeUnknownSync(HostRunTelemetrySchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of telemetryListeners) {
-      listener(telemetry);
-    }
-  });
+  const onEvent = notification('log/event', HostLogRowSchema);
+  const onChildrenChanged = notification(HOST_CHILDREN_CHANGED, HostChildrenChangedSchema);
+  const onTreeChanged = notification(HOST_TREE_CHANGED, HostTreeChangedSchema);
+  const onMcpSettings = notification(MCP_SETTINGS_EVENT, McpSettingsEventSchema);
+  const onGitWorkspace = notification(GIT_WORKSPACE_EVENT, GitWorkspaceEventSchema);
+  const onTerminal = notification(TERMINAL_EVENT, TerminalEventSchema);
+  const onWorkspaceFiles = notification(WORKSPACE_FILES_EVENT, WorkspaceFilesEventSchema);
+  const onFileSearch = notification(FILE_SEARCH_BATCH, FileSearchBatchSchema);
+  const onMcpPresentation = notification(MCP_PRESENTATION_EVENT, McpPresentationEventSchema);
+  const onTelemetry = notification(HOST_RUN_TELEMETRY, HostRunTelemetrySchema);
   connection.listen();
   try {
     const reply = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS.initialize, {
@@ -287,46 +256,16 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     catalog: createHostCatalogClient(connection),
     close: closeConnection,
     closed: transportClosed,
-    onChildrenChanged: (listener) => {
-      childListeners.add(listener);
-      return () => childListeners.delete(listener);
-    },
-    onEvent: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    onFileSearch: (listener) => {
-      fileSearchListeners.add(listener);
-      return () => fileSearchListeners.delete(listener);
-    },
-    onGitWorkspace: (listener) => {
-      gitWorkspaceListeners.add(listener);
-      return () => gitWorkspaceListeners.delete(listener);
-    },
-    onMcpPresentation: (listener) => {
-      presentationListeners.add(listener);
-      return () => presentationListeners.delete(listener);
-    },
-    onMcpSettings: (listener) => {
-      settingsListeners.add(listener);
-      return () => settingsListeners.delete(listener);
-    },
-    onTelemetry: (listener) => {
-      telemetryListeners.add(listener);
-      return () => telemetryListeners.delete(listener);
-    },
-    onTerminal: (listener) => {
-      terminalListeners.add(listener);
-      return () => terminalListeners.delete(listener);
-    },
-    onTreeChanged: (listener) => {
-      treeListeners.add(listener);
-      return () => treeListeners.delete(listener);
-    },
-    onWorkspaceFiles: (listener) => {
-      workspaceFilesListeners.add(listener);
-      return () => workspaceFilesListeners.delete(listener);
-    },
+    onChildrenChanged: (listener) => onChildrenChanged(({ threadId }) => listener(threadId)),
+    onEvent,
+    onFileSearch,
+    onGitWorkspace,
+    onMcpPresentation,
+    onMcpSettings,
+    onTelemetry,
+    onTerminal,
+    onTreeChanged: (listener) => onTreeChanged(({ threadIds }) => listener(threadIds)),
+    onWorkspaceFiles,
     record,
     request: async <M extends HostMethod>(
       method: M,

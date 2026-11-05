@@ -76,4 +76,7 @@
 // previous run entered carries on (`run.started` `turnId`; ADR-0028 step 3), and
 // `interaction/preview` (the file text a waiting approval's call would change; ADR-0036), a new
 // method.
-export const AGENT_HOST_PROTOCOL_VERSION = 19;
+// v20 (2026-11-05): `log/subscribe` answers a `subscriptionId`, and `log/unsubscribe` names it
+// instead of the thread, so ending one view's subscription never ends another's. The required
+// parameter is why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 20;

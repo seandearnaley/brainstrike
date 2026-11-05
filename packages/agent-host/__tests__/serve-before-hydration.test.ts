@@ -99,15 +99,14 @@ test('folders answer while Core folds its log, and thread reads wait for the fol
   await expect(costs).resolves.toEqual({ threads: [] });
 });
 
-test('a view that subscribes and unsubscribes during the fold is not sent its rows', async () => {
+test('a view that subscribes during the fold and then unsubscribes is not sent its rows', async () => {
   const { client, commit, fold, server } = await connectDuringFold();
   const sent = vi.spyOn(server, 'sendNotification');
   const subscribed = client.request('log/subscribe', { fromSeq: 0, threadId: 'thread-a' });
-  const unsubscribed = client.request('log/unsubscribe', { threadId: 'thread-a' });
   await client.request('workspace/roots/recent', {});
   fold();
-  await subscribed;
-  await unsubscribed;
+  const { subscriptionId } = await subscribed;
+  await client.request('log/unsubscribe', { subscriptionId });
   commit({ seq: 1, threadId: 'thread-a' } as unknown as HostLogRow);
   expect(sent.mock.calls.map(([method]) => method)).not.toContain('log/event');
 });
