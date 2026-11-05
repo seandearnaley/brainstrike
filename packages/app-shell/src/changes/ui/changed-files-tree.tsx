@@ -36,6 +36,7 @@ import {
   useContextMenuTarget,
 } from '@brainstrike/ui';
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
+import { changedFileTarget } from '../changes-context-actions';
 import { useChangesStore } from '../changes-store';
 import { CHANGED_FILES_TREE_COLUMNS } from './changed-files-tree-columns';
 import {
@@ -101,15 +102,7 @@ function nodeToContextTarget(
   rootPathById: ReadonlyMap<string, string>
 ): ContextTarget | null {
   if (node.data.kind === 'file') {
-    const { entry } = node.data;
-    return {
-      kind: 'changed-file',
-      path: entry.path,
-      repositoryRoot: entry.repositoryRoot,
-      rootId: entry.rootId,
-      rootPath: entry.rootId === null ? null : (rootPathById.get(entry.rootId) ?? null),
-      worktreePath: entry.worktreePath,
-    };
+    return changedFileTarget(node.data.entry, rootPathById);
   }
   if (node.data.kind === 'worktree') {
     const { descriptor } = node.data;
