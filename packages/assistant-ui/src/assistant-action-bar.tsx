@@ -4,6 +4,7 @@ import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/ci
 import { TooltipIconButton, useCopyToClipboard } from '@brainstrike/ui';
 import { CheckIcon, CopyIcon, RefreshCwIcon } from 'lucide-react';
 import { selectHasErrorState } from './message-error-state.ts';
+import { MessageTimestamp } from './message-timestamp.tsx';
 
 export const ASSISTANT_ACTION_BAR_CLASSNAME =
   'inline-flex gap-0.5 align-middle text-muted-foreground data-[floating]:absolute';
@@ -87,6 +88,7 @@ export const AssistantActionBar = () => {
           </TooltipIconButton>
         </ActionBarPrimitive.Reload>
       ) : null}
+      <MessageTimestamp />
     </ActionBarPrimitive.Root>
   );
 };

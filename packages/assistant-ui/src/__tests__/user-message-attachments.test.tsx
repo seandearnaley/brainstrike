@@ -13,6 +13,7 @@ import {
   ThreadPrimitive,
   useLocalRuntime,
 } from '@assistant-ui/react';
+import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -59,14 +60,16 @@ const imageAttachment = {
 function Harness({ messages }: { messages: readonly ThreadMessageLike[] }) {
   const runtime = useLocalRuntime(chatModel, { initialMessages: messages });
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Messages
-        components={{
-          AssistantMessage: () => null,
-          UserMessage,
-        }}
-      />
-    </AssistantRuntimeProvider>
+    <TooltipProvider>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <ThreadPrimitive.Messages
+          components={{
+            AssistantMessage: () => null,
+            UserMessage,
+          }}
+        />
+      </AssistantRuntimeProvider>
+    </TooltipProvider>
   );
 }
 
