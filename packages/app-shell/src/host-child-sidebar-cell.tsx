@@ -12,7 +12,7 @@ import { ThreadMarkChip } from './thread-identity-mark';
 import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
 
 const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;
-const STATUS_LABEL = { idle: 'Child', 'needs-input': 'Needs input', working: 'Working' } as const;
+const STATUS_LABEL = { idle: 'Idle', 'needs-input': 'Needs input', working: 'Working' } as const;
 
 /**
  * BST-1932 (F19–F21): an agent host child's row: its mark, call sign, parent's
@@ -49,7 +49,9 @@ export function HostChildSidebarCell({
       <ThreadMarkChip color={child.color}>
         <Icon aria-hidden="true" className="size-3" />
       </ThreadMarkChip>
-      <span className={THREAD_CONTROL_TITLE_CLASS_NAME}>{child.callSign}</span>
+      <span className={THREAD_CONTROL_TITLE_CLASS_NAME} title={child.callSign}>
+        {child.callSign}
+      </span>
       {row.parentColor ? (
         <span
           aria-hidden="true"

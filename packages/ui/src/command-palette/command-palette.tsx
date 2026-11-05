@@ -9,6 +9,7 @@ import { Description as DialogDescription, Title as DialogTitle } from '@radix-u
 import { Command as Cmdk } from 'cmdk';
 import * as React from 'react';
 import { COMMAND_PALETTE_CONTENT_CLASS, COMMAND_PALETTE_OVERLAY_CLASS } from '../layers';
+import { formatShortcut } from '../lib/format-shortcut';
 import { cn } from '../lib/utils';
 import { useToast } from '../use-toast';
 import { filterCommands } from './use-command-search';
@@ -212,21 +213,30 @@ interface CommandPaletteItemProps {
 
 function CommandPaletteItem({ command, onSelect }: CommandPaletteItemProps): React.ReactElement {
   const Icon = command.icon;
-  const keywordHint = command.keywords?.[0];
+  const danger = command.group === 'danger';
   return (
     <Cmdk.Item
       className={cn(
         'flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm outline-none',
-        'aria-selected:bg-accent aria-selected:text-accent-foreground'
+        danger
+          ? 'text-destructive aria-selected:bg-destructive/10 aria-selected:text-destructive'
+          : 'aria-selected:bg-accent aria-selected:text-accent-foreground'
       )}
       // Stable, unique value so cmdk keeps selection consistent across filters.
       onSelect={() => onSelect(command)}
       value={command.id}
     >
       {Icon ? <Icon className="h-4 w-4 shrink-0 opacity-70" /> : null}
-      <span className="flex-1 truncate">{command.label}</span>
-      {keywordHint ? (
-        <span className="text-muted-foreground truncate text-xs">{keywordHint}</span>
+      <span className="min-w-0 flex-1 truncate">
+        {command.label}
+        {command.detail ? (
+          <span className="text-muted-foreground ml-2 text-xs">{command.detail}</span>
+        ) : null}
+      </span>
+      {command.shortcut ? (
+        <kbd className="border-border bg-muted text-muted-foreground shrink-0 rounded border px-1.5 font-sans text-[11px] leading-4 tracking-widest">
+          {formatShortcut(command.shortcut)}
+        </kbd>
       ) : null}
     </Cmdk.Item>
   );

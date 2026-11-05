@@ -719,7 +719,9 @@ function ThreadRowDisplay({
             <div
               className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} min-w-0 items-center gap-1.5`}
             >
-              <div className={THREAD_CONTROL_TITLE_CLASS_NAME}>{thread.title}</div>
+              <div className={THREAD_CONTROL_TITLE_CLASS_NAME} title={thread.title}>
+                {thread.title}
+              </div>
               <ThreadMetadataBadges branch={branch} thread={thread} />
             </div>
           </div>

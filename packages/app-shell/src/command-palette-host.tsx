@@ -5,6 +5,7 @@ import {
   buildAppCommandContext,
   createAppCommandRegistry,
 } from './command-registry';
+import { resolveCommandShortcuts } from './command-shortcuts';
 import { useCommandPaletteStore } from './stores/command-palette-store';
 import { getTabChordStrip, resolveTabChordScope } from './tab-chords/tab-chord-registry';
 import { useGlobalCommandHandlers } from './use-global-command-handlers';
@@ -56,6 +57,8 @@ export function CommandPaletteHost(): ReactElement | null {
   // (capability detection reads the preload bridges that exist before React
   // mounts), so building them once is correct and keeps a single source of truth.
   const parts = buildAppActionRegistryParts();
+  // Bindings, like the parts, are stable for the window's lifetime.
+  const shortcuts = useMemo(resolveCommandShortcuts, []);
 
   // Rebuild the registry + context with the captured open target. While closed,
   // openTarget is null, so this collapses to the targetless command set.
@@ -67,9 +70,10 @@ export function CommandPaletteHost(): ReactElement | null {
         getTabStrip: () => (tabScope === null ? undefined : getTabChordStrip(tabScope)),
         handlers,
         parts,
+        shortcuts,
         target: openTarget,
       }),
-    [parts, handlers, openTarget, tabScope]
+    [parts, handlers, openTarget, shortcuts, tabScope]
   );
   const context = buildAppCommandContext({ parts, target: openTarget });
   const commands = useMemo(() => registry.available(context), [registry, context]);

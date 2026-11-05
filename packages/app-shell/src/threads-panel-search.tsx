@@ -177,6 +177,11 @@ export function ThreadsPanelSearch({
     }
   };
 
+  const clearAndRefocus = (): void => {
+    clearSearch();
+    inputRef.current?.focus();
+  };
+
   const searchActive = status !== 'idle';
   const activeOptionId =
     searchActive && resultCount > 0 ? `thread-search-option-${activeIndex}` : undefined;
@@ -189,20 +194,21 @@ export function ThreadsPanelSearch({
       <div className="px-3 py-2">
         <div className="relative">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
+          {/* The spinner sits left of the clear button, so clearing stays
+              reachable while a search runs. */}
           {status === 'searching' ? (
             <Loader2
-              className="text-muted-foreground absolute top-1/2 right-2 h-3.5 w-3.5 -translate-y-1/2 animate-spin"
+              className={`text-muted-foreground absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin ${
+                query ? 'right-7' : 'right-2'
+              }`}
               data-testid="thread-search-spinner"
             />
           ) : null}
-          {query && status !== 'searching' ? (
+          {query ? (
             <button
               aria-label="Clear search"
-              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5"
-              onClick={() => {
-                clearSearch();
-                inputRef.current?.focus();
-              }}
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute top-1/2 right-0.5 flex size-6 -translate-y-1/2 items-center justify-center rounded outline-none focus-visible:ring-2"
+              onClick={clearAndRefocus}
               type="button"
             >
               <X className="h-3.5 w-3.5" />
@@ -213,7 +219,9 @@ export function ThreadsPanelSearch({
             aria-controls="thread-search-results"
             aria-expanded={searchActive}
             aria-label="Search threads"
-            className="border-border bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border py-1.5 pr-7 pl-7 text-[13px] leading-4 outline-none focus-visible:ring-2"
+            className={`border-border bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border py-1.5 pl-7 text-[13px] leading-4 outline-none focus-visible:ring-2 ${
+              query && status === 'searching' ? 'pr-12' : 'pr-7'
+            }`}
             data-testid="thread-search-input"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -236,12 +244,18 @@ export function ThreadsPanelSearch({
           {status === 'error' ? <SearchErrorNotice error={error} onRetry={onRetry} /> : null}
 
           {status === 'results' && resultCount === 0 ? (
-            <p
-              className="text-muted-foreground px-2 py-3 text-[12px]"
-              data-testid="thread-search-empty"
-            >
-              No matching threads.
-            </p>
+            <div className="px-2 py-3" data-testid="thread-search-empty">
+              <p className="text-muted-foreground text-[12px]">No matching threads.</p>
+              <Button
+                className="mt-1.5 h-7 px-2 text-xs"
+                onClick={clearAndRefocus}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                Clear search
+              </Button>
+            </div>
           ) : null}
 
           <div

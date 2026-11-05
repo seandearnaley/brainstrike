@@ -5,6 +5,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@brainstrike/ui';
 import { Settings, UserRound } from 'lucide-react';
 import type { ReactElement } from 'react';
@@ -16,17 +19,23 @@ export interface AccountMenuProps {
 export function AccountMenu({ onOpenSettings }: AccountMenuProps): ReactElement {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          aria-label="Open profile menu"
-          className="group kinetic-depress border-sidebar-border bg-sidebar-accent/70 text-sidebar-foreground hover:border-sidebar-ring/40 hover:bg-sidebar-accent focus-visible:ring-sidebar-ring grid size-10 place-items-center rounded-xl border shadow-sm transition-[background-color,border-color,transform] duration-150 focus-visible:ring-2 focus-visible:outline-none"
-          type="button"
-        >
-          <span className="bg-primary/12 text-primary grid size-7 place-items-center rounded-lg transition-transform group-hover:scale-105">
-            <UserRound aria-hidden="true" className="size-4" />
-          </span>
-        </button>
-      </DropdownMenuTrigger>
+      {/* Same size, shape, hover and tooltip as the rail's nav items. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label="Open profile menu"
+              className="kinetic-depress text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring focus-visible:ring-offset-sidebar flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg transition-[transform,background-color,color] duration-200 ease-out hover:shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+              type="button"
+            >
+              <UserRound aria-hidden="true" className="h-5 w-5" />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>
+          <p className="font-medium">Profile</p>
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent
         align="end"
         className="border-border/80 bg-popover/96 w-64 rounded-xl p-1.5 shadow-2xl backdrop-blur-xl"

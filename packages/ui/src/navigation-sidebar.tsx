@@ -28,15 +28,15 @@ const getNavItemStyles = (isActive: boolean): string =>
     'h-12 w-12 rounded-lg',
     // Transitions for smooth interactions
     'transition-[transform,background-color,color] duration-200 ease-out',
-    // Hover state - uses accent color for consistent look with theme toggle
-    'hover:bg-accent hover:text-accent-foreground hover:shadow-sm',
+    // Hover state - the rail's own accent, shared with the theme toggle and account button
+    'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-sm',
     // Active press state
     'kinetic-depress',
     // Focus visible state for keyboard navigation
     'focus-visible:ring-sidebar-ring focus-visible:ring-offset-sidebar focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
     // Active/selected state styling - prominent background for clear indication
     isActive && [
-      'bg-accent text-accent-foreground',
+      'bg-sidebar-accent text-sidebar-accent-foreground',
       // Left border indicator for vertical tab effect
       'before:absolute before:top-1/2 before:left-0 before:-translate-y-1/2',
       'before:bg-sidebar-primary before:h-6 before:w-1 before:rounded-r-full',

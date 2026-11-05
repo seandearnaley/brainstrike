@@ -1,5 +1,11 @@
 import type { ComponentType } from 'react';
-import type { ActionOutcome, ActionServices, CapabilityKey, ContextTarget } from '../index.js';
+import type {
+  ActionOutcome,
+  ActionServices,
+  ActionShortcut,
+  CapabilityKey,
+  ContextTarget,
+} from '../index.js';
 
 /**
  * Commands extend the reused context-actions capability union with surfaces
@@ -34,13 +40,15 @@ export interface CommandContext {
 }
 
 interface CommandBase {
+  /** Shown beside the label to tell same-label items apart (a tab's path). */
+  readonly detail?: string;
   readonly group?: CommandGroup;
   readonly icon?: CommandIcon;
   /** Namespaced, stable id: 'thread.new', 'nav.settings', 'fs.reveal'. */
   readonly id: string;
   /** Data-shaped gating ⇒ HIDDEN (e.g. no compatible target captured). */
   readonly isAvailable?: (ctx: CommandContext) => boolean;
-  /** Extra substrings the search matcher considers alongside the label. */
+  /** Extra substrings the search matcher considers alongside the label; never shown. */
   readonly keywords?: readonly string[];
   /**
    * STATIC label — the palette indexes labels up front, so a command's label
@@ -50,6 +58,8 @@ interface CommandBase {
   readonly label: string;
   /** All MUST be present in `ctx.capabilities` or the command is HIDDEN. */
   readonly requiredCapabilities?: readonly CommandCapability[];
+  /** A key binding that runs the same thing; set only where it is live in this window. */
+  readonly shortcut?: ActionShortcut;
 }
 
 /** A command that does its work when chosen. */
