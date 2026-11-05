@@ -25,6 +25,7 @@ import {
   rejectHostRunAdmission,
   retainHostRunWork,
   steerHostRun,
+  stopHostRunOutsideQueue,
   stopHostRunTree,
 } from './core-run-lifecycle.ts';
 import {
@@ -76,13 +77,13 @@ import {
   hostStartCommandRecord,
   hostStartPosition,
 } from './run-branch.ts';
-
 import {
   approveHostRunByPolicy,
   commitHostInteractionResponse,
   commitHostModelMessages,
   continueHostRun,
   type HostNextRun,
+  hostCarriedStartPosition,
   hostInteractionPreview,
   startHostNextRun,
 } from './run-continuation.ts';
@@ -548,7 +549,7 @@ export class HostCore {
   startRun(
     params: HostParams<'run/start'>,
     origin?: HostClientOrigin,
-    carry?: Pick<HostNextRun, 'hostPrompt' | 'turnId'>
+    carry?: Pick<HostNextRun, 'follows' | 'hostPrompt' | 'turnId'>
   ): Promise<{ runId: string }> {
     const record = hostStartCommandRecord(params);
     return this.settledCommand('run/start', record, () =>
@@ -556,7 +557,7 @@ export class HostCore {
         'run/start',
         params,
         origin,
-        () => hostStartPosition(this.runs.values(), this.rewinds.position(params), carry),
+        () => hostCarriedStartPosition(this.runs, this.rewinds.position(params), carry),
         record
       )
     );
@@ -932,25 +933,21 @@ export class HostCore {
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
-    const join = (): Promise<void> => {
-      const run = this.runs.requireForThread(params.threadId, params.runId);
-      const stopped = [run, ...this.children.turnRuns(run, this.runs)];
-      return stopHostRunTree(stopped, (owned, reason) => this.stopRun(owned, reason));
-    };
-    return this.command(
-      'run/stop',
-      params,
-      () =>
-        acceptHostRunStop(
-          this.runs.requireForThread(params.threadId, params.runId),
-          (result) => this.accept(params.threadId, 'run/stop', params, result, []),
-          join
-        ),
-      async (result) => {
-        // Stop commits intent, not cleanup; each repeat joins the same completion or failure.
-        await join();
-        return result;
-      }
+    const named = this.runs.get(params.runId);
+    const run = named?.threadId === params.threadId ? named : undefined;
+    const join = (): Promise<void> =>
+      // A Stop refused before it marked its run has nothing to join.
+      run?.stopped
+        ? stopHostRunTree([run, ...this.children.turnRuns(run, this.runs)], (owned, reason) =>
+            this.stopRun(owned, reason)
+          )
+        : Promise.resolve();
+    return stopHostRunOutsideQueue(run, join, () =>
+      this.command('run/stop', params, () =>
+        acceptHostRunStop(this.runs.requireForThread(params.threadId, params.runId), (result) =>
+          this.accept(params.threadId, 'run/stop', params, result, [])
+        )
+      )
     );
   }
 

@@ -107,5 +107,6 @@ Owner: [host tracing](../../packages/agent-host/src/telemetry/otel.ts).
   - A socket then pauses reads and joins complete-frame decoding and response writes before destroying the transport.
   - An empty dispatch queue alone doesn't prove the reader has finished its received frames.
 - Stop, deletion and host close fence admission and join provider, tool and memory work before releasing storage or Root.
+  - Stop commits its intent in the host's one admission queue and joins the stopped work outside it, so a tree slow to die holds only its own Stop's reply and that thread's next run, never another thread's command.
   - A terminal outcome doesn't prove physical retirement; failed joins stay visible and keep ownership.
 - Live/replay details: [persistence](assistant-persistence.md).
