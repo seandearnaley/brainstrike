@@ -177,3 +177,17 @@ test('a files rewind this host refuses leaves the turn and its worker working', 
   ).rejects.toMatchObject({ failure: { code: 'rewind.files-unavailable' } });
   expect(await worker()).toEqual([]);
 });
+
+test('an edit from a message the thread does not hold leaves the turn and its worker working', async () => {
+  const { core, threadId, worker } = await workingTurn();
+  await expect(
+    core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      parentMessageId: randomUUID(),
+      prompt: 'Edited.',
+      threadId,
+    })
+  ).rejects.toMatchObject({ failure: { code: 'run.branch-parent-unknown' } });
+  expect(await worker()).toEqual([]);
+});

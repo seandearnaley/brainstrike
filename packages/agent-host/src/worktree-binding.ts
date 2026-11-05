@@ -10,8 +10,10 @@ type HostBindingCommands = Pick<HostCore, 'readWorkspaceBinding' | 'updateWorksp
 type HostWorktreeChildren = Pick<HostChildRuns, 'isChild' | 'subtree'>;
 
 /** Rule 5 at the entry, when a parallel call of the same step dispatched a worker. */
-const WORKERS_LIVE =
-  'The worktree was created, but this conversation stays in its checkout: a background worker started in the same step still writes there.';
+const workersLiveError = (worktree: HostEnteredWorktree) =>
+  new Error(
+    `The worktree was created at ${worktree.root.path}, but this conversation stays in its checkout: a background worker started in the same step still writes there.`
+  );
 
 /**
  * ADR-0028 step 3: a root run's call binds its thread to the worktree it
@@ -33,7 +35,7 @@ export function hostWorktreeEntry(
   }
   return async (worktree) => {
     if (workersLive(children, runs, run.threadId)) {
-      throw new Error(WORKERS_LIVE);
+      throw workersLiveError(worktree);
     }
     const { binding } = core.readWorkspaceBinding(run.threadId);
     await core.updateWorkspaceBinding(

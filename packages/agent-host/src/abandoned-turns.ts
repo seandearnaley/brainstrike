@@ -5,19 +5,33 @@ import type { HostRunState } from './core-state.ts';
 import { hostRunAncestors } from './run-branch.ts';
 
 /**
+ * The run an edit, a regenerate or a rewind grows its branch from: null for
+ * the thread's start, undefined for the tip. It throws when the command would
+ * be refused, and the command itself then reports that refusal.
+ */
+export type HostForkPoint = () => string | null | undefined | Promise<string | null | undefined>;
+
+/**
  * Audit TW-3: an edit, a regenerate or a rewind grows a new branch from
- * `from` (a run, or null for the thread's start), leaving every turn below it.
+ * its fork point, leaving every turn below it.
  * A turn abandoned that way ends as a turn Stop ends it, so none of its workers
  * keeps writing the checkout beside the new branch. A turn the new branch
  * still holds, or one with a run active on this thread (whose fork the
- * admission refuses), is not abandoned. `undefined` follows the tip.
+ * admission refuses), is not abandoned, and a command that will be refused
+ * ends nothing.
  */
 export async function endHostAbandonedTurns(
   core: Pick<HostCore, 'stop'>,
   runs: ReadonlyMap<string, HostRunState>,
   threadId: string,
-  from: string | null | undefined
+  fork: HostForkPoint | undefined
 ): Promise<void> {
+  let from: string | null | undefined;
+  try {
+    from = await fork?.();
+  } catch {
+    return;
+  }
   if (from === undefined) {
     return;
   }
@@ -42,14 +56,28 @@ export async function endHostAbandonedTurns(
   }
 }
 
-/** The run a regenerate or a rewind of `userMessageId` grows its branch from. */
-export function hostUserMessageParent(
+/**
+ * Where a start or a regenerate forks, read once the thread has settled. A
+ * parent or message the thread does not hold has no turn below it, so a fork
+ * from one ends nothing.
+ */
+export function hostRunFork(
   runs: ReadonlyMap<string, HostRunState>,
-  threadId: string,
-  userMessageId: string
+  params:
+    | { readonly parentMessageId?: string | null | undefined }
+    | { readonly threadId: string; readonly userMessageId: string }
+): HostForkPoint {
+  return () =>
+    'userMessageId' in params ? hostUserMessageParent(runs, params) : params.parentMessageId;
+}
+
+/** The run a regenerate of `userMessageId` grows its branch from. */
+function hostUserMessageParent(
+  runs: ReadonlyMap<string, HostRunState>,
+  params: { readonly threadId: string; readonly userMessageId: string }
 ): string | null | undefined {
   for (const run of runs.values()) {
-    if (run.threadId === threadId && run.branch.userMessageId === userMessageId) {
+    if (run.threadId === params.threadId && run.branch.userMessageId === params.userMessageId) {
       return run.branch.parentMessageId;
     }
   }

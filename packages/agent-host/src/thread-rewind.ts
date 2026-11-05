@@ -27,6 +27,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
+import type { HostForkPoint } from './abandoned-turns.ts';
 import type { HostRunState } from './core-state.ts';
 import type { Json } from './json-value.ts';
 import type { HostPlatform } from './ports.ts';
@@ -65,12 +66,12 @@ export interface HostThreadRewindPorts {
     events: readonly HostEvent[]
   ): Promise<void>;
   append(threadId: string, events: readonly HostEvent[]): Promise<unknown>;
-  /** `from`: the run a rewind forks at; the turns it leaves end first (`abandoned-turns.ts`). */
+  /** `fork`: where a rewind branches; the turns it leaves end first (`abandoned-turns.ts`). */
   command<T extends Json>(
     method: string,
     params: { commandId: string; threadId: string },
     perform: () => Promise<T>,
-    from?: string | null
+    fork?: HostForkPoint
   ): Promise<T>;
   owner(): {
     readonly pending: Map<AbortController, string>;
@@ -270,7 +271,6 @@ export class HostThreadRewinds {
 
   async rewind(params: HostParams<'thread/rewind'>): Promise<HostResults['thread/rewind']> {
     const method = 'thread/rewind';
-    const from = await this.forkPoint(params);
     return await this.ports.command(
       method,
       params,
@@ -327,7 +327,7 @@ export class HostThreadRewinds {
           }
         });
       },
-      from
+      () => this.forkPoint(params)
     );
   }
 
@@ -396,12 +396,7 @@ export class HostThreadRewinds {
    * then reports that refusal or those conflicts.
    */
   private async forkPoint(params: HostParams<'thread/rewind'>): Promise<string | null | undefined> {
-    let headId: string | null;
-    try {
-      ({ headId } = this.target(params.threadId, params.messageId));
-    } catch {
-      return undefined;
-    }
+    const { headId } = this.target(params.threadId, params.messageId);
     if (params.mode === 'conversation-only') {
       return headId;
     }
