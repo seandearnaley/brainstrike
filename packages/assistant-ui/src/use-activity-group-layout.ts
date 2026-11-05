@@ -1,5 +1,6 @@
 import type { PartState } from '@assistant-ui/react';
 import { readMcpTaskToolInvocationResult } from '@brainstrike/assistant-contract';
+import { prefersReducedMotion } from '@brainstrike/ui';
 import {
   type KeyboardEvent,
   type RefObject,
@@ -98,10 +99,6 @@ function clusterKey(clusters: readonly ActivityCluster[]): string {
       cluster.durationMs ?? null,
     ])
   );
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 /**
