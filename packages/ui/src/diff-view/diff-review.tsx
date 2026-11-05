@@ -50,6 +50,7 @@ import {
   useState,
 } from 'react';
 import { Button } from '../button';
+import { Checkbox } from '../checkbox';
 import { cn } from '../lib/utils';
 import { TooltipIconButton } from '../tooltip-icon-button';
 import { toast } from '../use-toast';
@@ -119,7 +120,14 @@ export interface DiffReviewProps {
   /** Saves a new or edited comment. Without it the diff takes none. */
   readonly onComment?: ((comment: DiffComment) => void) | undefined;
   readonly onDeleteComment?: ((id: string) => void) | undefined;
+  /** Marks a file viewed or not. Without it the diff offers no viewed marks. */
+  readonly onViewed?: ((file: DiffReviewFile, viewed: boolean) => void) | undefined;
   readonly ref?: Ref<DiffReviewHandle> | undefined;
+  /**
+   * The revision each viewed file was marked at, by id. A viewed file starts
+   * folded, and a file whose revision moved on is no longer viewed.
+   */
+  readonly viewed?: ReadonlyMap<string, string> | undefined;
 }
 
 type Note =
@@ -149,6 +157,7 @@ interface LoadedFile {
 const NO_ACTIONS: readonly ChangesAction[] = [];
 const NO_COMMENTS: readonly DiffComment[] = [];
 const NO_IDS: ReadonlySet<string> = new Set();
+const NO_VIEWED: ReadonlyMap<string, string> = new Map();
 const NO_LOADED: ReadonlyMap<string, LoadedFile> = new Map();
 
 /**
@@ -254,7 +263,7 @@ class ReviewItems {
   build(
     files: readonly DiffReviewFile[],
     loaded: ReadonlyMap<string, LoadedFile>,
-    isFolded: (id: string) => boolean,
+    isFolded: (file: DiffReviewFile) => boolean,
     notesOf: (
       file: DiffReviewFile,
       fileDiff: FileDiffMetadata,
@@ -270,7 +279,7 @@ class ReviewItems {
         ? { fileDiff: load.fileDiff, hunks: load.hunks }
         : this.#parse(file, load, parsed);
       hunksById.set(file.id, hunks);
-      const collapsed = isFolded(file.id) || isUnloaded(file, load);
+      const collapsed = isFolded(file) || isUnloaded(file, load);
       const annotations = notesOf(file, fileDiff, hunks);
       const notes = JSON.stringify(annotations);
       const previous = this.#versions.get(file.id);
@@ -375,7 +384,9 @@ function FileHeader({
   loading,
   onAction,
   onToggle,
+  onViewed,
   open,
+  viewed,
 }: {
   readonly actions: readonly ChangesAction[];
   readonly actionsDisabled: boolean;
@@ -386,7 +397,9 @@ function FileHeader({
   readonly loading: boolean;
   readonly onAction: (action: ChangesAction) => void;
   readonly onToggle: () => void;
+  readonly onViewed: ((viewed: boolean) => void) | undefined;
   readonly open: boolean;
+  readonly viewed: boolean;
 }): ReactElement {
   const counts = loadedFile ?? file;
   const name = (
@@ -426,6 +439,16 @@ function FileHeader({
         deletions={counts.deletions}
         truncated={loadedFile?.truncated ?? false}
       />
+      {onViewed ? (
+        <label className="text-muted-foreground hover:text-foreground flex h-7 shrink-0 cursor-pointer items-center gap-1.5 px-1">
+          <Checkbox
+            aria-label={`Viewed ${file.path}`}
+            checked={viewed}
+            onCheckedChange={(checked) => onViewed(checked === true)}
+          />
+          Viewed
+        </label>
+      ) : null}
       {actions.length > 0 ? (
         <div className="flex shrink-0 items-center gap-0.5">
           {actions.map((action) => {
@@ -459,7 +482,9 @@ export function DiffReview({
   onAction,
   onComment,
   onDeleteComment,
+  onViewed,
   ref,
+  viewed = NO_VIEWED,
 }: DiffReviewProps): ReactElement {
   const appearance = useDiffAppearance();
   const viewer = useRef<CodeViewHandle<Note, undefined> | null>(null);
@@ -485,15 +510,24 @@ export function DiffReview({
   const draftCommentId = draft?.commentId;
   const actionable = onAction !== undefined;
 
-  const fold = (id: string, folded: boolean): void =>
-    setToggledIds((current) => toggled(current, id, folded !== defaultCollapsed));
+  const isViewed = (file: DiffReviewFile): boolean => viewed.get(file.id) === file.revision;
+  /** Where a file starts before a person folds or opens it: viewed files start folded. */
+  const startsFolded = (file: DiffReviewFile): boolean => defaultCollapsed || isViewed(file);
+  const fold = (file: DiffReviewFile, folded: boolean): void =>
+    setToggledIds((current) => toggled(current, file.id, folded !== startsFolded(file)));
+  const markViewed = (file: DiffReviewFile, marked: boolean): void => {
+    // Marking folds the file and unmarking opens it, from where it now starts.
+    setToggledIds((current) => toggled(current, file.id, false));
+    onViewed?.(file, marked);
+  };
 
   const items = useMemo(
     () =>
       cache.build(
         files,
         loaded,
-        (id) => toggledIds.has(id) !== defaultCollapsed,
+        (file) =>
+          toggledIds.has(file.id) !== (defaultCollapsed || viewed.get(file.id) === file.revision),
         (file, fileDiff, hunks) => {
           const notes: DiffLineAnnotation<Note>[] = comments
             .filter((comment) => comment.fileId === file.id && comment.id !== draftCommentId)
@@ -532,6 +566,7 @@ export function DiffReview({
       files,
       loaded,
       toggledIds,
+      viewed,
     ]
   );
 
@@ -687,13 +722,15 @@ export function DiffReview({
         onToggle={() => {
           if (unloaded) {
             // Opens once it loads, whichever way the files start.
-            fold(file.id, false);
+            fold(file, false);
             void load(file);
           } else {
-            fold(file.id, !item.collapsed);
+            fold(file, !item.collapsed);
           }
         }}
+        onViewed={onViewed && ((marked) => markViewed(file, marked))}
         open={!item.collapsed}
+        viewed={isViewed(file)}
       />
     );
   };

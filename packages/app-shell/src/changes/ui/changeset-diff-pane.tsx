@@ -66,6 +66,7 @@ export interface ChangesetDiffPaneProps {
 }
 
 const NO_DRAFTS: readonly DraftComment[] = [];
+const NO_VIEWED: ReadonlyMap<string, string> = new Map();
 
 /** "src/a.ts", or "3 files". */
 function describeFiles(files: readonly ChangesFileRevision[]): string {
@@ -128,6 +129,8 @@ export function ChangesetDiffPane({
   const saveComment = useChangesStore((state) => state.saveComment);
   const deleteComment = useChangesStore((state) => state.deleteComment);
   const clearComments = useChangesStore((state) => state.clearComments);
+  const viewed = useChangesStore((state) => state.viewedByChangeset.get(changesetKey) ?? NO_VIEWED);
+  const setViewed = useChangesStore((state) => state.setViewed);
 
   const reviewFiles = useMemo(() => files.map(toReviewFile), [files]);
   const comments = useMemo(() => drafts.map((draft) => draft.comment), [drafts]);
@@ -277,7 +280,11 @@ export function ChangesetDiffPane({
           onAction={applyAction && applyToFile}
           onComment={onSendComments && saveDraft}
           onDeleteComment={(id) => deleteComment(changesetKey, id)}
+          onViewed={(file, marked) =>
+            setViewed(changesetKey, file.id, marked ? file.revision : null)
+          }
           ref={reviewRef}
+          viewed={viewed}
         />
       </div>
       {reverting ? (

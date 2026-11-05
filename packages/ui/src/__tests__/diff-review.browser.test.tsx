@@ -509,6 +509,66 @@ function hunkButtons(name: string) {
   return page.getByRole('button', { exact: true, name });
 }
 
+test('a file marked viewed folds, and opens again once it changes', async () => {
+  const marks: [string, boolean][] = [];
+  function Viewed({ files }: { readonly files: readonly DiffReviewFile[] }) {
+    const [viewed, setViewed] = useState<ReadonlyMap<string, string>>(new Map());
+    return (
+      <ThemeProvider defaultMode="light">
+        <TooltipProvider>
+          <div style={{ height: 560, width: 900 }}>
+            <DiffReview
+              diffStyle="unified"
+              files={files}
+              loadFile={loadById}
+              onViewed={(file, marked) => {
+                marks.push([file.id, marked]);
+                setViewed((current) => {
+                  const next = new Map(current);
+                  if (marked) {
+                    next.set(file.id, file.revision);
+                  } else {
+                    next.delete(file.id);
+                  }
+                  return next;
+                });
+              }}
+              viewed={viewed}
+            />
+          </div>
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+  }
+  const [sum] = FILES;
+  if (!sum) {
+    throw new Error('The fixture has no files.');
+  }
+  const view = render(<Viewed files={[sum]} />);
+  const header = page.getByRole('button', { name: 'src/sum.ts' });
+  const mark = page.getByRole('checkbox', { name: 'Viewed src/sum.ts' });
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+
+  await mark.click();
+  await expect.element(mark).toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  // A viewed file still opens to read it again.
+  await header.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+  await mark.click();
+  await expect.element(mark).not.toBeChecked();
+  expect(marks).toEqual([
+    ['sum', true],
+    ['sum', false],
+  ]);
+
+  await mark.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  view.rerender(<Viewed files={[{ ...sum, revision: 'sum-2' }]} />);
+  await expect.element(mark).not.toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+});
+
 test('each hunk of a modified file offers its actions and hands back its own hunk', async () => {
   const onAction = vi.fn<OnAction>();
   const file = offering(TWO_HUNKS, ['stage', 'revert']);

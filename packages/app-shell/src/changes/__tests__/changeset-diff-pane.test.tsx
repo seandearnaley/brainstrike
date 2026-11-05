@@ -256,6 +256,30 @@ describe('ChangesetDiffPane', () => {
   });
 });
 
+describe('ChangesetDiffPane viewed marks', () => {
+  it('keeps a file viewed when the view switches away and back, until the file changes', async () => {
+    const user = userEvent.setup();
+    const pane = (changesetKey: string, files: readonly ChangedFileEntry[]) => (
+      <TooltipProvider>
+        <ChangesetDiffPane changesetKey={changesetKey} files={files} loadFileDiff={unusedLoad} />
+      </TooltipProvider>
+    );
+    const view = render(pane('cs-1', [WITH_PATCH]));
+    await user.click(await screen.findByRole('checkbox', { name: 'Viewed src/a.ts' }));
+    expect(screen.getByRole('checkbox', { name: 'Viewed src/a.ts' })).toBeChecked();
+
+    view.rerender(pane('cs-2', [WITH_PATCH]));
+    expect(await screen.findByRole('checkbox', { name: 'Viewed src/a.ts' })).not.toBeChecked();
+    view.rerender(pane('cs-1', [WITH_PATCH]));
+    expect(await screen.findByRole('checkbox', { name: 'Viewed src/a.ts' })).toBeChecked();
+
+    view.rerender(pane('cs-1', [{ ...WITH_PATCH, revision: 'a-2' }]));
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'Viewed src/a.ts' })).not.toBeChecked()
+    );
+  });
+});
+
 describe('ChangesetDiffPane actions', () => {
   const HUNK = '@@ -1 +1 @@\n-old\n+new\n';
   const applied = vi.fn<ApplyAction>(async (_action, target) => ({
