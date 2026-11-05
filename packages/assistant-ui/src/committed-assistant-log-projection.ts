@@ -45,7 +45,13 @@ import {
   requiredString,
   requiredText,
 } from './committed-host-event-readers';
-import { committedPersonInput, PERSON_INPUT_DATA_NAME } from './committed-person-input';
+import {
+  committedPersonInput,
+  PERSON_INPUT_DATA_NAME,
+  readInputIds,
+  type SentPersonInput,
+  sentPersonInput,
+} from './committed-person-input';
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
 import {
   committedStepParts,
@@ -53,6 +59,7 @@ import {
   liveOverlayEntry,
   liveOverlayTarget,
   MODEL_STREAM_TYPES,
+  partsBefore,
   withIndexedPart,
   withoutIndexedPart,
 } from './committed-step-text';
@@ -61,7 +68,7 @@ import {
   committedHostCompaction,
   HOST_CONTEXT_COMPACTED_DATA_NAME,
 } from './compaction-summary-message';
-import type { ThreadTokenUsage } from './context-usage-store';
+import { committedContextUsage, type ThreadTokenUsage } from './context-usage-store';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
 export interface CommittedAssistantLogRow {
@@ -150,6 +157,8 @@ interface ProjectedRun {
   /** A step started and neither its `model.step` nor a Stop's partial committed yet. */
   stepOpen: boolean;
   terminal: boolean;
+  /** The part keys of the person's messages sent to this run and not read yet, last in its reply. */
+  unread: string[];
   /** Distinct provider warnings shown for this run: one fact, one row. */
   readonly warnings: Set<string>;
 }
@@ -263,6 +272,8 @@ export class CommittedAssistantLogProjection {
   private readonly runs = new Map<string, ProjectedRun>();
   private readonly messageIndexes = new Map<string, number>();
   private readonly rewinds = new CommittedRewindHead();
+  /** Each sent `run/input` not read yet: the run whose reply shows it. */
+  private readonly sent = new Map<string, ProjectedRun>();
   private view: CommittedAssistantLogView;
 
   private readonly options: CommittedAssistantLogProjectionOptions;
@@ -337,15 +348,18 @@ export class CommittedAssistantLogProjection {
     update: (previous?: Part) => Part | undefined
   ): void {
     const message = this.message(run);
-    const index = run.partIndexes.get(key) ?? message.content.length;
-    const previous = message.content[index];
+    const index = run.partIndexes.get(key);
+    const previous = index === undefined ? undefined : message.content[index];
     const next = update(previous);
     if (next === undefined || next === previous) {
       return;
     }
+    if (index === undefined) {
+      this.insertPart(run, key, next);
+      return;
+    }
     const content = [...message.content];
     content[index] = next;
-    run.partIndexes.set(key, index);
     this.put({ ...message, content });
   }
 
@@ -571,8 +585,11 @@ export class CommittedAssistantLogProjection {
       step: 0,
       stepOpen: false,
       terminal: false,
+      unread: [],
       warnings: new Set(),
     });
+    // A run an idle thread starts for a person's message takes it as its own prompt.
+    this.read(row.event);
     this.view = {
       ...this.view,
       activeRunId: runId,
@@ -614,7 +631,8 @@ export class CommittedAssistantLogProjection {
     }
     const entry = liveOverlayEntry(run.step, chunk);
     if (entry) {
-      const target = liveOverlayTarget(run, entry, this.message(run).content);
+      const read = partsBefore(this.message(run).content, run.partIndexes, run.unread[0]);
+      const target = liveOverlayTarget(run, entry, read);
       run.overlay.set(entry.key, target);
       this.part(run, target.key, entry.part);
     }
@@ -648,13 +666,36 @@ export class CommittedAssistantLogProjection {
     }
   }
 
-  /** Insert a part before an existing anchor part, or append it when the anchor is absent. */
+  /** Insert a part before an existing anchor part, or after the reply's read parts without one. */
   private insertPart(run: ProjectedRun, key: string, part: Part, anchor?: string): void {
     const message = this.message(run);
+    const at = anchor !== undefined && run.partIndexes.has(anchor) ? anchor : run.unread[0];
     this.put({
       ...message,
-      content: [...withIndexedPart(message.content, run.partIndexes, key, part, anchor)],
+      content: [...withIndexedPart(message.content, run.partIndexes, key, part, at)],
     });
+  }
+
+  /** A person's message the host accepted for a run: shown at its reply's end until a run reads it. */
+  private send(run: ProjectedRun, sent: SentPersonInput): void {
+    const key = `input:${sent.commandId}`;
+    const { content, ...message } = this.message(run);
+    const part: Part = { data: sent.input, name: PERSON_INPUT_DATA_NAME, type: 'data' };
+    this.put({ ...message, content: [...withIndexedPart(content, run.partIndexes, key, part)] });
+    run.unread.push(key);
+    this.sent.set(sent.commandId, run);
+  }
+
+  /** A run read these inputs: each leaves the reply it waited in. */
+  private read(event: Readonly<Record<string, unknown>>): void {
+    for (const commandId of readInputIds(event)) {
+      const run = this.sent.get(commandId);
+      if (run && this.sent.delete(commandId)) {
+        const key = `input:${commandId}`;
+        run.unread = run.unread.filter((unread) => unread !== key);
+        this.removePart(run, key);
+      }
+    }
   }
 
   /**
@@ -907,12 +948,14 @@ export class CommittedAssistantLogProjection {
   }
 
   /**
-   * Committed SDK messages outside a step: a Stop's partial reply inside an
-   * open step, or a person's input the run read at a step boundary.
+   * Committed SDK messages outside a step's own: a Stop's partial reply inside
+   * an open step, or a person's input a run read before a step (a retried
+   * attempt's failed step stays open). Only an input names a delivery's inputs.
    */
   private messages(run: ProjectedRun, row: CommittedAssistantLogRow): void {
-    const input = run.stepOpen ? undefined : committedPersonInput(row.event);
+    const input = committedPersonInput(row.event);
     if (input) {
+      this.read(row.event);
       this.data(run, row, input, PERSON_INPUT_DATA_NAME);
       return;
     }
@@ -934,41 +977,34 @@ export class CommittedAssistantLogProjection {
       this.rewindHead(rewound);
       return;
     }
-    if (typeof event['runId'] !== 'string') {
+    // A sent run/input names its run in its command's payload.
+    const sent = sentPersonInput(event);
+    const runId = sent?.runId ?? event['runId'];
+    if (typeof runId !== 'string') {
       return;
     }
-    const run = this.runs.get(event['runId']);
+    const run = this.runs.get(runId);
     if (!run) {
       throw new Error('Committed run event has no canonical run.started identity.');
     }
-    if (event['type'] === 'stream.chunk') {
+    if (sent) {
+      this.send(run, sent);
+    } else if (event['type'] === 'stream.chunk') {
       this.stream(run, row);
     } else if (event['type'] === 'model.step') {
-      const usage = record(event['usage']);
-      const inputTokens = usage?.['inputTokens'];
-      const outputTokens = usage?.['outputTokens'];
-      if (
-        typeof inputTokens === 'number' &&
-        typeof outputTokens === 'number' &&
-        Number.isFinite(inputTokens) &&
-        Number.isFinite(outputTokens) &&
-        inputTokens >= 0 &&
-        outputTokens >= 0 &&
-        inputTokens + outputTokens > 0 &&
-        (this.view.contextUsage?.inputTokens !== inputTokens ||
-          this.view.contextUsage.outputTokens !== outputTokens)
-      ) {
-        this.view = { ...this.view, contextUsage: { inputTokens, outputTokens } };
+      const contextUsage = committedContextUsage(event, this.view.contextUsage);
+      if (contextUsage) {
+        this.view = { ...this.view, contextUsage };
       }
       this.commitStepText(run, event['messages']);
       this.data(run, row, event, HOST_EVENT_DATA_NAME);
     } else if (event['type'] === 'model.messages') {
       this.messages(run, row);
     } else if (event['type'] === 'interaction.requested') {
-      this.request(run, row, event, event['runId']);
+      this.request(run, row, event, runId);
     } else if (event['type'] === 'interaction.responded') {
       const interaction = this.view.pendingInteractions.find(
-        (item) => item.runId === event['runId'] && item.interactionId === event['interactionId']
+        (item) => item.runId === runId && item.interactionId === event['interactionId']
       );
       if (!interaction) {
         throw new Error('Committed decision has no matching pending host interaction.');
@@ -985,7 +1021,7 @@ export class CommittedAssistantLogProjection {
         ...this.view,
         pendingInteractions: this.view.pendingInteractions.filter((item) => item !== interaction),
       };
-      this.publishRunStatus(run, event['runId']);
+      this.publishRunStatus(run, runId);
     } else if (event['type'] === 'effect.started') {
       this.tool(run, event, true);
     } else if (event['type'] === 'effect.finished') {

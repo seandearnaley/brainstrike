@@ -57,20 +57,19 @@ test('a steered message reaches the running run at its next step, in the same ru
       hasText: 'Reading evidence.txt',
     })
   ).toBeVisible({ timeout: 60_000 });
-  const userDataDir = electron.getUserDataDir();
-  const accepted = async () =>
-    (await readAgentHostLog(userDataDir)).typeCounts['command.accepted'] ?? 0;
-  const before = await accepted();
   await input.fill(STEER);
   await region.getByRole('button', { exact: true, name: 'Steer' }).click();
   await expect(input).toHaveValue('');
-  await expect.poll(accepted, { timeout: 30_000 }).toBe(before + 1);
+  // Sent, and shown faded at the reply's end while the run has not read it.
+  const steer = region.getByTestId('person-input').filter({ hasText: STEER });
+  await expect(steer).toHaveAttribute('data-unread', '', { timeout: 30_000 });
   await expect(region.getByRole('list', { name: 'Queued follow-up messages' })).toHaveCount(0);
 
   toolFinish.resolve();
   await expect(region.getByText(STEERED_REPLY)).toBeVisible({ timeout: 90_000 });
   // Drawn inside the reply, where the run read it.
-  await expect(region.getByText(STEER)).toBeVisible();
+  await expect(steer).toBeVisible();
+  await expect(steer).not.toHaveAttribute('data-unread');
   await expect(region.getByText(UNSTEERED_REPLY)).toHaveCount(0);
   // One request carried the message: the step after the tool, with the tool's result before it.
   const steering = modelProvider
@@ -85,7 +84,7 @@ test('a steered message reaches the running run at its next step, in the same ru
   const steered = messages.findIndex((message) => JSON.stringify(message).includes(STEER));
   expect(toolResult).toBeGreaterThan(-1);
   expect(toolResult).toBeLessThan(steered);
-  const log = await readAgentHostLog(userDataDir);
+  const log = await readAgentHostLog(electron.getUserDataDir());
   expect(log.typeCounts['run.started']).toBe(1);
   expect(log.typeCounts['run.finished']).toBe(1);
   expect(modelProvider.refusals()).toEqual([]);
