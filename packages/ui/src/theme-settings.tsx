@@ -5,16 +5,21 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { type ComponentType, type ReactNode, useId } from 'react';
 import { Button } from './button';
+import { Input } from './input';
 import { cn } from './lib/utils';
 import { type ThemeMode, useTheme } from './theme-provider';
 import {
+  CODE_FONT_SIZES,
   CODE_FONTS,
   CODE_THEMES,
   type CodeThemeDefinition,
   FONTS,
   type FontDefinition,
+  MOTION_PREFERENCES,
   THEMES,
   type ThemeDefinition,
+  TRANSCRIPT_TEXT_SIZES,
+  TRANSCRIPT_WIDTHS,
 } from './themes';
 
 const MODE_OPTIONS: ReadonlyArray<{
@@ -133,6 +138,71 @@ function ChoiceGroup<Id extends string>({
   );
 }
 
+/**
+ * A compact single-row radio group for short text choices (sizes, widths),
+ * with the same native-radio keyboard model as {@link ChoiceGroup}.
+ */
+function SegmentedChoice<Id extends string>({
+  description,
+  label,
+  onChange,
+  options,
+  testIdPrefix,
+  value,
+}: {
+  description: string;
+  label: string;
+  onChange: (id: Id) => void;
+  options: readonly { readonly id: Id; readonly label: string }[];
+  testIdPrefix: string;
+  value: Id;
+}) {
+  const groupName = useId();
+  const labelId = useId();
+  return (
+    <div className="space-y-2">
+      <p className="text-sm leading-none font-medium" id={labelId}>
+        {label}
+      </p>
+      <div
+        aria-labelledby={labelId}
+        className="border-border bg-muted/40 inline-flex flex-wrap gap-1 rounded-lg border p-1"
+        role="radiogroup"
+      >
+        {options.map((option) => (
+          <label
+            className={cn(
+              'has-[:focus-visible]:ring-ring cursor-pointer rounded-md px-3 py-1 text-sm transition-colors has-[:focus-visible]:ring-2',
+              value === option.id
+                ? 'bg-primary text-primary-foreground font-medium shadow-xs'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+            )}
+            data-testid={`${testIdPrefix}-${option.id}`}
+            key={option.id}
+          >
+            <input
+              checked={value === option.id}
+              className="sr-only"
+              name={groupName}
+              onChange={() => onChange(option.id)}
+              type="radio"
+              value={option.id}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+      <p className="text-muted-foreground text-sm">{description}</p>
+    </div>
+  );
+}
+
+/** Code font size options; `default` stands for no chosen size. */
+const CODE_FONT_SIZE_OPTIONS: readonly { readonly id: string; readonly label: string }[] = [
+  { id: 'default', label: 'Default' },
+  ...CODE_FONT_SIZES.map((size) => ({ id: String(size), label: `${size}px` })),
+];
+
 function ThemePreview({ theme }: { theme: ThemeDefinition }) {
   return (
     <>
@@ -211,16 +281,27 @@ function byId<Definition extends { readonly id: string }>(
 export function ThemeSettings() {
   const {
     codeFont,
+    codeFontSize,
     codeTheme,
+    customCodeFont,
     font,
     mode,
+    motion,
     setCodeFont,
+    setCodeFontSize,
     setCodeTheme,
+    setCustomCodeFont,
     setFont,
     setMode,
+    setMotion,
     setTheme,
+    setTranscriptTextSize,
+    setTranscriptWidth,
     theme,
+    transcriptTextSize,
+    transcriptWidth,
   } = useTheme();
+  const customCodeFontId = useId();
 
   return (
     <div className="grid gap-6">
@@ -263,14 +344,68 @@ export function ThemeSettings() {
         testIdPrefix="font-card"
         value={font}
       />
+      <SegmentedChoice
+        description="The size of messages in chat."
+        label="Transcript text size"
+        onChange={setTranscriptTextSize}
+        options={TRANSCRIPT_TEXT_SIZES}
+        testIdPrefix="transcript-size"
+        value={transcriptTextSize}
+      />
+      <SegmentedChoice
+        description="Narrow keeps chat in a reading column, Wide caps it on a wide panel, Full uses the whole panel."
+        label="Transcript width"
+        onChange={setTranscriptWidth}
+        options={TRANSCRIPT_WIDTHS}
+        testIdPrefix="transcript-width"
+        value={transcriptWidth}
+      />
+      <SegmentedChoice
+        description="Reduced turns off animations and smooth scrolling. System follows your device setting."
+        label="Motion"
+        onChange={setMotion}
+        options={MOTION_PREFERENCES}
+        testIdPrefix="motion"
+        value={motion}
+      />
       <ChoiceGroup
-        description="The typeface for the editor, diffs and code in chat."
+        description="The typeface for the editor, diffs, code in chat and the terminal."
         label="Code font"
         onChange={setCodeFont}
         options={CODE_FONTS}
         renderOption={(id) => <FontPreview font={byId(CODE_FONTS, id)} sample="{0O1l}" />}
         testIdPrefix="code-font-card"
         value={codeFont}
+      />
+      <div className="space-y-2">
+        <label className="block text-sm leading-none font-medium" htmlFor={customCodeFontId}>
+          Custom code font
+        </label>
+        <Input
+          autoComplete="off"
+          className="max-w-xs"
+          id={customCodeFontId}
+          onChange={(event) => setCustomCodeFont(event.target.value)}
+          placeholder="e.g. Berkeley Mono"
+          spellCheck={false}
+          value={customCodeFont}
+        />
+        <p className="text-muted-foreground text-sm">
+          A monospace font installed on this computer, used for code and the terminal. If it is
+          missing, the code font above is used.
+        </p>
+      </div>
+      <SegmentedChoice
+        description="Applies to the editor, diffs, code in chat and the terminal. Default keeps each one's own size."
+        label="Code font size"
+        onChange={(id) =>
+          setCodeFontSize(
+            id === 'default' ? null : (CODE_FONT_SIZES.find((size) => String(size) === id) ?? null)
+          )
+        }
+        options={CODE_FONT_SIZE_OPTIONS}
+        testIdPrefix="code-font-size"
+        value={codeFontSize === null ? 'default' : String(codeFontSize)}
       />
       <ChoiceGroup
         description="Syntax colors for the editor, diffs and code in chat. Each follows the light or dark mode."
