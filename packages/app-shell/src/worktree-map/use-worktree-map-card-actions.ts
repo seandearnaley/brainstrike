@@ -14,6 +14,7 @@ import { createLogger } from '@brainstrike/logging';
 import { useState } from 'react';
 import type { TerminalTargetState } from '../stores/terminal-target-store';
 import type { WorktreeCheckoutIntentState } from '../stores/worktree-checkout-intent-store';
+import { getThreadGroupsCapability } from '../thread-groups-capability';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 import type { WorktreeMapCardModel, WorktreeMapRepositoryModel } from './worktree-map-model';
 
@@ -79,14 +80,23 @@ export interface WorktreeMapCardActions {
 }
 
 /** The open folder holding the card's repository (its primary checkout), if one is open. */
-function repositoryFolderId(
+async function repositoryFolder(
   repositories: readonly WorktreeMapRepositoryModel[],
   card: WorktreeMapCardModel
-): string | undefined {
-  const primary = repositories
+): Promise<
+  { readonly displayName: string; readonly path: string; readonly rootId: string } | undefined
+> {
+  const containment = repositories
     .find((candidate) => candidate.repoCommonDir === card.entry.repoCommonDir)
     ?.cards.find((candidate) => candidate.entry.primary)?.entry.containment;
-  return primary === undefined || primary === 'outside-roots' ? undefined : primary[0];
+  const rootId =
+    containment === undefined || containment === 'outside-roots' ? undefined : containment[0];
+  const catalog = getThreadGroupsCapability();
+  if (!(rootId && catalog)) {
+    return;
+  }
+  const row = (await catalog.readRoots()).find((candidate) => candidate.id === rootId);
+  return row ? { displayName: row.displayName, path: row.path, rootId } : undefined;
 }
 
 export function useWorktreeMapCardActions(
@@ -157,12 +167,14 @@ export function useWorktreeMapCardActions(
         // written later by the mid-session registration, and a refresh now
         // would race it and re-read `rootId: null`. `useWorktreeMap`
         // re-loads itself off the root-identity context once the row lands.
-        return createThread(repository, resourceId).then((thread) => {
+        return Promise.all([
+          createThread(repository, resourceId),
+          repositoryFolder(repositories, card),
+        ]).then(([thread, localRoot]) => {
           selectThread(resourceId, thread.id);
-          const localRootId = repositoryFolderId(repositories, card);
           publishIntent({
             branch: card.entry.branch,
-            ...(localRootId ? { localRootId } : {}),
+            ...(localRoot ? { localRoot } : {}),
             path: card.entry.path,
             threadId: thread.id,
             worktreeId,

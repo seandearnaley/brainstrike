@@ -74,7 +74,11 @@ export interface UseWorktreeModeArgs {
   readonly onSelectWorktree: (worktree: {
     readonly branch: string | null;
     /** The repository's open folder, which a thread with no folder returns to on hand-off. */
-    readonly localRootId?: string;
+    readonly localRoot?: {
+      readonly displayName: string;
+      readonly path: string;
+      readonly rootId: string;
+    };
     readonly path: string;
     readonly worktreeId: string;
   }) => Promise<void>;
