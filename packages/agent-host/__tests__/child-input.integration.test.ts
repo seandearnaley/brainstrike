@@ -122,7 +122,8 @@ async function parentDeliveries(
 
 test('an input committed after a failed child run is refused, and the parent still hears the child', async () => {
   const { childThreadId, harness } = await heldChildEnd(delegating('fail'));
-  await expect.poll(async () => (await parentDeliveries(harness, childThreadId)).length).toBe(1);
+  await harness.core().idle(harness.threadId);
+  expect(await parentDeliveries(harness, childThreadId)).toHaveLength(1);
   const refused = (await harness.core().read(childThreadId, 0)).flatMap(({ event }) =>
     event.type === 'run.finished' ? [event] : []
   );
@@ -139,11 +140,11 @@ test('an input committed after the child run ended starts its next run and repor
     (await harness.core().read(threadId, 0)).flatMap(({ event }) =>
       event.type === 'run.finished' ? [event.runId] : []
     );
-  await expect.poll(async () => (await finishedRuns(childThreadId)).length).toBe(2);
-  await expect.poll(() => parentDeliveries(harness, childThreadId)).toHaveLength(1);
-  const [heard = ''] = await parentDeliveries(harness, childThreadId);
-  await expect.poll(async () => (await finishedRuns(harness.threadId)).includes(heard)).toBe(true);
-  expect(await parentDeliveries(harness, childThreadId)).toHaveLength(1);
+  await harness.core().idle(harness.threadId);
+  expect(await finishedRuns(childThreadId)).toHaveLength(2);
+  const heard = await parentDeliveries(harness, childThreadId);
+  expect(heard).toHaveLength(1);
+  expect(await finishedRuns(harness.threadId)).toContain(heard[0]);
   expect(
     model.doStreamCalls.filter((call) => userTexts(call).some((value) => value.includes(FOLLOW)))
   ).toHaveLength(1);
