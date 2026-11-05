@@ -80,10 +80,10 @@ const ComposerInputRow = ({
   slashPopover,
 }: ComposerInputRowProps) => {
   // Last-24h budget cap gate (see budget-guardrail-control.tsx): while over
-  // cap without a session override, BOTH send paths are disabled — the Send
-  // button and the textarea (a disabled textarea cannot submit via Enter, so
-  // there is no hidden path around the gate). Attachment staging is gated the
-  // same way. The block is never silent: the BudgetGuardrailControl notice
+  // cap without a session override, sending is blocked — the Send button is
+  // disabled and Enter does not submit — while the draft stays editable, so a
+  // message can be finished (and images staged) before the cap is raised or
+  // overridden. The block is never silent: the BudgetGuardrailControl notice
   // with its explicit "Send anyway" override renders in the composer shell
   // whenever this gate is closed. The Cancel (Stop) button deliberately
   // ignores the gate — stopping an in-flight run must always be possible.
@@ -95,31 +95,34 @@ const ComposerInputRow = ({
   const runActions = useComposerRunActions({ onSteerActiveRun });
   const budgetSendBlocked = useBudgetSendGate();
   const inputId = useId();
-  const sendDisabled = isComposerDisabled || budgetSendBlocked || activeInput?.canSend === false;
+  const stagingDisabled = isComposerDisabled || activeInput?.canSend === false;
+  const sendDisabled = stagingDisabled || budgetSendBlocked;
   const InputFrame =
     attachmentsAvailability?.state === 'enabled' ? AttachmentPasteFrame : PlainInputFrame;
 
   return (
-    <InputFrame disabled={sendDisabled}>
+    <InputFrame disabled={stagingDisabled}>
       <ComposerPrimitive.Input
         aria-label="Message input"
         className="aui-composer-input"
-        disabled={isComposerDisabled || budgetSendBlocked}
+        disabled={isComposerDisabled}
         id={inputId}
         onKeyDown={(event) => {
-          if (activeInput) {
-            sendActiveDraftOnEnter(event, activeInput, sendDisabled, hasDraft);
-          } else if (isRunning && runActions && !sendDisabled) {
-            queueOrSteerOnEnter(event, runActions);
-          }
+          handleComposerEnter(event, {
+            activeInput,
+            hasDraft,
+            isRunning,
+            runActions,
+            sendDisabled,
+          });
         }}
-        placeholder={isRunning ? 'Queue a follow-up, or steer…' : 'Ask Brainstrike anything…'}
+        placeholder={composerPlaceholder(isRunning, Boolean(slashPopover))}
         rows={1}
       />
       {slashPopover}
       <div className="bs-composer-footer" data-testid="assistant-composer-controls">
         <div className="bs-composer-footer-start">
-          <AttachImageButton availability={attachmentsAvailability} disabled={sendDisabled} />
+          <AttachImageButton availability={attachmentsAvailability} disabled={stagingDisabled} />
           {planMode ? <PlanModeToggle planMode={planMode} /> : null}
           {accessMode ? <ComposerAccessModeControl access={accessMode} /> : null}
           {footerEnd}
@@ -276,6 +279,60 @@ const PlanModeToggle = ({ planMode }: { planMode: PlanModeComposerControls }) =>
     {planMode.enabled ? <span>Plan</span> : null}
   </button>
 );
+
+/** The idle hint names the "/" menu whenever the thread has commands to offer. */
+function composerPlaceholder(isRunning: boolean, hasSlashCommands: boolean): string {
+  if (isRunning) {
+    return 'Queue a follow-up, or steer…';
+  }
+  return hasSlashCommands ? 'Ask anything, or type / for commands' : 'Ask Brainstrike anything…';
+}
+
+/**
+ * Enter in the composer: the child receipt path sends its own draft; a
+ * blocked send (e.g. the budget cap) keeps every Enter variant from
+ * submitting while Shift+Enter still breaks the line; a running thread
+ * queues or steers.
+ */
+function handleComposerEnter(
+  event: KeyboardEvent<HTMLTextAreaElement>,
+  context: {
+    readonly activeInput: ReturnType<typeof useActiveConversationInput>;
+    readonly hasDraft: boolean;
+    readonly isRunning: boolean;
+    readonly runActions: ComposerRunActions | undefined;
+    readonly sendDisabled: boolean;
+  }
+): void {
+  const { activeInput, hasDraft, isRunning, runActions, sendDisabled } = context;
+  if (activeInput) {
+    sendActiveDraftOnEnter(event, activeInput, sendDisabled, hasDraft);
+  } else if (sendDisabled) {
+    holdBlockedSendOnEnter(event);
+  } else if (isRunning && runActions) {
+    queueOrSteerOnEnter(event, runActions);
+  }
+}
+
+/**
+ * The vendor input submits the form on Enter (and steers on Shift+Ctrl/⌘+Enter)
+ * unless the key is already handled, so a blocked send claims those keys. An
+ * open "/" popover keeps Enter for its own selection; Shift+Enter alone still
+ * inserts a newline.
+ */
+function holdBlockedSendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>): void {
+  if (
+    event.key !== 'Enter' ||
+    event.nativeEvent.isComposing ||
+    event.currentTarget.getAttribute('aria-expanded') === 'true'
+  ) {
+    return;
+  }
+  if (event.shiftKey && !(event.ctrlKey || event.metaKey)) {
+    return;
+  }
+  event.preventDefault();
+}
 
 /** The child receipt path owns Enter instead of the ordinary root append action. */
 function sendActiveDraftOnEnter(

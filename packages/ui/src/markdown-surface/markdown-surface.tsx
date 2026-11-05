@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import { smoothScrollBehavior } from '../lib/motion';
 import { cn } from '../lib/utils';
 import { LinkChoiceMenu, type LinkChoices } from '../link-choice-menu';
 import { extractFrontmatter } from './frontmatter';
@@ -163,7 +164,7 @@ export function MarkdownSurface({
       try {
         const id = decodeURIComponent(href.slice(1));
         containerRef.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({
-          behavior: 'smooth',
+          behavior: smoothScrollBehavior(),
           block: 'start',
         });
       } catch {

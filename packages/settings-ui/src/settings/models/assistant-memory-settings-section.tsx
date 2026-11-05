@@ -173,7 +173,7 @@ export function AssistantMemorySettingsSection({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <BrainCircuit className="text-muted-foreground h-4 w-4" />
-            <h3 className="text-sm font-medium">Assistant Memory</h3>
+            <h3 className="text-sm font-medium">Observational memory</h3>
           </div>
           <p className="text-muted-foreground text-sm">
             Choose the model the assistant uses for observations.

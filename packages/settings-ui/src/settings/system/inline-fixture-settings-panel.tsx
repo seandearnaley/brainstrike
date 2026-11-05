@@ -18,11 +18,11 @@ export function InlineFixtureSettingsPanel({
   }
 
   return (
-    <div className="space-y-1 rounded-md border bg-amber-500/10 p-3">
+    <div className="border-warning/40 bg-warning/10 space-y-1 rounded-md border p-3">
       <div className="flex items-center justify-between gap-4">
         <div>
           <Label className="text-xs" htmlFor="inline-fixture-settings-toggle">
-            Developer: Inline Fixtures
+            Developer: inline fixtures
           </Label>
           <p className="text-muted-foreground text-[11px]">
             Load a built-in test fixture into the file explorer without selecting a real folder.

@@ -1,4 +1,5 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { act } from '@brainstrike/test-utils/react-act';
 import type {
   ChangedFileEntry,
   Changeset,
@@ -7,6 +8,7 @@ import type {
   GitRepository,
   GitStatus,
 } from '@brainstrike/types';
+import { resetToastStore, Toaster } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -388,6 +390,80 @@ describe('ChangesetHeader', () => {
     );
 
     expect(screen.getByTestId('changeset-git-scope-actions')).toBeInTheDocument();
+  });
+
+  describe('commit form', () => {
+    const ACTIVE_INVENTORY: GitInventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'main',
+              containment: ['root-1'],
+              current: true,
+              detached: false,
+              head: 'a',
+              lockedReason: null,
+              name: 'repo',
+              path: '/repo',
+              provenance: 'scanned',
+              prunableReason: null,
+              trust: 'validated',
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    afterEach(() => {
+      act(() => resetToastStore());
+    });
+
+    function renderActiveHeader() {
+      installGitBridge();
+      render(
+        <>
+          <ChangesetHeader
+            {...baseProps({ changeset: GIT_SCOPE_CHANGESET, inventory: ACTIVE_INVENTORY })}
+          />
+          <Toaster />
+        </>,
+        { wrapper: workspaceHost() }
+      );
+    }
+
+    it('commits on Enter and says which commit it made', async () => {
+      const user = userEvent.setup();
+      renderActiveHeader();
+
+      await user.click(screen.getByRole('button', { name: 'Commit' }));
+      await user.type(
+        screen.getByRole('textbox', { name: 'Commit message' }),
+        'Fix the header{Enter}'
+      );
+
+      expect(installed.git?.commit).toHaveBeenCalledExactlyOnceWith('root-1', {
+        summary: 'Fix the header',
+      });
+      expect(await screen.findByText('Committed abc1234')).toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: 'Commit message' })).not.toBeInTheDocument();
+    });
+
+    it('cancels on Escape without committing', async () => {
+      const user = userEvent.setup();
+      renderActiveHeader();
+
+      await user.click(screen.getByRole('button', { name: 'Commit' }));
+      await user.type(screen.getByRole('textbox', { name: 'Commit message' }), 'Half a thought');
+      await user.keyboard('{Escape}');
+
+      expect(screen.queryByRole('textbox', { name: 'Commit message' })).not.toBeInTheDocument();
+      expect(installed.git?.commit).not.toHaveBeenCalled();
+    });
   });
 
   // ===== Conversation Rewind entry point (BST-1115 W5 T4, Amendment 1 A1.3) =====

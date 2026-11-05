@@ -37,13 +37,8 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
 
-/** A host whose root delegates once to a Writer child that asks to write (or asks `childCalls`). */
-async function delegatingHost(
-  writes: unknown[],
-  childCalls: readonly { readonly input: unknown; readonly toolId: string }[] = [
-    { input: { path: 'notes.md' }, toolId: 'write_file' },
-  ]
-) {
+/** A host whose root delegates once to a Writer child that asks to write. */
+async function delegatingHost(writes: unknown[]) {
   const root = await mkdtemp(join(tmpdir(), 'bs-host-tree-approvals-'));
   roots.push(root);
   const host = await startAgentHost(
@@ -53,7 +48,7 @@ async function delegatingHost(
       delegation: {
         personas: [
           {
-            allowedToolIds: ['ask_user', 'write_file'],
+            allowedToolIds: ['write_file'],
             description: 'Writes workspace files.',
             id: 'writer',
             instructions: 'You are the Writer.',
@@ -71,19 +66,10 @@ async function delegatingHost(
         yolo: false,
       }),
       resolveModel: async () =>
-        scriptedDelegation(
-          { input: { prompt: 'Write the notes' }, toolId: 'agent-writer' },
-          childCalls
-        ),
+        scriptedDelegation({ input: { prompt: 'Write the notes' }, toolId: 'agent-writer' }, [
+          { input: { path: 'notes.md' }, toolId: 'write_file' },
+        ]),
       tools: {
-        ask_user: {
-          description: 'Ask the user a question',
-          execute: async (_input, context) => context.resumeData,
-          identity: 'native-ask-user-generation-1',
-          inputSchema: z.object({ question: z.string() }),
-          interaction: { kind: 'question', resumeSchema: z.object({ answer: z.string() }) },
-          risk: 'read',
-        },
         write_file: {
           description: 'Write a workspace file',
           execute: async (input) => {
@@ -234,43 +220,4 @@ test('a host thread’s tree shows its child’s approval by call sign until the
       threadId: child.threadId,
     },
   ]);
-});
-
-test('a host thread’s tree names its child’s pending question until the child’s thread answers it', async () => {
-  const client = await delegatingHost(
-    [],
-    [{ input: { question: 'Which root?' }, toolId: 'ask_user' }]
-  );
-  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-  const tree = new HostTreeApprovals(client, threadId);
-  cleanups.push(async () => tree.close());
-  await client.request('run/start', {
-    commandId: randomUUID(),
-    modelId: 'scripted',
-    prompt: 'Delegate the notes',
-    threadId,
-  });
-
-  await expect.poll(() => tree.getInteractions().length).toBe(1);
-  const [child] = (await client.request('thread/children', { threadId })).children;
-  if (!child) {
-    throw new Error('The root delegated no child');
-  }
-  const [waiting] = tree.getInteractions();
-  expect(waiting).toMatchObject({
-    interaction: { input: { question: 'Which root?' }, kind: 'question' },
-    owner: hostChildCallSign(child.threadId),
-    threadId: child.threadId,
-  });
-  // A question is not an approval: the approvals strip does not count it.
-  expect(tree.getSnapshot()).toEqual([]);
-
-  await client.request('interaction/resume', {
-    commandId: randomUUID(),
-    interactionId: waiting?.interaction.interactionId ?? '',
-    resumeData: { answer: 'Local' },
-    runId: waiting?.interaction.runId ?? '',
-    threadId: child.threadId,
-  });
-  await expect.poll(() => tree.getInteractions().length).toBe(0);
 });

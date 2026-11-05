@@ -43,7 +43,12 @@ function run(
     THREAD,
     id,
     'model',
-    { parentMessageId: parent, prompt: `prompt for ${id}`, userMessageId: messageId },
+    {
+      author: 'person',
+      parentMessageId: parent,
+      prompt: `prompt for ${id}`,
+      userMessageId: messageId,
+    },
     { sessionGrants: [] } as never
   );
   state.terminal = true;

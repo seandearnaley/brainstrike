@@ -121,12 +121,28 @@ describe('AssistantToolApprovalNotice', () => {
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     expect(screen.getByTestId('assistant-tool-approval-notice')).toBeInTheDocument();
-    expect(screen.getByText('Tool approval required')).toBeInTheDocument();
-    expect(screen.getByText('workspace.writeFile')).toBeInTheDocument();
+    // The title asks for the action; a generic verb already spells the tool id.
+    expect(screen.getByText('Call workspace.writeFile?')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.queryByText('README.md')).not.toBeInTheDocument();
     // No risk reason without a riskCategory hint.
-    expect(screen.queryByText(/Requires approval/iu)).not.toBeInTheDocument();
+    expect(screen.queryByText(/on your computer/iu)).not.toBeInTheDocument();
+  });
+
+  it('titles a native call from its verb and target', () => {
+    render(
+      <AssistantToolApprovalNotice
+        data={{
+          args: { command: 'pnpm test' },
+          runId: 'run-approval-1',
+          toolCallId: 'tool-call-1',
+          toolName: 'brainstrike.executeCommand',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Run pnpm test?')).toBeInTheDocument();
+    expect(screen.getByText('brainstrike.executeCommand')).toBeInTheDocument();
   });
 
   it('shows the risk reason when the approval carries a riskCategory hint', () => {
@@ -137,9 +153,8 @@ describe('AssistantToolApprovalNotice', () => {
     };
     render(<AssistantToolApprovalNotice data={approvalWithRisk} />);
 
-    expect(screen.getByText(/Requires approval/iu)).toBeInTheDocument();
     // BST-1070 §6.1: the shared execute reason line covers code as well as commands.
-    expect(screen.getByText(/runs commands or code on your computer/iu)).toBeInTheDocument();
+    expect(screen.getByText('Runs commands or code on your computer.')).toBeInTheDocument();
   });
 
   it('shows a "pending since" line and a stale advisory for a rediscovered stale approval, keeping both buttons enabled', () => {
@@ -181,13 +196,14 @@ describe('AssistantToolApprovalNotice', () => {
 
     await user.click(screen.getByRole('button', { name: /expand tool approval details/iu }));
 
-    expect(screen.getByText('runId')).toBeInTheDocument();
+    expect(screen.getByText('Run ID')).toBeInTheDocument();
     expect(screen.getByText('run-approval-1')).toBeInTheDocument();
-    expect(screen.getByText('toolCallId')).toBeInTheDocument();
+    expect(screen.getByText('Call ID')).toBeInTheDocument();
     expect(screen.getByText('tool-call-1')).toBeInTheDocument();
-    expect(screen.getByText('args')).toBeInTheDocument();
+    expect(screen.getByText('Arguments')).toBeInTheDocument();
     expect(screen.getByText(/README\.md/u)).toBeInTheDocument();
-    expect(screen.getByText('resumeSchema')).toBeInTheDocument();
+    // The resume schema is plumbing: only the Developer detail level shows it.
+    expect(screen.queryByText('Resume schema')).not.toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /collapse tool approval details/iu })
     ).toBeInTheDocument();
@@ -819,7 +835,7 @@ describe('AssistantToolApprovalNotice for a delegated child', () => {
     expect(screen.getByTestId('approval-delegation-owner')).toHaveTextContent(
       'Explorer · Act as the frontend and UX specialist. Survey the renderer.'
     );
-    expect(screen.getByText('brainstrike.lspInspect')).toBeInTheDocument();
+    expect(screen.getByText('Allow brainstrike.lspInspect?')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve brainstrike.lspInspect' })).toBeEnabled();
   });
 

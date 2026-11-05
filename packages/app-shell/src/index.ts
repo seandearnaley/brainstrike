@@ -7,6 +7,7 @@ export {
   resolveAssistantOperatingRootBinding,
 } from './assistant-operating-root';
 export {
+  type AssistantProviderNotice,
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
@@ -26,6 +27,7 @@ export { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 export { useEnableModel } from './hooks/use-enable-model';
 export { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status-fetcher';
+export { useOpenSettingsSection } from './hooks/use-open-settings-section';
 export { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 export { HostChildConversations } from './host-child-conversations';
 export { HostChildToolbar, type HostChildToolbarDetails } from './host-child-toolbar';

@@ -220,7 +220,7 @@ export function DesktopUpdateSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Updates</CardTitle>
+        <CardTitle>Automatic updates</CardTitle>
         <CardDescription>
           Brainstrike checks for a new version when it starts and every few hours, downloads it in
           the background and installs it when you quit.

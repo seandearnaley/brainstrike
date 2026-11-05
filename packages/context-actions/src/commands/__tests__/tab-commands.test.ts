@@ -188,10 +188,10 @@ describe('createTabCommands', () => {
     }
 
     const items = goTo.page(CTX).commands;
-    expect(items.map((item) => [item.id, item.label, item.keywords])).toEqual([
-      ['tab.go-to:root|@|src/a/index.ts', 'index.ts', ['src/a/index.ts']],
-      ['tab.go-to:root|@|src/b/index.ts', 'index.ts', ['src/b/index.ts']],
-      ['tab.go-to:thread-1', 'New Thread', undefined],
+    expect(items.map((item) => [item.id, item.label, item.detail, item.keywords])).toEqual([
+      ['tab.go-to:root|@|src/a/index.ts', 'index.ts', 'src/a/index.ts', ['src/a/index.ts']],
+      ['tab.go-to:root|@|src/b/index.ts', 'index.ts', 'src/b/index.ts', ['src/b/index.ts']],
+      ['tab.go-to:thread-1', 'New Thread', undefined, undefined],
     ]);
     await items[1]?.run(CTX);
     expect(scoped.activate).toHaveBeenCalledExactlyOnceWith('root|@|src/b/index.ts');

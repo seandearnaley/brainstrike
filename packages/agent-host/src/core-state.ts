@@ -245,8 +245,14 @@ export function foldHostRunEffect(
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
   readonly attachments?: readonly HostImageAttachment[];
-  /** BST-1932: the user message is a delegation's task, which the parent's model wrote. */
-  readonly delegated?: true;
+  /**
+   * Who wrote the user message (ADR-0028 rule 2), from its committed command
+   * and `run.started` `hostPrompt`: the person (their own `run/start`), an
+   * agent (a delegation's task, which the parent's model wrote) or the host (a
+   * wake's delivery, or the run it starts to carry a task on in a worktree).
+   * Only the person's words are a request.
+   */
+  readonly author: 'agent' | 'host' | 'person';
   /** BST-1932: background child results delivered with this run's user message. */
   readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */
@@ -271,7 +277,10 @@ export interface HostRunState {
   readonly artifactSettled: Set<string>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
-  /** BST-1932: human input a running child takes; it starts the run after this one. */
+  /**
+   * BST-1932: the human input this child run took, folded from its committed
+   * run/input until the input's run/start (or its refusal) commits.
+   */
   childInput?: HostParams<'run/start'> | undefined;
   /** BST-2360: whether each call that asks the person would run in the OS sandbox. */
   readonly commandSandboxes: Map<string, boolean>;
@@ -530,6 +539,7 @@ function foldHostInputRun(
   if (accepted?.inputCommandId !== event.commandId) {
     return;
   }
+  accepted.childInput = undefined;
   accepted.inputRun = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'])(
     event.result
   ).runId;
@@ -572,7 +582,12 @@ export function foldHostAcceptedCommand(
   }
   run.steered = true;
   if (event.method === 'run/input') {
-    run.inputCommandId = deriveHostInputRunCommandId(event.commandId);
+    // BST-1932: the committed input is the one record of what the child's next run takes.
+    const { commandId, runId, ...settings } = Schema.decodeUnknownSync(
+      HOST_METHOD_SCHEMAS['run/input']
+    )(event.payload);
+    run.inputCommandId = deriveHostInputRunCommandId(commandId);
+    run.childInput = { ...settings, commandId: run.inputCommandId, parentMessageId: runId };
   }
 }
 /** HostCore supplies already-validated committed messages; no independent fold or writer. */

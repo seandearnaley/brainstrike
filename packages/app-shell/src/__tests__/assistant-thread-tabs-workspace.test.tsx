@@ -50,7 +50,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       selectedThreadByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'retired-thread' },
     });
     renderWorkspace({}, host);
-    expect(await screen.findByText(/Your saved conversation is unavailable/u)).toBeVisible();
+    expect(await screen.findByText(/This thread is no longer available/u)).toBeVisible();
     // An empty catalog is the new-thread composer: nothing is created for it.
     expect(await screen.findByTestId('new-thread-composer')).toBeVisible();
     expect(screen.queryByTestId('host-thread')).not.toBeInTheDocument();

@@ -1,11 +1,11 @@
 import { useAuiState } from '@assistant-ui/react';
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { Button, saveDownload } from '@brainstrike/ui';
-import { Predicate } from 'effect';
 import { ClipboardCopy, Download } from 'lucide-react';
 import { type ReactElement, useEffect, useRef, useState } from 'react';
 import { useDebugBundleContext } from './debug-bundle-context';
 import { formatDebugBundleFilename } from './debug-bundle-download';
+import { selectHasErrorState } from './message-error-state.ts';
 
 /**
  * The runId of THIS message's `run.failed` event, or null. Mirrors
@@ -26,22 +26,6 @@ function selectFailedRunId(parts: readonly unknown[]): string | null {
     }
   }
   return null;
-}
-
-/**
- * True when THIS message carries assistant-ui's own error state — the exact
- * check `ErrorPrimitive.Message` / the library's internal `useMessageError`
- * perform (`status.type === 'incomplete' && status.reason === 'error'`).
- * Read directly via `useAuiState` (same `state.message.status` selector
- * pattern already used by `ActivityGroup` in assistant-activity-parts.tsx)
- * since `useMessageError` itself is not re-exported from `@assistant-ui/react`'s
- * public surface.
- */
-function selectHasErrorState(state: { message: unknown }): boolean {
-  const status = Predicate.isObject(state.message)
-    ? (state.message as { status?: { reason?: string; type?: string } }).status
-    : undefined;
-  return status?.type === 'incomplete' && status?.reason === 'error';
 }
 
 function formatKb(byteLength: number): string {

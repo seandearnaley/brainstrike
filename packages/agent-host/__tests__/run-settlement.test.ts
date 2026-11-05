@@ -8,7 +8,7 @@ const run = (threadId: string, runId: string): HostRunState => ({
     threadId,
     runId,
     'openai::gpt-6-sol',
-    { parentMessageId: null, prompt: runId, userMessageId: `user-${runId}` },
+    { author: 'person', parentMessageId: null, prompt: runId, userMessageId: `user-${runId}` },
     { categories: new Set(), outsideSandbox: new Set(), tools: new Set() }
   ),
   terminal: true,

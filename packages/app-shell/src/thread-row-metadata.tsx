@@ -255,7 +255,7 @@ export function ThreadReadFailureMarker({
         {/* A button only so a keyboard can reach the reason; it does nothing else. */}
         <button
           aria-label={`${title}: its history cannot be read. ${reason}`}
-          className="text-destructive focus-visible:ring-ring inline-flex size-6 items-center justify-center rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+          className="text-destructive focus-visible:ring-ring inline-flex size-6 items-center justify-center rounded-sm focus-visible:ring-2 focus-visible:outline-hidden"
           data-testid="thread-read-failure"
           // Like the row's other controls, a click here never opens the row.
           onClick={(event) => event.stopPropagation()}

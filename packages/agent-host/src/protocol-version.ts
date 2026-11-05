@@ -78,7 +78,9 @@
 // method.
 // v20 (2026-11-05): `log/subscribe` answers a `subscriptionId`, and `log/unsubscribe` names it
 // instead of the thread, so ending one view's subscription never ends another's. The required
-// parameter is why this is a version bump.
+// parameter is why this is a version bump. Additive since: `run.started` `hostPrompt`, set when
+// the host wrote the run's prompt (the worktree continuation); a next-turn delivery carries the
+// thread's ended command sessions too (`commandSessions`, with `entries` then possibly empty).
 // v21 (2026-11-05): each `changes/resolve-view` entry carries the actions the host offers for it
 // (`actions`) and the `revision` of what the view drew, and `revertible` is gone; `changes/apply`
 // stages, unstages or reverts a view's hunks or files (ADR-0036), a new method. The required

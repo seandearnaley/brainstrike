@@ -124,16 +124,24 @@ export function collectToolDurations(parts: readonly unknown[]): Record<string, 
   return durations;
 }
 
-/** Human duration: `420ms`, `3.4s`, `1m 12s`. */
+/**
+ * Human duration: `420ms`, `3.4s`, `8s`, `1m 12s`, `2m`.
+ *
+ * Rounds ONCE, to the precision it will display, before splitting units — so
+ * 999.6 ms reads `1s` (not `1000ms`), 59.97 s reads `1m` (not `60.0s`) and
+ * 119.6 s reads `2m` (not `1m 60s`). A whole number of seconds drops its `.0`.
+ */
 export function formatActivityDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${Math.max(0, Math.round(ms))}ms`;
+  const wholeMs = Math.max(0, Math.round(ms));
+  if (wholeMs < 1000) {
+    return `${wholeMs}ms`;
   }
-  const totalSeconds = ms / 1000;
-  if (totalSeconds < 60) {
-    return `${totalSeconds.toFixed(1)}s`;
+  const tenths = Math.round(ms / 100);
+  if (tenths < 600) {
+    return tenths % 10 === 0 ? `${tenths / 10}s` : `${(tenths / 10).toFixed(1)}s`;
   }
+  const totalSeconds = Math.round(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.round(totalSeconds % 60);
-  return `${minutes}m ${seconds}s`;
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }

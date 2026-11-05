@@ -1,6 +1,6 @@
 /** DOM lookups shared by the strip's focus and menu hooks. */
 
-import { prefersReducedMotion } from '../lib/motion';
+import { smoothScrollBehavior } from '../lib/motion';
 
 export function findTab(root: HTMLElement | null, id: string): HTMLElement | null {
   if (!root) {
@@ -26,7 +26,7 @@ export function revealTab(tab: HTMLElement | null, smooth: boolean): void {
     return;
   }
   shell.scrollIntoView({
-    behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto',
+    behavior: smooth ? smoothScrollBehavior() : 'auto',
     block: 'nearest',
     inline: 'nearest',
   });

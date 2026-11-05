@@ -43,19 +43,24 @@ describe('headlineFor', () => {
 
 describe('metaFor', () => {
   it('running: reads "· Worked for <elapsed>"', () => {
-    expect(metaFor('running', '3.0s')).toBe('· Worked for 3.0s');
+    expect(metaFor('running', '3s')).toBe('· Worked for 3s');
   });
 
   it('done: reads "· Worked for <elapsed>"', () => {
-    expect(metaFor('done', '5.0s')).toBe('· Worked for 5.0s');
+    expect(metaFor('done', '5s')).toBe('· Worked for 5s');
   });
 
-  it('failed: omitted entirely, regardless of the elapsed label', () => {
-    expect(metaFor('failed', '2.0s')).toBeNull();
+  it('failed: continues its own headline as "Activity failed after <elapsed>"', () => {
+    expect(metaFor('failed', '8s')).toBe(' after 8s');
+  });
+
+  it('omits the meta when there is no elapsed label', () => {
+    expect(metaFor('failed', null)).toBeNull();
+    expect(metaFor('done', null)).toBeNull();
   });
 
   it('cancelled: continues its own headline as "Stopped after <elapsed>"', () => {
-    expect(metaFor('cancelled', '4.0s')).toBe(' after 4.0s');
+    expect(metaFor('cancelled', '4s')).toBe(' after 4s');
   });
 });
 

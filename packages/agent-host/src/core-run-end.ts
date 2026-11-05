@@ -9,18 +9,22 @@ import { HostCommandSessionExits } from './core-command-exits.ts';
 import { joinHostThreadSettlements, settleHostRunOwner } from './core-run-lifecycle.ts';
 import type { HostRunState } from './core-state.ts';
 import { hostRunTerminalEvents } from './hook-context.ts';
-import type { HostClientOrigin, HostCommandSessionExit, HostDelegation } from './ports.ts';
+import type { HostClientOrigin, HostDelegation } from './ports.ts';
 import type { HostChildDelivery, HostEvent, HostLogRow, HostParams } from './protocol.ts';
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
 import { endHostRunTurn } from './run-admission.ts';
 import type { HostRunPosition } from './run-branch.ts';
-import { enteredWorktreeRunParams, type HostNextRun } from './run-continuation.ts';
+import { type HostNextRun, hostContinuationRun } from './run-continuation.ts';
 import type { HostThreadPresentationState } from './thread-presentation-state.ts';
 
 type Outcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 
 /** Core's writer, admission and run owners, lent to a run's end. */
 export interface HostRunEndPorts {
+  /** Core's one admission queue. */
+  readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
+  /** Admit the wake run `HostChildRuns.wakeParams` chose. */
+  readonly admitWake: (wake: HostWake) => Promise<unknown>;
   readonly appendTerminal: (
     threadId: string,
     events: readonly HostEvent[],
@@ -34,13 +38,16 @@ export interface HostRunEndPorts {
   readonly presentations: Pick<HostThreadPresentationState, 'finishing' | 'settle'>;
   readonly read: (threadId: string) => Promise<HostLogRow[]>;
   readonly runs: () => ReadonlyMap<string, HostRunState>;
+  readonly selections: Parameters<HostChildRuns['wakeParams']>[2];
   readonly startNextRun: (
     next: HostNextRun,
     origin: HostClientOrigin | undefined
   ) => Promise<boolean>;
-  /** Admit the thread's wake run, when its children or ended command sessions left it one. */
-  readonly wake: (threadId: string, exits: readonly HostCommandSessionExit[]) => Promise<void>;
+  /** The run a rewind left as the thread's tip, its one owner (`HostThreadRewinds.tip`). */
+  readonly tip: (threadId: string) => string | null | undefined;
 }
+
+type HostWake = NonNullable<ReturnType<HostChildRuns['wakeParams']>>;
 
 /**
  * A run's end. `run.finished` commits once the answer and the owner's
@@ -62,7 +69,7 @@ export class HostRunEnds {
     });
   }
 
-  /** A new run's position with the child results, and for a wake the ended sessions, it delivers. */
+  /** A new run's position with the child results and ended sessions it delivers. */
   deliveryPosition(
     method: 'run/start' | 'run/regenerate' | 'wake',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
@@ -71,14 +78,16 @@ export class HostRunEnds {
   ): HostRunPosition {
     const { threadId } = params;
     const runs = this.ports.runs();
-    const tip = [...runs.values()].filter((run) => run.threadId === threadId).at(-1);
+    // A wake continues the turn of the run it follows.
+    const tip =
+      'parentMessageId' in position ? runs.get(position.parentMessageId ?? '') : undefined;
     const exits = this.exits.pending(threadId);
     return hostDeliveryPosition(
       method,
       params.commandId,
       position,
       this.ports.children.pending(threadId, runs, delegation, method !== 'wake'),
-      method === 'wake' && tip ? { exits, threadId, turnId: hostRunTurnId(tip) } : undefined
+      { exits, threadId, turnId: tip && hostRunTurnId(tip) }
     );
   }
 
@@ -88,7 +97,8 @@ export class HostRunEnds {
     this.exits.delivered(threadId, delivery);
   }
 
-  finish(run: HostRunState, outcome: Outcome, detail?: string, wakes = true): Promise<void> {
+  /** A `recovered` run's end (a host start finishing it) wakes no parent (Q-2). */
+  finish(run: HostRunState, outcome: Outcome, detail?: string, recovered = false): Promise<void> {
     const ports = this.ports;
     // While its admission is live: a completed run asks for a title, a failed one withdraws it.
     ports.presentations.finishing(run, outcome, ports.runs().values());
@@ -106,39 +116,78 @@ export class HostRunEnds {
         ports.appendTerminal(run.threadId, await hostRunTerminalEvents(run, event), (rows) => {
           commit();
           ports.foldRows(rows);
-        })
-    ).then(async () => {
-      ports.presentations.settle(run);
-      this.exits.handOn(run.threadId);
-      const parent =
-        ports.children.deliveryParent(run, ports.runs()) ?? (run.origin ? undefined : run.threadId);
-      // BST-1932: a child's human input runs next; only that run reports to the parent.
-      const open = wakes && !(ports.closing() || ports.deletions.has(run.threadId));
-      const input = takeHostChildInput(run, outcome, open);
-      let next = false;
-      if (input) {
-        try {
-          next = await ports.startNextRun(input, run.input?.origin);
-        } finally {
-          // The input's run, or its refusal, is committed: the report now waits on that run.
-          settleHostChildInput(run, ports.runs());
-        }
-      }
-      // ADR-0028 step 3: the task goes on in the worktree the run entered, in
-      // the same turn, so the turn's workers before and after it are one.
-      if (!next && open && outcome === 'completed' && run.enteredWorktree) {
-        next = await ports.startNextRun(
-          {
-            params: enteredWorktreeRunParams(run, run.enteredWorktree),
-            turnId: hostRunTurnId(run),
-          },
-          run.input?.origin
-        );
-      }
-      if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
-        this.wake(parent);
-      }
-    });
+        }),
+      () => this.handOn(run, recovered)
+    );
+  }
+
+  /**
+   * Once per run, after its `run.finished` commits: what the thread does next,
+   * decided from the committed outcome. A run the person stopped starts nothing
+   * after it, so a Stop that lands while the run's end commits never waits on
+   * the run it would have started.
+   */
+  private async handOn(run: HostRunState, recovered: boolean): Promise<void> {
+    const ports = this.ports;
+    ports.presentations.settle(run);
+    this.exits.handOn(run.threadId);
+    const open = !(ports.closing() || ports.deletions.has(run.threadId));
+    // BST-1932: a child's human input runs next; only that run reports to the parent.
+    let next = open && (await this.takeInput(run, recovered));
+    // An approved plan, or ADR-0028 step 3's worktree: the task goes on in
+    // the same turn, so the turn's workers before and after it are one.
+    const continued =
+      !next && open && !run.stopped && run.outcome === 'completed'
+        ? hostContinuationRun(run, hostRunTurnId(run))
+        : undefined;
+    if (continued) {
+      next = await ports.startNextRun(continued, run.input?.origin);
+    }
+    if (!(recovered || next)) {
+      this.wakeParentOf(run);
+    }
+  }
+
+  /** Wake the thread `run` reports to, unless the host is closing or the thread is going. */
+  private wakeParentOf(run: HostRunState): void {
+    const { children, closing, deletions, runs } = this.ports;
+    const parent = children.deliveryParent(run, runs()) ?? (run.origin ? undefined : run.threadId);
+    if (parent && !(closing() || deletions.has(parent))) {
+      this.wake(parent);
+    }
+  }
+
+  /**
+   * BST-1932: start the run that takes `run`'s committed human input, or
+   * commit the input's refusal (a stopped or ended run, or a host restart).
+   */
+  async takeInput(run: HostRunState, restarted = false): Promise<boolean> {
+    const input = takeHostChildInput(run, restarted);
+    if (!input) {
+      return false;
+    }
+    try {
+      return await this.ports.startNextRun(input, run.input?.origin);
+    } finally {
+      // The input's run, or its refusal, is committed: the report now waits on that run.
+      settleHostChildInput(run, this.ports.runs());
+    }
+  }
+
+  /**
+   * An input committed after its run's `run.finished`: once that end has
+   * handed on without it, the input starts the child's next run itself. A
+   * refused input no longer holds the run's report, so the parent wakes for
+   * it: the end's own wake may have read the report while the input held it.
+   */
+  async takeLateInput(run: HostRunState): Promise<void> {
+    await Promise.allSettled([run.completion]);
+    if (this.ports.closing() || this.ports.deletions.has(run.threadId)) {
+      return;
+    }
+    if (!(await this.takeInput(run))) {
+      this.wakeParentOf(run);
+    }
   }
 
   /** Await before admitting the thread's next run or rewind, outside Core's shared queue. */
@@ -157,7 +206,15 @@ export class HostRunEnds {
       if (this.ports.closing() || this.ports.deletions.has(threadId)) {
         return;
       }
-      await this.ports.wake(threadId, this.exits.pending(threadId));
+      const { admitWake, children, runs, selections, tip } = this.ports;
+      await this.ports.admit(threadId, async () => {
+        // Read in the queue: a wake admitted ahead of this one may have delivered it all.
+        const exited = this.exits.wakes(threadId);
+        const wake = children.wakeParams(threadId, runs(), selections, exited, tip(threadId));
+        if (wake) {
+          await admitWake(wake);
+        }
+      });
     })().catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
   }
 }

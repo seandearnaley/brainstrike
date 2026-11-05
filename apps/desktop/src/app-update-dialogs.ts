@@ -12,6 +12,8 @@ export interface UpdateCheckDialog {
   readonly message: string;
   /** The button that quits and installs, when an update is ready. */
   readonly restartButton?: number;
+  /** The button that runs the check again, when it failed. */
+  readonly retryButton?: number;
   readonly type: 'error' | 'info';
 }
 
@@ -60,22 +62,28 @@ export function describeUpdateCheck(
       };
     case 'ready':
       return {
-        buttons: ['Restart to Update', 'Later'],
+        buttons: ['Restart to update', 'Later'],
         detail: 'If you choose Later, it installs when you quit.',
         message: `${appName} ${status.version} is ready to install`,
         restartButton: 0,
         type: 'info',
       };
     case 'failed':
-      return {
-        buttons: ['OK'],
-        detail: status.message,
-        message:
-          status.step === 'download'
-            ? "Couldn't download the update"
-            : "Couldn't check for updates",
-        type: 'error',
-      };
+      return status.step === 'download'
+        ? {
+            buttons: ['Try again', 'OK'],
+            detail: `The download didn't finish. Try again in a moment.\n\n${status.message}`,
+            message: "Couldn't download the update",
+            retryButton: 0,
+            type: 'error',
+          }
+        : {
+            buttons: ['Try again', 'OK'],
+            detail: `Check that you're online, then try again.\n\n${status.message}`,
+            message: "Couldn't check for updates",
+            retryButton: 0,
+            type: 'error',
+          };
     default:
       return status satisfies never;
   }
@@ -91,23 +99,32 @@ async function showMessageBox(
   return response;
 }
 
-/** Help › Check for Updates… (the app menu on macOS): check now and say what it found. */
+/**
+ * Help › Check for Updates… (the app menu on macOS): check now and say what it found.
+ * A failed check offers Try again, which runs the check once more.
+ */
 export async function checkForUpdatesFromMenu(
   updates: AppUpdates,
   parent: BaseWindow | undefined
 ): Promise<void> {
-  const view = describeUpdateCheck(await updates.check(), app.name, app.getVersion());
-  const response = await showMessageBox(parent, {
-    buttons: [...view.buttons],
-    cancelId: view.buttons.length - 1,
-    defaultId: 0,
-    detail: view.detail,
-    message: view.message,
-    noLink: true,
-    type: view.type,
-  });
-  if (view.restartButton !== undefined && response === view.restartButton) {
-    updates.restartToInstall();
+  for (;;) {
+    const view = describeUpdateCheck(await updates.check(), app.name, app.getVersion());
+    const response = await showMessageBox(parent, {
+      buttons: [...view.buttons],
+      cancelId: view.buttons.length - 1,
+      defaultId: 0,
+      detail: view.detail,
+      message: view.message,
+      noLink: true,
+      type: view.type,
+    });
+    if (view.retryButton !== undefined && response === view.retryButton) {
+      continue;
+    }
+    if (view.restartButton !== undefined && response === view.restartButton) {
+      updates.restartToInstall();
+    }
+    return;
   }
 }
 

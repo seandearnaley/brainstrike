@@ -16,9 +16,9 @@
  */
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { Changeset, ChangesetView, GitInventory } from '@brainstrike/types';
-import { Button, Input } from '@brainstrike/ui';
+import { Button, Input, toast } from '@brainstrike/ui';
 import { GitCommitHorizontal, History, RefreshCw, Upload } from 'lucide-react';
-import { type ReactElement, useState } from 'react';
+import { type FormEvent, type KeyboardEvent, type ReactElement, useState } from 'react';
 import { useGitBridge } from '../../workspace-git-services';
 import { useRewindStore } from '../rewind-store';
 import { useRewindPortFor } from '../use-rewind-port-for';
@@ -229,9 +229,15 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
     return null;
   }
 
-  const handleCommit = async (): Promise<void> => {
+  const closeCommit = (): void => {
+    setCommitOpen(false);
+    setCommitError(null);
+  };
+
+  const handleCommit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
     const trimmed = message.trim();
-    if (trimmed.length === 0) {
+    if (trimmed.length === 0 || committing) {
       return;
     }
     setCommitting(true);
@@ -241,6 +247,10 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
       if (result.ok) {
         setMessage('');
         setCommitOpen(false);
+        toast({
+          description: trimmed,
+          title: `Committed ${result.value.commit.slice(0, 7)}`,
+        });
       } else {
         setCommitError(describeBoundaryFailure(result.error));
       }
@@ -267,38 +277,51 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
     setPushing(false);
   };
 
+  // Escape in the message cancels the commit, as the Cancel button does.
+  const handleMessageKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Escape' && !committing) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeCommit();
+    }
+  };
+
   return (
     <div className="flex items-center gap-1.5" data-testid="changeset-git-scope-actions">
       {commitOpen ? (
-        <span className="flex items-center gap-1">
+        // A form, so Enter in the message commits.
+        <form
+          aria-label="Commit staged changes"
+          className="flex items-center gap-1"
+          onSubmit={handleCommit}
+        >
           <Input
             aria-label="Commit message"
+            autoFocus
             className="h-7 w-48 text-xs"
             onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={handleMessageKeyDown}
             placeholder="Commit message"
             value={message}
           />
           <Button
             disabled={committing || message.trim().length === 0}
-            onClick={handleCommit}
-            size="sm"
-            type="button"
+            size="xs"
+            type="submit"
             variant="outline"
           >
             {committing ? 'Committing…' : 'Commit'}
           </Button>
           <Button
-            onClick={() => {
-              setCommitOpen(false);
-              setCommitError(null);
-            }}
-            size="sm"
+            disabled={committing}
+            onClick={closeCommit}
+            size="xs"
             type="button"
             variant="ghost"
           >
             Cancel
           </Button>
-        </span>
+        </form>
       ) : (
         <Button
           className="h-7 gap-1 px-2 text-xs"
@@ -333,7 +356,13 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
         </span>
       ) : null}
       {pushResult ? (
-        <span className="text-muted-foreground text-[11px]" data-testid="changeset-push-result">
+        // Git's push output can run to many lines; one truncated line here,
+        // the whole of it on hover.
+        <span
+          className="text-muted-foreground max-w-64 truncate text-[11px]"
+          data-testid="changeset-push-result"
+          title={pushResult}
+        >
           {pushResult}
         </span>
       ) : null}

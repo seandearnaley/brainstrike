@@ -107,7 +107,7 @@ function WorktreeThreadDetails({
           {card.thread.running ? (
             <span
               aria-label="Running"
-              className="size-1.5 shrink-0 rounded-full bg-emerald-600 dark:bg-emerald-400"
+              className="bg-success size-1.5 shrink-0 rounded-full"
               role="img"
               title="Thread is running"
             />
