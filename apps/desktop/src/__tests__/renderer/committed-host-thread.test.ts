@@ -225,6 +225,63 @@ describe('the shared committed conversation core (BST-1940)', () => {
     await expect.poll(() => committed).toEqual([4]);
   });
 
+  it('shows no message the person did not type: the host’s worktree continuation is model input', async () => {
+    const CONTINUE = 'Continue the task in the worktree at /worktrees/fix on branch fix.';
+    const started = (runId: string, prompt: string, seq: number): HostLogRow[] => [
+      {
+        event: {
+          commandId: `command-${runId}`,
+          method: 'run/start',
+          payload: { commandId: `command-${runId}`, modelId: 'openai', prompt, threadId: THREAD },
+          result: { runId },
+          type: 'command.accepted',
+        },
+        seq,
+        threadId: THREAD,
+        ts: seq,
+      },
+    ];
+    const finished = (runId: string, seq: number): HostLogRow => ({
+      event: { outcome: 'completed', runId, type: 'run.finished' },
+      seq,
+      threadId: THREAD,
+      ts: seq,
+    });
+    const rows: HostLogRow[] = [
+      ...running,
+      finished(RUN, 4),
+      ...started('run-2', CONTINUE, 5),
+      {
+        event: {
+          hostPrompt: true,
+          modelId: 'openai',
+          parentMessageId: RUN,
+          prompt: CONTINUE,
+          runId: 'run-2',
+          turnId: RUN,
+          type: 'run.started',
+        },
+        seq: 6,
+        threadId: THREAD,
+        ts: 6,
+      },
+      finished('run-2', 7),
+    ];
+    const { client } = scriptedClient(rows, () => ({}));
+    const thread = open(client);
+    thread.connect();
+    await expect.poll(() => thread.store.getSnapshot().isLoading).toBe(false);
+
+    const typed = thread.store
+      .getSnapshot()
+      .repository.messages.flatMap(({ message }) =>
+        message.role === 'user'
+          ? message.content.flatMap((part) => (part.type === 'text' ? [part.text] : []))
+          : []
+      );
+    expect(typed).toEqual(['Hi']);
+  });
+
   it('subscribes the session only when connected, so a part composed first sees its replay', async () => {
     const { client, requests } = scriptedClient(running, () => ({}));
     const thread = open(client);
