@@ -3,7 +3,17 @@
  * while each is exactly as the turn left it (Sean's call, 2026-11-05). Real
  * snapshots of a real folder; the host log is the rows a host run commits.
  */
-import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
@@ -58,9 +68,9 @@ async function moveTheGuide() {
   await write('docs/manual.md', GUIDE.replace('four', '4'));
 }
 
-/** A turn of `during` between two real snapshots. */
+/** A turn of `during` between two real snapshots; `running` answers each `thread/list`. */
 async function settledTurn(
-  options: { during?: () => Promise<void>; mountedAt?: string; running?: boolean } = {}
+  options: { during?: () => Promise<void>; mountedAt?: string; running?: () => boolean } = {}
 ) {
   const snapshots = createSnapshotService({
     runner: execFileSnapshotGitRunner,
@@ -91,7 +101,7 @@ async function settledTurn(
     });
   const rows = [recorded(1, 'turn-start', start.commitOid), recorded(2, 'turn-end', end.commitOid)];
   const hostThreads = createHostThreadTurns({
-    listThreads: async () => [{ running: options.running ?? false, threadId: 'thread-1' }],
+    listThreads: async () => [{ running: options.running?.() ?? false, threadId: 'thread-1' }],
     readRows: async (_threadId, fromSeq) => rows.filter((row) => row.seq > fromSeq),
   });
   const service = createChangesetDiffService({
@@ -111,19 +121,32 @@ async function settledTurn(
   };
   const offered = async () =>
     Object.fromEntries((await view()).files.map((file) => [file.path, file.actions]));
-  const revert = async (paths: readonly string[], target?: ChangesActionTarget) => {
-    const drawn = await view();
-    const files = drawn.files
-      .filter((file) => paths.includes(file.path))
-      .map(({ path: filePath, revision }) => ({ path: filePath, revision }));
-    return await service.apply({
+  const revert = async (paths: readonly string[], target?: ChangesActionTarget) =>
+    await service.apply({
       action: 'revert',
       changeset: TURN,
       rootId: 'root-a',
-      target: target ?? { files, kind: 'files' },
+      target: target ?? filesOf(await view(), paths),
     });
+  /** The next run's turn-start snapshot, as its file hashes; it waits for the root's lock. */
+  const startNextRun = async () => {
+    const next = await snapshots.snapshot(handle, {
+      kind: 'turn-start',
+      runId: 'run-2',
+      threadId: 'thread-1',
+    });
+    return await snapshots.snapshotFileHashes(handle, next.commitOid);
   };
-  return { offered, revert, view };
+  const startHashes = await snapshots.snapshotFileHashes(handle, start.commitOid);
+  return { offered, revert, startHashes, startNextRun, view };
+}
+
+/** A revert target naming `paths` at the revision the view drew. */
+function filesOf(drawn: ChangesetView, paths: readonly string[]): ChangesActionTarget {
+  const files = drawn.files
+    .filter((file) => paths.includes(file.path))
+    .map(({ path: filePath, revision }) => ({ path: filePath, revision }));
+  return { files, kind: 'files' };
 }
 
 describe('reverting files from a settled turn', () => {
@@ -178,10 +201,7 @@ describe('reverting files from a settled turn', () => {
     const turn = await settledTurn();
     const drawn = await turn.view();
     await write('later.txt', 'after the turn\n');
-    const files = drawn.files
-      .filter((file) => file.path === 'src/a.txt' || file.path === 'later.txt')
-      .map(({ path: filePath, revision }) => ({ path: filePath, revision }));
-    const result = await turn.revert([], { files, kind: 'files' });
+    const result = await turn.revert([], filesOf(drawn, ['src/a.txt', 'later.txt']));
     expect(result).toMatchObject({
       error: { code: 'changeset.stale', message: '"later.txt" changed since this turn.' },
       ok: false,
@@ -191,15 +211,59 @@ describe('reverting files from a settled turn', () => {
   });
 
   it('reverts nothing while the thread has a run in progress', async () => {
-    const turn = await settledTurn({ running: true });
+    const turn = await settledTurn({ running: () => true });
     expect(Object.values(await turn.offered())).toEqual(new Array(5).fill([]));
-    const drawn = (await turn.view()).files.find((file) => file.path === 'src/a.txt');
-    const result = await turn.revert([], {
-      files: drawn ? [{ path: drawn.path, revision: drawn.revision }] : [],
-      kind: 'files',
-    });
+    const result = await turn.revert([], filesOf(await turn.view(), ['src/a.txt']));
     expect(result).toMatchObject({ error: { code: 'changeset.run-active' }, ok: false });
     expect(await read('src/a.txt')).toBe('one\nTWO\nthree\n');
+  });
+
+  it('lands before a run that starts as it reverts, so that run starts from the reverted file', async () => {
+    let armed = false;
+    let nextRun: Promise<ReadonlyMap<string, string>> | undefined;
+    const turn = await settledTurn({
+      running: () => {
+        const running = nextRun !== undefined;
+        if (armed && !running) {
+          nextRun = turn.startNextRun();
+        }
+        return running;
+      },
+    });
+    const target = filesOf(await turn.view(), ['src/a.txt']);
+    armed = true;
+    expect(await turn.revert([], target)).toEqual({ ok: true, value: { paths: ['src/a.txt'] } });
+    expect(await read('src/a.txt')).toBe('one\ntwo\nthree\n');
+    expect((await nextRun)?.get('src/a.txt')).toBe(turn.startHashes.get('src/a.txt'));
+  });
+
+  it('offers no revert of a deleted file once a file stands where its folder was', async () => {
+    await mkdir(path.join(root, 'notes'));
+    await write('notes/todo.txt', 'a list\n');
+    const turn = await settledTurn({
+      during: () => rm(path.join(root, 'notes'), { recursive: true }),
+    });
+    const drawn = await turn.view();
+    await write('notes', 'a file now\n');
+    expect(await turn.offered()).toEqual({ 'notes/todo.txt': [] });
+    expect(await turn.revert([], filesOf(drawn, ['notes/todo.txt']))).toMatchObject({
+      error: { code: 'changeset.stale' },
+      ok: false,
+    });
+    expect(await read('notes')).toBe('a file now\n');
+  });
+
+  it('offers no revert of a file replaced by a symlink with the same text', async () => {
+    const turn = await settledTurn({ during: () => write('pointer', 'src/a.txt') });
+    const drawn = await turn.view();
+    await rm(path.join(root, 'pointer'));
+    await symlink('src/a.txt', path.join(root, 'pointer'));
+    expect(await turn.offered()).toEqual({ pointer: [] });
+    expect(await turn.revert([], filesOf(drawn, ['pointer']))).toMatchObject({
+      error: { code: 'changeset.stale' },
+      ok: false,
+    });
+    expect((await lstat(path.join(root, 'pointer'))).isSymbolicLink()).toBe(true);
   });
 
   it('reverts nothing in a folder that is no longer where the turn found it', async () => {
@@ -242,10 +306,7 @@ describe('reverting files from a settled turn', () => {
     const drawn = await turn.view();
     await write('docs/guide.md', 'a new guide\n');
     expect(await turn.offered()).toEqual({ 'docs/manual.md': [] });
-    const result = await turn.revert([], {
-      files: drawn.files.map(({ path: filePath, revision }) => ({ path: filePath, revision })),
-      kind: 'files',
-    });
+    const result = await turn.revert([], filesOf(drawn, ['docs/manual.md']));
     expect(result).toMatchObject({
       error: { code: 'changeset.stale', message: '"docs/guide.md" changed since this turn.' },
       ok: false,

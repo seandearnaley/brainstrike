@@ -116,13 +116,14 @@ export interface TurnEndpoints {
 }
 
 /**
- * A turn revert: `changed` names the paths that are no longer as the turn
- * left them, and then nothing was written; otherwise one outcome per path.
+ * A turn revert. `busy`: the thread was not idle. `changed`: these paths are
+ * no longer as the turn left them. Either way nothing was written; otherwise
+ * one outcome per path.
  */
-export interface TurnRevertResult {
-  readonly changed: readonly string[];
-  readonly outcomes: readonly PerFileOutcome[];
-}
+export type TurnRevertResult =
+  | { readonly kind: 'busy' }
+  | { readonly kind: 'changed'; readonly paths: readonly string[] }
+  | { readonly kind: 'written'; readonly outcomes: readonly PerFileOutcome[] };
 
 export interface SweepOrphansResult {
   readonly kept: readonly string[];
@@ -154,7 +155,7 @@ interface RootEntry {
 }
 
 const GITLINK_MODE = '160000';
-/** A scanned path's hash when it cannot be read as a file: equal to no blob. */
+/** A scanned path's entry when it cannot be read as a file: equal to no tree entry. */
 const UNREADABLE_PATH = 'unreadable';
 const ALL_ZERO_OID_PATTERN = /^0+$/u;
 
@@ -744,11 +745,11 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
   }
 
   /**
-   * The live blob oid of each of `paths`, hashed into a private index the
-   * way `update-index --add` writes it: only these paths, whatever the
-   * ignore rules say. An absent path is left out. A path that is now a
-   * directory, or lies past a symlinked directory, maps to
-   * {@link UNREADABLE_PATH}, which no tree entry equals.
+   * The live mode and blob oid of each of `paths` (`<mode> <oid>`), hashed
+   * into a private index the way `update-index --add` writes it: only these
+   * paths, whatever the ignore rules say. An absent path is left out. A path
+   * that is now a directory, lies under a file, or lies past a symlinked
+   * directory maps to {@link UNREADABLE_PATH}, which no tree entry equals.
    */
   async function readPathHashes(
     entry: RootEntry,
@@ -766,12 +767,15 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
         .lstat(path.join(entry.handle.rootPath, relativePath))
         .catch((error: unknown) => {
           const code = (error as NodeJS.ErrnoException).code;
-          if (code === 'ENOENT' || code === 'ENOTDIR') {
+          if (code === 'ENOENT') {
             return null;
+          }
+          if (code === 'ENOTDIR') {
+            return UNREADABLE_PATH;
           }
           throw error;
         });
-      if (stats?.isDirectory()) {
+      if (stats === UNREADABLE_PATH || stats?.isDirectory()) {
         hashes.set(relativePath, UNREADABLE_PATH);
       } else if (stats) {
         present.push(relativePath);
@@ -790,7 +794,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
       assertValidOid(treeOid, 'path-scan write-tree result');
       const lsRun = await git.runOrThrow(['ls-tree', '-r', '-z', treeOid], { env });
       for (const treeEntry of parseLsTreeZ(lsRun.stdout)) {
-        hashes.set(treeEntry.path, treeEntry.oid);
+        hashes.set(treeEntry.path, `${treeEntry.mode} ${treeEntry.oid}`);
       }
       return hashes;
     });
@@ -798,9 +802,10 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
 
   /**
    * A turn `fromOid` → `toOid` as a restore plan back to `fromOid`, without
-   * gitlinks and cut to `paths` when given, with each path's blob at `toOid`
-   * and on disk now. A path is unchanged since the turn while the two agree;
-   * one the turn deleted must still be absent.
+   * gitlinks and cut to `paths` when given, with each path's mode and blob
+   * at `toOid` (from the turn's own diff) and on disk now. A path is
+   * unchanged since the turn while the two agree; one the turn deleted must
+   * still be absent.
    */
   async function turnPlan(
     entry: RootEntry,
@@ -809,12 +814,14 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     paths?: ReadonlySet<string>
   ) {
     const rawRun = await git.runOrThrow([...RAW_DIFF_ARGS, turn.fromOid, turn.toOid]);
-    const actions = computeRestorePlanActions(parseRawDiffZ(rawRun.stdout)).filter(
+    const records = parseRawDiffZ(rawRun.stdout);
+    const actions = computeRestorePlanActions(records).filter(
       (action) => action.kind !== 'nested-repo' && (paths === undefined || paths.has(action.path))
     );
-    const endRun = await git.runOrThrow(['ls-tree', '-r', '-z', turn.toOid]);
     const atEnd = new Map(
-      parseLsTreeZ(endRun.stdout).map((treeEntry) => [treeEntry.path, treeEntry.oid])
+      records
+        .filter((record) => record.status !== 'D')
+        .map((record) => [record.path, `${record.newMode} ${record.newOid}`])
     );
     const now = await readPathHashes(
       entry,
@@ -851,24 +858,29 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
 
   /**
    * Put `paths` back as they were at the turn's start, as one change: only
-   * while every one is a change of the turn that the live work-tree still
-   * holds as the turn left it. Otherwise nothing is written, and `changed`
-   * names the paths that are not. The root's lock is held throughout, so no
-   * snapshot lands between the check and the writes.
+   * while `idle` says the thread is idle and every path is a change of the
+   * turn that the live work-tree still holds as the turn left it. The root's
+   * lock is held from `idle` to the last write, and a run's turn-start
+   * snapshot takes the same lock, so a run that starts meanwhile starts from
+   * the reverted files.
    */
   async function revertTurnPaths(
     handle: ShadowRepoHandle,
     turn: TurnEndpoints,
-    paths: readonly string[]
+    paths: readonly string[],
+    idle: () => Promise<boolean>
   ): Promise<TurnRevertResult> {
     const entry = turnEntry(handle, turn);
     return await entry.mutex(async () => {
+      if (!(await idle())) {
+        return { kind: 'busy' };
+      }
       const git = await entry.plumbing.hookFreeCommands();
       const wanted = new Set(paths);
       const plan = await turnPlan(entry, git, turn, wanted);
       const changed = [...wanted].filter((wantedPath) => !plan.unchanged.has(wantedPath));
       if (changed.length > 0) {
-        return { changed, outcomes: [] };
+        return { kind: 'changed', paths: changed };
       }
       return await entry.plumbing.withTempIndex(async (targetIndexEnv) => {
         await git.runOrThrow(['read-tree', turn.fromOid], { env: targetIndexEnv });
@@ -876,7 +888,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
         for (const action of plan.actions) {
           outcomes.push(await applyOneAction(entry, action, plan.now, plan.atEnd, targetIndexEnv));
         }
-        return { changed: [], outcomes };
+        return { kind: 'written', outcomes };
       });
     });
   }

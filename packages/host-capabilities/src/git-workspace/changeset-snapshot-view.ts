@@ -106,18 +106,19 @@ function drawnAsTargeted(
 }
 
 /** The paths a turn revert wrote, or why it wrote none or only some. */
-function revertedPaths({
-  changed,
-  outcomes,
-}: TurnRevertResult): BoundaryResult<ChangesApplyResult> {
-  const [first] = changed;
-  if (first !== undefined) {
+function revertedPaths(result: TurnRevertResult): BoundaryResult<ChangesApplyResult> {
+  if (result.kind === 'busy') {
+    return gitRefused('conflict', 'changeset.run-active', 'The thread has a run in progress.');
+  }
+  if (result.kind === 'changed') {
+    const [first, ...others] = result.paths;
     return refuseStale(
-      changed.length === 1
+      others.length === 0
         ? `"${first}" changed since this turn.`
-        : `${changed.length} files changed since this turn.`
+        : `${result.paths.length} files changed since this turn.`
     );
   }
+  const { outcomes } = result;
   const unwritten = outcomes.find(
     (outcome) => outcome.outcome !== 'restored' && outcome.outcome !== 'deleted'
   );
@@ -304,7 +305,7 @@ export function createSnapshotChangesetResolver(
     return { ok: true, value: diff };
   }
 
-  /** A settled turn's root that can take a revert now: idle, and mounted where the turn found it. */
+  /** A settled turn's root that can take a revert now: mounted where the turn found it. */
   async function revertibleRoot(
     changeset: Extract<SnapshotChangeset, { kind: 'agent-run' }>,
     rootId: string
@@ -318,9 +319,6 @@ export function createSnapshotChangesetResolver(
     if (!(root && turn)) {
       return refuseUnoffered('This turn offers no revert until it ends.');
     }
-    if (await deps.hostThreads.running(changeset.threadId)) {
-      return gitRefused('conflict', 'changeset.run-active', 'The thread has a run in progress.');
-    }
     if (!(await mountedAsRecorded(root))) {
       return refuseStale('The folder is no longer where this turn found it.');
     }
@@ -328,10 +326,10 @@ export function createSnapshotChangesetResolver(
   }
 
   /**
-   * Revert whole files of a settled turn in one root: refused while the
-   * thread runs, once the folder moved, for a file the view no longer draws
-   * as it was, and, writing nothing, while any file is no longer as the turn
-   * left it.
+   * Revert whole files of a settled turn in one root: refused once the
+   * folder moved and for a file the view no longer draws as it was, and,
+   * writing nothing, while the thread runs or any file is no longer as the
+   * turn left it. Both of those are checked under the root's snapshot lock.
    */
   async function apply(
     params: ChangesApplyParams & { readonly changeset: SnapshotChangeset }
@@ -359,7 +357,8 @@ export function createSnapshotChangesetResolver(
       return targeted;
     }
     const handle = await service.ensureShadowRepo({ path: root.rootPath, rootId });
-    return revertedPaths(await service.revertTurnPaths(handle, turn, targeted.value));
+    const idle = async () => !(await deps.hostThreads.running(changeset.threadId));
+    return revertedPaths(await service.revertTurnPaths(handle, turn, targeted.value, idle));
   }
 
   return { apply, fileDiff, resolveView };
