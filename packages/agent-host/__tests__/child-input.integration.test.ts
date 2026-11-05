@@ -29,8 +29,8 @@ afterEach(async () => {
 const TASK = 'CHILD_TASK: write the notes.';
 const FOLLOW = 'FOLLOW_UP_INPUT: also add a title.';
 
-/** The parent delegates TASK once; the child answers TASK, or blocks until stopped. */
-function delegating(child: 'answer' | 'block'): MockLanguageModelV4 {
+/** The parent delegates TASK once; the child answers TASK, fails, or blocks until stopped. */
+function delegating(child: 'answer' | 'block' | 'fail'): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doStream: async (call) => {
       const texts = userTexts(call);
@@ -38,6 +38,9 @@ function delegating(child: 'answer' | 'block'): MockLanguageModelV4 {
         return stream(text('Follow-up done.'));
       }
       if (texts.some((value) => value.includes(TASK))) {
+        if (child === 'fail') {
+          throw new Error('CHILD_MODEL_FAILED');
+        }
         return child === 'answer' ? stream(text('Child done.')) : blocked(call);
       }
       const answered = call.prompt.some((message) => message.role === 'tool');
@@ -61,6 +64,70 @@ async function childRun(
   }
   return started.runId as string;
 }
+
+/** The child's run.finished held until `release`, so an input commits after it. */
+async function heldChildEnd(model: MockLanguageModelV4) {
+  let rootThread = '';
+  let gate: Promise<void> | undefined;
+  let release: () => void = () => undefined;
+  const held = Promise.withResolvers<string>();
+  const harness = await setupChildRunHost(model, cleanup, {
+    // Hold the child's run.finished; the store commits in order, so the input lands after it.
+    holdAppend: async (items) => {
+      const child = items.find((item) => item.threadId !== rootThread && rootThread !== '');
+      if (!child) {
+        return;
+      }
+      if (!gate && items.some((item) => item.event.type === 'run.finished')) {
+        gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        held.resolve(child.threadId);
+        await gate;
+        return;
+      }
+      if (gate !== undefined) {
+        await gate;
+      }
+    },
+    personas: [worker],
+  });
+  rootThread = harness.threadId;
+  await harness.start('Delegate.');
+  const childThreadId = await held.promise;
+  const accepted = harness.core().input({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: FOLLOW,
+    runId: await childRun(harness.core(), childThreadId),
+    threadId: childThreadId,
+  });
+  release();
+  await expect(accepted).resolves.toEqual({ accepted: true });
+  return { childThreadId, harness };
+}
+
+/** Whether a run the parent started delivers the child's result. */
+async function parentHeard(
+  harness: Awaited<ReturnType<typeof setupChildRunHost>>,
+  childThreadId: string
+): Promise<boolean> {
+  return (await harness.core().read(harness.threadId, 0)).some(
+    (row) =>
+      row.event.type === 'run.started' &&
+      (row.event.delivery?.entries ?? []).some((entry) => entry.childThreadId === childThreadId)
+  );
+}
+
+test('an input committed after a failed child run is refused, and the parent still hears the child', async () => {
+  const { childThreadId, harness } = await heldChildEnd(delegating('fail'));
+  await expect.poll(() => parentHeard(harness, childThreadId)).toBe(true);
+  const refused = (await harness.core().read(childThreadId, 0)).flatMap(({ event }) =>
+    event.type === 'run.finished' ? [event] : []
+  );
+  expect(refused.at(-1)).toMatchObject({ outcome: 'failed' });
+  expect(refused.at(-1)?.detail).toContain('before it read this input');
+});
 
 test('an input committed after the child run ended starts its next run and reports once', async () => {
   const model = delegating('answer');

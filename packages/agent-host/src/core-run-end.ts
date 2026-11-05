@@ -131,8 +131,6 @@ export class HostRunEnds {
     const ports = this.ports;
     ports.presentations.settle(run);
     this.exits.handOn(run.threadId);
-    const parent =
-      ports.children.deliveryParent(run, ports.runs()) ?? (run.origin ? undefined : run.threadId);
     const open = !(ports.closing() || ports.deletions.has(run.threadId));
     // BST-1932: a child's human input runs next; only that run reports to the parent.
     let next = open && (await this.takeInput(run, recovered));
@@ -145,7 +143,16 @@ export class HostRunEnds {
     if (continued) {
       next = await ports.startNextRun(continued, run.input?.origin);
     }
-    if (parent && !recovered && !next && !(ports.closing() || ports.deletions.has(parent))) {
+    if (!(recovered || next)) {
+      this.wakeParentOf(run);
+    }
+  }
+
+  /** Wake the thread `run` reports to, unless the host is closing or the thread is going. */
+  private wakeParentOf(run: HostRunState): void {
+    const { children, closing, deletions, runs } = this.ports;
+    const parent = children.deliveryParent(run, runs()) ?? (run.origin ? undefined : run.threadId);
+    if (parent && !(closing() || deletions.has(parent))) {
       this.wake(parent);
     }
   }
@@ -169,12 +176,17 @@ export class HostRunEnds {
 
   /**
    * An input committed after its run's `run.finished`: once that end has
-   * handed on without it, the input starts the child's next run itself.
+   * handed on without it, the input starts the child's next run itself. A
+   * refused input no longer holds the run's report, so the parent wakes for
+   * it: the end's own wake may have read the report while the input held it.
    */
   async takeLateInput(run: HostRunState): Promise<void> {
     await Promise.allSettled([run.completion]);
-    if (!(this.ports.closing() || this.ports.deletions.has(run.threadId))) {
-      await this.takeInput(run);
+    if (this.ports.closing() || this.ports.deletions.has(run.threadId)) {
+      return;
+    }
+    if (!(await this.takeInput(run))) {
+      this.wakeParentOf(run);
     }
   }
 
