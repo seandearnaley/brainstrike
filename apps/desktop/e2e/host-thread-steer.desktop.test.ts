@@ -62,16 +62,19 @@ test('a steered message reaches the running run at its next step, in the same ru
   toolFinish.resolve();
   await expect(region.getByText(STEERED_REPLY)).toBeVisible({ timeout: 90_000 });
   await expect(region.getByText(UNSTEERED_REPLY)).toHaveCount(0);
-  // The step after the tool carried both the tool's result and the message.
-  const steered = new Set(
-    modelProvider
-      .requests()
-      .filter((request) => JSON.stringify(request.messages).includes(STEER))
-      .map((request) => request.requestIndex)
-  );
-  const steering = modelProvider.transcript().filter((turn) => steered.has(turn.requestIndex));
+  // One request carried the message: the step after the tool, with the tool's result before it.
+  const steering = modelProvider
+    .requests()
+    .filter((request) => JSON.stringify(request.messages).includes(STEER));
   expect(steering).toHaveLength(1);
-  expect(steering[0]?.toolResultCount).toBeGreaterThan(0);
+  const messages = steering[0]?.messages ?? [];
+  const toolResult = messages.findIndex((message) => {
+    const { role, type } = message as { readonly role?: unknown; readonly type?: unknown };
+    return role === 'tool' || type === 'function_call_output';
+  });
+  const steered = messages.findIndex((message) => JSON.stringify(message).includes(STEER));
+  expect(toolResult).toBeGreaterThan(-1);
+  expect(toolResult).toBeLessThan(steered);
   const log = await readAgentHostLog(electron.getUserDataDir());
   expect(log.typeCounts['run.started']).toBe(1);
   expect(log.typeCounts['run.finished']).toBe(1);
