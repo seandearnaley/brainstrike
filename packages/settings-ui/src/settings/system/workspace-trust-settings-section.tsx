@@ -103,7 +103,7 @@ export function WorkspaceTrustSettingsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Workspace Trust</CardTitle>
+        <CardTitle>Trusted folders</CardTitle>
         <CardDescription>
           A folder’s <code>AGENTS.md</code>, skills, slash commands and subagents can steer the
           assistant, so Brainstrike loads them only from folders you trust. A folder you haven’t

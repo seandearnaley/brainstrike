@@ -188,7 +188,7 @@ function GeneralLoggingCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>General Logging</CardTitle>
+        <CardTitle>General logging</CardTitle>
         <CardDescription>
           Control verbosity and console output for application logs.
         </CardDescription>
@@ -295,7 +295,7 @@ function FileLoggingCard({
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <CardTitle>File Logging</CardTitle>
+          <CardTitle>File logging</CardTitle>
           {preferences.file.enabled ? (
             <Badge variant="secondary">enabled</Badge>
           ) : (
@@ -308,7 +308,7 @@ function FileLoggingCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {fileCapabilities?.reason ? (
-          <div className="text-warning rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
+          <div className="text-warning border-warning/40 bg-warning/5 rounded-md border p-3 text-xs">
             {fileCapabilities.reason}
           </div>
         ) : null}
@@ -520,7 +520,7 @@ function DiagnosticsRetentionCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Diagnostics Retention</CardTitle>
+        <CardTitle>Diagnostics retention</CardTitle>
         <CardDescription>
           Control how long warning and error events stay in the local database before they're purged
           automatically.

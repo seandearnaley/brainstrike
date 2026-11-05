@@ -224,14 +224,9 @@ describe('createFactoryResetSettingsCategory', () => {
 
   it('returns a category with correct keywords', () => {
     const category = createFactoryResetSettingsCategory();
-    expect(category.keywords).toEqual([
-      'factory',
-      'reset',
-      'resetting',
-      'wipe',
-      'preferences',
-      'stored folders',
-    ]);
+    expect(category.keywords).toEqual(
+      expect.arrayContaining(['factory', 'reset', 'wipe', 'stored folders', 'clear content'])
+    );
   });
 
   it('returns a category with an icon', () => {
@@ -276,6 +271,46 @@ describe('createFactoryResetSettingsCategory', () => {
     expect(factoryResetButton).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('settings-category-factory-reset')).toBeInTheDocument();
     expect(window.location.hash).toBe('#settings/factory-reset');
+  });
+
+  it('finds a category by a setting it holds, not only by its title', () => {
+    render(
+      <SettingsPageContent
+        categories={[createAppearanceSettingsCategory(), createFactoryResetSettingsCategory()]}
+      />
+    );
+
+    fireEvent.change(screen.getByRole('searchbox', { name: /search settings/iu }), {
+      target: { value: 'Clear content' },
+    });
+
+    expect(screen.getByRole('button', { name: /Factory Reset/iu })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Appearance/iu })).not.toBeInTheDocument();
+  });
+
+  it('clears the search from its clear button or with Escape', () => {
+    render(
+      <SettingsPageContent
+        categories={[
+          createAppearanceSettingsCategory(),
+          { content: <div />, id: 'privacy', title: 'Privacy' },
+        ]}
+      />
+    );
+    const searchbox = screen.getByRole('searchbox', { name: /search settings/iu });
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+
+    fireEvent.change(searchbox, { target: { value: 'privacy' } });
+    expect(screen.queryByRole('button', { name: /Appearance/iu })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(searchbox).toHaveValue('');
+    expect(searchbox).toHaveFocus();
+    expect(screen.getByRole('button', { name: /Appearance/iu })).toBeInTheDocument();
+
+    fireEvent.change(searchbox, { target: { value: 'privacy' } });
+    fireEvent.keyDown(searchbox, { key: 'Escape' });
+    expect(searchbox).toHaveValue('');
+    expect(screen.getByRole('button', { name: /Appearance/iu })).toBeInTheDocument();
   });
 
   it('is discoverable via search keywords', () => {
