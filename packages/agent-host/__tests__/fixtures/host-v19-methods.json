@@ -6,6 +6,7 @@
     "auth/login",
     "canvas/list",
     "canvas/read",
+    "changes/apply",
     "changes/file-diff",
     "changes/inventory",
     "changes/resolve-view",

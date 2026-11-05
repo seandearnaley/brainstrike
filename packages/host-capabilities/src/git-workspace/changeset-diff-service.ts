@@ -30,13 +30,23 @@
  * possibly TWO snapshot diffs sharing the same relative path across
  * different mounted roots (MULTI-ROOT IDENTITY, BST-1113 review finding).
  *
+ * `apply` stages, unstages or reverts what a `git-scope` view drew
+ * (`changeset-git-actions.ts`); a turn's view offers no actions yet.
+ *
  * Every failure is a visible, typed `{ ok: false, error }` whose stable
  * `changeset.*` code (never a silent fallback) is set where it is produced:
  * `changeset-snapshot-view.ts`, `changeset-snapshot-targets.ts` and
  * `changeset-git-scope.ts`.
  */
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { Changeset, ChangesetView, StructuredFileDiff } from '@brainstrike/types';
+import type {
+  ChangesApplyParams,
+  ChangesApplyResult,
+  Changeset,
+  ChangesetView,
+  StructuredFileDiff,
+} from '@brainstrike/types';
+import { applyGitScopeAction, refuseUnoffered } from './changeset-git-actions.ts';
 import { resolveGitScopeChangesetView, resolveGitScopeFileDiff } from './changeset-git-scope.ts';
 import type { HostThreadTurns } from './changeset-host-turns.ts';
 import {
@@ -65,6 +75,7 @@ export interface ChangesetDiffServiceDeps {
 }
 
 export interface ChangesetDiffService {
+  readonly apply: (params: ChangesApplyParams) => Promise<BoundaryResult<ChangesApplyResult>>;
   readonly fileDiff: (
     rootId: unknown,
     changeset: Changeset,
@@ -94,6 +105,17 @@ export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): Chan
     : null;
 
   return {
+    apply: async (params) => {
+      try {
+        const { changeset } = params;
+        if (changeset.kind !== 'git-scope') {
+          return refuseUnoffered(`This view does not offer ${params.action}.`);
+        }
+        return await applyGitScopeAction(deps, { ...params, changeset });
+      } catch (error) {
+        return gitThrew(error);
+      }
+    },
     fileDiff: async (rootId, changeset, path) => {
       try {
         if (changeset.kind === 'git-scope') {

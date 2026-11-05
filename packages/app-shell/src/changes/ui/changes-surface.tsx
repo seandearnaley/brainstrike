@@ -136,7 +136,7 @@ export function ChangesSurface(): ReactElement {
     return rootId;
   }, [changeset, inventory, rootId]);
 
-  const { error, fileDiff, refresh, view } = useChangeset(resolutionRootId, changeset);
+  const { apply, error, fileDiff, refresh, view } = useChangeset(resolutionRootId, changeset);
 
   const handleRetry = () => {
     void refresh();
@@ -193,6 +193,7 @@ export function ChangesSurface(): ReactElement {
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <ChangesetDiffPane
+              applyAction={apply}
               changesetKey={changesetKey}
               files={renderedFiles}
               loadFileDiff={fileDiff}

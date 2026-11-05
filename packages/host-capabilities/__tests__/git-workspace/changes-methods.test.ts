@@ -39,6 +39,7 @@ function fakeService(
   }> = {}
 ) {
   return {
+    apply: vi.fn(async () => ({ ok: true, value: { paths: ['a.txt'] } }) as const),
     fileDiff: overrides.fileDiff ?? vi.fn(async () => ({ ok: true, value: DIFF }) as const),
     resolveView: overrides.resolveView ?? vi.fn(async () => ({ ok: true, value: VIEW }) as const),
   };
@@ -377,6 +378,89 @@ describe('changes IPC handlers', () => {
     });
 
     expect(result).toEqual({ error: expect.objectContaining({ code: 'git.internal' }), ok: false });
+  });
+});
+
+describe('changes:apply', () => {
+  const unstaged = {
+    kind: 'git-scope',
+    repositoryRoot: '/repo',
+    scope: { kind: 'unstaged' },
+    worktreePath: '/repo',
+  };
+  const valid = {
+    action: 'stage',
+    changeset: unstaged,
+    rootId: 'root-1',
+    target: { hunks: ['@@ -1 +1 @@\n-a\n+b\n'], kind: 'hunks', path: 'a.txt' },
+  };
+
+  it.each([
+    ['hunks', valid],
+    ['files', { ...valid, target: { files: [{ path: 'a.txt', revision: 'r1' }], kind: 'files' } }],
+  ])('hands a well-formed request for %s to the service', async (_name, request) => {
+    const service = fakeService();
+    const handlers = createChangesMethods({ service });
+
+    expect(await handlers.apply(request)).toEqual({ ok: true, value: { paths: ['a.txt'] } });
+    expect(service.apply).toHaveBeenCalledWith(request);
+  });
+
+  it.each([
+    ['an unknown action', { ...valid, action: 'commit' }, 'action must be'],
+    ['an extra key', { ...valid, force: true }, 'does not accept: force'],
+    ['no root', { ...valid, rootId: '' }, 'non-empty rootId'],
+    ['an unknown target', { ...valid, target: { kind: 'lines' } }, 'target kind must be'],
+    ['no files', { ...valid, target: { files: [], kind: 'files' } }, 'non-empty array'],
+    [
+      'a file without the revision the view drew',
+      { ...valid, target: { files: [{ path: 'a.txt' }], kind: 'files' } },
+      'non-empty path and revision',
+    ],
+    [
+      'a file named by its path alone',
+      { ...valid, target: { kind: 'files', paths: ['a.txt'] } },
+      'does not accept: paths',
+    ],
+    [
+      'a repeated path',
+      {
+        ...valid,
+        target: {
+          files: [
+            { path: 'a.txt', revision: 'r1' },
+            { path: 'a.txt', revision: 'r2' },
+          ],
+          kind: 'files',
+        },
+      },
+      'must not repeat',
+    ],
+    [
+      'a repeated hunk',
+      { ...valid, target: { ...valid.target, hunks: ['@@ x', '@@ x'] } },
+      'must not repeat',
+    ],
+    [
+      'a hunk without its header',
+      { ...valid, target: { ...valid.target, hunks: ['-a\n+b\n'] } },
+      '"@@ " line',
+    ],
+    ['a malformed changeset', { ...valid, changeset: { kind: 'git-scope' } }, 'repositoryRoot'],
+  ])('refuses %s before the service sees it', async (_name, payload, message) => {
+    const service = fakeService();
+    const handlers = createChangesMethods({ service });
+
+    const result = await handlers.apply(payload);
+
+    expect(result).toEqual({
+      error: expect.objectContaining({
+        code: 'git.invalid-request',
+        message: expect.stringContaining(message),
+      }),
+      ok: false,
+    });
+    expect(service.apply).not.toHaveBeenCalled();
   });
 });
 
