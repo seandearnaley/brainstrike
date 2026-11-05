@@ -41,7 +41,7 @@ import {
   hostRunTools,
   outsideSandboxGrantKey,
 } from './run-admission.ts';
-import { hostStartPosition } from './run-branch.ts';
+import { type HostRunCarry, hostStartPosition } from './run-branch.ts';
 
 const logger = createLogger('AgentHost');
 
@@ -330,10 +330,9 @@ export function enteredWorktreeRunParams(
  * carries on the turn of the run that entered it (`turnId`). `refused`
  * commits it as failed with that cause instead of starting it.
  */
-export interface HostNextRun {
+export interface HostNextRun extends HostRunCarry {
   readonly params: HostParams<'run/start'>;
   readonly refused?: Error;
-  readonly turnId?: string;
 }
 /**
  * Starts the thread's next run. A next run that cannot start is committed as
@@ -341,7 +340,7 @@ export interface HostNextRun {
  */
 export async function startHostNextRun(
   runs: Iterable<Run>,
-  { params, refused, turnId }: HostNextRun,
+  { params, refused, ...carry }: HostNextRun,
   start: () => Promise<unknown>,
   commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>
 ): Promise<boolean> {
@@ -353,7 +352,7 @@ export async function startHostNextRun(
     return true;
   } catch (cause) {
     const runId = randomUUID();
-    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, turnId));
+    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, carry));
     return false;
   }
 }
@@ -363,11 +362,11 @@ export function failedHostStartEvents(
   params: HostParams<'run/start'>,
   runId: string,
   cause: unknown,
-  turnId?: string
+  carry?: HostRunCarry
 ): HostEvent[] {
   return [
     {
-      ...hostStartPosition(runs, params, turnId),
+      ...hostStartPosition(runs, params, carry),
       modelId: params.modelId,
       runId,
       type: 'run.started',
