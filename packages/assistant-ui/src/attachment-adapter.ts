@@ -10,11 +10,34 @@ import {
   ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES,
   isSupportedImageAttachmentMediaType,
   SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
+  type SupportedImageAttachmentMediaType,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract';
 
 const MAX_MB = Math.round(ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES / (1024 * 1024));
 const COMBINED_MAX_MB = Math.round(ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES / (1024 * 1024));
+
+/**
+ * The name a person knows each accepted image type by. Keyed by the shared
+ * allowlist's own type, so a type added there without a name here fails the
+ * type-check instead of going unlisted.
+ */
+const IMAGE_TYPE_NAMES: Readonly<Record<SupportedImageAttachmentMediaType, string>> = {
+  'image/gif': 'GIF',
+  'image/jpeg': 'JPEG',
+  'image/png': 'PNG',
+  'image/webp': 'WebP',
+};
+
+/** "GIF, JPEG, PNG or WebP": the accepted image types, as a rejection names them. */
+export const SUPPORTED_IMAGE_TYPES_LABEL = listNames(
+  SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES.map((type) => IMAGE_TYPE_NAMES[type])
+);
+
+function listNames(names: readonly string[]): string {
+  const last = names.at(-1);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${last}` : (last ?? '');
+}
 
 // One read per File: the preview (use-attachment-preview-url.ts) and send()
 // share the encoding, so without this every attachment is read (and base64
@@ -80,7 +103,7 @@ export function createAssistantImageAttachmentAdapter(): AttachmentAdapter {
       if (!isSupportedImageAttachmentMediaType(file.type)) {
         return Promise.reject(
           new Error(
-            `"${file.name}" (${file.type || 'unknown type'}) is not a supported image. Supported: ${SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES.join(', ')}.`
+            `"${file.name}" (${file.type || 'unknown type'}) is not a supported image. Use ${SUPPORTED_IMAGE_TYPES_LABEL}.`
           )
         );
       }
@@ -144,4 +167,27 @@ export function createAssistantImageAttachmentAdapter(): AttachmentAdapter {
  */
 export function collectImageFilesFromClipboard(files: readonly File[]): File[] {
   return files.filter((file) => isSupportedImageAttachmentMediaType(file.type));
+}
+
+/**
+ * Whether an OS drag carries at least one file the attachment contract
+ * accepts. Read from the items' declared types, which a drag exposes before
+ * the drop (the files themselves are readable only on drop).
+ */
+export function dragCarriesImages(dataTransfer: DataTransfer | null): boolean {
+  return dragFileItems(dataTransfer).some(isAcceptedImageItem);
+}
+
+/** Whether every file an OS drag carries is an accepted image, and it carries one. */
+export function dragCarriesOnlyImages(dataTransfer: DataTransfer | null): boolean {
+  const items = dragFileItems(dataTransfer);
+  return items.length > 0 && items.every(isAcceptedImageItem);
+}
+
+function dragFileItems(dataTransfer: DataTransfer | null): DataTransferItem[] {
+  return Array.from(dataTransfer?.items ?? []).filter((item) => item.kind === 'file');
+}
+
+function isAcceptedImageItem(item: DataTransferItem): boolean {
+  return isSupportedImageAttachmentMediaType(item.type);
 }

@@ -53,6 +53,7 @@ import type { AccessModeComposerControls } from './composer-access-mode-control'
 import { ComposerAttachmentsBar } from './composer-attachments';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerEffortControl } from './composer-effort-control';
+import { ComposerImageDropShell } from './composer-image-drop';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
@@ -65,7 +66,7 @@ import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { EditComposer } from './edit-composer';
 import { FollowUpQueueChips, QueuedDecisionPruner } from './follow-up-queue';
 import { RewindComposerBridge } from './message-rewind-action';
-import { ThreadBody } from './new-thread-welcome';
+import { type ComposerDisabledAction, ThreadBody } from './new-thread-welcome';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
 import { RunningStateBridge } from './running-state-bridge';
@@ -227,8 +228,10 @@ export const ChatThreadUI = ({
   onToolApprovalRequired,
   isComposerDisabled,
   hideDefaultCancel,
+  disabledAction,
   disabledReason,
   capabilityNotice,
+  onManageModels,
   slashCommands,
   onComposerDraftCommandApplied,
   onComposerTextChange,
@@ -277,8 +280,12 @@ export const ChatThreadUI = ({
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
   hideDefaultCancel?: boolean | undefined;
+  /** The fix for `disabledReason` (e.g. open Settings → Providers), offered on the welcome. */
+  disabledAction?: ComposerDisabledAction | undefined;
   disabledReason: string | undefined;
   capabilityNotice: string | undefined;
+  /** Opens the host's model settings from the model picker; absent, the picker offers none. */
+  onManageModels?: (() => void) | undefined;
   slashCommands: readonly SlashCommand[];
   onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
   onComposerTextChange?: ((text: string) => void) | undefined;
@@ -358,6 +365,7 @@ export const ChatThreadUI = ({
                    * See: packages/assistant-ui/src/overrides.css
                    */}
                   <ThreadBody
+                    disabledAction={disabledAction}
                     disabledReason={disabledReason}
                     messages={
                       <ThreadMessagesRegion
@@ -390,7 +398,10 @@ export const ChatThreadUI = ({
                      * We extracted it outside to avoid scrolling with messages.
                      * This required aggressive CSS overrides (see overrides.css).
                      */}
-                    <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+                    <ComposerImageDropShell
+                      attachmentsAvailability={attachmentsAvailability}
+                      disabled={composerDisabled}
+                    >
                       {/* A capability the turn will run WITHOUT (e.g. no durable
             memory), as opposed to `disabledReason`, which explains why there
             is no turn at all. It is a SEPARATE prop on purpose: a caller can
@@ -474,6 +485,7 @@ export const ChatThreadUI = ({
                                   <ProviderModelControls
                                     groups={providerGroups}
                                     onEnableModel={onEnableModel}
+                                    onManageModels={onManageModels}
                                     onModelChange={onModelChange}
                                     onProviderSettingsChange={onProviderSettingsChange}
                                     pickerModels={pickerModels}
@@ -487,7 +499,7 @@ export const ChatThreadUI = ({
                             : {})}
                         />
                       </ComposerPrimitive.Root>
-                    </div>
+                    </ComposerImageDropShell>
                   </ThreadBody>
                 </Activity>
               </ApprovalRanksProvider>
@@ -573,6 +585,7 @@ const AssistantMessage = () => {
 interface ProviderModelControlsProps {
   groups: ProviderGroupConfig[];
   onEnableModel?: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
+  onManageModels?: (() => void) | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -588,6 +601,7 @@ interface ProviderModelControlsProps {
 const ProviderModelControls = ({
   groups,
   onEnableModel,
+  onManageModels,
   pickerModels,
   providerSettings,
   onProviderSettingsChange,
@@ -600,6 +614,7 @@ const ProviderModelControls = ({
     <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
       <ComposerModelPicker
         onEnableModel={onEnableModel}
+        onManageModels={onManageModels}
         onModelChange={onModelChange}
         pickerModels={pickerModels}
         providerGroups={groups}

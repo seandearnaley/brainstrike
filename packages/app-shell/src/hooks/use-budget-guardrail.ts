@@ -4,6 +4,7 @@ import type { BudgetGuardrailContextValue } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useMemo, useState } from 'react';
 import { useAssistantThreadHostLedger } from '../assistant-thread-host-context';
+import { useOpenSettingsSection } from './use-open-settings-section';
 
 const budgetGuardrailLogger = createLogger('BudgetGuardrail');
 
@@ -31,6 +32,8 @@ export function useBudgetGuardrailBinding(): BudgetGuardrailContextValue | null 
   const spendState = useDailySpend(hostUsage);
   const [overridden, setOverridden] = useState(false);
   const override = () => setOverridden(true);
+  const openSettingsSection = useOpenSettingsSection();
+  const adjustCap = () => openSettingsSection('cost-tracking');
 
   useEffect(() => {
     if (dailyCapUsd !== null && spendState.error) {
@@ -50,6 +53,7 @@ export function useBudgetGuardrailBinding(): BudgetGuardrailContextValue | null 
       return null;
     }
     return {
+      adjustCap,
       overridden,
       override,
       status: {
@@ -61,5 +65,13 @@ export function useBudgetGuardrailBinding(): BudgetGuardrailContextValue | null 
         unpricedModelCount: spend.unpricedModels.length,
       },
     };
-  }, [dailyCapUsd, overridden, override, spendState.available, spendState.error, spendState.spend]);
+  }, [
+    adjustCap,
+    dailyCapUsd,
+    overridden,
+    override,
+    spendState.available,
+    spendState.error,
+    spendState.spend,
+  ]);
 }
