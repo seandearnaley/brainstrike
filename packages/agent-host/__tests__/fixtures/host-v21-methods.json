@@ -1,5 +1,5 @@
 {
-  "version": 20,
+  "version": 21,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
