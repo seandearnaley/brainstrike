@@ -647,9 +647,11 @@ export class HostCore {
       const references = hostReferencedFileEvents(admission, run.id);
       const events = [...chosen, started, ...unavailable, ...references];
       committed = { runId: run.id };
+      // A live start ends the thread's rewind as recovery's fold does: a later wake follows this run.
+      const { foldRows } = this.rewinds;
       await (method === 'wake'
-        ? this.append(params.threadId, events)
-        : this.accept(params.threadId, method, record, committed, events));
+        ? this.append(params.threadId, events, 'normal', foldRows)
+        : this.accept(params.threadId, method, record, committed, events, foldRows));
       this.ends.recordDelivery(params.threadId, started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);

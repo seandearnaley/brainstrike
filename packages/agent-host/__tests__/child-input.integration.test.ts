@@ -107,21 +107,22 @@ async function heldChildEnd(model: MockLanguageModelV4) {
   return { childThreadId, harness };
 }
 
-/** Whether a run the parent started delivers the child's result. */
-async function parentHeard(
+/** The parent's runs that deliver the child's result. */
+async function parentDeliveries(
   harness: Awaited<ReturnType<typeof setupChildRunHost>>,
   childThreadId: string
-): Promise<boolean> {
-  return (await harness.core().read(harness.threadId, 0)).some(
-    (row) =>
-      row.event.type === 'run.started' &&
-      (row.event.delivery?.entries ?? []).some((entry) => entry.childThreadId === childThreadId)
+): Promise<string[]> {
+  return (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
+    event.type === 'run.started' &&
+    (event.delivery?.entries ?? []).some((entry) => entry.childThreadId === childThreadId)
+      ? [event.runId]
+      : []
   );
 }
 
 test('an input committed after a failed child run is refused, and the parent still hears the child', async () => {
   const { childThreadId, harness } = await heldChildEnd(delegating('fail'));
-  await expect.poll(() => parentHeard(harness, childThreadId)).toBe(true);
+  await expect.poll(async () => (await parentDeliveries(harness, childThreadId)).length).toBe(1);
   const refused = (await harness.core().read(childThreadId, 0)).flatMap(({ event }) =>
     event.type === 'run.finished' ? [event] : []
   );
@@ -131,54 +132,18 @@ test('an input committed after a failed child run is refused, and the parent sti
 
 test('an input committed after the child run ended starts its next run and reports once', async () => {
   const model = delegating('answer');
-  let rootThread = '';
-  let gate: Promise<void> | undefined;
-  let release: () => void = () => undefined;
-  const held = Promise.withResolvers<string>();
-  const harness = await setupChildRunHost(model, cleanup, {
-    // Hold the child's run.finished; the store commits in order, so the input lands after it.
-    holdAppend: async (items) => {
-      const child = items.find((item) => item.threadId !== rootThread && rootThread !== '');
-      if (!child) {
-        return;
-      }
-      if (!gate && items.some((item) => item.event.type === 'run.finished')) {
-        gate = new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        held.resolve(child.threadId);
-        await gate;
-        return;
-      }
-      if (gate !== undefined) {
-        await gate;
-      }
-    },
-    personas: [worker],
-  });
-  rootThread = harness.threadId;
-  await harness.start('Delegate.');
-  const childThreadId = await held.promise;
-  const accepted = harness.core().input({
-    commandId: randomUUID(),
-    modelId: 'scripted',
-    prompt: FOLLOW,
-    runId: await childRun(harness.core(), childThreadId),
-    threadId: childThreadId,
-  });
-  release();
-  await expect(accepted).resolves.toEqual({ accepted: true });
+  const { childThreadId, harness } = await heldChildEnd(model);
   expect(await childThreads(harness)).toEqual([childThreadId]);
-  // The input ran, and the parent hears about the child.
-  await expect
-    .poll(async () =>
-      (await harness.core().read(harness.threadId, 0)).some(
-        (row) =>
-          row.event.type === 'run.started' &&
-          (row.event.delivery?.entries ?? []).some((entry) => entry.childThreadId === childThreadId)
-      )
-    )
-    .toBe(true);
+  // The input's run finishes, then the parent's run that hears the child.
+  const finishedRuns = async (threadId: string) =>
+    (await harness.core().read(threadId, 0)).flatMap(({ event }) =>
+      event.type === 'run.finished' ? [event.runId] : []
+    );
+  await expect.poll(async () => (await finishedRuns(childThreadId)).length).toBe(2);
+  await expect.poll(() => parentDeliveries(harness, childThreadId)).toHaveLength(1);
+  const [heard = ''] = await parentDeliveries(harness, childThreadId);
+  await expect.poll(async () => (await finishedRuns(harness.threadId)).includes(heard)).toBe(true);
+  expect(await parentDeliveries(harness, childThreadId)).toHaveLength(1);
   expect(
     model.doStreamCalls.filter((call) => userTexts(call).some((value) => value.includes(FOLLOW)))
   ).toHaveLength(1);
