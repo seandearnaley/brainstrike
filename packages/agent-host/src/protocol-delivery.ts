@@ -91,3 +91,18 @@ export const HostChildDeliverySchema = Schema.Union(
   { mode: 'oneOf' }
 );
 export type HostChildDelivery = (typeof HostChildDeliverySchema)['Type'];
+/**
+ * ADR-0028 step 3b: the notices a running run took at a step boundary, on the
+ * `model.messages` that commits the message carrying them to its model.
+ */
+export const HostStepDeliverySchema = Schema.Struct({
+  commandSessions: CommandSessions,
+  entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
+}).check(
+  Schema.makeFilter((delivery) =>
+    delivery.entries.length > 0 || delivery.commandSessions
+      ? undefined
+      : { issue: 'A step delivery delivers nothing', path: [] }
+  )
+);
+export type HostStepDelivery = (typeof HostStepDeliverySchema)['Type'];

@@ -708,6 +708,7 @@ export class HostCore {
       finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail),
       fold: (row) => this.fold(row),
       foldRows: this.foldRows,
+      intake: (run) => this.children.intake(run, this.runs),
       mcpInputs: this.mcpInputs,
       openRun: (run) => this.openRun(run),
       origins: this.store,

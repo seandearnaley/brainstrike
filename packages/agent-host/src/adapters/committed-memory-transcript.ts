@@ -96,6 +96,123 @@ function withoutApprovals(message: ModelMessage, approvals: ReadonlySet<string>)
   return message;
 }
 
+/** One committed model segment, as Memory stores it: one assistant message. */
+function assistantSegment(
+  row: CommittedModelRow,
+  id: string,
+  resourceId: string,
+  previous: readonly MastraDBMessage[],
+  messages: readonly ModelMessage[],
+  modelMetadata: ReturnType<typeof committedModelMetadata>
+): MastraDBMessage {
+  const ts = row.ts;
+  if (ts === undefined) {
+    throw new Error('Native segment requires its committed SQLite timestamp');
+  }
+  const native = new MessageList({
+    generateMessageId: () => id,
+    resourceId,
+    threadId: row.threadId,
+  });
+  // Conversion borrows preceding calls to recover result arguments. A
+  // later approval/result row never updates the earlier call segment.
+  native.add(structuredClone([...previous]), 'memory');
+  messages
+    // A message that held only an automatic approval has nothing left to convert.
+    .filter((message) => typeof message.content === 'string' || message.content.length > 0)
+    .forEach((message, index) => {
+      native.add(
+        [{ ...message, id, metadata: { createdAt: new Date(ts), ...modelMetadata } }],
+        'response',
+        { merge: index > 0 }
+      );
+    });
+  const segment = native.get.all.db().find((message) => message.id === id);
+  if (segment?.role !== 'assistant') {
+    throw new Error('Public converter cannot represent the committed SDK segment');
+  }
+  segment.createdAt = new Date(ts);
+  // Optional part stamps produced by conversion are not committed facts:
+  // `createdAt`, and since @mastra/core 1.78 a tool part's merge-time
+  // `updatedAt` (message-list/utils/stamp-part.ts).
+  segment.content.parts = segment.content.parts.map(({ createdAt: _ephemeral, ...part }) => {
+    if (part.type !== 'tool-invocation') {
+      return part;
+    }
+    const { updatedAt: _merged, ...invocation } = part;
+    return invocation;
+  });
+  return segment;
+}
+
+/** The user message a step's notices commit, as Memory stores it. */
+function intakeSegment(
+  row: CommittedModelRow,
+  id: string,
+  resourceId: string,
+  messages: readonly ModelMessage[]
+): MastraDBMessage {
+  const native = new MessageList({
+    generateMessageId: () => id,
+    resourceId,
+    threadId: row.threadId,
+  });
+  native.add(
+    messages.map((message) => ({ ...message, id })),
+    'input'
+  );
+  const segment = native.get.all.db().find((message) => message.id === id);
+  if (segment?.role !== 'user' || row.ts === undefined) {
+    throw new Error('Public converter cannot represent the committed notice');
+  }
+  segment.createdAt = new Date(row.ts);
+  segment.content.parts = segment.content.parts.map(({ createdAt: _ephemeral, ...part }) => part);
+  return segment;
+}
+
+/** One run's committed model segments, as Memory stores them, in commit order. */
+function runSegments(
+  segments: readonly CommittedModelRow[],
+  committed: ReadonlyMap<HostLogRow, ModelMessage[]>,
+  automaticAllows: ReadonlySet<string>,
+  resourceId: string
+): MastraDBMessage[] {
+  const converted: MastraDBMessage[] = [];
+  const previous: MastraDBMessage[] = [];
+  let modelMetadata: ReturnType<typeof committedModelMetadata>;
+  for (const row of segments) {
+    const event = row.event;
+    // Signed reasoning uses the exact SDK identity, not the request's provider
+    // family. Continuation results borrow only this run's preceding step.
+    if (event.type === 'model.step') {
+      modelMetadata = committedModelMetadata(event.model);
+    }
+    if (event.messages.length === 0) {
+      continue;
+    }
+    const id = committedRowAddress(row);
+    const messages = committed.get(row) ?? [];
+    // ADR-0028 step 3b: the notices a running run took at a step reach its
+    // model as one user message of their own, inside the run's turn.
+    const segment =
+      event.type === 'model.messages' && event.delivery
+        ? intakeSegment(row, id, resourceId, messages)
+        : assistantSegment(
+            row,
+            id,
+            resourceId,
+            previous,
+            messages.map((message) => withoutApprovals(message, automaticAllows)),
+            modelMetadata
+          );
+    if (segment.role === 'assistant') {
+      previous.push(segment);
+    }
+    converted.push(segment);
+  }
+  return converted;
+}
+
 /** Immutable native segments address existing rows; there is no message-ID writer. */
 export function committedMemoryTranscript(
   rows: readonly HostLogRow[],
@@ -136,69 +253,13 @@ export function committedMemoryTranscript(
         threadId: started.threadId,
       });
     }
-    const previous: MastraDBMessage[] = [];
-    let modelMetadata: ReturnType<typeof committedModelMetadata>;
     const segments = rows.filter(
       (row): row is CommittedModelRow =>
         row.threadId === started.threadId &&
         (row.event.type === 'model.step' || row.event.type === 'model.messages') &&
         row.event.runId === runId
     );
-    for (const row of segments) {
-      const event = row.event;
-      // Signed reasoning uses the exact SDK identity, not the request's provider
-      // family. Continuation results borrow only this run's preceding step.
-      if (event.type === 'model.step') {
-        modelMetadata = committedModelMetadata(event.model);
-      }
-      if (event.messages.length === 0) {
-        continue;
-      }
-      if (row.ts === undefined) {
-        throw new Error('Native segment requires its committed SQLite timestamp');
-      }
-      const id = committedRowAddress(row);
-      const native = new MessageList({
-        generateMessageId: () => id,
-        resourceId,
-        threadId: row.threadId,
-      });
-      // Conversion borrows preceding calls to recover result arguments. A
-      // later approval/result row never updates the earlier call segment.
-      native.add(structuredClone(previous), 'memory');
-      const converted = (committed.get(row) ?? [])
-        .map((message) => withoutApprovals(message, automaticAllows))
-        // A message that held only an automatic approval has nothing left to convert.
-        .filter((message) => typeof message.content === 'string' || message.content.length > 0);
-      converted.forEach((message, index) => {
-        native.add(
-          [
-            {
-              ...message,
-              id,
-              metadata: { createdAt: new Date(row.ts as number), ...modelMetadata },
-            },
-          ],
-          'response',
-          { merge: index > 0 }
-        );
-      });
-      const segment = native.get.all.db().find((message) => message.id === id);
-      if (segment?.role !== 'assistant') {
-        throw new Error('Public converter cannot represent the committed SDK segment');
-      }
-      segment.createdAt = new Date(row.ts);
-      // Optional part stamps produced by conversion are not committed facts:
-      // `createdAt`, and since @mastra/core 1.78 a tool part's merge-time
-      // `updatedAt` (message-list/utils/stamp-part.ts).
-      segment.content.parts = segment.content.parts.map(({ createdAt: _ephemeral, ...part }) => {
-        if (part.type !== 'tool-invocation') {
-          return part;
-        }
-        const { updatedAt: _merged, ...invocation } = part;
-        return invocation;
-      });
-      previous.push(segment);
+    for (const segment of runSegments(segments, committed, automaticAllows, resourceId)) {
       append(segment);
     }
   }

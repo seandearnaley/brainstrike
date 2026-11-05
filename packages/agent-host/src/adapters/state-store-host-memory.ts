@@ -39,6 +39,7 @@ import type {
 import { committedRewrites } from '../projection-rewrites.ts';
 import type { HostLogRow } from '../protocol.ts';
 import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.ts';
+import { isHostTurnInput } from '../turn-input.ts';
 import { committedMemoryTranscript } from './committed-memory-transcript.ts';
 import {
   HostMemory,
@@ -321,8 +322,8 @@ export class StateStoreHostMemory implements HostRunOwner {
     readonly stepNumber: number;
   }): Promise<HostPreparedStep> {
     this.preparedProviderHistory = undefined;
-    const currentUser = request.messages.findLastIndex((message) => message.role === 'user');
-    if (request.messages[currentUser]?.role !== 'user') {
+    const currentUser = request.messages.findLastIndex(isHostTurnInput);
+    if (currentUser < 0) {
       throw new Error('Memory preparation has no current committed user input');
     }
     const step = await this.memory.prepareStep(request.stepNumber);

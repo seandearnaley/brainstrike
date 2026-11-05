@@ -25,7 +25,11 @@ import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
 import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
-import { HostChildDeliverySchema, HostNoticeSchema } from './protocol-delivery.ts';
+import {
+  HostChildDeliverySchema,
+  HostNoticeSchema,
+  HostStepDeliverySchema,
+} from './protocol-delivery.ts';
 import { FILE_SEARCH_METHOD_SCHEMAS, FILE_SEARCH_RESULT_SCHEMAS } from './protocol-file-search.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
@@ -293,6 +297,7 @@ export {
   HostCommandSessionDeliverySchema,
   type HostNotice,
   HostNoticeSchema,
+  type HostStepDelivery,
 } from './protocol-delivery.ts';
 /** Credentials and executable capabilities remain process-local. */
 export function hostRunSnapshotSchema(json: JsonSchemaFactory) {
@@ -685,6 +690,8 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       Schema.Struct({
         type: Schema.Literal('model.messages'),
         ...RunFields,
+        /** ADR-0028 step 3b: the notices these messages carry to a running run's model. */
+        delivery: Schema.optional(HostStepDeliverySchema),
         messages: Schema.mutable(Schema.Array(json())),
       }),
       Schema.Struct({

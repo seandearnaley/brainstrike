@@ -39,6 +39,8 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 - Background completion delivers the whole turn's invocation ledger. Each report is one notice (ADR-0028 step 3b, `notices.ts`).
   - A child run's terminal commit posts `notice.posted` on the parent's log in the same transaction, so whether a run reports is decided once, and the report outlives the child's thread.
   - A run takes the notices due on its own branch: not yet taken by a run on that branch (its `run.started` `delivery` names them), and dispatched by a run on that branch. An edit, regenerate or rewind that leaves the run that took one finds it due again; a branch that left the dispatching run never asked for that work.
+  - A running run takes what is due at its next step (`prepareStep`): one user message of its own, committed as `model.messages` whose `delivery` names the notices. Nothing wakes for a notice a step took. A run whose last step makes no tool call has no next step, so its thread wakes after it ends.
+  - That message sits inside the turn. Readers that need the turn's input (compaction, projection rewrites, Memory's active slice) use `isHostTurnInput` (`turn-input.ts`), never the last user message by role.
   - A regenerated wake repeats its prompt, which is its delivery, so it takes nothing new.
   - Wakes use the parent thread's current committed selection and keep the original admitting client origin ([ADR-0019](../adr/0019-host-thread-run-selection.md)).
   - An edit, regenerate or rewind that forks above a turn whose workers still work ends that turn first, as its Stop would, so no worker of a branch the person left keeps writing beside the new one (`abandoned-turns.ts`). Sending on from the turn keeps it.

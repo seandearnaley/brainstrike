@@ -303,6 +303,9 @@ function foldHostConversationMessages(
   const messages = committedModelMessages(event.messages);
   foldHostRunMessages(run, event, messages, hostRunContext(runs, run).length);
   run.messages.push(...messages);
+  if (event.type === 'model.messages' && event.delivery) {
+    run.intake.push(event.delivery);
+  }
 }
 /** Fold a committed run event that is neither a command nor a run start into its run. */
 export function foldHostRunEvent(

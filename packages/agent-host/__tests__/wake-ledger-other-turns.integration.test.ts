@@ -44,16 +44,19 @@ function latestTurn(call: CallOptions): { readonly answered: boolean; readonly t
 
 test('a wake names a running worker an earlier turn dispatched', { timeout: 20_000 }, async () => {
   const release = Promise.withResolvers<void>();
+  // The fast worker reports once the second turn's last step has begun, so a wake takes it.
+  const secondEnding = Promise.withResolvers<void>();
   const model = new MockLanguageModelV4({
     doStream: async (call) => {
       const turn = latestTurn(call);
       if (!toolNames(call).includes('agent-explore')) {
-        if (turn.text.includes(SLOW)) {
-          await release.promise;
-        }
+        await (turn.text.includes(SLOW) ? release.promise : secondEnding.promise);
         return stream(text('Child report.'));
       }
       if (turn.text.includes(LEDGER) || turn.answered) {
+        if (turn.text.includes('SECOND')) {
+          secondEnding.resolve();
+        }
         return stream(text('Noted.'));
       }
       const prompt = turn.text.includes('FIRST') ? SLOW : FAST;

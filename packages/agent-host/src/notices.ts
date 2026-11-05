@@ -9,6 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import type { UserModelMessage } from 'ai';
 import { describeHostDelivery } from './child-delivery.ts';
 import { hostChildResult } from './child-runs.ts';
 import type { HostChildRuns } from './core-child-runs.ts';
@@ -20,8 +21,10 @@ import type {
   HostChildDeliveryEntry,
   HostLogRow,
   HostNotice,
+  HostStepDelivery,
 } from './protocol.ts';
 import { type HostRunPosition, hostRunAncestors } from './run-branch.ts';
+import { hostIntakeMessage } from './turn-input.ts';
 
 export type HostChildNotice = Extract<HostNotice, { kind: 'child' }>;
 export type HostSessionNotice = Extract<HostNotice, { kind: 'command-session' }>;
@@ -31,14 +34,14 @@ export function hostNoticeId(notice: HostNotice): string {
   return notice.kind === 'child' ? notice.entry.childRunId : notice.session.sessionId;
 }
 
-function deliveredIds(delivery: HostChildDelivery | undefined): string[] {
+function deliveredIds(delivery: HostChildDelivery | HostStepDelivery | undefined): string[] {
   return [
     ...(delivery?.entries ?? []).map((entry) => entry.childRunId),
     ...(delivery?.commandSessions ?? []).map((session) => session.sessionId),
   ];
 }
 
-/** The branch through `run` (`run` and its ancestors), and the notices its runs took. */
+/** The branch through `run` (`run` and its ancestors), and the notices its runs took, at their start or a step. */
 export interface HostNoticeBranch {
   readonly runs: ReadonlySet<string>;
   readonly taken: ReadonlySet<string>;
@@ -51,7 +54,9 @@ export function hostNoticeBranch(
   const path = run ? [...hostRunAncestors(runs, run), run] : [];
   return {
     runs: new Set(path.map((turn) => turn.id)),
-    taken: new Set(path.flatMap((turn) => deliveredIds(turn.branch.delivery))),
+    taken: new Set(
+      path.flatMap((turn) => [turn.branch.delivery, ...turn.intake].flatMap(deliveredIds))
+    ),
   };
 }
 
@@ -152,6 +157,32 @@ export function hostChildNotice(
     ...(invocation ? { turnId: origin.turnId } : {}),
   };
 }
+type HostPendingNotices = ReturnType<HostChildRuns['pending']>;
+
+/** The pending notices as the model reads them, and the delivery that names them. */
+function hostNoticeReport(pending: HostPendingNotices, threadId: string) {
+  const sessions = pending?.sessions ?? [];
+  const exits = sessions.map(
+    ({ createdAt, exitedAt, outputCursor, session }): HostCommandSessionExit => ({
+      ...session,
+      createdAt,
+      exitedAt,
+      outputCursor,
+    })
+  );
+  const parts = [
+    pending?.ledger,
+    exits.length > 0 ? describeHostCommandSessionExits(threadId, exits) : undefined,
+  ];
+  return {
+    delivery: {
+      ...(sessions.length > 0 ? { commandSessions: sessions.map(({ session }) => session) } : {}),
+      entries: pending?.entries ?? [],
+    },
+    report: parts.some(Boolean) ? describeHostDelivery(parts) : '',
+  };
+}
+
 /**
  * A new run's position with the notices it takes (BST-1932, ADR-0028 step
  * 3b): a wake's prompt is that delivery; any other run carries it ahead of the
@@ -162,26 +193,10 @@ export function hostDeliveryPosition(
   method: string,
   messageId: string,
   position: HostRunPosition,
-  pending: ReturnType<HostChildRuns['pending']>,
+  pending: HostPendingNotices,
   ended: { readonly threadId: string; readonly turnId: string }
 ): HostRunPosition {
-  const sessions = pending?.sessions ?? [];
-  const exits = sessions.map(
-    ({ createdAt, exitedAt, outputCursor, session }): HostCommandSessionExit => ({
-      ...session,
-      createdAt,
-      exitedAt,
-      outputCursor,
-    })
-  );
-  const commandSessions =
-    sessions.length > 0 ? { commandSessions: sessions.map(({ session }) => session) } : {};
-  const parts = [
-    pending?.ledger,
-    exits.length > 0 ? describeHostCommandSessionExits(ended.threadId, exits) : undefined,
-  ];
-  const report = parts.some(Boolean) ? describeHostDelivery(parts) : '';
-  const entries = pending?.entries ?? [];
+  const { delivery, report } = hostNoticeReport(pending, ended.threadId);
   if (method === 'wake') {
     if (report === '') {
       throw new Error('A wake has nothing undelivered');
@@ -189,7 +204,7 @@ export function hostDeliveryPosition(
     const turnId = pending?.turnId ?? ended.turnId;
     return {
       ...position,
-      delivery: { ...commandSessions, entries, messageId, turnId, via: 'wake' },
+      delivery: { ...delivery, messageId, turnId, via: 'wake' },
       prompt: report,
     };
   }
@@ -198,12 +213,19 @@ export function hostDeliveryPosition(
   }
   return {
     ...position,
-    delivery: {
-      ...commandSessions,
-      entries,
-      ledger: report,
-      messageId: randomUUID(),
-      via: 'next-turn',
-    },
+    delivery: { ...delivery, ledger: report, messageId: randomUUID(), via: 'next-turn' },
   };
+}
+
+/**
+ * ADR-0028 step 3b: the notices a running run takes at its next step, as the
+ * user message that carries them to its model and the delivery its
+ * `model.messages` commits with them. None when nothing is due.
+ */
+export function hostNoticeIntake(
+  pending: HostPendingNotices,
+  threadId: string
+): { readonly delivery: HostStepDelivery; readonly message: UserModelMessage } | undefined {
+  const { delivery, report } = hostNoticeReport(pending, threadId);
+  return report === '' ? undefined : { delivery, message: hostIntakeMessage(report) };
 }
