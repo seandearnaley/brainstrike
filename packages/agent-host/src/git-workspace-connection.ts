@@ -55,6 +55,7 @@ export function bindHostGitWorkspaceMethods(
     return { subscribed: true };
   });
   serve('changes/apply');
+  serve('changes/commits');
   serve('changes/file-diff');
   serve('changes/inventory');
   serve('changes/resolve-view');

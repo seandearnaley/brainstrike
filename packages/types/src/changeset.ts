@@ -237,6 +237,13 @@ export interface ChangesApplyParams {
   readonly target: ChangesActionTarget;
 }
 
+/** A commit of a worktree's history, as the Changes commit picker lists it. */
+export interface ChangesCommit {
+  readonly commitId: string;
+  /** The first line of its message. */
+  readonly subject: string;
+}
+
 /** The paths an applied action changed, including both sides of a rename. */
 export interface ChangesApplyResult {
   readonly paths: readonly string[];
