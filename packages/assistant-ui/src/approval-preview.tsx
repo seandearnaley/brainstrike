@@ -10,19 +10,19 @@ import {
 } from './approval-preview-policy';
 import { formatRunDuration } from './run-python-result-model';
 
-// CodeMirror Merge loads with the first diff approval, not with the chat.
-const DiffView = lazy(() =>
-  import('@brainstrike/ui/diff-view').then((m) => ({ default: m.DiffView }))
+// The diff renderer loads with the first edit approval, not with the chat.
+const FileDiffView = lazy(() =>
+  import('@brainstrike/ui/diff-view').then((m) => ({ default: m.FileDiffView }))
 );
 
 /**
  * Character cap applied to each large text field (`oldStr`/`newStr`/`content`)
- * before it is handed to the CodeMirror-backed `DiffView`/`CodeSurface`
- * previews. The agent schema allows these fields up to 8,000,000 chars each
- * (`packages/agent/src/tools/schemas.ts`); mounting that much text into
- * CodeMirror would jank the renderer BEFORE the user can even approve or
- * decline. Truncation is always visible (a note names the shown/total char
- * counts below the preview) — the raw JSON expander further down always has
+ * before it is handed to the `FileDiffView`/`CodeSurface` previews. The agent
+ * schema allows these fields up to 8,000,000 chars each
+ * (`packages/agent/src/tools/schemas.ts`); diffing and drawing that much text
+ * would jank the renderer BEFORE the user can even approve or decline.
+ * Truncation is always visible (a note names the shown/total char counts below
+ * the preview) — the raw JSON expander further down always has
  * the untruncated value, so nothing is silently dropped.
  */
 export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
@@ -691,13 +691,12 @@ export function ApprovalPreview({
         />
         <div className="border-border mt-1.5 h-72 overflow-hidden rounded-md border">
           <Suspense fallback={<LoadingFallback message="Loading diff…" />}>
-            <DiffView
+            <FileDiffView
               ariaLabel={`Proposed changes to ${parsed.path}`}
-              filename={parsed.path}
-              modified={newPreview.text}
-              original={oldPreview.text}
+              newText={newPreview.text}
+              oldText={oldPreview.text}
+              path={parsed.path}
               testId="approval-diff-view"
-              truncated={isTruncated}
             />
           </Suspense>
         </div>

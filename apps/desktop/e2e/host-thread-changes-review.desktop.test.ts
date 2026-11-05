@@ -139,19 +139,23 @@ test('a comment on a Changes diff line goes into the thread’s next message', a
   await expect(region.getByText(FIRST_REPLY)).toBeVisible({ timeout: 90_000 });
   await region.getByTestId('changes-review-link').click({ timeout: 30_000 });
 
-  // The + shows on the hovered line; its box takes the comment and Ctrl+Enter adds it.
-  const diff = page
-    .getByTestId('changes-surface')
-    .getByRole('region', { name: 'Diff for notes.txt' });
+  // The + on the hovered line opens a box; Ctrl+Enter keeps the comment on the diff,
+  // and the toolbar adds every kept comment to the thread's message.
+  const diff = page.getByTestId('changes-surface').getByTestId('diff-review');
   await diff.getByText(REWRITTEN.trim()).hover({ timeout: 30_000 });
-  await diff.getByRole('button', { includeHidden: true, name: 'Comment on new line 1' }).click();
-  const box = diff.getByRole('textbox', { name: 'Comment on new line 1' });
+  await diff.locator('[data-utility-button]').click();
+  const box = diff.getByRole('textbox', { name: 'Comment on line 1' });
   await box.fill('Keep the original wording here.');
   await box.press('Control+Enter');
   await expect(box).toHaveCount(0);
+  await expect(diff.getByRole('button', { name: 'Keep the original wording here.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add 1 comment to message' }).click();
   // The message names the file and line, and quotes the line above the comment.
   await expect(input).toHaveValue(
     /^`notes\.txt` in [^,]+, line 1:\n```\nrewritten by the host run\n```\nKeep the original wording here\.$/u
+  );
+  await expect(diff.getByRole('button', { name: 'Keep the original wording here.' })).toHaveCount(
+    0
   );
 
   // Sending it is an ordinary message the model receives.

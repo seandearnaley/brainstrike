@@ -92,20 +92,22 @@ function statusLabel(status: ChangedFileStatus): string {
 describe('changeset contracts', () => {
   it('narrows StructuredFileDiffContent by kind', () => {
     expect(contentLabel({ kind: 'binary' })).toBe('binary');
-    expect(contentLabel({ kind: 'full', newContent: 'x', oldContent: null })).toBe('full:added');
+    expect(contentLabel({ kind: 'full', newContent: 'x', oldContent: null, patch: '' })).toBe(
+      'full:added'
+    );
     expect(
       contentLabel({
-        hunkText: '@@',
-        hunkTextTruncated: false,
         kind: 'hunks-only',
+        patch: '',
+        patchTruncated: false,
         reason: 'over-cap-old',
       })
     ).toBe('hunks:over-cap-old');
     expect(
       contentLabel({
-        hunkText: '@@',
-        hunkTextTruncated: true,
         kind: 'hunks-only',
+        patch: '',
+        patchTruncated: true,
         reason: 'diff-overflow',
       })
     ).toBe('hunks:diff-overflow');

@@ -12,8 +12,6 @@
  * read. An unexpected empty field here throws instead.
  */
 
-import type { StructuredDiffHunk } from '@brainstrike/types';
-
 /** One record from `git diff --numstat -z [--find-renames]`. */
 export interface NumstatEntry {
   /** Line additions, or null for a binary file ("-"). */
@@ -83,63 +81,6 @@ export function parseNumstatZ(output: string): readonly NumstatEntry[] {
   }
 
   return entries;
-}
-
-const HUNK_HEADER_CANDIDATE = /^@@ -/u;
-const HUNK_HEADER_PATTERN = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u;
-const FILE_HEADER_PATTERN = /^diff --git /u;
-const TRUNCATION_MARKER = '…(output truncated)';
-
-/**
- * Extract `@@ -a[,b] +c[,d] @@` hunk headers from a unified diff into
- * absolute line ranges (omitted count defaults to 1). Non-header lines are
- * ignored. A line matched as a hunk-header candidate (`^@@ -`) but not fully
- * parseable throws — UNLESS it is immediately followed by the literal
- * `…(output truncated)` boundOutput marker line, in which case the diff was
- * cut mid-header (not malformed) and the incomplete header is skipped
- * without contributing a hunk. Every other malformed header still throws.
- *
- * Precondition: `unifiedDiff` must be scoped to a single file's diff output
- * (at most one `diff --git ` header) — a second `diff --git ` line throws,
- * since hunks from different files would otherwise be flattened into one
- * indistinguishable array.
- */
-export function parseHunkHeaders(unifiedDiff: string): readonly StructuredDiffHunk[] {
-  const lines = unifiedDiff.split('\n');
-  const hunks: StructuredDiffHunk[] = [];
-  let sawFileHeader = false;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? '';
-
-    if (FILE_HEADER_PATTERN.test(line)) {
-      if (sawFileHeader) {
-        throw new Error(
-          `parseHunkHeaders expects a single-file diff but encountered a second "diff --git " header: "${line}"`
-        );
-      }
-      sawFileHeader = true;
-      continue;
-    }
-
-    if (!HUNK_HEADER_CANDIDATE.test(line)) {
-      continue;
-    }
-    const match = HUNK_HEADER_PATTERN.exec(line);
-    if (!match) {
-      if (lines[i + 1] === TRUNCATION_MARKER) {
-        continue;
-      }
-      throw new Error(`git diff returned a malformed hunk header "${line}"`);
-    }
-    const [, oldStartRaw, oldLinesRaw, newStartRaw, newLinesRaw] = match;
-    hunks.push({
-      newLines: newLinesRaw === undefined ? 1 : Number(newLinesRaw),
-      newStart: Number(newStartRaw),
-      oldLines: oldLinesRaw === undefined ? 1 : Number(oldLinesRaw),
-      oldStart: Number(oldStartRaw),
-    });
-  }
-  return hunks;
 }
 
 /**

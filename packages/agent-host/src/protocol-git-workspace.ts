@@ -120,20 +120,18 @@ const StructuredFileDiffSchema = Schema.Struct({
         kind: Schema.Literal('full'),
         newContent: NullableText,
         oldContent: NullableText,
+        patch: Text,
       }),
       Schema.Struct({
-        hunkText: Text,
-        hunkTextTruncated: Schema.Boolean,
         kind: Schema.Literal('hunks-only'),
+        patch: Text,
+        patchTruncated: Schema.Boolean,
         reason: Schema.Literals(['diff-overflow', 'over-cap-both', 'over-cap-new', 'over-cap-old']),
       }),
     ],
     { mode: 'oneOf' }
   ),
   deletions: Schema.NullOr(Count),
-  hunks: Schema.Array(
-    Schema.Struct({ newLines: Count, newStart: Count, oldLines: Count, oldStart: Count })
-  ),
   oldPath: Schema.optionalKey(Text),
   path: Text,
   status: ChangedFileStatusSchema,
@@ -173,6 +171,7 @@ const ChangesetViewSchema = Schema.Struct({
       additions: Schema.NullOr(Count),
       deletions: Schema.NullOr(Count),
       oldPath: Schema.optionalKey(Text),
+      patch: NullableText,
       path: Text,
       repositoryRoot: NullableText,
       revertible: Schema.Boolean,

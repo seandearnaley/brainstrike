@@ -134,6 +134,14 @@ export interface ChangedFileEntry {
   readonly deletions: number | null;
   /** Previous path for renames. */
   readonly oldPath?: string;
+  /**
+   * Git's complete unified diff for this one file (ADR-0036), the same text
+   * its {@link StructuredFileDiff} carries, so the view draws every file
+   * without another request. Null when there is no text diff to draw (a
+   * binary file) or when the view's patches reached their bound before this
+   * file; such a file loads its {@link StructuredFileDiff} on demand.
+   */
+  readonly patch: string | null;
   /** Path relative to the owning worktree root. */
   readonly path: string;
   readonly repositoryRoot: string | null;
@@ -187,17 +195,11 @@ export interface ChangesetView {
   readonly totalDeletions: number | null;
 }
 
-/** Absolute line ranges from a unified-diff @@ header. */
-export interface StructuredDiffHunk {
-  readonly newLines: number;
-  readonly newStart: number;
-  readonly oldLines: number;
-  readonly oldStart: number;
-}
-
 /**
- * Content payload for one file diff. Explicit states — over-cap and binary are
- * never silently truncated full content (spec §7, §11 Q3).
+ * One file's diff (ADR-0036). Git computes it once; `patch` is git's own
+ * unified diff for this one file (`diff --git` header included), and the
+ * renderer draws it without diffing again, so the drawn lines always match
+ * the file's `additions`/`deletions`.
  */
 export type StructuredFileDiffContent =
   | {
@@ -209,18 +211,22 @@ export type StructuredFileDiffContent =
       readonly newContent: string | null;
       /** Full file text at the old side, or null when the side is absent (added/untracked). */
       readonly oldContent: string | null;
+      /** Git's complete unified diff between the two sides. */
+      readonly patch: string;
     }
   | {
       readonly kind: 'hunks-only';
-      /** Bounded unified hunk text (boundOutput pattern; marker visible when truncated). */
-      readonly hunkText: string;
-      readonly hunkTextTruncated: boolean;
       /**
-       * `'diff-overflow'`: the unified diff invocation itself exceeded the
-       * runner's output buffer while NEITHER side individually exceeded the
-       * per-file content cap (e.g. many small scattered edits across two
-       * large-but-under-cap files) — distinct from the `over-cap-*` reasons,
-       * which name a SIDE that is itself too large to inline.
+       * Git's unified diff, ending after the last whole hunk that fits the
+       * output bound, so it always parses.
+       */
+      readonly patch: string;
+      /** True when hunks were left off the end of `patch`. */
+      readonly patchTruncated: boolean;
+      /**
+       * `'diff-overflow'`: the unified diff itself exceeded the output bound
+       * while neither side exceeded the per-file content cap. The
+       * `over-cap-*` reasons name a side too large to inline.
        */
       readonly reason: 'diff-overflow' | 'over-cap-both' | 'over-cap-new' | 'over-cap-old';
     };
@@ -229,20 +235,6 @@ export interface StructuredFileDiff {
   readonly additions: number | null;
   readonly content: StructuredFileDiffContent;
   readonly deletions: number | null;
-  /**
-   * Absolute-line hunk ranges — populated ONLY when a git unified diff was
-   * actually computed for this file; empty otherwise. That covers two
-   * cases, both legitimate, neither dishonest: binary content (no line-level
-   * diff is meaningful) and an `untracked` whole-file addition (git-scope
-   * `structuredFileDiff`'s `untracked` mode never runs a two-sided `git
-   * diff`, so there is no unified diff to parse hunks from). The former
-   * third case — journal-sourced diffs with a DB-stored old side — died with
-   * the journal diff engine (BST-1164 T4): `agent-run`/`run-range` diffs are
-   * snapshot-backed git diffs now and carry real hunks. A `full` `content`
-   * payload with empty `hunks` is NOT a contradiction — `full` only promises
-   * both sides' complete text, never that hunk ranges were computed.
-   */
-  readonly hunks: readonly StructuredDiffHunk[];
   readonly oldPath?: string;
   readonly path: string;
   readonly status: ChangedFileStatus;

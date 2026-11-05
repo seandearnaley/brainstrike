@@ -1,149 +1,135 @@
 /**
- * `ChangesetDiffPane` (BST-1114, W4 Task C): the multi-file diff stack for
- * the Changes surface — the first consumer of `DiffView`'s
- * `{ kind: 'structured', diff }` source (`packages/ui/src/diff-view`).
- * `assistant-tool-approval-notice.tsx` is the only `strings` call site (it
- * has direct old/new text, never a unified diff to parse).
+ * The Changes diff (ADR-0036): every changed file in one scroll, drawn from
+ * the patches the view already carries, so it needs no request per file. A
+ * file the view sent without its patch loads when it is opened.
  *
- * Reads `selectedFileKeys` from `changes-store.ts` itself (not modified by
- * this task) and applies `selectRenderedFiles` — an EMPTY selection renders
- * EVERY file in the changeset, never zero; see that helper's doc comment
- * (SELECTION SEMANTICS) for the settled rationale. A changeset that
- * genuinely has no files is a DIFFERENT fact from nothing being selected,
- * and this pane distinguishes the two rather than collapsing them into one
- * blank state.
- *
- * One shared scroll container hosts the whole vertical stack; each
- * `ChangesetFileDiffCard` renders its own sticky `top-0` header inside it,
- * so the active file stays legible while its body scrolls past underneath
- * (the same `sticky top-0 z-10` pattern already used for local group
- * headers in `model-picker-group.tsx` — not a
- * Radix-portaled floating layer, so it does not draw from
- * `packages/ui/src/layers.ts`'s dialog stacking scale).
- *
- * Per-file loading is entirely owned by `ChangesetFileDiffCard` (lazy,
- * generation-guarded, IntersectionObserver-gated) — this pane never fetches
- * eagerly and never lets one file's failure blank the others, since each
- * card carries its own independent load state.
+ * With `onSendComments`, a line takes a comment. Comments stay on the diff as
+ * drafts until the toolbar adds them all to the active thread's message.
  */
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { ChangedFileEntry, Changeset, StructuredFileDiff } from '@brainstrike/types';
-import { Button, type DiffViewMode } from '@brainstrike/ui';
-import { type ReactElement, useMemo, useState } from 'react';
-import { changedFileKey, selectRenderedFiles, useChangesStore } from '../changes-store';
-import { ChangesetFileDiffCard, type ChangesetFileDiffCardProps } from './changeset-file-diff-card';
+import type { ChangedFileEntry, StructuredFileDiff } from '@brainstrike/types';
+import { Button, type DiffComment, type DiffReviewHandle } from '@brainstrike/ui';
+import { DiffReview, type DiffReviewFile } from '@brainstrike/ui/diff-view';
+import { type ReactElement, type Ref, useMemo, useState } from 'react';
+import { changedFileKey, type DraftComment, useChangesStore } from '../changes-store';
 
 export interface ChangesetDiffPaneProps {
-  /**
-   * Structural identity of the active changeset. Part of each card's React
-   * key: `changedFileKey` carries no changeset identity, so a file present in
-   * both the old and the new changeset would otherwise REUSE its card
-   * instance — and that card has already latched `hasStarted`, so it would
-   * keep displaying the diff it loaded for the previous changeset while the
-   * header describes the new one.
-   */
+  /** Identity of the changeset; the diff's folds and drafts belong to it. */
   readonly changesetKey: string;
-  readonly changesetKind: Changeset['kind'];
   readonly files: readonly ChangedFileEntry[];
-  /** Threaded straight through to `ChangesetFileDiffCard` — see its own doc comment on the `rootId` parameter. */
+  /** One file's full diff; `rootId` names the root a multi-root turn edited it in. */
   readonly loadFileDiff: (
     path: string,
     rootId: string | null
   ) => Promise<BoundaryResult<StructuredFileDiff>>;
-  /** Threaded straight through to each `ChangesetFileDiffCard` (BST-2334). */
-  readonly onLineComment?: ChangesetFileDiffCardProps['onLineComment'];
-  /** Threaded straight through to `ChangesetFileDiffCard` — see its `reloadToken` doc comment (BST-1161). */
-  readonly reloadToken?: number;
+  /** Adds the drafts to a message; false keeps them. Without it the diff takes no comments. */
+  readonly onSendComments?: ((drafts: readonly DraftComment[]) => boolean) | undefined;
+  readonly reviewRef?: Ref<DiffReviewHandle> | undefined;
 }
 
-function EmptyPaneState({
-  message,
-  testId,
-}: {
-  readonly message: string;
-  readonly testId: string;
-}): ReactElement {
-  return (
-    <div
-      className="text-muted-foreground grid h-full min-h-0 place-items-center px-8 text-center text-sm"
-      data-testid={testId}
-    >
-      <div className="max-w-sm leading-relaxed">{message}</div>
-    </div>
-  );
+const NO_DRAFTS: readonly DraftComment[] = [];
+
+function toReviewFile(entry: ChangedFileEntry): DiffReviewFile {
+  return {
+    additions: entry.additions,
+    deletions: entry.deletions,
+    id: changedFileKey(entry),
+    oldPath: entry.oldPath,
+    patch: entry.patch,
+    path: entry.path,
+    status: entry.status,
+  };
 }
 
 export function ChangesetDiffPane({
   changesetKey,
-  changesetKind,
   files,
   loadFileDiff,
-  onLineComment,
-  reloadToken,
-}: ChangesetDiffPaneProps): ReactElement {
-  const selectedFileKeys = useChangesStore((selectorState) => selectorState.selectedFileKeys);
-  // One view mode for the whole stack, switched from the pane's toolbar,
-  // rather than a toolbar row and toggle inside every file's card.
-  const [mode, setMode] = useState<DiffViewMode>('split');
-  const renderedFiles = useMemo(
-    () => selectRenderedFiles(files, selectedFileKeys),
-    [files, selectedFileKeys]
+  onSendComments,
+  reviewRef,
+}: ChangesetDiffPaneProps): ReactElement | null {
+  const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split');
+  const drafts = useChangesStore(
+    (state) => state.commentsByChangeset.get(changesetKey) ?? NO_DRAFTS
+  );
+  const saveComment = useChangesStore((state) => state.saveComment);
+  const deleteComment = useChangesStore((state) => state.deleteComment);
+  const clearComments = useChangesStore((state) => state.clearComments);
+
+  const reviewFiles = useMemo(() => files.map(toReviewFile), [files]);
+  const comments = useMemo(() => drafts.map((draft) => draft.comment), [drafts]);
+  const entryById = useMemo(
+    () => new Map(files.map((entry) => [changedFileKey(entry), entry])),
+    [files]
   );
 
-  if (files.length === 0) {
-    return (
-      <EmptyPaneState
-        message="This changeset has no files."
-        testId="changeset-diff-pane-empty-changeset"
-      />
-    );
+  // With every file gone, drafts still need their button.
+  if (files.length === 0 && drafts.length === 0) {
+    return null;
   }
 
-  if (renderedFiles.length === 0) {
-    return (
-      <EmptyPaneState
-        message="No files match the current selection — check files in the tree to see their diffs."
-        testId="changeset-diff-pane-empty-selection"
-      />
-    );
-  }
+  const loadFile = async (id: string): Promise<StructuredFileDiff> => {
+    const entry = entryById.get(id);
+    if (!entry) {
+      throw new Error('The file is no longer in this changeset.');
+    }
+    const result = await loadFileDiff(entry.path, entry.rootId);
+    if (!result.ok) {
+      throw new Error(describeBoundaryFailure(result.error));
+    }
+    return result.value;
+  };
 
+  const sendComments = () => {
+    if (onSendComments?.(drafts)) {
+      clearComments(changesetKey);
+    }
+  };
+
+  const saveDraft = (comment: DiffComment) => {
+    const entry = entryById.get(comment.fileId);
+    if (entry) {
+      saveComment(changesetKey, { comment, entry });
+    }
+  };
+
+  const unified = diffStyle === 'unified';
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="changeset-diff-pane">
-      <div className="border-border flex h-8 shrink-0 items-center justify-between gap-2 border-b px-3">
-        <span className="text-muted-foreground text-xs" data-testid="changeset-diff-pane-count">
-          {renderedFiles.length === files.length
-            ? `${files.length} ${files.length === 1 ? 'file' : 'files'}`
-            : `${renderedFiles.length} of ${files.length} files`}
-        </span>
+      <div className="border-border flex h-9 shrink-0 items-center justify-end gap-1.5 border-b px-2">
+        {onSendComments && drafts.length > 0 ? (
+          <Button
+            data-testid="changeset-diff-pane-send-comments"
+            onClick={sendComments}
+            size="xs"
+            type="button"
+          >
+            Add {drafts.length} {drafts.length === 1 ? 'comment' : 'comments'} to message
+          </Button>
+        ) : null}
         <Button
-          aria-label={mode === 'split' ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
-          aria-pressed={mode === 'unified'}
+          aria-pressed={unified}
           data-testid="changeset-diff-pane-mode"
-          onClick={() => setMode((current) => (current === 'split' ? 'unified' : 'split'))}
+          onClick={() => setDiffStyle(unified ? 'split' : 'unified')}
           size="xs"
           type="button"
-          variant="outline"
+          variant={unified ? 'secondary' : 'ghost'}
         >
-          {mode === 'split' ? 'Inline' : 'Side by side'}
+          Inline
         </Button>
       </div>
-      {/* overscroll-contain: reaching the end of the stack stops there rather
-          than carrying the scroll on to the dialog or page behind it. */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-        <div className="divide-border flex flex-col divide-y">
-          {renderedFiles.map((entry) => (
-            <ChangesetFileDiffCard
-              changesetKind={changesetKind}
-              entry={entry}
-              key={`${changesetKey}|${changedFileKey(entry)}`}
-              loadFileDiff={loadFileDiff}
-              mode={mode}
-              onLineComment={onLineComment}
-              {...(reloadToken === undefined ? {} : { reloadToken })}
-            />
-          ))}
-        </div>
+      <div className="min-h-0 flex-1">
+        <DiffReview
+          comments={comments}
+          diffStyle={diffStyle}
+          files={reviewFiles}
+          key={changesetKey}
+          loadFile={loadFile}
+          onComment={onSendComments && saveDraft}
+          onDeleteComment={(id) => deleteComment(changesetKey, id)}
+          ref={reviewRef}
+        />
       </div>
     </div>
   );

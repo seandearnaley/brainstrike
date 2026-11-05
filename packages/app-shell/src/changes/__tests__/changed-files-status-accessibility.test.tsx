@@ -9,6 +9,7 @@ function props(status: ChangedFileStatus): TreeTableCellProps<ChangedFilesTreeNo
   const entry: ChangedFileEntry = {
     additions: 1,
     deletions: 0,
+    patch: null,
     path: 'src/example.ts',
     repositoryRoot: '/repo',
     revertible: true,

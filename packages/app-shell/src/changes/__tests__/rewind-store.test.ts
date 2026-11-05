@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useChangesStore } from '../changes-store';
 import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
 
@@ -20,7 +19,6 @@ const REQUEST = {
 
 beforeEach(() => {
   useRewindStore.getState().reset();
-  useChangesStore.getState().reset();
 });
 
 describe('useRewindStore', () => {
@@ -47,23 +45,6 @@ describe('useRewindStore', () => {
       runId: 'run-1',
       threadId: 'thread-1',
     });
-  });
-
-  // The modal reuses the Changes surface's tree/diff panes, which agree on the
-  // SHARED file selection. Without clearing on both edges, a file checked
-  // inside the modal keeps filtering the surface behind it — over a tree of
-  // visibly unchecked boxes, because the surface only clears when its own
-  // changeset changes and it did not change.
-  it('clears the shared file selection on BOTH edges', () => {
-    useChangesStore.getState().setSelectedFileKeys(new Set(['root-1\u0000\u0000src/a.ts']));
-    expect(useChangesStore.getState().hasExplicitSelection).toBe(true);
-
-    useRewindStore.getState().openRewind(REQUEST);
-    expect(useChangesStore.getState().hasExplicitSelection).toBe(false);
-
-    useChangesStore.getState().setSelectedFileKeys(new Set(['root-1\u0000\u0000src/b.ts']));
-    useRewindStore.getState().closeRewind();
-    expect(useChangesStore.getState().selectedFileKeys.size).toBe(0);
   });
 
   it('reset() drops an open request (factory reset)', () => {

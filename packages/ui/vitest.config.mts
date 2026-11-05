@@ -62,6 +62,9 @@ export default mergeConfig(
           // extraction — it is no longer a ui dependency.)
           optimizeDeps: {
             include: [
+              '@pierre/diffs',
+              '@pierre/diffs/react',
+              '@radix-ui/react-toast',
               '@tanstack/react-virtual',
               // The browser setup file imports @testing-library/dom DIRECTLY, a
               // specifier no suite here writes. Listed so it is pre-bundled with

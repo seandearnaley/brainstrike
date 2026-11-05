@@ -40,25 +40,22 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 }));
 
 vi.mock('@brainstrike/ui/diff-view', () => ({
-  DiffView: ({
-    original,
-    modified,
-    filename,
+  FileDiffView: ({
+    newText,
+    oldText,
+    path,
     testId,
-    truncated,
   }: {
-    original: string;
-    modified: string;
-    filename?: string;
+    newText: string;
+    oldText: string;
+    path: string;
     testId?: string;
-    truncated?: boolean;
   }) => (
     <div
-      data-filename={filename}
-      data-modified={modified}
-      data-original={original}
+      data-filename={path}
+      data-modified={newText}
+      data-original={oldText}
       data-testid={testId ?? 'diff-view'}
-      data-truncated={truncated ? 'true' : 'false'}
     />
   ),
 }));
@@ -72,7 +69,7 @@ beforeAll(() => {
   window.HTMLElement.prototype.scrollIntoView = () => {};
 });
 
-/** Lets the lazy DiffView load, so an absence assertion cannot pass only because it is still loading. */
+/** Lets the lazy FileDiffView load, so an absence assertion cannot pass only because it is still loading. */
 async function settleLazyPreviews(): Promise<void> {
   await act(async () => {
     await import('@brainstrike/ui/diff-view');
@@ -192,13 +189,11 @@ describe('AssistantToolApprovalNotice diff preview', () => {
       toolName: 'brainstrike.stringReplaceWorkspaceFile',
     });
 
-    expect((await screen.findByTestId('approval-diff-view')).getAttribute('data-truncated')).toBe(
-      'false'
-    );
+    await screen.findByTestId('approval-diff-view');
     expect(screen.queryByTestId('approval-preview-truncated-note')).toBeNull();
   });
 
-  it('caps an oversized diff preview before it reaches DiffView', async () => {
+  it('caps an oversized diff preview before it reaches FileDiffView', async () => {
     const bigOld = 'a'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 500);
     const bigNew = 'b'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 10);
     renderNotice({
@@ -214,7 +209,6 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     const diff = await screen.findByTestId('approval-diff-view');
     expect(diff.getAttribute('data-original')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
     expect(diff.getAttribute('data-modified')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
-    expect(diff.getAttribute('data-truncated')).toBe('true');
 
     const note = screen.getByTestId('approval-preview-truncated-note');
     // The larger of the two sides (oldStr, +500 over the cap) drives the note.

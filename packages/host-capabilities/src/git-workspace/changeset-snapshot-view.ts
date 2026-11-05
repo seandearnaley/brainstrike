@@ -14,6 +14,7 @@ import {
 } from './changeset-snapshot-targets.ts';
 import { gitInvalid, gitRefused } from './git-failure.ts';
 import type { SnapshotService } from './snapshot-service.ts';
+import { boundViewPatches, completePatch } from './structured-diff-content.ts';
 
 type SnapshotChangeset = Extract<Changeset, { kind: 'agent-run' | 'run-range' }>;
 export interface SnapshotChangesetResolverDeps {
@@ -44,6 +45,7 @@ function entriesOfDiffs(
     additions: diff.additions,
     deletions: diff.deletions,
     ...(diff.oldPath === undefined ? {} : { oldPath: diff.oldPath }),
+    patch: completePatch(diff.content),
     path: diff.path,
     repositoryRoot: null,
     // The snapshot engine can restore every captured file (T3's rewind);
@@ -155,7 +157,10 @@ export function createSnapshotChangesetResolver(
               );
       files.push(...entriesOfDiffs(target.rootId, diffs, scopedAttribution));
     }
-    return { ok: true, value: { changeset, files, totalAdditions, totalDeletions } };
+    return {
+      ok: true,
+      value: { changeset, files: boundViewPatches(files), totalAdditions, totalDeletions },
+    };
   }
 
   async function fileDiff(

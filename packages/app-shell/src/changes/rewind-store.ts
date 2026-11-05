@@ -19,7 +19,6 @@
  */
 import { create } from 'zustand';
 import type { RewindPreviewPayload } from './changes-bridge';
-import { useChangesStore } from './changes-store';
 import type { RewindPort } from './rewind-port';
 
 export interface RewindRequest {
@@ -68,33 +67,13 @@ export interface RewindNavigationState {
   readonly reset: () => void;
 }
 
-/**
- * The modal renders the run-range changeset through the SAME
- * `ChangedFilesTree`/`ChangesetDiffPane` the Changes surface uses, and those
- * two panes agree on which files are checked through the shared
- * `useChangesStore`. Without this, a file checked inside the modal would stay
- * checked in the surface behind it — over a tree of visibly unchecked boxes,
- * because the surface only clears the selection when its OWN changeset
- * changes, and it did not change. Cleared on BOTH edges so neither direction
- * leaks a selection into the other surface.
- */
-function clearSharedFileSelection(): void {
-  useChangesStore.getState().clearSelection();
-}
-
 export const useRewindStore = create<RewindNavigationState>((set) => ({
-  closeRewind: () => {
-    clearSharedFileSelection();
-    set({ request: null });
-  },
+  closeRewind: () => set({ request: null }),
   generation: 0,
   // Monotonic, never reset to a value it has already held while the app runs:
   // consumers key a React remount on it, and a repeated value is not a remount.
   markRewindApplied: () => set((state) => ({ generation: state.generation + 1 })),
-  openRewind: (request) => {
-    clearSharedFileSelection();
-    set({ request });
-  },
+  openRewind: (request) => set({ request }),
   request: null,
   // Factory reset wipes the durable state the counter exists to re-read, so
   // starting over from 0 is correct here and only here.
