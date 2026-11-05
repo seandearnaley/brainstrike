@@ -6,9 +6,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
-// The package's root does not re-export the states its wire reports.
-import { FuseState } from '@electron/fuses/dist/constants.js';
+import { FuseState, FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { expect, test } from '@playwright/test';
 import {
   closePackagedDesktop,
