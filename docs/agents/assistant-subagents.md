@@ -57,7 +57,7 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
   - A thread view reads its tree again only when told, and never reads a child's log for its cards, approvals strip or waiting questions. Reading every descendant's full log made a thread with many subagents hold hundreds of megabytes and kept the host busy for seconds (2026-11-02).
 - While a root has no run of its own, its working background children are named at its composer; their Stop is the turn's root Stop (accepted after that run ended).
 - Root Stop cancels the turn's descendants; child Stop leaves its parent and siblings running.
-  - A Stop of any run that carries the turn (its first run, even ended, a wake or a continuation) ends every unfinished run of that turn on any thread (`turnRuns`). That Stop is the one "turn stopped" fact (`hostTurnStopped`), read by delivery, command-session exits, the continuation and a worker whose delegation commit lands after the Stop, which ends stopped.
+  - A Stop of any run that carries the turn (its first run, even ended, a wake or a continuation) ends every unfinished run of that turn on any thread (`turnRuns`). That Stop is the one "turn stopped" fact (`hostTurnStopped`), read by delivery, command-session exits, a worker whose delegation commit lands after the Stop (it ends stopped), and the approved-plan or worktree continuation, which is refused at its own admission when the Stop landed while it waited to start.
 - Join actual work and memory/provider owners before releasing resources.
 - Stopped turns keep results for the next user turn and don't auto-wake.
 - Restart marks child runs and interactions interrupted; it never replays them.

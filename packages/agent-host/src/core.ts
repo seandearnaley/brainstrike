@@ -77,13 +77,13 @@ import {
   hostStartCommandRecord,
   hostStartPosition,
 } from './run-branch.ts';
-
 import {
   approveHostRunByPolicy,
   commitHostInteractionResponse,
   commitHostModelMessages,
   continueHostRun,
   type HostNextRun,
+  hostCarriedStartPosition,
   hostInteractionPreview,
   startHostNextRun,
 } from './run-continuation.ts';
@@ -549,7 +549,7 @@ export class HostCore {
   startRun(
     params: HostParams<'run/start'>,
     origin?: HostClientOrigin,
-    carry?: Pick<HostNextRun, 'hostPrompt' | 'turnId'>
+    carry?: Pick<HostNextRun, 'follows' | 'hostPrompt' | 'turnId'>
   ): Promise<{ runId: string }> {
     const record = hostStartCommandRecord(params);
     return this.settledCommand('run/start', record, () =>
@@ -557,7 +557,7 @@ export class HostCore {
         'run/start',
         params,
         origin,
-        () => hostStartPosition(this.runs.values(), this.rewinds.position(params), carry),
+        () => hostCarriedStartPosition(this.runs, this.rewinds.position(params), carry),
         record
       )
     );
