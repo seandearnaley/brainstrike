@@ -32,14 +32,20 @@ afterEach(() => {
   opened.mockReset();
 });
 
-function requested(kind: PendingHostApproval['kind'], interactionId: string): PendingHostApproval {
+function requested(
+  kind: 'approval' | 'network',
+  interactionId: string,
+  origin?: string
+): PendingHostApproval {
   return {
-    input: { question: 'Which root?' },
+    input: { code: 'fetch()' },
     interactionId,
     kind,
+    ...(origin === undefined ? {} : { origin }),
     runId: 'child-run',
     toolCallId: `${interactionId}-call`,
-    toolId: kind === 'approval' ? 'write_file' : kind === 'question' ? 'ask_user' : 'submit_plan',
+    toolId:
+      kind === 'approval' ? 'write_file' : origin === undefined ? 'run_python' : 'browser_navigate',
     toolIdentity: 'identity-1',
     type: 'interaction.requested',
   } as PendingHostApproval;
@@ -57,18 +63,18 @@ function tree(
   };
 }
 
-test('the root names each child question or plan waiting beneath it and opens that child to answer', () => {
+test('the root names each child network consent waiting beneath it and opens that child to answer', () => {
   render(
     <HostChildWaiting
       tree={tree([
         {
-          interaction: requested('question', 'q-1'),
+          interaction: requested('network', 'n-1'),
           owner: 'Cedar-1a2b3c',
           persona: 'worker',
           threadId: 'child-a',
         },
         {
-          interaction: requested('plan', 'p-1'),
+          interaction: requested('network', 'n-2', 'https://example.com'),
           owner: 'Maple-4d5e6f',
           persona: 'worker',
           threadId: 'child-b',
@@ -78,8 +84,8 @@ test('the root names each child question or plan waiting beneath it and opens th
   );
   const waiting = screen.getAllByTestId('host-child-waiting');
   expect(waiting.map((item) => item.textContent)).toEqual([
-    expect.stringContaining('Cedar-1a2b3c asks you a question'),
-    expect.stringContaining('Maple-4d5e6f proposes a plan'),
+    expect.stringContaining('Cedar-1a2b3c wants to reach the internet'),
+    expect.stringContaining('Maple-4d5e6f wants to open https://example.com'),
   ]);
   fireEvent.click(screen.getByRole('button', { name: 'Answer in Maple-4d5e6f' }));
   expect(opened).toHaveBeenCalledWith({ persona: 'worker', threadId: 'child-b' });

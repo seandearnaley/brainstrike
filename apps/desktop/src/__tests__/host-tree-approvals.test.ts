@@ -93,6 +93,31 @@ test('a tree the host cannot serve makes every card unavailable, with the reason
   approvals.close();
 });
 
+test("a child's network consent waits at the root to be answered in the child, never in the approval strip", async () => {
+  const pending = (interactionId: string, kind: 'approval' | 'network') =>
+    ({
+      input: {},
+      interactionId,
+      kind,
+      runId: 'child-run',
+      toolCallId: `${interactionId}-call`,
+      toolId: 'run_python',
+      toolIdentity: 'identity-1',
+      type: 'interaction.requested',
+    }) as Tree['descendants'][number]['pending'][number];
+  const { client } = treeClient(async () =>
+    tree([child({ pending: [pending('approve-1', 'approval'), pending('network-1', 'network')] })])
+  );
+  const approvals = new HostTreeApprovals(client, 'root');
+  await expect
+    .poll(() => approvals.getInteractions().map(({ interaction }) => interaction.interactionId))
+    .toEqual(['network-1']);
+  expect(approvals.getSnapshot().map(({ approval }) => approval.interactionId)).toEqual([
+    'approve-1',
+  ]);
+  approvals.close();
+});
+
 test('a lost host leaves no subagent shown as working, and no turn to stop', async () => {
   const { client, lose } = treeClient(async () => ({
     ...tree([child({ origin: { ...origin, background: true } })]),
