@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useEffect } from 'react';
 import { useAnsweredApprovals } from './answered-approvals-context';
-import { requestSteer, steerShortcutLabel, useComposerRunActions } from './composer-run-actions';
+import { steerShortcutLabel, useComposerRunActions } from './composer-run-actions';
 import { findThreadMessageQueue } from './thread-message-queue';
 import { useThreadScrollFollow } from './thread-scroll-follow';
 
@@ -63,17 +63,13 @@ export function QueueFollowUpButton() {
 }
 
 /**
- * Mid-run steering (BST-588): the draft goes first in line and the server is
- * asked to end the run gracefully at the next step boundary. Absent a
- * transport the button is not rendered — capability-gated, never stubbed.
+ * Steering sends the draft into the running run, which reads it at its next
+ * step. A thread that cannot steer renders no button: capability-gated, never
+ * stubbed.
  */
-export function SteerRunButton({
-  onSteerRequest,
-}: {
-  readonly onSteerRequest: () => Promise<boolean>;
-}) {
-  const actions = useComposerRunActions({ onSteerActiveRun: onSteerRequest });
-  const canSteer = useAuiState((state) => state.composer.canSend && !state.composer.isEmpty);
+export function SteerRunButton() {
+  const actions = useComposerRunActions({ canSteer: true });
+  const sendable = useAuiState((state) => state.composer.canSend && !state.composer.isEmpty);
   if (!actions?.steer) {
     return null;
   }
@@ -81,12 +77,12 @@ export function SteerRunButton({
   return (
     <button
       aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter"
-      aria-label="Steer: send now, stopping the run at the next step"
+      aria-label="Steer"
       className="bs-composer-chip bs-composer-steer"
       data-testid="assistant-steer-run"
-      disabled={!canSteer}
+      disabled={!sendable}
       onClick={actions.steer}
-      title={`Steer: send now, stopping the run after its current step (${shortcut})`}
+      title={`Steer (${shortcut})`}
       type="button"
     >
       <ZapIcon aria-hidden="true" />
@@ -96,18 +92,11 @@ export function SteerRunButton({
   );
 }
 
-/**
- * The composer's complete RUNNING-branch control cluster: Steer when the app
- * shell supplied a transport (BST-588), then Queue.
- */
-export function ComposerRunControls({
-  onSteerActiveRun,
-}: {
-  readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
-}) {
+/** The composer's complete RUNNING-branch control cluster: Steer when the thread can, then Queue. */
+export function ComposerRunControls({ canSteer }: { readonly canSteer?: boolean | undefined }) {
   return (
     <>
-      {onSteerActiveRun ? <SteerRunButton onSteerRequest={onSteerActiveRun} /> : null}
+      {canSteer ? <SteerRunButton /> : null}
       <QueueFollowUpButton />
     </>
   );
@@ -140,17 +129,17 @@ function useRepinWhenQueueShrinks(): void {
 
 /**
  * The waiting messages, stacked on the composer's top edge in send order. Each
- * row can be steered during a run (sent next, ending the run after its current
+ * row can be steered into a running run (read at its next step
  * step), sent now when no run is active (after a Stop the queue waits for the
  * user), pulled back into an empty composer to edit, or removed; a removed row
  * is never sent. Queued tool decisions and messages with images can be sent
  * or removed but not edited as text.
  */
 export function FollowUpQueueChips({
-  onSteerActiveRun,
+  canSteer,
   threadKey,
 }: {
-  readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
+  readonly canSteer?: boolean | undefined;
   readonly threadKey?: string | undefined;
 }) {
   const count = useAuiState((state) => state.composer.queue.length);
@@ -167,8 +156,8 @@ export function FollowUpQueueChips({
       <ComposerPrimitive.Queue>
         {({ queueItem }) => (
           <QueuedRow
+            canSteer={canSteer}
             itemId={queueItem.id}
-            onSteerActiveRun={onSteerActiveRun}
             prompt={queueItem.prompt}
             textOnly={queueItem.parts.every((part) => part.type === 'text')}
             threadKey={threadKey}
@@ -181,13 +170,13 @@ export function FollowUpQueueChips({
 
 function QueuedRow({
   itemId,
-  onSteerActiveRun,
+  canSteer,
   prompt,
   textOnly,
   threadKey,
 }: {
   readonly itemId: string;
-  readonly onSteerActiveRun: (() => Promise<boolean>) | undefined;
+  readonly canSteer: boolean | undefined;
   readonly prompt: string;
   readonly textOnly: boolean;
   readonly threadKey: string | undefined;
@@ -205,13 +194,12 @@ function QueuedRow({
     >
       <CornerDownRightIcon aria-hidden="true" className="bs-composer-queue-glyph" />
       <QueueItemPrimitive.Text className="bs-composer-queue-text" />
-      {isRunning && onSteerActiveRun ? (
+      {isRunning && canSteer ? (
         <QueueItemPrimitive.Steer
-          aria-label={`Steer now: ${prompt}`}
+          aria-label={`Steer: ${prompt}`}
           className="bs-composer-chip"
           data-testid="assistant-follow-up-chip-steer"
-          onClick={() => requestSteer(onSteerActiveRun)}
-          title="Send now: stops the run after its current step"
+          title="Steer"
           type="button"
         >
           <ZapIcon aria-hidden="true" />

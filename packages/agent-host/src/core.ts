@@ -24,7 +24,6 @@ import {
   recoverHostRuns,
   rejectHostRunAdmission,
   retainHostRunWork,
-  steerHostRun,
   stopHostRunOutsideQueue,
   stopHostRunTree,
 } from './core-run-lifecycle.ts';
@@ -929,14 +928,6 @@ export class HostCore {
       this.ends.wake(threadId);
       return { accepted: true } as const;
     });
-  }
-
-  steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
-    return this.command('run/steer', params, () =>
-      steerHostRun(this.runs.requireForThread(params.threadId, params.runId), (result) =>
-        this.accept(params.threadId, 'run/steer', params, result, [])
-      )
-    );
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {

@@ -8,9 +8,9 @@ const API_KEY = 'test-key-host-steer';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL = 'anthropic/claude-sonnet-4.6';
 const FIRST_PROMPT = 'Read evidence.txt, then summarise it.';
-const UNSTEERED_REPLY = 'The first run continued past its tool step.';
+const UNSTEERED_REPLY = 'The run answered without the steering message.';
 const STEER = 'Stop there and tell me the file name instead.';
-const STEERED_REPLY = 'The steering message ran as the next turn.';
+const STEERED_REPLY = 'The run read the steering message at its next step.';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -23,7 +23,7 @@ async function enableModel(page: Page): Promise<void> {
   await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
-test('steering a host run ends it after its step in flight and sends the message next', async ({
+test('a steered message reaches the running run at its next step, in the same run', async ({
   electron,
   modelProvider,
   window: page,
@@ -50,40 +50,30 @@ test('steering a host run ends it after its step in flight and sends the message
   await input.fill(FIRST_PROMPT);
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
-  // The run's first step is held at the provider until the steer is in.
-  const steer = region.getByRole('button', {
-    name: 'Steer: send now, stopping the run at the next step',
-  });
+  // The run's tool step is held at the provider until the steer is committed.
+  const steer = region.getByRole('button', { exact: true, name: 'Steer' });
   await expect(steer).toBeVisible({ timeout: 60_000 });
   await input.fill(STEER);
   await steer.click();
-  await expect(
-    page.getByRole('status').filter({ hasText: 'Steering: stopping after this step' })
-  ).toBeVisible();
-  await expect(region.getByRole('list', { name: 'Queued follow-up messages' })).toContainText(
-    STEER
-  );
+  await expect(input).toHaveValue('');
+  await expect(region.getByText(STEER)).toBeVisible({ timeout: 30_000 });
+  await expect(region.getByRole('list', { name: 'Queued follow-up messages' })).toHaveCount(0);
 
   toolFinish.resolve();
   await expect(region.getByText(STEERED_REPLY)).toBeVisible({ timeout: 90_000 });
-  await expect(page.getByText('Steering: stopping after this step')).toHaveCount(0);
-  // The steered run took no step after its tool: only the steering turn's
-  // request carried that tool's result to the model.
   await expect(region.getByText(UNSTEERED_REPLY)).toHaveCount(0);
-  const steering = new Set(
+  // The step after the tool carried both the tool's result and the message.
+  const steered = new Set(
     modelProvider
       .requests()
       .filter((request) => JSON.stringify(request.messages).includes(STEER))
       .map((request) => request.requestIndex)
   );
-  expect(steering.size).toBe(1);
-  expect(
-    modelProvider
-      .transcript()
-      .filter((turn) => turn.toolResultCount > 0 && !steering.has(turn.requestIndex))
-  ).toEqual([]);
+  const steering = modelProvider.transcript().filter((turn) => steered.has(turn.requestIndex));
+  expect(steering).toHaveLength(1);
+  expect(steering[0]?.toolResultCount).toBeGreaterThan(0);
   const log = await readAgentHostLog(electron.getUserDataDir());
-  expect(log.typeCounts['run.started']).toBe(2);
-  expect(log.typeCounts['run.finished']).toBe(2);
+  expect(log.typeCounts['run.started']).toBe(1);
+  expect(log.typeCounts['run.finished']).toBe(1);
   expect(modelProvider.refusals()).toEqual([]);
 });

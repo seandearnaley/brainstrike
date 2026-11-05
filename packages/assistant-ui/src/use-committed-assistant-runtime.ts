@@ -23,7 +23,7 @@ import {
   type CommittedAssistantStore,
   CommittedRunStarts,
 } from './committed-assistant-store';
-import { threadMessageQueue } from './thread-message-queue';
+import { type SteerMessage, threadMessageQueue } from './thread-message-queue';
 
 /** Object.is compares the selected fold object, so unrelated tokens do not rerender a card. */
 export function useCommittedAssistantSelector<T>(
@@ -38,6 +38,8 @@ export interface CommittedAssistantRuntimeOptions {
   readonly adapters?: ExternalStoreAdapter<ThreadMessage>['adapters'];
   readonly commands: CommittedAssistantCommands;
   readonly onCommandError: (cause: unknown) => void;
+  /** Delivers a steered message into the running run; absent, the thread offers no Steer. */
+  readonly onSteer?: SteerMessage | undefined;
   readonly store: CommittedAssistantStore;
 }
 
@@ -78,6 +80,7 @@ export function useCommittedAssistantRuntime({
   commands,
   adapters,
   onCommandError,
+  onSteer,
 }: CommittedAssistantRuntimeOptions): AssistantRuntime {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [resync, invalidate] = useReducer((revision: number) => revision + 1, 0);
@@ -152,7 +155,7 @@ export function useCommittedAssistantRuntime({
     repository = next.repository;
     publish(next);
   }
-  const queue = useCommittedMessageQueue(store, ports.onNew, snapshot.isRunning);
+  const queue = useCommittedMessageQueue(store, ports.onNew, onSteer, snapshot.isRunning);
   const runtime = useExternalStoreRuntime<ThreadMessage>({
     ...ports,
     adapters,
@@ -203,6 +206,7 @@ function observeSnapshot(snapshot: CommittedAssistantSnapshot): QueueObservation
 function useCommittedMessageQueue(
   store: CommittedAssistantStore,
   send: (message: AppendMessage) => Promise<void>,
+  steer: SteerMessage | undefined,
   isRunning: boolean
 ): {
   readonly adapter: ExternalThreadQueueAdapter | undefined;
@@ -216,7 +220,16 @@ function useCommittedMessageQueue(
   // Bound once per queue: a new send port is not a new binding, so replacing
   // the commands never re-holds a queue that no new observation would release.
   const sendLatest = useEffectEvent(send);
-  useEffect(() => queue.bind((message) => sendLatest(message)), [queue]);
+  const steerLatest = useEffectEvent((message: AppendMessage) => steer?.(message));
+  const steerable = steer !== undefined;
+  useEffect(
+    () =>
+      queue.bind(
+        (message) => sendLatest(message),
+        steerable ? async (message) => await steerLatest(message) : undefined
+      ),
+    [queue, steerable]
+  );
   useEffect(() => {
     let last: QueueObservation | undefined;
     const record = (): void => {

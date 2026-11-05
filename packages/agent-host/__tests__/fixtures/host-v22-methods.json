@@ -1,5 +1,5 @@
 {
-  "version": 21,
+  "version": 22,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
@@ -75,7 +75,6 @@
     "run/input",
     "run/regenerate",
     "run/start",
-    "run/steer",
     "run/stop",
     "run/verdict",
     "state/health/read",

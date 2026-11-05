@@ -62,6 +62,19 @@ function hostImageAttachment(
     type: 'image',
   });
 }
+/** A composer message as the host's user message: its text and its images. */
+export function hostUserMessage(
+  message: AppendMessage
+): Pick<HostParams<'run/start'>, 'attachments' | 'prompt'> {
+  if (message.content.some((part) => part.type !== 'text')) {
+    throw new Error('This host command requires text input');
+  }
+  const attachments = (message.attachments ?? []).map(hostImageAttachment);
+  return {
+    ...(attachments.length > 0 ? { attachments } : {}),
+    prompt: message.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
+  };
+}
 /** The view's message identities for a committed run, from its host's own identities. */
 export function committedConversationIdentity(
   rows: readonly HostLogRow[],
@@ -156,11 +169,7 @@ export async function startCommittedTurn(
   commandId: string = crypto.randomUUID()
 ): Promise<void> {
   const { client, settleLost, threadId } = options;
-  if (message.content.some((part) => part.type !== 'text')) {
-    throw new Error('This host command requires text input');
-  }
-  const attachments = (message.attachments ?? []).map(hostImageAttachment);
-  const prompt = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+  const user = hostUserMessage(message);
   // BST-2004: a send whose host was lost before it answered, or before the
   // send left, is settled from the replacement's committed log; nothing is resent.
   try {
@@ -173,11 +182,10 @@ export async function startCommittedTurn(
   }
   try {
     await client.request('run/start', {
-      ...(attachments.length > 0 ? { attachments } : {}),
+      ...user,
       commandId,
       ...options.runSettings(),
       parentMessageId: message.parentId,
-      prompt,
       threadId,
     });
   } catch (cause) {

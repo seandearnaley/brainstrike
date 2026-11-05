@@ -429,11 +429,6 @@ export const HOST_METHOD_SCHEMAS = {
       hasMessage(value) ? undefined : { issue: NO_MESSAGE.message, path: NO_MESSAGE.path ?? [] }
     )
   ),
-  /**
-   * End the active run gracefully at its next step boundary, after the step in
-   * flight, so the user's steering message can start the next turn (BST-588).
-   */
-  'run/steer': Schema.Struct({ ...Command, ...Run }),
   'run/stop': Schema.Struct({ ...Command, ...Run }),
   /** A client verdict is always the user's; hook and revert labels are host-committed. */
   'run/verdict': Schema.Struct({
@@ -1013,7 +1008,6 @@ export const HOST_RESULT_SCHEMAS = {
   'run/input': Schema.Struct({ accepted: Schema.Literal(true) }),
   'run/regenerate': Schema.Struct({ runId: Id }),
   'run/start': Schema.Struct({ runId: Id }),
-  'run/steer': Schema.Struct({ outcome: Schema.Literals(['steering', 'already-terminal']) }),
   'run/stop': Schema.Struct({ outcome: Schema.Literals(['stopped', 'already-terminal']) }),
   'run/verdict': Schema.Struct({ accepted: Schema.Literal(true) }),
   'state/health/read': HostStateHealthSchema,

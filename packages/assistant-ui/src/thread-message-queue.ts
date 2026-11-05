@@ -13,7 +13,11 @@
  *  - a hold while the thread is off screen, loading its replay or
  *    disconnected, because an idle-looking view is not a committed run end;
  *  - the identity of each queued tool decision, so its card shows "Queued"
- *    and a decision the host answered meanwhile is dropped instead of sent.
+ *    and a decision the host answered meanwhile is dropped instead of sent;
+ *  - steering into the running run: a steered message goes to the owner's
+ *    steer port, which the run reads at its next step, instead of cancelling
+ *    the run as the vendor's steer lane does. One the owner refuses waits
+ *    first in line and sends when the run ends.
  *
  * Session-lived, deliberately NOT persisted: a queued message that survives a
  * reload the user never saw sent would be a surprise send.
@@ -59,6 +63,8 @@ function decisionIdentityKey(message: AppendMessage): string | undefined {
 }
 
 type QueuePorts = Omit<ExternalThreadQueueAdapter, 'items' | 'steerItems'>;
+/** The owner's delivery of a message into the thread's running run. */
+export type SteerMessage = (message: AppendMessage) => Promise<void>;
 
 export class ThreadMessageQueue {
   private readonly ports: QueuePorts;
@@ -66,6 +72,7 @@ export class ThreadMessageQueue {
   private readonly controller: MessageQueueController;
   private readonly queued = new Map<string, QueuedMessage>();
   private send: ((message: AppendMessage) => Promise<void>) | undefined;
+  private steerInto: SteerMessage | undefined;
   private reportedRunning = false;
   private items: readonly QueueItemState[] = [];
   private decisionKeys: ReadonlySet<string> = EMPTY_KEYS;
@@ -98,6 +105,25 @@ export class ThreadMessageQueue {
           this.changed();
         }
       };
+    const remove = (itemId: string): void => {
+      inner.remove(itemId);
+      this.queued.delete(itemId);
+      this.changed();
+    };
+    const steer = (message: AppendMessage): void => {
+      const into = this.steerInto;
+      if (!(into && this.reportedRunning)) {
+        track(inner.steer)(message);
+        return;
+      }
+      into(message).catch((cause: unknown) => {
+        logger.warn('The running run did not take the steered message; it sends next', {
+          cause,
+          code: 'follow_up_queue_steer_refused',
+        });
+        track(inner.steer)(message);
+      });
+    };
     this.ports = {
       // biome-ignore lint/style/useNamingConvention: installed assistant-ui queue adapter port name.
       __internal_notifyCancelled: inner.__internal_notifyCancelled,
@@ -105,13 +131,19 @@ export class ThreadMessageQueue {
       __internal_setDispatchTransform: inner.__internal_setDispatchTransform,
       edit: inner.edit,
       enqueue: track(inner.enqueue),
-      move: inner.move,
-      remove: (itemId: string): void => {
-        inner.remove(itemId);
-        this.queued.delete(itemId);
-        this.changed();
+      // A queued row's Steer moves it from the queue lane to the steer lane.
+      move: (itemId, placement) => {
+        const item = this.queued.get(itemId);
+        const queued = inner.items.some((entry) => entry.id === itemId);
+        if (item && queued && placement.lane === 'steer' && this.canSteer()) {
+          remove(itemId);
+          steer(item.message);
+          return;
+        }
+        inner.move(itemId, placement);
       },
-      steer: track(inner.steer),
+      remove,
+      steer,
     };
     this.adapter = this.snapshot();
     this.controller.subscribe(() => this.changed());
@@ -141,15 +173,21 @@ export class ThreadMessageQueue {
     return this.queued.get(itemId)?.identityKey !== undefined;
   }
 
+  /** Whether a steered message now goes into the running run. */
+  readonly canSteer = (): boolean => this.steerInto !== undefined && this.reportedRunning;
+
   /**
-   * Bind the mounted conversation's send port. The queue stays held until the
-   * view reports a settled, connected snapshot through `observe`.
+   * Bind the mounted conversation's send port, and its steer port when the
+   * owner delivers into a running run. The queue stays held until the view
+   * reports a settled, connected snapshot through `observe`.
    */
-  bind(send: (message: AppendMessage) => Promise<void>): () => void {
+  bind(send: (message: AppendMessage) => Promise<void>, steer?: SteerMessage): () => void {
     this.send = send;
+    this.steerInto = steer;
     return () => {
       if (this.send === send) {
         this.send = undefined;
+        this.steerInto = undefined;
         this.controller.hold();
       }
     };

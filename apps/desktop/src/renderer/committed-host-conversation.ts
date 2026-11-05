@@ -1,4 +1,4 @@
-import { MessageNotSentError } from '@assistant-ui/react';
+import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   type HostImageAttachment,
@@ -18,7 +18,7 @@ import type {
 import { Schema } from 'effect';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
-import { createCommittedHostThread } from './committed-host-thread';
+import { createCommittedHostThread, hostUserMessage } from './committed-host-thread';
 import { CommittedHostVerdicts } from './committed-host-verdicts';
 import { respondToHostApproval, resumeHostInteraction } from './host-approval-response';
 import { HostTreeApprovals } from './host-tree-approvals';
@@ -48,17 +48,17 @@ export interface CommittedHostConversation {
   readonly commands: CommittedAssistantCommands;
   readonly mcpInput: CommittedHostMcpInput;
   /**
-   * BST-1932: human input for this running child. The host ends the active run
-   * after its step in flight and starts the input as the child's next run.
+   * BST-1932: human input for this running child, which the run reads at its
+   * next step (ADR-0028 step 3b).
    */
   sendInput(input: AssistantChildInput, signal: AbortSignal): Promise<void>;
   /** The thread's committed session; this conversation connects and releases it. */
   readonly source: CommittedThreadSession;
   /**
-   * Steer the active run: Core ends it after its step in flight. Resolves to
-   * the steered run, or undefined when no run was left to steer.
+   * A message into the active run, which reads it at its next step; a run
+   * that ended first starts the person's turn with it (`run/input`).
    */
-  steer(): Promise<string | undefined>;
+  steer(message: AppendMessage): Promise<void>;
   readonly store: CommittedAssistantLogStore;
   /** The thread's committed run verdicts, recorded through the host. */
   readonly verdicts: CommittedHostVerdicts;
@@ -208,17 +208,18 @@ export function createCommittedHostConversation(
       });
     },
     source,
-    steer: async () => {
+    steer: async (message) => {
       const runId = store.getCommittedView().activeRunId;
       if (!runId) {
-        return;
+        throw new Error('No run is active to steer');
       }
-      const { outcome } = await client.request('run/steer', {
+      await client.request('run/input', {
+        ...hostUserMessage(message),
         commandId: crypto.randomUUID(),
+        ...runSettings(),
         runId,
         threadId,
       });
-      return outcome === 'steering' ? runId : undefined;
     },
     store,
     verdicts: new CommittedHostVerdicts(client, source, threadId),
