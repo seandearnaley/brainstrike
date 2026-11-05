@@ -1,4 +1,5 @@
 import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
+import { isConnectionLoss } from '@brainstrike/agent-host/boundary-wire';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   type HostImageAttachment,
@@ -129,6 +130,7 @@ export function createCommittedHostConversation(
 ): CommittedHostConversation {
   const { client, replacement, threadId } = options;
   const runSettings = () => hostRunSettings(options);
+  const settleLost = replacement ? settleLostSend(client, replacement, threadId) : undefined;
   const thread = createCommittedHostThread({
     ...(options.bindThreadRoot ? { beforeStart: options.bindThreadRoot } : {}),
     client,
@@ -137,7 +139,7 @@ export function createCommittedHostConversation(
     // BST-2004: a send whose host was lost before it answered, or before the
     // send left, is settled from the replacement's committed log. Only that log
     // says whether the turn was admitted; nothing is resent.
-    ...(replacement ? { settleLost: settleLostSend(client, replacement, threadId) } : {}),
+    ...(settleLost ? { settleLost } : {}),
     threadId,
   });
   const { source, store } = thread;
@@ -213,13 +215,22 @@ export function createCommittedHostConversation(
       if (!runId) {
         throw new Error('No run is active to steer');
       }
-      await client.request('run/input', {
-        ...hostUserMessage(message),
-        commandId: crypto.randomUUID(),
-        ...runSettings(),
-        runId,
-        threadId,
-      });
+      const commandId = crypto.randomUUID();
+      try {
+        await client.request('run/input', {
+          ...hostUserMessage(message),
+          commandId,
+          ...runSettings(),
+          runId,
+          threadId,
+        });
+      } catch (cause) {
+        // BST-2004: a lost host may have committed it; only its log says, and nothing is resent.
+        if (settleLost && isConnectionLoss(cause)) {
+          return await settleLost(commandId);
+        }
+        throw cause;
+      }
     },
     store,
     verdicts: new CommittedHostVerdicts(client, source, threadId),

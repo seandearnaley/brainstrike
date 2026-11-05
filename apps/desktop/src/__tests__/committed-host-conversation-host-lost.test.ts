@@ -46,8 +46,16 @@ function message(text: string): AppendMessage {
     sourceId: null,
   };
 }
-/** A host client serving the recorded log; `runStart` decides the send's fate. */
-function recordedClient(runStart: () => Promise<unknown>) {
+/** The recording with its thread's last run still running: its `run.finished` not yet committed. */
+const running = rows.filter(
+  (row) =>
+    row !==
+    rows.findLast(
+      ({ event, threadId: owner }) => owner === threadId && event.type === 'run.finished'
+    )
+);
+/** A host client serving the recorded log; `runStart` decides a send's or a steer's fate. */
+function recordedClient(runStart: () => Promise<unknown>, recorded: readonly HostLogRow[] = rows) {
   const closed = Promise.withResolvers<void>();
   const request = vi.fn(async (method: HostMethod, params: HostParams<HostMethod>) => {
     const thread = (
@@ -55,7 +63,7 @@ function recordedClient(runStart: () => Promise<unknown>) {
         readonly threadId?: string;
       }
     ).threadId;
-    const log: HostLogRow[] = rows.filter((row) => row.threadId === thread);
+    const log: HostLogRow[] = recorded.filter((row) => row.threadId === thread);
     const answers: Partial<Record<HostMethod, () => unknown>> = {
       'log/subscribe': () => ({
         rows: log,
@@ -63,6 +71,7 @@ function recordedClient(runStart: () => Promise<unknown>) {
         telemetry: [],
       }),
       'log/unsubscribe': () => ({ unsubscribed: true }),
+      'run/input': async () => ({ ...((await runStart()) as object), accepted: true }),
       'run/start': runStart,
       'thread/read': () => ({ rows: log }),
       'thread/tree': () => ({
@@ -232,6 +241,54 @@ describe('a send the lost host never answered (BST-2004)', () => {
     try {
       await expect(conversation.commands.onNew?.(message('Refused'))).rejects.toBe(refusal);
       expect(replacement).not.toHaveBeenCalled();
+    } finally {
+      conversation.close();
+    }
+  });
+});
+describe('a steer the lost host never answered (BST-2004)', () => {
+  /** A conversation over the running recording whose `run/input` the host never answers. */
+  async function steering(replacementLog: readonly HostLogRow[]) {
+    const loss = Promise.withResolvers<void>();
+    const lostHost = recordedClient(unansweredStart(loss.promise), running);
+    const replacementHost = recordedClient(async () => ({ runId: 'never' }), replacementLog);
+    const conversation = createCommittedHostConversation({
+      client: lostHost.client,
+      modelId: 'openrouter::anthropic/claude-sonnet-4.6',
+      replacement: async () => replacementHost.client,
+      threadId,
+    });
+    await vi.waitFor(() => {
+      expect(conversation.store.getCommittedView().activeRunId).toBeDefined();
+    });
+    return { conversation, loss, replacementHost };
+  }
+  it('settles as delivered when the replacement committed it, so the queue never sends it again', async () => {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue(
+      acceptedCommandId as ReturnType<typeof crypto.randomUUID>
+    );
+    const { conversation, loss, replacementHost } = await steering(rows);
+    try {
+      const steered = conversation.steer(message('Committed before the loss'));
+      loss.resolve();
+      await expect(steered).resolves.toBeUndefined();
+      expect(replacementHost.request.mock.calls.map(([method]) => method)).toEqual(['thread/read']);
+    } finally {
+      conversation.close();
+    }
+  });
+  it('comes back unsent when the replacement has no record of it', async () => {
+    const { conversation, loss, replacementHost } = await steering(rows);
+    try {
+      const refusal = conversation.steer(message('Never reached the log')).then(
+        () => undefined,
+        (cause: unknown) => cause
+      );
+      loss.resolve();
+      const cause = await refusal;
+      expect(isMessageNotSentError(cause)).toBe(true);
+      expect((cause as Error).message).toBe(HOST_RESTARTED_NOT_SENT);
+      expect(replacementHost.request.mock.calls.map(([method]) => method)).toEqual(['thread/read']);
     } finally {
       conversation.close();
     }
