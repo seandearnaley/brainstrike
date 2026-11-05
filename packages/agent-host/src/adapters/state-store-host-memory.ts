@@ -420,14 +420,13 @@ export class StateStoreHostMemory implements HostRunOwner {
         }
         return [];
       });
-      const interrupted = rows.some((row) => {
-        const event = row.event;
-        return (
-          event.type === 'run.finished' &&
-          event.runId === previousRunId &&
-          (event.outcome === 'interrupted' || event.outcome === 'stopped')
-        );
-      });
+      const interrupted = rows.flatMap(({ event }) =>
+        event.type === 'run.finished' &&
+        event.runId === previousRunId &&
+        (event.outcome === 'interrupted' || event.outcome === 'stopped')
+          ? [event.outcome]
+          : []
+      )[0];
       if (interrupted) {
         const calls = new Set(
           committed.flatMap((message) =>
@@ -438,7 +437,7 @@ export class StateStoreHostMemory implements HostRunOwner {
               : []
           )
         );
-        historical.push(...healInterruptedModelMessages(committed, calls));
+        historical.push(...healInterruptedModelMessages(committed, calls, interrupted));
       } else {
         historical.push(...committed);
       }

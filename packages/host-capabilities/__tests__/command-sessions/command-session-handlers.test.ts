@@ -32,7 +32,6 @@ function createManager(): CommandSessionManager {
     remove: vi.fn(async () => undefined),
     start: vi.fn(),
     stop: vi.fn(async () => undefined),
-    stopDelegatedThreads: vi.fn(async () => undefined),
     write: vi.fn(),
   };
 }

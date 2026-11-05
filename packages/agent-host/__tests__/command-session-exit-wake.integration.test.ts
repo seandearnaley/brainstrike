@@ -142,7 +142,7 @@ test('a busy root hears a session that ended once its run ends', async () => {
   await wakeRun(harness);
 });
 
-test('a Stop wakes nothing; the session waits until the next turn ends', async () => {
+test("a Stop wakes nothing; the person's next turn carries the session", async () => {
   const release = Promise.withResolvers<void>();
   const { exit, harness } = await exitHost(release.promise);
   const busy = await harness.start('HOLD while the build runs.');
@@ -151,13 +151,20 @@ test('a Stop wakes nothing; the session waits until the next turn ends', async (
   await harness.core().stop({ commandId: randomUUID(), runId: busy, threadId: harness.threadId });
   release.resolve();
   await rowsUntil(harness, harness.threadId, finished(busy), 5000);
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  const stopped = await harness.core().read(harness.threadId, 0);
-  expect(stopped.filter((row) => row.event.type === 'run.started')).toHaveLength(1);
 
-  const next = await harness.start('Anything new?');
-  await rowsUntil(harness, harness.threadId, finished(next), 5000);
-  await wakeRun(harness);
+  const next = await harness.start('Is the build done?');
+  const rows = await rowsUntil(harness, harness.threadId, finished(next), 5000);
+  const started = rows.filter((row) => row.event.type === 'run.started').map((row) => row.event);
+  expect(started).toHaveLength(2);
+  expect(started[1]).toMatchObject({
+    delivery: { commandSessions: [{ sessionId: 'command-session-1' }], via: 'next-turn' },
+    runId: next,
+  });
+  // The model answering the person reads the report in that same turn.
+  const answering = harness.model.doStreamCalls.find((call) =>
+    latestUserText(call).includes('Is the build done?')
+  );
+  expect(answering && latestUserText(answering)).toContain(REPORT);
 });
 
 test('a worker that returned hands its session to the parent', async () => {

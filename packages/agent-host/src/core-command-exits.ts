@@ -5,10 +5,11 @@
  * its parent went idle on a validation it never saw finish (debug pack
  * 2026-11-04). An exit now reaches the thread that started the session, or,
  * once that thread is an idle child, its nearest ancestor: a busy thread hears
- * it when its run ends, an idle root wakes for it.
+ * it when its run ends, an idle root wakes for it, and any other run the
+ * thread starts first carries it.
  *
  * Process-local: a session never outlives its host, so a restart leaves
- * nothing to report. The delivery a wake commits records which exits it took.
+ * nothing to report. The delivery a run commits records which exits it took.
  */
 import { hostChildCallSign } from './child-presentation.ts';
 import type { HostChildRuns } from './core-child-runs.ts';
@@ -96,7 +97,7 @@ export class HostCommandSessionExits {
     return this.own(threadId).some((run) => !run.terminal);
   }
 
-  /** A stopped turn wakes for nothing: its thread's exits wait for the person's next turn to end. */
+  /** A stopped turn wakes for nothing: its thread's exits wait for the person's next turn. */
   private stopped(threadId: string): boolean {
     return this.own(threadId).at(-1)?.stopped === true;
   }
@@ -142,14 +143,19 @@ export class HostCommandSessionExits {
     }
   }
 
-  /** The exits a wake of `threadId` would deliver now: none after a Stop. */
+  /** The exits the thread's next run delivers, whatever starts it. */
   pending(threadId: string): readonly HostCommandSessionExit[] {
-    return this.stopped(threadId) ? [] : (this.queued.get(threadId) ?? []);
+    return this.queued.get(threadId) ?? [];
+  }
+
+  /** Whether the exits waiting for `threadId` wake it: not after a Stop. */
+  wakes(threadId: string): boolean {
+    return this.pending(threadId).length > 0 && !this.stopped(threadId);
   }
 
   /** The exits a committed run's delivery took no longer wait. */
   delivered(threadId: string, delivery: HostChildDelivery | undefined): void {
-    if (delivery?.via !== 'wake' || !delivery.commandSessions) {
+    if (!delivery?.commandSessions) {
       return;
     }
     const taken = new Set(delivery.commandSessions.map((session) => session.sessionId));
