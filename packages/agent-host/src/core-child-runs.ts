@@ -15,6 +15,7 @@ import { borrowHostAdmission } from './admission-lease.ts';
 import {
   describeHostChildContinuation,
   describeHostChildLedger,
+  describeHostDelivery,
   type HostChildLedgerState,
 } from './child-delivery.ts';
 import {
@@ -133,12 +134,11 @@ export function hostDeliveryPosition(
   const { exits } = ended;
   const sessions =
     exits.length > 0 ? { commandSessions: exits.map(hostCommandSessionDelivery) } : {};
-  const report = [
+  const parts = [
     pending?.ledger,
     exits.length > 0 ? describeHostCommandSessionExits(ended.threadId, exits) : undefined,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
+  ];
+  const report = parts.some(Boolean) ? describeHostDelivery(parts) : '';
   if (method === 'wake') {
     const turnId = pending?.turnId ?? (exits.length > 0 ? ended.turnId : undefined);
     if (turnId === undefined) {

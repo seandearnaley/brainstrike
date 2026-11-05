@@ -12,6 +12,7 @@ Owners: [child admission](../../packages/agent-host/src/child-runs.ts), [persona
 - A persona narrows the parent's admitted tools.
   - Read-only personas get their declared read-risk tools and cannot delegate or use working memory.
   - Only explicit workers delegate recursively, within the admitted depth limit.
+  - The task list, `askUser` and `submitPlan` stay the parent's, even under `*`: a child reports a decision it needs to its parent (ADR-0028 rule 1).
 - Freeze the persona instructions, catalog and executable identities for the admitted run.
   - Later settings can't widen it or replace a paused call's authority.
   - Live root grants can release child asks; later reductions and denies still apply.

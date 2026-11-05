@@ -23,7 +23,7 @@ Implementation: `packages/ui`, `packages/context-actions`, shared app-shell surf
   - The palette is `data-theme` on `<html>`, set by `ThemeProvider` beside the light/dark class.
   - Generated palettes come from `scripts/import-shadcn-theme.mjs`; re-run it rather than editing values.
   - They override only the shadcn colour set and radius, so status, delegation and syntax tokens stay the baseline's, and the high-contrast block in `globals.css` wins over every palette.
-- Syntax colours follow the code theme (`data-code-theme`, registry in `themes/code-themes.ts`).
+- Syntax colours follow the code themes chosen for light and dark mode (`data-code-theme-light`/`-dark`, registry in `themes/code-themes.ts`).
   - CodeMirror uses the `--syntax-*` tokens in `themes/code-themes.css`; code blocks use the theme's Shiki pair. The code box owns its background.
   - Generate a new code theme's tokens with `scripts/import-code-theme.mjs` from the same Shiki pair.
 - Fonts are the `--font-sans` and `--font-mono` stacks `ThemeProvider` writes on `<html>` (`themes/fonts.ts`). Use `font-sans`/`font-mono` or those variables, never a literal stack, so the Appearance choice reaches every surface.

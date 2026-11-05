@@ -245,8 +245,14 @@ export function foldHostRunEffect(
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
   readonly attachments?: readonly HostImageAttachment[];
-  /** BST-1932: the user message is a delegation's task, which the parent's model wrote. */
-  readonly delegated?: true;
+  /**
+   * Who wrote the user message (ADR-0028 rule 2), from its committed command
+   * and `run.started` `hostPrompt`: the person (their own `run/start`), an
+   * agent (a delegation's task, which the parent's model wrote) or the host (a
+   * wake's delivery, or the run it starts to carry a task on in a worktree).
+   * Only the person's words are a request.
+   */
+  readonly author: 'agent' | 'host' | 'person';
   /** BST-1932: background child results delivered with this run's user message. */
   readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */

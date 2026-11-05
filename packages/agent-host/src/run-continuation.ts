@@ -43,7 +43,7 @@ import {
   hostRunTools,
   outsideSandboxGrantKey,
 } from './run-admission.ts';
-import { hostStartPosition } from './run-branch.ts';
+import { type HostRunCarry, hostStartPosition } from './run-branch.ts';
 
 const logger = createLogger('AgentHost');
 
@@ -375,10 +375,9 @@ function enteredWorktreeRunParams(
  * carries on the turn of the run that entered it (`turnId`). `refused`
  * commits it as failed with that cause instead of starting it.
  */
-export interface HostNextRun {
+export interface HostNextRun extends HostRunCarry {
   readonly params: HostParams<'run/start'>;
   readonly refused?: Error;
-  readonly turnId?: string;
 }
 /**
  * The run the host starts to carry a completed run's task on: its approved
@@ -391,7 +390,8 @@ export function hostContinuationRun(run: Run, turnId: string): HostNextRun | und
     return { params: approvedHostPlanRunParams(run, plan) };
   }
   return run.enteredWorktree
-    ? { params: enteredWorktreeRunParams(run, run.enteredWorktree), turnId }
+    ? // The host wrote this prompt: it is model input, never the person's words.
+      { hostPrompt: true, params: enteredWorktreeRunParams(run, run.enteredWorktree), turnId }
     : undefined;
 }
 /**
@@ -400,7 +400,7 @@ export function hostContinuationRun(run: Run, turnId: string): HostNextRun | und
  */
 export async function startHostNextRun(
   runs: Iterable<Run>,
-  { params, refused, turnId }: HostNextRun,
+  { params, refused, ...carry }: HostNextRun,
   start: () => Promise<unknown>,
   commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>
 ): Promise<boolean> {
@@ -412,7 +412,7 @@ export async function startHostNextRun(
     return true;
   } catch (cause) {
     const runId = randomUUID();
-    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, turnId));
+    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, carry));
     return false;
   }
 }
@@ -422,11 +422,11 @@ export function failedHostStartEvents(
   params: HostParams<'run/start'>,
   runId: string,
   cause: unknown,
-  turnId?: string
+  carry?: HostRunCarry
 ): HostEvent[] {
   return [
     {
-      ...hostStartPosition(runs, params, turnId),
+      ...hostStartPosition(runs, params, carry),
       modelId: params.modelId,
       runId,
       type: 'run.started',

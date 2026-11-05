@@ -40,8 +40,9 @@
   and the call under review, each clipped. Never tool results or assistant
   prose. A request is a user message the person wrote, read from the run's
   committed branch rather than from message roles: a delegation's task, a
-  wake's child results and a delivery ledger reach the model as user messages,
-  but a model wrote them, so they never read as the user. A child's review
+  wake's child results, a delivery ledger and the host's worktree continuation
+  reach the model as user messages, but the person did not write them, so they
+  never read as the user. A child's review
   starts from the path of the run that delegated it, so it judges against the
   root person's request.
 - **Which model.** `auto` is the chat provider's first quick model, from the one

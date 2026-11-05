@@ -95,8 +95,9 @@ export interface HostAutoReviewTurn {
 /**
  * The turns behind `run`, oldest first: its committed path, after the path of
  * the run that delegated it, so a child's review sees the person's request.
- * A delegation's task and a wake's child results are no request (ADR-0031);
- * a next-turn delivery's ledger is never part of the prompt it leads.
+ * Only a user message the person wrote is a request (ADR-0031, ADR-0028 rule
+ * 2): never a delegation's task, a wake's delivery or a host continuation; a
+ * next-turn delivery's ledger is never part of the prompt it leads.
  */
 export function hostAutoReviewTurns(
   runs: ReadonlyMap<string, HostRunState>,
@@ -109,9 +110,7 @@ export function hostAutoReviewTurns(
   return [
     ...(parent ? hostAutoReviewTurns(runs, parent) : []),
     ...[...hostRunAncestors(runs, run), run].map(({ branch, messages }) =>
-      branch.delegated || branch.delivery?.via === 'wake'
-        ? { messages }
-        : { messages, request: branch.prompt }
+      branch.author === 'person' ? { messages, request: branch.prompt } : { messages }
     ),
   ];
 }

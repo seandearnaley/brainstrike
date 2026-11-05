@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
@@ -143,6 +144,8 @@ export interface ChildRunFixture {
   /** What `read_file` does; it returns the fixture notes at once by default. */
   readonly readFile?: () => Promise<unknown>;
   readonly settings?: Partial<RuntimeSubagentSettings>;
+  /** Tools the host admits beside the fixture's own. */
+  readonly tools?: Readonly<Record<string, HostTool>>;
 }
 
 /** A canonical question tool: answered by `interaction/resume`, then it returns the answer. */
@@ -152,6 +155,7 @@ const askUserTool: HostTool = {
   identity: 'native-ask-user-generation-1',
   inputSchema: z.object({ question: z.string() }),
   interaction: { kind: 'question', resumeSchema: z.object({ answer: z.string() }) },
+  permissionToolId: NATIVE_TOOL_ID.askUser,
   risk: 'read',
 };
 
@@ -205,6 +209,7 @@ function fixturePlatform(
         inputSchema: z.object({ path: z.string() }),
         risk: 'edit',
       },
+      ...fixture.tools,
     },
   };
 }
