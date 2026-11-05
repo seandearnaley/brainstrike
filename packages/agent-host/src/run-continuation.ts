@@ -36,6 +36,7 @@ import {
   HostNetworkConsentSchema,
   type HostParams,
   type HostPermissionGrant,
+  type HostStepDelivery,
 } from './protocol.ts';
 import {
   ensureHostRunAdmission,
@@ -130,12 +131,14 @@ export async function commitHostModelMessages(
   messages: readonly ModelMessage[],
   append: (event: HostEvent) => Promise<HostLogRow | undefined>,
   sync: () => Promise<void>,
-  fold: (row: HostLogRow) => void
+  fold: (row: HostLogRow) => void,
+  delivery?: HostStepDelivery
 ): Promise<void> {
   if (messages.length === 0) {
     return;
   }
   const row = await append({
+    ...(delivery ? { delivery } : {}),
     messages: messages.map((message) => jsonValue(modelMessageSchema.parse(message))),
     runId: run.id,
     type: 'model.messages',

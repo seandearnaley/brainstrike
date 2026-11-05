@@ -19,6 +19,7 @@ import {
   text,
   toolCall,
   toolNames,
+  toolResults,
   worker,
 } from './fixtures/child-run-host.ts';
 
@@ -52,19 +53,25 @@ const deliveries = (rows: readonly HostLogRow[]) =>
       : []
   );
 
-/** A worker answers OUTCOME; the parent dispatches one on DISPATCH. */
+/**
+ * A worker answers OUTCOME; the parent dispatches one on DISPATCH. The worker
+ * answers once the parent's last step has begun, so its report waits for the
+ * parent's end instead of reaching that step.
+ */
 function dispatching(): MockLanguageModelV4 {
+  const lastStep = Promise.withResolvers<void>();
   return new MockLanguageModelV4({
     doStream: async (call) => {
       const turn = latest(call);
       if (!toolNames(call).includes('agent-explore')) {
+        await lastStep.promise;
         return stream(text(OUTCOME));
       }
-      return stream(
-        turn.text.includes('DISPATCH') && !turn.answered
-          ? toolCall('agent-explore', { prompt: 'Look.' }, 'call-look')
-          : text('Noted.')
-      );
+      if (turn.text.includes('DISPATCH') && !turn.answered) {
+        return stream(toolCall('agent-explore', { prompt: 'Look.' }, 'call-look'));
+      }
+      lastStep.resolve();
+      return stream(text('Noted.'));
     },
   });
 }
@@ -178,6 +185,58 @@ test('an ended session no run took survives a restart', async () => {
   await harness.start('Is the build done?');
   await harness.core().idle(harness.threadId);
   expect(sessions(await harness.core().read(harness.threadId, 0))).toEqual([['next-turn', ['s1']]]);
+});
+
+test("a running thread takes a worker's report at its next step, and nothing wakes it after", async () => {
+  // The parent dispatches a worker, then reads a file that returns only once
+  // the worker's report is posted, so the report lands while the parent works.
+  let harness: Awaited<ReturnType<typeof setupChildRunHost>> | undefined;
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (!toolNames(call).includes('agent-explore')) {
+        return stream(text(OUTCOME));
+      }
+      const answered = toolResults(call).length;
+      if (answered === 0) {
+        return stream(toolCall('agent-explore', { prompt: 'Look.' }, 'call-look'));
+      }
+      if (answered === 1) {
+        return stream(toolCall('read_file', { path: 'notes.md' }, 'call-read'));
+      }
+      return stream(text(JSON.stringify(call.prompt).includes(OUTCOME) ? 'took it' : 'missed it'));
+    },
+  });
+  harness = await setupChildRunHost(model, cleanup, {
+    readFile: async () => {
+      if (!harness) {
+        throw new Error('The host is not set up');
+      }
+      await rowsUntil(
+        harness,
+        harness.threadId,
+        ({ event }) => event.type === 'notice.posted',
+        5000
+      );
+      return { content: 'notes' };
+    },
+  });
+  const core = harness.core();
+  const parent = await harness.start('Look, then read the notes.');
+  await core.idle(harness.threadId);
+  const rows = await core.read(harness.threadId, 0);
+  const taken = rows.flatMap(({ event }) =>
+    event.type === 'model.messages' && event.delivery
+      ? [[event.runId, event.delivery.entries.map(({ outcome }) => outcome.includes(OUTCOME))]]
+      : []
+  );
+  expect(taken).toEqual([[parent, [true]]]);
+  expect(JSON.stringify(rows.filter(({ event }) => event.type === 'model.step').at(-1))).toContain(
+    'took it'
+  );
+  // The report was taken on this branch: neither a wake nor the next turn takes it again.
+  await harness.start('Anything new?');
+  await core.idle(harness.threadId);
+  expect(deliveries(await core.read(harness.threadId, 0))).toEqual([]);
 });
 
 test('an exit that commits on a child whose run just ended goes on to its parent, never waking the child', async () => {

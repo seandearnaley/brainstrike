@@ -18,6 +18,7 @@ import {
   HostPromptBreakdownSchema,
   HostPromptToolCallWindowSchema,
   type HostRunSnapshot,
+  type HostStepDelivery,
 } from './protocol.ts';
 /**
  * HostCore alone folds and writes accepted command records. The committed
@@ -322,6 +323,8 @@ export interface HostRunState {
    * but is never this run.
    */
   inputRun?: string;
+  /** ADR-0028 step 3b: the notices this run took at its step boundaries, in commit order. */
+  readonly intake: HostStepDelivery[];
   readonly liveInputs: Map<
     string,
     {
@@ -493,6 +496,7 @@ export function createHostRunState(
     effects: new Set(),
     grants,
     id,
+    intake: [],
     liveInputs: new Map(),
     messageIndexes: new Set(),
     messages: [],

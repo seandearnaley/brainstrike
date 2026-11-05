@@ -2,6 +2,7 @@ import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import { expect, test } from './fixtures/electron-fixture';
 import { type HostThreadLog, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { deliveredEntries } from './utils/conversation-invariants';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -24,7 +25,10 @@ function committedRuns(rows: readonly HostLogRow[]) {
     )?.event;
     return [
       {
-        delivered: event.delivery?.entries.map((entry) => entry.state) ?? [],
+        delivered: deliveredEntries(
+          rows.map((row) => row.event),
+          event.runId
+        ).map((entry) => entry.state),
         detail: finished?.type === 'run.finished' ? (finished.detail ?? null) : null,
         outcome: finished?.type === 'run.finished' ? finished.outcome : 'running',
         via: event.delivery?.via ?? 'command',

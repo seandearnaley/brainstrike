@@ -46,6 +46,7 @@ import {
   type HostSessionNotice,
   hostChildNotice,
   hostNoticeBranch,
+  hostNoticeIntake,
 } from './notices.ts';
 import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.ts';
 import type {
@@ -755,6 +756,11 @@ export class HostChildRuns {
       // The turn its invocations belong to; a follow-up's report is not a turn of the parent's.
       turnId: invoked.at(-1)?.turnId,
     };
+  }
+  /** ADR-0028 step 3b: the notices `run`, running, takes at its next step. */
+  intake(run: HostRunState, runs: ReadonlyMap<string, HostRunState>) {
+    const pending = this.pending(run.threadId, runs, run, run.branch.delivery?.via !== 'wake');
+    return hostNoticeIntake(pending, run.threadId);
   }
   /**
    * The background invocations `branch` dispatched that are still at work:

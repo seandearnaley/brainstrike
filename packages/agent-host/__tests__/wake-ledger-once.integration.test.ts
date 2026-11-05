@@ -37,6 +37,9 @@ const occurrences = (haystack: string, needle: string): number => haystack.split
 
 test('a later wake of the same turn names an earlier worker without re-sending its outcome', async () => {
   const slow = Promise.withResolvers<void>();
+  // The fast worker ends once the parent's last step has begun, so a wake, not
+  // that step, first delivers its report.
+  const parentLastStep = Promise.withResolvers<void>();
   const model = new MockLanguageModelV4({
     doStream: async (call) => {
       const user = userTexts(call).join('\n');
@@ -45,6 +48,7 @@ test('a later wake of the same turn names an earlier worker without re-sending i
           await slow.promise;
           return stream(text('Slow outcome.'));
         }
+        await parentLastStep.promise;
         return stream(text(FAST_REPORT));
       }
       if (user.endsWith('Delegate.') && !call.prompt.some((message) => message.role === 'tool')) {
@@ -55,6 +59,7 @@ test('a later wake of the same turn names an earlier worker without re-sending i
           ])
         );
       }
+      parentLastStep.resolve();
       return stream(text('Parent continues.'));
     },
   });

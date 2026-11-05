@@ -50,20 +50,23 @@ const wakes = (rows: readonly HostLogRow[]) =>
 
 test('a turn Stop ends the wake that carries the turn on', async () => {
   const waking = Promise.withResolvers<void>();
+  // The worker reports once the turn's last step has begun, so a wake carries the turn on.
+  const lastStep = Promise.withResolvers<void>();
   const model = new MockLanguageModelV4({
     doStream: async (call) => {
       if (!toolNames(call).includes('agent-explore')) {
+        await lastStep.promise;
         return stream(text('Worker outcome.'));
       }
       if (userTexts(call).some((input) => input.includes(LEDGER))) {
         waking.resolve();
         return blocked(call);
       }
-      return stream(
-        delegating(call)
-          ? toolCall('agent-explore', { prompt: 'Look.' }, 'bg-1')
-          : text('Parent continues.')
-      );
+      if (delegating(call)) {
+        return stream(toolCall('agent-explore', { prompt: 'Look.' }, 'bg-1'));
+      }
+      lastStep.resolve();
+      return stream(text('Parent continues.'));
     },
   });
   const harness = await setupChildRunHost(model, cleanup);
@@ -117,16 +120,19 @@ test('a worker committed as its turn stops ends stopped, never left running', as
 });
 
 async function followUpHost() {
+  // The worker reports once the turn's last step has begun, so a wake delivers it.
+  const lastStep = Promise.withResolvers<void>();
   const model = new MockLanguageModelV4({
     doStream: async (call) => {
       if (!toolNames(call).includes('agent-explore')) {
+        await lastStep.promise;
         return stream(text('Worker outcome.'));
       }
-      return stream(
-        userTexts(call).at(-1) === 'Delegate.' && delegating(call)
-          ? toolCall('agent-explore', { prompt: 'Look.' }, 'bg-1')
-          : text('Parent continues.')
-      );
+      if (userTexts(call).at(-1) === 'Delegate.' && delegating(call)) {
+        return stream(toolCall('agent-explore', { prompt: 'Look.' }, 'bg-1'));
+      }
+      lastStep.resolve();
+      return stream(text('Parent continues.'));
     },
   });
   const harness = await setupChildRunHost(model, cleanup);

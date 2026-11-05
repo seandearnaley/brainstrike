@@ -8,7 +8,7 @@
  * A shape names structure, never text, so it stays stable across re-recordings
  * of the same scenario and changes only when the conversation's form does.
  */
-import type { HostLogRow } from '@brainstrike/agent-host/protocol';
+import type { HostChildDeliveryEntry, HostLogRow } from '@brainstrike/agent-host/protocol';
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
 
 export interface CommittedThread {
@@ -258,9 +258,27 @@ export function isSettledLane(threads: readonly (readonly HostLogRow[])[], lane:
 }
 
 /**
+ * The child results a thread's runs took (or only `runId`'s): at a run's start,
+ * a wake's or a next turn's `delivery`, and at a step while it ran, a
+ * `model.messages` `delivery` (ADR-0028 step 3b).
+ */
+export function deliveredEntries(
+  events: readonly HostLogRow['event'][],
+  runId?: string
+): HostChildDeliveryEntry[] {
+  return events.flatMap((event) =>
+    (event.type === 'run.started' || event.type === 'model.messages') &&
+    event.delivery &&
+    (runId === undefined || event.runId === runId)
+      ? event.delivery.entries
+      : []
+  );
+}
+
+/**
  * A conversation has settled: every parent run finished, the expected number
  * of background children each finished, and each child's result was
- * delivered back to the parent (a wake run's `delivery`).
+ * delivered back to the parent once.
  */
 export function isSettledConversation(
   expectedChildren: number,
@@ -268,11 +286,7 @@ export function isSettledConversation(
   children: readonly (readonly HostLogRow[])[]
 ): boolean {
   const runs = committedRuns(parent);
-  const delivered = parent.reduce(
-    (sum, row) =>
-      sum + (row.event.type === 'run.started' ? (row.event.delivery?.entries.length ?? 0) : 0),
-    0
-  );
+  const delivered = deliveredEntries(parent.map(({ event }) => event)).length;
   return (
     runs.length > 0 &&
     runs.every((run) => run.finished) &&

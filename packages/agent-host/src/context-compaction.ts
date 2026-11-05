@@ -19,6 +19,7 @@ import type { HostPreparedStep } from './ports.ts';
 import { applyProjectionRewrites } from './projection-rewrites.ts';
 import type { HostEvent, HostLogRow } from './protocol.ts';
 import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.ts';
+import { isHostTurnInput } from './turn-input.ts';
 
 const logger = createLogger('AgentHost');
 
@@ -125,7 +126,7 @@ interface Turn {
 
 /** One user message opens each committed turn; anything else breaks the branch invariant. */
 function splitTurns(chain: readonly HostRunState[], messages: readonly ModelMessage[]): Turn[] {
-  const starts = messages.flatMap((message, index) => (message.role === 'user' ? [index] : []));
+  const starts = messages.flatMap((message, index) => (isHostTurnInput(message) ? [index] : []));
   if (starts.length !== chain.length || starts[0] !== 0) {
     throw new Error('Committed branch context does not have one user message per turn');
   }

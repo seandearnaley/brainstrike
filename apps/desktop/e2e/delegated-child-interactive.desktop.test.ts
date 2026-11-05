@@ -12,6 +12,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostRoot, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { deliveredEntries } from './utils/conversation-invariants';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import {
@@ -541,9 +542,7 @@ async function readAssembledTree(userDataDir: string) {
   const delegations = new Set(children.map(({ toolCallId }) => toolCallId));
   return {
     children,
-    deliveries: rootEvents.flatMap((event) =>
-      event.type === 'run.started' && event.delivery ? event.delivery.entries : []
-    ),
+    deliveries: deliveredEntries(rootEvents),
     dispatches: rootEvents.flatMap((event) =>
       event.type === 'effect.finished' && delegations.has(event.toolCallId)
         ? [
