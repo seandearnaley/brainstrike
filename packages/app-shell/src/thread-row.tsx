@@ -697,6 +697,10 @@ function ThreadRowDisplay({
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
   const actionsButtonRef = useRef<HTMLButtonElement>(null);
+  // Customize and Rename run only once the menu has closed. Run from the item
+  // itself, the menu's closing focus return to "…" lands outside the new
+  // panel (dismissing it) or pulls focus out of the rename field.
+  const afterMenuCloseRef = useRef<(() => void) | null>(null);
 
   return (
     <>
@@ -793,8 +797,21 @@ function ThreadRowDisplay({
                 className="w-48"
                 collisionPadding={8}
                 onClick={(event) => event.stopPropagation()}
+                onCloseAutoFocus={(event) => {
+                  const afterMenuClose = afterMenuCloseRef.current;
+                  if (afterMenuClose) {
+                    afterMenuCloseRef.current = null;
+                    // The panel or field takes focus itself; don't hand it back to "…".
+                    event.preventDefault();
+                    afterMenuClose();
+                  }
+                }}
               >
-                <DropdownMenuItem onSelect={onCustomizeThreadToggle}>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    afterMenuCloseRef.current = onCustomizeThreadToggle;
+                  }}
+                >
                   <SwatchBook />
                   Customize
                 </DropdownMenuItem>
@@ -814,7 +831,11 @@ function ThreadRowDisplay({
                     {pinned ? 'Unpin' : 'Pin'}
                   </DropdownMenuItem>
                 ) : null}
-                <DropdownMenuItem onSelect={onRenameThreadStart}>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    afterMenuCloseRef.current = onRenameThreadStart;
+                  }}
+                >
                   <Pencil />
                   Rename
                 </DropdownMenuItem>
