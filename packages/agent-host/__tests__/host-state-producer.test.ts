@@ -78,7 +78,9 @@ describe('the host state producer, as the browser writer runs it', () => {
     expect(fromReader.map(search)).toEqual(fromFiles.map(desktop.search));
   });
   it('finds a typed prompt but not the prompt the host wrote, which the conversation never shows', () => {
-    const started = rich.find(({ event }) => event.type === 'run.started' && !('delivery' in event));
+    const started = rich.find(
+      ({ event }) => event.type === 'run.started' && !('delivery' in event)
+    );
     if (!started) {
       throw new Error('the corpus needs a typed run start');
     }
