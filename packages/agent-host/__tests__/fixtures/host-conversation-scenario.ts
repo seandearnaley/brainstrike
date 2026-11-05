@@ -168,19 +168,7 @@ export interface HostScenarioResult {
  */
 export async function runHostScenario(
   commands: readonly ScenarioCommand[],
-  cleanup: (() => Promise<void>)[],
-  options: {
-    /**
-     * KNOWN BUG (live-reopen-fold.test.ts pins it): a live host never folds its
-     * own run.started into the thread's rewind, so after a rewind every later
-     * start at the tip still branches from the rewound head, and a rewind to a
-     * message sent since is refused as off the branch, until a reopen. While it
-     * stands, such a start names the reference tip as its parent and such a
-     * rewind is skipped, so generated scenarios keep checking everything else.
-     * Pass `exercise` to reproduce it; delete this option with the BST-2459 fix.
-     */
-    readonly liveRewindTip?: 'avoid' | 'exercise';
-  } = {}
+  cleanup: (() => Promise<void>)[]
 ): Promise<HostScenarioResult> {
   const queued: Chunk[][] = [];
   const model = new MockLanguageModelV4({
@@ -208,8 +196,6 @@ export async function runHostScenario(
   subscribe(harness.core());
   const runs: ReferenceRun[] = [];
   let rewind: { current: boolean; headId: string | null; rewindId: string } | undefined;
-  /** A run started after the latest rewind since this host opened (the known bug's trigger). */
-  let rewindConsumedLive = false;
   let prompts = 0;
 
   const tip = (): string | null => {
@@ -263,7 +249,6 @@ export async function runHostScenario(
     const run: ReferenceRun = { parent, prompt, reply: undefined, runId, userMessageId: commandId };
     runs.push(run);
     if (rewind) {
-      rewindConsumedLive ||= rewind.current;
       rewind.current = false;
     }
     const answered = new Set<string>();
@@ -327,9 +312,7 @@ export async function runHostScenario(
           typeof command.parent === 'object' && runs.length > 0
             ? runs[command.parent.after % runs.length]?.runId
             : undefined;
-        const avoided =
-          command.parent === 'tip' && rewindConsumedLive && options.liveRewindTip !== 'exercise';
-        const requested = command.parent === 'root' ? null : avoided ? tip() : after;
+        const requested = command.parent === 'root' ? null : after;
         const parent = requested === undefined ? tip() : requested;
         await drive(command.script, parent, prompt, async () => {
           const commandId = randomUUID();
@@ -362,9 +345,6 @@ export async function runHostScenario(
         break;
       }
       case 'rewind': {
-        if (rewindConsumedLive && options.liveRewindTip !== 'exercise') {
-          break;
-        }
         const branch = path(tip());
         const target = branch[command.message % Math.max(branch.length, 1)];
         if (!target) {
@@ -380,7 +360,6 @@ export async function runHostScenario(
           throw new Error(`A conversation-only rewind ended ${result.status}`);
         }
         rewind = { current: true, headId: target.parent, rewindId: result.rewindId };
-        rewindConsumedLive = false;
         break;
       }
       case 'redo': {
@@ -402,7 +381,6 @@ export async function runHostScenario(
         const live = await hostReads(core, threadId);
         await harness.crash();
         subscribe(harness.core());
-        rewindConsumedLive = false;
         expect(await hostReads(harness.core(), threadId), 'reads after reopen').toEqual(live);
         break;
       }

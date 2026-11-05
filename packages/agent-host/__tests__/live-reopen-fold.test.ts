@@ -76,17 +76,8 @@ function views(rows: readonly HostLogRow[]) {
 
 const answer = { stopWhenAsked: false, tools: [] } as const;
 
-/**
- * KNOWN BUG (BST-2459), found by the generated property below. `HostCore.admitRun`
- * commits a run's run.started without folding it, so `HostThreadRewinds` never
- * sees the run that consumed a rewind, and the rewind stays current while the
- * host lives. Live, the second message sent after a rewind branches from the
- * rewound head again, a sibling of the first, and the model is not sent the
- * first exchange. After a reopen the fold marks the rewind consumed, and the
- * same message follows the first. Remove `.fails` here and below, and the
- * fixture's `liveRewindTip` option, with the fix.
- */
-test.fails('after a rewind, the second message at the tip follows the first, live as after a reopen', async () => {
+/** BST-2459: the live host folds the run that consumes a rewind, as a reopen does. */
+test('after a rewind, the second message at the tip follows the first, live as after a reopen', async () => {
   await runHostScenario(
     [
       { kind: 'start', parent: 'root', script: answer },
@@ -94,13 +85,11 @@ test.fails('after a rewind, the second message at the tip follows the first, liv
       { kind: 'start', parent: 'tip', script: answer },
       { kind: 'start', parent: 'tip', script: answer },
     ],
-    cleanup,
-    { liveRewindTip: 'exercise' }
+    cleanup
   );
 });
 
-/** The same bug: live, the stale rewind leaves the message sent since it off the branch. */
-test.fails('after a rewind, the message sent since can be rewound, live as after a reopen', async () => {
+test('after a rewind, the message sent since can be rewound, live as after a reopen', async () => {
   await runHostScenario(
     [
       { kind: 'start', parent: 'root', script: answer },
@@ -108,8 +97,7 @@ test.fails('after a rewind, the message sent since can be rewound, live as after
       { kind: 'start', parent: 'tip', script: answer },
       { kind: 'rewind', message: 0 },
     ],
-    cleanup,
-    { liveRewindTip: 'exercise' }
+    cleanup
   );
 });
 
@@ -123,8 +111,7 @@ test('after a rewind and a reopen, the next message at the tip follows the lates
       { kind: 'start', parent: 'tip', script: answer },
       { kind: 'rewind', message: 1 },
     ],
-    cleanup,
-    { liveRewindTip: 'exercise' }
+    cleanup
   );
 });
 
