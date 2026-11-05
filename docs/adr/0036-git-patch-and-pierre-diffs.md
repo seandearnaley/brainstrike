@@ -43,6 +43,9 @@ context, word-level highlights and comments anchored to lines. Codex draws it wi
 5. **The host stays the only writer.** Hunk and file actions (stage, unstage, revert)
    are one host method, `changes/apply`, that applies git's own patch or path-level
    git and refuses a stale target or a conflict; the renderer never writes a file.
+   A settled turn's view reverts whole files only, each while it is exactly as the
+   turn left it, back to the turn's start (Sean, 2026-11-05); hunks revert from
+   Unstaged.
 
 ## Consequences
 

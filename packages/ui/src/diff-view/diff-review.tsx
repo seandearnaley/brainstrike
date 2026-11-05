@@ -12,10 +12,10 @@
  * gutter, opens one box at a time under the last line, and the saved comment
  * stays on the diff until the caller removes it.
  *
- * Each file's own actions show on its header, and on each hunk of a modified
- * file whose whole patch the diff holds, under the hunk's last change
- * (@pierre/diffs' accept/reject pattern). A hunk action hands back the hunk
- * exactly as git's patch has it.
+ * Each file's own actions show on its header, and, unless they take only the
+ * whole file, on each hunk of a modified file whose whole patch the diff
+ * holds, under the hunk's last change (@pierre/diffs' accept/reject pattern).
+ * A hunk action hands back the hunk exactly as git's patch has it.
  */
 import {
   actionHunks,
@@ -85,6 +85,8 @@ export interface DiffReviewFile {
   /** Identity of what the caller drew; a diff loaded at another revision is not shown. */
   readonly revision: string;
   readonly status: ChangedFileStatus;
+  /** Set when its actions take only the whole file: no hunk offers them. */
+  readonly wholeFile?: true | undefined;
 }
 
 export interface DiffReviewHandle {
@@ -507,7 +509,7 @@ export function DiffReview({
             });
           }
           const actions = actionable ? offeredActions(file) : NO_ACTIONS;
-          if (actions.length > 0 && file.status === 'modified' && hunks) {
+          if (actions.length > 0 && file.status === 'modified' && !file.wholeFile && hunks) {
             fileDiff.hunks.forEach((hunk, index) => {
               const end = lastChangedLine(hunk, diffStyle);
               if (end && hunks[index] !== undefined) {

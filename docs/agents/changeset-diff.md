@@ -19,6 +19,7 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 - The changeset kind sets the comparison.
   - Unstaged is index versus working tree, not HEAD, plus untracked files.
   - A settled turn compares committed start/end snapshots; a live turn compares its start to the current worktree.
+  - Both views pair a moved file with its old path (`--find-renames`). Restore plans keep `--no-renames`, because a revert writes and deletes paths.
 - The host log owns run boundaries and tool attribution, not SQL timestamps or an edit journal.
 - Validate refs and scoped pathspecs, keep rename pairing and refuse unresolved conflicts.
 - Unknown totals are null, not zero. Missing attribution is absent, not false.
@@ -48,10 +49,19 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 
 ## Stage, unstage and revert (ADR-0036)
 
-- Each entry's `actions` is the host's only statement of what applies to that file. Unstaged stages and reverts, Staged unstages, and every other scope and every turn applies nothing. A nested repository offers nothing, and a submodule never reverts.
+- Each entry's `actions` is the host's only statement of what applies to that file. Unstaged stages and reverts, Staged unstages, a settled turn reverts whole files, and every other scope applies nothing. A nested repository offers nothing, and a submodule never reverts.
 - An entry's `revision` is the identity of what the view drew: its status, counts, patch and git's blob ids. A working-tree file no patch names the content of (an untracked binary, or one past the view's limits) adds its stat, as git's index does. `changes/apply` lists the scope again first; a file whose revision differs, or a hunk the file's patch no longer holds, is `changeset.stale`.
 - Hunks are taken only as `actionHunks` splits the patch, and only from a modified file. A type change, a submodule, or text that did not decode exactly (U+FFFD) takes none, so the host never writes back bytes it could not read.
 - Hunks are `git apply` of git's own header (mode lines dropped) and the chosen hunks, with whitespace handling pinned and `--directory` for a folder inside the repository. Each chosen hunk's start is moved by the hunks skipped before it, as `git add -p` does, so git never lands on a repeated copy of the text. Never `--reject`, `--recount`, `--unidiff-zero` or `-C0`; a patch that no longer applies changes nothing (`changeset.apply-conflict`).
 - Files are path-level git with pathspecs on stdin. Revert removes only paths the listing names untracked or intent-to-add.
 - Every view and write needs the worktree git reports to lie inside the root, so a repository's `core.worktree` cannot point git outside it. Every listing and read pins `core.fsmonitor=false`, so a repository's fsmonitor command never runs.
 - The diff shows each file's actions on its header and on each hunk it can take, and the toolbar applies an action to every file that offers it. Reverting a file or every file asks first; a hunk reverts at once. Each action, taken or refused, redraws the view before the next one.
+- A target names one root's files: the call's `rootId`, as for a file diff. The renderer sends one request per root a turn's files lie in.
+
+## Reverting a turn's files (Sean, 2026-11-05)
+
+- A settled agent-run view offers Revert on each file the live folder still holds exactly as the turn left it, and only the whole file (`wholeFile`); a single hunk reverts from Unstaged. A live turn, a range, a thread with a run in progress (`thread/list` `latestRun`) and a folder no longer mounted where the turn found it offer nothing.
+- "As the turn left it" is the snapshot engine's rule, read only for the turn's paths: each path's mode and blob, hashed with `update-index --add` into a private shadow index, against the turn's own diff, and a path the turn deleted must still be absent. A path that is now a directory, lies under a file, or lies past a symlinked directory is never unchanged.
+- `changes/apply` asks whether the thread is idle and checks the same rule under the root's snapshot lock, then restores every file from the turn-start tree with `checkout-index` (deleting what the turn added). A thread with a run in progress is `changeset.run-active`, and a file that moved on is `changeset.stale`; either writes nothing. A run's turn-start snapshot takes the same lock, so a run that starts meanwhile starts from the reverted files.
+- A moved file reverts both its paths: the old one comes back and the new one goes. It is offered only while both are as the turn left them.
+- No commit or ref is written: the turn-end snapshot already holds what the revert replaced.

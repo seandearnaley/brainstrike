@@ -31,7 +31,8 @@
  * different mounted roots (MULTI-ROOT IDENTITY, BST-1113 review finding).
  *
  * `apply` stages, unstages or reverts what a `git-scope` view drew
- * (`changeset-git-actions.ts`); a turn's view offers no actions yet.
+ * (`changeset-git-actions.ts`), and reverts whole files of a settled turn
+ * (`changeset-snapshot-view.ts`).
  *
  * Every failure is a visible, typed `{ ok: false, error }` whose stable
  * `changeset.*` code (never a silent fallback) is set where it is produced:
@@ -46,7 +47,7 @@ import type {
   ChangesetView,
   StructuredFileDiff,
 } from '@brainstrike/types';
-import { applyGitScopeAction, refuseUnoffered } from './changeset-git-actions.ts';
+import { applyGitScopeAction } from './changeset-git-actions.ts';
 import { resolveGitScopeChangesetView, resolveGitScopeFileDiff } from './changeset-git-scope.ts';
 import type { HostThreadTurns } from './changeset-host-turns.ts';
 import {
@@ -100,6 +101,7 @@ export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): Chan
   const snapshotResolver: SnapshotChangesetResolver | null = deps.snapshots
     ? createSnapshotChangesetResolver({
         hostThreads: deps.snapshots.hostThreads,
+        resolveRootPath: deps.resolveRootCwd,
         resolveService: deps.snapshots.resolveService,
       })
     : null;
@@ -108,10 +110,13 @@ export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): Chan
     apply: async (params) => {
       try {
         const { changeset } = params;
-        if (changeset.kind !== 'git-scope') {
-          return refuseUnoffered(`This view does not offer ${params.action}.`);
+        if (changeset.kind === 'git-scope') {
+          return await applyGitScopeAction(deps, { ...params, changeset });
         }
-        return await applyGitScopeAction(deps, { ...params, changeset });
+        if (!snapshotResolver) {
+          return snapshotDepsUnwired();
+        }
+        return await snapshotResolver.apply({ ...params, changeset });
       } catch (error) {
         return gitThrew(error);
       }

@@ -42,7 +42,7 @@ function hostTurns(owned = true) {
   const readRows = vi.fn(async () => [row]);
   return {
     hostThreads: createHostThreadTurns({
-      listThreads: async () => new Set(owned ? ['thread-1'] : []),
+      listThreads: async () => (owned ? [{ running: false, threadId: 'thread-1' }] : []),
       readRows,
     }),
     readRows,
