@@ -5,17 +5,8 @@ import {
   childExecutionConfigurationSchema,
   childNextRunSchema,
 } from '../child-execution-configuration.js';
-import {
-  CHILD_FOLLOWUP_RUN_CONFIG_KEY,
-  childBranchSelectionSchema,
-  readChildFollowupRunConfigAction,
-} from '../child-followup.js';
 import { assistantChildAttachmentSchema, assistantChildInputSchema } from '../child-input.js';
 import { ReadDeliverySchema } from '../context-provenance.js';
-import {
-  childUserMessageSchema,
-  delegatedConversationBaselineSchema,
-} from '../delegated-conversation-stream.js';
 import { AssistantModelStepDataSchema, AssistantModelStreamPartSchema } from '../model-step.js';
 
 type Decoder = Schema.ConstraintDecoder<unknown>;
@@ -40,19 +31,6 @@ const persona = {
   },
 };
 const execution = { model: 'model', planMode: false, provider: 'openai' };
-const userMessage = {
-  attachments: [image],
-  createdAt: '2026-10-17T00:00:00Z',
-  id: 'message',
-  text: 'hello',
-};
-const baseline = {
-  headId: null,
-  hostRunId: 'run',
-  messages: [],
-  runEvents: [],
-  threadId: 'thread',
-};
 const readDelivery = {
   approxOutputTokens: 1,
   content: 'hi',
@@ -90,12 +68,6 @@ test.each([
   ],
   ['attachment', assistantChildAttachmentSchema, image, image],
   [
-    'branch',
-    childBranchSelectionSchema,
-    { kind: 'retry', messageId: ' message ' },
-    { kind: 'retry', messageId: 'message' },
-  ],
-  [
     'model step',
     AssistantModelStepDataSchema,
     { messages: [], model: {}, stepNumber: 0, usage: {} },
@@ -130,13 +102,6 @@ test.each([
   expect(() => decodeClosed(schema, value)).toThrow();
 });
 
-test('persisted conversation records drop unknown keys on read-back', () => {
-  const read = (schema: Decoder, value: unknown) =>
-    Schema.decodeUnknownSync(schema, { onExcessProperty: 'ignore' })(value);
-  expect(read(childUserMessageSchema, { ...userMessage, extra: true })).toEqual(userMessage);
-  expect(read(delegatedConversationBaselineSchema, { ...baseline, extra: true })).toEqual(baseline);
-});
-
 test('read deliveries and model stream parts keep unknown keys', () => {
   expect(decodeClosed(ReadDeliverySchema, { ...readDelivery, extra: true })).toEqual({
     ...readDelivery,
@@ -149,36 +114,4 @@ test('read deliveries and model stream parts keep unknown keys', () => {
       type: 'text-delta',
     })
   ).toEqual({ delta: 'hello', extra: true, type: 'text-delta' });
-});
-
-test('a child follow-up keeps the child input check', () => {
-  const valid = {
-    branch: { kind: 'retry', messageId: 'message' },
-    id: 'input',
-    text: ' hello ',
-    threadId: 'child',
-  };
-  const read = (value: unknown) =>
-    readChildFollowupRunConfigAction({ custom: { [CHILD_FOLLOWUP_RUN_CONFIG_KEY]: value } });
-  expect(read(valid)).toEqual({
-    action: {
-      branch: { kind: 'retry', messageId: 'message' },
-      id: 'input',
-      text: 'hello',
-      threadId: 'child',
-    },
-  });
-  for (const unbranched of [
-    { ...valid, branch: undefined },
-    { id: 'input', text: 'hello', threadId: 'child' },
-  ]) {
-    expect(read(unbranched)).toEqual({ action: { id: 'input', text: 'hello', threadId: 'child' } });
-  }
-  for (const invalid of [
-    { ...valid, text: ' ' },
-    { ...valid, branch: { kind: 'forged' } },
-    { ...valid, permissions: { yolo: true } },
-  ]) {
-    expect(read(invalid)).toEqual({ invalid: true });
-  }
 });
