@@ -994,7 +994,13 @@ span.bs-composer-chip {
 
 :root[data-transcript-width="full"]
   .aui-thread-viewport
-  :where(.aui-user-message-root, .aui-assistant-message-root) {
+  :where(
+    .aui-user-message-root,
+    .aui-assistant-message-root,
+    .aui-assistant-message-content,
+    .bs-chain-of-thought
+  ) {
+  /* The roots, and the reading caps (`max-w-2xl`) on a reply and its activity. */
   max-width: none;
 }
 
@@ -2766,7 +2772,8 @@ span.bs-composer-chip {
   padding: 0.7rem 0.9rem;
   background: color-mix(in oklab, var(--color-muted) 60%, transparent);
   overflow-x: auto;
-  font-size: 0.82em;
+  /* Same size as the highlighted block (globals.css), so the swap keeps its metrics. */
+  font-size: var(--code-font-size, 0.82em);
   line-height: 1.55;
 }
 
