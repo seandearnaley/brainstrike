@@ -174,8 +174,8 @@ function SegmentedChoice<Id extends string>({
             className={cn(
               'has-[:focus-visible]:ring-ring cursor-pointer rounded-md px-3 py-1 text-sm transition-colors has-[:focus-visible]:ring-2',
               value === option.id
-                ? 'bg-background text-foreground font-medium shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'bg-primary text-primary-foreground font-medium shadow-xs'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             )}
             data-testid={`${testIdPrefix}-${option.id}`}
             key={option.id}
@@ -344,15 +344,6 @@ export function ThemeSettings() {
         testIdPrefix="font-card"
         value={font}
       />
-      <ChoiceGroup
-        description="The typeface for the editor, diffs, code in chat and the terminal."
-        label="Code font"
-        onChange={setCodeFont}
-        options={CODE_FONTS}
-        renderOption={(id) => <FontPreview font={byId(CODE_FONTS, id)} sample="{0O1l}" />}
-        testIdPrefix="code-font-card"
-        value={codeFont}
-      />
       <SegmentedChoice
         description="The size of messages in chat."
         label="Transcript text size"
@@ -377,8 +368,17 @@ export function ThemeSettings() {
         testIdPrefix="motion"
         value={motion}
       />
+      <ChoiceGroup
+        description="The typeface for the editor, diffs, code in chat and the terminal."
+        label="Code font"
+        onChange={setCodeFont}
+        options={CODE_FONTS}
+        renderOption={(id) => <FontPreview font={byId(CODE_FONTS, id)} sample="{0O1l}" />}
+        testIdPrefix="code-font-card"
+        value={codeFont}
+      />
       <div className="space-y-2">
-        <label className="text-sm leading-none font-medium" htmlFor={customCodeFontId}>
+        <label className="block text-sm leading-none font-medium" htmlFor={customCodeFontId}>
           Custom code font
         </label>
         <Input
