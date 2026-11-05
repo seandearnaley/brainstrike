@@ -93,8 +93,24 @@ async function waitingRun() {
     (await core.read(threadId, 0))
       .map((row) => row.event)
       .filter((event): event is Requested => event.type === 'interaction.requested');
-  await expect.poll(async () => (await requested()).length).toBe(2);
+  // The waiting step's own end, after both requests, is the last row the run commits while it waits.
+  const stepEnded = async (): Promise<boolean> => {
+    const events = (await core.read(threadId, 0)).map(({ event }) => event);
+    const asked = events.findLastIndex((event) => event.type === 'interaction.requested');
+    return events
+      .slice(asked + 1)
+      .some(
+        (event) =>
+          event.type === 'stream.chunk' &&
+          typeof event.chunk === 'object' &&
+          event.chunk !== null &&
+          !Array.isArray(event.chunk) &&
+          event.chunk['type'] === 'finish-step'
+      );
+  };
+  await expect.poll(stepEnded).toBe(true);
   const events = await requested();
+  expect(events).toHaveLength(2);
   const approval = (toolId: string): Requested => {
     const found = events.find((event) => event.toolId === toolId);
     if (!found) {
