@@ -46,7 +46,7 @@ test('an outcome that quotes a closing fence tag stays inside its fence, under a
     (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
       event.type === 'run.started' && event.delivery?.via === 'wake' ? [event.prompt] : []
     )[0];
-  await expect.poll(wake, { timeout: 10_000 }).toBeDefined();
+  await harness.core().idle(harness.threadId);
   const delivered = (await wake()) ?? '';
 
   // The notice is fenced, so its authority line speaks for the notice alone.

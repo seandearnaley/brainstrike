@@ -85,13 +85,10 @@ test('a wake names a running worker an earlier turn dispatched', { timeout: 20_0
   expect(ledger).not.toContain('Nothing is still running');
 
   release.resolve();
-  await rowsUntil(
-    harness,
-    harness.threadId,
-    (row) =>
-      row.event.type === 'run.started' &&
-      row.event.delivery?.via === 'wake' &&
-      row.event.prompt?.includes(`returned. Prompt: "${SLOW}"`) === true,
-    5000
+  await harness.core().idle(harness.threadId);
+  const wakes = (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
+    event.type === 'run.started' && event.delivery?.via === 'wake' ? [event.prompt ?? ''] : []
   );
+  expect(wakes).toHaveLength(2);
+  expect(wakes[1]).toContain(`returned. Prompt: "${SLOW}"`);
 });

@@ -121,6 +121,7 @@ async function waitingRun() {
   return {
     command: approval('execute_command'),
     connect: (origin: HostClientOrigin) => connect(core, origin),
+    idle: () => core.idle(threadId),
     rows: async () => (await core.read(threadId, 0)).length,
     run: { runId, threadId },
     write: approval('write_file'),
@@ -161,6 +162,13 @@ test("the desktop sees the change a waiting call's own tool would make, and noth
     client.request('interaction/preview', { ...run, interactionId: write.interactionId })
   ).resolves.toEqual({ after: 'new\n', before: 'old\n', path: 'notes.md' });
   expect(previewed).toEqual([{ content: 'new\n', path: 'notes.md' }]);
+  expect(await rows()).toBe(before);
+});
+
+test('a run waiting on a person is idle: nothing runs until they answer', async () => {
+  const { idle, rows } = await waitingRun();
+  const before = await rows();
+  await idle();
   expect(await rows()).toBe(before);
 });
 

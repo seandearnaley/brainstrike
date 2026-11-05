@@ -445,6 +445,41 @@ export function joinHostThreadSettlements(
   return joinAllHostWork(settling, 'Run memory settlement failed');
 }
 
+/** The work a run still owns: its task, effects, end and memory settlement. */
+function hostRunWork(run: HostRunState): Promise<unknown>[] {
+  return [run.task, run.completion, run.settlement, ...run.effects].filter(
+    (work) => work !== undefined
+  );
+}
+
+/**
+ * VC-8: resolves once `threads` have no work in flight: no run executing,
+ * ending or settling, and no wake being decided or admitted. A run parked on
+ * a person's answer is idle. It only joins promises the runs and wakes
+ * already own, so it never starts work and never waits on a clock.
+ */
+export async function awaitHostThreadsIdle(
+  threads: () => Iterable<string>,
+  runs: () => Iterable<HostRunState>,
+  wakes: (threadId: string) => readonly Promise<unknown>[]
+): Promise<void> {
+  const joined = new Set<Promise<unknown>>();
+  for (;;) {
+    const ids = new Set(threads());
+    const work = [
+      ...[...runs()].filter((run) => ids.has(run.threadId)).flatMap(hostRunWork),
+      ...[...ids].flatMap(wakes),
+    ].filter((promise) => !joined.has(promise));
+    if (work.length === 0) {
+      return;
+    }
+    for (const promise of work) {
+      joined.add(promise);
+    }
+    await Promise.allSettled(work);
+  }
+}
+
 /** A joined owner failure after `run.finished`: the run's outcome stands. */
 export function hostRunSettlementFailed(
   run: HostRunState,

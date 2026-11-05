@@ -59,7 +59,9 @@ function delegatingModel(release: Promise<void>): MockLanguageModelV4 {
 }
 
 async function wakeOf(harness: Awaited<ReturnType<typeof setupChildRunHost>>) {
-  const rows = await rowsUntil(harness, harness.threadId, isWake, 5000);
+  await harness.core().idle(harness.threadId);
+  const rows = await harness.core().read(harness.threadId, 0);
+  expect(rows.filter(isWake)).toHaveLength(1);
   const wake = rows.find(isWake)?.event;
   if (wake?.type !== 'run.started') {
     throw new Error('No wake');
@@ -73,7 +75,7 @@ test('a wake after a rewind continues the rewound branch', async () => {
   const core = harness.core();
   const { threadId } = harness;
   const head = await harness.start('Hello.');
-  await rowsUntil(harness, threadId, finished(head), 5000);
+  await core.idle(threadId);
   const dispatch = randomUUID();
   const { runId: abandoned } = await core.startRun({
     commandId: dispatch,
@@ -111,7 +113,8 @@ test.each([
       const commandId = randomUUID();
       sent.push(commandId);
       const { runId } = await core.startRun({ commandId, modelId: 'scripted', prompt, threadId });
-      await rowsUntil(harness, threadId, finished(runId), 5000);
+      await core.idle(threadId);
+      expect((await core.read(threadId, 0)).some(finished(runId))).toBe(true);
     }
     const rewound = await core.rewinds.rewind({
       commandId: randomUUID(),

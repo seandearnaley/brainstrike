@@ -6,7 +6,11 @@ import {
   reportHostChildWakeFailure,
 } from './core-child-runs.ts';
 import { HostCommandSessionExits } from './core-command-exits.ts';
-import { joinHostThreadSettlements, settleHostRunOwner } from './core-run-lifecycle.ts';
+import {
+  awaitHostThreadsIdle,
+  joinHostThreadSettlements,
+  settleHostRunOwner,
+} from './core-run-lifecycle.ts';
 import type { HostRunState } from './core-state.ts';
 import { hostRunTerminalEvents } from './hook-context.ts';
 import type { HostClientOrigin, HostDelegation } from './ports.ts';
@@ -59,6 +63,7 @@ export class HostRunEnds {
   private readonly ports: HostRunEndPorts;
   /** Command sessions a run started that ended by themselves, until a wake reports them. */
   readonly exits: HostCommandSessionExits;
+  private readonly waking = new Map<string, Set<Promise<void>>>();
 
   constructor(ports: HostRunEndPorts) {
     this.ports = ports;
@@ -200,7 +205,9 @@ export class HostRunEnds {
    * settled children, and a thread for its command sessions that ended.
    */
   wake(threadId: string): void {
-    (async () => {
+    const waking = this.waking.get(threadId) ?? new Set<Promise<void>>();
+    this.waking.set(threadId, waking);
+    const woken = (async () => {
       await this.settled(threadId);
       // The fence finish applies before waking holds again after the wait.
       if (this.ports.closing() || this.ports.deletions.has(threadId)) {
@@ -215,6 +222,24 @@ export class HostRunEnds {
           await admitWake(wake);
         }
       });
-    })().catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
+    })()
+      .catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause))
+      .finally(() => {
+        waking.delete(woken);
+        if (waking.size === 0 && this.waking.get(threadId) === waking) {
+          this.waking.delete(threadId);
+        }
+      });
+    waking.add(woken);
+  }
+
+  /** VC-8: resolves once the thread and its child threads have no work in flight. */
+  idle(threadId: string): Promise<void> {
+    const { children, runs } = this.ports;
+    return awaitHostThreadsIdle(
+      () => children.subtree(threadId),
+      () => runs().values(),
+      (id) => [...(this.waking.get(id) ?? [])]
+    );
   }
 }
