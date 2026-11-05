@@ -7,8 +7,8 @@
 import { randomUUID } from 'node:crypto';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
-import type { HostCommandSessionExit } from '../src/ports.js';
-import type { HostLogRow } from '../src/protocol.js';
+import type { HostCommandSessionExit } from '../src/ports.ts';
+import type { HostLogRow } from '../src/protocol.ts';
 import {
   type CallOptions,
   recordingAdmission,
@@ -19,7 +19,7 @@ import {
   toolCall,
   toolNames,
   worker,
-} from './fixtures/child-run-host.js';
+} from './fixtures/child-run-host.ts';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
