@@ -23,7 +23,10 @@ const threadId = rows[0]?.threadId ?? '';
 const [runA, runB, runC] = rows.flatMap(({ event }) =>
   event.type === 'run.started' ? [event.runId] : []
 );
-function recordedClient(subscribe: () => Promise<unknown> = async () => ({ rows, telemetry: [] })) {
+const subscriptionId = 'subscription-1';
+function recordedClient(
+  subscribe: () => Promise<unknown> = async () => ({ rows, subscriptionId, telemetry: [] })
+) {
   const closed = Promise.withResolvers<void>();
   const request = vi.fn(async (method: HostMethod, _params: HostParams<HostMethod>) => {
     const answers: Partial<Record<HostMethod, () => unknown>> = {
@@ -61,7 +64,9 @@ describe('openHostThreadContext', () => {
     expect(source.getSnapshot().error).toBeUndefined();
     expect(changed).toHaveBeenCalled();
     source.close();
-    expect(request).toHaveBeenCalledWith('log/unsubscribe', { threadId });
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith('log/unsubscribe', { subscriptionId })
+    );
   });
   it('keeps the map and says so when the host connection closes', async () => {
     const { client, lose } = recordedClient();

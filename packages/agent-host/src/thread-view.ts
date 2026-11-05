@@ -385,8 +385,9 @@ export class CommittedThreadSession {
    * session's does: a refusal rejects rather than being swallowed, and an
    * owner that closes the client must join it first. A request still queued
    * when the client closes fails inside vscode-jsonrpc as an unhandled
-   * rejection. A connection that has already closed ended the subscription
-   * itself, so nothing is sent.
+   * rejection. It names the subscription its `log/subscribe` answered, so it
+   * waits for that answer; a refused subscribe holds none, and a connection
+   * that has already closed ended it itself, so then nothing is sent.
    */
   connect(): () => Promise<void> {
     let active = true;
@@ -433,7 +434,16 @@ export class CommittedThreadSession {
       }
     });
     const requested = performance.now();
-    this.client.request('log/subscribe', { fromSeq: 0, threadId: this.threadId }).then(
+    const subscribing = this.client.request('log/subscribe', {
+      fromSeq: 0,
+      threadId: this.threadId,
+    });
+    // Only the id outlives the replay, so a disposed session holds none of its rows.
+    const subscribed = subscribing.then(
+      ({ subscriptionId }) => subscriptionId,
+      () => undefined
+    );
+    subscribing.then(
       (result) => {
         if (active) {
           const received = performance.now();
@@ -491,8 +501,9 @@ export class CommittedThreadSession {
         queued.length = 0;
         release();
         releaseTelemetry();
-        if (!connectionClosed) {
-          await this.client.request('log/unsubscribe', { threadId: this.threadId });
+        const subscriptionId = await subscribed;
+        if (subscriptionId !== undefined && !connectionClosed) {
+          await this.client.request('log/unsubscribe', { subscriptionId });
         }
       })();
       return disposed;
