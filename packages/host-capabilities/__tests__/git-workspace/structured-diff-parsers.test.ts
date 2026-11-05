@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  countLines,
-  parseHunkHeaders,
-  parseNumstatZ,
-} from '../../src/git-workspace/structured-diff-parsers.ts';
+import { countLines, parseNumstatZ } from '../../src/git-workspace/structured-diff-parsers.ts';
 
 describe('parseNumstatZ', () => {
   it('parses a plain modify entry', () => {
@@ -80,76 +76,6 @@ describe('parseNumstatZ', () => {
   it('throws on a record with a non-numeric count', () => {
     const output = 'x\t1\tfoo.txt\0';
     expect(() => parseNumstatZ(output)).toThrow(/count/iu);
-  });
-});
-
-describe('parseHunkHeaders', () => {
-  it('extracts a single hunk with explicit counts', () => {
-    const diff = ['diff --git a/foo.txt b/foo.txt', '@@ -10,7 +10,8 @@ context', '+added'].join(
-      '\n'
-    );
-    expect(parseHunkHeaders(diff)).toEqual([
-      { newLines: 8, newStart: 10, oldLines: 7, oldStart: 10 },
-    ]);
-  });
-
-  it('defaults an omitted count to 1', () => {
-    const diff = '@@ -1 +1 @@';
-    expect(parseHunkHeaders(diff)).toEqual([
-      { newLines: 1, newStart: 1, oldLines: 1, oldStart: 1 },
-    ]);
-  });
-
-  it('extracts multiple hunks in order', () => {
-    const diff = ['@@ -1,2 +1,2 @@', '-old', '+new', '@@ -10,3 +11,4 @@', ' context'].join('\n');
-    expect(parseHunkHeaders(diff)).toEqual([
-      { newLines: 2, newStart: 1, oldLines: 2, oldStart: 1 },
-      { newLines: 4, newStart: 11, oldLines: 3, oldStart: 10 },
-    ]);
-  });
-
-  it('does not match "@@" appearing mid-line rather than at line start', () => {
-    const diff = ['@@ -1,2 +1,2 @@', '+  const s = "@@ -9,9 +9,9 @@ not a header";'].join('\n');
-    expect(parseHunkHeaders(diff)).toEqual([
-      { newLines: 2, newStart: 1, oldLines: 2, oldStart: 1 },
-    ]);
-  });
-
-  it('tolerates the literal "…(output truncated)" marker line without throwing', () => {
-    const diff = ['@@ -1,2 +1,2 @@', '-old', '…(output truncated)'].join('\n');
-    expect(parseHunkHeaders(diff)).toEqual([
-      { newLines: 2, newStart: 1, oldLines: 2, oldStart: 1 },
-    ]);
-  });
-
-  it('throws when a line matched as a hunk header but cannot be parsed', () => {
-    const diff = '@@ -abc +1 @@';
-    expect(() => parseHunkHeaders(diff)).toThrow(/malformed|hunk/iu);
-  });
-
-  it('tolerates a partial header cut off immediately before the truncation marker', () => {
-    // boundOutput slices at a raw char offset, so an over-cap diff can end
-    // mid-header, right before the visible truncation marker — this is the
-    // hunks-only over-cap path the marker exists to serve, not malformed input.
-    const diff = ['@@ -120,7 +1', '…(output truncated)'].join('\n');
-    expect(parseHunkHeaders(diff)).toEqual([]);
-  });
-
-  it('still throws on a malformed header NOT immediately followed by the truncation marker', () => {
-    const diff = ['@@ -120,7 +1', 'some other content'].join('\n');
-    expect(() => parseHunkHeaders(diff)).toThrow(/malformed|hunk/iu);
-  });
-
-  it('throws when a second "diff --git " header appears (single-file precondition)', () => {
-    const diff = [
-      'diff --git a/foo.txt b/foo.txt',
-      '@@ -1,2 +1,2 @@',
-      '-old',
-      '+new',
-      'diff --git a/bar.txt b/bar.txt',
-      '@@ -1,1 +1,1 @@',
-    ].join('\n');
-    expect(() => parseHunkHeaders(diff)).toThrow(/single-file|diff --git/iu);
   });
 });
 

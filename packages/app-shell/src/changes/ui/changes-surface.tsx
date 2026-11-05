@@ -29,15 +29,12 @@
  */
 import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
-import type { Changeset, GitInventory } from '@brainstrike/types';
-import { type ReactElement, useEffect, useMemo, useRef } from 'react';
-import {
-  selectGitScopeRefreshNonce,
-  useChangesLiveRefreshStore,
-} from '../changes-live-refresh-store';
+import type { ChangedFileEntry, Changeset, GitInventory } from '@brainstrike/types';
+import type { DiffReviewHandle } from '@brainstrike/ui';
+import { type ReactElement, useMemo, useRef } from 'react';
 import { useChangesNavigationStore } from '../changes-navigation-store';
-import { useChangesStore } from '../changes-store';
-import { useDiffLineCommentToThread } from '../diff-line-comment-to-thread';
+import { changedFileKey } from '../changes-store';
+import { useDiffCommentsToThread } from '../diff-line-comment-to-thread';
 import { useChangeset } from '../use-changeset';
 import { useGitInventory } from '../use-git-inventory';
 import { useRootLabelById } from '../use-root-labels';
@@ -105,13 +102,16 @@ export function ChangesSurface(): ReactElement {
   }, [mountedRootHandles, rootIdByPath]);
 
   const rootLabelById = useRootLabelById();
-  const commentToThread = useDiffLineCommentToThread(rootLabelById);
+  const sendComments = useDiffCommentsToThread(rootLabelById);
+  const review = useRef<DiffReviewHandle | null>(null);
+  const selectFile = (entry: ChangedFileEntry) => {
+    review.current?.scrollToFile(changedFileKey(entry));
+  };
 
   const changeset = useChangesNavigationStore((state) => state.activeChangeset);
   const requestChangeset = useChangesNavigationStore((state) => state.requestChangeset);
   const selectLastTurn = useChangesNavigationStore((state) => state.selectLastTurn);
   const activeThreadIdentity = useChangesNavigationStore((state) => state.activeThreadIdentity);
-  const clearSelection = useChangesStore((state) => state.clearSelection);
 
   // BST-1268 unification: WHICH thread comes from the thread store; the
   // wrapper-published identity carries only run-tracking facts. A transient
@@ -138,17 +138,6 @@ export function ChangesSurface(): ReactElement {
 
   const { error, fileDiff, refresh, view } = useChangeset(resolutionRootId, changeset);
 
-  // Live-refresh reload signal for already-rendered diff cards (BST-1161,
-  // PR #2288 review): `useChangeset` re-resolves the VIEW on this nonce, but
-  // mounted cards latch their first load — threading the same nonce as each
-  // card's `reloadToken` reloads their bodies too. 0 (never changes) for
-  // snapshot changesets, exactly like the hook's own input.
-  const gitScopeReloadToken = useChangesLiveRefreshStore((state) =>
-    changeset?.kind === 'git-scope'
-      ? selectGitScopeRefreshNonce(state, changeset.repositoryRoot)
-      : 0
-  );
-
   const handleRetry = () => {
     void refresh();
   };
@@ -163,24 +152,8 @@ export function ChangesSurface(): ReactElement {
 
   // Structural identity of the active changeset. Both panes key per-changeset
   // state on it: the tree re-runs its first-load auto-expand, and the diff
-  // pane remounts its cards so a file present in BOTH changesets cannot keep
-  // showing the diff it loaded for the previous one.
+  // keeps its folds and draft comments per changeset.
   const changesetKey = changeset === null ? '' : JSON.stringify(changeset);
-
-  // Dropping the previous changeset's file selection is NOT optional:
-  // `selectedFileKeys` carries no changeset identity, so a selection carried
-  // over from the previous changeset can match nothing in the new one and
-  // filter every file out of the diff pane — over a tree of visibly unchecked
-  // boxes. Keyed on the changeset, and skipped on the very first run so an
-  // externally-requested changeset does not have its selection cleared twice.
-  const clearedForChangesetRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (clearedForChangesetRef.current === changesetKey) {
-      return;
-    }
-    clearedForChangesetRef.current = changesetKey;
-    clearSelection();
-  }, [changesetKey, clearSelection]);
 
   // No native `loading` field on `useChangeset` — derive it: a changeset is
   // selected, nothing has resolved yet, and there is no error to explain why.
@@ -197,7 +170,6 @@ export function ChangesSurface(): ReactElement {
         inventory={inventory}
         inventoryError={inventoryError}
         latestRunId={latestRunId}
-        loading={loading}
         onRetry={handleRetry}
         onRetryInventory={handleRetryInventory}
         onSelectChangeset={requestChangeset}
@@ -214,6 +186,7 @@ export function ChangesSurface(): ReactElement {
               files={renderedFiles}
               inventory={inventory}
               loading={loading}
+              onSelectFile={selectFile}
               rootLabelById={rootLabelById}
               rootPathById={rootPathById}
             />
@@ -221,11 +194,10 @@ export function ChangesSurface(): ReactElement {
           <div className="flex min-w-0 flex-1 flex-col">
             <ChangesetDiffPane
               changesetKey={changesetKey}
-              changesetKind={changeset.kind}
               files={renderedFiles}
               loadFileDiff={fileDiff}
-              onLineComment={commentToThread}
-              reloadToken={gitScopeReloadToken}
+              onSendComments={sendComments}
+              reviewRef={review}
             />
           </div>
         </div>

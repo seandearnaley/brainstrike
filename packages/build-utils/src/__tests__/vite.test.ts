@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { HmrContext } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,6 +20,22 @@ const {
 afterEach(() => {
   vi.resetAllMocks();
 });
+
+/**
+ * Resolves `dependency` from the package that owns it. A package that exports
+ * an entry under `import` only (ESM-only, like @pierre/diffs) has no `require`
+ * entry, so that entry resolves the way Vite reads it, through `import`.
+ */
+function resolveFrom(ownerPackageJson: string, dependency: string): string {
+  try {
+    return createRequire(ownerPackageJson).resolve(dependency);
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+      throw error;
+    }
+    return import.meta.resolve(dependency, pathToFileURL(ownerPackageJson));
+  }
+}
 
 function toVitePath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
@@ -42,10 +59,12 @@ describe('assistant vite helpers', () => {
       const owner = parts.length === 2 ? parts[0]?.replace('@brainstrike/', '') : 'build-utils';
       const dependency = parts.at(-1);
       expect(dependency).toBeTruthy();
-      const require = createRequire(
-        path.resolve(import.meta.dirname, '../../../', owner ?? '', 'package.json')
-      );
-      expect(require.resolve(dependency ?? '')).toBeTruthy();
+      expect(
+        resolveFrom(
+          path.resolve(import.meta.dirname, '../../../', owner ?? '', 'package.json'),
+          dependency ?? ''
+        )
+      ).toBeTruthy();
     }
   });
 

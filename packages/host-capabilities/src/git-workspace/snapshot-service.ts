@@ -7,8 +7,8 @@
  * commits are taken at turn boundaries via a private per-operation index
  * (`add -A` → `write-tree` → `commit-tree` → `update-ref
  * <canonical thread lineage ref>`); diffs resolve to the shared
- * `StructuredFileDiff` shape by reusing the W1 parsers
- * (`structured-diff-parsers.ts`); restores are computed and applied from
+ * `StructuredFileDiff` shape through the same payload assembly as git scopes
+ * (`structured-diff-content.ts`); restores are computed and applied from
  * snapshot ref pairs with per-path conflict gating.
  *
  * Frozen T0 interface (consumed by T1–T3): `ensureShadowRepo`, `snapshot`,
@@ -38,14 +38,12 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { StructuredFileDiff, StructuredFileDiffContent } from '@brainstrike/types';
-import { boundOutput } from './git-service.ts';
 import {
   assertValidOid,
   assertValidRootId,
   createShadowGitPlumbing,
   ENCODED_SNAPSHOT_REF_PREFIX,
   LEGACY_SNAPSHOT_REF_PREFIX,
-  type ShadowBlobRead,
   type ShadowGitCommands,
   type ShadowGitPlumbing,
   type SnapshotGitCommandRunner,
@@ -60,7 +58,14 @@ import {
   type RawDiffEntry,
   type RestorePlan,
 } from './snapshot-restore-plan.ts';
-import { parseHunkHeaders, parseNumstatZ } from './structured-diff-parsers.ts';
+import {
+  type DiffSide,
+  fileDiffContent,
+  type PatchCapture,
+  pinnedDiffArgs,
+  pinnedPatchArgs,
+} from './structured-diff-content.ts';
+import { parseNumstatZ } from './structured-diff-parsers.ts';
 
 /** Opaque per-root handle; obtain via `ensureShadowRepo`, never construct. */
 export interface ShadowRepoHandle {
@@ -152,13 +157,12 @@ const RAW_DIFF_ARGS = [
   '--no-renames',
   '--ignore-submodules=dirty',
 ] as const;
-const NUMSTAT_DIFF_ARGS = [
-  'diff',
+const NUMSTAT_DIFF_ARGS = pinnedDiffArgs([
   '--numstat',
   '-z',
   '--no-renames',
   '--ignore-submodules=dirty',
-] as const;
+]);
 
 function statusForRawEntry(entry: RawDiffEntry): 'added' | 'deleted' | 'modified' {
   if (entry.status === 'A') {
@@ -325,36 +329,11 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     plumbing: ShadowGitPlumbing,
     spec: string | null,
     env: Readonly<Record<string, string>> | undefined
-  ): Promise<ShadowBlobRead> {
+  ): Promise<DiffSide> {
     if (spec === null) {
       return { kind: 'absent' };
     }
     return await plumbing.readBlobSized(spec, env === undefined ? undefined : { env });
-  }
-
-  function overCapReason(
-    oldOverCap: boolean,
-    newOverCap: boolean,
-    diffTruncated: boolean
-  ): 'diff-overflow' | 'over-cap-both' | 'over-cap-new' | 'over-cap-old' {
-    if (oldOverCap && newOverCap) {
-      return 'over-cap-both';
-    }
-    if (oldOverCap) {
-      return 'over-cap-old';
-    }
-    if (newOverCap) {
-      return 'over-cap-new';
-    }
-    if (diffTruncated) {
-      return 'diff-overflow';
-    }
-    throw new SnapshotGitError('inconsistent-diff', 'over-cap reason requested with no cause');
-  }
-
-  interface AssembledSides {
-    readonly content: StructuredFileDiffContent;
-    readonly hunks: StructuredFileDiff['hunks'];
   }
 
   /** Gitlink "content" is the commit pointer git itself renders — the
@@ -362,7 +341,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
   function gitlinkSides(
     entry: RawDiffEntry,
     status: 'added' | 'deleted' | 'modified'
-  ): { newSide: ShadowBlobRead; oldSide: ShadowBlobRead } {
+  ): { newSide: DiffSide; oldSide: DiffSide } {
     return {
       newSide:
         status === 'deleted'
@@ -388,7 +367,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     from: string,
     toOid: string | null,
     env: Readonly<Record<string, string>> | undefined
-  ): Promise<{ newSide: ShadowBlobRead; oldSide: ShadowBlobRead }> {
+  ): Promise<{ newSide: DiffSide; oldSide: DiffSide }> {
     const oldSpec = status === 'added' ? null : `${from}:${entry.path}`;
     let newSpec: string | null;
     if (status === 'deleted') {
@@ -402,25 +381,23 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     };
   }
 
-  /** Single-file unified diff for hunk ranges (and the hunks-only preview). */
+  /** Git's patch for one file, in the pinned output format. */
   async function runUnifiedFileDiff(
     plumbing: ShadowGitPlumbing,
     entryPath: string,
     from: string,
     toOid: string | null,
     env: Readonly<Record<string, string>> | undefined
-  ): Promise<{ stdout: string; truncated: boolean }> {
+  ): Promise<PatchCapture> {
     const diffRun = await plumbing.invoke(
-      [
-        'diff',
-        '--no-ext-diff',
-        '--no-textconv',
+      pinnedPatchArgs([
         '--no-renames',
+        '--ignore-submodules=dirty',
         from,
         ...(toOid === null ? [] : [toOid]),
         '--',
         entryPath,
-      ],
+      ]),
       env === undefined ? undefined : { env }
     );
     const truncated = diffRun.failureReason === 'maxBuffer';
@@ -430,7 +407,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
         `git diff for "${entryPath}" failed with exit ${diffRun.exitCode ?? 'null'}: ${diffRun.stderr.trim()}`
       );
     }
-    return { stdout: diffRun.stdout, truncated };
+    return { text: diffRun.stdout, truncated };
   }
 
   async function assembleContent(
@@ -439,42 +416,14 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     from: string,
     toOid: string | null,
     env: Readonly<Record<string, string>> | undefined
-  ): Promise<AssembledSides> {
+  ): Promise<StructuredFileDiffContent> {
     const status = statusForRawEntry(entry);
     const isGitlink = entry.oldMode === GITLINK_MODE || entry.newMode === GITLINK_MODE;
     const { newSide, oldSide } = isGitlink
       ? gitlinkSides(entry, status)
       : await readBlobSides(plumbing, entry, status, from, toOid, env);
-
-    const oldBinary = oldSide.kind === 'present' && oldSide.content.includes(0);
-    const newBinary = newSide.kind === 'present' && newSide.content.includes(0);
-    if (oldBinary || newBinary) {
-      return { content: { kind: 'binary' }, hunks: [] };
-    }
-
-    const diff = await runUnifiedFileDiff(plumbing, entry.path, from, toOid, env);
-    const oldOverCap = oldSide.kind === 'over-cap';
-    const newOverCap = newSide.kind === 'over-cap';
-    if (oldOverCap || newOverCap || diff.truncated) {
-      const bounded = boundOutput(diff.stdout);
-      return {
-        content: {
-          hunkText: bounded.text,
-          hunkTextTruncated: bounded.truncated || diff.truncated,
-          kind: 'hunks-only',
-          reason: overCapReason(oldOverCap, newOverCap, diff.truncated),
-        },
-        hunks: parseHunkHeaders(bounded.text),
-      };
-    }
-    return {
-      content: {
-        kind: 'full',
-        newContent: newSide.kind === 'present' ? newSide.content.toString('utf8') : null,
-        oldContent: oldSide.kind === 'present' ? oldSide.content.toString('utf8') : null,
-      },
-      hunks: parseHunkHeaders(diff.stdout),
-    };
+    const patch = await runUnifiedFileDiff(plumbing, entry.path, from, toOid, env);
+    return fileDiffContent(oldSide, newSide, patch);
   }
 
   /**
@@ -524,12 +473,10 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
             `numstat is missing "${rawEntry.path}" reported by the raw diff`
           );
         }
-        const assembled = await assembleContent(entry.plumbing, rawEntry, from, toOid, env);
         diffs.push({
           additions: numstat.additions,
-          content: assembled.content,
+          content: await assembleContent(entry.plumbing, rawEntry, from, toOid, env),
           deletions: numstat.deletions,
-          hunks: assembled.hunks,
           path: rawEntry.path,
           status: statusForRawEntry(rawEntry),
         });

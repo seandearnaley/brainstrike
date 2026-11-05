@@ -40,6 +40,7 @@ function viewForRun(runId: string): ChangesetView {
       {
         additions: null,
         deletions: null,
+        patch: null,
         path: `${runId}.ts`,
         repositoryRoot: null,
         revertible: true,

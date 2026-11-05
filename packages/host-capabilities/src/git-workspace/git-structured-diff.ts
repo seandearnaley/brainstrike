@@ -1,5 +1,5 @@
 /**
- * Structured (both-sides + hunk-range) file diff ops for the desktop `git`
+ * Structured (both sides + git's patch) file diff ops for the desktop `git`
  * IPC domain — the `StructuredFileDiff` engine split out of `git-service.ts`
  * (BST-1111, BST-1118) to keep that file under the line-count ratchet.
  *
@@ -50,12 +50,12 @@
  * side — no new path-space convention. Ref-injection safety validation and
  * the root-commit empty-tree fallback live in the sibling
  * `git-structured-diff-refs.ts` module (kept separate to hold this file
- * under its line-count ratchet); the unified-diff / numstat / cap / binary
- * assembly machinery below is GENERALIZED (not duplicated) to accept an
- * arbitrary diff target — `['--cached']`, `['HEAD']`, or an explicit
- * `[oldRef, newRef]` pair — so `commit`/`range` reuse the exact same
- * size-probe-before-read, `hunks-only` degradation, and binary-detection
- * code paths `staged`/`working` already exercise.
+ * under its line-count ratchet); the unified-diff / numstat machinery below
+ * accepts an arbitrary diff target — `['--cached']`, `['HEAD']`, or an
+ * explicit `[oldRef, newRef]` pair — so `commit`/`range` reuse the exact same
+ * size-probe-before-read path `staged`/`working` already exercise. The
+ * binary / cap / full / hunks-only payload itself is `structured-diff-content.ts`,
+ * shared with the snapshot engine.
  *
  * MODE `unstaged` (BST-1113 review finding): the INDEX vs the worktree —
  * `:0:./<path>` (old) vs the live file (new) — added so a file's per-file
@@ -87,7 +87,6 @@ import {
 } from './git-failure.ts';
 import {
   assertUntrackedDiffPathContained,
-  boundOutput,
   diffFailure,
   GIT_DEFAULT_TIMEOUT_MS,
   type GitCommandRun,
@@ -102,24 +101,14 @@ import {
   validateCommitId,
 } from './git-structured-diff-refs.ts';
 import {
-  countLines,
-  type NumstatEntry,
-  parseHunkHeaders,
-  parseNumstatZ,
-} from './structured-diff-parsers.ts';
-
-/**
- * Per-side full-content cap for {@link StructuredFileDiff}: a side (old or new)
- * larger than this degrades that file's `content` to `hunks-only` instead of
- * inlining full text (spec §11 Q3). Deliberately kept in NOMINAL parity with the
- * file-mutation tools' per-file write cap (`MAX_WRITE_WORKSPACE_FILE_BYTES`
- * in `file-mutation-tools.ts`, `2_000_000` bytes) — both exist so a single file
- * can't blow main-process memory on a read that has to hold full before/after
- * text. The two constants are NOT byte-identical today (`2 * 1024 * 1024` here
- * vs `2_000_000` there); this is the structured-diff engine's own cap, but the
- * two should move together if either is revisited.
- */
-export const STRUCTURED_DIFF_CONTENT_CAP_BYTES = 2 * 1024 * 1024;
+  type DiffSide,
+  fileDiffContent,
+  type PatchCapture,
+  pinnedDiffArgs,
+  pinnedPatchArgs,
+  STRUCTURED_DIFF_CONTENT_CAP_BYTES,
+} from './structured-diff-content.ts';
+import { countLines, type NumstatEntry, parseNumstatZ } from './structured-diff-parsers.ts';
 
 /**
  * Exit-128 stderr wording `git cat-file` (`-s` size probe OR `blob` read —
@@ -172,26 +161,11 @@ function classifyCatFileFailure(run: GitCommandRun, pathArg: string): BoundaryRe
   return gitCommandFailed(run);
 }
 
-/**
- * One side's read outcome for a structured diff, size-gated BEFORE any
- * content is read (never just "trust a size read afterward"):
- * - `absent`: the side doesn't exist (added/deleted/untracked-missing).
- * - `over-cap`: the side exists and its size is known, but content was
- *   deliberately NOT read (it exceeds {@link STRUCTURED_DIFF_CONTENT_CAP_BYTES}).
- *   Binary detection is therefore impossible for an over-cap side — see
- *   `assembleTrackedContent`'s ordering.
- * - `present`: the side was read in full; `content` is the exact bytes.
- */
-type SideRead =
-  | { readonly content: Buffer; readonly kind: 'present' }
-  | { readonly kind: 'absent' }
-  | { readonly kind: 'over-cap'; readonly size: number };
-
 /** Pure status classification for a tracked-mode structured diff entry. */
 function classifyTrackedStatus(
   isRename: boolean,
-  oldSide: SideRead,
-  newSide: SideRead
+  oldSide: DiffSide,
+  newSide: DiffSide
 ): ChangedFileStatus {
   if (isRename) {
     return 'renamed';
@@ -200,36 +174,6 @@ function classifyTrackedStatus(
     return 'added';
   }
   return newSide.kind === 'absent' ? 'deleted' : 'modified';
-}
-
-/** Pure `hunks-only` reason classification from the two per-side cap checks. */
-function classifyOverCapReason(
-  oldOverCap: boolean,
-  newOverCap: boolean
-): 'over-cap-both' | 'over-cap-new' | 'over-cap-old' {
-  if (oldOverCap && newOverCap) {
-    return 'over-cap-both';
-  }
-  return oldOverCap ? 'over-cap-old' : 'over-cap-new';
-}
-
-/**
- * `hunks-only` reason when the unified diff invocation itself hit `maxBuffer`.
- * Called only when at least one of {oldOverCap, newOverCap, a maxBuffer
- * overflow} is true (see the caller's guard) — when NEITHER side is
- * individually over the per-file cap, the maxBuffer overflow is the only
- * possible reason we were called at all, so this reports the honest
- * `'diff-overflow'` reason rather than guessing at a side. When a side IS
- * individually over cap, that's the more precise, existing reason.
- */
-function resolveOverCapReason(
-  oldOverCap: boolean,
-  newOverCap: boolean
-): 'diff-overflow' | 'over-cap-both' | 'over-cap-new' | 'over-cap-old' {
-  if (oldOverCap || newOverCap) {
-    return classifyOverCapReason(oldOverCap, newOverCap);
-  }
-  return 'diff-overflow';
 }
 
 /**
@@ -290,45 +234,13 @@ function validateStructuredFileDiffParams(
   return { ok: true, value: params };
 }
 
-/**
- * Unified diff for exactly ONE file's structured hunks / hunks-only content
- * — always a plain two-way `git diff` (HEAD, the index, or `/dev/null`),
- * never `--cc`/merge output, satisfying {@link parseHunkHeaders}'s
- * single-file, two-way precondition by construction. `untracked` mode uses
- * this ONLY for the oversized-content preview ({@link structuredUntrackedDiff}
- * never populates `hunks` from it, since an untracked file has no
- * meaningful "hunk ranges" — it's a whole-file addition).
- *
- * For a rename BOTH `oldPath` and `pathArg` are passed as pathspecs. This is
- * NOT optional: gitdiffcore(7) documents that pathspec limiting happens
- * BEFORE rename pairing ("the commands themselves first ... limit the two
- * sets of files by any pathspecs ... and compare corresponding paths in the
- * two resulting sets"), so a pathspec naming only the new path can never pair
- * with its old name — empirically confirmed: `git diff --cached --numstat -z
- * --find-renames -- new.txt` on a real staged rename reports `5\t0\tnew.txt`
- * (a plain add), not the `1\t1\t\0old.txt\0new.txt` rename triple that the
- * SAME command WITHOUT a path restriction (or with both paths) produces.
- *
- * `--relative` is added for the ref-comparing branch so the diff headers
- * (and the pathspecs, which were already cwd-relative) agree — see the
- * module doc comment's PATH SPACE section. `--no-index` has no repo-root
- * concept, so the `untracked` branch needs no such flag.
- */
-interface UnifiedDiffRun {
-  readonly text: string;
-  /** True when `text` is a possibly-malformed PARTIAL capture (the diff
-   * invocation itself hit `maxBuffer`) — never feed this to `parseHunkHeaders`
-   * as though it were the complete diff; see the callers below. */
-  readonly truncated: boolean;
-}
-
 /** Both read sides of a tracked-mode diff, plus the status/oldPath they
  * already determine — the shared handoff between `readTrackedSides`
- * and `assembleTrackedContent`. */
+ * and `assembleDiffContent`. */
 interface TrackedSides {
-  readonly newSide: SideRead;
+  readonly newSide: DiffSide;
   readonly oldPathField: { oldPath?: string };
-  readonly oldSide: SideRead;
+  readonly oldSide: DiffSide;
   readonly status: ChangedFileStatus;
 }
 
@@ -379,7 +291,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * boundary a caller could use to detect a silent truncation (see
    * `GitCommandRun.stdoutBuffer`).
    */
-  async function readRefBlob(spec: string, pathArg: string): Promise<BoundaryResult<SideRead>> {
+  async function readRefBlob(spec: string, pathArg: string): Promise<BoundaryResult<DiffSide>> {
     const sizeRun = await invoke(['cat-file', '-s', spec]);
     if (sizeRun.exitCode !== 0) {
       const classified = classifyCatFileFailure(sizeRun, pathArg);
@@ -457,7 +369,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * symlink integration tests), so a platform-inconsistent protection would
    * be a false sense of security rather than a real one.
    */
-  async function readWorktreeFile(pathArg: string): Promise<BoundaryResult<SideRead>> {
+  async function readWorktreeFile(pathArg: string): Promise<BoundaryResult<DiffSide>> {
     const containment = await assertUntrackedDiffPathContained(cwd, pathArg);
     if (!containment.ok) {
       return containment;
@@ -525,31 +437,33 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
   }
 
   /**
-   * `target` selects WHAT is being compared: `'untracked'` for the
-   * no-HEAD/no-index `--no-index` form, or an explicit `diff` target-args
-   * array otherwise — `['--cached']` (staged), `['HEAD']` (working), or an
-   * arbitrary `[oldRef, newRef]` pair (`commit`/`range`, BST-1113). This is
-   * a plain arg-array rather than a mode enum specifically so `commit`/
-   * `range` need no new branch here at all — they're just another target.
+   * Git's patch for exactly ONE file, in the pinned output format
+   * (`pinnedPatchArgs`). `target` selects WHAT is compared: `'untracked'` for
+   * `--no-index` against `/dev/null`, or the `diff` target args otherwise —
+   * `['--cached']` (staged), `['HEAD']` (working), `[]` (unstaged) or an
+   * `[oldRef, newRef]` pair (`commit`/`range`, BST-1113).
+   *
+   * For a rename BOTH `oldPath` and `pathArg` are passed as pathspecs: pathspec
+   * limiting happens BEFORE rename pairing (gitdiffcore(7)), so a pathspec
+   * naming only the new path would report a plain add. `--relative` makes the
+   * headers cwd-relative like the pathspecs (see PATH SPACE above);
+   * `--no-index` has no repo-root concept and needs no such flag.
    */
   async function computeUnifiedDiff(
     target: readonly string[] | 'untracked',
     pathArg: string,
     oldPath: string | null
-  ): Promise<BoundaryResult<UnifiedDiffRun>> {
+  ): Promise<BoundaryResult<PatchCapture>> {
     const untracked = target === 'untracked';
     const args = untracked
-      ? ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', pathArg]
-      : [
-          'diff',
+      ? pinnedPatchArgs(['--no-index', '--', '/dev/null', pathArg])
+      : pinnedPatchArgs([
           ...target,
-          '--no-ext-diff',
-          '--no-textconv',
           '--find-renames',
           '--relative',
           '--',
           ...(oldPath !== null && oldPath !== pathArg ? [oldPath, pathArg] : [pathArg]),
-        ];
+        ]);
     const run_ = await (untracked ? invoke : invokeHookFree)(args);
     const failure = diffFailure(run_, untracked);
     if (failure) {
@@ -582,16 +496,9 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     target: readonly string[],
     pathArg: string
   ): Promise<BoundaryResult<NumstatEntry | null>> {
-    const numstatRun = await invoke([
-      'diff',
-      ...target,
-      '--numstat',
-      '-z',
-      '--find-renames',
-      '--relative',
-      '--',
-      '.',
-    ]);
+    const numstatRun = await invoke(
+      pinnedDiffArgs([...target, '--numstat', '-z', '--find-renames', '--relative', '--', '.'])
+    );
     if (numstatRun.exitCode !== 0) {
       return gitCommandFailed(numstatRun);
     }
@@ -627,7 +534,9 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     return await runNumstat([oldRef, newRef], pathArg);
   }
 
-  /** Structured diff for the `untracked` mode: no HEAD/index side, whole-file addition. */
+  /** Structured diff for the `untracked` mode: no HEAD/index side, a
+   * whole-file addition against `/dev/null`. An over-cap file is never read,
+   * so its line count is honestly unknown (null). */
   async function structuredUntrackedDiff(
     pathArg: string
   ): Promise<BoundaryResult<StructuredFileDiff>> {
@@ -643,57 +552,19 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
         `no differences for '${pathArg}' in untracked scope`
       );
     }
-    if (side.kind === 'over-cap') {
-      // Per the stat-size guard above, an over-cap file's bytes are NEVER
-      // read — so neither a null-byte (binary) check nor a line count is
-      // possible without reading. `additions` is honestly `null` (the type
-      // allows it) rather than a fabricated count. Still show a bounded
-      // preview via `git diff --no-index`, which reads the file itself,
-      // independent of — and unbounded by — our own gated read above.
-      const unifiedDiff = await computeUnifiedDiff('untracked', pathArg, null);
-      if (!unifiedDiff.ok) {
-        return unifiedDiff;
-      }
-      const bounded = boundOutput(unifiedDiff.value.text);
-      return {
-        ok: true,
-        value: {
-          additions: null,
-          content: {
-            hunkText: bounded.text,
-            hunkTextTruncated: bounded.truncated || unifiedDiff.value.truncated,
-            kind: 'hunks-only',
-            reason: 'over-cap-new',
-          },
-          deletions: 0,
-          hunks: [],
-          path: pathArg,
-          status: 'untracked',
-        },
-      };
+    const patch = await computeUnifiedDiff('untracked', pathArg, null);
+    if (!patch.ok) {
+      return patch;
     }
-    const content = side.content;
-    if (content.includes(0)) {
-      return {
-        ok: true,
-        value: {
-          additions: null,
-          content: { kind: 'binary' },
-          deletions: null,
-          hunks: [],
-          path: pathArg,
-          status: 'untracked',
-        },
-      };
-    }
-    const text = content.toString('utf8');
+    const content = fileDiffContent({ kind: 'absent' }, side, patch.value);
+    const binary = content.kind === 'binary';
     return {
       ok: true,
       value: {
-        additions: countLines(text),
-        content: { kind: 'full', newContent: text, oldContent: null },
-        deletions: 0,
-        hunks: [],
+        additions:
+          !binary && side.kind === 'present' ? countLines(side.content.toString('utf8')) : null,
+        content,
+        deletions: binary ? null : 0,
         path: pathArg,
         status: 'untracked',
       },
@@ -755,7 +626,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
   async function readDiffSides(
     oldSpec: string,
     pathArg: string,
-    newSideReader: () => Promise<BoundaryResult<SideRead>>,
+    newSideReader: () => Promise<BoundaryResult<DiffSide>>,
     oldPath: string | null
   ): Promise<BoundaryResult<TrackedSides>> {
     const oldRead = await readRefBlob(oldSpec, pathArg);
@@ -800,83 +671,26 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     );
   }
 
-  /** Assemble the `additions`/`content`/`deletions`/`hunks` fields once both
-   * sides are known — the binary / cap / full branching, isolated from status
-   * and side-reading so {@link structuredTrackedDiff} stays under the
-   * complexity limit. Binary detection is checked FIRST and wins whenever
-   * EITHER side was actually read and found to contain a null byte — an
-   * `over-cap` side (never read) simply can't contribute evidence either
-   * way, so it never blocks a confirmed-binary classification from the OTHER
-   * side. `computeDiff` is injected (rather than a `mode` string) so this is
-   * shared, unmodified, between `staged`/`working` and `commit`/`range`
-   * (BST-1113) — every mode's over-cap/binary/`maxBuffer` handling is
-   * IDENTICAL; only how the unified diff itself gets computed differs. */
+  /** The `additions`/`content`/`deletions` fields once both sides are known:
+   * numstat's counts and the shared payload over git's patch
+   * (`structured-diff-content.ts`). `computeDiff` is injected so `staged`/
+   * `working`/`unstaged` and `commit`/`range` (BST-1113) share it; only how
+   * the patch is computed differs. */
   async function assembleDiffContent(
-    computeDiff: () => Promise<BoundaryResult<UnifiedDiffRun>>,
+    computeDiff: () => Promise<BoundaryResult<PatchCapture>>,
     entry: NumstatEntry,
     sides: Pick<TrackedSides, 'newSide' | 'oldSide'>
-  ): Promise<
-    BoundaryResult<Pick<StructuredFileDiff, 'additions' | 'content' | 'deletions' | 'hunks'>>
-  > {
-    const { newSide, oldSide } = sides;
-    const oldBinary = oldSide.kind === 'present' && oldSide.content.includes(0);
-    const newBinary = newSide.kind === 'present' && newSide.content.includes(0);
-    if (oldBinary || newBinary) {
-      return {
-        ok: true,
-        value: { additions: null, content: { kind: 'binary' }, deletions: null, hunks: [] },
-      };
+  ): Promise<BoundaryResult<Pick<StructuredFileDiff, 'additions' | 'content' | 'deletions'>>> {
+    const patch = await computeDiff();
+    if (!patch.ok) {
+      return patch;
     }
-
-    const unifiedDiff = await computeDiff();
-    if (!unifiedDiff.ok) {
-      return unifiedDiff;
-    }
-
-    const oldOverCap = oldSide.kind === 'over-cap';
-    const newOverCap = newSide.kind === 'over-cap';
-
-    // A `maxBuffer` overflow on the diff invocation itself means `text` is a
-    // possibly-malformed PARTIAL capture (git was killed mid-stream) — force
-    // `hunks-only` regardless of whether either SIDE individually crossed the
-    // per-file cap. Never claim `full` content with hunks silently short (or
-    // worse, let a mid-header cutoff reach `parseHunkHeaders` as if it were a
-    // complete diff and throw a confusing "malformed hunk header").
-    if (unifiedDiff.value.truncated || oldOverCap || newOverCap) {
-      const bounded = boundOutput(unifiedDiff.value.text);
-      return {
-        ok: true,
-        value: {
-          additions: entry.additions,
-          content: {
-            hunkText: bounded.text,
-            hunkTextTruncated: bounded.truncated || unifiedDiff.value.truncated,
-            kind: 'hunks-only',
-            reason: resolveOverCapReason(oldOverCap, newOverCap),
-          },
-          deletions: entry.deletions,
-          // Safe even on a `maxBuffer`-truncated raw capture: `boundOutput`'s
-          // 1MB soft ceiling is always well under the 4MB hard buffer cap, so
-          // it always re-truncates at a CLEAN boundary ending in the marker
-          // line — exactly the shape `parseHunkHeaders` tolerates (a
-          // hunk-header candidate immediately followed by the marker is
-          // skipped, never thrown).
-          hunks: parseHunkHeaders(bounded.text),
-        },
-      };
-    }
-
     return {
       ok: true,
       value: {
         additions: entry.additions,
-        content: {
-          kind: 'full',
-          newContent: newSide.kind === 'present' ? newSide.content.toString('utf8') : null,
-          oldContent: oldSide.kind === 'present' ? oldSide.content.toString('utf8') : null,
-        },
+        content: fileDiffContent(sides.oldSide, sides.newSide, patch.value),
         deletions: entry.deletions,
-        hunks: parseHunkHeaders(unifiedDiff.value.text),
       },
     };
   }
@@ -1001,9 +815,8 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
 
   return {
     /**
-     * Both-sides file content + structured hunk ranges for one path (spec §3,
-     * §11 Q3) — the `StructuredFileDiff` replacement for the unified-diff-string
-     * `diff()` contract. `mode` selects the comparison: `working` (HEAD vs.
+     * Both-sides file content + git's patch for one path (spec §3, §11 Q3,
+     * ADR-0036). `mode` selects the comparison: `working` (HEAD vs.
      * worktree, i.e. all uncommitted changes), `staged` (HEAD vs. index),
      * `untracked` (no HEAD/index side at all), `commit` (`<commitId>^` vs.
      * `<commitId>`, BST-1113), or `range` (a caller-resolved `baseRef` vs.

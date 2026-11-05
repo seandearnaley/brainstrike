@@ -1,31 +1,12 @@
 /**
  * `ChangedFilesTree` (BST-1114, W4 Task B): the canonical-`TreeTable`-backed
  * file tree for the Changes surface — root workspace → repository →
- * worktree → file, tri-state checkbox selection, expand/collapse. See
+ * worktree → file, expand/collapse. Choosing a file hands it to `onSelectFile`,
+ * which scrolls the diff to it. See
  * `changed-files-tree-model.ts` for the grouping decision (flat under the
  * worktree) and the identity-stability mechanism. Cell renderers and column
  * definitions live in `changed-files-tree-columns.tsx` (kept out of this
  * file so it exports components only — `react-refresh/only-export-components`).
- *
- * CHECKBOX SEMANTICS: a file's checkbox is checked iff its
- * `changedFileKey` is IN `useChangesStore`'s `selectedFileKeys` (the literal
- * reading of that store's own doc comment — "the user checked"). Nothing
- * checked is therefore the NEUTRAL default, not "hide everything": per the
- * store's SELECTION SEMANTICS, an empty `selectedFileKeys` renders every
- * file, so "check nothing" (the default) and "check everything" (every file
- * explicitly checked) are two distinct, both-reachable states that happen to
- * render the same file set — never a lossy "select none" state, which this
- * store cannot represent (see `changes-store.test.ts`).
- *
- * SELECTION WRITES FILE KEYS ONLY: checking a group cascades to its
- * descendant FILE ids only (never the group's own node id) — group ids are
- * this component's own tree-structure concern and must never leak into
- * `selectedFileKeys`, which `changeset-diff-pane.tsx` matches directly
- * against `changedFileKey(entry)`. This is also why selection uses the
- * PLUGGABLE `getCheckboxState`/`onCheckboxChange` path rather than
- * TreeTable's built-in `multiSelectedIds` cascade: the built-in cascade adds
- * every DESCENDANT NODE id (files AND groups) to the selection set on a
- * parent toggle, which would pollute the store.
  *
  * CONTEXT MENU: rows claim a `ContextTarget` synchronously in
  * `onRowContextMenu` (`'file'` -> `changed-file`, `'worktree'` -> `worktree`),
@@ -52,30 +33,30 @@ import {
   ActionContextMenu,
   LoadingFallback,
   TreeTable,
-  type TreeTableCheckboxNextState,
-  type TreeTableCheckboxRenderState,
   useContextMenuTarget,
 } from '@brainstrike/ui';
-import { type ReactElement, useEffect, useMemo, useRef } from 'react';
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { useChangesStore } from '../changes-store';
-import { CHANGED_FILES_TREE_COLUMNS, lastPathSegment } from './changed-files-tree-columns';
+import { CHANGED_FILES_TREE_COLUMNS } from './changed-files-tree-columns';
 import {
   buildChangedFilesTree,
   type ChangedFilesTreeNode,
-  type ChangedFilesTreeNodeData,
   repositoryRootFromNodeId,
 } from './changed-files-tree-model';
 
 export interface ChangedFilesTreeProps {
   /**
    * Structural identity of the active changeset. Scopes the first-load
-   * auto-expand so switching source re-expands the NEW tree instead of
-   * leaving it collapsed (the surface stays mounted for the whole session).
+   * auto-expand and the chosen row, so switching source re-expands the NEW
+   * tree and chooses nothing in it (the surface stays mounted for the whole
+   * session).
    */
   readonly changesetKey: string;
   readonly files: readonly ChangedFileEntry[];
   readonly inventory: GitInventory | null;
   readonly loading?: boolean;
+  /** Called with the file a person chooses. */
+  readonly onSelectFile?: ((entry: ChangedFileEntry) => void) | undefined;
   /**
    * Root group display labels keyed by rootId (workspace display name /
    * path-basename fallback — build with `useRootLabelById`). Defaults to
@@ -89,8 +70,8 @@ export interface ChangedFilesTreeProps {
 const EMPTY_ROOT_PATHS: ReadonlyMap<string, string> = new Map();
 
 /**
- * Painted pitch of one row, in px: the 24px checkbox and disclosure controls
- * with their `my-0.5` margins, plus the 1px row border; the same pitch as the
+ * Painted pitch of one row, in px: the 24px disclosure control with its
+ * `my-0.5` margins, plus the 1px row border; the same pitch as the
  * Explorer's tree (`optimized-file-tree.tsx`). A numeric height turns off
  * TreeTable's per-row measurement, so this must equal what the browser paints.
  */
@@ -106,62 +87,6 @@ function EmptyChangedFiles(): ReactElement {
       No changed files.
     </div>
   );
-}
-
-interface ChangedFilesTreeIndexes {
-  readonly descendantFileKeysById: ReadonlyMap<string, readonly string[]>;
-}
-
-/** Per-group descendant FILE ids (never group ids — see the SELECTION WRITES module doc comment). */
-function buildTreeIndexes(nodes: readonly ChangedFilesTreeNode[]): ChangedFilesTreeIndexes {
-  const childrenByParentId = new Map<string | null, ChangedFilesTreeNode[]>();
-  for (const node of nodes) {
-    const siblings = childrenByParentId.get(node.parentId);
-    if (siblings) {
-      siblings.push(node);
-    } else {
-      childrenByParentId.set(node.parentId, [node]);
-    }
-  }
-
-  const descendantFileKeysById = new Map<string, readonly string[]>();
-  function collect(node: ChangedFilesTreeNode): readonly string[] {
-    const cached = descendantFileKeysById.get(node.id);
-    if (cached) {
-      return cached;
-    }
-    if (node.data.kind === 'file') {
-      const self = [node.id];
-      descendantFileKeysById.set(node.id, self);
-      return self;
-    }
-    const keys: string[] = [];
-    for (const child of childrenByParentId.get(node.id) ?? []) {
-      keys.push(...collect(child));
-    }
-    descendantFileKeysById.set(node.id, keys);
-    return keys;
-  }
-  for (const node of nodes) {
-    collect(node);
-  }
-
-  return { descendantFileKeysById };
-}
-
-function describeGroupNode(data: ChangedFilesTreeNodeData): string {
-  switch (data.kind) {
-    case 'root':
-      return `root ${data.label ?? data.rootId}`;
-    case 'repository':
-      return lastPathSegment(data.repositoryRoot);
-    case 'worktree':
-      return data.descriptor?.name ?? data.worktreePath;
-    case 'outside-roots':
-      return 'files outside workspace roots';
-    default:
-      return 'this group';
-  }
 }
 
 /**
@@ -211,17 +136,16 @@ export function ChangedFilesTree({
   files,
   inventory,
   loading = false,
+  onSelectFile,
   rootLabelById = EMPTY_ROOT_LABELS,
   rootPathById = EMPTY_ROOT_PATHS,
 }: ChangedFilesTreeProps): ReactElement {
-  const selectedFileKeys = useChangesStore((state) => state.selectedFileKeys);
   const expandedIds = useChangesStore((state) => state.expandedIds);
-  const setSelectedFileKeys = useChangesStore((state) => state.setSelectedFileKeys);
   const setExpandedIds = useChangesStore((state) => state.setExpandedIds);
   const toggleExpanded = useChangesStore((state) => state.toggleExpanded);
 
   const nodes = buildChangedFilesTree(files, inventory, rootLabelById);
-  const { descendantFileKeysById } = useMemo(() => buildTreeIndexes(nodes), [nodes]);
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
 
   const groupNodeIds = useMemo(() => {
     const ids: string[] = [];
@@ -263,53 +187,18 @@ export function ChangedFilesTree({
     setContextMenuTarget(null);
   };
 
-  const getCheckboxState = (node: ChangedFilesTreeNode): TreeTableCheckboxRenderState => {
-    if (node.data.kind === 'file') {
-      return selectedFileKeys.has(node.id) ? 'checked' : 'unchecked';
+  // The chosen row belongs to the changeset it was chosen in.
+  const [chosen, setChosen] = useState<{
+    readonly changesetKey: string;
+    readonly id: string;
+  } | null>(null);
+  const selectedId = chosen?.changesetKey === changesetKey ? chosen.id : null;
+  const handleSelect = (nodeId: string | null) => {
+    const node = nodeId === null ? undefined : nodeById.get(nodeId);
+    if (node?.data.kind === 'file') {
+      setChosen({ changesetKey, id: node.id });
+      onSelectFile?.(node.data.entry);
     }
-    const fileKeys = descendantFileKeysById.get(node.id) ?? [];
-    if (fileKeys.length === 0) {
-      return 'unchecked';
-    }
-    let checkedCount = 0;
-    for (const key of fileKeys) {
-      if (selectedFileKeys.has(key)) {
-        checkedCount += 1;
-      }
-    }
-    if (checkedCount === 0) {
-      return 'unchecked';
-    }
-    return checkedCount === fileKeys.length ? 'checked' : 'indeterminate';
-  };
-
-  const handleCheckboxChange = (
-    node: ChangedFilesTreeNode,
-    nextState: TreeTableCheckboxNextState
-  ) => {
-    const fileKeys =
-      node.data.kind === 'file' ? [node.id] : (descendantFileKeysById.get(node.id) ?? []);
-    if (fileKeys.length === 0) {
-      return;
-    }
-    const next = new Set(selectedFileKeys);
-    if (nextState === 'checked') {
-      for (const key of fileKeys) {
-        next.add(key);
-      }
-    } else {
-      for (const key of fileKeys) {
-        next.delete(key);
-      }
-    }
-    setSelectedFileKeys(next);
-  };
-
-  const getCheckboxAriaLabel = (node: ChangedFilesTreeNode): string => {
-    if (node.data.kind === 'file') {
-      return `Select ${node.data.entry.path}`;
-    }
-    return `Select all files in ${describeGroupNode(node.data)}`;
   };
 
   if (loading) {
@@ -331,15 +220,13 @@ export function ChangedFilesTree({
           columns={CHANGED_FILES_TREE_COLUMNS}
           emptyState={<EmptyChangedFiles />}
           expandedIds={expandedIds}
-          getCheckboxAriaLabel={getCheckboxAriaLabel}
-          getCheckboxState={getCheckboxState}
           nodes={nodes}
-          onCheckboxChange={handleCheckboxChange}
           onRowContextMenu={handleRowContextMenu}
+          onSelect={handleSelect}
           onToggleExpand={toggleExpanded}
           rowHeight={ROW_HEIGHT}
-          selectionMode="none"
-          showCheckbox={true}
+          selectedId={selectedId}
+          selectionMode="single"
         />
       </div>
     </ActionContextMenu>
