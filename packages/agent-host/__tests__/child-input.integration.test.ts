@@ -367,3 +367,49 @@ test('a hook that blocks the input ends the run with its reason, and the input i
   );
   expect(taken).toHaveLength(1);
 });
+
+test('an input whose start is refused takes only itself, and the next input still starts', async () => {
+  const answering = Promise.withResolvers<void>();
+  const sent = Promise.withResolvers<void>();
+  const LATER = 'LATER_INPUT: and a summary.';
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (userTexts(call).some((value) => value.includes(LATER))) {
+        return stream(text('Summary added.'));
+      }
+      // The run's last step: both inputs land while it answers, too late to read.
+      answering.resolve();
+      await sent.promise;
+      return stream(text('Answered.'));
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {}, (platform) => {
+    const base = recordingAdmission([])(platform);
+    return (
+      base &&
+      (async (request) => {
+        if (request.modelId === 'unavailable') {
+          throw new Error('MODEL_UNAVAILABLE');
+        }
+        return base(request);
+      })
+    );
+  });
+  const runId = await harness.start('Answer.');
+  await answering.promise;
+  const input = (prompt: string, modelId: string) =>
+    harness
+      .core()
+      .input({ commandId: randomUUID(), modelId, prompt, runId, threadId: harness.threadId });
+  await input(FOLLOW, 'unavailable');
+  await input(LATER, 'scripted');
+  sent.resolve();
+  await expect
+    .poll(async () => (await finished(harness, harness.threadId)).map(([, outcome]) => outcome), {
+      timeout: 5000,
+    })
+    .toEqual(['completed', 'failed', 'completed']);
+  expect(
+    model.doStreamCalls.some((call) => userTexts(call).some((value) => value.includes(LATER)))
+  ).toBe(true);
+});

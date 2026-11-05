@@ -239,21 +239,30 @@ export class HostRunEnds {
     waking.add(woken);
   }
 
-  /** The run a person's input starts on an idle thread; a refused start is a failed run that took it. */
-  private startInput(
+  /**
+   * The run a person's input starts on an idle thread. A refused start is a
+   * failed run that took that input only, so the thread wakes again for the
+   * next one it holds.
+   */
+  private async startInput(
     input: HostInputNotice,
     params: HostParams<'run/start'>,
     origin: HostClientOrigin | undefined
-  ): Promise<boolean> {
+  ): Promise<void> {
     const { admitWake, commitStart, runs } = this.ports;
-    return startHostNextRun(
+    let refused = false;
+    await startHostNextRun(
       runs().values(),
       { params },
       () => admitWake('run/start', params, origin),
       async (runId, events) => {
         await commitStart(params, runId, hostInputTakenBy(input, events));
+        refused = true;
       }
     );
+    if (refused) {
+      this.wake(params.threadId);
+    }
   }
 
   /** VC-8: resolves once the thread and its child threads have no work in flight. */
