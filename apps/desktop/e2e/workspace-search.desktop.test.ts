@@ -41,48 +41,47 @@ async function searchControlLayout(page: Page) {
   });
 }
 
-/** The Files pane's width and its group's, as laid out now. */
-async function filesPaneWidths(page: Page): Promise<{ layoutWidth: number; paneWidth: number }> {
+/** The Files pane's width, as laid out now. */
+async function filesPaneWidth(page: Page): Promise<number> {
   return await page.getByTestId('explorer-search-panel-search').evaluate((panel) => {
     const pane = panel.closest('[data-panel]');
-    const group = pane?.parentElement;
-    if (!(pane && group)) {
+    if (!pane) {
       throw new Error('The Search panel is not inside a resizable pane');
     }
-    return {
-      layoutWidth: group.getBoundingClientRect().width,
-      paneWidth: pane.getBoundingClientRect().width,
-    };
+    return pane.getBoundingClientRect().width;
   });
 }
 
+/** The Files pane's floor: the workspace pane's `rightPanelMinSize` (agent-workspace-layout.tsx). */
+const FILES_PANE_MIN_WIDTH = 256;
+
 /**
- * Narrows the Files pane to its minimum width, 15% of the layout: the narrowest
- * the Search panel gets. Returns the layout's width.
+ * Narrows the Files pane to its minimum width: the narrowest the Search panel
+ * gets. Returns the pane's width there.
  *
- * Resizes with the separator's keyboard steps (5% each), as a keyboard user
- * would, and waits for each step to lay out. A coordinate drag computed before
- * the layout settled was sometimes dropped, which left the pane at its default
- * width (BST-2301). It stops at the minimum, since one more step from the
- * minimum collapses the pane.
+ * Resizes with the separator's keyboard steps, as a keyboard user would, and
+ * waits for each step to lay out. A coordinate drag computed before the layout
+ * settled was sometimes dropped, which left the pane at its default width
+ * (BST-2301). A step that would pass the minimum stops at it, and it stops
+ * there, since one more step from the minimum collapses the pane.
  */
 async function shrinkFilesPaneToMinimum(page: Page): Promise<number> {
   const separator = page
     .getByTestId('explorer-search-panel-search')
     .locator('xpath=ancestor::*[@data-panel][1]/preceding-sibling::*[@role="separator"][1]');
   await separator.focus();
-  let { layoutWidth, paneWidth } = await filesPaneWidths(page);
-  while (paneWidth > layoutWidth * 0.16) {
+  let paneWidth = await filesPaneWidth(page);
+  while (paneWidth > FILES_PANE_MIN_WIDTH + 0.5) {
     const before = paneWidth;
     await separator.press('ArrowRight');
     await expect
-      .poll(async () => (await filesPaneWidths(page)).paneWidth, {
+      .poll(() => filesPaneWidth(page), {
         message: 'The Files pane narrows by one keyboard step',
       })
       .toBeLessThan(before);
-    ({ layoutWidth, paneWidth } = await filesPaneWidths(page));
+    paneWidth = await filesPaneWidth(page);
   }
-  return layoutWidth;
+  return paneWidth;
 }
 
 /** Workspace search (desktop): the Explorer's Search tab reads the open folders live (ADR-0035). */
@@ -192,9 +191,10 @@ test.describe('Desktop workspace search', () => {
     await expect(searchPanel.getByTestId('workspace-search-results-error')).toBeVisible({
       timeout: 20_000,
     });
-    const layoutWidth = await shrinkFilesPaneToMinimum(window);
+    const paneWidth = await shrinkFilesPaneToMinimum(window);
+    expect(paneWidth).toBeGreaterThan(0);
     const layout = await searchControlLayout(window);
-    expect(layout.panelWidth).toBeLessThanOrEqual(layoutWidth * 0.16);
+    expect(layout.panelWidth).toBeLessThanOrEqual(Math.ceil(paneWidth));
     expect(layout.scrollWidth).toBeLessThanOrEqual(Math.ceil(layout.panelWidth));
     expect(layout.controls.map(({ name }) => name)).toEqual(
       expect.arrayContaining([
