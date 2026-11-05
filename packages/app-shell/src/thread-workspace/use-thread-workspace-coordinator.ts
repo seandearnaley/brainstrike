@@ -19,6 +19,7 @@ import { isBrowserPageTabId } from '../browser-pane/browser-page-tab';
 import { isCanvasWorkspaceTabId } from '../canvas/canvas-workspace-tab';
 import { isDelegatedWorkspaceTabId } from '../delegated-workspace-tab';
 import { isHostChildWorkspaceTabId } from '../host-child-workspace-tab';
+import { useInterruptedHydrationStore } from './interrupted-hydration-store';
 import type { ThreadWorkspaceNavigation } from './thread-workspace-navigation';
 import {
   applyWorkspaceSnapshot,
@@ -366,6 +367,73 @@ function shouldPreserveLiveEdits(
   return isDeferredBootHydration ? pendingBootPreserveEdits : true;
 }
 
+/**
+ * BST-2281: the baseline of `threadId`'s hydration that an earlier document's unload
+ * interrupted. The live stores still show what that document showed, so a merge against this
+ * baseline keeps the edits it made while its read was pending. A record of another thread no
+ * longer describes these stores and is dropped.
+ */
+function takeInterruptedBaseline(threadId: string): HydrationBaseline | null {
+  const { interrupted, resolve } = useInterruptedHydrationStore.getState();
+  if (!interrupted) {
+    return null;
+  }
+  if (interrupted.threadId !== threadId) {
+    logger.warn('An interrupted workspace hydration of another thread is dropped', {
+      activeThreadId: threadId,
+      threadId: interrupted.threadId,
+    });
+    resolve(interrupted.threadId);
+    return null;
+  }
+  return interrupted;
+}
+
+/**
+ * Per-file pane state is session-only (`useFileTabPaneStore`): a new document starts without
+ * it. Compared against the interrupted document's panes, that reset would read as the user
+ * closing them and strip the loaded row's panes, so the resumed baseline takes its panes from
+ * this document's own capture. Everything else in the snapshot survives the document.
+ */
+function withThisDocumentsPanes(
+  interrupted: HydrationBaseline,
+  current: HydrationBaseline | null
+): HydrationBaseline {
+  const editors: MutableSnapshotEditors = {};
+  for (const [compositeKey, recorded] of Object.entries(interrupted.snapshot.editors)) {
+    const { pane: _sessionOnly, ...surviving } = recorded;
+    const pane = current?.snapshot.editors[compositeKey]?.pane;
+    editors[compositeKey] = pane === undefined ? surviving : { ...surviving, pane };
+  }
+  return { ...interrupted, snapshot: { ...interrupted.snapshot, editors } };
+}
+
+/**
+ * This document's first hydration resumes the one an earlier document's unload interrupted
+ * (BST-2281): the recorded baseline replaces the one just captured, except for the session-only
+ * panes. A deferred boot hydration continues its first activation's baseline, so it has already
+ * resumed.
+ */
+function resumeInterruptedHydration(
+  activeThreadId: string | null,
+  isDeferredBootHydration: boolean,
+  refs: {
+    readonly baseline: { current: HydrationBaseline | null };
+    readonly checked: { current: boolean };
+    readonly resumed: { current: string | null };
+  }
+): void {
+  if (refs.checked.current || activeThreadId === null || isDeferredBootHydration) {
+    return;
+  }
+  refs.checked.current = true;
+  const interrupted = takeInterruptedBaseline(activeThreadId);
+  if (interrupted) {
+    refs.baseline.current = withThisDocumentsPanes(interrupted, refs.baseline.current);
+    refs.resumed.current = activeThreadId;
+  }
+}
+
 /** Holds a repository operation in each pending set until it settles. */
 function track<T>(pending: Promise<T>, ...sets: Set<Promise<unknown>>[]): Promise<T> {
   for (const set of sets) {
@@ -427,6 +495,12 @@ export function useThreadWorkspaceCoordinator({
   const hydrationBaselineRef = useRef<HydrationBaseline | null>(null);
   /** A live edit suppressed behind the current initial snapshot read. */
   const pendingHydrationSaveRef = useRef<PendingHydrationSave | null>(null);
+  /** This document has looked for a hydration an earlier document's unload interrupted. */
+  const interruptionCheckedRef = useRef(false);
+  /** The thread whose hydration resumes an interrupted one, until its write is acknowledged. */
+  const resumedThreadRef = useRef<string | null>(null);
+  /** The unload recorded the pending hydration: the next document's resume carries its write. */
+  const interruptionRecordedRef = useRef(false);
   const previousThreadIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchIntentRef = useRef(0);
@@ -501,8 +575,10 @@ export function useThreadWorkspaceCoordinator({
   });
   // Document unload (ADR-0026 R1): send the one dirty snapshot, then join the writes this owner
   // admitted until none is pending, so a write a hydration read admits while the flush waits is
-  // joined too. Reads are not durable and are never joined. A write refused because its owner is
-  // unavailable was logged where it settled and is not a flush failure; any other rejection is.
+  // joined too. Reads are not durable and are never joined: a hydration whose read is still
+  // pending is recorded instead, and the next document resumes it (BST-2281). A write refused
+  // because its owner is unavailable was logged where it settled and is not a flush failure; any
+  // other rejection is.
   const flush = useEffectEvent(async () => {
     closePreparedRef.current = true;
     const dirty = saveTimerRef.current !== null;
@@ -526,6 +602,18 @@ export function useThreadWorkspaceCoordinator({
           failures.push(result.reason);
         }
       }
+    }
+    // Written synchronously, after the last join: no hydration write can land in between.
+    const baseline = hydrationBaselineRef.current;
+    if (
+      !resetPreparedRef.current &&
+      activeThreadId !== null &&
+      baseline?.threadId === activeThreadId &&
+      (hydrationThreadRef.current === activeThreadId ||
+        pendingBootHydrateRef.current === activeThreadId)
+    ) {
+      useInterruptedHydrationStore.getState().record(baseline);
+      interruptionRecordedRef.current = true;
     }
     if (failures.length > 0) {
       const causes = failures.map((failure) =>
@@ -708,6 +796,11 @@ export function useThreadWorkspaceCoordinator({
       hydrationBaselineRef.current,
       facadeRef.current
     );
+    resumeInterruptedHydration(activeThreadId, isDeferredBootHydration, {
+      baseline: hydrationBaselineRef,
+      checked: interruptionCheckedRef,
+      resumed: resumedThreadRef,
+    });
 
     // Flush the OUTGOING thread synchronously — the live stores still hold
     // its state (nothing has hydrated yet). NEVER on a deferred boot
@@ -746,6 +839,28 @@ export function useThreadWorkspaceCoordinator({
       clearHydrationTracking();
       navigation?.complete(resourceId, activeThreadId);
     };
+    /** A resumed interruption is resolved once this hydration has nothing left to write. */
+    const resolveResumed = () => {
+      if (resumedThreadRef.current !== activeThreadId || interruptionRecordedRef.current) {
+        return;
+      }
+      resumedThreadRef.current = null;
+      useInterruptedHydrationStore.getState().resolve(activeThreadId);
+    };
+    /**
+     * The write this hydration admits. Once the unload recorded the hydration, the next
+     * document's resume carries it, and sending it now would only race the unload.
+     */
+    const persistHydrated = (snapshot: WorkspaceSnapshotV1, message: string) => {
+      if (interruptionRecordedRef.current || !repository) {
+        return;
+      }
+      repository
+        .setThreadWorkspace(activeThreadId, resourceId, snapshot)
+        .then(resolveResumed, (error) => {
+          handlePersistError(activeThreadId, error, message);
+        });
+    };
     const hydrateLoadedSnapshot = (snapshot: WorkspaceSnapshotV1) => {
       const baseline = hydrationBaselineRef.current;
       if (preserveLiveEdits && baseline?.threadId === activeThreadId) {
@@ -754,18 +869,13 @@ export function useThreadWorkspaceCoordinator({
         if (merged) {
           cacheRef.current.set(activeThreadId, merged);
           hydrate(merged);
-          repository?.setThreadWorkspace(activeThreadId, resourceId, merged).catch((error) => {
-            handlePersistError(
-              activeThreadId,
-              error,
-              'Failed to persist live edits after workspace hydration'
-            );
-          });
+          persistHydrated(merged, 'Failed to persist live edits after workspace hydration');
           return;
         }
       }
       cacheRef.current.set(activeThreadId, snapshot);
       hydrate(snapshot);
+      resolveResumed();
     };
 
     const inheritedThreadTabs = readInheritedThreadTabs(
@@ -809,13 +919,7 @@ export function useThreadWorkspaceCoordinator({
         navigation?.complete(resourceId, activeThreadId);
         const inherited = captureWorkspaceSnapshot(facadeRef.current);
         cacheRef.current.set(activeThreadId, inherited);
-        repository.setThreadWorkspace(activeThreadId, resourceId, inherited).catch((error) => {
-          handlePersistError(
-            activeThreadId,
-            error,
-            'Failed to persist inherited thread workspace snapshot'
-          );
-        });
+        persistHydrated(inherited, 'Failed to persist inherited thread workspace snapshot');
       })
       .catch((error) => {
         const hasPendingSave = matchesPendingHydrationSave(
@@ -829,15 +933,10 @@ export function useThreadWorkspaceCoordinator({
           if (hasPendingSave) {
             const pending = captureWorkspaceSnapshot(facadeRef.current);
             cacheRef.current.set(activeThreadId, pending);
-            repository
-              .setThreadWorkspace(activeThreadId, resourceId, pending)
-              .catch((saveError) => {
-                handlePersistError(
-                  activeThreadId,
-                  saveError,
-                  'Failed to persist live edits after workspace hydration failure'
-                );
-              });
+            persistHydrated(
+              pending,
+              'Failed to persist live edits after workspace hydration failure'
+            );
           }
         }
         logFailure('Failed to load thread workspace snapshot', error, { threadId: activeThreadId });
