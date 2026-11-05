@@ -23,6 +23,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import {
   freshNonGitDir as createFreshNonGitDir,
   freshRepo as createFreshRepo,
@@ -110,6 +111,9 @@ test.describe('Workspace bar (desktop)', () => {
     // (BST-1396 removed the >=2-roots gate).
     const folderChip = page.getByTestId('workspace-bar-folder-chip');
     await expect(folderChip).toBeVisible({ timeout: 30_000 });
+    // A new thread has no folder until the person chooses one.
+    await expect(folderChip).toHaveAccessibleName('Choose a folder', { timeout: 30_000 });
+    await chooseThreadFolder(page, path.basename(repo));
     await expect(folderChip).toContainText(path.basename(repo), { timeout: 30_000 });
 
     const branchChip = page.getByTestId('workspace-bar-branch-chip');
@@ -124,6 +128,7 @@ test.describe('Workspace bar (desktop)', () => {
     await openComposer(page);
 
     const folderChip = page.getByTestId('workspace-bar-folder-chip');
+    await chooseThreadFolder(page, path.basename(plain));
     await expect(folderChip).toContainText(path.basename(plain), { timeout: 30_000 });
 
     // Deterministic wait (BST-1400): `data-checkout-state` flips to
@@ -152,6 +157,7 @@ test.describe('Workspace bar (desktop)', () => {
     writeFileSync(path.join(repo, '.git', 'index'), 'not an index\n');
     await seedRoot(page, repo);
     await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
 
     await expect(page.getByTestId('workspace-bar')).toHaveAttribute(
       'data-checkout-state',
@@ -179,6 +185,7 @@ test.describe('Workspace bar (desktop)', () => {
     await openComposer(page);
 
     const folderChip = page.getByTestId('workspace-bar-folder-chip');
+    await chooseThreadFolder(page, path.basename(primary));
     await expect(folderChip).toContainText(path.basename(primary), { timeout: 30_000 });
     // No secondaries yet — so the "+1" below is this click's effect, not a
     // badge that was already on screen.
@@ -208,23 +215,25 @@ test.describe('Workspace bar (desktop)', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('attaches a folder added through Add folder… as a thread secondary', async ({
+  test('makes a folder added through Add folder… the folder of a thread that has none', async ({
     window: page,
   }) => {
     test.setTimeout(150_000);
-    const primary = freshRepo('add-primary');
-    await seedRoot(page, primary);
+    const open = freshRepo('add-open');
+    await seedRoot(page, open);
     await openComposer(page);
 
     const folderChip = page.getByTestId('workspace-bar-folder-chip');
-    await expect(folderChip).toContainText(path.basename(primary), { timeout: 30_000 });
-    // No secondaries yet — the "+1" below must be produced by the add.
-    await expect(folderChip).not.toContainText('+', { timeout: 5000 });
+    await expect(folderChip).toHaveAccessibleName('Choose a folder', { timeout: 30_000 });
 
     await folderChip.click();
     await page.getByTestId('workspace-bar-add-folder').click();
 
-    await expect(folderChip).toContainText('+1', { timeout: 60_000 });
+    // The thread had no folder, so the added one is its folder, not a secondary.
+    await expect(folderChip).toHaveAccessibleName(`Folder: ${path.basename(ADDED_ROOT_DIR)}`, {
+      timeout: 60_000,
+    });
+    await expect(folderChip).not.toContainText('+');
   });
 
   test('@smoke the composer drop zone arms only for a drag that carries files', {

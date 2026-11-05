@@ -12,6 +12,7 @@ import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostRootRecords, readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
 
@@ -143,7 +144,8 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
       await region.getByRole('button', { exact: true, name: 'Send' }).click();
     };
 
-    // The thread binds folder A on its first run.
+    // The thread binds folder A, which the person chose, on its first run.
+    await chooseThreadFolder(region, path.basename(alphaRoot));
     await send(1);
     await expect(region.getByText('REMOVED_FOLDER_REPLY_1')).toBeVisible({ timeout: 90_000 });
     const alphaId = await rootIdOf(page, alphaRoot);
@@ -234,6 +236,7 @@ test('a thread left with no live folder offers another workspace folder', async 
       await region.getByRole('button', { exact: true, name: 'Send' }).click();
     };
 
+    await chooseThreadFolder(region, alphaName);
     await send(1);
     await expect(region.getByText('REMOVED_ONLY_REPLY_1')).toBeVisible({ timeout: 90_000 });
     const alphaId = await rootIdOf(page, alphaRoot);

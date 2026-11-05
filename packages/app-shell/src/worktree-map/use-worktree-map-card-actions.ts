@@ -15,7 +15,7 @@ import { useState } from 'react';
 import type { TerminalTargetState } from '../stores/terminal-target-store';
 import type { WorktreeCheckoutIntentState } from '../stores/worktree-checkout-intent-store';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
-import type { WorktreeMapCardModel } from './worktree-map-model';
+import type { WorktreeMapCardModel, WorktreeMapRepositoryModel } from './worktree-map-model';
 
 const logger = createLogger('WorktreeMapSurface');
 
@@ -48,6 +48,8 @@ export interface UseWorktreeMapCardActionsInput {
   readonly openTerminalAt: TerminalTargetState['openTerminalAt'];
   readonly publishIntent: WorktreeCheckoutIntentState['publish'];
   readonly refresh: () => Promise<void>;
+  /** The Map's repositories, unfiltered: a new thread returns to its repository's open folder. */
+  readonly repositories: readonly WorktreeMapRepositoryModel[];
   readonly repository: AssistantThreadCatalogRepository | null;
   readonly resourceId: string;
   readonly selectThread: (resourceId: string, threadId: string) => void;
@@ -76,6 +78,17 @@ export interface WorktreeMapCardActions {
   readonly onOpenTerminal: (card: WorktreeMapCardModel) => void;
 }
 
+/** The open folder holding the card's repository (its primary checkout), if one is open. */
+function repositoryFolderId(
+  repositories: readonly WorktreeMapRepositoryModel[],
+  card: WorktreeMapCardModel
+): string | undefined {
+  const primary = repositories
+    .find((candidate) => candidate.repoCommonDir === card.entry.repoCommonDir)
+    ?.cards.find((candidate) => candidate.entry.primary)?.entry.containment;
+  return primary === undefined || primary === 'outside-roots' ? undefined : primary[0];
+}
+
 export function useWorktreeMapCardActions(
   input: UseWorktreeMapCardActionsInput
 ): WorktreeMapCardActions {
@@ -85,6 +98,7 @@ export function useWorktreeMapCardActions(
     openTerminalAt,
     publishIntent,
     refresh,
+    repositories,
     repository,
     resourceId,
     selectThread,
@@ -145,8 +159,10 @@ export function useWorktreeMapCardActions(
         // re-loads itself off the root-identity context once the row lands.
         return createThread(repository, resourceId).then((thread) => {
           selectThread(resourceId, thread.id);
+          const localRootId = repositoryFolderId(repositories, card);
           publishIntent({
             branch: card.entry.branch,
+            ...(localRootId ? { localRootId } : {}),
             path: card.entry.path,
             threadId: thread.id,
             worktreeId,

@@ -36,6 +36,8 @@ export interface UseWorkspaceBarModeArgs {
   readonly onHandOffToLocal: () => Promise<void>;
   readonly onSelectWorktree: (worktree: {
     readonly branch: string | null;
+    /** The repository's open folder, which a thread with no folder returns to on hand-off. */
+    readonly localRootId?: string;
     readonly path: string;
     readonly worktreeId: string;
   }) => Promise<void>;
@@ -96,6 +98,7 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     const applied = intent.worktreeId
       ? onSelectWorktree({
           branch: intent.branch,
+          ...(intent.localRootId ? { localRootId: intent.localRootId } : {}),
           path: intent.path,
           worktreeId: intent.worktreeId,
         })
